@@ -218,17 +218,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 ).slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
             C::tracked(*item) ==> {
-                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
-                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
-                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.storage == old(
+                &&& final(regions).slot_owners[frame_to_index(pa)].ref_count_perm.id()
+                    == old(regions).slot_owners[frame_to_index(pa)].ref_count_perm.id()
+                &&& final(regions).slot_owners[frame_to_index(pa)].storage_perm() == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].inner_perms.storage
-                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr == old(
+                ).slot_owners[frame_to_index(pa)].storage_perm()
+                &&& final(regions).slot_owners[frame_to_index(pa)].vtable_ptr_perm() == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
-                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list == old(
+                ).slot_owners[frame_to_index(pa)].vtable_ptr_perm()
+                &&& final(regions).slot_owners[frame_to_index(pa)].in_list_perm == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].inner_perms.in_list
+                ).slot_owners[frame_to_index(pa)].in_list_perm
                 &&& final(regions).slot_owners[frame_to_index(pa)].paths_in_pt == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].paths_in_pt
@@ -238,8 +238,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& final(regions).slot_owners[frame_to_index(pa)].usage == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].usage
-                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                &&& final(regions).slot_owners[frame_to_index(pa)].ref_count()
+                    == old(regions).slot_owners[frame_to_index(pa)].ref_count()
                     + 1
             },
             !C::tracked(*item) ==> final(regions).slot_owners[frame_to_index(pa)] == old(
@@ -302,7 +302,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // slots that were non-UNUSED before the call keep their
             // paths_in_pt (new PT allocations come from UNUSED slots).
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                old(regions).slot_owners[idx].ref_count()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
@@ -310,10 +310,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // preserved across `Cursor::new` (= `lock_range`).
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).contains(idx)
-                && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                && old(regions).slot_owners[idx].ref_count()
                     != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                        == old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                ==> final(regions).slot_owners[idx].ref_count()
+                        == old(regions).slot_owners[idx].ref_count()
                     && final(regions).slot_owners[idx].usage
                         == old(regions).slot_owners[idx].usage,
             // Saturated-slot bridge (bidirectional): a slot is at
@@ -322,32 +322,32 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // saturation condition back to the caller's snapshot — both
             // for the `requires P ==> may_panic()` discharge (forward
             // direction) and the `ensures !P` discharge (backward).
-            forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
-                final(regions).slot_owners[idx].inner_perms.ref_count.value()
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
+                final(regions).slot_owners[idx].ref_count()
                     >= REF_COUNT_MAX
-                ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                        == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-            forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
-                old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                ==> old(regions).slot_owners[idx].ref_count()
+                        == final(regions).slot_owners[idx].ref_count(),
+            forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
+                old(regions).slot_owners[idx].ref_count()
                     >= REF_COUNT_MAX
-                ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                        == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
+                ==> final(regions).slot_owners[idx].ref_count()
+                        == old(regions).slot_owners[idx].ref_count(),
             forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
                 CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
                 CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
             // Non-saturation preservation.
             (forall |i: int| #![trigger old(regions).slot_owners[i]]
                 old(regions).contains(i)
-                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                && old(regions).slot_owners[i].ref_count()
                     != REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                ==> old(regions).slot_owners[i].ref_count() + 1
                     < REF_COUNT_MAX)
             ==>
             (forall |i: int| #![trigger final(regions).slot_owners[i]]
                 final(regions).contains(i)
-                && final(regions).slot_owners[i].inner_perms.ref_count.value()
+                && final(regions).slot_owners[i].ref_count()
                     != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                ==> final(regions).slot_owners[i].ref_count() + 1
                     < REF_COUNT_MAX),
     )]
     pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
@@ -493,9 +493,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 forall|i: int|
                     #![trigger regions.slot_owners[i]]
                     old(regions).contains(i)
-                        ==> regions.slot_owners[i].inner_perms.ref_count.value() == old(
+                        ==> regions.slot_owners[i].ref_count() == old(
                         regions,
-                    ).slot_owners[i].inner_perms.ref_count.value(),
+                    ).slot_owners[i].ref_count(),
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                 forall|idx: int|
                     #![trigger regions.slot_owners[idx]]
@@ -507,25 +507,25 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             regions,
                         ).slot_owners[idx].slot_vaddr
                         &&& regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage
-                        &&& regions.slot_owners[idx].inner_perms.ref_count.id() == old(
+                        &&& regions.slot_owners[idx].ref_count_perm.id() == old(
                             regions,
-                        ).slot_owners[idx].inner_perms.ref_count.id()
-                        &&& regions.slot_owners[idx].inner_perms.ref_count.value() >= old(
+                        ).slot_owners[idx].ref_count_perm.id()
+                        &&& regions.slot_owners[idx].ref_count() >= old(
                             regions,
-                        ).slot_owners[idx].inner_perms.ref_count.value()
-                        &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                        ).slot_owners[idx].ref_count()
+                        &&& regions.slot_owners[idx].ref_count()
                             != REF_COUNT_UNUSED || old(
                             regions,
-                        ).slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
-                        &&& regions.slot_owners[idx].inner_perms.storage == old(
+                        ).slot_owners[idx].ref_count() == REF_COUNT_UNUSED
+                        &&& regions.slot_owners[idx].storage_perm() == old(
                             regions,
-                        ).slot_owners[idx].inner_perms.storage
-                        &&& regions.slot_owners[idx].inner_perms.vtable_ptr.pptr() == old(
+                        ).slot_owners[idx].storage_perm()
+                        &&& regions.slot_owners[idx].vtable_ptr_perm().pptr() == old(
                             regions,
-                        ).slot_owners[idx].inner_perms.vtable_ptr.pptr()
-                        &&& regions.slot_owners[idx].inner_perms.in_list.id() == old(
+                        ).slot_owners[idx].vtable_ptr_perm().pptr()
+                        &&& regions.slot_owners[idx].in_list_perm.id() == old(
                             regions,
-                        ).slot_owners[idx].inner_perms.in_list.id()
+                        ).slot_owners[idx].in_list_perm.id()
                     },
                 forall|k: int|
                     old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
@@ -654,8 +654,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         old(regions).inv_implies_correct_addr(pa);
                         assert(regions.slot_owners.contains_key(idx));
                         assert(owner.cur_entry_owner().inv_base());
-                        if C::tracked(item)
-                            && regions.slot_owners[idx].inner_perms.ref_count.value()
+                        if C::tracked(item) && regions.slot_owners[idx].ref_count()
                             >= REF_COUNT_MAX {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
@@ -704,10 +703,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner@ == old(owner)@);
                         assert(owner@.query_mapping().pa_range.start == pa);
                         if C::tracked(item) {
-                            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                                == old(regions).slot_owners[idx].inner_perms.ref_count.value());
-                            assert(old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                                < REF_COUNT_MAX);
+                            assert(old_regions.slot_owners[idx].ref_count() == old(
+                                regions,
+                            ).slot_owners[idx].ref_count());
+                            assert(old(regions).slot_owners[idx].ref_count() < REF_COUNT_MAX);
                         } else {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
@@ -746,9 +745,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                             &&& regions.contains(sub_idx)
                             &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != REF_COUNT_UNUSED
-                                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                                &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
+                                &&& regions.slot_owners[sub_idx].ref_count() > 0
                             }
                         } by {
                             let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -2270,16 +2268,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                old(regions).slot_owners[idx].ref_count()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).contains(idx)
-                && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                && old(regions).slot_owners[idx].ref_count()
                     != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                        == old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                ==> final(regions).slot_owners[idx].ref_count()
+                        == old(regions).slot_owners[idx].ref_count()
                     && final(regions).slot_owners[idx].usage
                         == old(regions).slot_owners[idx].usage,
     )]
@@ -2556,7 +2554,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 Self::item_slot_in_regions(item, *final(regions)),
             (level <= old(self).0.level && old(owner).cur_entry_owner().is_absent()) ==> final(owner).cur_entry_owner().is_absent(),
             forall|idx: int|
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
+                old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED ==>
                 (#[trigger] final(regions).slot_owners[idx]) == old(regions).slot_owners[idx],
             // `regions.slots` is monotonic — PT-node allocation removes-and-re-inserts
             // each slot it touches, so all old keys are preserved.
@@ -2604,7 +2602,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.0.level < level ==> self.0.level >= owner0.level,
                 self.0.level < level ==> owner@ == owner0@,
                 forall|idx: int|
-                    old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED
                         ==> (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
                 forall|idx: int|
                     #![trigger regions.slots.contains_key(idx)]
@@ -2838,7 +2836,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 assert(eo.metaregion_sound(regions_after_ref));
                                 let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
                                 assert(eo_idx == eo.node().slot_index);
-                                assert(regions_after_ref.slot_owners[eo_idx].inner_perms.ref_count.value()
+                                assert(regions_after_ref.slot_owners[eo_idx].ref_count()
                                     != REF_COUNT_UNUSED);
                                 assert(eo_idx != new_pt_idx);
                                 assert(regions.slot_owners[eo_idx]
@@ -2987,9 +2985,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(Self::item_slot_in_regions(item, regions_after_ref));
                     };
                     assert forall|idx: int|
-                        old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                            != REF_COUNT_UNUSED implies (#[trigger] regions.slot_owners[idx])
-                        == old(regions).slot_owners[idx] by {
+                        old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED implies (
+                    #[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx] by {
                         assert(regions0.slot_owners[idx] == old(regions).slot_owners[idx]);
                         assert(regions_after_ref.slot_owners[idx] == regions0.slot_owners[idx]);
                     };
@@ -3076,49 +3073,49 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).contains(idx) &&
                 idx != frame_to_index(C::item_into_raw(item).0) &&
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
+                old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
             // For non-UNUSED indices, ref_count stays non-UNUSED across the map.
             // (map_loop only allocates new PT nodes from previously-UNUSED slots, so
             // any slot already in use stays in use; replace_cur_entry replaces the
             // current entry without dropping refcounts of unrelated slots.)
-            forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 old(regions).contains(idx) &&
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
-                final(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+                old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED ==>
+                final(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED,
             // ref_count is preserved exactly at non-mapped, non-UNUSED indices.
             // map_loop preserves slot_owners fully at non-UNUSED slots, new_child
             // only mutates the new mapped frame's slot, and replace_cur_entry
             // preserves ref_count for all slots (per its own postcondition at
             // [mod.rs:3380]). Lets callers re-derive `item_slot_in_regions`
             // for unrelated paddrs.
-            forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 old(regions).contains(idx) &&
                 idx != frame_to_index(C::item_into_raw(item).0) &&
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
-                final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
+                old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED ==>
+                final(regions).slot_owners[idx].ref_count()
+                    == old(regions).slot_owners[idx].ref_count(),
             // At the mapped index, ref_count > 0 is preserved (incremented if
             // already > 0). Together with `slots.contains_key` monotonicity,
             // gives `item_slot_in_regions(item, *final(regions))` post-map.
             (C::tracked(item)
                 && old(regions).contains(frame_to_index(C::item_into_raw(item).0))
                 && old(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value() > 0)
+                    frame_to_index(C::item_into_raw(item).0)].ref_count() > 0)
                 ==>
                 final(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value() > 0,
+                    frame_to_index(C::item_into_raw(item).0)].ref_count() > 0,
             // At the mapped index, the SHARED upper bound is preserved: on the
             // non-panic path the clone's saturation guard keeps `rc <= MAX`.
             // Lets callers re-derive `item_slot_in_regions`'s `rc <= MAX` for the
             // mapped frame (covers duplicate frames in a map sequence).
             (C::tracked(item)
                 && old(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value()
+                    frame_to_index(C::item_into_raw(item).0)].ref_count()
                     <= REF_COUNT_MAX)
                 ==>
                 final(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value()
+                    frame_to_index(C::item_into_raw(item).0)].ref_count()
                     <= REF_COUNT_MAX,
             // `regions.slots` is monotonic — slot existence is preserved through map.
             forall|idx: int| #![trigger final(regions).contains(idx)]
@@ -3129,6 +3126,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
+        hide(MetaSlotOwner::storage_perm);
+        hide(MetaSlotOwner::vtable_ptr_perm);
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
@@ -3227,6 +3226,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             );
 
             assert(new_owner.value().metaregion_sound(*regions)) by {
+                reveal(MetaSlotOwner::storage_perm);
+                reveal(MetaSlotOwner::vtable_ptr_perm);
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
@@ -3264,6 +3265,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& regions.slots[i].value().wf(regions.slot_owners[i])
                     &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
                 } by {
+                    reveal(MetaSlotOwner::storage_perm);
+                    reveal(MetaSlotOwner::vtable_ptr_perm);
                     assert(regions_before_new_child.slots.contains_key(i));
                     if i == pa_idx_install {
                         assert(regions_before_new_child.slot_owners[pa_idx_install].inv());
@@ -3346,25 +3349,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert forall|idx: int|
                 old(regions).contains(idx) && idx != pa_idx2 && old(
                     regions,
-                ).slot_owners[idx].inner_perms.ref_count.value()
+                ).slot_owners[idx].ref_count()
                     != REF_COUNT_UNUSED implies #[trigger] regions.slot_owners[idx].paths_in_pt
                 == old(regions).slot_owners[idx].paths_in_pt by {
                 assert(regions_after_new_child.slot_owners == regions_before_new_child.slot_owners);
             };
             assert(C::tracked(item) && old(regions).contains(pa_idx2) && old(
                 regions,
-            ).slot_owners[pa_idx2].inner_perms.ref_count.value() > 0 ==> {
-                &&& regions.slot_owners[pa_idx2].inner_perms.ref_count.value() > 0
+            ).slot_owners[pa_idx2].ref_count() > 0 ==> {
+                &&& regions.slot_owners[pa_idx2].ref_count() > 0
             }) by {
                 if C::tracked(item) && old(regions).contains(pa_idx2) && old(
                     regions,
-                ).slot_owners[pa_idx2].inner_perms.ref_count.value() > 0 {
-                    assert(regions_before_new_child.slot_owners[pa_idx2].inner_perms.ref_count.value()
-                        > 0);
-                    assert(regions_after_new_child.slot_owners[pa_idx2].inner_perms.ref_count.value()
-                        > 0);
-                    assert(regions_after_replace.slot_owners[pa_idx2].inner_perms.ref_count.value()
-                        > 0);
+                ).slot_owners[pa_idx2].ref_count() > 0 {
+                    assert(regions_before_new_child.slot_owners[pa_idx2].ref_count() > 0);
+                    assert(regions_after_new_child.slot_owners[pa_idx2].ref_count() > 0);
+                    assert(regions_after_replace.slot_owners[pa_idx2].ref_count() > 0);
                 }
             };
 
@@ -3532,7 +3532,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(50)]
+    #[verifier::rlimit(600)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         // This proof touches several cursor snapshots. Keep their quantified invariants
         // opaque by default, then reveal only the concrete facts needed below. Leaving
@@ -3967,10 +3967,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // ref_count by spec); `dfs_mark_stray_and_unlock` doesn't take regions at
             // all, so the StrayPageTable branch can't perturb refcounts either.
             forall|idx: int|
-                #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
-                final(regions).slot_owners[idx].inner_perms.ref_count.value() == old(
+                #![trigger final(regions).slot_owners[idx].ref_count()]
+                final(regions).slot_owners[idx].ref_count() == old(
                     regions,
-                ).slot_owners[idx].inner_perms.ref_count.value(),
+                ).slot_owners[idx].ref_count(),
             // When `res is None` (⇔ pre-replace cur_entry was absent), `Entry::replace`
             // fully preserves `regions.slots`.
             res is None ==> final(regions).slots == old(regions).slots,

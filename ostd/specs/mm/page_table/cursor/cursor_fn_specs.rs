@@ -74,7 +74,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& self.barrier_va.start <= self.va < self.barrier_va.end
         &&& owner@.present()
         &&& !is_mmio_paddr(pa)
-        &&& regions.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX
+        &&& regions.slot_owners[idx].ref_count() >= REF_COUNT_MAX
     }
 
     pub open spec fn query_some_ensures(
@@ -170,16 +170,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
-        &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+        &&& regions.slot_owners[idx].ref_count()
             != REF_COUNT_UNUSED
         // Tracked items hold a refcount; untracked (MMIO) don't.
-        &&& C::tracked(item) ==> regions.slot_owners[idx].inner_perms.ref_count.value()
+        &&& C::tracked(item) ==> regions.slot_owners[idx].ref_count()
             > 0
         // A tracked (mapped) item is a SHARED frame, never the UNIQUE sentinel:
         // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
         // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
         // inv clause vacuous.
-        &&& C::tracked(item) ==> regions.slot_owners[idx].inner_perms.ref_count.value()
+        &&& C::tracked(item) ==> regions.slot_owners[idx].ref_count()
             <= REF_COUNT_MAX
         // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
@@ -188,16 +188,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.contains(sub_idx)
-                    &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
                         != REF_COUNT_UNUSED
-                    &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
                         > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
                     // into the mapped huge frame's `frame_sub_pages_valid`.
-                    &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
                         <= REF_COUNT_MAX
                 }
         }

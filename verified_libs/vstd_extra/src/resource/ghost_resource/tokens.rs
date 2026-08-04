@@ -331,7 +331,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             res@ == value,
             res.wf(),
     {
-        let tracked r = Count::new(value);
+        let tracked r = Count::alloc(value);
         Self { r: Some(r), empty: None, id: r.id() }
     }
 
@@ -464,6 +464,17 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
     {
         use_type_invariant(self);
         frac.agree(self.r.tracked_borrow());
+    }
+
+    /// Borrows the resource while this pool retains at least one fraction.
+    pub proof fn tracked_borrow(tracked &self) -> (tracked res: &T)
+        requires
+            self.not_empty(),
+        ensures
+            res == self@,
+    {
+        use_type_invariant(self);
+        self.r.tracked_borrow().tracked_borrow()
     }
 
     /// Takes the resource out and leaves this token ready to accept a new resource.

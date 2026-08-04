@@ -69,21 +69,21 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // safe bounds during a single lock_range call.
         (forall |i: int| #![trigger old(regions).slot_owners[i]]
             old(regions).contains(i)
-            && old(regions).slot_owners[i].inner_perms.ref_count.value()
+            && old(regions).slot_owners[i].ref_count()
                 != REF_COUNT_UNUSED
-            ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+            ==> old(regions).slot_owners[i].ref_count() + 1
                 < REF_COUNT_MAX)
         ==>
         (forall |i: int| #![trigger final(regions).slot_owners[i]]
             final(regions).contains(i)
-            && final(regions).slot_owners[i].inner_perms.ref_count.value()
+            && final(regions).slot_owners[i].ref_count()
                 != REF_COUNT_UNUSED
-            ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+            ==> final(regions).slot_owners[i].ref_count() + 1
                 < REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
         forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            old(regions).slot_owners[idx].ref_count()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
@@ -93,25 +93,25 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // `dfs_acquire_lock`'s `slot_owners ==` preservation.
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).contains(idx)
-            && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            && old(regions).slot_owners[idx].ref_count()
                 != REF_COUNT_UNUSED
-            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            ==> final(regions).slot_owners[idx].ref_count()
+                    == old(regions).slot_owners[idx].ref_count()
                 && final(regions).slot_owners[idx].usage
                     == old(regions).slot_owners[idx].usage,
         // Saturated-slot bridge (bidirectional): a slot is at
         // `>= REF_COUNT_MAX` before iff after, with the same value.
         // Composes helpers' clauses (see their ensures).
-        forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
-            final(regions).slot_owners[idx].inner_perms.ref_count.value()
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
+            final(regions).slot_owners[idx].ref_count()
                 >= REF_COUNT_MAX
-            ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-        forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
-            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            ==> old(regions).slot_owners[idx].ref_count()
+                    == final(regions).slot_owners[idx].ref_count(),
+        forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
+            old(regions).slot_owners[idx].ref_count()
                 >= REF_COUNT_MAX
-            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
+            ==> final(regions).slot_owners[idx].ref_count()
+                    == old(regions).slot_owners[idx].ref_count(),
         // Frames that were item_not_mapped before remain so after locking.
         forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
@@ -223,13 +223,12 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             == pt_own.0.value().path);
         assume((forall|i: int|
             #![trigger old(regions).slot_owners[i]]
-            old(regions).contains(i) && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                != REF_COUNT_UNUSED ==> old(regions).slot_owners[i].inner_perms.ref_count.value()
-                + 1 < REF_COUNT_MAX) ==> (forall|i: int|
+            old(regions).contains(i) && old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].ref_count() + 1 < REF_COUNT_MAX) ==> (forall|i: int|
+
             #![trigger regions.slot_owners[i]]
-            regions.contains(i) && regions.slot_owners[i].inner_perms.ref_count.value()
-                != REF_COUNT_UNUSED ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
-                < REF_COUNT_MAX));
+            regions.contains(i) && regions.slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                ==> regions.slot_owners[i].ref_count() + 1 < REF_COUNT_MAX));
     }
     res
 }
@@ -305,7 +304,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // Locking only allocates fresh page-table nodes from UNUSED slots;
         // it does not mutate any slot that was already in use.
         forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            old(regions).slot_owners[idx].ref_count()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
@@ -314,10 +313,10 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // nodes from UNUSED slots; it never mutates a slot already in use.
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).contains(idx)
-            && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            && old(regions).slot_owners[idx].ref_count()
                 != REF_COUNT_UNUSED
-            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            ==> final(regions).slot_owners[idx].ref_count()
+                    == old(regions).slot_owners[idx].ref_count()
                 && final(regions).slot_owners[idx].usage
                     == old(regions).slot_owners[idx].usage,
         // Saturated-slot bridge (bidirectional): a slot is at
@@ -327,16 +326,16 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // already-saturated slots. Used by `KVirtArea::query` to bridge
         // the inner `Cursor::query`'s per-specific-slot saturation
         // condition back to the caller's `*old(regions)` snapshot.
-        forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
-            final(regions).slot_owners[idx].inner_perms.ref_count.value()
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
+            final(regions).slot_owners[idx].ref_count()
                 >= REF_COUNT_MAX
-            ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-        forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
-            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+            ==> old(regions).slot_owners[idx].ref_count()
+                    == final(regions).slot_owners[idx].ref_count(),
+        forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
+            old(regions).slot_owners[idx].ref_count()
                 >= REF_COUNT_MAX
-            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
+            ==> final(regions).slot_owners[idx].ref_count()
+                    == old(regions).slot_owners[idx].ref_count(),
         // Therefore any frame that was `item_not_mapped` (its paths_in_pt was
         // empty, hence `ref_count` might be UNUSED-or-non-UNUSED) stays so:
         // the paddr range's slots either had non-UNUSED ref_count (preserved
@@ -415,7 +414,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
         #[verus_spec(with
             Tracked(meta_points_to),
-            Tracked(&meta_slot_owner.inner_perms.storage),
+            Tracked(&meta_slot_owner.metadata_perm),
             Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
@@ -497,7 +496,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
     #[verus_spec(with
         Tracked(meta_points_to),
-        Tracked(&meta_slot_owner.inner_perms.storage),
+        Tracked(&meta_slot_owner.metadata_perm),
         Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]

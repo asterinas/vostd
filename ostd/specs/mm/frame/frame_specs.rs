@@ -43,8 +43,7 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
         &&& valid_frame_paddr(paddr)
         &&& regions.inv()
-        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
-            != REF_COUNT_UNUSED
+        &&& regions.slot_owners[frame_to_index(paddr)].ref_count() != REF_COUNT_UNUSED
     }
 
     pub open spec fn from_raw_ensures(
@@ -85,7 +84,7 @@ impl<'a, M: ?Sized> Frame<M> {
 
     /// **Bookkeeping**: The frame must be in use (not unused).
     pub open spec fn into_raw_pre_not_unused(self, regions: MetaRegionOwners) -> bool {
-        regions.slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        regions.slot_owners[self.index()].ref_count() != REF_COUNT_UNUSED
     }
 
     /// **Safety**: Frames other than this one are not affected by the call.
@@ -131,8 +130,8 @@ impl<M: ?Sized> Frame<M> {
         let pre_owner = pre.slot_owners[idx];
         let post_owner = post.slot_owners[idx];
         {
-            &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
-            &&& MetaSlot::get_from_unused_inner_perms_spec(false, post_owner.inner_perms)
+            &&& pre_owner.ref_count() == REF_COUNT_UNUSED
+            &&& MetaSlot::get_from_unused_owner_spec(false, post_owner)
             &&& post_owner.usage is Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
@@ -173,10 +172,10 @@ impl<M: ?Sized> Frame<M> {
         &&& s.inv()
         &&& s.contains(idx)
         &&& s.slots[idx].pptr() == self.ptr
-        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
-        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
-        &&& slot_own.inner_perms.ref_count.value() > 0
-        &&& slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX
+        &&& slot_own.ref_count() != REF_COUNT_UNUSED
+        &&& slot_own.ref_count() != REF_COUNT_UNIQUE
+        &&& slot_own.ref_count() > 0
+        &&& slot_own.ref_count() <= REF_COUNT_MAX
     }
 }
 
@@ -267,7 +266,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // strengthened `MetaSlotOwner::inv` SHARED branch
         // (`0 < rc <= REF_COUNT_MAX`) — they hold universally for any
         // in-use slot, not just at `rc == 1`.
-        &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
+        &&& slot_own.ref_count() == 1 ==> {
             &&& slot_own.paths_in_pt.is_empty()
         }
         &&& s.frame_obligations.count(self.index()) > 0
@@ -300,10 +299,8 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
         //  - last reference (== 1): the slot is torn down to UNUSED.
         //  - otherwise (> 1): the refcount is decremented by one.
-        &&& so0.inner_perms.ref_count.value() == 1 ==> so1.inner_perms.ref_count.value()
-            == REF_COUNT_UNUSED
-        &&& so0.inner_perms.ref_count.value() > 1 ==> so1.inner_perms.ref_count.value() == (
-        so0.inner_perms.ref_count.value()
+        &&& so0.ref_count() == 1 ==> so1.ref_count() == REF_COUNT_UNUSED
+        &&& so0.ref_count() > 1 ==> so1.ref_count() == (so0.ref_count()
             - 1) as u64
         // Linear-drop pilot: `Frame::drop` doesn't redeem segment-level
         // obligations, so the segment ledger is preserved.

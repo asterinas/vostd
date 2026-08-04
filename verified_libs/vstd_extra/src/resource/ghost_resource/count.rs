@@ -301,14 +301,17 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         self.r.value() matches FractionalCarrierOpt::Value { v: Some(_), .. }
     }
 
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
 
+    /// Returns the stored resource value.
     pub closed spec fn resource(self) -> T {
         self.r.value()->v->0
     }
 
+    /// Returns the fraction of the resource.
     pub closed spec fn frac(self) -> int {
         self.r.value()->n
     }
@@ -318,11 +321,12 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         &&& self.frac() == frac
     }
 
-    pub proof fn new(tracked v: T) -> (tracked result: Self)
+    /// Allocates a new `Count` with the full fraction and the given resource value.
+    pub proof fn alloc(tracked v: T) -> (tracked result: Self)
         requires
             TOTAL > 0,
         ensures
-            result.frac() == TOTAL as int,
+            result.frac() == TOTAL,
             result.resource() == v,
     {
         let f = FractionalCarrierOpt::<T, TOTAL>::Value { v: Some(v), n: TOTAL as int };
@@ -332,6 +336,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         Self { r }
     }
 
+    /// Two `Count`s with the same id must have the same resource value.
     pub proof fn agree(tracked self: &Self, tracked other: &Self)
         requires
             self.id() == other.id(),
@@ -344,6 +349,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         joined.validate();
     }
 
+    /// Splits another fraction `n` from this `Count`, returning a new `Count` with that fraction.
     pub proof fn split(tracked &mut self, n: int) -> (tracked result: Self)
         requires
             0 < n < old(self).frac(),
@@ -389,6 +395,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         Self { r: r2 }
     }
 
+    /// Combines another `Count` into this one, consuming the other `Count`.
     pub proof fn combine(tracked &mut self, tracked other: Self)
         requires
             old(self).id() == other.id(),
@@ -427,6 +434,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         *r = StorageResource::join(r1, other.r);
     }
 
+    /// The fraction of the resource must be positive and at most `TOTAL`.
     pub proof fn bounded(tracked &self)
         ensures
             0 < self.frac() <= TOTAL,
@@ -435,7 +443,8 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         let (x, _) = self.r.validate();
     }
 
-    pub proof fn borrow(tracked &self) -> (tracked ret: &T)
+    /// Borrows the resource value.
+    pub proof fn tracked_borrow(tracked &self) -> (tracked ret: &T)
         ensures
             ret == self.resource(),
     {
@@ -443,6 +452,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(())
     }
 
+    /// Consumes the `Count` and returns the resource value and an `EmptyCount` with the same id.
     pub proof fn take_resource(tracked self) -> (tracked pair: (T, EmptyCount<T, TOTAL>))
         requires
             self.frac() == TOTAL,
@@ -475,6 +485,17 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         let tracked resource = m.tracked_remove(());
         (resource, emp)
     }
+
+    /// Consumes the `Count` and returns the resource value, the id is lost because the `EmptyCount` is not returned.
+    pub proof fn into_resource(tracked self) -> (tracked res: T)
+        requires
+            self.frac() == TOTAL,
+        returns
+            self.resource(),
+    {
+        let tracked (res, _) = self.take_resource();
+        res
+    }
 }
 
 impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
@@ -484,11 +505,13 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
         &&& n == TOTAL
     }
 
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
 
-    pub proof fn new(tracked v: T) -> (tracked result: Self)
+    /// Allocates a new `EmptyCount`, the `id` is arbitrary.
+    pub proof fn alloc() -> (tracked result: Self)
         requires
             TOTAL > 0,
     {
@@ -498,6 +521,7 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
         Self { r }
     }
 
+    /// Puts a resource into the `EmptyCount`, returning a `Count` with the same id and the full fraction.
     pub proof fn put_resource(tracked self, tracked resource: T) -> (tracked frac: Count<T, TOTAL>)
         ensures
             frac.id() == self.id(),

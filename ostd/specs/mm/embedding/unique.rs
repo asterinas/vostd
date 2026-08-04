@@ -86,7 +86,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
         valid_frame_paddr(paddr),
         old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             == REF_COUNT_UNUSED,
     ensures
         final(regions).inv(),
@@ -98,9 +98,9 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
             &&& so_new.usage is Frame
-            &&& so_new.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-            &&& so_new.inner_perms.in_list.value() == 0
-            &&& so_new.inner_perms.storage.is_init()
+            &&& so_new.ref_count() == REF_COUNT_UNIQUE
+            &&& so_new.in_list_perm.value() == 0
+            &&& so_new.storage_perm().is_init()
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
@@ -129,10 +129,10 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
     requires
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             == REF_COUNT_UNIQUE,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list.value() == 0,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage.is_init(),
+        old(regions).slot_owners[frame_to_index(paddr)].in_list_perm.value() == 0,
+        old(regions).slot_owners[frame_to_index(paddr)].storage_perm().is_init(),
         old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
     ensures
         final(regions).inv(),
@@ -143,10 +143,10 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            &&& so_new.ref_count() == REF_COUNT_UNUSED
             &&& so_new.usage == so_old.usage
             &&& so_new.paths_in_pt == so_old.paths_in_pt
-            &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
+            &&& so_new.in_list_perm == so_old.in_list_perm
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
@@ -171,7 +171,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
     requires
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             == REF_COUNT_UNIQUE,
     ensures
         final(regions).inv(),
@@ -180,11 +180,11 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.inner_perms.ref_count.value() == 1
+            &&& so_new.ref_count() == 1
             &&& so_new.usage == so_old.usage
             &&& so_new.paths_in_pt == so_old.paths_in_pt
-            &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-            &&& so_new.inner_perms.storage == so_old.inner_perms.storage
+            &&& so_new.in_list_perm == so_old.in_list_perm
+            &&& so_new.storage_perm() == so_old.storage_perm()
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         forall|i: int|
@@ -207,7 +207,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
     requires
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1,
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1,
         old(regions).slot_owners[frame_to_index(paddr)].usage is Frame,
         old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
     ensures
@@ -217,11 +217,11 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+            &&& so_new.ref_count() == REF_COUNT_UNIQUE
             &&& so_new.usage == so_old.usage
             &&& so_new.paths_in_pt == so_old.paths_in_pt
-            &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-            &&& so_new.inner_perms.storage == so_old.inner_perms.storage
+            &&& so_new.in_list_perm == so_old.in_list_perm
+            &&& so_new.storage_perm() == so_old.storage_perm()
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         forall|i: int|

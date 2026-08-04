@@ -826,8 +826,38 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof_decl! {
             let tracked tv = session.tracked_borrow_thread_view_mut();
         }
-        let (obj_ptr, _tracked_info) = self.load_ptr_acquire(Tracked(tv));
-        NonNull::new(obj_ptr).map(|ptr| unsafe { assume_shared_ref::<P>(ptr) })
+        let obj_ptr = #[verus_spec(with => Tracked(tracked_ref_perm))]
+        self.load_read_token();
+        if obj_ptr.is_null() {
+            return None;
+        }
+        proof_decl! {
+            // `read_with` returns only the reference and has no guard object to
+            // store the read token. For this temporary skeleton, leak the
+            // verification-only token so the returned ref can borrow it for
+            // `'a`. The final RCU proof should attach this token to the
+            // atomic-mode/CPU epoch state instead.
+            let tracked tracked_ref_perm = tracked_ref_perm.tracked_unwrap();
+            let tracked tracked_ref_perm = tracked_static_ref(tracked_ref_perm);
+            let tracked tracked_ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
+                P::borrow_perm_as_ref_perm(tracked_ref_perm.tracked_borrow());
+        }
+        // SAFETY:
+        // 1. This pointer is not NULL.
+        // 2. The `_guard` guarantees atomic mode for the duration of lifetime
+        //    `'a`, the pointer is valid because other writers won't release the
+        //    allocation until this task passes the quiescent state.
+        NonNull::new(obj_ptr).map(
+            |ptr|
+                requires
+                    P::ptr_perm_match(
+                        ptr.view_ptr_mut(),
+                        P::ref_perm_view_permission(tracked_ref_perm),
+                    ),
+                {
+                    unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) }
+                },
+        )
     }
 }
 
@@ -847,7 +877,28 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                 assert(res is Some);
             }
         }
-        res
+
+        // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
+        // outlives the lifetime of `&self`. Additionally, during this period,
+        // it is impossible to create a mutable reference to `P`.
+        NonNull::new(self.obj_ptr).map(
+            |ptr|
+                requires
+                    self.tracked_ref_perm@ is Some,
+                    P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_ref_perm->0.resource()),
+                {
+                    unsafe {
+                        P::raw_as_ref(
+                            ptr,
+                            Tracked(
+                                P::borrow_perm_as_ref_perm(
+                                    self.tracked_ref_perm.tracked_borrow().tracked_borrow(),
+                                ),
+                            ),
+                        )
+                    }
+                },
+        )
     }
 
     fn compare_exchange(self, new_ptr: Option<P>) -> (res: Result<(), Option<P>>)

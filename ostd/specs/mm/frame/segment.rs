@@ -109,10 +109,10 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                &&& regions.slot_owners[idx].ref_count()
                     > 0
                 // Segment frames are shared (never `UNIQUE`).
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                &&& regions.slot_owners[idx].ref_count()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 // A segment holds its frames as a unit; they are not
                 // mapped into any page table, so the slot carries no PTE
@@ -145,9 +145,8 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                    <= crate::mm::frame::meta::REF_COUNT_MAX
+                &&& regions.slot_owners[idx].ref_count() > 0
+                &&& regions.slot_owners[idx].ref_count() <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage is Frame
             }),
