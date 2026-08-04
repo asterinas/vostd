@@ -168,7 +168,14 @@ closed spec fn wf(self) -> bool {
         let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
 
         &&& if g.core_token.is_left() {
-            !g.read_guard_token.is_resource_vacant()
+            let resource = g.read_guard_token.resource();
+            let read_half_cell_perm = resource.0;
+            let mode_knowledge = resource.1;
+            &&& !g.read_guard_token.is_resource_vacant()
+            &&& mode_knowledge.id() == ghost_id@.core_token_id
+            &&& read_half_cell_perm.id() == ghost_id@.frac_id
+            &&& read_half_cell_perm.resource().id() == val.id()
+            &&& read_half_cell_perm.frac() == 1
         } else {
             &&& g.upreader_guard_token is None
             &&& g.read_guard_token.is_resource_vacant()
@@ -204,15 +211,6 @@ closed spec fn wf(self) -> bool {
         }
         &&& g.read_guard_token.wf()
         &&& g.read_guard_token.id() == ghost_id@.read_guard_token_id
-        &&& !g.read_guard_token.is_resource_vacant() ==> {
-            let resource = g.read_guard_token.resource();
-            let read_half_cell_perm = resource.0;
-            let mode_knowledge = resource.1;
-            &&& mode_knowledge.id() == ghost_id@.core_token_id
-            &&& read_half_cell_perm.id() == ghost_id@.frac_id
-            &&& read_half_cell_perm.resource().id() == val.id()
-            &&& read_half_cell_perm.frac() == 1
-        }
     }
 }
 }
