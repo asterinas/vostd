@@ -450,7 +450,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             //   entry. See the huge-page split and `replace_cur_entry` caller sites.
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
 
                 let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
                 new_meta_slot.paths_in_pt = set![new_owner.path];
@@ -461,7 +461,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         proof {
             if new_owner.is_node() || new_owner.is_frame() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
             }
             crate::specs::mm::page_table::node::owners::lemma_count_present_upto_update(
                 cp0,
@@ -699,7 +699,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
 
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
-                regions.inv_implies_correct_addr(new_paddr);
+                regions.lemma_contains_valid_frame_paddr(new_paddr);
                 let new_idx = frame_to_index(new_paddr);
                 let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
                 new_meta_slot.paths_in_pt = set![owner.value().path];
@@ -960,7 +960,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert(pa_idx != new_idx) by {
                 if old(regions).slot_owners[pa_idx].usage
                     == crate::specs::mm::frame::meta_owners::PageUsage::MMIO {
-                    old(regions).inv_implies_correct_addr(pa);
+                    old(regions).lemma_contains_valid_frame_paddr(pa);
                 } else {
                     // metaregion_sound frame arm: non-MMIO ⟹ rc != UNUSED.
                 }
@@ -985,7 +985,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(sub_idx != new_idx) by {
                     if old(regions).slot_owners[sub_idx].usage
                         == crate::specs::mm::frame::meta_owners::PageUsage::MMIO {
-                        old(regions).inv_implies_correct_addr((pa + j * PAGE_SIZE) as usize);
+                        old(regions).lemma_contains_valid_frame_paddr(
+                            (pa + j * PAGE_SIZE) as usize,
+                        );
                     } else {
                         // non-MMIO sub-page ⟹ rc != UNUSED ⟹ != new_idx.
                     }
@@ -1222,7 +1224,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 // tracked_remove/insert below only touches paths_in_pt.
 
-                regions.inv_implies_correct_addr(small_pa);
+                regions.lemma_contains_valid_frame_paddr(small_pa);
                 let tracked mut small_slot = regions.slot_owners.tracked_remove(small_idx);
                 small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
                 regions.slot_owners.tracked_insert(small_idx, small_slot);
@@ -1697,7 +1699,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         proof {
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
 
                 let new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
                 let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
@@ -1709,7 +1711,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         proof {
             if new_owner.is_node() || new_owner.is_frame() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
             }
         }
 
@@ -1931,7 +1933,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
 
             let new_paddr = owner.value().meta_slot_paddr().unwrap();
-            regions.inv_implies_correct_addr(new_paddr);
+            regions.lemma_contains_valid_frame_paddr(new_paddr);
             let new_idx = frame_to_index(new_paddr);
             let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
             new_meta_slot.paths_in_pt = set![owner.value().path];

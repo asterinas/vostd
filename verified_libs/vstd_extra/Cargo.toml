@@ -6,5 +6,9 @@ edition = "2021"
 [package.metadata.verus]
 verify = true
 
+[features]
+default = []
+std = ["vstd/std"]
+
 [dependencies]
 vstd = { workspace = true }

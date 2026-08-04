@@ -651,7 +651,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         let idx = frame_to_index(pa);
-                        old(regions).inv_implies_correct_addr(pa);
+                        old(regions).lemma_contains_valid_frame_paddr(pa);
                         assert(regions.slot_owners.contains_key(idx));
                         assert(owner.cur_entry_owner().inv_base());
                         if C::tracked(item) && regions.slot_owners[idx].ref_count()
@@ -732,7 +732,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     *regions,
                 ) by {
                     if e.is_node() || e.is_frame() {
-                        regions.inv_implies_correct_addr(e.meta_slot_paddr().unwrap());
+                        regions.lemma_contains_valid_frame_paddr(e.meta_slot_paddr().unwrap());
                     }
                     if e.is_frame() && e.parent_level > 1 {
                         broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
@@ -3532,7 +3532,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(600)]
+    #[verifier::rlimit(50)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         // This proof touches several cursor snapshots. Keep their quantified invariants
         // opaque by default, then reveal only the concrete facts needed below. Leaving

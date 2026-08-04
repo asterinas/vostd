@@ -643,7 +643,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         proof {
             broadcast use group_page_meta;
 
-            regions.inv_implies_correct_addr(meta_to_frame(unique.ptr.addr()));
+            regions.lemma_contains_valid_frame_paddr(meta_to_frame(unique.ptr.addr()));
             assert(idx == owner.slot_index);
             assert(regions.slots[idx].addr() == unique.ptr.addr());
             assert(regions.slots[idx].pptr() == unique.ptr);
@@ -685,7 +685,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         proof {
             broadcast use group_page_meta;
 
-            regions.inv_implies_correct_addr(meta_to_frame(frame.ptr.addr()));
+            regions.lemma_contains_valid_frame_paddr(meta_to_frame(frame.ptr.addr()));
         }
         let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);

@@ -529,6 +529,7 @@ pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
 }
 
 impl<V, const N: usize> ArrayPtr<V, N> {
+    #[cfg(feature = "std")]
     pub exec fn empty() -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>))
         requires
             layout::size_of::<[V; N]>() > 0,
@@ -582,6 +583,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         ptr_mut_fill(ptr, Tracked(&mut perm.points_to), value);
     }
 
+    #[cfg(feature = "std")]
     pub exec fn new(dft: V) -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where
         V: Copy,
 
