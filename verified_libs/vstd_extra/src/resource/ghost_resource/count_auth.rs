@@ -249,7 +249,10 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
     }
 
     /// Consumes the `Count` and returns the resource value and an `EmptyCount` with the same id.
-    pub proof fn take_resource(tracked self) -> (tracked (resource, empty): (T, EmptyCount<T, TOTAL>))
+    pub proof fn take_resource(tracked self) -> (tracked (resource, empty): (
+        T,
+        EmptyCount<T, TOTAL>,
+    ))
         requires
             self.frac() == TOTAL,
             self.has_authority(),
