@@ -1503,9 +1503,7 @@ unsafe impl Objective for RcuMonitorFlagGhost {
 
 impl RcuMonitorFlagGhost {
     pub open spec fn initial(timestamp: nat) -> Self {
-        RcuMonitorFlagGhost {
-            states: Map::empty().insert(timestamp, MonitorStateView::initial()),
-        }
+        RcuMonitorFlagGhost { states: Map::empty().insert(timestamp, MonitorStateView::initial()) }
     }
 
     /// Proof-mode constructor for the tracked ghost state stored inside the
@@ -1514,9 +1512,7 @@ impl RcuMonitorFlagGhost {
         ensures
             res == Self::initial(timestamp),
     {
-        RcuMonitorFlagGhost {
-            states: Map::empty().insert(timestamp, MonitorStateView::initial()),
-        }
+        RcuMonitorFlagGhost { states: Map::empty().insert(timestamp, MonitorStateView::initial()) }
     }
 
     pub open spec fn insert(self, timestamp: nat, state: MonitorStateView) -> Self {
@@ -1593,10 +1589,7 @@ pub proof fn rcu_monitor_flag_initial_inv(
     requires
         history.is_singleton(timestamp, (false, message_view)),
     ensures
-        rcu_monitor_flag_history_inv(
-            history,
-            RcuMonitorFlagGhost::initial(timestamp),
-        ),
+        rcu_monitor_flag_history_inv(history, RcuMonitorFlagGhost::initial(timestamp)),
 {
     assert(history.dom() == Set::empty().insert(timestamp)) by {
         assert forall|ts: nat|
@@ -1637,8 +1630,8 @@ pub proof fn preserve_rcu_monitor_flag_inv_on_insert(
         rcu_monitor_flag_history_inv(next, next_ghost),
 {
     assert(next_ghost.states.dom() == next.dom());
-    assert forall|ts: nat|
-        next.contains_timestamp(ts) implies (#[trigger] next_ghost.states[ts]).wf() by {
+    assert forall|ts: nat| next.contains_timestamp(ts) implies (
+    #[trigger] next_ghost.states[ts]).wf() by {
         if ts == timestamp {
             assert(next_ghost.states[ts] == state);
         } else {

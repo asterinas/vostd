@@ -610,11 +610,8 @@ pub tracked struct TaskThreadView {
 }
 
 impl TaskThreadView {
-    proof fn new(
-        scheduler: Loc,
-        task: Loc,
-        tracked thread_view: ThreadViewToken,
-    ) -> (tracked res: Self)
+    proof fn new(scheduler: Loc, task: Loc, tracked thread_view: ThreadViewToken) -> (tracked res:
+        Self)
         ensures
             res.scheduler() == scheduler,
             res.task() == task,
@@ -1172,9 +1169,7 @@ impl SchedulerThreadViews {
                 == next.cpu_core_registrations[stored_cpu].locals_key
             &&& self.cpu_cores[stored_cpu].registration() == next.cpu_core_registrations[stored_cpu]
             &&& self.cpu_cores[stored_cpu].locals().fraction() == 1real
-            &&& self.cpu_cores[stored_cpu].locals().view().spec_le(
-                self.cpu_views[stored_cpu]@,
-            )
+            &&& self.cpu_cores[stored_cpu].locals().view().spec_le(self.cpu_views[stored_cpu]@)
         } by {
             assert(next.cpu_core_registrations.contains_key(stored_cpu));
             if stored_cpu == cpu {

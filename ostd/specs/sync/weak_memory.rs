@@ -4,7 +4,6 @@
 //! This module contains only transitions coupled to the RCU root and monitor
 //! ghost state. Generic native primitives are re-exported by
 //! [`vstd_extra::atomic_irc11`].
-
 use core::sync::atomic::Ordering;
 
 use super::{rcu as rcu_spec, rcu_cpu as rcu_cpu_spec};
@@ -13,9 +12,9 @@ use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::thread_view::Objective;
 use vstd_extra::atomic_irc11::{
-    AtomicId as Irc11AtomicId, AtomicPointsTo, PAtomicWeakBool as Irc11AtomicBool,
-    PAtomicWeakPtr, ReleaseViewSeen, ThreadView as Irc11ThreadView,
-    ThreadViewOrder as Irc11ThreadViewOrder, Timestamp, ViewSeen,
+    AtomicId as Irc11AtomicId, AtomicPointsTo, PAtomicWeakBool as Irc11AtomicBool, PAtomicWeakPtr,
+    ReleaseViewSeen, ThreadView as Irc11ThreadView, ThreadViewOrder as Irc11ThreadViewOrder,
+    Timestamp, ViewSeen,
 };
 
 verus! {
@@ -965,25 +964,15 @@ impl RcuMonitorWeakAtomicBool {
             Irc11AtomicBool::new(false);
         let tracked flag_ghost = rcu_spec::RcuMonitorFlagGhost::tracked_initial(timestamp);
         proof {
-            rcu_spec::rcu_monitor_flag_initial_inv(
-                points_to.hist(),
-                timestamp,
-                initial_view@,
-            );
-            assert(rcu_spec::RcuMonitorFlagInv::inv(
-                atomic.loc(),
-                (points_to, flag_ghost),
-            ));
+            rcu_spec::rcu_monitor_flag_initial_inv(points_to.hist(), timestamp, initial_view@);
+            assert(rcu_spec::RcuMonitorFlagInv::inv(atomic.loc(), (points_to, flag_ghost)));
         }
         let tracked pair = (points_to, flag_ghost);
         let tracked atomic_inv = AtomicInvariant::new(atomic.loc(), pair, 0);
         Self { atomic, tracked_atomic_inv: Tracked(atomic_inv) }
     }
 
-    pub fn load_relaxed(&self, Tracked(tv): Tracked<&mut ViewSeen>) -> (res: (
-        bool,
-        Ghost<nat>,
-    ))
+    pub fn load_relaxed(&self, Tracked(tv): Tracked<&mut ViewSeen>) -> (res: (bool, Ghost<nat>))
         requires
             self.well_formed(),
         ensures
