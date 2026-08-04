@@ -1286,7 +1286,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
         if self.0.value().is_frame() {
             lemma_page_size_spec_values();
-            ;
             let frame = self.0.value().frame();
             let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
             Self::lemma_vaddr_path_alignment_and_bound(path);
