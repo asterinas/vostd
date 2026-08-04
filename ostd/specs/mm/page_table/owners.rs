@@ -1271,6 +1271,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// `parent_level < NR_LEVELS` constraint plus the arithmetic identity
     /// `page_size(k) ∈ {4K, 2M, 1G}` for `k ∈ {1, 2, 3}`, and VA alignment
     /// + no-overflow via `lemma_vaddr_path_alignment_and_bound`.
+    #[verifier::rlimit(200)]
     pub proof fn view_rec_mapping_inv(self, path: TreePath<NR_ENTRIES>)
         requires
             self.pt_inv(),
@@ -1349,6 +1350,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, 0x1_0000_0000_0000int);
             vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
             assert(set![4096, 2097152, 1073741824].contains(m.page_size));
+            assert forall|m2: Mapping| #[trigger]
+                self.view_rec(path).contains(m2) implies m2.inv() by {
+                assert(self.view_rec(path).contains(m2) <==> m2 == m);
+                assert(m.inv());
+            };
         } else if self.0.value().is_node() && path.len() < INC_LEVELS - 1 {
             assert forall|m: Mapping| #[trigger]
                 self.view_rec(path).contains(m) implies m.inv() by {
@@ -1542,11 +1548,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
                                 sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
-                                    && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != REF_COUNT_UNUSED
-                                    && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                                    && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    <= REF_COUNT_MAX)
+                                    && r1.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
+                                    && r1.slot_owners[sub_idx].ref_count() > 0
+                                    && r1.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX)
                             }
                     },
             ),
@@ -1596,11 +1600,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
                                 sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
-                                    && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != REF_COUNT_UNUSED
-                                    && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                                    && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    <= REF_COUNT_MAX)
+                                    && r1.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
+                                    && r1.slot_owners[sub_idx].ref_count() > 0
+                                    && r1.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX)
                             }
                     },
             ),
