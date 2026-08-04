@@ -1305,6 +1305,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(self.view_rec(path) == set![m]);
             let ps = page_size(pt_level) as int;
             vstd_extra::arithmetic::lemma_mod_0_add(frame.mapped_pa as int, ps, ps);
+            lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
             lemma_vaddr_strict_bound(path);
             let lb = C::LEADING_BITS_spec() as int;
