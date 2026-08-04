@@ -12,7 +12,7 @@ use vstd::{
 
 use vstd_extra::{
     prelude::*,
-    resource::ghost_resource::{count::Count, tokens::CountResource},
+    resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
 use core::{

@@ -3,7 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};
 
@@ -345,6 +345,7 @@ closed spec fn wf_upgradeable_guard_token<T>(
     &&& half_cell_perm.resource().id() == cell_id
     &&& token.has_resource()
     &&& half_cell_perm.frac() == 1
+    &&& half_cell_perm.has_authority()
     &&& token.wf()
 }
 
