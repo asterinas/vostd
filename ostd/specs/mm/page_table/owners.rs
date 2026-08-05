@@ -1347,6 +1347,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
             vstd::arithmetic::mul::lemma_mul_inequality(1, q, ps);
             vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, 0x1_0000_0000_0000int);
+            assert(v + ps <= limit);
+            assert(0xffffint * 0x1_0000_0000_0000int + 0x1_0000_0000_0000int
+                == 0x1_0000_0000_0000_0000int) by (compute_only);
             assert(lb * limit + v + ps <= 0x1_0000_0000_0000_0000int);
             vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
             assert(set![4096, 2097152, 1073741824].contains(m.page_size));
