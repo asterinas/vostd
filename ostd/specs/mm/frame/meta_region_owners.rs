@@ -200,7 +200,7 @@ impl MetaRegionOwners {
 
     /// Rertuns the `MetaSlotOwner`, indexed by frame paddr.
     pub open spec fn slot_owner(self, paddr: Paddr) -> MetaSlotOwner {
-        self.slot_owner(paddr)
+        self.slot_owners[frame_to_index(paddr)]
     }
 
     // ----------------------------------------------------------------------
