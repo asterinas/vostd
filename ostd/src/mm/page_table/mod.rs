@@ -369,25 +369,25 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     == old_regions.slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
             Self::tracked(item) ==> {
-                &&& new_regions.slot_owners[frame_to_index(pa)].ref_count()
-                    == old_regions.slot_owners[frame_to_index(pa)].ref_count() + 1
-                &&& new_regions.slot_owners[frame_to_index(pa)].ref_count_perm.id()
-                    == old_regions.slot_owners[frame_to_index(pa)].ref_count_perm.id()
-                &&& new_regions.slot_owners[frame_to_index(pa)].storage_perm()
-                    == old_regions.slot_owners[frame_to_index(pa)].storage_perm()
-                &&& new_regions.slot_owners[frame_to_index(pa)].vtable_ptr_perm()
-                    == old_regions.slot_owners[frame_to_index(pa)].vtable_ptr_perm()
-                &&& new_regions.slot_owners[frame_to_index(pa)].in_list_perm
-                    == old_regions.slot_owners[frame_to_index(pa)].in_list_perm
-                &&& new_regions.slot_owners[frame_to_index(pa)].paths_in_pt
-                    == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt
-                &&& new_regions.slot_owners[frame_to_index(pa)].slot_vaddr
-                    == old_regions.slot_owners[frame_to_index(pa)].slot_vaddr
-                &&& new_regions.slot_owners[frame_to_index(pa)].usage
-                    == old_regions.slot_owners[frame_to_index(pa)].usage
+                &&& new_regions.slot_owner(pa).ref_count() == old_regions.slot_owner(pa).ref_count()
+                    + 1
+                &&& new_regions.slot_owner(pa).ref_count_perm.id() == old_regions.slot_owner(
+                    pa,
+                ).ref_count_perm.id()
+                &&& new_regions.slot_owner(pa).storage_perm() == old_regions.slot_owner(
+                    pa,
+                ).storage_perm()
+                &&& new_regions.slot_owner(pa).vtable_ptr_perm() == old_regions.slot_owner(
+                    pa,
+                ).vtable_ptr_perm()
+                &&& new_regions.slot_owner(pa).in_list_perm == old_regions.slot_owner(
+                    pa,
+                ).in_list_perm
+                &&& new_regions.slot_owner(pa).paths_in_pt == old_regions.slot_owner(pa).paths_in_pt
+                &&& new_regions.slot_owner(pa).slot_vaddr == old_regions.slot_owner(pa).slot_vaddr
+                &&& new_regions.slot_owner(pa).usage == old_regions.slot_owner(pa).usage
             },
-            !Self::tracked(item) ==> new_regions.slot_owners[frame_to_index(pa)]
-                == old_regions.slot_owners[frame_to_index(pa)],
+            !Self::tracked(item) ==> new_regions.slot_owner(pa) == old_regions.slot_owner(pa),
             // Canonical model: a tracked clone MINTS one per-frame obligation
             // at the slot (`Frame::clone`); an untracked clone is net-zero.
             Self::tracked(item) ==> new_regions.frame_obligations
@@ -413,13 +413,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::raw_item_well_formed(pa, level, prop),
             valid_frame_paddr(pa),
             regions.contains(frame_to_index(pa)),
-            Self::tracked(item) ==> regions.slot_owners[frame_to_index(pa)].ref_count() > 0,
+            Self::tracked(item) ==> regions.slot_owner(pa).ref_count() > 0,
             // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
-            Self::tracked(item) ==> regions.slot_owners[frame_to_index(pa)].ref_count()
-                != REF_COUNT_UNUSED,
+            Self::tracked(item) ==> regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED,
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-            Self::tracked(item) ==> (regions.slot_owners[frame_to_index(pa)].ref_count()
-                < REF_COUNT_MAX || may_panic()),
+            Self::tracked(item) ==> (regions.slot_owner(pa).ref_count() < REF_COUNT_MAX
+                || may_panic()),
         ensures
             item.clone_requires(regions),
     ;
