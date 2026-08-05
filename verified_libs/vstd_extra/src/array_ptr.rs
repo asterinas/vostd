@@ -529,6 +529,24 @@ pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
 }
 
 impl<V, const N: usize> ArrayPtr<V, N> {
+    /// Reconstructs a pointer to the selected array element.
+    #[inline(always)]
+    pub exec fn as_mut_ptr(&self, Tracked(perm): Tracked<&PointsTo<V, N>>) -> (res: *mut V)
+        requires
+            perm.wf(),
+            perm.is_pptr(*self),
+            self.index < N,
+        ensures
+            res.addr() == self.addr.wrapping_add(
+                self.index.wrapping_mul(core::mem::size_of::<V>()),
+            ),
+    {
+        raw_ptr::with_exposed_provenance(
+            self.addr.wrapping_add(self.index.wrapping_mul(core::mem::size_of::<V>())),
+            Tracked(perm.exposed),
+        )
+    }
+
     #[cfg(feature = "std")]
     pub exec fn empty() -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>))
         requires

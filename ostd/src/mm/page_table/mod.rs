@@ -25,7 +25,7 @@ use core::{
     fmt::Debug,
     intrinsics::transmute_unchecked,
     ops::{Range, RangeInclusive},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::Ordering,
 };
 
 use super::{
@@ -1843,6 +1843,7 @@ pub unsafe fn load_pte<E: PageTableEntryTrait>(
         0 <= ptr.index < NR_ENTRIES,
         old(perm).is_init_all(),
     ensures
+        final(perm).wf(),
         final(perm).value()[ptr.index as int] == new_val,
         final(perm).value() == old(perm).value().update(ptr.index as int, new_val),
         final(perm).addr() == old(perm).addr(),

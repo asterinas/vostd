@@ -74,7 +74,7 @@
 //!      "I contribute 1 to my slot's `rc`," combined with an aggregate
 //!      invariant on `MetaSlotOwner` saying `held_shares == rc.value()`.
 //!      Recommended primitive:
-//!      [`vstd_extra::resource::ghost_resource::tokens::Token`]
+//!      [`vstd_extra::resource::ghost_resource::count_ghost::Token`]
 //!      (alias for `CountGhost<(), TOTAL>`) with
 //!      `TOTAL = REF_COUNT_MAX`. The resource framework provides
 //!      `split` / `combine` / `agree` / `bounded` pre-proven; the

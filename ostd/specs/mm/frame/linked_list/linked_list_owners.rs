@@ -1189,8 +1189,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    #[verifier::external_body]
-    pub proof fn tracked_back_owner(list_own: LinkedListOwner<M>) -> (tracked res: Self)
+    pub proof fn tracked_back_owner(tracked list_own: LinkedListOwner<M>) -> (tracked res: Self)
         ensures
             res == Self::back_owner(list_own),
     {
@@ -1208,8 +1207,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> { list_own: list_own, index: list_own.list.len() as int }
     }
 
-    #[verifier::external_body]
-    pub proof fn tracked_ghost_owner(list_own: LinkedListOwner<M>) -> (tracked res: Self)
+    pub proof fn tracked_ghost_owner(tracked list_own: LinkedListOwner<M>) -> (tracked res: Self)
         ensures
             res == Self::ghost_owner(list_own),
     {

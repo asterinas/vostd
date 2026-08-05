@@ -365,7 +365,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     )]
     pub fn push_back(&mut self, frame: UniqueFrame<Link<M>>) {
         let current = self.back;
-        let tracked mut cursor_own = CursorOwner::tracked_back_owner(*owner);
+        let tracked owner0 = LinkedListOwner::tracked_take(owner);
+        let tracked mut cursor_own = CursorOwner::tracked_back_owner(owner0);
         let mut cursor = CursorMut { list: self, current };
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
