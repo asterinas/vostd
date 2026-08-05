@@ -233,11 +233,11 @@ pub axiom fn cursor_query_embedded<'rcu>(
         // (non-MMIO) data Frame whose slot is in-bound and active.
         res matches Some(paddr) ==> {
             &&& valid_frame_paddr(paddr)
-            &&& old(regions).slot_owners[frame_to_index(paddr)].usage is Frame
-            &&& final(regions).slot_owners[frame_to_index(paddr)].ref_count() == (old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].ref_count() + 1) as nat
-            &&& final(regions).slot_owners[frame_to_index(paddr)].ref_count() <= REF_COUNT_MAX
+            &&& old(regions).slot_owner(paddr).usage is Frame
+            &&& final(regions).slot_owner(paddr).ref_count() == (old(regions).slot_owner(
+                paddr,
+            ).ref_count() + 1) as nat
+            &&& final(regions).slot_owner(paddr).ref_count() <= REF_COUNT_MAX
             &&& forall|i: int|
                 #![trigger final(regions).slot_owners[i]]
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
@@ -246,24 +246,22 @@ pub axiom fn cursor_query_embedded<'rcu>(
             // At the cloned slot, only `ref_count` changes — everything
             // else (`raw_count`, `in_list`, `usage`, `paths_in_pt`,
             // `storage`, `slot_vaddr`, `vtable_ptr`) is preserved.
-            &&& final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].slot_vaddr
-            &&& final(regions).slot_owners[frame_to_index(paddr)].usage == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].usage
-            &&& final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].paths_in_pt
-            &&& final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].in_list_perm
-            &&& final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].storage_perm()
-            &&& final(regions).slot_owners[frame_to_index(paddr)].vtable_ptr_perm() == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].vtable_ptr_perm()
+            &&& final(regions).slot_owner(paddr).slot_vaddr == old(regions).slot_owner(
+                paddr,
+            ).slot_vaddr
+            &&& final(regions).slot_owner(paddr).usage == old(regions).slot_owner(paddr).usage
+            &&& final(regions).slot_owner(paddr).paths_in_pt == old(regions).slot_owner(
+                paddr,
+            ).paths_in_pt
+            &&& final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
+                paddr,
+            ).in_list_perm
+            &&& final(regions).slot_owner(paddr).storage_perm() == old(regions).slot_owner(
+                paddr,
+            ).storage_perm()
+            &&& final(regions).slot_owner(paddr).vtable_ptr_perm() == old(regions).slot_owner(
+                paddr,
+            ).vtable_ptr_perm()
         },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -395,25 +393,21 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         // (`P_post = P_pre + 1`), `accounting_inv` clause 4
         // (`rc == H + P`) chains: `pre rc == pre H + pre P` ⟹
         // `post rc = pre rc = (H_post + 1) + (P_post - 1) = H_post + P_post`.
-        final(regions).slot_owners[frame_to_index(paddr)].ref_count() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].ref_count(),
+        final(regions).slot_owner(paddr).ref_count() == old(regions).slot_owner(paddr).ref_count(),
         // **`paths_in_pt.len() += 1` at the mapped slot.** The cursor's
         // current path is inserted into the mapped slot's `paths_in_pt`
         // (this is the bookkeeping side of writing the PTE; see
         // [cursor/mod.rs:2613] for the exec insertion site).
-        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.len() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].paths_in_pt.len() + 1,
+        final(regions).slot_owner(paddr).paths_in_pt.len() == old(regions).slot_owner(
+            paddr,
+        ).paths_in_pt.len() + 1,
         // **`usage` / `storage` PRESERVED at the mapped slot.** Map
         // doesn't change the slot's identity or metadata — it only
         // updates the PTE and the bookkeeping `paths_in_pt`.
-        final(regions).slot_owners[frame_to_index(paddr)].usage == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].usage,
-        final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].storage_perm(),
+        final(regions).slot_owner(paddr).usage == old(regions).slot_owner(paddr).usage,
+        final(regions).slot_owner(paddr).storage_perm() == old(regions).slot_owner(
+            paddr,
+        ).storage_perm(),
         // Slots that stay UNUSED are fully preserved.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
@@ -720,28 +714,26 @@ pub(super) proof fn cursor_query_step<'rcu>(
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
             &&& valid_frame_paddr(paddr)
-            &&& old(regions).slot_owners[frame_to_index(paddr)].usage is Frame
-            &&& final(regions).slot_owners[frame_to_index(paddr)].ref_count() == (old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].ref_count() + 1) as nat
-            &&& final(regions).slot_owners[frame_to_index(paddr)].ref_count() <= REF_COUNT_MAX
+            &&& old(regions).slot_owner(paddr).usage is Frame
+            &&& final(regions).slot_owner(paddr).ref_count() == (old(regions).slot_owner(
+                paddr,
+            ).ref_count() + 1) as nat
+            &&& final(regions).slot_owner(paddr).ref_count() <= REF_COUNT_MAX
             &&& forall|i: int|
                 #![trigger final(regions).slot_owners[i]]
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                     regions,
                 ).slot_owners[i]
-            &&& final(regions).slot_owners[frame_to_index(paddr)].usage == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].usage
-            &&& final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].paths_in_pt
-            &&& final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].in_list_perm
-            &&& final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].storage_perm()
+            &&& final(regions).slot_owner(paddr).usage == old(regions).slot_owner(paddr).usage
+            &&& final(regions).slot_owner(paddr).paths_in_pt == old(regions).slot_owner(
+                paddr,
+            ).paths_in_pt
+            &&& final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
+                paddr,
+            ).in_list_perm
+            &&& final(regions).slot_owner(paddr).storage_perm() == old(regions).slot_owner(
+                paddr,
+            ).storage_perm()
         },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -968,18 +960,14 @@ pub(super) proof fn map_step<'rcu>(
             #![trigger final(regions).slot_owners[i].ref_count()]
             old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED,
-        final(regions).slot_owners[frame_to_index(paddr)].ref_count() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].ref_count(),
-        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.len() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].paths_in_pt.len() + 1,
-        final(regions).slot_owners[frame_to_index(paddr)].usage == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].usage,
-        final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].storage_perm(),
+        final(regions).slot_owner(paddr).ref_count() == old(regions).slot_owner(paddr).ref_count(),
+        final(regions).slot_owner(paddr).paths_in_pt.len() == old(regions).slot_owner(
+            paddr,
+        ).paths_in_pt.len() + 1,
+        final(regions).slot_owner(paddr).usage == old(regions).slot_owner(paddr).usage,
+        final(regions).slot_owner(paddr).storage_perm() == old(regions).slot_owner(
+            paddr,
+        ).storage_perm(),
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED

@@ -70,7 +70,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
             old(regions).contains(frame_to_index(paddr)),
-            old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
+            old(regions).slot_owner(paddr).usage is Unused,
             old(regions).inv(),
             <M as OwnerOf>::wf(metadata, meta_own_in),
         ensures
@@ -500,7 +500,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             valid_frame_paddr(paddr),
             old(regions).inv(),
             old(regions).contains(frame_to_index(paddr)),
-            old(regions).slot_owners[frame_to_index(paddr)].ref_count() == REF_COUNT_UNIQUE,
+            old(regions).slot_owner(paddr).ref_count() == REF_COUNT_UNIQUE,
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),
             res.0.wf(res.1@),

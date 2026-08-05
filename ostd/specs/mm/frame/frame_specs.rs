@@ -40,10 +40,10 @@ impl<'a, M: ?Sized> Frame<M> {
     /// the PT-node ownership model only exposes `!= UNUSED`.)
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.contains(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
+        &&& regions.slot_owner(paddr).slot_vaddr == frame_to_meta(paddr)
         &&& valid_frame_paddr(paddr)
         &&& regions.inv()
-        &&& regions.slot_owners[frame_to_index(paddr)].ref_count() != REF_COUNT_UNUSED
+        &&& regions.slot_owner(paddr).ref_count() != REF_COUNT_UNUSED
     }
 
     pub open spec fn from_raw_ensures(
@@ -54,9 +54,8 @@ impl<'a, M: ?Sized> Frame<M> {
     ) -> bool {
         &&& new_regions.inv()
         &&& new_regions.contains(frame_to_index(paddr))
-        &&& new_regions.slot_owners[frame_to_index(paddr)]
-            =~= old_regions.slot_owners[frame_to_index(paddr)]
-        &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
+        &&& new_regions.slot_owner(paddr) =~= old_regions.slot_owner(paddr)
+        &&& new_regions.slot_owner(paddr).slot_vaddr == r.ptr.addr()
         &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
