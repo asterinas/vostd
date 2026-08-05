@@ -465,6 +465,7 @@ impl RunningTaskContext {
             !sched_view.cpu_rcu_participant_is_stored(cpu),
             sched_view.current.contains_key(cpu),
             sched_view.current[cpu] == Some(task_view.task()),
+            crate::specs::mm::cpu::online_cpus().contains(cpu),
         ensures
             res.scheduler() == task_view.scheduler(),
             res.task() == task_view.task(),
@@ -581,6 +582,7 @@ impl RunningTaskContext {
         &&& self.rcu_binding().locals_key() == self.core_handle.expected_locals_key()
         &&& self.rcu_binding().single_local_id() == self.rcu_participant_id()
         &&& self.rcu_participant.cpu() == self.cpu()
+        &&& crate::specs::mm::cpu::online_cpus().contains(self.cpu())
         &&& self.rcu_participant_view().spec_le(self.irc11_view())
     }
 
@@ -591,6 +593,15 @@ impl RunningTaskContext {
             self.wf(),
         ensures
             self.rcu_participant_view().spec_le(self.irc11_view()),
+    {
+    }
+
+    /// A running task is checked out on a CPU in the scheduler's online set.
+    pub proof fn lemma_cpu_online(tracked &self)
+        requires
+            self.wf(),
+        ensures
+            crate::specs::mm::cpu::online_cpus().contains(self.cpu()),
     {
     }
 
@@ -740,6 +751,7 @@ impl RunningTaskContext {
             binding.cpu() == self.cpu(),
             binding.owner_id() == self.core_owner_id(),
             binding.locals_key() == seq![self.rcu_participant_id()],
+            binding.locals_key().len() == 1,
             binding.single_local_id() == self.rcu_participant_id(),
     {
         self.rcu_binding.tracked_duplicate()

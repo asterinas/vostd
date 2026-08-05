@@ -411,6 +411,20 @@ impl<K, T> RcuReadPoolRegistry<K, T> {
         self.pools.contains_key(key)
     }
 
+    /// Relates keyed lookup to membership in the registry's key set.
+    pub proof fn lemma_contains_iff_key(tracked &self, key: K)
+        ensures
+            self.contains(key) <==> self.keys().contains(key),
+    {
+    }
+
+    /// Relates registry membership to the complete key set for all keys.
+    pub proof fn lemma_all_contains_iff_keys(tracked &self)
+        ensures
+            forall|key: K| #[trigger] self.keys().contains(key) ==> self.contains(key),
+    {
+    }
+
     pub closed spec fn pool(self, key: K) -> RcuReadPool<T>
         recommends
             self.contains(key),
@@ -520,6 +534,20 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         self.pools.contains_key(key)
     }
 
+    /// Relates keyed lookup to membership in the registry's key set.
+    pub proof fn lemma_contains_iff_key(tracked &self, key: K)
+        ensures
+            self.contains(key) <==> self.keys().contains(key),
+    {
+    }
+
+    /// Relates registry membership to the complete key set for all keys.
+    pub proof fn lemma_all_contains_iff_keys(tracked &self)
+        ensures
+            forall|key: K| #[trigger] self.keys().contains(key) ==> self.contains(key),
+    {
+    }
+
     pub closed spec fn pool(self, key: K) -> RcuReadPool<T>
         recommends
             self.contains(key),
@@ -545,6 +573,53 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             self.active_ids().contains(lease_id),
     {
         self.active[lease_id]
+    }
+
+    /// Borrows the client witness associated with one active lease.
+    ///
+    /// The witness remains owned by the registry until the matching lease is
+    /// returned. Reclamation proofs use this borrow to show that an allegedly
+    /// active lease is incompatible with a completed grace period.
+    pub proof fn tracked_borrow_active_witness(tracked &self, lease_id: nat) -> (tracked witness:
+        &W)
+        requires
+            self.active_ids().contains(lease_id),
+        ensures
+            *witness == self.active_record(lease_id).witness(),
+    {
+        let tracked record = self.active.tracked_borrow(lease_id);
+        &record.witness
+    }
+
+    /// Mutably borrows an active witness while preserving the registry.
+    ///
+    /// Resource-algebra validation may require a mutable receiver even when
+    /// its postcondition leaves the witness unchanged.
+    pub proof fn tracked_borrow_active_witness_mut(
+        tracked &mut self,
+        lease_id: nat,
+    ) -> (tracked witness: &mut W)
+        requires
+            old(self).active_ids().contains(lease_id),
+        ensures
+            *witness == old(self).active_record(lease_id).witness(),
+            final(self).keys() == old(self).keys(),
+            final(self).active_ids() == old(self).active_ids(),
+            final(self).next_lease() == old(self).next_lease(),
+            final(self).active_record(lease_id).key() == old(self).active_record(lease_id).key(),
+            final(self).active_record(lease_id).pool_id() == old(self).active_record(
+                lease_id,
+            ).pool_id(),
+            final(self).active_record(lease_id).fraction() == old(self).active_record(
+                lease_id,
+            ).fraction(),
+            final(self).active_record(lease_id).witness() == *final(witness),
+            forall|other: nat|
+                other != lease_id && old(self).active_ids().contains(other)
+                    ==> final(self).active_record(other) == old(self).active_record(other),
+    {
+        let tracked record = self.active.tracked_borrow_mut(lease_id);
+        &mut record.witness
     }
 
     pub open spec fn has_active(self, key: K) -> bool {
@@ -579,6 +654,9 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             final(self).keys() == old(self).keys().insert(key),
             final(self).active_ids() == old(self).active_ids(),
             final(self).next_lease() == old(self).next_lease(),
+            forall|lease_id: nat|
+                old(self).active_ids().contains(lease_id) ==> final(self).active_record(lease_id)
+                    == old(self).active_record(lease_id),
             final(self).contains(key),
             final(self).pool(key).resource() == resource,
             final(self).pool(key).fraction() == 1real,
@@ -645,6 +723,8 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         ensures
             final(self).wf(),
             final(self).keys() == old(self).keys(),
+            forall|candidate: K| #[trigger]
+                final(self).contains(candidate) == old(self).contains(candidate),
             final(self).next_lease() == old(self).next_lease() + 1,
             lease.lease_id() == old(self).next_lease(),
             lease.key() == key,
@@ -744,6 +824,8 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         ensures
             final(self).wf(),
             final(self).keys() == old(self).keys(),
+            forall|candidate: K| #[trigger]
+                final(self).contains(candidate) == old(self).contains(candidate),
             final(self).next_lease() == old(self).next_lease(),
             final(self).active_ids() == old(self).active_ids().remove(lease.lease_id()),
             witness == old(self).active_record(lease.lease_id()).witness(),
@@ -824,7 +906,11 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             final(self).wf(),
             final(self).keys() == old(self).keys().remove(key),
             final(self).active_ids() == old(self).active_ids(),
+            final(self).active_records() == old(self).active_records(),
             final(self).next_lease() == old(self).next_lease(),
+            forall|lease_id: nat|
+                old(self).active_ids().contains(lease_id) ==> final(self).active_record(lease_id)
+                    == old(self).active_record(lease_id),
             !final(self).contains(key),
             resource == old(self).pool(key).resource(),
             forall|other: K|

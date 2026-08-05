@@ -617,6 +617,12 @@ pub open spec fn rcu_history_inv<T>(nullable: bool, history: Irc11History<*mut T
         history.contains_timestamp(ts) ==> #[trigger] history.value(ts).addr() != 0
 }
 
+/// Scheduler registry used by the kernel's singleton RCU domain.
+///
+/// Scheduler integration must establish that every `RunningTaskContext`
+/// passed to the global RCU API is checked out from this registry.
+pub uninterp spec fn rcu_scheduler() -> Loc;
+
 /// Immutable identity carried by an executable RCU root atomic.
 ///
 /// Besides nullability, the key records the two resource locations needed to
@@ -624,9 +630,13 @@ pub open spec fn rcu_history_inv<T>(nullable: bool, history: Irc11History<*mut T
 /// invariant has been closed.
 pub ghost struct RcuRootKey {
     pub nullable: bool,
+    /// Scheduler registry whose canonical CPU participants protect this root.
+    pub scheduler: Loc,
     pub domain: Loc,
     pub reader_registry: Loc,
     pub retire_observation_registry: Loc,
+    pub reclaim_registry: Loc,
+    pub active_lease_registry: Loc,
 }
 
 /// Typed ownership state paired with one executable RCU root atomic.
@@ -668,6 +678,21 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
 
     pub closed spec fn retire_observation_registry(self) -> Loc {
         self.root().domain_auth().retire_observation_registry()
+    }
+
+    /// Agrees a persistent callback retirement fact with this root's
+    /// authoritative removal map.
+    pub proof fn lemma_retired_fact_agrees(tracked &self, tracked fact: &RcuRetiredFact)
+        requires
+            self.root().domain_wf(),
+            self.removals() == self.root().domain_auth().retire_observations(),
+            fact.wf(),
+            fact.domain() == self.domain(),
+            fact.retire_observation_registry() == self.retire_observation_registry(),
+        ensures
+            self.removals().contains_pair(fact.obj(), fact.removal()),
+    {
+        fact.lemma_observation_agrees(&self.root.domain);
     }
 
     pub open spec fn published_at(self, ts: nat) -> Option<RcuPublishedObject>
@@ -714,6 +739,13 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// `BlockInfo` available to justify stale weak-memory history reads.
     pub open spec fn infos_wf(self) -> bool {
         &&& self.infos().dom() == self.root().objects().dom()
+        &&& match self.current_owned() {
+            Some(owned) => {
+                &&& self.infos().contains_key(owned.block_info().obj())
+                &&& equal(self.infos()[owned.block_info().obj()].ptr(), owned.block_info().ptr())
+            },
+            None => true,
+        }
         &&& forall|obj: nat|
             self.infos().contains_key(obj) ==> {
                 let info = #[trigger] self.infos()[obj];
@@ -783,11 +815,13 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 (Some(object), Some(info)) => {
                     &&& object.domain == self.domain()
                     &&& object.addr == history.value(ts).addr()
+                    &&& self.infos().contains_key(info.obj())
                     &&& info.wf()
                     &&& info.domain() == object.domain
                     &&& info.obj() == object.obj
                     &&& info.addr() == object.addr
                     &&& equal(info.ptr(), history.value(ts))
+                    &&& equal(info.ptr(), self.infos()[info.obj()].ptr())
                 },
                 _ => false,
             },
@@ -914,6 +948,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).retire_observation_registry() == old(self).retire_observation_registry(),
             final(self).current_owned() == old(self).current_owned(),
+            final(self).current_registration() == old(self).current_registration(),
             final(self).publications() == old(self).publications(),
             final(self).infos() == old(self).infos(),
             final(self).removals() == old(self).removals(),
@@ -958,6 +993,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 == ptr,
             res.current_ownership() == ownership,
             res.removals() == Map::<nat, RcuRemovalObservation>::empty(),
+            res.infos().dom() == match res.current_registration() {
+                Some(registration) => Set::empty().insert(registration.0.obj()),
+                None => Set::empty(),
+            },
             match res.current_owned() {
                 Some(owned) => {
                     &&& ptr.addr() != 0
@@ -1000,6 +1039,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             },
         };
         let tracked res = RcuRootOwnedGhost { root, current, infos, removals: Map::empty() };
+        assert(res.infos().dom() == match res.current_registration() {
+            Some(registration) => Set::empty().insert(registration.0.obj()),
+            None => Set::empty(),
+        });
         assert(res.infos_wf());
         assert(res.removals_wf(history));
         assert(res.removals() == res.root().domain_auth().retire_observations());
@@ -1041,6 +1084,9 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 Some(detached) => {
                     &&& old(self).current_registration() is Some
                     &&& detached.object() == old(self).current_registration()->Some_0.0
+                    &&& detached.object().domain() == old(self).domain()
+                    &&& detached.obj() == old(self).current_registration()->Some_0.0.obj()
+                    &&& equal(detached.ptr(), old(self).infos()[detached.obj()].ptr())
                     &&& detached.retired().domain() == detached.domain()
                     &&& detached.retired().obj() == detached.obj()
                     &&& detached.retired().ptr() == detached.ptr()
@@ -1049,6 +1095,9 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                         timestamp: new_timestamp,
                         message_view,
                     })
+                    &&& detached.retired().retire_observation_registry() == old(
+                        self,
+                    ).retire_observation_registry()
                     &&& equal(detached.ptr(), prev.value(old_timestamp))
                     &&& old(self).current_ownership() == Some(detached.ownership())
                     &&& OwnPred::owns(detached.ptr(), detached.ownership())
@@ -1059,6 +1108,19 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             final(self).current_registration() is Some
                 ==> final(self).current_registration()->Some_0.0.ptr() == value,
             final(self).current_ownership() == ownership,
+            match final(self).current_registration() {
+                Some(registration) => {
+                    &&& !old(self).infos().contains_key(registration.0.obj())
+                    &&& final(self).infos().dom() == old(self).infos().dom().insert(
+                        registration.0.obj(),
+                    )
+                    &&& forall|obj: nat| #[trigger]
+                        old(self).infos().contains_key(obj) ==> final(self).infos()[obj] == old(
+                            self,
+                        ).infos()[obj]
+                },
+                None => final(self).infos() == old(self).infos(),
+            },
             final(self).removals() == match detached {
                 Some(detached) => old(self).removals().insert(
                     detached.obj(),
@@ -1142,6 +1204,13 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             None => None,
         };
         self.current = new_current;
+        assert(match self.current_registration() {
+            Some(registration) => {
+                &&& !old(self).infos().contains_key(registration.0.obj())
+                &&& self.infos().dom() == old(self).infos().dom().insert(registration.0.obj())
+            },
+            None => self.infos() == old(self).infos(),
+        });
         self.removals = match removed_obj {
             Some(obj) => self.removals.insert(obj, removal),
             None => self.removals,
@@ -2085,6 +2154,7 @@ impl RcuDomainAuth {
             res.obj() == retire.obj(),
             res.ptr() == retire.ptr(),
             res.removal() == removal,
+            res.retire_observation_registry() == final(self).retire_observation_registry(),
             res.wf(),
     {
         let ghost domain = retire.domain();
@@ -2332,6 +2402,16 @@ impl<T> RcuBlockInfo<T> {
     pub closed spec fn wf(self) -> bool {
         &&& self.addr() == self.ptr().addr()
         &&& self.ptr().addr() != 0
+    }
+
+    /// Opens the address facts hidden by the block-info abstraction.
+    pub proof fn lemma_wf_facts(tracked &self)
+        requires
+            self.wf(),
+        ensures
+            self.addr() == self.ptr().addr(),
+            self.ptr().addr() != 0,
+    {
     }
 
     /// Persistent block information can be retained by both the client and
@@ -2945,6 +3025,11 @@ impl<T> RcuRetired<T> {
         self.fact.removal()
     }
 
+    /// Authoritative observation registry that issued this retirement fact.
+    pub closed spec fn retire_observation_registry(self) -> Loc {
+        self.fact.retire_observation_registry()
+    }
+
     pub closed spec fn wf(self) -> bool {
         &&& self.fact.wf()
         &&& self.addr() == self.ptr().addr()
@@ -2958,6 +3043,7 @@ impl<T> RcuRetired<T> {
             res.obj() == self.obj(),
             res.addr() == self.ptr().addr(),
             res.removal() == self.removal(),
+            res.retire_observation_registry() == self.retire_observation_registry(),
     {
         self.fact
     }
@@ -3136,6 +3222,7 @@ pub proof fn certify_callback_from_retired<T>(
         cert.domain() == retired.domain(),
         cert.obj() == object.obj(),
         cert.removal() == retired.removal(),
+        cert.retire_observation_registry() == retired.retire_observation_registry(),
         callback_safety_from_traversal(cert, *object),
 {
     use_type_invariant(&retired);
@@ -3380,6 +3467,37 @@ impl<T> RcuProtectedPtr<T> {
         &&& self.seen_removed() == guard.seen_removed()
         &&& !self.seen_removed().removed.contains(self.obj())
         &&& guard.protects(self.ptr().addr(), self.obj())
+    }
+
+    /// Materializes the linear protection witness for a pointer already
+    /// installed in a direct-root guard's protection map.
+    ///
+    /// Generic traversal clients should normally use [`protect_root`] or
+    /// [`protect_next`]. This constructor is for the executable `Rcu<P>`
+    /// adapter, whose guarded atomic load performs the root protection
+    /// transition before returning to the caller.
+    pub proof fn tracked_from_guard(
+        tracked guard: &RcuReadGuardToken<T>,
+        tracked info: &RcuBlockInfo<T>,
+    ) -> (tracked res: Self)
+        requires
+            guard.wf(),
+            info.wf(),
+            info.domain() == guard.domain(),
+            guard.protects(info.addr(), info.obj()),
+            !guard.seen_removed().removed.contains(info.obj()),
+        ensures
+            res.domain() == info.domain(),
+            res.obj() == info.obj(),
+            res.ptr() == info.ptr(),
+            res.protected_by(*guard),
+    {
+        RcuProtectedPtr {
+            domain: info.domain(),
+            obj: info.obj(),
+            ptr: info.ptr(),
+            seen_removed: guard.seen_removed(),
+        }
     }
 }
 

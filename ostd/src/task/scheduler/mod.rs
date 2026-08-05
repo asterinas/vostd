@@ -1411,8 +1411,8 @@ impl SchedulerGhostState {
 /// later when the task registry is introduced.
 pub uninterp spec fn runnable_id<T: Schedulable>(runnable: &RoArc<T>) -> Loc;
 
-pub open spec fn valid_cpu(_cpu: CpuId) -> bool {
-    true
+pub open spec fn valid_cpu(cpu: CpuId) -> bool {
+    crate::specs::mm::cpu::online_cpus().contains(cpu)
 }
 
 pub open spec fn can_enqueue(view: SchedulerView, task: Loc, flags: EnqueueFlags) -> bool {

@@ -3,7 +3,8 @@ use alloc::collections::VecDeque;
 use core::sync::atomic::Ordering;
 
 use vstd::{predicate::Predicate as DataPredicate, prelude::*, resource::Loc};
-use vstd_extra::raw_callback::RawCallback;
+use vstd_extra::raw_callback::RawCallbackWithProof;
+use vstd_extra::rcu_read_pool::RcuTrackedReadPoolRegistry;
 
 use crate::specs::{
     mm::cpu::{AtomicCpuSet, AtomicCpuSetToken, CpuId, CpuSet, online_cpus},
@@ -110,7 +111,7 @@ impl RcuQuiescentContext {
 }
 
 /// Historical record of one quiescent context bound to a monitor generation.
-ghost struct RcuCpuQuiescentReport {
+pub(super) ghost struct RcuCpuQuiescentReport {
     cpu: CpuId,
     task: Loc,
     scheduler: Loc,
@@ -188,12 +189,12 @@ proof fn duplicate_closed_generations(
 
 /// RCU-specific wrapper around a type-erased executable callback.
 ///
-/// `RawCallback` is intentionally proof-opaque. The summary records the object
-/// identity that the monitor invariant will use to decide when this callback is
-/// safe to run after a grace period.
+/// The executable callback is type-erased but records that invocation must
+/// supply an [`RcuReclaimPermit`]. The summary records the object identity that
+/// the monitor invariant uses to decide when the callback is safe to run.
 #[must_use]
 pub struct RcuCallback {
-    raw: RawCallback,
+    raw: RawCallbackWithProof<RcuReclaimPermit>,
     summary: Ghost<rcu_spec::RcuCallbackSummary>,
     safety: Tracked<rcu_spec::RcuCallbackSafety>,
 }
@@ -211,7 +212,7 @@ impl RcuCallback {
     /// safe to run after a grace period.
     #[inline]
     fn from_raw(
-        raw: RawCallback,
+        raw: RawCallbackWithProof<RcuReclaimPermit>,
         Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>,
         Ghost(retire_epoch): Ghost<nat>,
         Ghost(retire_view): Ghost<ThreadView>,
@@ -219,6 +220,12 @@ impl RcuCallback {
     ) -> (res: Self)
         requires
             cert.removal().observed_by(retire_view),
+            forall|permit: RcuReclaimPermit|
+                permit.wf() && permit.callback().domain == cert.domain() && permit.callback().obj
+                    == cert.obj() && permit.callback().removal == cert.removal()
+                    && permit.callback().retire_observation_registry
+                    == cert.retire_observation_registry() && permit.callback().scheduler
+                    == scheduler ==> raw.call_requires(permit),
         ensures
             res.wf(),
             res@ == (rcu_spec::RcuCallbackSummary {
@@ -242,6 +249,11 @@ impl RcuCallback {
         };
         proof {
             cert.lemma_matches(summary);
+            assert forall|permit: RcuReclaimPermit|
+                permit.authorizes(summary) implies raw.call_requires(permit) by {
+                assert(permit.callback() == summary);
+                assert(permit.wf());
+            };
         }
         Self { raw, summary: Ghost(summary), safety: Tracked(cert) }
     }
@@ -249,26 +261,32 @@ impl RcuCallback {
     /// Runs the underlying callback once the monitor has completed the grace
     /// period that contained this callback's retire summary.
     ///
-    /// This remains an executable type-erasure boundary. `RcuReclaimPermit`
-    /// proves batch membership, weak-memory view coverage, and carries a
-    /// closed-generation resource for every online CPU. Recovering the
-    /// callback object's physical permission still depends on the separate
-    /// read-lease protocol.
+    /// `RcuReclaimPermit` proves batch membership, weak-memory view coverage,
+    /// and carries a closed-generation resource for every online CPU. The
+    /// proof token crosses the executable type-erasure boundary and is handed
+    /// to the concrete callback context. Recovering the callback object's
+    /// physical permission still depends on the separate read-lease protocol.
     #[inline]
-    #[verifier::external_body]
     unsafe fn call_once(self, Tracked(permit): Tracked<RcuReclaimPermit>)
         requires
             self.wf(),
             permit.authorizes(self@),
     {
+        proof {
+            use_type_invariant(&self);
+            use_type_invariant(&permit);
+            assert(self.raw.call_requires(permit));
+        }
         unsafe {
-            self.raw.call_once();
+            self.raw.call_once(Tracked(permit));
         }
     }
 
     closed spec fn wf(self) -> bool {
         &&& self.safety@.matches(self@)
         &&& self@.removal.observed_by(self@.retire_view)
+        &&& forall|permit: RcuReclaimPermit|
+            permit.authorizes(self@) ==> self.raw.call_requires(permit)
     }
 
     /// Duplicates the persistent base-retirement fact retained by this
@@ -316,7 +334,7 @@ tracked struct CompletedGracePeriod {
 /// Those resources classify every coexisting executable guard as a later
 /// reader whose start view observes the callback's removal. Physical
 /// permission recovery remains the responsibility of the read-lease layer.
-tracked struct RcuReclaimPermit {
+pub(super) tracked struct RcuReclaimPermit {
     summary: Ghost<rcu_spec::RcuCallbackSummary>,
     retired: rcu_spec::RcuRetiredFact,
     reports: Ghost<Map<CpuId, RcuCpuQuiescentReport>>,
@@ -324,18 +342,32 @@ tracked struct RcuReclaimPermit {
 }
 
 impl RcuReclaimPermit {
-    closed spec fn closed_generations(self) -> Map<CpuId, rcu_cpu_spec::CpuRcuClosedGeneration> {
+    pub closed spec fn callback(self) -> rcu_spec::RcuCallbackSummary {
+        self.summary@
+    }
+
+    pub closed spec fn reports(self) -> Map<CpuId, RcuCpuQuiescentReport> {
+        self.reports@
+    }
+
+    pub closed spec fn closed_generations(self) -> Map<
+        CpuId,
+        rcu_cpu_spec::CpuRcuClosedGeneration,
+    > {
         self.closed_generations
     }
 
-    closed spec fn authorizes(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
+    pub closed spec fn authorizes(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
         &&& self.summary@ == callback
+        &&& self.retired.wf()
         &&& self.retired.matches(callback)
+        &&& self.retired.record() == callback.retired_record()
         &&& self.reports@.dom() == online_cpus()
         &&& self.closed_generations().dom() == self.reports@.dom()
         &&& forall|cpu: CpuId| #[trigger]
             self.reports@.contains_key(cpu) ==> {
                 &&& self.reports@[cpu].cpu == cpu
+                &&& self.reports@[cpu].scheduler == callback.scheduler
                 &&& self.reports@[cpu].epoch == callback.retire_epoch
                 &&& self.reports@[cpu].matches_closed(self.closed_generations()[cpu])
                 &&& callback.retire_view.spec_le(self.reports@[cpu].view)
@@ -344,6 +376,15 @@ impl RcuReclaimPermit {
                     callback.retired_record(),
                 )
             }
+    }
+
+    /// Exposes the callback-specific authorization carried by this permit.
+    pub(super) proof fn lemma_authorizes_callback(tracked &self)
+        ensures
+            self.authorizes(self.callback()),
+            self.reports().dom() == online_cpus(),
+    {
+        use_type_invariant(self);
     }
 
     /// Classifies any still-live guard on a reported CPU as a later reader.
@@ -446,6 +487,108 @@ impl RcuReclaimPermit {
         assert(!guard.expired().contains(protected.obj()));
         assert(false);
     }
+
+    /// A completed callback excludes every active physical lease for its
+    /// retired allocation.
+    ///
+    /// The caller supplies the registry invariant connecting each matching
+    /// allocation key to the split CPU-reader fragment retained with that
+    /// lease. The conclusion is exactly the side condition required by
+    /// `RcuTrackedReadPoolRegistry::reclaim`.
+    pub(super) proof fn tracked_excludes_active_leases<T, O>(
+        tracked &self,
+        callback: rcu_spec::RcuCallbackSummary,
+        tracked registry: &mut RcuTrackedReadPoolRegistry<
+            nat,
+            O,
+            rcu_cpu_spec::CpuRcuReadLeaseWitness<T>,
+        >,
+    )
+        requires
+            self.authorizes(callback),
+            old(registry).wf(),
+            forall|lease_id: nat|
+                old(registry).active_ids().contains(lease_id) && old(registry).active_record(
+                    lease_id,
+                ).key() == callback.obj ==> {
+                    let witness = old(registry).active_record(lease_id).witness();
+                    &&& witness.wf()
+                    &&& witness.protected().obj() == callback.obj
+                    &&& witness.reader().cpu() == witness.paper_guard().reader().cpu
+                    &&& self.reports().contains_key(witness.reader().cpu())
+                    &&& callback.scheduler == witness.binding().registry()
+                    &&& callback.domain == witness.paper_guard().domain()
+                    &&& callback.retire_observation_registry
+                        == witness.paper_guard().retire_observation_registry()
+                    &&& callback.removal.root == witness.paper_guard().root()
+                },
+        ensures
+            *final(registry) == *old(registry),
+            (*final(registry)).wf(),
+            !(*final(registry)).has_active(callback.obj),
+    {
+        if old(registry).has_active(callback.obj) {
+            let ghost lease_id = choose|lease_id: nat|
+                old(registry).active_ids().contains(lease_id) && old(registry).active_record(
+                    lease_id,
+                ).key() == callback.obj;
+            let tracked witness = registry.tracked_borrow_active_witness_mut(lease_id);
+            assert(witness.wf());
+            let ghost cpu = witness.reader().cpu();
+            let tracked closed = self.closed_generations.tracked_borrow(cpu);
+            assert(self.reports@[cpu].matches_closed(*closed));
+            assert(closed.scheduler() == callback.scheduler);
+            witness.lemma_same_participant_as_closed(closed);
+            assert(witness.reader().participant_id() == closed.participant_id());
+            assert(closed.known_retired().contains(callback.retired_record()));
+            closed.lemma_later_lease_witness_ref(witness);
+            assert(witness.reader().known_retired().contains(callback.retired_record()));
+            assert(witness.paper_guard().expired().contains(callback.obj));
+            assert(witness.paper_guard().expired().subset_of(
+                witness.paper_guard().seen_removed().removed,
+            ));
+            assert(witness.paper_guard().seen_removed().removed.contains(callback.obj));
+            assert(!witness.protected().seen_removed().removed.contains(witness.protected().obj()));
+            assert(witness.protected().seen_removed() == witness.paper_guard().seen_removed());
+            assert(false);
+        }
+    }
+
+    /// Retains the completed per-CPU generations for future stale-history loads.
+    pub(super) proof fn tracked_into_reclaimed_witness(
+        tracked self,
+        callback: rcu_spec::RcuCallbackSummary,
+    ) -> (tracked res: rcu_cpu_spec::RcuReclaimedWitness)
+        requires
+            self.authorizes(callback),
+        ensures
+            res.wf(),
+            res.record() == callback.retired_record(),
+            res.scheduler() == callback.scheduler,
+    {
+        let tracked RcuReclaimPermit { summary: _, retired, reports: _, closed_generations } = self;
+        assert forall|cpu: CpuId| #[trigger] closed_generations.contains_key(cpu) implies {
+            let closed = closed_generations[cpu];
+            &&& closed.wf()
+            &&& closed.cpu() == cpu
+            &&& closed.scheduler() == callback.scheduler
+            &&& closed.known_retired().contains(callback.retired_record())
+        } by {};
+        rcu_cpu_spec::RcuReclaimedWitness::tracked_new(
+            callback.scheduler,
+            retired,
+            closed_generations,
+        )
+    }
+
+    pub closed spec fn wf(self) -> bool {
+        self.authorizes(self.callback())
+    }
+
+    #[verifier::type_invariant]
+    pub(super) closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
 }
 
 impl CompletedGracePeriod {
@@ -483,6 +626,7 @@ impl CompletedGracePeriod {
     closed spec fn callbacks_covered(self) -> bool {
         forall|i: int, cpu: CpuId|
             0 <= i < self.callbacks().len() && #[trigger] self.reports().contains_key(cpu) ==> {
+                &&& self.reports()[cpu].scheduler == self.callbacks()[i].scheduler
                 &&& (#[trigger] self.callbacks()[i]).retire_view.spec_le(self.reports()[cpu].view)
                 &&& self.closed_generations()[cpu].known_retired().contains(
                     self.callbacks()[i].retired_record(),
@@ -497,6 +641,7 @@ impl CompletedGracePeriod {
         &&& self.reports_wf()
         &&& forall|cpu: CpuId| #[trigger]
             self.reports().contains_key(cpu) ==> {
+                &&& self.reports()[cpu].scheduler == callback.scheduler
                 &&& callback.retire_view.spec_le(self.reports()[cpu].view)
                 &&& self.closed_generations()[cpu].known_retired().contains(
                     callback.retired_record(),
@@ -740,6 +885,10 @@ impl GracePeriod {
             forall|i: int|
                 0 <= i < callback_summaries(callbacks).len() ==> (#[trigger] callback_summaries(
                     callbacks,
+                )[i]).scheduler == rcu_spec::rcu_scheduler(),
+            forall|i: int|
+                0 <= i < callback_summaries(callbacks).len() ==> (#[trigger] callback_summaries(
+                    callbacks,
                 )[i]).retire_epoch == epoch,
         ensures
             final(self).callback_summaries() == callback_summaries(callbacks),
@@ -778,6 +927,7 @@ impl GracePeriod {
             online_cpus().contains(this_cpu),
             context.cpu == this_cpu,
             context.wf(),
+            context.scheduler == rcu_spec::rcu_scheduler(),
             old(self).tracked_closed_generations@.dom() == old(self).ghost_reports@.dom(),
             forall|i: int|
                 0 <= i < old(self).callback_summaries().len() ==> (#[trigger] old(
@@ -839,8 +989,12 @@ impl GracePeriod {
             assert(self.callback_summaries() == old(self).callback_summaries());
             assert forall|cpu: CpuId| #[trigger] self.ghost_reports@.contains_key(cpu) implies {
                 &&& self.ghost_reports@[cpu].cpu == cpu
+                &&& self.ghost_reports@[cpu].scheduler == rcu_spec::rcu_scheduler()
                 &&& self.ghost_reports@[cpu].epoch == self@.epoch
                 &&& self.ghost_reports@[cpu].matches_closed(self.tracked_closed_generations@[cpu])
+                &&& forall|i: int|
+                    0 <= i < self.callback_summaries().len() ==> (
+                    #[trigger] self.callback_summaries()[i]).scheduler == rcu_spec::rcu_scheduler()
                 &&& forall|i: int|
                     0 <= i < self.callback_summaries().len() ==> (
                     #[trigger] self.callback_summaries()[i]).retire_view.spec_le(
@@ -853,8 +1007,14 @@ impl GracePeriod {
                     )
             } by {
                 assert(self.tracked_closed_generations@.contains_key(cpu));
+                assert forall|i: int| 0 <= i < self.callback_summaries().len() implies (
+                #[trigger] self.callback_summaries()[i]).scheduler == rcu_spec::rcu_scheduler() by {
+                    assert(self.callback_summaries()[i] == old(self).callback_summaries()[i]);
+                };
                 if cpu == this_cpu {
                     assert(self.ghost_reports@[cpu] == report);
+                    assert(report.scheduler == context.scheduler);
+                    assert(report.scheduler == rcu_spec::rcu_scheduler());
                     assert(self.ghost_reports@[cpu].matches_closed(
                         self.tracked_closed_generations@[cpu],
                     ));
@@ -873,7 +1033,9 @@ impl GracePeriod {
                 } else {
                     assert(self.ghost_reports@[cpu] == old_reports[cpu]);
                     assert(old(self).ghost_reports@.contains_key(cpu));
+                    assert(old(self).ghost_reports@[cpu].scheduler == rcu_spec::rcu_scheduler());
                     assert(self.ghost_reports@[cpu] == old(self).ghost_reports@[cpu]);
+                    assert(self.ghost_reports@[cpu].scheduler == rcu_spec::rcu_scheduler());
                     assert(self.tracked_closed_generations@[cpu] == old(
                         self,
                     ).tracked_closed_generations@[cpu]);
@@ -917,6 +1079,9 @@ impl GracePeriod {
         &&& self.tracked_cpu_mask@.wf()
         &&& self.ghost_reports@.dom() == self.tracked_cpu_mask@.cpus()
         &&& self.tracked_closed_generations@.dom() == self.ghost_reports@.dom()
+        &&& forall|i: int|
+            0 <= i < self.callback_summaries().len() ==> (
+            #[trigger] self.callback_summaries()[i]).scheduler == rcu_spec::rcu_scheduler()
         &&& forall|cpu: CpuId| #[trigger]
             self.ghost_reports@.contains_key(cpu) ==> self.ghost_reports@[cpu].matches_closed(
                 self.tracked_closed_generations@[cpu],
@@ -924,6 +1089,7 @@ impl GracePeriod {
         &&& forall|cpu: CpuId| #[trigger]
             self.ghost_reports@.contains_key(cpu) ==> {
                 &&& self.ghost_reports@[cpu].cpu == cpu
+                &&& self.ghost_reports@[cpu].scheduler == rcu_spec::rcu_scheduler()
                 &&& self.ghost_reports@[cpu].epoch == self@.epoch
                 &&& forall|i: int|
                     0 <= i < self.callback_summaries().len() ==> (
@@ -1119,6 +1285,7 @@ impl State {
     fn enqueue_after_grace_period(&mut self, callback: RcuCallback) -> (started_gp: bool)
         requires
             callback.wf(),
+            callback@.scheduler == rcu_spec::rcu_scheduler(),
             callback@.retire_epoch == old(self).next_callback_epoch(),
             callback@.retire_view.spec_le(old(self).lock_view()),
         ensures
@@ -1194,6 +1361,7 @@ impl State {
             online_cpus().contains(this_cpu),
             context.cpu == this_cpu,
             context.wf(),
+            context.scheduler == rcu_spec::rcu_scheduler(),
             forall|i: int|
                 0 <= i < old(self).current_gp.callback_summaries().len() ==> (#[trigger] old(
                     self,
@@ -1222,11 +1390,13 @@ impl State {
         requires
             self.wf(),
             old(context).wf(),
+            old(context).scheduler() == rcu_spec::rcu_scheduler(),
             old(context).is_quiescent(),
             cpu == old(context).cpu(),
             self.tracked_retired_facts@.observed_by(old(context).irc11_view()),
         ensures
             res@.cpu == cpu,
+            res@.scheduler == rcu_spec::rcu_scheduler(),
             res@.view == old(context).irc11_view(),
             res@.wf(),
             self.tracked_retired_facts@.records().subset_of(res@.closed.known_retired()),
@@ -1277,6 +1447,7 @@ impl State {
             online_cpus().contains(this_cpu),
             context.cpu == this_cpu,
             context.wf(),
+            context.scheduler == rcu_spec::rcu_scheduler(),
             forall|i: int|
                 0 <= i < old(self).current_gp.callback_summaries().len() ==> (#[trigger] old(
                     self,
@@ -1343,6 +1514,11 @@ impl State {
                 proof {
                     completed_cpu_mask = self.current_gp.tracked_cpu_mask@.cpus();
                     completed_reports = self.current_gp.ghost_reports@;
+                    assert forall|cpu: CpuId| #[trigger]
+                        completed_reports.contains_key(cpu) implies completed_reports[cpu].scheduler
+                        == rcu_spec::rcu_scheduler() by {
+                        assert(self.current_gp.ghost_reports@.contains_key(cpu));
+                    };
                     completed_closed_generations_view = self.current_gp.tracked_closed_generations@;
                     assert(completed_cpu_mask == online_cpus());
                     assert(completed_closed_generations_view.dom() == completed_reports.dom());
@@ -1425,6 +1601,7 @@ impl State {
                     assert forall|i: int, cpu: CpuId|
                         0 <= i < completed.callbacks().len()
                             && #[trigger] completed.reports().contains_key(cpu) implies {
+                        &&& completed.reports()[cpu].scheduler == completed.callbacks()[i].scheduler
                         &&& (#[trigger] completed.callbacks()[i]).retire_view.spec_le(
                             completed.reports()[cpu].view,
                         )
@@ -1433,7 +1610,9 @@ impl State {
                         )
                     } by {
                         assert(completed.callbacks()[i] == initial_current_callbacks[i]);
+                        assert(completed.callbacks()[i].scheduler == rcu_spec::rcu_scheduler());
                         assert(completed.reports() == completed_reports);
+                        assert(completed.reports()[cpu].scheduler == rcu_spec::rcu_scheduler());
                         assert(completed.closed_generations()[cpu].known_retired()
                             == completed_closed_generations_view[cpu].known_retired());
                     };
@@ -1496,6 +1675,10 @@ impl State {
             #[trigger] callback_summaries(self.next_callbacks)[i]).retire_view.spec_le(
                 self.lock_view(),
             )
+        &&& forall|i: int|
+            0 <= i < callback_summaries(self.next_callbacks).len() ==> (
+            #[trigger] callback_summaries(self.next_callbacks)[i]).scheduler
+                == rcu_spec::rcu_scheduler()
         &&& self.tracked_retired_facts@.observed_by(self.lock_view())
         &&& forall|i: int|
             0 <= i < self.current_gp.callback_summaries().len()
@@ -1655,7 +1838,17 @@ impl RcuMonitor {
             Tracked(session): Tracked<&mut RunningTaskContext>,
         requires
             old(session).wf(),
+            old(session).scheduler() == rcu_spec::rcu_scheduler(),
             cert@.removal().observed_by(old(session).irc11_view()),
+            forall|permit: RcuReclaimPermit|
+                permit.wf()
+                    && permit.callback().domain == cert@.domain()
+                    && permit.callback().obj == cert@.obj()
+                    && permit.callback().removal == cert@.removal()
+                    && permit.callback().retire_observation_registry
+                        == cert@.retire_observation_registry()
+                    && permit.callback().scheduler == old(session).scheduler()
+                    ==> raw.call_requires(permit),
         ensures
             final(session).wf(),
             final(session).task() == old(session).task(),
@@ -1672,7 +1865,7 @@ impl RcuMonitor {
     )]
     pub(super) fn after_grace_period(
         &self,
-        raw: RawCallback,
+        raw: RawCallbackWithProof<RcuReclaimPermit>,
         cert: Tracked<rcu_spec::RcuCallbackSafety>,
     ) {
         proof {
@@ -1737,6 +1930,7 @@ impl RcuMonitor {
             Tracked(session): Tracked<&mut RunningTaskContext>,
         requires
             old(session).wf(),
+            old(session).scheduler() == rcu_spec::rcu_scheduler(),
             old(session).is_quiescent(),
         ensures
             final(session).wf(),
