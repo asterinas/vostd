@@ -2,7 +2,7 @@
 use vstd::thread_view::{ThreadView as Irc11ThreadView, ViewSeen};
 use vstd::{prelude::*, resource::Loc};
 use vstd_extra::atomic_irc11::ThreadViewOrder;
-use vstd_extra::resource::ghost_resource::{count::CountGhost, tokens::CountGhostResource};
+use vstd_extra::resource::ghost_resource::count_ghost::{CountGhost, CountGhostResource};
 
 use crate::{
     specs::sync::{
@@ -153,7 +153,7 @@ impl PreemptThreadViewSession {
             PREEMPT_SESSION_FRACTIONS,
         >::alloc(state);
         assert(tokens.is_full());
-        tokens.validate_full();
+        tokens.validate();
         assert(tokens.frac() == PREEMPT_SESSION_FRACTIONS);
         let tracked res = PreemptThreadViewSession { task_view, tokens };
         assert(res.available_fractions() == PREEMPT_SESSION_FRACTIONS);
@@ -373,7 +373,7 @@ impl PreemptThreadViewSession {
             quiescent_generation: generation + 1,
         };
         self.tokens.update(state);
-        self.tokens.validate_full();
+        self.tokens.validate();
         assert(self.tokens.frac() == PREEMPT_SESSION_FRACTIONS);
         assert(self.tokens@.task == self.task_view.task());
         generation

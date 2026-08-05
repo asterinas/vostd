@@ -4,7 +4,7 @@ use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::thread_view::Objective;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
 
 use core::{
