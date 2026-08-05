@@ -3239,7 +3239,7 @@ proof fn lemma_drop_segment_with_store_inv<'rcu>(
         reveal(VmStore::structural_inv);
     };
     assert forall|paddr: Paddr|
-        #![trigger old(regions).slot_owner(paddr)]
+        #![trigger store.regions.slot_owners[frame_to_index(paddr)]]
         (entry.range.start <= paddr < entry.range.end && paddr % PAGE_SIZE == 0) implies {
         let so = store.regions.slot_owner(paddr);
         &&& so.ref_count() >= 1
