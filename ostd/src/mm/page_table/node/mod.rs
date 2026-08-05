@@ -1114,7 +1114,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         excluded: vstd::set::Set<int>,
     ) -> bool {
         forall|paddr: crate::mm::Paddr|
-            #![trigger regions.slot_owners[frame_to_index(paddr)]]
+            #![trigger regions.slot_owner(paddr)]
             regions.slots.dom().contains(frame_to_index(paddr)) && !excluded.contains(
                 frame_to_index(paddr),
             ) ==> {
