@@ -752,9 +752,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     first_perm_idx + i <= j < last_perm_idx ==> (*regions).slot_owner(
-                        frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+                        (self.range.start + j * PAGE_SIZE) as usize
                     ) == old(regions).slot_owner(
-                        frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+                        (self.range.start + j * PAGE_SIZE) as usize
                     ),
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
