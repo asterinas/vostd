@@ -3222,22 +3222,6 @@ proof fn lemma_drop_segment_with_store_inv<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    hide(VmStore::inv);
-    hide(VmStore::structural_inv);
-    hide(VmStore::accounting_inv);
-    assert(store.structural_inv()) by {
-        reveal(VmStore::inv);
-    };
-    assert(store.accounting_inv()) by {
-        reveal(VmStore::inv);
-    };
-    assert(store.regions.inv()) by {
-        reveal(VmStore::structural_inv);
-    };
-    assert(entry.range.start % PAGE_SIZE == 0 && entry.range.end % PAGE_SIZE == 0
-        && entry.range.start < entry.range.end && entry.range.end <= MAX_PADDR) by {
-        reveal(VmStore::structural_inv);
-    };
     assert forall|paddr: Paddr|
         #![trigger store.regions.slot_owner(paddr)]
         (entry.range.start <= paddr < entry.range.end && paddr % PAGE_SIZE == 0) implies {
@@ -3247,20 +3231,12 @@ proof fn lemma_drop_segment_with_store_inv<'rcu>(
         &&& so.usage is Frame
         &&& so.ref_count() == 1 ==> so.paths_in_pt.is_empty()
     } by {
-        reveal(VmStore::structural_inv);
-        reveal(VmStore::accounting_inv);
         let idx = frame_to_index(paddr);
         lemma_segment_cover_contains(store.segments, sid, paddr);
         let so = store.regions.slot_owners[idx];
         let rc = so.ref_count();
         assert(store.regions.contains(idx));
         if rc == 1 {
-            assert(handle_count(store.frames, idx) + so.paths_in_pt.len() + segment_cover_count(
-                store.segments,
-                paddr,
-            ) == 1);
-            assert(so.paths_in_pt.len() == 0);
-            assert(so.paths_in_pt == Set::empty());
         }
     };
     segment::drop_step(regions, entry);
