@@ -679,9 +679,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         exists|j: int|
             #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
             (range.start as int) / (PAGE_SIZE as int) <= j < (range.end as int) / (PAGE_SIZE as int)
-                && regions.slot_owners[frame_to_index(
-                (self.start_paddr() + j * PAGE_SIZE) as usize,
-            )].ref_count() >= REF_COUNT_MAX
+                && regions.slot_owner((self.start_paddr() + j * PAGE_SIZE) as usize).ref_count()
+                >= REF_COUNT_MAX
     }
 
     // [FIXED] BUG FOUND BY FV: potential overflow. https://github.com/asterinas/asterinas/pull/3587
@@ -752,19 +751,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 first_perm_idx + i <= last_perm_idx,
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i <= j < last_perm_idx ==> (
-                    *regions).slot_owners[frame_to_index(
-                        (self.range.start + j * PAGE_SIZE) as usize,
-                    )] == old(regions).slot_owners[frame_to_index(
-                        (self.range.start + j * PAGE_SIZE) as usize,
-                    )],
+                    first_perm_idx + i <= j < last_perm_idx ==> (*regions).slot_owner(
+                        frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+                    ) == old(regions).slot_owner(
+                        frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+                    ),
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx <= j < first_perm_idx + i ==> old(
-                        regions,
-                    ).slot_owners[frame_to_index(
+                    first_perm_idx <= j < first_perm_idx + i ==> old(regions).slot_owner(
                         (self.range.start + j * PAGE_SIZE) as usize,
-                    )].ref_count() < REF_COUNT_MAX,
+                    ).ref_count() < REF_COUNT_MAX,
             decreases addr_len - i,
         {
             if paddr >= end {
@@ -787,11 +783,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 i = i + 1;
                 assert forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i <= j < last_perm_idx implies (
-                *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    == old(regions).slot_owners[frame_to_index(
+                    first_perm_idx + i <= j < last_perm_idx implies (*regions).slot_owner(
                     (self.range.start + j * PAGE_SIZE) as usize,
-                )] by {};
+                ) == old(regions).slot_owner((self.range.start + j * PAGE_SIZE) as usize) by {};
             }
         }
 

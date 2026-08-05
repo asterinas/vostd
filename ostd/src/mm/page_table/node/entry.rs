@@ -571,10 +571,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         && old(regions).slots.contains_key(i)
                     ==> final(regions).slots[i] == old(regions).slots[i]
                 // The new PT node's ref_count is not UNUSED (was set to 1 by get_from_unused).
-                &&& final(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr()->0)]
+                &&& final(regions).slot_owner(final(owner).value().meta_slot_paddr()->0)
                     .ref_count() != REF_COUNT_UNUSED
                 // The allocated slot had ref_count == UNUSED before allocation (from get_from_unused).
-                &&& old(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr().unwrap())]
+                &&& old(regions).slot_owner(final(owner).value().meta_slot_paddr().unwrap())
                     .ref_count() == REF_COUNT_UNUSED
                 // Allocator pool is disjoint from MMIO ranges (from `PageTableNode::alloc`).
                 &&& !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
@@ -1072,11 +1072,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     },
                 // j = 0: the huge frame's own slot.
                 regions.slots.contains_key(frame_to_index(pa)),
-                regions.slot_owners[frame_to_index(pa)].usage !is PageTable,
-                regions.slot_owners[frame_to_index(pa)].usage !is MMIO ==> {
-                    &&& regions.slot_owners[frame_to_index(pa)].ref_count() != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[frame_to_index(pa)].ref_count() > 0
-                    &&& regions.slot_owners[frame_to_index(pa)].ref_count() <= REF_COUNT_MAX
+                regions.slot_owner(pa).usage !is PageTable,
+                regions.slot_owner(pa).usage !is MMIO ==> {
+                    &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
+                    &&& 0 < regions.slot_owner(pa).ref_count() <= REF_COUNT_MAX
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
                 new_owner.value().node().metaregion_sound_node(*regions),
@@ -1532,9 +1531,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(owner).parent_level == old(new_owner).parent_level,
             old(new_owner).is_node() ==> {
                 &&& old(regions).slots.contains_key(frame_to_index(old(new_owner).meta_slot_paddr()->0))
-                &&& old(regions).slot_owners[frame_to_index(
-                    old(new_owner).meta_slot_paddr()->0,
-                )].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).slot_owner(old(new_owner).meta_slot_paddr()->0).ref_count() != REF_COUNT_UNUSED
             },
             old(parent_owner).metaregion_sound_node(*old(regions)),
             new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
@@ -1792,9 +1789,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 i != frame_to_index(final(owner).value().meta_slot_paddr()->0)
                     && old(regions).slots.contains_key(i)
                 ==> final(regions).slots[i] == old(regions).slots[i],
-            final(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr()->0)]
+            final(regions).slot_owner(final(owner).value().meta_slot_paddr()->0)
                 .ref_count() != REF_COUNT_UNUSED,
-            old(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr().unwrap())]
+            old(regions).slot_owner(final(owner).value().meta_slot_paddr().unwrap())
                 .ref_count() == REF_COUNT_UNUSED,
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 final(owner).value().meta_slot_paddr().unwrap()),

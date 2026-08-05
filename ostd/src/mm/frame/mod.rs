@@ -571,7 +571,7 @@ impl<M> Frame<M> {
             // down). The `unsafe` keyword still gates whether the produced
             // Frame corresponds to a real prior `into_raw`; this condition
             // only ensures the slot isn't a dead/unused one.
-            old(regions).slot_owners[frame_to_index(paddr)].ref_count()
+            old(regions).slot_owner(paddr).ref_count()
                 != REF_COUNT_UNUSED,
         ensures
             Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
@@ -840,37 +840,37 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         // The caller holds a reference, so rc > 0, and the slot must be live
         // (not the UNUSED sentinel). Saturation is caught at runtime by
         // `inc_ref_count`'s Arc-style abort.
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 0,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
+        old(regions).slot_owner(paddr).ref_count() > 0,
+        old(regions).slot_owner(paddr).ref_count()
             != REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
+        old(regions).slot_owner(paddr).ref_count()
             >= REF_COUNT_MAX ==> may_panic(),
     ensures
         final(regions).inv(),
-        final(regions).slot_owners[frame_to_index(paddr)].ref_count() == old(
+        final(regions).slot_owner(paddr).ref_count() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].ref_count() + 1,
-        final(regions).slot_owners[frame_to_index(paddr)].ref_count_perm.id() == old(
+        ).slot_owner(paddr).ref_count() + 1,
+        final(regions).slot_owner(paddr).ref_count_perm.id() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].ref_count_perm.id(),
-        final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
+        ).slot_owner(paddr).ref_count_perm.id(),
+        final(regions).slot_owner(paddr).storage_perm() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].storage_perm(),
-        final(regions).slot_owners[frame_to_index(paddr)].vtable_ptr_perm() == old(
+        ).slot_owner(paddr).storage_perm(),
+        final(regions).slot_owner(paddr).vtable_ptr_perm() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].vtable_ptr_perm(),
-        final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
+        ).slot_owner(paddr).vtable_ptr_perm(),
+        final(regions).slot_owner(paddr).in_list_perm == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].in_list_perm,
-        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
+        ).slot_owner(paddr).in_list_perm,
+        final(regions).slot_owner(paddr).paths_in_pt == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].paths_in_pt,
-        final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
+        ).slot_owner(paddr).paths_in_pt,
+        final(regions).slot_owner(paddr).slot_vaddr == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].slot_vaddr,
-        final(regions).slot_owners[frame_to_index(paddr)].usage == old(
+        ).slot_owner(paddr).slot_vaddr,
+        final(regions).slot_owner(paddr).usage == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].usage,
+        ).slot_owner(paddr).usage,
         final(regions).slots == old(regions).slots,
         forall|i: int|
             i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(

@@ -706,10 +706,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             self.meta_slot_paddr() is Some,
             self.meta_slot_paddr() == other.meta_slot_paddr(),
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr()->0)].paths_in_pt
-                == set![self.path],
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr()->0)].paths_in_pt
-                == set![other.path],
+            regions.slot_owner(self.meta_slot_paddr()->0).paths_in_pt == set![self.path],
+            regions.slot_owner(other.meta_slot_paddr()->0).paths_in_pt == set![other.path],
         ensures
             self.path == other.path,
     {
@@ -790,12 +788,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             self.is_node(),
             other.is_node(),
-            self.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(
+            self.meta_slot_paddr() is Some ==> regions.slot_owner(
                 self.meta_slot_paddr()->0,
-            )].paths_in_pt == set![self.path],
-            other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(
+            ).paths_in_pt == set![self.path],
+            other.meta_slot_paddr() is Some ==> regions.slot_owner(
                 other.meta_slot_paddr()->0,
-            )].paths_in_pt == set![other.path],
+            ).paths_in_pt == set![other.path],
             self.path != other.path,
         ensures
             self.node().meta_vaddr() != other.node().meta_vaddr(),

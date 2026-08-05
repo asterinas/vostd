@@ -161,8 +161,9 @@ impl MetaRegionOwners {
     {
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> self.slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty()
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) ==> self.slot_owner(
+                paddr,
+            ).paths_in_pt.is_empty()
     }
 
     pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
@@ -184,10 +185,8 @@ impl MetaRegionOwners {
             paddr < range.end,
             paddr % PAGE_SIZE == 0,
         ensures
-            self.slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
+            self.slot_owner(paddr).paths_in_pt.is_empty(),
     {
-        // The trigger frame_to_index(paddr) fires from the ensures clause,
-        // instantiating the forall in paddr_range_not_mapped at this paddr.
     }
 
     pub proof fn lemma_contains_valid_frame_paddr(self, paddr: usize)
@@ -197,6 +196,11 @@ impl MetaRegionOwners {
         ensures
             self.contains(frame_to_index(paddr)),
     {
+    }
+
+    /// Rertuns the `MetaSlotOwner`, indexed by frame paddr.
+    pub open spec fn slot_owner(self, paddr: Paddr) -> MetaSlotOwner {
+        self.slot_owners[frame_to_index(paddr)]
     }
 
     // ----------------------------------------------------------------------
