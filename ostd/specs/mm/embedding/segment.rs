@@ -89,7 +89,7 @@ pub axiom fn segment_from_unused_embedded(
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slot_owners[frame_to_index(paddr)]
+                ==> old(regions).slot_owner(paddr)
                         .ref_count() == REF_COUNT_UNUSED,
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
@@ -170,7 +170,7 @@ pub proof fn lemma_segment_drop_embedded(
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
-                    let so = old(regions).slot_owners[frame_to_index(paddr)];
+                    let so = old(regions).slot_owner(paddr);
                     &&& so.ref_count() >= 1
                     &&& so.ref_count()
                             <= REF_COUNT_MAX
@@ -258,12 +258,12 @@ pub proof fn segment_next_embedded(
         old(regions).inv(),
         valid_frame_paddr(paddr),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)]
+        old(regions).slot_owner(paddr)
                 .ref_count() >= 1,
-        old(regions).slot_owners[frame_to_index(paddr)]
+        old(regions).slot_owner(paddr)
                 .ref_count()
             <= REF_COUNT_MAX,
-        old(regions).slot_owners[frame_to_index(paddr)].usage
+        old(regions).slot_owner(paddr).usage
             is Frame,
     ensures
         final(regions).inv(),
@@ -310,7 +310,7 @@ pub(super) proof fn from_unused_step(
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slot_owners[frame_to_index(paddr)]
+                ==> old(regions).slot_owner(paddr)
                         .ref_count() == REF_COUNT_UNUSED,
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
@@ -367,10 +367,10 @@ pub(super) proof fn drop_step(
         entry.range.start < entry.range.end,
         entry.range.end <= MAX_PADDR,
         forall|paddr: Paddr|
-            #![trigger frame_to_index(paddr)]
+            #![trigger old(regions).slot_owner(paddr)]
             (entry.range.start <= paddr < entry.range.end
                 && paddr % PAGE_SIZE == 0) ==> {
-                let so = old(regions).slot_owners[frame_to_index(paddr)];
+                let so = old(regions).slot_owner(paddr);
                 &&& so.ref_count() >= 1
                 &&& so.ref_count()
                         <= REF_COUNT_MAX
@@ -432,7 +432,7 @@ pub axiom fn segment_clone_embedded(
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
-                    let so = old(regions).slot_owners[frame_to_index(paddr)];
+                    let so = old(regions).slot_owner(paddr);
                     &&& so.usage is Frame
                     &&& so.ref_count() >= 1
                     &&& so.ref_count() + 1 <= REF_COUNT_MAX
