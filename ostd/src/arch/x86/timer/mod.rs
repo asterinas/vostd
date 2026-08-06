@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The timer support.
+use vstd::prelude::*;
+
+verus! {
+
+/*
 mod apic;
 mod hpet;
 pub(crate) mod pit;
@@ -15,7 +20,7 @@ use crate::{
     timer::INTERRUPT_CALLBACKS,
     trap::{self, irq::IrqLine},
 };
-
+*/
 /// The timer frequency (Hz).
 ///
 /// Here we choose 1000Hz since 1000Hz is easier for unit conversion and
@@ -30,6 +35,7 @@ use crate::{
 /// / Divider)
 pub const TIMER_FREQ: u64 = 1000;
 
+/*
 static TIMER_IRQ: Once<IrqLine> = Once::new();
 
 /// Initializes the timer state and enable timer interrupts on BSP.
@@ -73,3 +79,5 @@ fn timer_callback(_: &TrapFrame) {
 
     apic::timer_callback();
 }
+*/
+} // verus!

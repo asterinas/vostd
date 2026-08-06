@@ -50,7 +50,7 @@ pub mod prelude;
 pub mod smp;*/
 pub mod sync;
 pub mod task;
-// pub mod timer;
+pub mod timer;
 pub mod trap;
 // pub mod user;
 #[path = "../specs/mod.rs"]

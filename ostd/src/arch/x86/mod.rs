@@ -12,9 +12,9 @@ pub(crate) mod mm;
 /*pub(crate) mod pci;
 pub mod qemu;
 pub(crate) mod serial;
-pub(crate) mod task;
+pub(crate) mod task; */
 pub mod timer;
-pub mod trap;*/
+/* pub mod trap; */
 
 /*use io::construct_io_mem_allocator_builder;
 use spin::Once;
