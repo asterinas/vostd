@@ -63,8 +63,9 @@ use crate::{
 };
 
 use super::{
-    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
+    Child, ChildRef, CurrentPagingConstsTrait, Entry, EntryOwner, FrameView, PageTable,
+    PageTableConfig, PageTableError, PageTableGuard, PageTablePageMeta, PagingConstsTrait,
+    PagingLevel, pte_index,
 };
 
 verus! {
@@ -1093,6 +1094,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
+                                C::lemma_current_paging_consts_requirements();
                                 assert(self.level < NR_LEVELS);
                             }
                         }

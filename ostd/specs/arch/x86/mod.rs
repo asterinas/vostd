@@ -3,13 +3,17 @@ use vstd::prelude::*;
 use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
 use vstd_extra::prelude::*;
 
+#[path = "../model.rs"]
+pub mod model;
+pub use model::*;
+
 use crate::specs::mm::{
     frame::mapping::lemma_meta_to_frame_soundness,
     page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
 };
 
 use crate::mm::{
-    Paddr, PagingConstsTrait, Vaddr,
+    CurrentPagingConstsTrait, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame},
     kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr},
     page_size,
@@ -43,16 +47,64 @@ pub open spec fn valid_frame_paddr(paddr: Paddr) -> bool {
     &&& paddr < MAX_PADDR
 }
 
-} // verus!
-verus! {
+/// The x86 instance of the architecture-wide specification contract.
+pub struct X86Arch;
+
+impl ArchPagingModel for X86Arch {
+    type C = crate::arch::mm::PagingConsts;
+
+    open spec fn max_paddr_spec() -> Paddr {
+        MAX_PADDR
+    }
+
+    proof fn lemma_paging_model_requirements() {
+        Self::C::lemma_paging_consts_requirements();
+
+    }
+}
+
+impl ArchAddressSpaceModel for X86Arch {
+    open spec fn linear_mapping_base_vaddr_spec() -> Vaddr {
+        LINEAR_MAPPING_BASE_VADDR
+    }
+
+    open spec fn vmalloc_base_vaddr_spec() -> Vaddr {
+        VMALLOC_BASE_VADDR
+    }
+
+    proof fn lemma_address_space_model_requirements() {
+        Self::C::lemma_paging_consts_requirements();
+        Self::lemma_paging_model_requirements();
+        assert(Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE() == 0)
+            by (compute_only);
+
+        assert(Self::max_paddr_spec() < Self::vmalloc_base_vaddr_spec()
+            - Self::linear_mapping_base_vaddr_spec()) by (compute_only);
+
+    }
+}
+
+impl ArchTrait for X86Arch {
+
+}
+
+/// The architecture selected by the current verification target.
+pub type CurrentArch = X86Arch;
+
+pub proof fn lemma_valid_frame_paddr_model_equivalent(paddr: Paddr)
+    ensures
+        valid_frame_paddr(paddr) == model::valid_frame_paddr_for::<CurrentArch>(paddr),
+{
+    CurrentArch::lemma_paging_model_requirements();
+}
 
 pub proof fn lemma_linear_mapping_base_vaddr_properties()
     ensures
         LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0,
         LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR,
 {
-    assert(LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0) by (compute_only);
-    assert(LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR) by (compute_only);
+    CurrentArch::lemma_address_space_model_requirements();
+
 }
 
 /// There is not an executable version in the source code.
@@ -61,7 +113,7 @@ pub open spec fn vaddr_to_paddr(va: Vaddr) -> usize
     recommends
         LINEAR_MAPPING_BASE_VADDR <= va < VMALLOC_BASE_VADDR,
 {
-    (va - LINEAR_MAPPING_BASE_VADDR) as usize
+    model::vaddr_to_paddr_for::<CurrentArch>(va)
 }
 
 pub broadcast proof fn lemma_paddr_to_vaddr_properties(pa: Paddr)
@@ -87,8 +139,8 @@ pub proof fn lemma_max_paddr_range()
         MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
         MAX_PADDR + LINEAR_MAPPING_BASE_VADDR < usize::MAX,
 {
-    assert(MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR) by (compute_only);
-    assert(MAX_PADDR + LINEAR_MAPPING_BASE_VADDR < usize::MAX) by (compute_only);
+    CurrentArch::lemma_address_space_model_requirements();
+
 }
 
 pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
@@ -113,7 +165,7 @@ pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
 
 // Here are some architecture-specific const value properties.
 // Any use of this lemma in architecture-independent code should be removed.
-pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>()
+pub(crate) proof fn lemma_arch_specific_consts_properties<C: CurrentPagingConstsTrait>()
     ensures
         C::BASE_PAGE_SIZE().ilog2() == 12u32,
         nr_pte_index_bits_spec::<C>() == 9usize,
@@ -127,6 +179,7 @@ pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>(
         0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint,
 {
     C::lemma_paging_consts_properties();
+    C::lemma_current_paging_consts_requirements();
     lemma2_to64();
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);
@@ -134,6 +187,19 @@ pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>(
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
     lemma_pow2_adds(8, 39);
+}
+
+/// Verification-root regression for the RISC-V Sv48 paging/PTE model.
+pub proof fn lemma_riscv_sv48_model_regression(paddr: Paddr)
+    requires
+        paddr % 4096 == 0,
+        paddr < crate::specs::riscv_arch::RISCV_SV48_MAX_PADDR,
+    ensures
+        crate::specs::riscv_arch::RiscvPteModel::new_pt_spec(paddr).paddr_spec() == paddr,
+{
+    crate::specs::riscv_arch::RiscvSv48PagingConsts::lemma_paging_consts_properties();
+    crate::specs::riscv_arch::RiscvPagingModel::lemma_paging_model_requirements();
+    crate::specs::riscv_arch::lemma_riscv_paddr_roundtrip(paddr);
 }
 
 } // verus!
