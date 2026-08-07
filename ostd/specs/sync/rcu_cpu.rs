@@ -1299,6 +1299,21 @@ impl<T> CpuRcuReadGuardToken<T> {
         ensures
             res.0 == self.paper_guard(),
             res.1 == self.reader_fragment(),
+            res.2 == self.binding(),
+            res.0.domain() == self.domain(),
+            res.0.reader_registry() == self.reader_registry(),
+            res.0.reader() == self.reader_context(),
+            res.0.root() == self.root(),
+            res.0.start_view() == self.start_view(),
+            res.0.retire_observation_registry() == self.retire_observation_registry(),
+            res.0.expired() == self.expired(),
+            res.0.seen_removed() == self.seen_removed(),
+            res.0.protected() == self.protected(),
+            res.1.participant_id() == self.participant_id(),
+            res.1.cpu() == self.cpu(),
+            res.1.generation() == self.generation(),
+            res.1.participant_view() == self.participant_view(),
+            res.1.known_retired() == self.known_retired(),
             res.2.registry() == self.scheduler(),
             res.2.cpu() == self.cpu(),
             res.2.locals_key().len() == 1,
@@ -1306,6 +1321,7 @@ impl<T> CpuRcuReadGuardToken<T> {
             res.0.wf(),
             res.1.wf(),
             res.0.reader().cpu == res.1.cpu(),
+            res.0.reader().generation == res.1.generation(),
             res.1.participant_view().spec_le(res.0.start_view()),
             forall|record: RcuRetiredRecord| #[trigger]
                 res.1.known_retired().contains(record) && record.domain == res.0.domain()
@@ -2064,6 +2080,18 @@ impl<T, O> RcuRootPermissionState<T, O> {
         self.reclaim_state@
     }
 
+    /// Every allocation retained by the append-only identity registry has a
+    /// corresponding reclaim-state cell, including after that cell changes
+    /// from `Some(ptr)` to `None` at reclamation.
+    pub proof fn lemma_allocation_has_reclaim_state(tracked &self, obj: nat)
+        requires
+            self.wf(),
+            self.allocations().contains(obj),
+        ensures
+            self.reclaim_states().dom().contains(obj),
+    {
+    }
+
     pub closed spec fn unretired_claims(self) -> Map<nat, GhostPointsTo<nat, Option<*mut T>>> {
         self.unretired_claims
     }
@@ -2391,10 +2419,127 @@ impl<T, O> RcuRootPermissionState<T, O> {
         RcuReclaimClaim { points_to }
     }
 
-    /// Splits a physical read lease for the object selected by a guarded load.
+    /// Splits a physical read lease for an allocation already protected by a
+    /// traversal-level guard.
     ///
-    /// The CPU reader fragment is split at the same time and its matching half
-    /// is retained in the active registry record.
+    /// Unlike [`Self::tracked_split_loaded`], this transition borrows the
+    /// explicit [`RcuProtectedPtr`] minted by a traversal step.  This lets an
+    /// internal-link load use the same AId-indexed physical pool as a direct
+    /// root load without reconstructing protection from the guard map.  A
+    /// persistent copy is retained in the active registry record while the
+    /// caller keeps the original for further traversal.  The CPU reader
+    /// fragment is split at the same time.
+    pub proof fn tracked_split_protected(
+        tracked &mut self,
+        tracked guard: CpuRcuReadGuardToken<T>,
+        tracked protected: &RcuProtectedPtr<T>,
+    ) -> (tracked res: (CpuRcuReadGuardToken<T>, RcuRootReadLease<O>))
+        requires
+            old(self).wf(),
+            old(self).contains(protected.obj()),
+            guard.wf(),
+            guard.scheduler() == old(self).scheduler(),
+            protected.domain() == old(self).domain(),
+            protected.protected_by(guard.paper_guard()),
+            guard.domain() == old(self).domain(),
+            guard.root() == old(self).root(),
+            guard.retire_observation_registry() == old(self).retire_observation_registry(),
+            online_cpus().contains(guard.cpu()),
+        ensures
+            final(self).wf(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).domain() == old(self).domain(),
+            final(self).root() == old(self).root(),
+            final(self).retire_observation_registry() == old(self).retire_observation_registry(),
+            final(self).reclaim_registry() == old(self).reclaim_registry(),
+            final(self).active_lease_registry() == old(self).active_lease_registry(),
+            final(self).keys() == old(self).keys(),
+            final(self).allocations() == old(self).allocations(),
+            final(self).reclaim_states() == old(self).reclaim_states(),
+            final(self).reclaimed() == old(self).reclaimed(),
+            final(self).unretired_claims() == old(self).unretired_claims(),
+            forall|candidate: nat| #[trigger]
+                final(self).has_unretired_claim(candidate) == old(self).has_unretired_claim(
+                    candidate,
+                ),
+            forall|obj: nat| #[trigger]
+                old(self).contains(obj) ==> final(self).ownership(obj) == old(self).ownership(obj),
+            res.0.wf(),
+            res.0.paper_guard() == guard.paper_guard(),
+            res.0.binding() == guard.binding(),
+            res.0.participant_id() == guard.participant_id(),
+            res.0.scheduler() == guard.scheduler(),
+            res.0.cpu() == guard.cpu(),
+            res.0.generation() == guard.generation(),
+            res.0.participant_view() == guard.participant_view(),
+            res.0.known_retired() == guard.known_retired(),
+            res.0.domain() == guard.domain(),
+            res.0.root() == guard.root(),
+            res.0.reader_registry() == guard.reader_registry(),
+            res.0.retire_observation_registry() == guard.retire_observation_registry(),
+            res.0.reader_context() == guard.reader_context(),
+            res.0.start_view() == guard.start_view(),
+            res.0.expired() == guard.expired(),
+            res.0.seen_removed() == guard.seen_removed(),
+            res.0.protected() == guard.protected(),
+            res.0.reader_fragment().fraction() == guard.reader_fragment().fraction() / 2real,
+            res.1.key() == protected.obj(),
+            res.1.resource() == old(self).ownership(protected.obj()),
+            res.1.active_registry() == old(self).active_lease_registry(),
+            res.1.participant_id() == guard.participant_id(),
+            res.1.reader_fraction() == res.0.reader_fragment().fraction(),
+            res.1.domain() == guard.domain(),
+            res.1.root() == guard.root(),
+            res.1.reader_context() == guard.reader_context(),
+            res.1.start_view() == guard.start_view(),
+            res.1.protected_addr() == protected.ptr().addr(),
+            final(self).active_ids() == old(self).active_ids().insert(res.1.lease_id()),
+            final(self).active_record(res.1.lease_id()).witness().paper_guard()
+                == guard.paper_guard(),
+            final(self).active_record(res.1.lease_id()).witness().protected() == *protected,
+    {
+        let tracked saved_protected = protected.tracked_duplicate();
+        let tracked (guard, witness) = CpuRcuReadLeaseWitness::tracked_from_guard(
+            guard,
+            saved_protected,
+        );
+        let tracked lease = self.registry.split_lease(protected.obj(), witness);
+        let ghost binding = RcuActiveLeaseBinding::from_record(
+            self.active_record(lease.lease_id()),
+        );
+        reveal(RcuActiveLeaseBinding::from_record);
+        assert(self.active_record(lease.lease_id()).witness() == witness);
+        assert(self.active_record(lease.lease_id()).witness().protected() == *protected);
+        assert(binding.protected_addr == protected.ptr().addr());
+        let tracked active = self.active_leases.insert(lease.lease_id(), binding);
+        assert forall|lease_id: nat| #[trigger] self.active_ids().contains(lease_id) implies {
+            let record = self.active_record(lease_id);
+            let witness = record.witness();
+            &&& witness.wf()
+            &&& record.key() == witness.protected().obj()
+            &&& witness.protected().domain() == self.domain()
+            &&& witness.paper_guard().domain() == self.domain()
+            &&& witness.paper_guard().root() == self.root()
+            &&& witness.paper_guard().retire_observation_registry()
+                == self.retire_observation_registry()
+        } by {
+            if lease_id == lease.lease_id() {
+                assert(self.active_record(lease_id).witness() == witness);
+                assert(self.active_record(lease_id).key() == protected.obj());
+            } else {
+                assert(old(self).active_ids().contains(lease_id));
+                assert(self.active_record(lease_id) == old(self).active_record(lease_id));
+            }
+        };
+        let tracked lease = RcuRootReadLease { lease, active };
+        (guard, lease)
+    }
+
+    /// Splits a physical read lease for the object selected by a direct-root
+    /// guarded load.
+    ///
+    /// The direct-root adapter materializes the same traversal protection
+    /// witness and delegates to [`Self::tracked_split_protected`].
     pub proof fn tracked_split_loaded(
         tracked &mut self,
         tracked guard: CpuRcuReadGuardToken<T>,
@@ -2466,42 +2611,11 @@ impl<T, O> RcuRootPermissionState<T, O> {
                 == guard.paper_guard(),
             final(self).active_record(res.1.lease_id()).witness().protected().obj() == info.obj(),
     {
-        let tracked (guard, witness) = CpuRcuReadLeaseWitness::tracked_from_loaded_guard(
-            guard,
-            info,
-        );
-        let tracked lease = self.registry.split_lease(info.obj(), witness);
-        let ghost binding = RcuActiveLeaseBinding::from_record(
-            self.active_record(lease.lease_id()),
-        );
-        reveal(RcuActiveLeaseBinding::from_record);
-        assert(self.active_record(lease.lease_id()).witness() == witness);
-        assert(self.active_record(lease.lease_id()).witness().protected().ptr() == info.ptr());
+        let tracked protected = RcuProtectedPtr::tracked_from_guard(&guard.paper_guard, info);
+        let tracked res = self.tracked_split_protected(guard, &protected);
         info.lemma_wf_facts();
-        assert(info.addr() == info.ptr().addr());
-        assert(binding.protected_addr == info.addr());
-        let tracked active = self.active_leases.insert(lease.lease_id(), binding);
-        assert forall|lease_id: nat| #[trigger] self.active_ids().contains(lease_id) implies {
-            let record = self.active_record(lease_id);
-            let witness = record.witness();
-            &&& witness.wf()
-            &&& record.key() == witness.protected().obj()
-            &&& witness.protected().domain() == self.domain()
-            &&& witness.paper_guard().domain() == self.domain()
-            &&& witness.paper_guard().root() == self.root()
-            &&& witness.paper_guard().retire_observation_registry()
-                == self.retire_observation_registry()
-        } by {
-            if lease_id == lease.lease_id() {
-                assert(self.active_record(lease_id).witness() == witness);
-                assert(self.active_record(lease_id).key() == info.obj());
-            } else {
-                assert(old(self).active_ids().contains(lease_id));
-                assert(self.active_record(lease_id) == old(self).active_record(lease_id));
-            }
-        };
-        let tracked lease = RcuRootReadLease { lease, active };
-        (guard, lease)
+        assert(res.1.protected_addr() == info.ptr().addr());
+        res
     }
 
     /// Returns one physical lease and rejoins its CPU fragment with the
@@ -2619,6 +2733,69 @@ impl<T, O> RcuRootPermissionState<T, O> {
             self.has_unretired_claim(obj) == old(self).has_unretired_claim(obj) by {};
         assert forall|obj: nat| #[trigger] self.contains(obj) == old(self).contains(obj) by {};
         guard
+    }
+
+    /// A completed grace period rules out every still-active lease for the
+    /// retired allocation.
+    ///
+    /// Any lease coexisting with the persistent closed-generation report must
+    /// be a later reader. Such a reader already knows the retirement record,
+    /// so its paper guard marks the allocation expired. That contradicts the
+    /// same lease's protection witness.
+    pub proof fn lemma_completed_excludes_active(
+        tracked &mut self,
+        tracked completed: &RcuReclaimedWitness,
+        obj: nat,
+    )
+        requires
+            old(self).wf(),
+            completed.wf(),
+            completed.scheduler() == old(self).scheduler(),
+            completed.record().domain == old(self).domain(),
+            completed.record().obj == obj,
+            completed.record().retire_observation_registry == old(
+                self,
+            ).retire_observation_registry(),
+            completed.record().removal.root == old(self).root(),
+        ensures
+            *final(self) == *old(self),
+            !final(self).has_active(obj),
+    {
+        if self.has_active(obj) {
+            assert(exists|lease_id: nat|
+                self.active_ids().contains(lease_id) && self.active_record(lease_id).key() == obj);
+            let ghost lease_id = choose|lease_id: nat|
+                self.active_ids().contains(lease_id) && self.active_record(lease_id).key() == obj;
+            let ghost record = self.active_record(lease_id);
+            assert(record.key() == obj);
+            assert(record.witness().wf());
+            assert(record.witness().binding().registry() == self.scheduler());
+            assert(record.witness().protected().obj() == obj);
+            assert(record.witness().protected().domain() == self.domain());
+            assert(record.witness().paper_guard().domain() == self.domain());
+            assert(record.witness().paper_guard().root() == self.root());
+            assert(record.witness().paper_guard().retire_observation_registry()
+                == self.retire_observation_registry());
+            let tracked witness = self.registry.tracked_borrow_active_witness_mut(lease_id);
+            assert(*witness == record.witness());
+            let tracked closed = completed.tracked_closed_generation(witness.reader().cpu());
+            witness.lemma_same_participant_as_closed(closed);
+            assert(closed.participant_id() == witness.reader().participant_id());
+            closed.lemma_later_lease_witness_ref(witness);
+            assert(closed.known_retired().contains(completed.record()));
+            assert(completed.record().domain == witness.paper_guard().domain());
+            assert(completed.record().retire_observation_registry
+                == witness.paper_guard().retire_observation_registry());
+            assert(completed.record().removal.root == witness.paper_guard().root());
+            assert(witness.reader().known_retired().contains(completed.record()));
+            assert(witness.paper_guard().expired().contains(obj));
+            assert(witness.protected().protected_by(witness.paper_guard()));
+            assert(!witness.paper_guard().seen_removed().removed.contains(obj));
+            assert(witness.paper_guard().expired().subset_of(
+                witness.paper_guard().seen_removed().removed,
+            ));
+            assert(false);
+        }
     }
 
     /// Recovers one allocation after completion has ruled out every active

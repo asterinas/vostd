@@ -1821,6 +1821,15 @@ impl<T> RcuLinkView<T> {
             marker: self.marker,
         }
     }
+
+    /// Observing one source never moves any source's traversal position
+    /// backwards.
+    pub proof fn lemma_observe_monotonic(self, obj: nat, n: LinkIndex, other: nat)
+        ensures
+            self.seen_at(other) <= self.observe(obj, n).seen_at(other),
+            self.seen_at(obj) <= n ==> self.observe(obj, n).seen_at(obj) == n,
+    {
+    }
 }
 
 /// Paper-style `SeenRemoved(D, LV)`.
@@ -3430,6 +3439,92 @@ impl<T> RcuReadGuardToken<T> {
     {
         self.base.tracked_protect(info);
     }
+
+    /// Records a coherent observation of the next link event from an already
+    /// protected source. The returned source witness is refreshed to carry the
+    /// guard's advanced link-view snapshot.
+    pub proof fn tracked_observe_link(
+        tracked &mut self,
+        tracked from: RcuProtectedPtr<T>,
+        n: LinkIndex,
+    ) -> (tracked res: RcuProtectedPtr<T>)
+        requires
+            old(self).wf(),
+            from.protected_by(*old(self)),
+            old(self).seen_at(from.obj()) <= n,
+        ensures
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).tid() == old(self).tid(),
+            final(self).reader_registry() == old(self).reader_registry(),
+            final(self).reader() == old(self).reader(),
+            final(self).root() == old(self).root(),
+            final(self).start_view() == old(self).start_view(),
+            final(self).retire_observation_registry() == old(self).retire_observation_registry(),
+            final(self).expired() == old(self).expired(),
+            final(self).protected() == old(self).protected(),
+            final(self).seen_removed().removed == old(self).seen_removed().removed,
+            final(self).link_view() == old(self).link_view().observe(from.obj(), n),
+            final(self).seen_at(from.obj()) == n,
+            res.domain() == from.domain(),
+            res.obj() == from.obj(),
+            res.ptr() == from.ptr(),
+            res.protected_by(*final(self)),
+    {
+        let ghost old_expired = self.expired();
+        let ghost old_removed = self.seen_removed.removed;
+        let ghost seen_removed = RcuSeenRemoved {
+            removed: old_removed,
+            link_view: self.seen_removed.link_view.observe(from.obj(), n),
+        };
+        self.seen_removed = seen_removed;
+        assert(self.expired() == old_expired);
+        assert(self.seen_removed.removed == old_removed);
+        assert(self.expired().subset_of(self.seen_removed.removed));
+        assert(self.wf());
+        RcuProtectedPtr { domain: from.domain(), obj: from.obj(), ptr: from.ptr(), seen_removed }
+    }
+
+    /// In-place form of [`tracked_observe_link`](Self::tracked_observe_link).
+    /// This is convenient for atomic loads, which must advance the guard and
+    /// its source protection witness to the same traversal snapshot.
+    pub proof fn tracked_observe_link_in_place(
+        tracked &mut self,
+        tracked from: &mut RcuProtectedPtr<T>,
+        n: LinkIndex,
+    )
+        requires
+            old(self).wf(),
+            old(from).protected_by(*old(self)),
+            old(self).seen_at(old(from).obj()) <= n,
+        ensures
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).tid() == old(self).tid(),
+            final(self).reader_registry() == old(self).reader_registry(),
+            final(self).reader() == old(self).reader(),
+            final(self).root() == old(self).root(),
+            final(self).start_view() == old(self).start_view(),
+            final(self).retire_observation_registry() == old(self).retire_observation_registry(),
+            final(self).expired() == old(self).expired(),
+            final(self).protected() == old(self).protected(),
+            final(self).seen_removed().removed == old(self).seen_removed().removed,
+            final(self).link_view() == old(self).link_view().observe(old(from).obj(), n),
+            final(self).seen_at(old(from).obj()) == n,
+            final(from).domain() == old(from).domain(),
+            final(from).obj() == old(from).obj(),
+            final(from).ptr() == old(from).ptr(),
+            final(from).protected_by(*final(self)),
+    {
+        let ghost seen_removed = RcuSeenRemoved {
+            removed: self.seen_removed.removed,
+            link_view: self.seen_removed.link_view.observe(from.obj(), n),
+        };
+        self.seen_removed = seen_removed;
+        from.seen_removed = seen_removed;
+        assert(self.wf());
+        assert(from.protected_by(*self));
+    }
 }
 
 /// A pointer protected by a live read-side guard.
@@ -3460,6 +3555,24 @@ impl<T> RcuProtectedPtr<T> {
 
     pub closed spec fn seen_removed(self) -> RcuSeenRemoved<T> {
         self.seen_removed
+    }
+
+    /// Duplicates the persistent fact that this pointer is protected by its
+    /// recorded guard snapshot.
+    ///
+    /// The witness contains only ghost identities and observations; it owns
+    /// no linear physical resource.  Traversal can therefore retain one copy
+    /// while another is recorded in a physical read lease.
+    pub proof fn tracked_duplicate(tracked &self) -> (tracked res: Self)
+        ensures
+            res == *self,
+    {
+        RcuProtectedPtr {
+            domain: self.domain,
+            obj: self.obj,
+            ptr: self.ptr,
+            seen_removed: self.seen_removed,
+        }
     }
 
     pub open spec fn protected_by(self, guard: RcuReadGuardToken<T>) -> bool {
@@ -3611,6 +3724,12 @@ pub proof fn protect_link<S: RcuTraversalSafety>(
         to_protected.protected_by(*final(guard)),
         final(guard).wf(),
         final(guard).domain() == old(guard).domain(),
+        final(guard).tid() == old(guard).tid(),
+        final(guard).reader_registry() == old(guard).reader_registry(),
+        final(guard).reader() == old(guard).reader(),
+        final(guard).root() == old(guard).root(),
+        final(guard).start_view() == old(guard).start_view(),
+        final(guard).retire_observation_registry() == old(guard).retire_observation_registry(),
         final(guard).expired() == old(guard).expired(),
         final(guard).seen_removed() == old(guard).seen_removed(),
         S::node_inv(to, to_info.obj(), g),
@@ -3640,21 +3759,1308 @@ pub struct LinkedListNode;
 /// Paper-style ghost state for a linked list.
 ///
 /// `successors[p]` is the successor history for `p`, corresponding to
-/// `RcuPointsTo(p, s)`.
+/// `RcuPointsTo(p, s)`. A non-null event records both the pointer and its AId;
+/// retaining the AId prevents an old history event from being reinterpreted as
+/// a different allocation after address reuse.
 ///
 /// `incoming_all[p]` is the set of all incoming edges that have ever pointed to
 /// `p`, corresponding to the authoritative incoming set in `RcuPointedBy(p, B)`.
 ///
-/// `current_incoming[p]` is the current incoming set `B`. It is not required for
-/// the simple one-step traversal proof below, but keeping it in the ghost state
-/// makes the example match the paper's predicate shape.
 pub ghost struct LinkedListGhost {
     pub root: *mut LinkedListNode,
     pub root_obj: nat,
-    pub objects: Map<*mut LinkedListNode, nat>,
-    pub successors: Map<*mut LinkedListNode, Seq<Option<*mut LinkedListNode>>>,
+    /// Historical allocation registry, keyed by AId rather than address.
+    /// Distinct reclaimed and newly registered objects may therefore retain
+    /// the same pointer without collapsing their identities.
+    pub objects: Map<nat, *mut LinkedListNode>,
+    /// Per-allocation link histories. An address is not a valid history key:
+    /// after reuse, the old and new allocations must have disjoint histories.
+    pub successors: Map<nat, Seq<Option<(*mut LinkedListNode, nat)>>>,
     pub incoming_all: Map<nat, Set<LinkEdge>>,
-    pub current_incoming: Map<nat, Set<LinkEdge>>,
+}
+
+impl LinkedListGhost {
+    /// Current `RcuPointedBy` set, derived from the latest event of every
+    /// source. Keeping it derived avoids a second mutable representation of
+    /// the same link relation.
+    pub open spec fn current_incoming(self, to_obj: nat) -> Set<LinkEdge> {
+        if self.incoming_all.contains_key(to_obj) {
+            self.incoming_all[to_obj].filter(
+                |edge: LinkEdge|
+                    self.objects.contains_key(edge.0) && self.successors.contains_key(edge.0)
+                        && self.successors[edge.0].len() > 0 && edge.1
+                        == self.successors[edge.0].len() - 1
+                        && self.successors[edge.0].last() is Some
+                        && self.successors[edge.0].last()->Some_0.1 == to_obj,
+            )
+        } else {
+            Set::empty()
+        }
+    }
+
+    /// Every recorded history event names a registered allocation and appears
+    /// in that allocation's authoritative incoming-edge history.
+    pub open spec fn wf(self) -> bool {
+        &&& self.objects.contains_pair(self.root_obj, self.root)
+        &&& self.successors.dom() == self.objects.dom()
+        &&& self.incoming_all.dom() == self.objects.dom()
+        &&& forall|from_obj: nat, n: LinkIndex|
+            #![trigger self.objects.contains_key(from_obj), self.successors[from_obj][n as int]]
+            self.objects.contains_key(from_obj) && n < self.successors[from_obj].len()
+                && self.successors[from_obj][n as int] is Some ==> {
+                let event = self.successors[from_obj][n as int]->Some_0;
+                &&& self.objects.contains_pair(event.1, event.0)
+                &&& self.incoming_all[event.1].contains((from_obj, n))
+            }
+    }
+
+    /// A link view cannot claim an event newer than the source's history.
+    pub open spec fn bounds(self, view: RcuLinkView<LinkedListNode>) -> bool {
+        forall|from_obj: nat| #[trigger]
+            self.objects.contains_key(from_obj) && view.seen.contains_key(from_obj) ==> {
+                &&& self.successors[from_obj].len() > 0
+                &&& view.seen_at(from_obj) < self.successors[from_obj].len()
+            }
+    }
+}
+
+/// Linear writer authority for the linked-list traversal history.
+///
+/// Clients can inspect [`LinkedListGhost`] snapshots, but only this tracked
+/// authority can append link events and turn a node's unique base permission
+/// into [`RcuRetirePerm`]. This is the proof-only analogue of owning all
+/// `RcuPointsTo`/`RcuPointedBy` resources for one list.
+pub tracked struct LinkedListTraversalAuth {
+    ghost domain: Loc,
+    ghost state: LinkedListGhost,
+    ghost removed: Set<nat>,
+    infos: Map<nat, RcuBlockInfo<LinkedListNode>>,
+    retire_perms: Map<nat, RcuBaseRetirePerm<LinkedListNode>>,
+}
+
+impl LinkedListTraversalAuth {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn state(self) -> LinkedListGhost {
+        self.state
+    }
+
+    /// Objects whose removal has already been certified by this authority.
+    pub closed spec fn removed(self) -> Set<nat> {
+        self.removed
+    }
+
+    pub closed spec fn has_retire_perm(self, obj: nat) -> bool {
+        self.retire_perms.contains_key(obj)
+    }
+
+    pub closed spec fn has_info(self, obj: nat) -> bool {
+        self.infos.contains_key(obj)
+    }
+
+    pub closed spec fn info(self, obj: nat) -> RcuBlockInfo<LinkedListNode>
+        recommends
+            self.has_info(obj),
+    {
+        self.infos[obj]
+    }
+
+    pub closed spec fn wf(self) -> bool {
+        &&& self.state().wf()
+        &&& self.infos.dom() == self.state().incoming_all.dom()
+        &&& forall|obj: nat| #[trigger]
+            self.infos.contains_key(obj) ==> {
+                let info = self.infos[obj];
+                &&& info.wf()
+                &&& info.domain() == self.domain()
+                &&& info.obj() == obj
+                &&& self.state().objects.contains_pair(obj, info.ptr())
+            }
+        &&& forall|obj: nat| #[trigger]
+            self.retire_perms.contains_key(obj) ==> {
+                let perm = self.retire_perms[obj];
+                &&& perm.wf()
+                &&& perm.domain() == self.domain()
+                &&& self.state().objects.contains_pair(obj, perm.ptr())
+                &&& perm.obj() == obj
+            }
+    }
+
+    /// Starts an authoritative list with one registered root allocation.
+    pub proof fn tracked_new(
+        tracked root_info: &RcuBlockInfo<LinkedListNode>,
+        tracked root_retire: RcuBaseRetirePerm<LinkedListNode>,
+    ) -> (tracked res: Self)
+        requires
+            root_info.wf(),
+            root_retire.wf(),
+            root_retire.domain() == root_info.domain(),
+            root_retire.obj() == root_info.obj(),
+            root_retire.ptr() == root_info.ptr(),
+        ensures
+            res.wf(),
+            res.domain() == root_info.domain(),
+            res.state().root == root_info.ptr(),
+            res.state().root_obj == root_info.obj(),
+            res.state().objects == Map::empty().insert(root_info.obj(), root_info.ptr()),
+            res.state().successors == Map::empty().insert(root_info.obj(), Seq::empty()),
+            res.state().incoming_all == Map::empty().insert(root_info.obj(), Set::empty()),
+            res.removed() == Set::empty(),
+            res.has_info(root_info.obj()),
+            res.info(root_info.obj()).ptr() == root_info.ptr(),
+            res.has_retire_perm(root_info.obj()),
+            forall|obj: nat| #[trigger] res.has_retire_perm(obj) <==> obj == root_info.obj(),
+    {
+        let ghost state = LinkedListGhost {
+            root: root_info.ptr(),
+            root_obj: root_info.obj(),
+            objects: Map::empty().insert(root_info.obj(), root_info.ptr()),
+            successors: Map::empty().insert(root_info.obj(), Seq::empty()),
+            incoming_all: Map::empty().insert(root_info.obj(), Set::empty()),
+        };
+        let tracked mut infos = Map::tracked_empty();
+        let tracked saved_root_info = root_info.tracked_duplicate();
+        infos.tracked_insert(root_info.obj(), saved_root_info);
+        let tracked mut retire_perms = Map::tracked_empty();
+        retire_perms.tracked_insert(root_info.obj(), root_retire);
+        LinkedListTraversalAuth {
+            domain: root_info.domain(),
+            state,
+            removed: Set::empty(),
+            infos,
+            retire_perms,
+        }
+    }
+
+    /// Adds a separately registered allocation to this list's traversal
+    /// authority. Registration alone does not publish an incoming link.
+    pub proof fn tracked_register_node(
+        tracked &mut self,
+        tracked info: &RcuBlockInfo<LinkedListNode>,
+        tracked retire: RcuBaseRetirePerm<LinkedListNode>,
+    )
+        requires
+            old(self).wf(),
+            info.wf(),
+            retire.wf(),
+            info.domain() == old(self).domain(),
+            retire.domain() == old(self).domain(),
+            retire.obj() == info.obj(),
+            retire.ptr() == info.ptr(),
+            !old(self).state().objects.contains_key(info.obj()),
+            !old(self).state().incoming_all.contains_key(info.obj()),
+            !old(self).has_retire_perm(info.obj()),
+        ensures
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).state().root == old(self).state().root,
+            final(self).state().root_obj == old(self).state().root_obj,
+            final(self).state().objects == old(self).state().objects.insert(info.obj(), info.ptr()),
+            final(self).state().successors == old(self).state().successors.insert(
+                info.obj(),
+                Seq::empty(),
+            ),
+            final(self).state().incoming_all == old(self).state().incoming_all.insert(
+                info.obj(),
+                Set::empty(),
+            ),
+            final(self).removed() == old(self).removed(),
+            final(self).has_info(info.obj()),
+            final(self).info(info.obj()).ptr() == info.ptr(),
+            final(self).has_retire_perm(info.obj()),
+    {
+        let ghost old_state = self.state;
+        self.state = LinkedListGhost {
+            root: self.state.root,
+            root_obj: self.state.root_obj,
+            objects: self.state.objects.insert(info.obj(), info.ptr()),
+            successors: self.state.successors.insert(info.obj(), Seq::empty()),
+            incoming_all: self.state.incoming_all.insert(info.obj(), Set::empty()),
+        };
+        let tracked saved_info = info.tracked_duplicate();
+        self.infos.tracked_insert(info.obj(), saved_info);
+        self.retire_perms.tracked_insert(info.obj(), retire);
+        assert(self.state.successors.dom() == self.state.objects.dom());
+        assert(self.state.incoming_all.dom() == self.state.objects.dom());
+        assert forall|from_obj: nat, n: LinkIndex|
+            #![trigger self.state.objects.contains_key(from_obj), self.state.successors[from_obj][n as int]]
+            self.state.objects.contains_key(from_obj) && n < self.state.successors[from_obj].len()
+                && self.state.successors[from_obj][n as int] is Some implies {
+            let event = self.state.successors[from_obj][n as int]->Some_0;
+            &&& self.state.objects.contains_pair(event.1, event.0)
+            &&& self.state.incoming_all[event.1].contains((from_obj, n))
+        } by {
+            assert(from_obj != info.obj());
+            assert(old_state.objects.contains_key(from_obj));
+            assert(old_state.successors[from_obj] == self.state.successors[from_obj]);
+        };
+        assert(self.state.wf());
+        assert(self.infos.dom() == self.state.incoming_all.dom());
+        assert forall|obj: nat| #[trigger] self.infos.contains_key(obj) implies {
+            let saved = self.infos[obj];
+            &&& saved.wf()
+            &&& saved.domain() == self.domain()
+            &&& saved.obj() == obj
+            &&& self.state.objects.contains_pair(obj, saved.ptr())
+        } by {
+            if obj != info.obj() {
+                assert(old(self).infos.contains_key(obj));
+            }
+        };
+        assert forall|obj: nat| #[trigger] self.retire_perms.contains_key(obj) implies {
+            let perm = self.retire_perms[obj];
+            &&& perm.wf()
+            &&& perm.domain() == self.domain()
+            &&& self.state.objects.contains_pair(obj, perm.ptr())
+            &&& perm.obj() == obj
+        } by {
+            if obj != info.obj() {
+                assert(old(self).retire_perms.contains_key(obj));
+            }
+        };
+    }
+
+    /// Copies the persistent allocation identity used by an atomic link
+    /// message without exposing the authority's internal registry.
+    pub proof fn tracked_info_for(tracked &self, obj: nat) -> (tracked res: RcuBlockInfo<
+        LinkedListNode,
+    >)
+        requires
+            self.wf(),
+            self.has_info(obj),
+        ensures
+            res.wf(),
+            res.domain() == self.domain(),
+            res.obj() == obj,
+            res.ptr() == self.info(obj).ptr(),
+            self.state().objects.contains_pair(obj, res.ptr()),
+    {
+        let tracked info = self.infos.tracked_borrow(obj);
+        info.tracked_duplicate()
+    }
+
+    /// Opens the registry-domain consequence needed by traversal adapters.
+    pub proof fn lemma_has_info_for_object(tracked &self, obj: nat)
+        requires
+            self.wf(),
+            self.state().incoming_all.contains_key(obj),
+        ensures
+            self.has_info(obj),
+    {
+        assert(self.infos.dom() == self.state().incoming_all.dom());
+    }
+
+    /// Installs the initial null event for a newly created atomic link.
+    /// Subsequent changes to this source must use the publish/unlink rules.
+    pub proof fn tracked_initialize_null(
+        tracked &mut self,
+        from: *mut LinkedListNode,
+        from_obj: nat,
+    ) -> (n: LinkIndex)
+        requires
+            old(self).wf(),
+            old(self).state().objects.contains_pair(from_obj, from),
+            old(self).state().successors[from_obj].len() == 0,
+            !old(self).removed().contains(from_obj),
+        ensures
+            n == 0,
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).state().root == old(self).state().root,
+            final(self).state().root_obj == old(self).state().root_obj,
+            final(self).state().objects == old(self).state().objects,
+            final(self).state().successors == old(self).state().successors.insert(
+                from_obj,
+                old(self).state().successors[from_obj].push(None),
+            ),
+            final(self).state().incoming_all == old(self).state().incoming_all,
+            final(self).removed() == old(self).removed(),
+            forall|obj: nat| #[trigger]
+                final(self).has_retire_perm(obj) == old(self).has_retire_perm(obj),
+    {
+        let ghost old_state = self.state;
+        self.state = LinkedListGhost {
+            root: old_state.root,
+            root_obj: old_state.root_obj,
+            objects: old_state.objects,
+            successors: old_state.successors.insert(
+                from_obj,
+                old_state.successors[from_obj].push(None),
+            ),
+            incoming_all: old_state.incoming_all,
+        };
+        assert(old_state.successors.contains_key(from_obj));
+        assert(self.state.objects.contains_pair(self.state.root_obj, self.state.root));
+        assert(self.state.successors.dom() == self.state.objects.dom());
+        assert forall|source: *mut LinkedListNode, source_obj: nat, i: LinkIndex|
+            #![trigger self.state.objects.contains_pair(source_obj, source), self.state.successors[source_obj][i as int]]
+            self.state.objects.contains_pair(source_obj, source)
+                && self.state.successors.contains_key(source_obj) && i
+                < self.state.successors[source_obj].len()
+                && self.state.successors[source_obj][i as int] is Some implies {
+            let event = self.state.successors[source_obj][i as int]->Some_0;
+            &&& self.state.objects.contains_pair(event.1, event.0)
+            &&& self.state.incoming_all[event.1].contains((source_obj, i))
+        } by {
+            if source_obj == from_obj {
+                assert(i == 0);
+                assert(self.state.successors[source_obj][i as int] is None);
+                assert(false);
+            }
+            assert(old_state.objects.contains_pair(source_obj, source));
+            assert(old_state.successors[source_obj] == self.state.successors[source_obj]);
+        };
+        assert(self.state.wf());
+        assert(self.infos.dom() == self.state.incoming_all.dom());
+        0
+    }
+
+    /// Publishes (or replaces with) a non-null successor and returns the new
+    /// source-history index.
+    pub proof fn tracked_publish_link(
+        tracked &mut self,
+        from: *mut LinkedListNode,
+        from_obj: nat,
+        to: *mut LinkedListNode,
+        to_obj: nat,
+    ) -> (n: LinkIndex)
+        requires
+            old(self).wf(),
+            old(self).state().objects.contains_pair(from_obj, from),
+            old(self).state().objects.contains_pair(to_obj, to),
+            !old(self).removed().contains(from_obj),
+            !old(self).removed().contains(to_obj),
+        ensures
+            n == old(self).state().successors[from_obj].len(),
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).state().root == old(self).state().root,
+            final(self).state().root_obj == old(self).state().root_obj,
+            final(self).state().objects == old(self).state().objects,
+            final(self).state().successors == old(self).state().successors.insert(
+                from_obj,
+                old(self).state().successors[from_obj].push(Some((to, to_obj))),
+            ),
+            final(self).state().incoming_all == old(self).state().incoming_all.insert(
+                to_obj,
+                old(self).state().incoming_all[to_obj].insert((from_obj, n)),
+            ),
+            final(self).removed() == old(self).removed(),
+            forall|obj: nat| #[trigger]
+                final(self).has_retire_perm(obj) == old(self).has_retire_perm(obj),
+            LinkedListTraversalSpec::link_inv(from, from_obj, n, to, to_obj, final(self).state()),
+    {
+        let ghost old_state = self.state;
+        let n = old_state.successors[from_obj].len();
+        self.state = LinkedListGhost {
+            root: old_state.root,
+            root_obj: old_state.root_obj,
+            objects: old_state.objects,
+            successors: old_state.successors.insert(
+                from_obj,
+                old_state.successors[from_obj].push(Some((to, to_obj))),
+            ),
+            incoming_all: old_state.incoming_all.insert(
+                to_obj,
+                old_state.incoming_all[to_obj].insert((from_obj, n)),
+            ),
+        };
+        assert(old_state.successors.contains_key(from_obj));
+        assert(old_state.incoming_all.contains_key(to_obj));
+        assert(self.state.objects.contains_pair(self.state.root_obj, self.state.root));
+        assert(self.state.successors.dom() == self.state.objects.dom());
+        assert(self.state.incoming_all.dom() == self.state.objects.dom());
+        assert forall|source: *mut LinkedListNode, source_obj: nat, i: LinkIndex|
+            #![trigger self.state.objects.contains_pair(source_obj, source), self.state.successors[source_obj][i as int]]
+            self.state.objects.contains_pair(source_obj, source)
+                && self.state.successors.contains_key(source_obj) && i
+                < self.state.successors[source_obj].len()
+                && self.state.successors[source_obj][i as int] is Some implies {
+            let event = self.state.successors[source_obj][i as int]->Some_0;
+            &&& self.state.objects.contains_pair(event.1, event.0)
+            &&& self.state.incoming_all[event.1].contains((source_obj, i))
+        } by {
+            if source_obj == from_obj && i == n {
+                assert(self.state.successors[source_obj][i as int] == Some((to, to_obj)));
+            } else {
+                assert(i < old_state.successors[source_obj].len());
+                assert(self.state.successors[source_obj][i as int]
+                    == old_state.successors[source_obj][i as int]);
+                let event = old_state.successors[source_obj][i as int]->Some_0;
+                assert(old_state.incoming_all[event.1].contains((source_obj, i)));
+                assert(self.state.incoming_all[event.1].contains((source_obj, i)));
+            }
+        };
+        assert(self.state.wf());
+        assert(self.infos.dom() == self.state.incoming_all.dom());
+        assert forall|obj: nat| #[trigger] self.infos.contains_key(obj) implies {
+            let info = self.infos[obj];
+            &&& info.wf()
+            &&& info.domain() == self.domain()
+            &&& info.obj() == obj
+            &&& self.state.objects.contains_pair(obj, info.ptr())
+        } by {
+            let ghost saved = self.infos[obj];
+            assert(old_state.objects.contains_pair(obj, saved.ptr()));
+        };
+        n
+    }
+
+    /// Appends a null event after the expected current successor. The old
+    /// incoming edge remains in `incoming_all`, but is no longer current.
+    pub proof fn tracked_unlink(
+        tracked &mut self,
+        from: *mut LinkedListNode,
+        from_obj: nat,
+        to: *mut LinkedListNode,
+        to_obj: nat,
+    ) -> (n: LinkIndex)
+        requires
+            old(self).wf(),
+            old(self).state().objects.contains_pair(from_obj, from),
+            old(self).state().objects.contains_pair(to_obj, to),
+            !old(self).removed().contains(from_obj),
+            old(self).state().successors[from_obj].len() > 0,
+            old(self).state().successors[from_obj].last() == Some((to, to_obj)),
+        ensures
+            n == old(self).state().successors[from_obj].len(),
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).state().root == old(self).state().root,
+            final(self).state().root_obj == old(self).state().root_obj,
+            final(self).state().objects == old(self).state().objects,
+            final(self).state().successors == old(self).state().successors.insert(
+                from_obj,
+                old(self).state().successors[from_obj].push(None),
+            ),
+            final(self).state().incoming_all == old(self).state().incoming_all,
+            final(self).removed() == old(self).removed(),
+            forall|obj: nat| #[trigger]
+                final(self).has_retire_perm(obj) == old(self).has_retire_perm(obj),
+            !final(self).state().current_incoming(to_obj).contains((from_obj, (n - 1) as nat)),
+    {
+        let ghost old_state = self.state;
+        let n = old_state.successors[from_obj].len();
+        self.state = LinkedListGhost {
+            root: old_state.root,
+            root_obj: old_state.root_obj,
+            objects: old_state.objects,
+            successors: old_state.successors.insert(
+                from_obj,
+                old_state.successors[from_obj].push(None),
+            ),
+            incoming_all: old_state.incoming_all,
+        };
+        assert(old_state.successors.contains_key(from_obj));
+        assert(self.state.objects.contains_pair(self.state.root_obj, self.state.root));
+        assert(self.state.successors.dom() == self.state.objects.dom());
+        assert forall|source: *mut LinkedListNode, source_obj: nat, i: LinkIndex|
+            #![trigger self.state.objects.contains_pair(source_obj, source), self.state.successors[source_obj][i as int]]
+            self.state.objects.contains_pair(source_obj, source)
+                && self.state.successors.contains_key(source_obj) && i
+                < self.state.successors[source_obj].len()
+                && self.state.successors[source_obj][i as int] is Some implies {
+            let event = self.state.successors[source_obj][i as int]->Some_0;
+            &&& self.state.objects.contains_pair(event.1, event.0)
+            &&& self.state.incoming_all[event.1].contains((source_obj, i))
+        } by {
+            if source_obj == from_obj && i == n {
+                assert(self.state.successors[source_obj][i as int] is None);
+                assert(false);
+            }
+            assert(i < old_state.successors[source_obj].len());
+            assert(self.state.successors[source_obj][i as int]
+                == old_state.successors[source_obj][i as int]);
+        };
+        assert(self.state.wf());
+        n
+    }
+
+    /// Applies the paper's traversal retire rule. The prior observation must
+    /// already cover every historical incoming edge; this authority is the
+    /// only public producer of the resulting high-level retire permission.
+    pub proof fn tracked_retire_node(
+        tracked &mut self,
+        obj: nat,
+        prior: RcuSeenRemoved<LinkedListNode>,
+    ) -> (tracked res: RcuRetirePerm<LinkedListNode>)
+        requires
+            old(self).wf(),
+            old(self).has_retire_perm(obj),
+            old(self).has_info(obj),
+            obj != old(self).state().root_obj,
+            old(self).state().incoming_all[obj].len() > 0,
+            prior.removed == old(self).removed(),
+            old(self).state().bounds(prior.link_view),
+            LinkedListTraversalSpec::seen_removed_sound(prior, old(self).state()),
+            forall|edge: LinkEdge| #[trigger]
+                old(self).state().incoming_all[obj].contains(edge) ==> prior.dead_edge(edge),
+        ensures
+            final(self).wf(),
+            final(self).domain() == old(self).domain(),
+            final(self).state() == old(self).state(),
+            final(self).removed() == old(self).removed().insert(obj),
+            !final(self).has_retire_perm(obj),
+            final(self).has_info(obj),
+            final(self).info(obj) == old(self).info(obj),
+            res.wf(),
+            res.ready_to_retire(),
+            res.domain() == old(self).domain(),
+            res.obj() == obj,
+            old(self).state().objects.contains_pair(obj, res.ptr()),
+            res.seen_removed().removed == prior.removed.insert(obj),
+            res.seen_removed().link_view == prior.link_view,
+            LinkedListTraversalSpec::seen_removed_sound(res.seen_removed(), final(self).state()),
+    {
+        assert(self.state().objects.contains_pair(obj, self.retire_perms[obj].ptr()));
+        let tracked base = self.retire_perms.tracked_remove(obj);
+        let ghost seen_removed = RcuSeenRemoved {
+            removed: prior.removed.insert(obj),
+            link_view: prior.link_view,
+        };
+        self.removed = self.removed.insert(obj);
+        assert forall|to_obj: nat| #[trigger] seen_removed.removed.contains(to_obj) implies {
+            &&& self.state.incoming_all.contains_key(to_obj)
+            &&& forall|edge: LinkEdge| #[trigger]
+                self.state.incoming_all[to_obj].contains(edge) ==> seen_removed.dead_edge(edge)
+        } by {
+            if to_obj == obj {
+                assert(self.state.incoming_all.contains_key(obj));
+            } else {
+                assert(prior.removed.contains(to_obj));
+            }
+        };
+        RcuRetirePerm { base, seen_removed }
+    }
+}
+
+/// Native IRC11 timestamp metadata for one linked-list atomic link.
+///
+/// Native histories use abstract timestamps, whereas the traversal proof uses
+/// dense per-source event indices. This linear ghost state records their
+/// explicit correspondence; no equality between the two namespaces is
+/// assumed.
+pub tracked struct LinkedListLinkObservation {
+    fact: GhostPersistentPointsTo<nat, LinkIndex>,
+    ghost loc: Irc11AtomicId,
+    ghost view: Irc11ThreadView,
+}
+
+impl LinkedListLinkObservation {
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        vstd_extra::atomic_irc11::timestamp_in_view(self.loc(), self.view()) == Some(
+            self.timestamp(),
+        )
+    }
+
+    /// Persistent registry that certifies this timestamp/index pair.
+    pub closed spec fn registry(self) -> Loc {
+        self.fact.id()
+    }
+
+    /// Native IRC11 timestamp observed by the load.
+    pub closed spec fn timestamp(self) -> nat {
+        self.fact.key()
+    }
+
+    /// Dense traversal-history index corresponding to [`Self::timestamp`].
+    pub closed spec fn index(self) -> LinkIndex {
+        self.fact.value()
+    }
+
+    /// Native atomic location whose timestamp was observed.
+    pub closed spec fn loc(self) -> Irc11AtomicId {
+        self.loc
+    }
+
+    /// Subjective view immediately after the load that minted this token.
+    pub closed spec fn view(self) -> Irc11ThreadView {
+        self.view
+    }
+
+    /// Exposes the native view projection retained by this persistent
+    /// observation without revealing its private representation.
+    pub proof fn lemma_view_timestamp(tracked &self)
+        ensures
+            vstd_extra::atomic_irc11::timestamp_in_view(self.loc(), self.view()) == Some(
+                self.timestamp(),
+            ),
+    {
+        use_type_invariant(self);
+    }
+
+    /// Duplicates the persistent timestamp/index observation.
+    pub proof fn tracked_duplicate(tracked &self) -> (tracked res: Self)
+        ensures
+            res.registry() == self.registry(),
+            res.timestamp() == self.timestamp(),
+            res.index() == self.index(),
+            res.loc() == self.loc(),
+            res.view() == self.view(),
+    {
+        use_type_invariant(self);
+        LinkedListLinkObservation { fact: self.fact.duplicate(), loc: self.loc, view: self.view }
+    }
+}
+
+pub tracked struct LinkedListAtomicLinkGhost {
+    ghost source: *mut LinkedListNode,
+    ghost source_obj: nat,
+    ghost timestamp_to_index: Map<nat, LinkIndex>,
+    timestamp_registry: GhostMapAuth<nat, LinkIndex>,
+    timestamp_facts: Map<nat, GhostPersistentPointsTo<nat, LinkIndex>>,
+    ghost current_timestamp: nat,
+}
+
+impl LinkedListAtomicLinkGhost {
+    pub closed spec fn source(self) -> *mut LinkedListNode {
+        self.source
+    }
+
+    pub closed spec fn source_obj(self) -> nat {
+        self.source_obj
+    }
+
+    pub closed spec fn timestamps(self) -> Map<nat, LinkIndex> {
+        self.timestamp_to_index
+    }
+
+    /// Append-only registry used to issue persistent load observations.
+    pub closed spec fn timestamp_registry(self) -> Loc {
+        self.timestamp_registry.id()
+    }
+
+    pub closed spec fn certified_timestamps(self) -> Map<nat, LinkIndex> {
+        self.timestamp_registry@
+    }
+
+    pub closed spec fn observation_facts(self) -> Map<
+        nat,
+        GhostPersistentPointsTo<nat, LinkIndex>,
+    > {
+        self.timestamp_facts
+    }
+
+    pub closed spec fn current_timestamp(self) -> nat {
+        self.current_timestamp
+    }
+
+    pub open spec fn index_at(self, timestamp: nat) -> LinkIndex
+        recommends
+            self.timestamps().contains_key(timestamp),
+    {
+        self.timestamps()[timestamp]
+    }
+
+    /// Agreement among the native atomic history, dense traversal history,
+    /// and persistent allocation identities retained by the list authority.
+    pub open spec fn wf(
+        self,
+        history: Irc11History<*mut LinkedListNode>,
+        auth: LinkedListTraversalAuth,
+    ) -> bool {
+        &&& auth.wf()
+        &&& auth.state().objects.contains_pair(self.source_obj(), self.source())
+        &&& !auth.removed().contains(self.source_obj())
+        &&& history.is_max_timestamp(self.current_timestamp())
+        &&& self.timestamps().dom() == history.dom()
+        &&& self.certified_timestamps() == self.timestamps()
+        &&& self.observation_facts().dom() == self.timestamps().dom()
+        &&& forall|timestamp: nat| #[trigger]
+            self.observation_facts().contains_key(timestamp) ==> {
+                let fact = self.observation_facts()[timestamp];
+                &&& fact.id() == self.timestamp_registry()
+                &&& fact.key() == timestamp
+                &&& fact.value() == self.timestamps()[timestamp]
+            }
+        &&& auth.state().successors[self.source_obj()].len() > 0
+        &&& self.index_at(self.current_timestamp()) + 1
+            == auth.state().successors[self.source_obj()].len()
+        &&& forall|timestamp: nat|
+            history.contains_timestamp(timestamp) ==> {
+                let n = #[trigger] self.timestamps()[timestamp];
+                &&& n < auth.state().successors[self.source_obj()].len()
+                &&& match auth.state().successors[self.source_obj()][n as int] {
+                    None => history.value(timestamp).addr() == 0,
+                    Some((ptr, obj)) => {
+                        &&& history.value(timestamp).addr() != 0
+                        &&& equal(ptr, history.value(timestamp))
+                        &&& auth.has_info(obj)
+                        &&& auth.info(obj).ptr() == ptr
+                    },
+                }
+            }
+        &&& forall|earlier: nat, later: nat|
+            #![trigger self.timestamps()[earlier], self.timestamps()[later]]
+            history.contains_timestamp(earlier) && history.contains_timestamp(later) ==> (earlier
+                < later <==> self.index_at(earlier) < self.index_at(later))
+    }
+
+    /// Creates the timestamp mapping for an atomic link initialized to null.
+    pub proof fn tracked_initial_null(
+        history: Irc11History<*mut LinkedListNode>,
+        timestamp: nat,
+        message_view: Irc11ThreadView,
+        tracked auth: &LinkedListTraversalAuth,
+        source: *mut LinkedListNode,
+        source_obj: nat,
+    ) -> (tracked res: Self)
+        requires
+            auth.wf(),
+            auth.state().objects.contains_pair(source_obj, source),
+            !auth.removed().contains(source_obj),
+            auth.state().successors[source_obj] == Seq::empty().push(None),
+            history.is_singleton(timestamp, (core::ptr::null_mut(), message_view)),
+        ensures
+            res.wf(history, *auth),
+            res.source() == source,
+            res.source_obj() == source_obj,
+            res.timestamps() == Map::empty().insert(timestamp, 0),
+            res.current_timestamp() == timestamp,
+    {
+        assert(history.is_max_timestamp(timestamp));
+        assert(history.dom() == Set::empty().insert(timestamp)) by {
+            assert forall|ts: nat|
+                history.dom().contains(ts) <==> Set::empty().insert(timestamp).contains(ts) by {
+                if history.dom().contains(ts) {
+                    assert(history.contains_timestamp(ts));
+                    assert(ts == timestamp);
+                }
+            };
+        };
+        let tracked (mut timestamp_registry, _timestamp_entries) = GhostMapAuth::new(Map::empty());
+        let tracked initial_fact = timestamp_registry.insert(timestamp, 0).persist();
+        let tracked mut timestamp_facts = Map::tracked_empty();
+        timestamp_facts.tracked_insert(timestamp, initial_fact);
+        let tracked res = LinkedListAtomicLinkGhost {
+            source,
+            source_obj,
+            timestamp_to_index: Map::empty().insert(timestamp, 0),
+            timestamp_registry,
+            timestamp_facts,
+            current_timestamp: timestamp,
+        };
+        assert forall|ts: nat| history.contains_timestamp(ts) implies {
+            let n = #[trigger] res.timestamps()[ts];
+            &&& n < auth.state().successors[source_obj].len()
+            &&& match auth.state().successors[source_obj][n as int] {
+                None => history.value(ts).addr() == 0,
+                Some((ptr, obj)) => {
+                    &&& history.value(ts).addr() != 0
+                    &&& equal(ptr, history.value(ts))
+                    &&& auth.has_info(obj)
+                    &&& auth.info(obj).ptr() == ptr
+                },
+            }
+        } by {
+            assert(ts == timestamp);
+        };
+        assert forall|earlier: nat, later: nat|
+            #![trigger res.timestamps()[earlier], res.timestamps()[later]]
+            history.contains_timestamp(earlier) && history.contains_timestamp(later) implies (
+        earlier < later <==> res.index_at(earlier) < res.index_at(later)) by {
+            assert(earlier == timestamp);
+            assert(later == timestamp);
+        };
+        res
+    }
+
+    /// Issues persistent evidence for one native timestamp's dense index.
+    pub proof fn tracked_observation_at(
+        tracked &self,
+        history: Irc11History<*mut LinkedListNode>,
+        tracked auth: &LinkedListTraversalAuth,
+        timestamp: nat,
+        loc: Irc11AtomicId,
+        view: Irc11ThreadView,
+    ) -> (tracked res: LinkedListLinkObservation)
+        requires
+            self.wf(history, *auth),
+            history.contains_timestamp(timestamp),
+            vstd_extra::atomic_irc11::timestamp_in_view(loc, view) == Some(timestamp),
+        ensures
+            res.registry() == self.timestamp_registry(),
+            res.timestamp() == timestamp,
+            res.index() == self.index_at(timestamp),
+            res.loc() == loc,
+            res.view() == view,
+    {
+        let tracked fact = self.timestamp_facts.tracked_borrow(timestamp).duplicate();
+        LinkedListLinkObservation { fact, loc, view }
+    }
+
+    /// Agrees a prior persistent observation with the current append-only
+    /// timestamp map. This remains valid after later CAS updates.
+    pub proof fn lemma_observation_agrees(
+        tracked &self,
+        tracked observation: &LinkedListLinkObservation,
+    )
+        requires
+            observation.registry() == self.timestamp_registry(),
+            self.certified_timestamps() == self.timestamps(),
+        ensures
+            self.timestamps().contains_pair(observation.timestamp(), observation.index()),
+    {
+        observation.fact.agree(&self.timestamp_registry);
+    }
+
+    /// Records a successful native CAS that publishes a non-null successor.
+    ///
+    /// `load_timestamp` and `store_timestamp` are supplied by the native
+    /// [`UpdateData`](vstd::atomic_weak::UpdateData). The traversal index is
+    /// allocated independently by [`LinkedListTraversalAuth`].
+    pub proof fn tracked_cas_publish(
+        tracked &mut self,
+        tracked auth: &mut LinkedListTraversalAuth,
+        prev: Irc11History<*mut LinkedListNode>,
+        next: Irc11History<*mut LinkedListNode>,
+        load_timestamp: nat,
+        store_timestamp: nat,
+        to: *mut LinkedListNode,
+        to_obj: nat,
+        message_view: Irc11ThreadView,
+    ) -> (n: LinkIndex)
+        requires
+            old(self).wf(prev, *old(auth)),
+            prev.is_max_timestamp(load_timestamp),
+            store_timestamp == load_timestamp + 1,
+            next == prev.insert(store_timestamp, to, message_view),
+            to.addr() != 0,
+            old(auth).state().objects.contains_pair(to_obj, to),
+            !old(auth).removed().contains(to_obj),
+        ensures
+            n == old(auth).state().successors[old(self).source_obj()].len(),
+            final(self).wf(next, *final(auth)),
+            final(self).source() == old(self).source(),
+            final(self).source_obj() == old(self).source_obj(),
+            final(self).timestamp_registry() == old(self).timestamp_registry(),
+            final(self).timestamps() == old(self).timestamps().insert(store_timestamp, n),
+            final(self).current_timestamp() == store_timestamp,
+            final(auth).domain() == old(auth).domain(),
+            final(auth).state().root == old(auth).state().root,
+            final(auth).state().root_obj == old(auth).state().root_obj,
+            final(auth).state().objects == old(auth).state().objects,
+            final(auth).state().successors == old(auth).state().successors.insert(
+                old(self).source_obj(),
+                old(auth).state().successors[old(self).source_obj()].push(Some((to, to_obj))),
+            ),
+            final(auth).state().incoming_all == old(auth).state().incoming_all.insert(
+                to_obj,
+                old(auth).state().incoming_all[to_obj].insert((old(self).source_obj(), n)),
+            ),
+            final(auth).removed() == old(auth).removed(),
+            forall|obj: nat| #[trigger]
+                final(auth).has_retire_perm(obj) == old(auth).has_retire_perm(obj),
+            LinkedListTraversalSpec::link_inv(
+                final(self).source(),
+                final(self).source_obj(),
+                n,
+                to,
+                to_obj,
+                final(auth).state(),
+            ),
+    {
+        let ghost source = self.source;
+        let ghost source_obj = self.source_obj;
+        let ghost old_timestamps = self.timestamp_to_index;
+        let ghost old_state = auth.state();
+        let ghost old_current = self.current_timestamp;
+
+        assert(prev.contains_timestamp(old_current));
+        assert(prev.contains_timestamp(load_timestamp));
+        assert(load_timestamp <= old_current);
+        assert(old_current <= load_timestamp);
+        assert(load_timestamp == old_current);
+        assert(!prev.contains_timestamp(store_timestamp));
+
+        let n = auth.tracked_publish_link(source, source_obj, to, to_obj);
+        self.timestamp_to_index = old_timestamps.insert(store_timestamp, n);
+        let tracked fact = self.timestamp_registry.insert(store_timestamp, n).persist();
+        self.timestamp_facts.tracked_insert(store_timestamp, fact);
+        self.current_timestamp = store_timestamp;
+
+        assert(next.is_max_timestamp(store_timestamp)) by {
+            assert forall|timestamp: nat| next.contains_timestamp(timestamp) implies timestamp
+                <= store_timestamp by {
+                if timestamp != store_timestamp {
+                    assert(prev.contains_timestamp(timestamp));
+                    assert(timestamp <= load_timestamp);
+                }
+            };
+        };
+        assert(self.timestamps().dom() == next.dom());
+        assert(self.index_at(store_timestamp) == n);
+        assert(n + 1 == auth.state().successors[source_obj].len());
+        assert forall|timestamp: nat| next.contains_timestamp(timestamp) implies {
+            let index = #[trigger] self.timestamps()[timestamp];
+            &&& index < auth.state().successors[source_obj].len()
+            &&& match auth.state().successors[source_obj][index as int] {
+                None => next.value(timestamp).addr() == 0,
+                Some((ptr, obj)) => {
+                    &&& next.value(timestamp).addr() != 0
+                    &&& equal(ptr, next.value(timestamp))
+                    &&& auth.has_info(obj)
+                    &&& auth.info(obj).ptr() == ptr
+                },
+            }
+        } by {
+            if timestamp == store_timestamp {
+                assert(auth.state().successors[source_obj][n as int] == Some((to, to_obj)));
+                assert(auth.has_info(to_obj));
+                assert(auth.info(to_obj).ptr() == to);
+            } else {
+                assert(prev.contains_timestamp(timestamp));
+                let ghost index = old_timestamps[timestamp];
+                assert(index < old_state.successors[source_obj].len());
+                assert(auth.state().successors[source_obj][index as int]
+                    == old_state.successors[source_obj][index as int]);
+                assert(next.value(timestamp) == prev.value(timestamp));
+                match old_state.successors[source_obj][index as int] {
+                    None => {},
+                    Some((ptr, obj)) => {
+                        assert(old(auth).has_info(obj));
+                        assert(auth.has_info(obj));
+                        assert(auth.info(obj).ptr() == ptr);
+                    },
+                }
+            }
+        };
+        assert forall|earlier: nat, later: nat|
+            #![trigger self.timestamps()[earlier], self.timestamps()[later]]
+            next.contains_timestamp(earlier) && next.contains_timestamp(later) implies (earlier
+            < later <==> self.index_at(earlier) < self.index_at(later)) by {
+            if earlier == store_timestamp {
+                if later != store_timestamp {
+                    assert(prev.contains_timestamp(later));
+                    assert(later <= load_timestamp);
+                    assert(old_timestamps[later] < old_state.successors[source_obj].len());
+                    assert(self.index_at(later) < n);
+                }
+            } else if later == store_timestamp {
+                assert(prev.contains_timestamp(earlier));
+                assert(earlier <= load_timestamp);
+                assert(old_timestamps[earlier] < old_state.successors[source_obj].len());
+                assert(self.index_at(earlier) < n);
+            } else {
+                assert(prev.contains_timestamp(earlier));
+                assert(prev.contains_timestamp(later));
+            }
+        };
+        n
+    }
+
+    /// Records a successful native CAS that replaces the current successor
+    /// with null. The detached edge remains in the append-only traversal
+    /// history and can subsequently be discharged by a reader observation.
+    pub proof fn tracked_cas_unlink(
+        tracked &mut self,
+        tracked auth: &mut LinkedListTraversalAuth,
+        prev: Irc11History<*mut LinkedListNode>,
+        next: Irc11History<*mut LinkedListNode>,
+        load_timestamp: nat,
+        store_timestamp: nat,
+        to: *mut LinkedListNode,
+        to_obj: nat,
+        message_view: Irc11ThreadView,
+    ) -> (n: LinkIndex)
+        requires
+            old(self).wf(prev, *old(auth)),
+            prev.is_max_timestamp(load_timestamp),
+            store_timestamp == load_timestamp + 1,
+            next == prev.insert(store_timestamp, core::ptr::null_mut(), message_view),
+            old(auth).state().successors[old(self).source_obj()].last() == Some((to, to_obj)),
+        ensures
+            n == old(auth).state().successors[old(self).source_obj()].len(),
+            final(self).wf(next, *final(auth)),
+            final(self).source() == old(self).source(),
+            final(self).source_obj() == old(self).source_obj(),
+            final(self).timestamp_registry() == old(self).timestamp_registry(),
+            final(self).timestamps() == old(self).timestamps().insert(store_timestamp, n),
+            final(self).current_timestamp() == store_timestamp,
+            final(auth).domain() == old(auth).domain(),
+            final(auth).state().root == old(auth).state().root,
+            final(auth).state().root_obj == old(auth).state().root_obj,
+            final(auth).state().objects == old(auth).state().objects,
+            final(auth).state().successors == old(auth).state().successors.insert(
+                old(self).source_obj(),
+                old(auth).state().successors[old(self).source_obj()].push(None),
+            ),
+            final(auth).state().incoming_all == old(auth).state().incoming_all,
+            final(auth).removed() == old(auth).removed(),
+            forall|obj: nat| #[trigger]
+                final(auth).has_retire_perm(obj) == old(auth).has_retire_perm(obj),
+            final(auth).state().successors[final(self).source_obj()][n as int] is None,
+            !final(auth).state().current_incoming(to_obj).contains(
+                (final(self).source_obj(), (n - 1) as nat),
+            ),
+    {
+        let ghost source = self.source;
+        let ghost source_obj = self.source_obj;
+        let ghost old_timestamps = self.timestamp_to_index;
+        let ghost old_state = auth.state();
+        let ghost old_current = self.current_timestamp;
+
+        assert(prev.contains_timestamp(old_current));
+        assert(prev.contains_timestamp(load_timestamp));
+        assert(load_timestamp <= old_current);
+        assert(old_current <= load_timestamp);
+        assert(load_timestamp == old_current);
+        assert(!prev.contains_timestamp(store_timestamp));
+
+        let n = auth.tracked_unlink(source, source_obj, to, to_obj);
+        self.timestamp_to_index = old_timestamps.insert(store_timestamp, n);
+        let tracked fact = self.timestamp_registry.insert(store_timestamp, n).persist();
+        self.timestamp_facts.tracked_insert(store_timestamp, fact);
+        self.current_timestamp = store_timestamp;
+
+        assert(next.is_max_timestamp(store_timestamp)) by {
+            assert forall|timestamp: nat| next.contains_timestamp(timestamp) implies timestamp
+                <= store_timestamp by {
+                if timestamp != store_timestamp {
+                    assert(prev.contains_timestamp(timestamp));
+                    assert(timestamp <= load_timestamp);
+                }
+            };
+        };
+        assert(self.timestamps().dom() == next.dom());
+        assert(self.index_at(store_timestamp) == n);
+        assert(n + 1 == auth.state().successors[source_obj].len());
+        assert forall|timestamp: nat| next.contains_timestamp(timestamp) implies {
+            let index = #[trigger] self.timestamps()[timestamp];
+            &&& index < auth.state().successors[source_obj].len()
+            &&& match auth.state().successors[source_obj][index as int] {
+                None => next.value(timestamp).addr() == 0,
+                Some((ptr, obj)) => {
+                    &&& next.value(timestamp).addr() != 0
+                    &&& equal(ptr, next.value(timestamp))
+                    &&& auth.has_info(obj)
+                    &&& auth.info(obj).ptr() == ptr
+                },
+            }
+        } by {
+            if timestamp == store_timestamp {
+                assert(auth.state().successors[source_obj][n as int] is None);
+            } else {
+                assert(prev.contains_timestamp(timestamp));
+                let ghost index = old_timestamps[timestamp];
+                assert(index < old_state.successors[source_obj].len());
+                assert(auth.state().successors[source_obj][index as int]
+                    == old_state.successors[source_obj][index as int]);
+                assert(next.value(timestamp) == prev.value(timestamp));
+                match old_state.successors[source_obj][index as int] {
+                    None => {},
+                    Some((ptr, obj)) => {
+                        assert(old(auth).has_info(obj));
+                        assert(auth.has_info(obj));
+                        assert(auth.info(obj).ptr() == ptr);
+                    },
+                }
+            }
+        };
+        assert forall|earlier: nat, later: nat|
+            #![trigger self.timestamps()[earlier], self.timestamps()[later]]
+            next.contains_timestamp(earlier) && next.contains_timestamp(later) implies (earlier
+            < later <==> self.index_at(earlier) < self.index_at(later)) by {
+            if earlier == store_timestamp {
+                if later != store_timestamp {
+                    assert(prev.contains_timestamp(later));
+                    assert(later <= load_timestamp);
+                    assert(old_timestamps[later] < old_state.successors[source_obj].len());
+                    assert(self.index_at(later) < n);
+                }
+            } else if later == store_timestamp {
+                assert(prev.contains_timestamp(earlier));
+                assert(earlier <= load_timestamp);
+                assert(old_timestamps[earlier] < old_state.successors[source_obj].len());
+                assert(self.index_at(earlier) < n);
+            } else {
+                assert(prev.contains_timestamp(earlier));
+                assert(prev.contains_timestamp(later));
+            }
+        };
+        n
+    }
+
+    /// Resolves an observed native atomic message to its traversal event and
+    /// persistent child identity.
+    pub proof fn tracked_info_at(
+        tracked &self,
+        history: Irc11History<*mut LinkedListNode>,
+        tracked auth: &LinkedListTraversalAuth,
+        timestamp: nat,
+    ) -> (tracked res: Option<RcuBlockInfo<LinkedListNode>>)
+        requires
+            self.wf(history, *auth),
+            history.contains_timestamp(timestamp),
+        ensures
+            self.index_at(timestamp) < auth.state().successors[self.source_obj()].len(),
+            match res {
+                None => {
+                    &&& history.value(timestamp).addr() == 0
+                    &&& auth.state().successors[self.source_obj()][self.index_at(
+                        timestamp,
+                    ) as int] is None
+                },
+                Some(info) => {
+                    &&& history.value(timestamp).addr() != 0
+                    &&& info.wf()
+                    &&& info.domain() == auth.domain()
+                    &&& equal(info.ptr(), history.value(timestamp))
+                    &&& LinkedListTraversalSpec::link_inv(
+                        self.source(),
+                        self.source_obj(),
+                        self.index_at(timestamp),
+                        info.ptr(),
+                        info.obj(),
+                        auth.state(),
+                    )
+                },
+            },
+    {
+        let ghost n = self.index_at(timestamp);
+        match auth.state().successors[self.source_obj()][n as int] {
+            None => None,
+            Some((ptr, obj)) => {
+                let tracked info = auth.tracked_info_for(obj);
+                assert(equal(info.ptr(), history.value(timestamp)));
+                Some(info)
+            },
+        }
+    }
+
+    /// Connects a native atomic load to the paper's guarded traversal rule.
+    ///
+    /// The source witness is refreshed in place with the observed link index.
+    /// A non-null message additionally installs the loaded allocation in the
+    /// guard's protection map and returns its protected witness.
+    pub proof fn tracked_load_and_protect(
+        tracked &self,
+        history: Irc11History<*mut LinkedListNode>,
+        tracked auth: &LinkedListTraversalAuth,
+        tracked guard: &mut RcuReadGuardToken<LinkedListNode>,
+        tracked from: &mut RcuProtectedPtr<LinkedListNode>,
+        timestamp: nat,
+    ) -> (tracked res: Option<RcuProtectedPtr<LinkedListNode>>)
+        requires
+            self.wf(history, *auth),
+            history.contains_timestamp(timestamp),
+            old(guard).wf(),
+            old(guard).domain() == auth.domain(),
+            old(from).protected_by(*old(guard)),
+            old(from).ptr() == self.source(),
+            old(from).obj() == self.source_obj(),
+            old(guard).seen_at(old(from).obj()) <= self.index_at(timestamp),
+            LinkedListTraversalSpec::seen_removed_sound(old(guard).seen_removed(), auth.state()),
+        ensures
+            final(guard).wf(),
+            final(guard).domain() == old(guard).domain(),
+            final(guard).tid() == old(guard).tid(),
+            final(guard).reader_registry() == old(guard).reader_registry(),
+            final(guard).reader() == old(guard).reader(),
+            final(guard).root() == old(guard).root(),
+            final(guard).start_view() == old(guard).start_view(),
+            final(guard).retire_observation_registry() == old(guard).retire_observation_registry(),
+            final(guard).expired() == old(guard).expired(),
+            final(guard).seen_removed().removed == old(guard).seen_removed().removed,
+            final(guard).seen_at(self.source_obj()) == self.index_at(timestamp),
+            LinkedListTraversalSpec::seen_removed_sound(final(guard).seen_removed(), auth.state()),
+            final(from).ptr() == self.source(),
+            final(from).obj() == self.source_obj(),
+            final(from).domain() == final(guard).domain(),
+            final(from).seen_removed() == final(guard).seen_removed(),
+            !final(from).seen_removed().removed.contains(final(from).obj()),
+            res is None ==> final(guard).protected() == old(guard).protected(),
+            (res is Some) == (history.value(timestamp).addr() != 0),
+            match res {
+                None => history.value(timestamp).addr() == 0,
+                Some(child) => {
+                    &&& equal(child.ptr(), history.value(timestamp))
+                    &&& child.domain() == auth.domain()
+                    &&& child.protected_by(*final(guard))
+                    &&& LinkedListTraversalSpec::node_inv(child.ptr(), child.obj(), auth.state())
+                },
+            },
+    {
+        let ghost n = self.index_at(timestamp);
+        let tracked info = self.tracked_info_at(history, auth, timestamp);
+        let ghost old_seen_removed = guard.seen_removed();
+        let ghost old_domain = guard.domain();
+        let ghost old_tid = guard.tid();
+        let ghost old_reader_registry = guard.reader_registry();
+        let ghost old_reader = guard.reader();
+        let ghost old_root = guard.root();
+        let ghost old_start_view = guard.start_view();
+        let ghost old_retire_observation_registry = guard.retire_observation_registry();
+        let ghost old_expired = guard.expired();
+        let ghost old_protected = guard.protected();
+        assert(old_domain == old(guard).domain());
+        assert(old_tid == old(guard).tid());
+        assert(old_reader_registry == old(guard).reader_registry());
+        assert(old_reader == old(guard).reader());
+        assert(old_root == old(guard).root());
+        assert(old_start_view == old(guard).start_view());
+        assert(old_retire_observation_registry == old(guard).retire_observation_registry());
+        assert(old_expired == old(guard).expired());
+        assert(old_protected == old(guard).protected());
+        guard.tracked_observe_link_in_place(from, n);
+        linked_list_observe_preserves_seen_removed_sound(
+            old_seen_removed,
+            auth.state(),
+            self.source_obj(),
+            n,
+        );
+        assert(from.protected_by(*guard));
+        assert(guard.domain() == old_domain);
+        assert(guard.tid() == old_tid);
+        assert(guard.reader_registry() == old_reader_registry);
+        assert(guard.reader() == old_reader);
+        assert(guard.root() == old_root);
+        assert(guard.start_view() == old_start_view);
+        assert(guard.retire_observation_registry() == old_retire_observation_registry);
+        assert(guard.expired() == old_expired);
+        assert(guard.protected() == old_protected);
+        let tracked res;
+        match info {
+            None => {
+                assert(guard.domain() == old(guard).domain());
+                assert(guard.tid() == old(guard).tid());
+                assert(guard.reader_registry() == old(guard).reader_registry());
+                assert(guard.reader() == old(guard).reader());
+                assert(guard.root() == old(guard).root());
+                assert(guard.start_view() == old(guard).start_view());
+                assert(guard.retire_observation_registry() == old(
+                    guard,
+                ).retire_observation_registry());
+                assert(guard.expired() == old(guard).expired());
+                assert(guard.protected() == old(guard).protected());
+                res = None;
+            },
+            Some(info) => {
+                assert(LinkedListTraversalSpec::node_inv(from.ptr(), from.obj(), auth.state()));
+                let tracked child = protect_link::<LinkedListTraversalSpec>(
+                    guard,
+                    from,
+                    &info,
+                    n,
+                    info.ptr(),
+                    auth.state(),
+                );
+                res = Some(child);
+            },
+        }
+        assert(guard.domain() == old(guard).domain());
+        assert(guard.tid() == old(guard).tid());
+        assert(guard.reader_registry() == old(guard).reader_registry());
+        assert(guard.reader() == old(guard).reader());
+        assert(guard.root() == old(guard).root());
+        assert(guard.start_view() == old(guard).start_view());
+        assert(guard.retire_observation_registry() == old(guard).retire_observation_registry());
+        assert(guard.expired() == old(guard).expired());
+        res
+    }
 }
 
 pub struct LinkedListTraversalSpec;
@@ -3667,14 +5073,14 @@ impl RcuTraversalSafety for LinkedListTraversalSpec {
     open spec fn root_inv(p: *mut LinkedListNode, obj: nat, g: LinkedListGhost) -> bool {
         &&& p == g.root
         &&& obj == g.root_obj
-        &&& g.objects.contains_pair(p, obj)
-        &&& g.successors.contains_key(p)
+        &&& g.objects.contains_pair(obj, p)
+        &&& g.successors.contains_key(obj)
         &&& g.incoming_all.contains_key(obj)
     }
 
     open spec fn node_inv(p: *mut LinkedListNode, obj: nat, g: LinkedListGhost) -> bool {
-        &&& g.objects.contains_pair(p, obj)
-        &&& g.successors.contains_key(p)
+        &&& g.objects.contains_pair(obj, p)
+        &&& g.successors.contains_key(obj)
         &&& g.incoming_all.contains_key(obj)
     }
 
@@ -3686,12 +5092,12 @@ impl RcuTraversalSafety for LinkedListTraversalSpec {
         to_obj: nat,
         g: LinkedListGhost,
     ) -> bool {
-        &&& g.objects.contains_pair(from, from_obj)
-        &&& g.objects.contains_pair(to, to_obj)
-        &&& g.successors.contains_key(from)
-        &&& n < g.successors[from].len()
-        &&& g.successors[from][n as int] == Some(to)
-        &&& g.successors.contains_key(to)
+        &&& g.objects.contains_pair(from_obj, from)
+        &&& g.objects.contains_pair(to_obj, to)
+        &&& g.successors.contains_key(from_obj)
+        &&& n < g.successors[from_obj].len()
+        &&& g.successors[from_obj][n as int] == Some((to, to_obj))
+        &&& g.successors.contains_key(to_obj)
         &&& g.incoming_all.contains_key(to_obj)
         &&& g.incoming_all[to_obj].contains((from_obj, n))
     }
@@ -3726,6 +5132,547 @@ impl RcuTraversalSafety for LinkedListTraversalSpec {
             assert(false);
         }
     }
+}
+
+/// Advancing one source observation preserves every previously established
+/// dead-edge fact in a linked-list `SeenRemoved` snapshot.
+pub proof fn linked_list_observe_preserves_seen_removed_sound(
+    seen_removed: RcuSeenRemoved<LinkedListNode>,
+    g: LinkedListGhost,
+    source_obj: nat,
+    n: LinkIndex,
+)
+    requires
+        LinkedListTraversalSpec::seen_removed_sound(seen_removed, g),
+    ensures
+        LinkedListTraversalSpec::seen_removed_sound(
+            RcuSeenRemoved {
+                removed: seen_removed.removed,
+                link_view: seen_removed.link_view.observe(source_obj, n),
+            },
+            g,
+        ),
+{
+    let ghost observed = RcuSeenRemoved {
+        removed: seen_removed.removed,
+        link_view: seen_removed.link_view.observe(source_obj, n),
+    };
+    assert forall|to_obj: nat| #[trigger] observed.removed.contains(to_obj) implies {
+        &&& g.incoming_all.contains_key(to_obj)
+        &&& forall|edge: LinkEdge| #[trigger]
+            g.incoming_all[to_obj].contains(edge) ==> observed.dead_edge(edge)
+    } by {
+        assert(seen_removed.removed.contains(to_obj));
+        assert(g.incoming_all.contains_key(to_obj));
+        assert forall|edge: LinkEdge| #[trigger]
+            g.incoming_all[to_obj].contains(edge) implies observed.dead_edge(edge) by {
+            assert(seen_removed.dead_edge(edge));
+            if !seen_removed.removed.contains(edge.0) {
+                seen_removed.link_view.lemma_observe_monotonic(source_obj, n, edge.0);
+                assert(observed.seen_at(edge.0) >= seen_removed.seen_at(edge.0));
+            }
+        };
+    };
+}
+
+/// A latest link from a predecessor not already in `D` cannot be dead in a
+/// bounded link view. Consequently the traversal retire rule cannot be
+/// applied while that incoming edge remains live.
+pub proof fn linked_list_live_edge_blocks_retire(
+    g: LinkedListGhost,
+    seen_removed: RcuSeenRemoved<LinkedListNode>,
+    from: *mut LinkedListNode,
+    from_obj: nat,
+    n: LinkIndex,
+    to: *mut LinkedListNode,
+    to_obj: nat,
+)
+    requires
+        g.wf(),
+        g.bounds(seen_removed.link_view),
+        LinkedListTraversalSpec::link_inv(from, from_obj, n, to, to_obj, g),
+        g.successors[from_obj].len() == n + 1,
+        !seen_removed.removed.contains(from_obj),
+    ensures
+        g.current_incoming(to_obj).contains((from_obj, n)),
+        !seen_removed.dead_edge((from_obj, n)),
+        !(forall|edge: LinkEdge| #[trigger]
+            g.incoming_all[to_obj].contains(edge) ==> seen_removed.dead_edge(edge)),
+{
+    if seen_removed.link_view.seen.contains_key(from_obj) {
+        assert(seen_removed.seen_at(from_obj) < g.successors[from_obj].len());
+    } else {
+        assert(seen_removed.seen_at(from_obj) == 0);
+    }
+    assert(seen_removed.seen_at(from_obj) <= n);
+    assert(g.successors[from_obj].last() == Some((to, to_obj)));
+    assert(g.current_incoming(to_obj).contains((from_obj, n))) by {
+        assert(g.objects.contains_key(from_obj));
+        assert(g.successors.contains_key(from_obj));
+    }
+}
+
+/// End-to-end ghost example for an internal list node. Publishing creates the
+/// historical incoming edge at index 0; unlinking appends a newer null event;
+/// observing index 1 then lets the authority consume the child's unique base
+/// permission and produce the traversal-level retire permission.
+pub proof fn linked_list_unlink_enables_retire(
+    tracked root_info: &RcuBlockInfo<LinkedListNode>,
+    tracked root_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked child_info: &RcuBlockInfo<LinkedListNode>,
+    tracked child_retire: RcuBaseRetirePerm<LinkedListNode>,
+) -> (tracked retired: RcuRetirePerm<LinkedListNode>)
+    requires
+        root_info.wf(),
+        root_retire.wf(),
+        root_retire.domain() == root_info.domain(),
+        root_retire.obj() == root_info.obj(),
+        root_retire.ptr() == root_info.ptr(),
+        child_info.wf(),
+        child_retire.wf(),
+        child_info.domain() == root_info.domain(),
+        child_retire.domain() == root_info.domain(),
+        child_retire.obj() == child_info.obj(),
+        child_retire.ptr() == child_info.ptr(),
+        child_info.ptr() != root_info.ptr(),
+        child_info.obj() != root_info.obj(),
+    ensures
+        retired.wf(),
+        retired.ready_to_retire(),
+        retired.domain() == root_info.domain(),
+        retired.obj() == child_info.obj(),
+        LinkedListTraversalSpec::seen_removed_sound(
+            retired.seen_removed(),
+            LinkedListGhost {
+                root: root_info.ptr(),
+                root_obj: root_info.obj(),
+                objects: Map::empty().insert(root_info.obj(), root_info.ptr()).insert(
+                    child_info.obj(),
+                    child_info.ptr(),
+                ),
+                successors: Map::empty().insert(root_info.obj(), Seq::empty()).insert(
+                    child_info.obj(),
+                    Seq::empty(),
+                ).insert(
+                    root_info.obj(),
+                    Seq::empty().push(Some((child_info.ptr(), child_info.obj()))).push(None),
+                ),
+                incoming_all: Map::empty().insert(root_info.obj(), Set::empty()).insert(
+                    child_info.obj(),
+                    Set::empty().insert((root_info.obj(), 0)),
+                ),
+            },
+        ),
+{
+    let tracked mut auth = LinkedListTraversalAuth::tracked_new(root_info, root_retire);
+    auth.tracked_register_node(child_info, child_retire);
+    let n = auth.tracked_publish_link(
+        root_info.ptr(),
+        root_info.obj(),
+        child_info.ptr(),
+        child_info.obj(),
+    );
+    assert(n == 0);
+    let observed = auth.tracked_unlink(
+        root_info.ptr(),
+        root_info.obj(),
+        child_info.ptr(),
+        child_info.obj(),
+    );
+    assert(observed == 1);
+    let ghost prior = RcuSeenRemoved {
+        removed: Set::empty(),
+        link_view: RcuLinkView::empty().observe(root_info.obj(), observed),
+    };
+    assert(auth.state().bounds(prior.link_view)) by {
+        assert forall|from: *mut LinkedListNode, from_obj: nat| #[trigger]
+            auth.state().objects.contains_pair(from_obj, from) && prior.link_view.seen.contains_key(
+                from_obj,
+            ) implies {
+            &&& auth.state().successors[from_obj].len() > 0
+            &&& prior.link_view.seen_at(from_obj) < auth.state().successors[from_obj].len()
+        } by {
+            assert(from == root_info.ptr());
+            assert(from_obj == root_info.obj());
+        };
+    }
+    assert(LinkedListTraversalSpec::seen_removed_sound(prior, auth.state()));
+    assert forall|edge: LinkEdge| #[trigger]
+        auth.state().incoming_all[child_info.obj()].contains(edge) implies prior.dead_edge(
+        edge,
+    ) by {
+        assert(edge == (root_info.obj(), 0));
+        assert(prior.seen_at(root_info.obj()) == observed);
+    };
+    auth.tracked_retire_node(child_info.obj(), prior)
+}
+
+/// Regression proof for the fully dynamic traversal authority.
+///
+/// The old allocation is reachable from two distinct predecessors. Both
+/// incoming edges must be unlinked and observed before retirement. A fresh
+/// AId is then registered at exactly the same address, published, unlinked,
+/// and published again. The old history entries continue naming `old_obj`,
+/// while both publications of the reused allocation name `reused_obj`.
+pub proof fn linked_list_multiple_predecessors_republish_reused_address(
+    tracked root_info: &RcuBlockInfo<LinkedListNode>,
+    tracked root_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked left_info: &RcuBlockInfo<LinkedListNode>,
+    tracked left_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked right_info: &RcuBlockInfo<LinkedListNode>,
+    tracked right_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked old_info: &RcuBlockInfo<LinkedListNode>,
+    tracked old_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked reused_info: &RcuBlockInfo<LinkedListNode>,
+    tracked reused_retire: RcuBaseRetirePerm<LinkedListNode>,
+) -> (tracked res: (LinkedListTraversalAuth, RcuRetirePerm<LinkedListNode>))
+    requires
+        root_info.wf(),
+        root_retire.wf(),
+        root_retire.domain() == root_info.domain(),
+        root_retire.obj() == root_info.obj(),
+        root_retire.ptr() == root_info.ptr(),
+        left_info.wf(),
+        left_retire.wf(),
+        left_info.domain() == root_info.domain(),
+        left_retire.domain() == root_info.domain(),
+        left_retire.obj() == left_info.obj(),
+        left_retire.ptr() == left_info.ptr(),
+        right_info.wf(),
+        right_retire.wf(),
+        right_info.domain() == root_info.domain(),
+        right_retire.domain() == root_info.domain(),
+        right_retire.obj() == right_info.obj(),
+        right_retire.ptr() == right_info.ptr(),
+        old_info.wf(),
+        old_retire.wf(),
+        old_info.domain() == root_info.domain(),
+        old_retire.domain() == root_info.domain(),
+        old_retire.obj() == old_info.obj(),
+        old_retire.ptr() == old_info.ptr(),
+        reused_info.wf(),
+        reused_retire.wf(),
+        reused_info.domain() == root_info.domain(),
+        reused_retire.domain() == root_info.domain(),
+        reused_retire.obj() == reused_info.obj(),
+        reused_retire.ptr() == reused_info.ptr(),
+        old_info.ptr() == reused_info.ptr(),
+        root_info.obj() != left_info.obj(),
+        root_info.obj() != right_info.obj(),
+        root_info.obj() != old_info.obj(),
+        root_info.obj() != reused_info.obj(),
+        left_info.obj() != right_info.obj(),
+        left_info.obj() != old_info.obj(),
+        left_info.obj() != reused_info.obj(),
+        right_info.obj() != old_info.obj(),
+        right_info.obj() != reused_info.obj(),
+        old_info.obj() != reused_info.obj(),
+    ensures
+        res.0.wf(),
+        res.0.removed().contains(old_info.obj()),
+        res.0.has_retire_perm(reused_info.obj()),
+        res.0.state().objects.contains_pair(old_info.obj(), old_info.ptr()),
+        res.0.state().objects.contains_pair(reused_info.obj(), old_info.ptr()),
+        res.0.state().successors[left_info.obj()][0] == Some((old_info.ptr(), old_info.obj())),
+        res.0.state().successors[left_info.obj()][2] == Some(
+            (reused_info.ptr(), reused_info.obj()),
+        ),
+        res.0.state().successors[left_info.obj()][4] == Some(
+            (reused_info.ptr(), reused_info.obj()),
+        ),
+        res.0.state().incoming_all[old_info.obj()].contains((left_info.obj(), 0)),
+        res.0.state().incoming_all[old_info.obj()].contains((right_info.obj(), 0)),
+        res.0.state().incoming_all[reused_info.obj()].contains((left_info.obj(), 2)),
+        res.0.state().incoming_all[reused_info.obj()].contains((left_info.obj(), 4)),
+        res.0.state().current_incoming(reused_info.obj()).contains((left_info.obj(), 4)),
+        res.1.wf(),
+        res.1.ready_to_retire(),
+        res.1.obj() == old_info.obj(),
+        res.1.ptr() == old_info.ptr(),
+{
+    let tracked mut auth = LinkedListTraversalAuth::tracked_new(root_info, root_retire);
+    auth.tracked_register_node(left_info, left_retire);
+    auth.tracked_register_node(right_info, right_retire);
+    auth.tracked_register_node(old_info, old_retire);
+
+    let root_left = auth.tracked_publish_link(
+        root_info.ptr(),
+        root_info.obj(),
+        left_info.ptr(),
+        left_info.obj(),
+    );
+    let left_old = auth.tracked_publish_link(
+        left_info.ptr(),
+        left_info.obj(),
+        old_info.ptr(),
+        old_info.obj(),
+    );
+    let root_right = auth.tracked_publish_link(
+        root_info.ptr(),
+        root_info.obj(),
+        right_info.ptr(),
+        right_info.obj(),
+    );
+    let right_old = auth.tracked_publish_link(
+        right_info.ptr(),
+        right_info.obj(),
+        old_info.ptr(),
+        old_info.obj(),
+    );
+    assert(root_left == 0);
+    assert(left_old == 0);
+    assert(root_right == 1);
+    assert(right_old == 0);
+    assert(auth.state().current_incoming(old_info.obj()).contains((left_info.obj(), left_old)));
+    assert(auth.state().current_incoming(old_info.obj()).contains((right_info.obj(), right_old)));
+
+    let left_unlink = auth.tracked_unlink(
+        left_info.ptr(),
+        left_info.obj(),
+        old_info.ptr(),
+        old_info.obj(),
+    );
+    let right_unlink = auth.tracked_unlink(
+        right_info.ptr(),
+        right_info.obj(),
+        old_info.ptr(),
+        old_info.obj(),
+    );
+    assert(left_unlink == 1);
+    assert(right_unlink == 1);
+    let ghost prior = RcuSeenRemoved {
+        removed: Set::empty(),
+        link_view: RcuLinkView::empty().observe(left_info.obj(), left_unlink).observe(
+            right_info.obj(),
+            right_unlink,
+        ),
+    };
+    assert(auth.state().bounds(prior.link_view)) by {
+        assert forall|from_obj: nat| #[trigger]
+            auth.state().objects.contains_key(from_obj) && prior.link_view.seen.contains_key(
+                from_obj,
+            ) implies {
+            &&& auth.state().successors[from_obj].len() > 0
+            &&& prior.seen_at(from_obj) < auth.state().successors[from_obj].len()
+        } by {
+            if from_obj == left_info.obj() {
+                assert(prior.seen_at(from_obj) == left_unlink);
+            } else {
+                assert(from_obj == right_info.obj());
+                assert(prior.seen_at(from_obj) == right_unlink);
+            }
+        };
+    }
+    assert(LinkedListTraversalSpec::seen_removed_sound(prior, auth.state()));
+    assert forall|edge: LinkEdge| #[trigger]
+        auth.state().incoming_all[old_info.obj()].contains(edge) implies prior.dead_edge(edge) by {
+        if edge.0 == left_info.obj() {
+            assert(edge == (left_info.obj(), left_old));
+            assert(prior.seen_at(left_info.obj()) == left_unlink);
+        } else {
+            assert(edge == (right_info.obj(), right_old));
+            assert(prior.seen_at(right_info.obj()) == right_unlink);
+        }
+    };
+    let tracked retired = auth.tracked_retire_node(old_info.obj(), prior);
+
+    auth.tracked_register_node(reused_info, reused_retire);
+    let first_republication = auth.tracked_publish_link(
+        left_info.ptr(),
+        left_info.obj(),
+        reused_info.ptr(),
+        reused_info.obj(),
+    );
+    assert(first_republication == 2);
+    let reused_unlink = auth.tracked_unlink(
+        left_info.ptr(),
+        left_info.obj(),
+        reused_info.ptr(),
+        reused_info.obj(),
+    );
+    assert(reused_unlink == 3);
+    let second_republication = auth.tracked_publish_link(
+        left_info.ptr(),
+        left_info.obj(),
+        reused_info.ptr(),
+        reused_info.obj(),
+    );
+    assert(second_republication == 4);
+    assert(auth.state().objects[old_info.obj()] == old_info.ptr());
+    assert(auth.state().objects[reused_info.obj()] == reused_info.ptr());
+    assert(old_info.ptr() == reused_info.ptr());
+    (auth, retired)
+}
+
+/// End-to-end writer example connecting successful native IRC11 CAS updates
+/// to the traversal retire rule.
+///
+/// Native timestamps are kept abstract. The proof relies only on the CAS
+/// contract's successor timestamps and on `LinkedListAtomicLinkGhost`'s
+/// explicit timestamp-to-index correspondence.
+pub proof fn linked_list_native_cas_unlink_enables_retire(
+    tracked root_info: &RcuBlockInfo<LinkedListNode>,
+    tracked root_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked child_info: &RcuBlockInfo<LinkedListNode>,
+    tracked child_retire: RcuBaseRetirePerm<LinkedListNode>,
+    initial_history: Irc11History<*mut LinkedListNode>,
+    published_history: Irc11History<*mut LinkedListNode>,
+    unlinked_history: Irc11History<*mut LinkedListNode>,
+    initial_timestamp: nat,
+    published_timestamp: nat,
+    unlinked_timestamp: nat,
+    initial_view: Irc11ThreadView,
+    published_view: Irc11ThreadView,
+    unlinked_view: Irc11ThreadView,
+) -> (tracked retired: RcuRetirePerm<LinkedListNode>)
+    requires
+        root_info.wf(),
+        root_retire.wf(),
+        root_retire.domain() == root_info.domain(),
+        root_retire.obj() == root_info.obj(),
+        root_retire.ptr() == root_info.ptr(),
+        child_info.wf(),
+        child_retire.wf(),
+        child_info.domain() == root_info.domain(),
+        child_retire.domain() == root_info.domain(),
+        child_retire.obj() == child_info.obj(),
+        child_retire.ptr() == child_info.ptr(),
+        child_info.ptr().addr() != 0,
+        child_info.ptr() != root_info.ptr(),
+        child_info.obj() != root_info.obj(),
+        initial_history.is_singleton(initial_timestamp, (core::ptr::null_mut(), initial_view)),
+        published_timestamp == initial_timestamp + 1,
+        published_history == initial_history.insert(
+            published_timestamp,
+            child_info.ptr(),
+            published_view,
+        ),
+        unlinked_timestamp == published_timestamp + 1,
+        unlinked_history == published_history.insert(
+            unlinked_timestamp,
+            core::ptr::null_mut(),
+            unlinked_view,
+        ),
+    ensures
+        retired.wf(),
+        retired.ready_to_retire(),
+        retired.domain() == root_info.domain(),
+        retired.obj() == child_info.obj(),
+{
+    let tracked mut auth = LinkedListTraversalAuth::tracked_new(root_info, root_retire);
+    auth.tracked_register_node(child_info, child_retire);
+    let initial_index = auth.tracked_initialize_null(root_info.ptr(), root_info.obj());
+    assert(initial_index == 0);
+    let tracked mut link = LinkedListAtomicLinkGhost::tracked_initial_null(
+        initial_history,
+        initial_timestamp,
+        initial_view,
+        &auth,
+        root_info.ptr(),
+        root_info.obj(),
+    );
+
+    let published_index = link.tracked_cas_publish(
+        &mut auth,
+        initial_history,
+        published_history,
+        initial_timestamp,
+        published_timestamp,
+        child_info.ptr(),
+        child_info.obj(),
+        published_view,
+    );
+    assert(published_index == 1);
+    let unlinked_index = link.tracked_cas_unlink(
+        &mut auth,
+        published_history,
+        unlinked_history,
+        published_timestamp,
+        unlinked_timestamp,
+        child_info.ptr(),
+        child_info.obj(),
+        unlinked_view,
+    );
+    assert(unlinked_index == 2);
+
+    let ghost prior = RcuSeenRemoved {
+        removed: Set::empty(),
+        link_view: RcuLinkView::empty().observe(root_info.obj(), unlinked_index),
+    };
+    assert(auth.state().bounds(prior.link_view)) by {
+        assert forall|from: *mut LinkedListNode, from_obj: nat| #[trigger]
+            auth.state().objects.contains_pair(from_obj, from) && prior.link_view.seen.contains_key(
+                from_obj,
+            ) implies {
+            &&& auth.state().successors[from_obj].len() > 0
+            &&& prior.link_view.seen_at(from_obj) < auth.state().successors[from_obj].len()
+        } by {
+            assert(from == root_info.ptr());
+            assert(from_obj == root_info.obj());
+        };
+    }
+    assert(LinkedListTraversalSpec::seen_removed_sound(prior, auth.state()));
+    assert forall|edge: LinkEdge| #[trigger]
+        auth.state().incoming_all[child_info.obj()].contains(edge) implies prior.dead_edge(
+        edge,
+    ) by {
+        assert(edge == (root_info.obj(), published_index));
+        assert(prior.seen_at(root_info.obj()) == unlinked_index);
+    };
+    auth.tracked_retire_node(child_info.obj(), prior)
+}
+
+/// Uses an authoritative history snapshot to discharge the structural
+/// premises of [`protect_link`]. The remaining `seen_removed_sound` premise is
+/// the reader-side observation carried by the live guard.
+pub proof fn linked_list_authorized_protect_next(
+    tracked auth: &LinkedListTraversalAuth,
+    tracked guard: &mut RcuReadGuardToken<LinkedListNode>,
+    tracked root_info: &RcuBlockInfo<LinkedListNode>,
+    tracked next_info: &RcuBlockInfo<LinkedListNode>,
+    n: LinkIndex,
+) -> (tracked next_protected: RcuProtectedPtr<LinkedListNode>)
+    requires
+        auth.wf(),
+        old(guard).can_protect(*root_info),
+        old(guard).can_base_protect(*next_info),
+        root_info.domain() == auth.domain(),
+        next_info.domain() == auth.domain(),
+        root_info.ptr() == auth.state().root,
+        root_info.obj() == auth.state().root_obj,
+        auth.state().objects.contains_pair(next_info.obj(), next_info.ptr()),
+        n < auth.state().successors[root_info.obj()].len(),
+        auth.state().successors[root_info.obj()][n as int] == Some(
+            (next_info.ptr(), next_info.obj()),
+        ),
+        LinkedListTraversalSpec::seen_removed_sound(old(guard).seen_removed(), auth.state()),
+        old(guard).seen_at(root_info.obj()) <= n,
+    ensures
+        next_protected.ptr() == next_info.ptr(),
+        next_protected.obj() == next_info.obj(),
+        next_protected.domain() == auth.domain(),
+        next_protected.protected_by(*final(guard)),
+        final(guard).wf(),
+        LinkedListTraversalSpec::node_inv(next_info.ptr(), next_info.obj(), auth.state()),
+{
+    assert(LinkedListTraversalSpec::root_inv(root_info.ptr(), root_info.obj(), auth.state()));
+    assert(LinkedListTraversalSpec::link_inv(
+        root_info.ptr(),
+        root_info.obj(),
+        n,
+        next_info.ptr(),
+        next_info.obj(),
+        auth.state(),
+    ));
+    linked_list_protect_next_example(
+        guard,
+        root_info,
+        next_info,
+        root_info.ptr(),
+        n,
+        next_info.ptr(),
+        auth.state(),
+    )
 }
 
 /// Example: after protecting the root, following a non-stale successor-history

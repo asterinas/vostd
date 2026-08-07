@@ -134,6 +134,7 @@
 //! because Verus cannot yet attach this invariant-opening transition to Rust's
 //! implicit `Drop::drop(&mut self)`. Runtime destruction still restores the
 //! executable preemption counter through `DisabledPreemptGuard`.
+use alloc::boxed::Box;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::invariant::InvariantPredicate;
@@ -148,8 +149,8 @@ use crate::{
         sync::{
             rcu as rcu_spec, rcu_cpu as rcu_cpu_spec,
             weak_memory::{
-                RcuRetiredRootObject, RcuRootAtomicInv, RcuRootAtomicInvariant, RcuRootAtomicState,
-                RcuWeakAtomicPtr,
+                LinkedListRetiredChild, LinkedListWeakAtomicLink, RcuRetiredRootObject,
+                RcuRootAtomicInv, RcuRootAtomicInvariant, RcuRootAtomicState, RcuWeakAtomicPtr,
             },
         },
         task::InAtomicMode,
@@ -195,6 +196,231 @@ impl<P: NonNullPtr> rcu_spec::RcuRootOwnershipPredicate<
     ) -> bool {
         &&& P::ptr_perm_match(ptr, ownership)
         &&& ownership.inv()
+    }
+}
+
+/// Concrete linked-list atomic whose pointee ownership is a real smart-pointer
+/// permission understood by [`NonNullPtrRef`].
+type RcuLinkedListAtomicLink<P> = LinkedListWeakAtomicLink<
+    <P as NonNullPtr>::Permission,
+    RcuPointerOwnership<P>,
+>;
+
+/// One loaded internal child together with its physical RCU read lease.
+///
+/// This is the linked-list counterpart of [`RcuReadGuardInner`].  In
+/// particular, [`Self::get`] derives `P::RefPermission` from the lease and
+/// invokes the same verified `raw_as_ref` boundary as a direct-root read.
+struct LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spec::LinkedListNode> {
+    obj_ptr: *mut rcu_spec::LinkedListNode,
+    link: &'a RcuLinkedListAtomicLink<P>,
+    proof_active: bool,
+    tracked_guard: Tracked<Option<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>>,
+    tracked_child: Tracked<Option<rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>>,
+    tracked_lease: Tracked<Option<rcu_cpu_spec::RcuRootReadLease<P::Permission>>>,
+    tracked_observation: Tracked<Option<rcu_spec::LinkedListLinkObservation>>,
+}
+
+impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spec::LinkedListNode> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(&self) -> bool {
+        &&& self.link.well_formed()
+        &&& self.proof_active ==> {
+            &&& self.tracked_guard@ is Some
+            &&& self.tracked_observation@ is Some
+            &&& self.tracked_guard@->Some_0.wf()
+            &&& self.tracked_guard@->Some_0.scheduler() == self.link.constant().scheduler
+            &&& self.tracked_guard@->Some_0.domain() == self.link.constant().domain
+            &&& self.tracked_guard@->Some_0.root() == self.link.constant().root
+            &&& self.tracked_guard@->Some_0.retire_observation_registry()
+                == self.link.constant().retire_observation_registry
+            &&& self.tracked_observation@->Some_0.registry()
+                == self.link.constant().timestamp_registry
+            &&& self.tracked_observation@->Some_0.loc() == self.link.native_loc()
+            &&& self.tracked_guard@->Some_0.paper_guard().seen_at(self.link.constant().source_obj)
+                == self.tracked_observation@->Some_0.index()
+            &&& (self.tracked_child@ is Some) == (self.obj_ptr.addr() != 0)
+            &&& (self.tracked_lease@ is Some) == (self.obj_ptr.addr() != 0)
+            &&& match (self.tracked_child@, self.tracked_lease@) {
+                (None, None) => self.obj_ptr.addr() == 0,
+                (Some(child), Some(lease)) => {
+                    &&& equal(child.ptr(), self.obj_ptr)
+                    &&& child.ptr() == self.link.constant().child
+                    &&& child.obj() == self.link.constant().child_obj
+                    &&& child.protected_by(self.tracked_guard@->Some_0.paper_guard())
+                    &&& lease.key() == child.obj()
+                    &&& lease.active_registry() == self.link.constant().active_lease_registry
+                    &&& lease.participant_id() == self.tracked_guard@->Some_0.participant_id()
+                    &&& lease.reader_fraction()
+                        == self.tracked_guard@->Some_0.reader_fragment().fraction()
+                    &&& lease.domain() == self.tracked_guard@->Some_0.domain()
+                    &&& lease.root() == self.tracked_guard@->Some_0.root()
+                    &&& lease.reader_context() == self.tracked_guard@->Some_0.reader_context()
+                    &&& lease.start_view() == self.tracked_guard@->Some_0.start_view()
+                    &&& lease.protected_addr() == child.ptr().addr()
+                    &&& RcuPointerOwnership::<P>::owns(child.ptr(), lease.resource())
+                },
+                _ => false,
+            }
+        }
+    }
+
+    /// Loads an internal child and retains both its traversal witness and its
+    /// physical lease. `previous` may be supplied to repeat a load from the
+    /// same source without resetting the dense traversal view.
+    fn load(
+        link: &'a RcuLinkedListAtomicLink<P>,
+        Tracked(guard): Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>,
+        Tracked(from): Tracked<&mut rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>,
+        Tracked(previous): Tracked<Option<&rcu_spec::LinkedListLinkObservation>>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: Self)
+        requires
+            link.well_formed(),
+            !link.child_phase().is_reclaimed(),
+            guard.wf(),
+            guard.scheduler() == link.constant().scheduler,
+            guard.domain() == link.constant().domain,
+            guard.root() == link.constant().root,
+            guard.retire_observation_registry() == link.constant().retire_observation_registry,
+            online_cpus().contains(guard.cpu()),
+            guard.seen_removed().removed == Set::<nat>::empty(),
+            match previous {
+                None => guard.paper_guard().seen_at(link.constant().source_obj) == 0,
+                Some(observation) => {
+                    &&& observation.registry() == link.constant().timestamp_registry
+                    &&& observation.loc() == link.native_loc()
+                    &&& old(tv)@.contains(observation.view())
+                    &&& guard.paper_guard().seen_at(link.constant().source_obj)
+                        == observation.index()
+                },
+            },
+            old(from).protected_by(guard.paper_guard()),
+            old(from).ptr() == link.constant().source,
+            old(from).obj() == link.constant().source_obj,
+        ensures
+            res.type_inv(),
+            res.proof_active,
+            old(tv)@.spec_le(final(tv)@),
+            final(from).ptr() == link.constant().source,
+            final(from).obj() == link.constant().source_obj,
+    {
+        let (
+            obj_ptr,
+            _timestamp,
+            _index,
+            Tracked(guard),
+            Tracked(child),
+            Tracked(lease),
+            Tracked(observation),
+        ) = link.load_acquire_and_lease_cpu(
+            Tracked(guard),
+            Tracked(from),
+            Tracked(previous),
+            Tracked(tv),
+        );
+        let res = Self {
+            obj_ptr,
+            link,
+            proof_active: true,
+            tracked_guard: Tracked(Some(guard)),
+            tracked_child: Tracked(child),
+            tracked_lease: Tracked(lease),
+            tracked_observation: Tracked(Some(observation)),
+        };
+        proof {
+            assert(res.type_inv());
+        }
+        res
+    }
+
+    /// Obtains the smart pointer's real shared-reference representation from
+    /// the internal child's physical lease.
+    fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref> where P: NonNullPtrRef<'b>
+        requires
+            self.proof_active,
+    {
+        proof {
+            use_type_invariant(self);
+            reveal(LinkedListChildReadGuard::type_inv);
+            if self.obj_ptr.addr() != 0 {
+                assert(self.tracked_lease@ is Some);
+                assert(RcuPointerOwnership::<P>::owns(
+                    self.obj_ptr,
+                    self.tracked_lease@->Some_0.resource(),
+                ));
+                assert(P::ptr_perm_match(self.obj_ptr, self.tracked_lease@->Some_0.resource()));
+                assert(self.tracked_lease@->Some_0.resource().inv());
+            }
+        }
+        NonNull::new(self.obj_ptr).map(
+            |ptr|
+                requires
+                    self.tracked_lease@ is Some,
+                    P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_lease@->Some_0.resource()),
+                {
+                    proof_decl! {
+                        let tracked lease = self.tracked_lease.tracked_borrow();
+                        let tracked ref_perm = P::borrow_perm_as_ref_perm(lease.borrow());
+                    }
+                    unsafe { P::raw_as_ref(ptr, Tracked(ref_perm)) }
+                },
+        )
+    }
+
+    /// Returns the physical lease, the traversal witness, and the updated CPU
+    /// guard so the caller may continue traversing.
+    fn finish(self, Tracked(tv): Tracked<&mut ViewSeen>) -> (res: Tracked<
+        (
+            rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>,
+            Option<rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>,
+            rcu_spec::LinkedListLinkObservation,
+        ),
+    >)
+        requires
+            self.type_inv(),
+            self.proof_active,
+            !self.link.child_phase().is_reclaimed(),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            res@.0.wf(),
+            res@.0.paper_guard().seen_at(self.link.constant().source_obj) == res@.2.index(),
+            res@.2.registry() == self.link.constant().timestamp_registry,
+            res@.2.loc() == self.link.native_loc(),
+            (res@.1 is Some) == (self.obj_ptr.addr() != 0),
+    {
+        let mut this = self;
+        proof {
+            use_type_invariant(&this);
+            reveal(LinkedListChildReadGuard::type_inv);
+        }
+        this.proof_active = false;
+        proof_decl! {
+            let tracked guard = this.tracked_guard.borrow_mut().tracked_take();
+            let tracked mut child = None;
+            vstd::modes::tracked_swap(this.tracked_child.borrow_mut(), &mut child);
+            let tracked mut lease = None;
+            vstd::modes::tracked_swap(this.tracked_lease.borrow_mut(), &mut lease);
+            let tracked observation = this.tracked_observation.borrow_mut().tracked_take();
+        }
+        let Tracked(guard) = this.link.return_child_lease_cpu(
+            Tracked(lease),
+            Tracked(guard),
+            Tracked(tv),
+        );
+        Tracked((guard, child, observation))
+    }
+}
+
+impl<'a> LinkedListChildReadGuard<'a, Box<rcu_spec::LinkedListNode>> {
+    /// Concrete acceptance path: turn the boxed child's leased
+    /// `RefPermission` into an actual Rust shared reference and dereference
+    /// the node allocation.
+    fn deref_box_child<'b>(&'b self) -> Option<&'b rcu_spec::LinkedListNode>
+        requires
+            self.proof_active,
+    {
+        self.get().map(|child| child.deref_target())
     }
 }
 
@@ -261,6 +487,125 @@ struct RcuDropCallbackContext<P: NonNullPtr + Send> {
             RcuPointerOwnership<P>,
         >,
     >,
+}
+
+/// Type-erased callback payload for an internal linked-list child.
+///
+/// The callback owns the entire link wrapper after unlink/retire.  This gives
+/// it exclusive access to the link's phase token and physical permission pool
+/// when the monitor eventually supplies a reclaim permit.
+struct LinkedListDropCallbackContext<P> where
+    P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send,
+ {
+    pointer: NonNull<rcu_spec::LinkedListNode>,
+    link: RcuLinkedListAtomicLink<P>,
+    tracked_object: Tracked<rcu_spec::RcuObjectId<rcu_spec::LinkedListNode>>,
+    tracked_claim: Tracked<rcu_cpu_spec::RcuReclaimClaim<rcu_spec::LinkedListNode>>,
+    ghost_removal: Ghost<rcu_spec::RcuRemovalObservation>,
+    ghost_retire_observation_registry: Ghost<Loc>,
+    ghost_scheduler: Ghost<Loc>,
+}
+
+// SAFETY: the context owns the detached `P` allocation and the unique link
+// wrapper that protects its proof-only permission pool. No borrowed runtime
+// state crosses into the monitor queue.
+#[verifier::external]
+unsafe impl<P> Send for LinkedListDropCallbackContext<P> where
+    P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send,
+ {
+
+}
+
+impl<P> LinkedListDropCallbackContext<P> where
+    P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send,
+ {
+    pub closed spec fn permit_matches(&self, permit: monitor::RcuReclaimPermit) -> bool {
+        &&& permit.wf()
+        &&& permit.callback().domain == self.tracked_object@.domain()
+        &&& permit.callback().obj == self.tracked_object@.obj()
+        &&& permit.callback().removal == self.ghost_removal@
+        &&& permit.callback().retire_observation_registry == self.ghost_retire_observation_registry@
+        &&& permit.callback().scheduler == self.ghost_scheduler@
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.link.well_formed()
+        &&& (self.link.child_phase().is_retired() || self.link.child_phase().is_reclaimed())
+        &&& self.tracked_object@.wf()
+        &&& equal(self.tracked_object@.ptr(), self.pointer.view_ptr_mut())
+        &&& self.tracked_object@.domain() == self.link.constant().domain
+        &&& self.tracked_object@.obj() == self.link.constant().child_obj
+        &&& equal(self.tracked_object@.ptr(), self.link.constant().child)
+        &&& self.ghost_scheduler@ == self.link.constant().scheduler
+        &&& match self.link.child_phase() {
+            crate::specs::sync::weak_memory::LinkedListChildPhase::Retired { index: _, removal }
+            | crate::specs::sync::weak_memory::LinkedListChildPhase::Reclaimed {
+                index: _,
+                removal,
+            } => self.ghost_removal@ == removal,
+            _ => false,
+        }
+        &&& self.ghost_removal@.root == self.link.constant().root
+        &&& self.ghost_retire_observation_registry@
+            == self.link.constant().retire_observation_registry
+        &&& self.link.child_phase().is_retired()
+        &&& self.tracked_claim@.registry() == self.link.constant().reclaim_registry
+        &&& self.tracked_claim@.obj() == self.tracked_object@.obj()
+        &&& self.tracked_claim@.is_pending()
+        &&& equal(self.tracked_claim@.ptr(), self.pointer.view_ptr_mut())
+    }
+}
+
+impl<P> RawCallbackContextWithProof<monitor::RcuReclaimPermit> for LinkedListDropCallbackContext<
+    P,
+> where P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send {
+    open spec fn call_requires(&self, permit: monitor::RcuReclaimPermit) -> bool {
+        self.permit_matches(permit)
+    }
+
+    fn run(self, Tracked(permit): Tracked<monitor::RcuReclaimPermit>) {
+        let Tracked(credit) = vstd::invariant::create_open_invariant_credit();
+        proof_decl! {
+            let tracked permission;
+            let tracked completed;
+        }
+        proof {
+            use_type_invariant(&self);
+            use_type_invariant(&permit);
+            reveal(LinkedListDropCallbackContext::type_inv);
+            permit.lemma_authorizes_callback();
+            let ghost callback = permit.callback();
+            assert(self.permit_matches(permit));
+            assert(permit.authorizes(callback));
+            assert(self.link.child_phase().is_retired());
+            completed = permit.tracked_into_reclaimed_witness(callback);
+            assert(completed.wf());
+            assert(completed.scheduler() == self.link.constant().scheduler);
+            assert(completed.record() == callback.retired_record());
+            assert(completed.record().domain == self.link.constant().domain);
+            assert(completed.record().obj == self.link.constant().child_obj);
+            assert(completed.record().retire_observation_registry
+                == self.link.constant().retire_observation_registry);
+            assert(completed.record().removal == self.link.child_phase()->Retired_removal);
+        }
+        let LinkedListDropCallbackContext {
+            pointer,
+            mut link,
+            tracked_object: _,
+            tracked_claim,
+            ghost_removal: _,
+            ghost_retire_observation_registry: _,
+            ghost_scheduler: _,
+        } = self;
+        proof {
+            permission = link.tracked_reclaim_retired_child(tracked_claim.get(), completed, credit);
+            assert(RcuPointerOwnership::<P>::owns(pointer.as_ptr(), permission));
+            assert(P::ptr_perm_match(pointer.as_ptr(), permission));
+            assert(permission.inv());
+        }
+        let _pointer = unsafe { P::from_raw(pointer, Tracked(permission)) };
+    }
 }
 
 // SAFETY: the callback consumes the same owning pointer type `P` that was
@@ -589,6 +934,137 @@ fn callback_from_detached<P: NonNullPtr + Send>(
         use_type_invariant(&context);
     }
     (RawCallbackWithProof::new(context), Tracked(cert))
+}
+
+/// Erases a retired internal child into the real monitor callback pipeline.
+/// The link moves into the callback context, so the successful callback is the
+/// only code that can change its phase to `Reclaimed` and recover `P`'s full
+/// physical permission.
+fn callback_from_linked_list_child<P>(
+    link: RcuLinkedListAtomicLink<P>,
+    Tracked(retired): Tracked<LinkedListRetiredChild>,
+) -> (res: (
+    RawCallbackWithProof<monitor::RcuReclaimPermit>,
+    Tracked<rcu_spec::RcuCallbackSafety>,
+)) where P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send
+    requires
+        link.well_formed(),
+        link.child_phase().is_retired(),
+        retired.object().wf(),
+        retired.object().domain() == link.constant().domain,
+        retired.object().obj() == link.constant().child_obj,
+        equal(retired.object().ptr(), link.constant().child),
+        retired.claim().registry() == link.constant().reclaim_registry,
+        retired.claim().obj() == link.constant().child_obj,
+        retired.claim().is_pending(),
+        equal(retired.claim().ptr(), link.constant().child),
+        retired.retired().removal() == link.child_phase()->Retired_removal,
+        link.child_phase()->Retired_removal.root == link.constant().root,
+        retired.retired().retire_observation_registry()
+            == link.constant().retire_observation_registry,
+    ensures
+        res.1@.domain() == link.constant().domain,
+        res.1@.obj() == link.constant().child_obj,
+        res.1@.removal() == link.child_phase()->Retired_removal,
+        res.1@.retire_observation_registry() == link.constant().retire_observation_registry,
+        forall|permit: monitor::RcuReclaimPermit|
+            permit.wf() && permit.callback().domain == res.1@.domain() && permit.callback().obj
+                == res.1@.obj() && permit.callback().removal == res.1@.removal()
+                && permit.callback().retire_observation_registry
+                == res.1@.retire_observation_registry() && permit.callback().scheduler
+                == link.constant().scheduler ==> res.0.call_requires(permit),
+{
+    proof_decl! {
+        let tracked (object, cert, claim) = retired.tracked_certify_callback();
+    }
+    let child_ptr = link.child_raw();
+    proof {
+        link.lemma_well_formed_facts();
+        assert(link.well_formed());
+        assert(link.child_ptr().addr() != 0);
+        assert(equal(child_ptr, link.child_ptr()));
+        assert(child_ptr.addr() != 0);
+    }
+    let pointer = unsafe { NonNull::new_unchecked(child_ptr) };
+    proof {
+        assert(equal(pointer.view_ptr_mut(), child_ptr));
+        assert(link.child_ptr().addr() != 0);
+        assert(object.wf());
+        assert(link.child_phase() is Retired);
+        assert(equal(object.ptr(), pointer.view_ptr_mut()));
+        assert(equal(object.ptr(), link.constant().child));
+        assert(object.domain() == link.constant().domain);
+        assert(object.obj() == link.constant().child_obj);
+        assert(claim.registry() == link.constant().reclaim_registry);
+        assert(claim.obj() == object.obj());
+        assert(claim.is_pending());
+        assert(equal(claim.ptr(), pointer.view_ptr_mut()));
+        assert(cert.removal() == link.child_phase()->Retired_removal);
+        assert(cert.removal().root == link.constant().root);
+        assert(cert.retire_observation_registry() == link.constant().retire_observation_registry);
+    }
+    let ghost scheduler = link.constant().scheduler;
+    let context = LinkedListDropCallbackContext::<P> {
+        pointer,
+        link,
+        tracked_object: Tracked(object),
+        tracked_claim: Tracked(claim),
+        ghost_removal: Ghost(cert.removal()),
+        ghost_retire_observation_registry: Ghost(cert.retire_observation_registry()),
+        ghost_scheduler: Ghost(scheduler),
+    };
+    proof {
+        use_type_invariant(&context);
+    }
+    (RawCallbackWithProof::new(context), Tracked(cert))
+}
+
+/// Schedules one retired internal child on the existing `call_rcu` monitor
+/// path. This is intentionally kept private to the linked-list acceptance
+/// case until a production data-structure adapter chooses its public API.
+fn after_grace_period_linked_list_child<P>(
+    link: RcuLinkedListAtomicLink<P>,
+    Tracked(retired): Tracked<LinkedListRetiredChild>,
+    Tracked(session): Tracked<&mut RunningTaskContext>,
+) where P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send
+    requires
+        old(session).wf(),
+        old(session).scheduler() == rcu_spec::rcu_scheduler(),
+        link.well_formed(),
+        link.constant().scheduler == old(session).scheduler(),
+        link.child_phase().is_retired(),
+        retired.object().wf(),
+        retired.object().domain() == link.constant().domain,
+        retired.object().obj() == link.constant().child_obj,
+        equal(retired.object().ptr(), link.constant().child),
+        retired.claim().registry() == link.constant().reclaim_registry,
+        retired.claim().obj() == link.constant().child_obj,
+        retired.claim().is_pending(),
+        equal(retired.claim().ptr(), link.constant().child),
+        retired.retired().removal() == link.child_phase()->Retired_removal,
+        link.child_phase()->Retired_removal.root == link.constant().root,
+        retired.retired().removal().observed_by(old(session).irc11_view()),
+        retired.retired().retire_observation_registry()
+            == link.constant().retire_observation_registry,
+    ensures
+        final(session).wf(),
+        final(session).task() == old(session).task(),
+        final(session).scheduler() == old(session).scheduler(),
+        final(session).cpu() == old(session).cpu(),
+        final(session).session_id() == old(session).session_id(),
+        final(session).quiescent_generation() == old(session).quiescent_generation(),
+        final(session).available_fractions() == old(session).available_fractions(),
+        final(session).preempt_depth() == old(session).preempt_depth(),
+        final(session).rcu_participant_id() == old(session).rcu_participant_id(),
+        final(session).rcu_generation() == old(session).rcu_generation(),
+        final(session).rcu_participant_view() == old(session).rcu_participant_view(),
+        final(session).rcu_fraction() == old(session).rcu_fraction(),
+{
+    let (callback, cert) = callback_from_linked_list_child::<P>(link, Tracked(retired));
+    if let Some(monitor) = RCU_MONITOR.get() {
+        #[verus_spec(with Tracked(session))]
+        monitor.after_grace_period(callback, cert);
+    }
 }
 
 impl<P: NonNullPtr> RcuInner<P> {
