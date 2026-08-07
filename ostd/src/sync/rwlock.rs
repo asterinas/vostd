@@ -735,15 +735,6 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     pub open spec fn view(self) -> T {
         self.value()
     }
-
-    /// Borrows the inner value in tracked mode.
-    #[verifier::external_body]
-    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
-        returns
-            self.view(),
-    {
-        unimplemented!()
-    }
 }
 
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
