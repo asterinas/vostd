@@ -29,7 +29,6 @@
 //! module. The reference count and usage of a frame are stored in the metadata
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
-//pub mod allocator;
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
@@ -46,7 +45,6 @@ pub mod unique;
 pub mod untyped;
 
 mod frame_ref;
-pub mod obligation_demo;
 pub use frame_ref::FrameRef;
 
 #[cfg(ktest)]
@@ -82,11 +80,11 @@ use crate::mm::{
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::{
     frame_specs::*,
     mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
+    meta_owners::*,
+    meta_region_owners::MetaRegionOwners,
 };
 
 verus! {
