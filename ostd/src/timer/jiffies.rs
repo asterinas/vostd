@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+use vstd::std_specs::convert::FromSpecImpl;
+
 use core::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-use vstd::prelude::*;
-use vstd::std_specs::convert::FromSpecImpl;
 
 use crate::arch::timer::TIMER_FREQ;
 verus! {
@@ -32,12 +33,12 @@ impl View for Jiffies {
 
 impl Jiffies {
     /// The whole-second component of this jiffy count.
-    pub closed spec fn duration_secs(self) -> u64 {
+    pub open spec fn duration_secs(self) -> u64 {
         self@ / TIMER_FREQ
     }
 
     /// The subsecond nanosecond component of this jiffy count.
-    pub closed spec fn duration_nanos(self) -> u32 {
+    pub open spec fn duration_nanos(self) -> u32 {
         (((self@ % TIMER_FREQ) * 1_000_000_000u64) / (TIMER_FREQ as int)) as u32
     }
 }
@@ -80,11 +81,7 @@ impl Jiffies {
     /// Adds the given number of jiffies, saturating at [`Jiffies::MAX`] on overflow.
     #[verus_spec(
         ensures
-            final(self)@ == if old(self)@ + jiffies > u64::MAX {
-                u64::MAX
-            } else {
-                (old(self)@ + jiffies) as u64
-            },
+            final(self)@ == old(self)@.saturating_add(jiffies),
     )]
     pub fn add(&mut self, jiffies: u64) {
         self.0 = self.0.saturating_add(jiffies);
