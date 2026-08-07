@@ -8,7 +8,13 @@
 //! state, then restores that state before returning the owner to the scheduler.
 use core::marker::PhantomData;
 
-use vstd::{prelude::*, resource::Loc};
+use vstd::{
+    prelude::*,
+    resource::{
+        Loc,
+        map::{GhostPersistentPointsTo, GhostPointsTo},
+    },
+};
 use vstd_extra::resource::ghost_resource::excl::ExclusiveGhost;
 
 use crate::specs::mm::cpu::CpuId;
@@ -23,6 +29,17 @@ pub ghost struct CpuCoreOwnerView {
     /// Task currently executing on this core, or `None` while the core is idle.
     pub current_task: Option<Loc>,
     /// Ordered identities of the CPU-local resources assigned to this core.
+    pub locals_key: Seq<Loc>,
+}
+
+/// Stable identity of one scheduler-owned CPU core and its local aggregate.
+///
+/// A scheduler registry stores this value under the corresponding [`CpuId`].
+/// The core ID distinguishes independently allocated owners, while
+/// `locals_key` identifies the exact ordered CPU-local resources installed in
+/// the owner.
+pub ghost struct CpuCoreRegistration {
+    pub owner_id: Loc,
     pub locals_key: Seq<Loc>,
 }
 
@@ -84,6 +101,17 @@ pub tracked struct CpuCoreOwner<L: CpuCoreLocalState> {
     locals: L,
 }
 
+/// Persistent evidence for the canonical core registered for one CPU.
+///
+/// This is deliberately defined in the generic CPU-core model rather than in
+/// an individual CPU-local client. A reader, scheduler transition, or
+/// quiescent report may duplicate the evidence and later establish that they
+/// refer to the same core and the same local-resource aggregate.
+pub tracked struct CpuCoreOwnerBinding<L: CpuCoreLocalState> {
+    entry: GhostPersistentPointsTo<CpuId, CpuCoreRegistration>,
+    marker: PhantomData<L>,
+}
+
 impl<L: CpuCoreLocalState> View for CpuCoreOwnerHandle<L> {
     type V = CpuCoreOwnerView;
 
@@ -97,6 +125,80 @@ impl<L: CpuCoreLocalState> View for CpuCoreOwner<L> {
 
     closed spec fn view(&self) -> Self::V {
         self.handle@
+    }
+}
+
+impl<L: CpuCoreLocalState> CpuCoreOwnerBinding<L> {
+    /// Persists one entry from the scheduler's authoritative core registry.
+    pub proof fn tracked_new(
+        tracked entry: GhostPointsTo<CpuId, CpuCoreRegistration>,
+        tracked core: &CpuCoreOwner<L>,
+    ) -> (tracked res: Self)
+        requires
+            core.wf(),
+            entry.key() == core.cpu(),
+            entry.value() == core.registration(),
+        ensures
+            res.registry() == entry.id(),
+            res.cpu() == core.cpu(),
+            res.owner_id() == core.id(),
+            res.locals_key() == core.locals_key(),
+    {
+        let tracked entry = entry.persist();
+        CpuCoreOwnerBinding { entry, marker: PhantomData }
+    }
+
+    /// Identity of the authoritative scheduler core registry.
+    pub closed spec fn registry(self) -> Loc {
+        self.entry.id()
+    }
+
+    /// CPU whose canonical core is recorded by this entry.
+    pub closed spec fn cpu(self) -> CpuId {
+        self.entry.key()
+    }
+
+    /// Stable identity of the registered [`CpuCoreOwner`].
+    pub closed spec fn owner_id(self) -> Loc {
+        self.entry.value().owner_id
+    }
+
+    /// Ordered identities of the registered core's CPU-local resources.
+    pub closed spec fn locals_key(self) -> Seq<Loc> {
+        self.entry.value().locals_key
+    }
+
+    /// Identity of the only local resource in a singleton aggregate.
+    pub open spec fn single_local_id(self) -> Loc
+        recommends
+            self.locals_key().len() == 1,
+    {
+        self.locals_key()[0]
+    }
+
+    /// Creates another persistent copy for a CPU-local client.
+    pub proof fn tracked_duplicate(tracked &self) -> (tracked res: Self)
+        ensures
+            res.registry() == self.registry(),
+            res.cpu() == self.cpu(),
+            res.owner_id() == self.owner_id(),
+            res.locals_key() == self.locals_key(),
+    {
+        CpuCoreOwnerBinding { entry: self.entry.duplicate(), marker: PhantomData }
+    }
+
+    /// Entries for the same CPU in one registry agree on the complete core
+    /// registration.
+    pub proof fn lemma_same_cpu_agree(tracked &self, tracked other: &Self)
+        requires
+            self.registry() == other.registry(),
+            self.cpu() == other.cpu(),
+        ensures
+            self.owner_id() == other.owner_id(),
+            self.locals_key() == other.locals_key(),
+    {
+        let tracked mut duplicate = self.entry.duplicate();
+        duplicate.intersection_agrees(&other.entry);
     }
 }
 
@@ -140,6 +242,13 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
         ensures
             res.id() == self.id(),
             res@ == self@,
+            res.cpu() == self.cpu(),
+            res.current_task() == self.current_task(),
+            res.locals_key() == self.expected_locals_key(),
+            res.registration() == (CpuCoreRegistration {
+                owner_id: self.id(),
+                locals_key: self.expected_locals_key(),
+            }),
             res.wf(),
             res.locals() == locals,
             res.locals().local_key() == self.expected_locals_key(),
@@ -158,6 +267,9 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             res.is_idle(),
             res.wf(),
             res.locals() == locals,
+            res.locals_key() == locals.local_key(),
+            res.registration().owner_id == res.id(),
+            res.registration().locals_key == locals.local_key(),
     {
         let ghost locals_key = locals.local_key();
         let tracked state = ExclusiveGhost::alloc(
@@ -197,6 +309,11 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
         self.handle.expected_locals_key()
     }
 
+    /// Stable value stored in the scheduler's canonical CPU-core registry.
+    pub closed spec fn registration(&self) -> CpuCoreRegistration {
+        CpuCoreRegistration { owner_id: self.id(), locals_key: self.locals_key() }
+    }
+
     /// The core identity is valid and every local resource belongs to its CPU.
     pub closed spec fn wf(&self) -> bool {
         &&& self.handle.wf()
@@ -215,6 +332,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).current_task() == Some(task),
             final(self).locals() == old(self).locals(),
             final(self).locals_key() == old(self).locals_key(),
+            final(self).registration() == old(self).registration(),
             final(self).wf(),
     {
         let ghost next = CpuCoreOwnerView {
@@ -237,6 +355,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).is_idle(),
             final(self).locals() == old(self).locals(),
             final(self).locals_key() == old(self).locals_key(),
+            final(self).registration() == old(self).registration(),
             final(self).wf(),
     {
         let task = self.current_task()->0;
@@ -261,6 +380,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             res.0.id() == self.id(),
             res.0@ == self@,
             res.0.wf(),
+            res.0.cpu() == self.cpu(),
+            res.0.current_task() == self.current_task(),
             res.0.expected_locals_key() == self.locals_key(),
             res.1 == self.locals(),
             res.1.belongs_to_cpu(res.0.cpu()),

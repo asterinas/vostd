@@ -4,6 +4,7 @@
 use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+use vstd::thread_view::Objective;
 use vstd_extra::prelude::*;
 
 mod either;
@@ -41,7 +42,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     where
         Self: 'a;*/
     /// A verification-only permission type that represents the ownership of the memory managed by the pointer.
-    type Permission: Inv;
+    type Permission: Inv + Objective;
 
     /// The power of two of the pointer alignment.
     const ALIGN_BITS: u32;

@@ -17,6 +17,8 @@ extern crate alloc;
 
 pub mod arithmetic;
 pub mod array_ptr;
+pub mod atomic_irc11;
+pub mod atomic_weak;
 pub mod auxiliary;
 pub mod cast_ptr;
 pub mod drop_tracking;
@@ -32,7 +34,9 @@ pub mod trans_macros;
 pub mod map_extra;
 
 pub mod prelude;
+pub mod raw_callback;
 pub mod raw_ptr_extra;
+pub mod rcu_read_pool;
 pub mod seq_extra;
 pub mod set_extra;
 pub mod spec_operators;

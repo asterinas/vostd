@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
-// pub(super) mod cpu_local;
+#[cfg(not(verus_keep_ghost))]
+pub(super) mod cpu_local;
 mod guard;
 
-pub use self::guard::{DisabledPreemptGuard, disable_preempt};
+pub(crate) use self::guard::disable_preempt_in_context;
+pub use self::guard::{
+    DisabledPreemptGuard, PreemptSessionToken, PreemptThreadViewSession, RunningTaskContext,
+    disable_preempt,
+};
 /*
 /// Halts the CPU until interrupts if no preemption is required.
 ///

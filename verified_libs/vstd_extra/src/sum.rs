@@ -1,6 +1,7 @@
 use crate::ownership::Inv;
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
+use vstd::thread_view::Objective;
 
 verus! {
 
@@ -8,6 +9,10 @@ verus! {
 pub tracked enum Sum<L, R> {
     Left(L),
     Right(R),
+}
+
+unsafe impl<L: Objective, R: Objective> Objective for Sum<L, R> {
+
 }
 
 impl<L, R> Sum<L, R> {
