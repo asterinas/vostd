@@ -126,14 +126,6 @@ impl<C: PageTableConfig, A: InAtomicMode> Iterator for Cursor<'_, C, A> {
 }
 
 /// Reborrow the inner `PageTableGuard` of `path[idx]` (which must be `Some`).
-///
-/// `external_body` because Verus's mut-ref model can't see through the
-/// `array[idx].as_mut()` reborrow chain to conclude that the array's structure
-/// is preserved. The Rust body is just `path[idx].as_mut().unwrap()`. The
-/// trust boundary captures: (i) the inner guard pointed to by `res` equals
-/// the original inner guard at `path[idx]`, and (ii) the array's structure is
-/// unchanged. Both follow from `Option::as_mut`'s vstd spec composed with
-/// array indexing — Verus just won't compose them automatically.
 #[verus_spec(res =>
     requires
         idx < NR_LEVELS,
