@@ -5,7 +5,6 @@ use core::{
 };
 use vstd::prelude::*;
 use vstd::std_specs::convert::FromSpecImpl;
-use vstd_extra::external::duration_new_spec;
 
 use crate::arch::timer::TIMER_FREQ;
 verus! {
@@ -49,7 +48,7 @@ impl FromSpecImpl<Jiffies> for Duration {
     }
 
     open spec fn from_spec(value: Jiffies) -> Duration {
-        duration_new_spec(value.duration_secs(), value.duration_nanos())
+        Duration::new(value.duration_secs(), value.duration_nanos())
     }
 }
 
@@ -92,7 +91,7 @@ impl Jiffies {
     }
 
     /// Gets the [`Duration`] calculated from the jiffies counts.
-    #[verus_spec(returns vstd_extra::external::duration_new_spec(
+    #[verus_spec(returns Duration::new(
         self.duration_secs(),
         self.duration_nanos(),
     ))]
