@@ -2,12 +2,12 @@
 //! The timer support.
 pub(crate) mod jiffies;
 
-use alloc::{boxed::Box, vec::Vec};
-use core::cell::RefCell;
+/* use alloc::{boxed::Box, vec::Vec};
+use core::cell::RefCell; */
 
 pub use jiffies::Jiffies;
 
-use crate::{cpu_local, trap};
+/* use crate::{cpu_local, trap};
 
 type InterruptCallback = Box<dyn Fn() + Sync + Send>;
 
@@ -25,4 +25,4 @@ where
         .get_with(&irq_guard)
         .borrow_mut()
         .push(Box::new(func));
-}
+} */
