@@ -1114,8 +1114,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // The recorded entry trackedness matches the item being cloned.
             C::tracked(item) == self.cur_entry_owner().frame_is_tracked(),
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-            C::tracked(item) ==> (regions.slot_owners[frame_to_index(pa)].ref_count()
-                < REF_COUNT_MAX || may_panic()),
+            C::tracked(item) ==> (regions.slot_owner(pa).ref_count() < REF_COUNT_MAX
+                || may_panic()),
         ensures
             item.clone_requires(regions),
     {

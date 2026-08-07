@@ -236,33 +236,33 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 ).slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
             C::tracked(*item) ==> {
-                &&& final(regions).slot_owners[frame_to_index(pa)].ref_count_perm.id()
-                    == old(regions).slot_owners[frame_to_index(pa)].ref_count_perm.id()
-                &&& final(regions).slot_owners[frame_to_index(pa)].storage_perm() == old(
+                &&& final(regions).slot_owner(pa).ref_count_perm.id()
+                    == old(regions).slot_owner(pa).ref_count_perm.id()
+                &&& final(regions).slot_owner(pa).storage_perm() == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].storage_perm()
-                &&& final(regions).slot_owners[frame_to_index(pa)].vtable_ptr_perm() == old(
+                ).slot_owner(pa).storage_perm()
+                &&& final(regions).slot_owner(pa).vtable_ptr_perm() == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].vtable_ptr_perm()
-                &&& final(regions).slot_owners[frame_to_index(pa)].in_list_perm == old(
+                ).slot_owner(pa).vtable_ptr_perm()
+                &&& final(regions).slot_owner(pa).in_list_perm == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].in_list_perm
-                &&& final(regions).slot_owners[frame_to_index(pa)].paths_in_pt == old(
+                ).slot_owner(pa).in_list_perm
+                &&& final(regions).slot_owner(pa).paths_in_pt == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].paths_in_pt
-                &&& final(regions).slot_owners[frame_to_index(pa)].slot_vaddr == old(
+                ).slot_owner(pa).paths_in_pt
+                &&& final(regions).slot_owner(pa).slot_vaddr == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].slot_vaddr
-                &&& final(regions).slot_owners[frame_to_index(pa)].usage == old(
+                ).slot_owner(pa).slot_vaddr
+                &&& final(regions).slot_owner(pa).usage == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].usage
-                &&& final(regions).slot_owners[frame_to_index(pa)].ref_count()
-                    == old(regions).slot_owners[frame_to_index(pa)].ref_count()
+                ).slot_owner(pa).usage
+                &&& final(regions).slot_owner(pa).ref_count()
+                    == old(regions).slot_owner(pa).ref_count()
                     + 1
             },
-            !C::tracked(*item) ==> final(regions).slot_owners[frame_to_index(pa)] == old(
+            !C::tracked(*item) ==> final(regions).slot_owner(pa) == old(
                 regions,
-            ).slot_owners[frame_to_index(pa)],
+            ).slot_owner(pa),
             // Linear-drop pilot: `clone_item` doesn't mint or redeem segment
             // obligations. Canonically a *tracked* clone MINTS one per-frame
             // entry (`Frame::clone` via `MappedItem::clone`), so the helper

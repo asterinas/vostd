@@ -3,7 +3,7 @@
 //!
 //! A frame "handle" in the embedding is just a `paddr`-bearing
 //! [`super::FrameEntry`] in [`super::VmStore::frames`]. The proof-side
-//! ownership is in `regions.slot_owners[frame_to_index(paddr)]`
+//! ownership is in `regions.slot_owner(paddr)`
 //! (refcount + perms), which the embedded axioms mutate per the
 //! corresponding `_spec` helpers in [`crate::specs::mm::frame::meta_specs`].
 //!
@@ -141,7 +141,7 @@ pub axiom fn frame_from_in_use_embedded(
         // does not surface this, and `MetaSlotOwner::inv` only gives
         // `vtable_ptr.is_init()` for SHARED slots, not `storage`.
         res is Some ==> {
-            let so = final(regions).slot_owners[frame_to_index(paddr)];
+            let so = final(regions).slot_owner(paddr);
             &&& so.ref_count() != REF_COUNT_UNUSED
             &&& so.ref_count() != REF_COUNT_UNIQUE
             &&& so.storage_perm().is_init()
@@ -187,12 +187,12 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
     requires
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 0,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() != REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() <= REF_COUNT_MAX,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1 ==> {
-            &&& old(regions).slot_owners[frame_to_index(paddr)].storage_perm().is_init()
-            &&& old(regions).slot_owners[frame_to_index(paddr)].in_list_perm.value()
+        old(regions).slot_owner(paddr).ref_count() > 0,
+        old(regions).slot_owner(paddr).ref_count() != REF_COUNT_UNUSED,
+        old(regions).slot_owner(paddr).ref_count() <= REF_COUNT_MAX,
+        old(regions).slot_owner(paddr).ref_count() == 1 ==> {
+            &&& old(regions).slot_owner(paddr).storage_perm().is_init()
+            &&& old(regions).slot_owner(paddr).in_list_perm.value()
                 == 0
             // Mirrors the FUTURE-plan strengthening of exec
             // `Frame::drop_requires`: at `rc == 1` the dropped handle is
@@ -201,7 +201,7 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             // a precondition; the embedding's requires must mirror it
             // verbatim or the axiom is logically inconsistent on inputs
             // the exec cannot accept.
-            &&& old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty()
+            &&& old(regions).slot_owner(paddr).paths_in_pt.is_empty()
         },
     ensures
 // ---- mirrors strengthened `Frame::drop_ensures` ----
@@ -214,15 +214,9 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             ).slot_owners[i],
         final(regions).slots == old(regions).slots,
         final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-        final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].slot_vaddr,
-        final(regions).slot_owners[frame_to_index(paddr)].usage == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].usage,
-        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].paths_in_pt,
+        final(regions).slot_owner(paddr).slot_vaddr == old(regions).slot_owner(paddr).slot_vaddr,
+        final(regions).slot_owner(paddr).usage == old(regions).slot_owner(paddr).usage,
+        final(regions).slot_owner(paddr).paths_in_pt == old(regions).slot_owner(paddr).paths_in_pt,
         // `ref_count == 1` ⟹ the torn-down slot has no page-table
         // mappings. A mapping is itself a reference (see the doc
         // comment above: `reference_count()` counts the mappings), so a
@@ -230,37 +224,38 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
         // is empty — same epistemic status as the `metaregion_sound`-
         // preserves clause (sound to assert, reflecting real exec; not
         // derivable from the incomplete `drop_pre` predicate alone).
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
+        old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
+            paddr,
+        ).paths_in_pt.is_empty(),
         // `drop` never touches the free-list `in_list` field (the
         // decrement branch leaves it; `drop_last_in_place` preserves
         // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
-        final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].in_list_perm,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
+        final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
+            paddr,
+        ).in_list_perm,
+        old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
+            paddr,
+        ).paths_in_pt.is_empty(),
         // `drop` never touches the free-list `in_list` field (the
         // decrement branch leaves it; `drop_last_in_place` preserves
         // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
-        final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].in_list_perm,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].ref_count() == REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].ref_count() == (old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].ref_count() - 1) as u64,
+        final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
+            paddr,
+        ).in_list_perm,
+        old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
+            paddr,
+        ).ref_count() == REF_COUNT_UNUSED,
+        old(regions).slot_owner(paddr).ref_count() > 1 ==> final(regions).slot_owner(
+            paddr,
+        ).ref_count() == (old(regions).slot_owner(paddr).ref_count() - 1) as u64,
         // Storage preservation in the decrement branch (rc>1): the
         // exec `fetch_sub` only touches `ref_count`; only the rc==1
         // teardown branch invokes `drop_last_in_place` (which uninits
         // storage). Needed so the embedding accounting clause's
         // `storage.is_init` carries across non-teardown drops.
-        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].storage_perm(),
+        old(regions).slot_owner(paddr).ref_count() > 1 ==> final(regions).slot_owner(
+            paddr,
+        ).storage_perm() == old(regions).slot_owner(paddr).storage_perm(),
         // ---- embedding inv chaining ----
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
@@ -325,7 +320,7 @@ pub(super) proof fn from_in_use_step(
         // 2b: surface the acquired slot's liveness — see
         // [`frame_from_in_use_embedded`].
         res is Some ==> {
-            let so = final(regions).slot_owners[frame_to_index(paddr)];
+            let so = final(regions).slot_owner(paddr);
             &&& so.ref_count() != REF_COUNT_UNUSED
             &&& so.ref_count() != REF_COUNT_UNIQUE
             &&& so.storage_perm().is_init()
@@ -349,7 +344,7 @@ pub(super) proof fn from_in_use_step(
 /// decrement-vs-teardown choice — the single [`frame_drop_embedded`]
 /// axiom covers both via one postcondition keyed on the live refcount.
 pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-    let so = regions.slot_owners[frame_to_index(paddr)];
+    let so = regions.slot_owner(paddr);
     &&& regions.contains(frame_to_index(paddr))
     &&& so.ref_count() > 0
     &&& so.ref_count() != REF_COUNT_UNUSED

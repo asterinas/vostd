@@ -392,11 +392,11 @@ impl MetaSlot {
                 &&& final(regions).inv()
                 &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
                 &&& <M as Repr<MetaSlotStorage>>::wf(
-                    final(regions).slot_owners[frame_to_index(paddr)].storage_perm().value(),
+                    final(regions).slot_owner(paddr).storage_perm().value(),
                     *final(repr_perm),
                 )
                 &&& M::from_repr_spec(
-                    final(regions).slot_owners[frame_to_index(paddr)].storage_perm().value(),
+                    final(regions).slot_owner(paddr).storage_perm().value(),
                     *final(repr_perm),
                 ) == metadata
             },

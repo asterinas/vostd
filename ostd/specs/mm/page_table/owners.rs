@@ -1347,6 +1347,15 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
             vstd::arithmetic::mul::lemma_mul_inequality(1, q, ps);
             vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, 0x1_0000_0000_0000int);
+            assert(v + ps <= limit) by (nonlinear_arith)
+                requires
+                    q >= 1,
+                    ps > 0,
+                    diff == ps * q,
+                    diff == limit - v,
+            ;
+            assert(0xffffint * 0x1_0000_0000_0000int + 0x1_0000_0000_0000int
+                == 0x1_0000_0000_0000_0000int) by (compute_only);
             assert(lb * limit + v + ps <= 0x1_0000_0000_0000_0000int);
             vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
             assert(set![4096, 2097152, 1073741824].contains(m.page_size));
@@ -1636,7 +1645,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 // Only nodes track paths_in_pt as a singleton (frames can be shared).
                 entry.is_node() && entry.meta_slot_paddr() is Some ==> {
                     &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()->0))
-                    &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr()->0)].paths_in_pt
+                    &&& regions.slot_owner(entry.meta_slot_paddr()->0).paths_in_pt
                         == set![entry.path]
                 }
             }
@@ -1650,8 +1659,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             {
                 &&& entry.meta_slot_paddr() is Some
                 &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()->0))
-                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr()->0)].paths_in_pt
-                    == set![path]
+                &&& regions.slot_owner(entry.meta_slot_paddr()->0).paths_in_pt == set![path]
             }
     }
 
@@ -1914,8 +1922,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.subtree_satisfies(path_j, Self::path_correct_pred()),
             old_entry.is_node(),
             old_entry.meta_slot_paddr() is Some,
-            regions.slot_owners[frame_to_index(old_entry.meta_slot_paddr()->0)].paths_in_pt
-                == set![old_entry.path],
+            regions.slot_owner(old_entry.meta_slot_paddr()->0).paths_in_pt == set![old_entry.path],
             !Self::is_prefix_of(path_j, old_entry.path),
         ensures
             subtree.subtree_satisfies(
@@ -2024,7 +2031,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.subtree_satisfies(path, Self::relate_region_tracked_pred(regions)),
         ensures
             Self::is_prefix_of(path, entry.path),
-            regions.slot_owners[frame_to_index(m.pa_range.start)].paths_in_pt == set![entry.path],
+            regions.slot_owner(m.pa_range.start).paths_in_pt == set![entry.path],
             m.va_range.start == vaddr_of::<C>(entry.path),
             m.page_size == page_size((INC_LEVELS - entry.path.len()) as PagingLevel),
             entry.is_frame(),
