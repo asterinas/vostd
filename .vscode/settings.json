@@ -37,7 +37,8 @@
     "verus-analyzer.cargo.cfgs": [
         "debug_assertions",
         "miri",
-        "verus_keep_ghost"
+        "verus_keep_ghost",
+        "verus_keep_ghost_body",
     ],
     "verus-analyzer.check.overrideCommand": [
         "cargo",
