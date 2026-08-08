@@ -5,7 +5,6 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::external::btree::*;
 
-use crate::specs::util::range_alloc_specs::RangeAllocatorModel;
 use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 #[verus_verify]
@@ -23,13 +22,22 @@ verus! {
 
 broadcast use {axiom_deref_key_as_stored, axiom_deref_key_mutated};
 
+/// Spec model capturing the managed full range of a [`RangeAllocator`].
+pub ghost struct RangeAllocatorModel {
+    pub ghost start: int,
+    pub ghost end: int,
+}
+
+impl RangeAllocatorModel {
+    pub open spec fn new(start: int, end: int) -> Self {
+        RangeAllocatorModel { start, end }
+    }
+}
+
 impl View for RangeAllocator {
     type V = RangeAllocatorModel;
 
-    /// Specification view of the allocator's managed full range. This is the
-    /// only place that reads the private `fullrange` field (which is permitted
-    /// in this module); public contracts refer to the range through `self@`,
-    /// and the model itself lives in `ostd/specs/util/range_alloc_specs.rs`.
+    /// Specification view of the allocator's managed full range.
     closed spec fn view(&self) -> RangeAllocatorModel {
         RangeAllocatorModel { start: self.fullrange.start as int, end: self.fullrange.end as int }
     }
