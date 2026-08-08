@@ -17,6 +17,7 @@ targets = ["x86_64-unknown-none"]
 
 [dependencies]
 vstd = { workspace = true }
+verus_state_machines_macros = { workspace = true }
 vstd_extra = { path = "../verified_libs/vstd_extra" }
 bitflags = { path = "../verified_libs/bitflags" }
 align_ext = { path = "libs/align_ext", version = "0.1.0" }
