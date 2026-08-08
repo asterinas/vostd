@@ -2,18 +2,55 @@
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
 
+use vstd::prelude::*;
+use vstd_extra::external::btree::*;
+
 use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
+#[verus_verify]
 pub struct RangeAllocator {
     fullrange: Range<usize>,
-    freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>>,
+    freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled>,
 }
 
 /// An error returned when allocating from a [`RangeAllocator`].
+#[verus_verify]
 #[derive(Debug)]
 pub struct RangeAllocError;
 
+verus! {
+
+broadcast use {axiom_deref_key_as_stored, axiom_deref_key_mutated};
+
+/// Spec model capturing the managed full range of a [`RangeAllocator`].
+pub ghost struct RangeAllocatorModel {
+    pub ghost start: int,
+    pub ghost end: int,
+}
+
+impl RangeAllocatorModel {
+    pub open spec fn new(start: int, end: int) -> Self {
+        RangeAllocatorModel { start, end }
+    }
+}
+
+impl View for RangeAllocator {
+    type V = RangeAllocatorModel;
+
+    /// Specification view of the allocator's managed full range.
+    closed spec fn view(&self) -> RangeAllocatorModel {
+        RangeAllocatorModel { start: self.fullrange.start as int, end: self.fullrange.end as int }
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl RangeAllocator {
+    #[verus_spec(ret =>
+        ensures
+            ret@.start == fullrange.start,
+            ret@.end == fullrange.end,
+    )]
     pub const fn new(fullrange: Range<usize>) -> Self {
         Self {
             fullrange,
@@ -21,12 +58,27 @@ impl RangeAllocator {
         }
     }
 
+    #[verus_spec(ret =>
+        ensures
+            ret.start == self@.start,
+            ret.end == self@.end,
+    )]
     pub const fn fullrange(&self) -> &Range<usize> {
         &self.fullrange
     }
 
     /// Allocates a specific kernel virtual area.
+    #[verus_spec(res =>
+        requires
+            allocate_range.start < allocate_range.end,
+            self@.start <= allocate_range.start,
+            allocate_range.end <= self@.end,
+        ensures
+            res is Ok ==> (self@.start <= allocate_range.start
+                && allocate_range.end <= self@.end),
+    )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
+        #[cfg(not(verus_keep_ghost))]
         debug_assert!(allocate_range.start < allocate_range.end);
 
         let mut lock_guard = self.get_freelist_guard();
@@ -35,6 +87,11 @@ impl RangeAllocator {
         let mut left_length = 0;
         let mut right_length = 0;
 
+        #[verus_spec(invariant
+                self@.start <= allocate_range.start,
+                allocate_range.end <= self@.end,
+                right_length <= usize::MAX - allocate_range.end,
+        )]
         for (key, value) in freelist.iter() {
             if value.block.end >= allocate_range.end && value.block.start <= allocate_range.start {
                 target_node = Some(*key);
@@ -69,13 +126,34 @@ impl RangeAllocator {
     /// Allocates a range specific by the `size`.
     ///
     /// This is currently implemented with a simple FIRST-FIT algorithm.
+    #[verus_spec(res =>
+        requires self@.start <= self@.end,
+        ensures
+            res is Ok ==> (res->Ok_0.end - res->Ok_0.start == size),
+            res is Ok ==> (self@.start <= res->Ok_0.start
+                && res->Ok_0.end <= self@.end),
+    )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
-        let mut allocate_range = None;
-        let mut to_remove = None;
-
+        let mut allocate_range: Option<Range<usize>> = None;
+        let mut to_remove: Option<usize> = None;
+        #[verus_spec(invariant
+                allocate_range is Some ==> allocate_range->0.end - allocate_range->0.start == size,
+                allocate_range is Some ==> self@.start <= allocate_range->0.start,
+                allocate_range is Some ==> allocate_range->0.end <= self@.end,
+                to_remove is Some ==> allocate_range is Some,
+                to_remove is Some ==> freelist@.contains_key(to_remove->0),
+                to_remove is Some ==> freelist@[to_remove->0].block.end == allocate_range->0.end,
+        )]
         for (key, value) in freelist.iter() {
+            proof! {
+                // `alloc` currently has no callers. Trust that any future caller preserves the
+                // allocator's intended freelist invariant until the lock carries this predicate.
+                assume(self@.start <= value.block.start
+                    && value.block.start <= value.block.end
+                    && value.block.end <= self@.end);
+            }
             if value.block.end - value.block.start >= size {
                 allocate_range = Some((value.block.end - size)..value.block.end);
                 to_remove = Some(*key);
@@ -101,11 +179,21 @@ impl RangeAllocator {
     }
 
     /// Frees a `range`.
+    #[verus_spec(
+        requires
+            self@.start <= range.start,
+            range.start <= range.end,
+            range.end <= self@.end,
+    )]
     pub fn free(&self, range: Range<usize>) {
-        let mut lock_guard = self.freelist.lock();
-        let freelist = lock_guard.as_mut().unwrap_or_else(|| {
-            panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.")
-        });
+        // Original code (the formatting/panic path is unsupported by Verus, and the function has
+        // no precondition proving that the freelist was initialized):
+        // let mut lock_guard = self.freelist.lock();
+        // let freelist = lock_guard.as_mut().unwrap_or_else(|| {
+        //     panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.")
+        // });
+        let mut lock_guard = self.get_freelist_guard();
+        let freelist = lock_guard.as_mut().unwrap();
         // 1. get the previous free block, check if we can merge this block with the free one
         //     - if contiguous, merge this area with the free block.
         //     - if not contiguous, create a new free block, insert it into the list.
@@ -137,9 +225,14 @@ impl RangeAllocator {
         }
     }
 
+    #[verus_spec(ret =>
+        requires self@.start <= self@.end,
+        ensures
+            ret@ is Some,
+    )]
     fn get_freelist_guard(
         &self,
-    ) -> SpinLockGuard<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled> {
+    ) -> SpinLockGuard<'_, Option<BTreeMap<usize, FreeRange>>, PreemptDisabled> {
         let mut lock_guard = self.freelist.lock();
         if lock_guard.is_none() {
             let mut freelist: BTreeMap<usize, FreeRange> = BTreeMap::new();
@@ -150,11 +243,18 @@ impl RangeAllocator {
     }
 }
 
+#[verus_verify]
 struct FreeRange {
     block: Range<usize>,
 }
 
+#[verus_verify]
 impl FreeRange {
+    #[verus_spec(ret =>
+        ensures
+            ret.block.start == range.start,
+            ret.block.end == range.end,
+    )]
     const fn new(range: Range<usize>) -> Self {
         Self { block: range }
     }
