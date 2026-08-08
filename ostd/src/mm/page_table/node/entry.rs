@@ -363,7 +363,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     )]
     #[verifier::spinoff_prover]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> Child<C> {
-        let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         // For restoring `count_consistent` (the `nr_children == count_present`
         // invariant) at the end: snapshot the parent's PTE array and counter
         // before the PTE write + counter inc/dec.
@@ -452,9 +451,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(paddr);
 
-                let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
+                let tracked mut new_meta_slot = regions.tracked_borrow_mut_slot_owner(paddr);
                 new_meta_slot.paths_in_pt = set![new_owner.path];
-                regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
             }
         }
 
@@ -1931,10 +1929,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 
             let new_paddr = owner.value().meta_slot_paddr().unwrap();
             regions.lemma_contains_valid_frame_paddr(new_paddr);
-            let new_idx = frame_to_index(new_paddr);
-            let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
+            let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
             new_meta_slot.paths_in_pt = set![owner.value().path];
-            regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
         }
 
         proof {
@@ -1942,9 +1938,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             // `subtree_satisfies` conjuncts of the big `is_absent` ensures
             // block.
             broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-            // (a) Region predicates preserved off the new node's slot: the
-            // install only touches `new_idx`.
-            // (b) `subtree_satisfies` over the fresh node: each predicate
+            // `subtree_satisfies` over the fresh node: each predicate
             // holds at the node root and trivially at the absent children
             // (which have `None` grandchildren), via
             // `fresh_node_subtree_satisfies`.
