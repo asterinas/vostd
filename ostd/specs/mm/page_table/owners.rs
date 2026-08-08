@@ -516,7 +516,7 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
 /// # Verification Design
 /// `PageTableOwner` is a wrapper around [`OwnerSubtree`], which is a [`TreeNode`].
 /// in a tree of [`EntryOwner`]s. In turn, `EntryOwner` carries a enum that may be a
-/// [`FrameEntryState`] if the entry is a leaf node that maps a frame, or a [`NodeOwner`] if
+/// [`FrameEntryOwner`] if the entry is a leaf node that maps a frame, or a [`NodeOwner`] if
 /// the entry is a sub-table. The root of the top-level page table owner should always be
 /// a `NodeOwner`.
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);

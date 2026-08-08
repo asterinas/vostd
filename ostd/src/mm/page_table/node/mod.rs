@@ -37,6 +37,7 @@ pub use entry::*;
 
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
+use vstd::simple_pptr::PPtr;
 
 use vstd::atomic::PAtomicU8;
 use vstd_extra::array_ptr;
@@ -59,7 +60,8 @@ use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
         meta_owners::{
-            MetaSlotOwner, MetaSlotStorage, MetadataPerms, typed_meta_value, typed_meta_wf,
+            FracMetadataPerm, MetaSlotOwner, MetaSlotStorage, MetadataPerms, typed_meta_value,
+            typed_meta_wf,
         },
         meta_region_owners::MetaRegionOwners,
     },
@@ -152,6 +154,12 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         &&& self.walk_coverage_from_view(reader, vm_io_owner.read_view_of(), regions.slots.dom())
         &&& self.walk_items_well_formed_from_view(reader, vm_io_owner.read_view_of())
         &&& self.walk_uniqueness_from_view(reader, vm_io_owner.read_view_of())
+        &&& self.walk_raw_permissions_from_view(
+            reader,
+            vm_io_owner.read_view_of(),
+            regions,
+            vm_io_owner.raw_frame_permissions,
+        )
     }
 
     /// Drops the children of a page-table node: walks each present PTE and
@@ -197,7 +205,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             C::E::lemma_page_table_entry_properties();
             let k = size_of_e / align_of_e;
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
-            vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
             vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(range.start * k, align_of_e);
             vstd::arithmetic::div_mod::lemma_mod_adds(
@@ -215,8 +222,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost mut removed_indices: vstd::set::Set<int> = vstd::set::Set::empty();
 
         proof {
-            C::lemma_page_table_config_constant_properties();
-            C::lemma_paging_consts_properties();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
                 size_of_e,
                 NR_ENTRIES as int,
@@ -257,6 +262,12 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 self.walk_coverage_from_view(initial_reader, initial_view, initial_dom),
                 self.walk_items_well_formed_from_view(initial_reader, initial_view),
                 self.walk_uniqueness_from_view(initial_reader, initial_view),
+                self.walk_raw_permissions_from_view(
+                    *reader,
+                    initial_view,
+                    *regions,
+                    vm_io_owner.raw_frame_permissions,
+                ),
                 // Without this, Verus treats `self.level` as potentially
                 // mutated by `&mut self` and the level-comparison facts go
                 // missing inside walk_coverage / walk_uniqueness instances.
@@ -312,7 +323,10 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                     size_of_e,
                 );
             }
+            let ghost reader_pre_read = *reader;
+            let ghost regions_pre_read = *regions;
             let ghost cursor_pre_read: usize = reader.cursor.vaddr;
+            let ghost raw_permissions_pre = vm_io_owner.raw_frame_permissions;
             let ghost pre_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
             proof {
                 crate::specs::mm::virt_mem::MemView::lemma_read_bytes_eq_pointwise(
@@ -328,11 +342,32 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             proof {
                 ostd_pod::lemma_decode_pod_inverse::<C::E>(pte);
                 vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
-                vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
             }
             if pte.is_present() {
                 let paddr = pte.paddr();
+                proof {
+                    assert(self.walk_raw_permissions_from_view(
+                        reader_pre_read,
+                        initial_view,
+                        regions_pre_read,
+                        raw_permissions_pre,
+                    ));
+                    assert(cursor_pre_read - reader_pre_read.cursor.vaddr == 0);
+                    assert(Self::walk_pte_at_view(initial_view, cursor_pre_read) == pte);
+                    assert(raw_permissions_pre[cursor_pre_read] is Some <==> if pte.is_last(
+                        self.level,
+                    ) {
+                        C::tracked(C::item_from_raw_spec(paddr, self.level, pte.prop(), None))
+                    } else {
+                        true
+                    });
+                }
+                let tracked raw_permission = vm_io_owner.raw_frame_permissions.tracked_remove(
+                    cursor_pre_read,
+                );
                 if !pte.is_last(level) {
+                    let ghost removed_indices_pre = removed_indices;
+                    let ghost regions_pre_drop = *regions;
                     proof {
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
                             size_of_e,
@@ -408,6 +443,11 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             pte.lemma_paddr_is_page_aligned();
                             pte_j.lemma_paddr_is_page_aligned();
                         };
+
+                        assert(regions.slot_owner(paddr).ref_count() == 1 ==> {
+                            &&& regions.slot_owner(paddr).in_list_perm.value() == 0
+                            &&& regions.slot_owner(paddr).paths_in_pt.is_empty()
+                        });
                     }
                     proof {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
@@ -422,16 +462,55 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             &&& frame_to_index(paddr) == frame_to_index(pte_j.paddr())
                         });
                     }
-                    proof_decl! {
-                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
-                    }
-                    let frame = unsafe {
-                        #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
-                        Frame::<Self>::from_raw(paddr)
+                    let frame = Frame::<Self> {
+                        ptr: PPtr::from_addr(frame_to_meta(paddr)),
+                        _marker: PhantomData,
+                        #[cfg(verus_keep_ghost_body)]
+                        tracked_perm: Tracked(Some(raw_permission.tracked_unwrap())),
                     };
-                    // `from_raw` minted the obligation; `frame.drop`
-                    // consumes it directly. No redeem dance needed.
-                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(from_raw_obl));
+                    proof {
+                        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+
+                        regions.lemma_contains_valid_frame_paddr(paddr);
+                    }
+                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(()));
+                    proof {
+                        assert(Self::child_perms_embedding(*regions, removed_indices)) by {
+                            assert forall|child_paddr: Paddr|
+                                #![trigger regions.slot_owner(child_paddr)]
+                                regions.slots.dom().contains(frame_to_index(child_paddr))
+                                    && !removed_indices.contains(
+                                    frame_to_index(child_paddr),
+                                ) implies {
+                                let idx = frame_to_index(child_paddr);
+                                let so = regions.slot_owners[idx];
+                                &&& <Frame<Self>>::from_raw_requires_safety(*regions, child_paddr)
+                                &&& 0 < so.ref_count() <= REF_COUNT_MAX
+                                &&& so.storage_perm().is_init()
+                                &&& so.ref_count() == 1 ==> {
+                                    &&& so.in_list_perm.value() == 0
+                                    &&& so.paths_in_pt.is_empty()
+                                }
+                            } by {
+                                let idx = frame_to_index(child_paddr);
+                                assert(<Frame<Self>>::from_raw_requires_safety(
+                                    regions_pre_drop,
+                                    child_paddr,
+                                ));
+                                assert(regions_pre_drop.slot_owners[idx].storage_perm().is_init());
+                                assert(regions_pre_drop.slot_owners[idx].ref_count() == 1 ==> {
+                                    &&& regions_pre_drop.slot_owners[idx].in_list_perm.value() == 0
+                                    &&& regions_pre_drop.slot_owners[idx].paths_in_pt.is_empty()
+                                });
+                                assert(regions.slot_owners[idx]
+                                    == regions_pre_drop.slot_owners[idx]);
+                                assert(regions.slot_owners[idx].ref_count() == 1 ==> {
+                                    &&& regions.slot_owners[idx].in_list_perm.value() == 0
+                                    &&& regions.slot_owners[idx].paths_in_pt.is_empty()
+                                });
+                            };
+                        };
+                    }
                 } else {
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
@@ -451,12 +530,97 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             initial_view,
                             cursor_pre_read,
                         );
-                        assert(C::raw_item_well_formed(paddr, level, pte.prop()));
                     }
-                    let _item = unsafe { C::item_from_raw(paddr, level, pte.prop()) };
+                    let _item = unsafe {
+                        C::item_from_raw(
+                            paddr,
+                            level,
+                            pte.prop(),
+                            Tracked(regions),
+                            Tracked(raw_permission),
+                        )
+                    };
                 }
             }
             proof {
+                assert(self.walk_raw_permissions_from_view(
+                    *reader,
+                    initial_view,
+                    *regions,
+                    vm_io_owner.raw_frame_permissions,
+                )) by {
+                    assert forall|cursor: usize|
+                        #![trigger Self::walk_pte_at_view(initial_view, cursor)]
+                        reader.cursor.vaddr <= cursor && cursor + core::mem::size_of::<C::E>()
+                            <= reader.cursor.vaddr + reader.remain_spec() && (cursor
+                            - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int
+                            == 0 implies {
+                        let future_pte = Self::walk_pte_at_view(initial_view, cursor);
+                        future_pte.is_present() ==> {
+                            &&& vm_io_owner.raw_frame_permissions.contains_key(cursor)
+                            &&& {
+                                let permission = vm_io_owner.raw_frame_permissions[cursor];
+                                &&& if future_pte.is_last(self.level) {
+                                    permission is Some <==> C::tracked(
+                                        C::item_from_raw_spec(
+                                            future_pte.paddr(),
+                                            self.level,
+                                            future_pte.prop(),
+                                            None,
+                                        ),
+                                    )
+                                } else {
+                                    permission is Some
+                                }
+                                &&& permission is Some ==> Frame::<
+                                    MetaSlotStorage,
+                                >::frame_permission_wf(*regions, future_pte.paddr(), permission->0)
+                            }
+                        }
+                    } by {
+                        vstd::arithmetic::div_mod::lemma_mod_adds(
+                            cursor - reader.cursor.vaddr,
+                            core::mem::size_of::<C::E>() as int,
+                            core::mem::size_of::<C::E>() as int,
+                        );
+                        assert(self.walk_raw_permissions_from_view(
+                            reader_pre_read,
+                            initial_view,
+                            regions_pre_read,
+                            raw_permissions_pre,
+                        ));
+                        let future_pte = Self::walk_pte_at_view(initial_view, cursor);
+                        if future_pte.is_present() {
+                            let future_permission = raw_permissions_pre[cursor];
+                            assert(future_permission is Some <==> if future_pte.is_last(
+                                self.level,
+                            ) {
+                                C::tracked(
+                                    C::item_from_raw_spec(
+                                        future_pte.paddr(),
+                                        self.level,
+                                        future_pte.prop(),
+                                        None,
+                                    ),
+                                )
+                            } else {
+                                true
+                            });
+                            if future_permission is Some {
+                                assert(Frame::<MetaSlotStorage>::frame_permission_wf(
+                                    regions_pre_read,
+                                    future_pte.paddr(),
+                                    future_permission->0,
+                                ));
+                                assert(Frame::<MetaSlotStorage>::frame_permission_wf(
+                                    *regions,
+                                    future_pte.paddr(),
+                                    future_permission->0,
+                                ));
+                            }
+                        }
+                    };
+                };
                 vstd::arithmetic::div_mod::lemma_mod_adds(
                     reader.cursor.vaddr - size_of_e,
                     size_of_e,
@@ -505,10 +669,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
             owner.level,
     {
         let tracked points_to = regions.slots.tracked_borrow(owner.slot_index);
-        let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm),
+            Tracked(owner.tracked_borrow_metadata_perms()),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -537,8 +700,6 @@ impl<C: PageTableConfig> PageTableNode<C> {
             MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
             MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
 
-            final(regions).frame_obligations == old(regions).frame_obligations.insert(
-                meta_to_index(owner@.value().node().meta_vaddr())),
             old(regions).contains(meta_to_index(owner@.value().node().meta_vaddr())),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
@@ -549,6 +710,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 ==> i != meta_to_index(owner@.value().node().meta_vaddr()),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
+            final(parent_owner).frame_permission == old(parent_owner).frame_permission,
             final(parent_owner).slot_index == old(parent_owner).slot_index,
             final(parent_owner).level == old(parent_owner).level,
             final(parent_owner).tree_level == old(parent_owner).tree_level,
@@ -769,10 +931,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn nr_children(&self) -> u16 {
         let tracked points_to = regions.slots.tracked_borrow(owner.slot_index);
-        let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm),
+            Tracked(owner.tracked_borrow_metadata_perms()),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -789,8 +950,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Ghost(stray_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
-            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *metadata_perms, *repr_perm),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms, *repr_perm).stray.id()
+            typed_meta_wf::<PageTablePageMeta<C>>(
+                *points_to,
+                *metadata_perms,
+                *repr_perm,
+            ),
+            typed_meta_value::<PageTablePageMeta<C>>(
+                *metadata_perms,
+                *repr_perm,
+            ).stray.id()
                 == stray_id,
         ensures
             res.id() == stray_id,
@@ -870,6 +1038,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).inv(),
             final(owner).level == old(owner).level,
             final(owner).meta_own == old(owner).meta_own,
+            final(owner).frame_permission == old(owner).frame_permission,
             final(owner).slot_index == old(owner).slot_index,
             final(owner).children_perm.value() == old(owner).children_perm.value().update(
                 idx as int,
@@ -909,7 +1078,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
             typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *metadata_perms, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms, ()).nr_children.id()
+            typed_meta_value::<PageTablePageMeta<C>>(
+                *metadata_perms,
+                (),
+            ).nr_children.id()
                 == nr_children_id,
         ensures
             res.id() == nr_children_id,
@@ -1102,6 +1274,43 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             }
     }
 
+    /// Fractions handed to this destructor, keyed by the virtual address of
+    /// each PTE in the node page. Address keys distinguish duplicate mappings
+    /// of the same physical frame.
+    pub open spec fn walk_raw_permissions_from_view(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+        regions: MetaRegionOwners,
+        raw_permissions: Map<usize, Option<FracMetadataPerm>>,
+    ) -> bool {
+        forall|cursor: usize|
+            #![trigger Self::walk_pte_at_view(view, cursor)]
+            reader.cursor.vaddr <= cursor && cursor + core::mem::size_of::<C::E>()
+                <= reader.cursor.vaddr + reader.remain_spec() && (cursor - reader.cursor.vaddr)
+                % core::mem::size_of::<C::E>() as int == 0 ==> {
+                let pte = Self::walk_pte_at_view(view, cursor);
+                pte.is_present() ==> {
+                    &&& raw_permissions.contains_key(cursor)
+                    &&& {
+                        let permission = raw_permissions[cursor];
+                        &&& if pte.is_last(self.level) {
+                            permission is Some <==> C::tracked(
+                                C::item_from_raw_spec(pte.paddr(), self.level, pte.prop(), None),
+                            )
+                        } else {
+                            permission is Some
+                        }
+                        &&& permission is Some ==> Frame::<MetaSlotStorage>::frame_permission_wf(
+                            regions,
+                            pte.paddr(),
+                            permission->0,
+                        )
+                    }
+                }
+            }
+    }
+
     /// Caller-side shape obligation: every paddr in `child_perms.dom()`
     /// has a slot perm matching the shape `from_raw` + `VerifiedDrop::drop`
     /// expect (init, alignment, refcount within bounds, last-reference
@@ -1111,7 +1320,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         excluded: vstd::set::Set<int>,
     ) -> bool {
         forall|paddr: crate::mm::Paddr|
-            #![trigger regions.slot_owners[frame_to_index(paddr)]]
+            #![trigger regions.slot_owner(paddr)]
             regions.slots.dom().contains(frame_to_index(paddr)) && !excluded.contains(
                 frame_to_index(paddr),
             ) ==> {
@@ -1123,14 +1332,13 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
                 &&& 0 < so.ref_count() <= REF_COUNT_MAX
+                &&& so.storage_perm().is_init()
                 &&& so.ref_count() == 1 ==> {
-                    &&& so.storage_perm().is_init()
                     &&& so.in_list_perm.value() == 0
                     &&& so.paths_in_pt.is_empty()
                 }
                 // Borrow-protocol redesign: in steady state between
                 // `into_pte`'s consume and `on_drop`'s `from_raw`-mint,
-                // the per-child `frame_obligations` count is 0.
 
             }
     }

@@ -4,7 +4,7 @@ use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 use vstd::prelude::*;
 use vstd::simple_pptr::PPtr;
 use vstd_extra::cast_ptr::Repr;
-use vstd_extra::drop_tracking::*;
+use vstd_extra::drop_tracking::{ManuallyDrop, TrackDrop};
 use vstd_extra::prelude::*;
 
 use crate::mm::frame::meta::mapping::frame_to_meta;
@@ -32,12 +32,6 @@ pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
-    /// Under the borrow-protocol redesign, `from_raw` mints one
-    /// `frame_obligations` entry at the slot index and `MD::new`
-    /// immediately consumes it — net-zero on the ledger across this
-    /// borrow. The slot's `ref_count` is unchanged (the existing live
-    /// reference covers the borrow's lifetime via the `'a` lifetime).
-    ///
     /// # Safety
     /// The caller's typed frame handle supplies the metadata type; the borrow
     /// remains tied to the lifetime of that handle.
@@ -51,30 +45,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             r.inner@.ptr.addr() == frame_to_meta(raw),
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations == old(regions).frame_obligations,
+            *final(regions) == *old(regions),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
             old(regions).lemma_contains_valid_frame_paddr(raw);
         }
 
-        proof_decl! {
-            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
-        }
-        // `from_raw` mints one `frame_obligations` entry at the slot and
-        // hands back the token; the token is dropped affinely (the ledger
-        // entry is what matters). `MD::new` then consumes that entry. Net
-        // effect on the ledger: zero.
-        let frame = unsafe {
-            #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
-            Frame::from_raw(raw)
+        let frame = Frame::<M> {
+            ptr: PPtr::<MetaSlot>::from_addr(frame_to_meta(raw)),
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perm: Tracked(None),
         };
 
-        proof_decl! {
-            regions.tracked_redeem_frame_obligation(from_raw_obl);
-            let tracked md_obl = DropObligation::tracked_mint(frame.index());
-        }
-        proof_with!(Tracked(md_obl));
+        proof_with!(Tracked(()));
         let inner = ManuallyDrop::new(frame);
 
         Self { inner, _marker: PhantomData }
@@ -178,23 +163,18 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
         let ptr = self.ptr;
-        proof_decl! {
-            // Mint the obligation that `MD::new` will immediately
-            // consume — net-zero on the ledger; the Frame value is
-            // forgotten inside the wrapper, and `ref_count` (set by the
-            // original producer) stays elevated to balance the eventual
-            // `from_raw + drop`.
-            let tracked redeem_obl = regions.tracked_mint_frame_obligation(self.index());
-            regions.tracked_redeem_frame_obligation(redeem_obl);
-            let tracked md_obl = DropObligation::tracked_mint(self.index());
-        }
-        #[verus_spec(with Tracked(md_obl))]
+        #[verus_spec(with Tracked(()))]
         let _ = ManuallyDrop::new(self);
         PPtr::<Self::Target>::from_addr(ptr.addr())
     }
 
     unsafe fn from_raw(raw: PPtr<Self::Target>) -> Self {
-        Self { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData }
+        Self {
+            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perm: Tracked(None),
+        }
     }
 
     unsafe fn raw_as_ref<'a>(
@@ -204,13 +184,10 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         let frame = Frame::<M> {
             ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
             _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perm: Tracked(None),
         };
-        proof_decl! {
-            let tracked redeem_obl = regions.tracked_mint_frame_obligation(frame.index());
-            regions.tracked_redeem_frame_obligation(redeem_obl);
-            let tracked md_obl = DropObligation::tracked_mint(frame.index());
-        }
-        #[verus_spec(with Tracked(md_obl))]
+        #[verus_spec(with Tracked(()))]
         let dropped = ManuallyDrop::<Frame<M>>::new(frame);
         Self::Ref { inner: dropped, _marker: PhantomData }
     }

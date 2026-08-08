@@ -337,7 +337,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             ==> final(regions).slot_owners[idx].ref_count()
                     == old(regions).slot_owners[idx].ref_count(),
         // Therefore any frame that was `item_not_mapped` (its paths_in_pt was
-        // empty, hence `ref_count` might be UNUSED-or-non-UNUSED) stays so:
+        // empty, hence ref_count` might be UNUSED-or-non-UNUSED) stays so:
         // the paddr range's slots either had non-UNUSED ref_count (preserved
         // per above) or UNUSED ref_count (and freshly-allocated PT nodes go
         // into OTHER slot indices, so frame paddrs' paths_in_pt stays empty).
@@ -411,10 +411,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.tracked_borrow_node();
         let tracked meta_points_to = regions.slots.tracked_borrow(node_owner.slot_index);
-        let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
         #[verus_spec(with
             Tracked(meta_points_to),
-            Tracked(&meta_slot_owner.metadata_perm),
+            Tracked(node_owner.tracked_borrow_metadata_perms()),
             Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
@@ -493,10 +492,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.tracked_borrow_node();
     let tracked meta_points_to = regions.slots.tracked_borrow(node_owner.slot_index);
-    let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
     #[verus_spec(with
         Tracked(meta_points_to),
-        Tracked(&meta_slot_owner.metadata_perm),
+        Tracked(node_owner.tracked_borrow_metadata_perms()),
         Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]

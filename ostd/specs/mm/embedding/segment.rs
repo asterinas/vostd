@@ -239,7 +239,7 @@ pub proof fn lemma_segment_drop_embedded(
 /// effect. At the popped paddr (= `range.start` pre):
 /// - `raw_count -= 1` (the segment's forgotten reference at this
 ///   frame is consumed by `Frame::from_raw`).
-/// - `ref_count` UNCHANGED (the rc contribution "transfers" from the
+/// - ref_count` UNCHANGED (the rc contribution "transfers" from the
 ///   segment's forgotten reference to the newly-restored `Frame<M>`
 ///   handle that the caller now owns).
 /// - all other slot fields (`usage`, `paths_in_pt`, `storage`, ...)

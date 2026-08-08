@@ -17,6 +17,7 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::{frame_to_index, index_to_meta},
+            meta_owners::{FracMetadataPerm, MetaSlotStorage},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
@@ -35,7 +36,10 @@ use crate::specs::{
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    frame::{
+        Frame,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    },
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::PageProperty,
@@ -83,6 +87,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             res == old(self).take_child().0,
             *final(self) == old(self).take_child().1,
             res.inv(),
+    {
+        let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
+        self.children.tracked_insert(old(self).idx as int, None);
+        child
+    }
+
+    /// Temporarily extracts the current child while a permission nested in
+    /// that child is in flight. During that interval the continuation need
+    /// not satisfy its full invariant, but its sequence shape is unchanged.
+    pub proof fn tracked_take_child_shape_only(tracked &mut self) -> (tracked res: OwnerSubtree<C>)
+        requires
+            old(self).idx < old(self).children.len(),
+            old(self).children[old(self).idx as int] is Some,
+        ensures
+            res == old(self).take_child().0,
+            *final(self) == old(self).take_child().1,
     {
         let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
         self.children.tracked_insert(old(self).idx as int, None);
@@ -564,6 +584,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         tracked &self,
         paddr: Paddr,
         prop: PageProperty,
+        tracked permission: Option<FracMetadataPerm>,
         tracked regions: &mut MetaRegionOwners,
     ) -> (tracked res: OwnerSubtree<C>)
         requires
@@ -575,6 +596,9 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             paddr + page_size(self.level()) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, self.level(), prop),
             C::E::new_page_req(paddr, self.level(), prop),
+            permission is Some <==> C::tracked(
+                C::item_from_raw_spec(paddr, self.level(), prop, None),
+            ),
             self.path().push_tail(self.idx as int).inv(),
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
@@ -585,6 +609,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.path().push_tail(self.idx as int),
                 self.level(),
                 prop,
+                permission,
             ),
             res.inv(),
             res.level() == self.tree_level + 1,
@@ -595,6 +620,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.path().push_tail(self.idx as int),
             self.level(),
             prop,
+            permission,
         );
         OwnerSubtree::tracked_new_val(owner, self.tree_level + 1)
     }
@@ -1108,7 +1134,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             pa == self.cur_entry_owner().frame().mapped_pa,
-            C::item_from_raw_spec(pa, level, prop) == item,
+            C::item_from_raw_spec(pa, level, prop, C::item_permission(item)) == item,
+            C::item_permission(item) == self.cur_entry_owner().frame_permission(),
             valid_frame_paddr(pa),
             C::raw_item_well_formed(pa, level, prop),
             // The recorded entry trackedness matches the item being cloned.
@@ -1124,6 +1151,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
+        assert(entry.inv_base());
+        assert(entry.frame_permission() is Some <==> entry.frame_is_tracked());
+        assert(C::tracked(item) ==> C::item_permission(item) is Some);
+        assert(!C::tracked(item) ==> C::item_permission(item) is None);
+        if C::tracked(item) {
+            assert(Frame::<MetaSlotStorage>::frame_permission_wf(
+                regions,
+                pa,
+                C::item_permission(item)->0,
+            ));
+        }
         C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
     }
 
@@ -1146,13 +1184,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // rc at idx is incremented by 1
             new_regions.slot_owners[idx].ref_count() == old_regions.slot_owners[idx].ref_count()
                 + 1,
-            // The ref-count permission at idx retains the same tracked identity.
+            // All other inner_perms fields at idx are identical (same tracked object)
             new_regions.slot_owners[idx].ref_count_perm.id()
                 == old_regions.slot_owners[idx].ref_count_perm.id(),
-            new_regions.slot_owners[idx].storage_perm()
-                == old_regions.slot_owners[idx].storage_perm(),
-            new_regions.slot_owners[idx].vtable_ptr_perm()
-                == old_regions.slot_owners[idx].vtable_ptr_perm(),
+            new_regions.slot_owners[idx].metadata_perm.id()
+                == old_regions.slot_owners[idx].metadata_perm.id(),
+            new_regions.slot_owners[idx].metadata_perm.frac() + 1
+                == old_regions.slot_owners[idx].metadata_perm.frac(),
             new_regions.slot_owners[idx].in_list_perm == old_regions.slot_owners[idx].in_list_perm,
             // Other MetaSlotOwner fields at idx unchanged
             new_regions.slot_owners[idx].paths_in_pt == old_regions.slot_owners[idx].paths_in_pt,
@@ -1166,6 +1204,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     == old_regions.slot_owners[i],
             // slots map unchanged
             new_regions.slots == old_regions.slots,
+            new_regions.inv(),
             // obligation ledger unchanged (clone bumps a ref count only)
             // rc overflow guard: old rc is a normal shared count; the bumped rc fits
             // in the valid `[1, REF_COUNT_MAX]` range. The `<=` form (vs strict `<`)
@@ -2128,9 +2167,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].ref_count() == regions0.slot_owners[idx].ref_count() + 1,
             regions1.slot_owners[idx].ref_count_perm.id()
                 == regions0.slot_owners[idx].ref_count_perm.id(),
-            regions1.slot_owners[idx].storage_perm() == regions0.slot_owners[idx].storage_perm(),
-            regions1.slot_owners[idx].vtable_ptr_perm()
-                == regions0.slot_owners[idx].vtable_ptr_perm(),
+            regions1.slot_owners[idx].metadata_perm.id()
+                == regions0.slot_owners[idx].metadata_perm.id(),
+            regions1.slot_owners[idx].metadata_perm.frac() + 1
+                == regions0.slot_owners[idx].metadata_perm.frac(),
             regions1.slot_owners[idx].in_list_perm == regions0.slot_owners[idx].in_list_perm,
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
             regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr,
@@ -2138,6 +2178,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].ref_count() != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
             regions1.slot_owners[idx].ref_count() <= REF_COUNT_MAX,
+            regions1.inv(),
             forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==> regions1.slot_owners[i]
