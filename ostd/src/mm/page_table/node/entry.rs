@@ -698,10 +698,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(new_paddr);
-                let new_idx = frame_to_index(new_paddr);
-                let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
+                let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
                 new_meta_slot.paths_in_pt = set![owner.value().path];
-                regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
 
                 // Restore the parent's `count_consistent`: the slot at `self.idx`
                 // went absent → present (the new PT node) and `nr_children` was
@@ -717,9 +715,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `subtree_satisfies` conjuncts of the big `is_absent` ensures
                 // block.
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-                // (a) Region predicates preserved off the new node's slot: the
-                // install only touches `new_idx`. (Mirrors `replace`.)
-                // (b) `subtree_satisfies` over the fresh node: each predicate
+                // `subtree_satisfies` over the fresh node: each predicate
                 // holds at the node root and trivially at the absent children
                 // (which have `None` grandchildren), via
                 // `fresh_node_subtree_satisfies`.
@@ -1196,12 +1192,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         ));
                     }
                 }
-                let small_idx = frame_to_index(small_pa);
-
-                // Instantiate the loop invariant's sub-page forall (or the j=0
-                // facts) at small_idx. The new invariant only guarantees the
+                // Instantiate the loop invariant's sub-page.
+                // The new invariant only guarantees the
                 // ref_count facts under `usage != MMIO`; matches the new
                 // metaregion_sound frame arm shape.
+
                 if i == 0 {
                     // small_pa == pa + 0 * page_size(level-1) == pa.
                     assert(i * page_size((level - 1) as PagingLevel) == 0) by {
@@ -1219,12 +1214,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ));
                 }
 
-                // tracked_remove/insert below only touches paths_in_pt.
-
                 regions.lemma_contains_valid_frame_paddr(small_pa);
-                let tracked mut small_slot = regions.slot_owners.tracked_remove(small_idx);
+                let tracked mut small_slot = regions.tracked_borrow_mut_slot_owner(small_pa);
                 small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
-                regions.slot_owners.tracked_insert(small_idx, small_slot);
 
                 // Post-insert: ref_count and slots.contains_key are preserved.
 
@@ -1695,11 +1687,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(paddr);
-
-                let new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
-                let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
+                let tracked mut new_meta_slot = regions.tracked_borrow_mut_slot_owner(paddr);
                 new_meta_slot.paths_in_pt = set![new_owner.path];
-                regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
             }
         }
 

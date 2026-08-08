@@ -3217,9 +3217,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let ghost pa_idx_install = frame_to_index(pa);
             let ghost new_frame_path = new_owner.value().path;
-            let tracked mut pa_slot_install = regions.slot_owners.tracked_remove(pa_idx_install);
+            let tracked pa_slot_install = regions.tracked_borrow_mut_slot_owner(pa);
             pa_slot_install.paths_in_pt = pa_slot_install.paths_in_pt.insert(new_frame_path);
-            regions.slot_owners.tracked_insert(pa_idx_install, pa_slot_install);
 
             assert(regions_before_new_child.contains(pa_idx_install)) by {
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
@@ -3726,9 +3725,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(regions_pre_remove.slots.contains_key(removed_idx)) by {
                     reveal(<MetaRegionOwners as Inv>::inv);
                 };
-                let tracked mut so_rm = regions.slot_owners.tracked_remove(removed_idx);
+                let tracked mut so_rm = regions.tracked_borrow_mut_slot_owner(
+                    cur_st.value().frame().mapped_pa,
+                );
                 so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
-                regions.slot_owners.tracked_insert(removed_idx, so_rm);
                 let ghost owner_final = *owner;
                 let ghost obr_subtree = PageTableOwner(
                     owner_before_replace.cur_subtree(),
