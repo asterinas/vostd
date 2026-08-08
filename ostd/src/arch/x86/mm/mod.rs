@@ -20,7 +20,7 @@ use crate::{
     mm::{
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
         page_table::{PageTableEntryTrait, PageTableFrag},
-        Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
+        CurrentPagingConstsTrait, Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
     },
     Pod,
 };
@@ -113,6 +113,15 @@ impl PagingConstsTrait for PagingConsts {
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
+    }
+}
+
+impl CurrentPagingConstsTrait for PagingConsts {
+    proof fn lemma_current_paging_consts_requirements() {
+        Self::lemma_paging_consts_requirements();
+        assert(Self::BASE_PAGE_SIZE() == PAGE_SIZE) by (compute_only);
+        assert(Self::NR_LEVELS() == NR_LEVELS as PagingLevel) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES) by (compute_only);
     }
 }
 
@@ -392,7 +401,6 @@ impl PageTableEntryTrait for PageTableEntry {
     fn paddr(&self) -> Paddr {
         proof {
             self.lemma_paddr_is_page_aligned();
-            assume(self.0 & Self::PHYS_ADDR_MASK < MAX_PADDR);
         }
         self.0 & Self::PHYS_ADDR_MASK
     }

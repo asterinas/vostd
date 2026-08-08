@@ -45,7 +45,7 @@ use crate::mm::tlb::*;
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    CurrentPagingConstsTrait, MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     io::{Fallible, VmReader, VmWriter},
     page_prop::PageProperty,
 };
@@ -1764,6 +1764,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         lemma_pow2_adds(9, 39);
         PageTableEntry::lemma_layout();
         Self::C::lemma_paging_consts_properties();
+        Self::C::lemma_current_paging_consts_requirements();
         assert(Self::LEADING_BITS_spec() == 0usize);
     }
 }

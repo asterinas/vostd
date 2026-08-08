@@ -125,17 +125,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// NOTE: The postcondition is designed to be minimal, to actually be used in proofs, call `lemma_paging_consts_properties`
     /// instead to get all the properties that are derived from the requirements.
     ///
-    /// FIXME： General architecture support.
-    /// All configs in vostd use the same value for the per-config
-    /// `NR_LEVELS()` as the architecture-level constant `NR_LEVELS`
-    /// (= 4 for x86_64). This is *implicit* in the cursor framework:
-    /// `CursorOwner::inv()` hardcodes `self.level <= NR_LEVELS` (const)
-    /// for cursors over any `C: PagingConstsTrait`, so a config whose
-    /// `NR_LEVELS_spec()` exceeded `NR_LEVELS` would be unusable. This
-    /// lemma exposes that equality as a usable fact so generic proofs
-    /// can chain `level != C::NR_LEVELS_spec()` to `level < NR_LEVELS`
-    /// (e.g. `Cursor::find_next_impl`'s PageTable-branch gate ⟹
-    /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
     proof fn lemma_paging_consts_requirements()
         ensures
             0 < Self::BASE_PAGE_SIZE(),
@@ -147,12 +136,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2()
                 * Self::NR_LEVELS() <= Self::ADDRESS_WIDTH(),
             Self::PTE_SIZE() == core::mem::size_of::<usize>(),
-            // The following statement holds for all architectures,
-            // but the actual value of the constants may vary.
-            // Maybe we can remove this requirement.
-            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
-            Self::NR_LEVELS() == NR_LEVELS,
-            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     ;
 
     /// The derived properties of the paging constants.
@@ -165,7 +148,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() * (
             Self::NR_LEVELS() - 1) <= Self::ADDRESS_WIDTH(),
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            NR_ENTRIES * Self::PTE_SIZE() == PAGE_SIZE,
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
             0 < Self::BASE_PAGE_SIZE(),
@@ -177,23 +159,55 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2()
                 * Self::NR_LEVELS() <= Self::ADDRESS_WIDTH(),
             Self::PTE_SIZE() == core::mem::size_of::<usize>(),
-            // The following statement holds for all architectures,
-            // but the actual value of the constants may vary.
-            // Maybe we can remove this requirement.
-            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
-            Self::NR_LEVELS() == NR_LEVELS,
-            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;
 
+        let base = Self::BASE_PAGE_SIZE() as int;
+        let pte = Self::PTE_SIZE() as int;
+        let levels = Self::NR_LEVELS() as int;
+        let base_bits = Self::BASE_PAGE_SIZE().ilog2() as int;
+        let index_bits = (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() as int;
+        assert(0 < base / pte) by {
+            vstd::arithmetic::div_mod::lemma_div_non_zero(base, pte);
+        };
+        assert(base / pte <= base) by {
+            vstd::arithmetic::div_mod::lemma_div_is_ordered(0, base, pte);
+        };
+        assert(base_bits + index_bits * (levels - 1) <= base_bits + index_bits * levels)
+            by (nonlinear_arith)
+            requires
+                0 <= index_bits,
+                1 <= levels,
+        ;
     }
 }
 
-pub open spec fn page_size_spec(level: PagingLevel) -> usize {
-    (PAGE_SIZE * pow2(
-        (nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1)) as nat,
+/// Compatibility facts for proof modules that still use the current target's
+/// fixed page-table node geometry.
+///
+/// This is intentionally separate from [`PagingConstsTrait`]. A future
+/// architecture may implement the generic paging contract without claiming
+/// the x86 verification target's 4 KiB/4-level/512-entry layout.
+pub trait CurrentPagingConstsTrait: PagingConstsTrait {
+    proof fn lemma_current_paging_consts_requirements()
+        ensures
+            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
+            Self::NR_LEVELS() == NR_LEVELS as PagingLevel,
+            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
+    ;
+}
+
+/// The page-size formula for an explicit paging configuration.
+pub open spec fn page_size_for_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
+    (C::BASE_PAGE_SIZE_spec() * pow2(
+        (nr_subpage_per_huge::<C>().ilog2() * (level - 1)) as nat,
     )) as usize
+}
+
+/// The page-size formula for the architecture selected by this build.
+pub open spec fn page_size_spec(level: PagingLevel) -> usize {
+    page_size_for_spec::<PagingConsts>(level)
 }
 
 // /// The page size
@@ -233,7 +247,7 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
 
 #[verifier::inline]
 pub open spec fn nr_subpage_per_huge_spec<C: PagingConstsTrait>() -> usize {
-    C::BASE_PAGE_SIZE() / C::PTE_SIZE()
+    C::BASE_PAGE_SIZE_spec() / C::PTE_SIZE_spec()
 }
 
 /// The number of sub pages in a huge page.
