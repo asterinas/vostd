@@ -11,6 +11,7 @@ pub mod ptr;
 pub mod range;
 pub mod slice;
 pub mod smart_ptr;
+pub mod time;
 
 pub use ilog2::*;
 pub use int_specs::*;
@@ -19,6 +20,7 @@ pub use ptr::*;
 pub use range::*;
 pub use slice::*;
 pub use smart_ptr::*;
+pub use time::*;
 
 use vstd::prelude::*;
 

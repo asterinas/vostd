@@ -1,4 +1,4 @@
-//! Authoritative and integer-based counting storage resources.
+//! Integer-based counting storage resources with authority.
 use vstd::imap::*;
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
@@ -9,13 +9,13 @@ use vstd::thread_view::Objective;
 verus! {
 
 /// A protocol monoid that tracks a resource value, its fraction, and **the authority**.
-ghost enum FractionalCarrierOpt<T, const TOTAL: u64> {
+ghost enum FractionalCarrierOpt<T, const TOTAL: usize> {
     Value { v: Option<T>, n: int, auth: bool },
     Empty,
     Invalid,
 }
 
-impl<T, const TOTAL: u64> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
+impl<T, const TOTAL: usize> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
     closed spec fn op(self, other: Self) -> Self {
         match self {
             FractionalCarrierOpt::Invalid => FractionalCarrierOpt::Invalid,
@@ -65,23 +65,23 @@ impl<T, const TOTAL: u64> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
     }
 }
 
-pub tracked struct Count<T, const TOTAL: u64 = 2> {
+pub tracked struct Count<T, const TOTAL: usize = 2> {
     r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
 
-pub tracked struct EmptyCount<T, const TOTAL: u64 = 2> {
+pub tracked struct EmptyCount<T, const TOTAL: usize = 2> {
     r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
 
-unsafe impl<T: Objective, const TOTAL: u64> Objective for Count<T, TOTAL> {
+unsafe impl<T: Objective, const TOTAL: usize> Objective for Count<T, TOTAL> {
 
 }
 
-unsafe impl<T: Objective, const TOTAL: u64> Objective for EmptyCount<T, TOTAL> {
+unsafe impl<T: Objective, const TOTAL: usize> Objective for EmptyCount<T, TOTAL> {
 
 }
 
-impl<T, const TOTAL: u64> Count<T, TOTAL> {
+impl<T, const TOTAL: usize> Count<T, TOTAL> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.r.value() matches FractionalCarrierOpt::Value { v: Some(_), .. }
@@ -103,7 +103,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         self.r.value()->n
     }
 
-    /// Whether this token carries the unique authority for the taking/updating the resource.
+    /// Whether this token carries the unique authority for taking/updating the resource.
     pub closed spec fn has_authority(self) -> bool {
         self.r.value()->auth
     }
@@ -308,7 +308,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
     }
 }
 
-impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
+impl<T, const TOTAL: usize> EmptyCount<T, TOTAL> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.r.value() matches FractionalCarrierOpt::Value { v: None, n, auth: true }
@@ -369,11 +369,11 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
 ///
 /// The authority and every dispatched [`Count`] use the same [`Loc`]. The
 /// authority remains present and records the resource when the pool's fraction reaches zero.
-pub tracked struct CountResource<T, const TOTAL: u64> {
+pub tracked struct CountResource<T, const TOTAL: usize> {
     tracked r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
 
-impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
+impl<T, const TOTAL: usize> CountResource<T, TOTAL> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
@@ -585,6 +585,9 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         use_type_invariant(self);
     }
 
+    /// A `CountResource` and a `Count` with the same id agree on the value.
+    ///
+    /// Unlike `Count::agree`, this works even when the resource is empty (all fractions split out).
     pub proof fn validate_with_frac(tracked &self, tracked frac: &Count<T, TOTAL>)
         requires
             self.id() == frac.id(),

@@ -408,9 +408,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             pte.lemma_paddr_is_page_aligned();
                             pte_j.lemma_paddr_is_page_aligned();
                         };
-                        // Pinning these in SMT context lets `tracked_remove`'s
-                        // dom-containment precondition and `from_raw`'s
-                        // `from_raw_requires_safety` (via embedding) discharge.
                     }
                     proof {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
