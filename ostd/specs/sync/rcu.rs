@@ -36,8 +36,8 @@ use crate::specs::mm::cpu::CpuId;
 
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
-use vstd::resource::Loc;
 use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo};
+use vstd::resource::Loc;
 use vstd::thread_view::Objective;
 use vstd_extra::atomic_irc11::{
     AtomicHistory as Irc11History, AtomicId as Irc11AtomicId, AtomicPointsTo,
@@ -4007,6 +4007,10 @@ impl LinkedListTraversalAuth {
             final(self).has_info(info.obj()),
             final(self).info(info.obj()).ptr() == info.ptr(),
             final(self).has_retire_perm(info.obj()),
+            forall|obj: nat|
+                obj != info.obj() ==> #[trigger] final(self).has_retire_perm(obj) == old(
+                    self,
+                ).has_retire_perm(obj),
     {
         let ghost old_state = self.state;
         self.state = LinkedListGhost {
@@ -4035,6 +4039,8 @@ impl LinkedListTraversalAuth {
         };
         assert(self.state.wf());
         assert(self.infos.dom() == self.state.incoming_all.dom());
+        assert forall|obj: nat| obj != info.obj() implies #[trigger] self.has_retire_perm(obj)
+            == old(self).has_retire_perm(obj) by {};
         assert forall|obj: nat| #[trigger] self.infos.contains_key(obj) implies {
             let saved = self.infos[obj];
             &&& saved.wf()
@@ -4340,8 +4346,15 @@ impl LinkedListTraversalAuth {
             final(self).state() == old(self).state(),
             final(self).removed() == old(self).removed().insert(obj),
             !final(self).has_retire_perm(obj),
+            forall|other: nat|
+                other != obj ==> #[trigger] final(self).has_retire_perm(other) == old(
+                    self,
+                ).has_retire_perm(other),
             final(self).has_info(obj),
             final(self).info(obj) == old(self).info(obj),
+            forall|other: nat| #[trigger] final(self).has_info(other) == old(self).has_info(other),
+            forall|other: nat| #[trigger]
+                old(self).has_info(other) ==> final(self).info(other) == old(self).info(other),
             res.wf(),
             res.ready_to_retire(),
             res.domain() == old(self).domain(),
@@ -4353,6 +4366,12 @@ impl LinkedListTraversalAuth {
     {
         assert(self.state().objects.contains_pair(obj, self.retire_perms[obj].ptr()));
         let tracked base = self.retire_perms.tracked_remove(obj);
+        assert forall|other: nat| other != obj implies #[trigger] self.has_retire_perm(other)
+            == old(self).has_retire_perm(other) by {};
+        assert forall|other: nat| #[trigger]
+            self.has_info(other) == old(self).has_info(other) by {};
+        assert forall|other: nat| #[trigger] old(self).has_info(other) implies self.info(other)
+            == old(self).info(other) by {};
         let ghost seen_removed = RcuSeenRemoved {
             removed: prior.removed.insert(obj),
             link_view: prior.link_view,
@@ -4688,6 +4707,10 @@ impl LinkedListAtomicLinkGhost {
             final(auth).has_info(info.obj()),
             final(auth).info(info.obj()).ptr() == info.ptr(),
             final(auth).has_retire_perm(info.obj()),
+            forall|obj: nat|
+                obj != info.obj() ==> #[trigger] final(auth).has_retire_perm(obj) == old(
+                    auth,
+                ).has_retire_perm(obj),
     {
         let ghost old_state = auth.state();
         let ghost source_obj = self.source_obj();
@@ -5217,6 +5240,14 @@ impl LinkedListAtomicLinkGhost {
                     &&& child.domain() == auth.domain()
                     &&& child.protected_by(*final(guard))
                     &&& LinkedListTraversalSpec::node_inv(child.ptr(), child.obj(), auth.state())
+                    &&& LinkedListTraversalSpec::link_inv(
+                        self.source(),
+                        self.source_obj(),
+                        self.index_at(timestamp),
+                        child.ptr(),
+                        child.obj(),
+                        auth.state(),
+                    )
                 },
             },
     {

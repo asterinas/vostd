@@ -149,14 +149,15 @@ use crate::{
         sync::{
             rcu as rcu_spec, rcu_cpu as rcu_cpu_spec,
             weak_memory::{
-                LinkedListRetiredChild, LinkedListWeakAtomicLink, RcuRetiredRootObject,
-                RcuRootAtomicInv, RcuRootAtomicInvariant, RcuRootAtomicState, RcuWeakAtomicPtr,
+                LinkedListRetiredChild, RcuRetiredRootObject, RcuRootAtomicInv,
+                RcuRootAtomicInvariant, RcuRootAtomicState, RcuWeakAtomicPtr,
+                RegisteredLinkedListWeakAtomicLink,
             },
         },
         task::InAtomicMode,
     },
     sync::Once,
-    task::{DisabledPreemptGuard, RunningTaskContext, disable_preempt_in_context},
+    task::{disable_preempt_in_context, DisabledPreemptGuard, RunningTaskContext},
 };
 use vstd_extra::atomic_irc11::{ThreadViewOrder, ViewSeen};
 
@@ -201,7 +202,7 @@ impl<P: NonNullPtr> rcu_spec::RcuRootOwnershipPredicate<
 
 /// Concrete linked-list atomic whose pointee ownership is a real smart-pointer
 /// permission understood by [`NonNullPtrRef`].
-type RcuLinkedListAtomicLink<P> = LinkedListWeakAtomicLink<
+type RcuLinkedListAtomicLink<P> = RegisteredLinkedListWeakAtomicLink<
     <P as NonNullPtr>::Permission,
     RcuPointerOwnership<P>,
 >;
@@ -225,6 +226,7 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
     #[verifier::type_invariant]
     closed spec fn type_inv(&self) -> bool {
         &&& self.link.well_formed()
+        &&& self.link.no_reclaimed_targets()
         &&& self.proof_active ==> {
             &&& self.tracked_guard@ is Some
             &&& self.tracked_observation@ is Some
@@ -247,8 +249,9 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
                 (None, None) => self.obj_ptr.addr() == 0,
                 (Some(child), Some(lease)) => {
                     &&& equal(child.ptr(), self.obj_ptr)
-                    &&& child.ptr() == self.link.constant().child
-                    &&& child.obj() == self.link.constant().child_obj
+                    &&& self.link.registered_targets().contains_pair(child.obj(), child.ptr())
+                    &&& self.link.target_lifecycles().contains_key(child.obj())
+                    &&& !self.link.target_phase(child.obj()).is_reclaimed()
                     &&& child.protected_by(self.tracked_guard@->Some_0.paper_guard())
                     &&& lease.key() == child.obj()
                     &&& lease.active_registry() == self.link.constant().active_lease_registry
@@ -281,7 +284,7 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
     ) -> (res: Self)
         requires
             link.well_formed(),
-            !link.child_phase().is_reclaimed(),
+            link.no_reclaimed_targets(),
             guard.wf(),
             guard.scheduler() == link.constant().scheduler,
             guard.domain() == link.constant().domain,
@@ -324,6 +327,19 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
             Tracked(previous),
             Tracked(tv),
         );
+        proof {
+            match (&child, &lease) {
+                (Some(loaded_child), None) => {
+                    assert(loaded_child.obj() != link.constant().source_obj);
+                    assert(link.registered_targets().dom().remove(
+                        link.constant().source_obj,
+                    ).contains(loaded_child.obj()));
+                    assert(!link.target_phase(loaded_child.obj()).is_reclaimed());
+                    assert(false);
+                },
+                _ => {},
+            }
+        }
         let res = Self {
             obj_ptr,
             link,
@@ -385,7 +401,7 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
         requires
             self.type_inv(),
             self.proof_active,
-            !self.link.child_phase().is_reclaimed(),
+            self.link.no_reclaimed_targets(),
         ensures
             old(tv)@.spec_le(final(tv)@),
             res@.0.wf(),
@@ -409,7 +425,7 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
             vstd::modes::tracked_swap(this.tracked_lease.borrow_mut(), &mut lease);
             let tracked observation = this.tracked_observation.borrow_mut().tracked_take();
         }
-        let Tracked(guard) = this.link.return_child_lease_cpu(
+        let Tracked(guard) = this.link.return_registered_lease_cpu(
             Tracked(lease),
             Tracked(guard),
             Tracked(tv),
@@ -505,6 +521,7 @@ struct LinkedListDropCallbackContext<P> where
  {
     pointer: NonNull<rcu_spec::LinkedListNode>,
     link: RcuLinkedListAtomicLink<P>,
+    ghost_target_obj: Ghost<nat>,
     tracked_object: Tracked<rcu_spec::RcuObjectId<rcu_spec::LinkedListNode>>,
     tracked_claim: Tracked<rcu_cpu_spec::RcuReclaimClaim<rcu_spec::LinkedListNode>>,
     ghost_removal: Ghost<rcu_spec::RcuRemovalObservation>,
@@ -537,14 +554,20 @@ impl<P> LinkedListDropCallbackContext<P> where
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.link.well_formed()
-        &&& (self.link.child_phase().is_retired() || self.link.child_phase().is_reclaimed())
+        &&& self.link.registered_targets().contains_pair(
+            self.ghost_target_obj@,
+            self.pointer.view_ptr_mut(),
+        )
+        &&& self.link.target_lifecycles().contains_key(self.ghost_target_obj@)
+        &&& (self.link.target_phase(self.ghost_target_obj@).is_retired() || self.link.target_phase(
+            self.ghost_target_obj@,
+        ).is_reclaimed())
         &&& self.tracked_object@.wf()
         &&& equal(self.tracked_object@.ptr(), self.pointer.view_ptr_mut())
         &&& self.tracked_object@.domain() == self.link.constant().domain
-        &&& self.tracked_object@.obj() == self.link.constant().child_obj
-        &&& equal(self.tracked_object@.ptr(), self.link.constant().child)
+        &&& self.tracked_object@.obj() == self.ghost_target_obj@
         &&& self.ghost_scheduler@ == self.link.constant().scheduler
-        &&& match self.link.child_phase() {
+        &&& match self.link.target_phase(self.ghost_target_obj@) {
             crate::specs::sync::weak_memory::LinkedListChildPhase::Retired { index: _, removal }
             | crate::specs::sync::weak_memory::LinkedListChildPhase::Reclaimed {
                 index: _,
@@ -555,7 +578,7 @@ impl<P> LinkedListDropCallbackContext<P> where
         &&& self.ghost_removal@.root == self.link.constant().root
         &&& self.ghost_retire_observation_registry@
             == self.link.constant().retire_observation_registry
-        &&& self.link.child_phase().is_retired()
+        &&& self.link.target_phase(self.ghost_target_obj@).is_retired()
         &&& self.tracked_claim@.registry() == self.link.constant().reclaim_registry
         &&& self.tracked_claim@.obj() == self.tracked_object@.obj()
         &&& self.tracked_claim@.is_pending()
@@ -584,20 +607,23 @@ impl<P> RawCallbackContextWithProof<monitor::RcuReclaimPermit> for LinkedListDro
             let ghost callback = permit.callback();
             assert(self.permit_matches(permit));
             assert(permit.authorizes(callback));
-            assert(self.link.child_phase().is_retired());
+            assert(self.link.target_phase(self.ghost_target_obj@).is_retired());
             completed = permit.tracked_into_reclaimed_witness(callback);
             assert(completed.wf());
             assert(completed.scheduler() == self.link.constant().scheduler);
             assert(completed.record() == callback.retired_record());
             assert(completed.record().domain == self.link.constant().domain);
-            assert(completed.record().obj == self.link.constant().child_obj);
+            assert(completed.record().obj == self.ghost_target_obj@);
             assert(completed.record().retire_observation_registry
                 == self.link.constant().retire_observation_registry);
-            assert(completed.record().removal == self.link.child_phase()->Retired_removal);
+            assert(completed.record().removal == self.link.target_phase(
+                self.ghost_target_obj@,
+            )->Retired_removal);
         }
         let LinkedListDropCallbackContext {
             pointer,
             mut link,
+            ghost_target_obj,
             tracked_object: _,
             tracked_claim,
             ghost_removal: _,
@@ -605,7 +631,14 @@ impl<P> RawCallbackContextWithProof<monitor::RcuReclaimPermit> for LinkedListDro
             ghost_scheduler: _,
         } = self;
         proof {
-            permission = link.tracked_reclaim_retired_child(tracked_claim.get(), completed, credit);
+            permission =
+            link.tracked_reclaim_retired_target(
+                pointer.as_ptr(),
+                ghost_target_obj@,
+                tracked_claim.get(),
+                completed,
+                credit,
+            );
             assert(RcuPointerOwnership::<P>::owns(pointer.as_ptr(), permission));
             assert(P::ptr_perm_match(pointer.as_ptr(), permission));
             assert(permission.inv());
@@ -948,6 +981,8 @@ fn callback_from_detached<P: NonNullPtr + Send>(
 /// physical permission.
 fn callback_from_linked_list_child<P>(
     link: RcuLinkedListAtomicLink<P>,
+    target: *mut rcu_spec::LinkedListNode,
+    Ghost(target_obj): Ghost<nat>,
     Tracked(retired): Tracked<LinkedListRetiredChild>,
 ) -> (res: (
     RawCallbackWithProof<monitor::RcuReclaimPermit>,
@@ -955,23 +990,25 @@ fn callback_from_linked_list_child<P>(
 )) where P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send
     requires
         link.well_formed(),
-        link.child_phase().is_retired(),
+        link.registered_targets().contains_pair(target_obj, target),
+        link.target_lifecycles().contains_key(target_obj),
+        link.target_phase(target_obj).is_retired(),
         retired.object().wf(),
         retired.object().domain() == link.constant().domain,
-        retired.object().obj() == link.constant().child_obj,
-        equal(retired.object().ptr(), link.constant().child),
+        retired.object().obj() == target_obj,
+        equal(retired.object().ptr(), target),
         retired.claim().registry() == link.constant().reclaim_registry,
-        retired.claim().obj() == link.constant().child_obj,
+        retired.claim().obj() == target_obj,
         retired.claim().is_pending(),
-        equal(retired.claim().ptr(), link.constant().child),
-        retired.retired().removal() == link.child_phase()->Retired_removal,
-        link.child_phase()->Retired_removal.root == link.constant().root,
+        equal(retired.claim().ptr(), target),
+        retired.retired().removal() == link.target_phase(target_obj)->Retired_removal,
+        link.target_phase(target_obj)->Retired_removal.root == link.constant().root,
         retired.retired().retire_observation_registry()
             == link.constant().retire_observation_registry,
     ensures
         res.1@.domain() == link.constant().domain,
-        res.1@.obj() == link.constant().child_obj,
-        res.1@.removal() == link.child_phase()->Retired_removal,
+        res.1@.obj() == target_obj,
+        res.1@.removal() == link.target_phase(target_obj)->Retired_removal,
         res.1@.retire_observation_registry() == link.constant().retire_observation_registry,
         forall|permit: monitor::RcuReclaimPermit|
             permit.wf() && permit.callback().domain == res.1@.domain() && permit.callback().obj
@@ -983,29 +1020,24 @@ fn callback_from_linked_list_child<P>(
     proof_decl! {
         let tracked (object, cert, claim) = retired.tracked_certify_callback();
     }
-    let child_ptr = link.child_raw();
     proof {
-        link.lemma_well_formed_facts();
+        object.lemma_wf_facts();
         assert(link.well_formed());
-        assert(link.child_ptr().addr() != 0);
-        assert(equal(child_ptr, link.child_ptr()));
-        assert(child_ptr.addr() != 0);
+        assert(target.addr() != 0);
     }
-    let pointer = unsafe { NonNull::new_unchecked(child_ptr) };
+    let pointer = unsafe { NonNull::new_unchecked(target) };
     proof {
-        assert(equal(pointer.view_ptr_mut(), child_ptr));
-        assert(link.child_ptr().addr() != 0);
+        assert(equal(pointer.view_ptr_mut(), target));
         assert(object.wf());
-        assert(link.child_phase() is Retired);
+        assert(link.target_phase(target_obj) is Retired);
         assert(equal(object.ptr(), pointer.view_ptr_mut()));
-        assert(equal(object.ptr(), link.constant().child));
         assert(object.domain() == link.constant().domain);
-        assert(object.obj() == link.constant().child_obj);
+        assert(object.obj() == target_obj);
         assert(claim.registry() == link.constant().reclaim_registry);
         assert(claim.obj() == object.obj());
         assert(claim.is_pending());
         assert(equal(claim.ptr(), pointer.view_ptr_mut()));
-        assert(cert.removal() == link.child_phase()->Retired_removal);
+        assert(cert.removal() == link.target_phase(target_obj)->Retired_removal);
         assert(cert.removal().root == link.constant().root);
         assert(cert.retire_observation_registry() == link.constant().retire_observation_registry);
     }
@@ -1013,6 +1045,7 @@ fn callback_from_linked_list_child<P>(
     let context = LinkedListDropCallbackContext::<P> {
         pointer,
         link,
+        ghost_target_obj: Ghost(target_obj),
         tracked_object: Tracked(object),
         tracked_claim: Tracked(claim),
         ghost_removal: Ghost(cert.removal()),
@@ -1030,6 +1063,8 @@ fn callback_from_linked_list_child<P>(
 /// case until a production data-structure adapter chooses its public API.
 fn after_grace_period_linked_list_child<P>(
     link: RcuLinkedListAtomicLink<P>,
+    target: *mut rcu_spec::LinkedListNode,
+    Ghost(target_obj): Ghost<nat>,
     Tracked(retired): Tracked<LinkedListRetiredChild>,
     Tracked(session): Tracked<&mut RunningTaskContext>,
 ) where P: NonNullPtr<Target = rcu_spec::LinkedListNode> + Send
@@ -1038,17 +1073,19 @@ fn after_grace_period_linked_list_child<P>(
         old(session).scheduler() == rcu_spec::rcu_scheduler(),
         link.well_formed(),
         link.constant().scheduler == old(session).scheduler(),
-        link.child_phase().is_retired(),
+        link.registered_targets().contains_pair(target_obj, target),
+        link.target_lifecycles().contains_key(target_obj),
+        link.target_phase(target_obj).is_retired(),
         retired.object().wf(),
         retired.object().domain() == link.constant().domain,
-        retired.object().obj() == link.constant().child_obj,
-        equal(retired.object().ptr(), link.constant().child),
+        retired.object().obj() == target_obj,
+        equal(retired.object().ptr(), target),
         retired.claim().registry() == link.constant().reclaim_registry,
-        retired.claim().obj() == link.constant().child_obj,
+        retired.claim().obj() == target_obj,
         retired.claim().is_pending(),
-        equal(retired.claim().ptr(), link.constant().child),
-        retired.retired().removal() == link.child_phase()->Retired_removal,
-        link.child_phase()->Retired_removal.root == link.constant().root,
+        equal(retired.claim().ptr(), target),
+        retired.retired().removal() == link.target_phase(target_obj)->Retired_removal,
+        link.target_phase(target_obj)->Retired_removal.root == link.constant().root,
         retired.retired().removal().observed_by(old(session).irc11_view()),
         retired.retired().retire_observation_registry()
             == link.constant().retire_observation_registry,
@@ -1066,7 +1103,12 @@ fn after_grace_period_linked_list_child<P>(
         final(session).rcu_participant_view() == old(session).rcu_participant_view(),
         final(session).rcu_fraction() == old(session).rcu_fraction(),
 {
-    let (callback, cert) = callback_from_linked_list_child::<P>(link, Tracked(retired));
+    let (callback, cert) = callback_from_linked_list_child::<P>(
+        link,
+        target,
+        Ghost(target_obj),
+        Tracked(retired),
+    );
     if let Some(monitor) = RCU_MONITOR.get() {
         #[verus_spec(with Tracked(session))]
         monitor.after_grace_period(callback, cert);

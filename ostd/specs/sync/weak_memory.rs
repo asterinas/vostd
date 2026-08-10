@@ -12,8 +12,8 @@ use crate::specs::mm::cpu::online_cpus;
 use vstd::invariant::{AtomicInvariant, InvariantPredicate};
 use vstd::modes::tracked_static_ref;
 use vstd::prelude::*;
-use vstd::resource::Loc;
 use vstd::resource::ghost_var::{GhostVar, GhostVarAuth};
+use vstd::resource::Loc;
 use vstd::thread_view::Objective;
 use vstd_extra::atomic_irc11::{
     AtomicId as Irc11AtomicId, AtomicPointsTo, PAtomicWeakBool as Irc11AtomicBool, PAtomicWeakPtr,
@@ -419,10 +419,15 @@ impl LinkedListRetiredChild {
 /// Immutable identities carried by a native linked-list link whose target is
 /// selected from an extensible allocation-ID registry.
 pub ghost struct RegisteredLinkedListAtomicKey {
+    pub scheduler: Loc,
     pub domain: Loc,
     pub root: Loc,
+    pub retire_observation_registry: Loc,
+    pub reclaim_registry: Loc,
+    pub active_lease_registry: Loc,
     pub registry: Loc,
     pub current: Loc,
+    pub lifecycle: Loc,
     pub timestamp_registry: Loc,
     pub native_observation_registry: Loc,
     pub source: *mut rcu_spec::LinkedListNode,
@@ -435,19 +440,21 @@ pub ghost struct RegisteredLinkedListAtomicKey {
 /// the latest non-null successor independently of its address, which is what
 /// makes a successful address-based CAS safe when a reclaimed address is later
 /// reused by a fresh allocation identity.
-pub tracked struct RegisteredLinkedListAtomicState {
+pub tracked struct RegisteredLinkedListAtomicState<O> {
     pub(crate) points_to: AtomicPointsTo<*mut rcu_spec::LinkedListNode>,
     pub(crate) link: rcu_spec::LinkedListAtomicLinkGhost,
     pub(crate) auth: rcu_spec::LinkedListTraversalAuth,
     pub(crate) registry: GhostVarAuth<Map<nat, *mut rcu_spec::LinkedListNode>>,
     pub(crate) current: GhostVarAuth<Option<nat>>,
+    pub(crate) permissions: rcu_cpu_spec::RcuRootPermissionState<rcu_spec::LinkedListNode, O>,
+    pub(crate) lifecycle: GhostVarAuth<Map<nat, LinkedListChildPhase>>,
 }
 
-unsafe impl Objective for RegisteredLinkedListAtomicState {
+unsafe impl<O: Objective> Objective for RegisteredLinkedListAtomicState<O> {
 
 }
 
-impl RegisteredLinkedListAtomicState {
+impl<O> RegisteredLinkedListAtomicState<O> {
     pub closed spec fn points_to(self) -> AtomicPointsTo<*mut rcu_spec::LinkedListNode> {
         self.points_to
     }
@@ -467,36 +474,156 @@ impl RegisteredLinkedListAtomicState {
     pub closed spec fn current(self) -> GhostVarAuth<Option<nat>> {
         self.current
     }
+
+    pub closed spec fn permissions(self) -> rcu_cpu_spec::RcuRootPermissionState<
+        rcu_spec::LinkedListNode,
+        O,
+    > {
+        self.permissions
+    }
+
+    pub closed spec fn lifecycle(self) -> GhostVarAuth<Map<nat, LinkedListChildPhase>> {
+        self.lifecycle
+    }
+}
+
+/// Per-allocation part of the registered-link invariant. Keeping this fact
+/// separate lets operations preserve unaffected AIds without unfolding the
+/// complete native atomic protocol.
+pub open spec fn registered_linked_list_target_inv<O: Objective, OwnPred>(
+    key: RegisteredLinkedListAtomicKey,
+    state: RegisteredLinkedListAtomicState<O>,
+    obj: nat,
+) -> bool where OwnPred: rcu_spec::RcuRootOwnershipPredicate<rcu_spec::LinkedListNode, O> {
+    let phase = state.lifecycle()@[obj];
+    &&& obj != key.source_obj
+    &&& state.registry()@.contains_key(obj)
+    &&& (state.auth().removed().contains(obj) <==> phase.is_retired() || phase.is_reclaimed())
+    &&& (state.auth().has_retire_perm(obj) <==> !phase.is_retired() && !phase.is_reclaimed())
+    &&& (state.permissions().contains(obj) <==> !phase.is_reclaimed())
+    &&& state.permissions().reclaim_states()[obj] == if phase.is_reclaimed() {
+        None
+    } else {
+        Some(state.registry()@[obj])
+    }
+    &&& (state.permissions().has_unretired_claim(obj) <==> !phase.is_retired()
+        && !phase.is_reclaimed())
+    &&& (!phase.is_reclaimed() ==> OwnPred::owns(
+        state.registry()@[obj],
+        state.permissions().ownership(obj),
+    ))
+    &&& (phase.is_linked() <==> state.current()@ == Some(obj))
+    &&& match phase {
+        LinkedListChildPhase::Unpublished => {
+            state.auth().state().incoming_all[obj] == Set::<rcu_spec::LinkEdge>::empty()
+        },
+        LinkedListChildPhase::Linked { index, timestamp } => {
+            &&& state.link().current_timestamp() == timestamp
+            &&& state.link().index_at(timestamp) == index
+            &&& index + 1 == state.auth().state().successors[key.source_obj].len()
+            &&& state.auth().state().successors[key.source_obj].last() == Some(
+                (state.registry()@[obj], obj),
+            )
+            &&& forall|edge: rcu_spec::LinkEdge| #[trigger]
+                state.auth().state().incoming_all[obj].contains(edge) ==> {
+                    &&& edge.0 == key.source_obj
+                    &&& edge.1 <= index
+                }
+        },
+        LinkedListChildPhase::Unlinked { index, removal }
+        | LinkedListChildPhase::Retired { index, removal } => {
+            &&& removal.root == key.root
+            &&& state.points_to().hist().contains_timestamp(removal.timestamp)
+            &&& state.link().index_at(removal.timestamp) == index
+            &&& state.points_to().hist().thread_view(removal.timestamp) == removal.message_view
+            &&& index < state.auth().state().successors[key.source_obj].len()
+            &&& state.auth().state().successors[key.source_obj][index as int] is None
+            &&& index > 0
+            &&& state.auth().state().successors[key.source_obj][(index - 1) as int] == Some(
+                (state.registry()@[obj], obj),
+            )
+            &&& forall|edge: rcu_spec::LinkEdge| #[trigger]
+                state.auth().state().incoming_all[obj].contains(edge) ==> {
+                    &&& edge.0 == key.source_obj
+                    &&& edge.1 < index
+                }
+        },
+        LinkedListChildPhase::Reclaimed { index, removal } => {
+            &&& state.permissions().reclaimed().contains_key(obj)
+            &&& state.permissions().reclaimed()[obj].record().removal == removal
+            &&& removal.root == key.root
+            &&& state.points_to().hist().contains_timestamp(removal.timestamp)
+            &&& state.link().index_at(removal.timestamp) == index
+            &&& state.points_to().hist().thread_view(removal.timestamp) == removal.message_view
+            &&& index < state.auth().state().successors[key.source_obj].len()
+            &&& state.auth().state().successors[key.source_obj][index as int] is None
+            &&& index > 0
+            &&& state.auth().state().successors[key.source_obj][(index - 1) as int] == Some(
+                (state.registry()@[obj], obj),
+            )
+            &&& forall|edge: rcu_spec::LinkEdge| #[trigger]
+                state.auth().state().incoming_all[obj].contains(edge) ==> {
+                    &&& edge.0 == key.source_obj
+                    &&& edge.1 < index
+                }
+        },
+    }
 }
 
 /// Native IRC11 invariant for one link ranging over any registered AId.
-pub struct RegisteredLinkedListAtomicInv;
+pub struct RegisteredLinkedListAtomicInv<OwnPred> {
+    _marker: PhantomData<OwnPred>,
+}
 
-impl InvariantPredicate<
+impl<O: Objective, OwnPred> InvariantPredicate<
     (RegisteredLinkedListAtomicKey, Irc11AtomicId),
-    RegisteredLinkedListAtomicState,
-> for RegisteredLinkedListAtomicInv {
+    RegisteredLinkedListAtomicState<O>,
+> for RegisteredLinkedListAtomicInv<OwnPred> where
+    OwnPred: rcu_spec::RcuRootOwnershipPredicate<rcu_spec::LinkedListNode, O>,
+ {
     open spec fn inv(
         key_loc: (RegisteredLinkedListAtomicKey, Irc11AtomicId),
-        state: RegisteredLinkedListAtomicState,
+        state: RegisteredLinkedListAtomicState<O>,
     ) -> bool {
         let (key, loc) = key_loc;
+        let target_ids = state.registry()@.dom().remove(key.source_obj);
         &&& state.points_to().loc() == loc
         &&& key.source.addr() != 0
         &&& state.auth().wf()
         &&& state.auth().domain() == key.domain
         &&& state.auth().state().root == key.source
         &&& state.auth().state().root_obj == key.source_obj
-        &&& state.auth().removed() == Set::<nat>::empty()
+        &&& state.auth().removed().subset_of(target_ids)
         &&& state.registry().id() == key.registry
         &&& state.registry()@ == state.auth().state().objects
         &&& state.current().id() == key.current
+        &&& state.lifecycle().id() == key.lifecycle
+        &&& state.lifecycle()@.dom() == target_ids
+        &&& state.permissions().wf()
+        &&& state.permissions().scheduler() == key.scheduler
+        &&& state.permissions().domain() == key.domain
+        &&& state.permissions().root() == key.root
+        &&& state.permissions().retire_observation_registry() == key.retire_observation_registry
+        &&& state.permissions().reclaim_registry() == key.reclaim_registry
+        &&& state.permissions().active_lease_registry() == key.active_lease_registry
+        &&& state.permissions().allocations() == target_ids
+        &&& forall|obj: nat| #[trigger]
+            target_ids.contains(obj) ==> registered_linked_list_target_inv::<O, OwnPred>(
+                key,
+                state,
+                obj,
+            )
         &&& state.link().source() == key.source
         &&& state.link().source_obj() == key.source_obj
         &&& state.link().timestamp_registry() == key.timestamp_registry
         &&& state.link().native_observation_registry() == key.native_observation_registry
         &&& state.link().wf(state.points_to().hist(), state.auth())
         &&& state.link().native_observations_wf(state.points_to())
+        &&& forall|n: rcu_spec::LinkIndex|
+            n < state.auth().state().successors[key.source_obj].len()
+                && state.auth().state().successors[key.source_obj][n as int] is Some
+                ==> #[trigger] state.auth().state().successors[key.source_obj][n as int]->Some_0.1
+                != key.source_obj
         &&& match state.current()@ {
             None => state.auth().state().successors[key.source_obj].last() is None,
             Some(obj) => {
@@ -510,22 +637,23 @@ impl InvariantPredicate<
     }
 }
 
-pub type RegisteredLinkedListAtomicInvariant = AtomicInvariant<
+pub type RegisteredLinkedListAtomicInvariant<O, OwnPred> = AtomicInvariant<
     (RegisteredLinkedListAtomicKey, Irc11AtomicId),
-    RegisteredLinkedListAtomicState,
-    RegisteredLinkedListAtomicInv,
+    RegisteredLinkedListAtomicState<O>,
+    RegisteredLinkedListAtomicInv<OwnPred>,
 >;
 
 /// A real weak atomic link whose non-null values are selected by AId from an
 /// extensible registry rather than fixed by the wrapper's constructor.
-pub struct RegisteredLinkedListWeakAtomicLink {
+pub struct RegisteredLinkedListWeakAtomicLink<O: Objective + 'static, OwnPred: 'static> {
     atomic: PAtomicWeakPtr<rcu_spec::LinkedListNode>,
-    tracked_atomic_inv: Tracked<&'static RegisteredLinkedListAtomicInvariant>,
+    tracked_atomic_inv: Tracked<&'static RegisteredLinkedListAtomicInvariant<O, OwnPred>>,
     tracked_registry: Tracked<GhostVar<Map<nat, *mut rcu_spec::LinkedListNode>>>,
     tracked_current: Tracked<GhostVar<Option<nat>>>,
+    tracked_lifecycle: Tracked<GhostVar<Map<nat, LinkedListChildPhase>>>,
 }
 
-impl RegisteredLinkedListWeakAtomicLink {
+impl<O: Objective + 'static, OwnPred: 'static> RegisteredLinkedListWeakAtomicLink<O, OwnPred> {
     pub closed spec fn constant(&self) -> RegisteredLinkedListAtomicKey {
         self.tracked_atomic_inv@.constant().0
     }
@@ -546,10 +674,30 @@ impl RegisteredLinkedListWeakAtomicLink {
         self.tracked_current@.view()
     }
 
+    pub closed spec fn target_lifecycles(&self) -> Map<nat, LinkedListChildPhase> {
+        self.tracked_lifecycle@.view()
+    }
+
+    pub closed spec fn target_phase(&self, obj: nat) -> LinkedListChildPhase
+        recommends
+            self.target_lifecycles().contains_key(obj),
+    {
+        self.target_lifecycles()[obj]
+    }
+
+    pub open spec fn no_reclaimed_targets(&self) -> bool {
+        forall|obj: nat| #[trigger]
+            self.registered_targets().dom().remove(self.constant().source_obj).contains(obj)
+                ==> self.target_lifecycles().contains_key(obj) && !self.target_phase(
+                obj,
+            ).is_reclaimed()
+    }
+
     pub closed spec fn well_formed(&self) -> bool {
         &&& self.tracked_atomic_inv@.constant().1 == self.native_loc()
         &&& self.tracked_registry@.id() == self.constant().registry
         &&& self.tracked_current@.id() == self.constant().current
+        &&& self.tracked_lifecycle@.id() == self.constant().lifecycle
         &&& self.registered_targets().contains_pair(
             self.constant().source_obj,
             self.constant().source,
@@ -560,11 +708,17 @@ impl RegisteredLinkedListWeakAtomicLink {
     pub closed spec fn type_inv(&self) -> bool {
         self.well_formed()
     }
+}
 
+impl<O: Objective + 'static, OwnPred: 'static> RegisteredLinkedListWeakAtomicLink<O, OwnPred> where
+    OwnPred: rcu_spec::RcuRootOwnershipPredicate<rcu_spec::LinkedListNode, O>,
+ {
     /// Creates a null native link. Additional target AIds can be registered
     /// after construction and then selected by the publication CAS.
     pub const fn new(
+        Ghost(scheduler): Ghost<Loc>,
         Ghost(root): Ghost<Loc>,
+        Ghost(retire_observation_registry): Ghost<Loc>,
         Tracked(source_info): Tracked<&rcu_spec::RcuBlockInfo<rcu_spec::LinkedListNode>>,
         Tracked(source_retire): Tracked<rcu_spec::RcuBaseRetirePerm<rcu_spec::LinkedListNode>>,
     ) -> (res: Self)
@@ -576,12 +730,15 @@ impl RegisteredLinkedListWeakAtomicLink {
             source_retire.ptr() == source_info.ptr(),
         ensures
             res.well_formed(),
+            res.constant().scheduler == scheduler,
             res.constant().domain == source_info.domain(),
             res.constant().root == root,
+            res.constant().retire_observation_registry == retire_observation_registry,
             res.constant().source == source_info.ptr(),
             res.constant().source_obj == source_info.obj(),
             res.registered_targets() == Map::empty().insert(source_info.obj(), source_info.ptr()),
             res.current_target() is None,
+            res.target_lifecycles() == Map::<nat, LinkedListChildPhase>::empty(),
     {
         let (atomic, Tracked(points_to), Tracked(initial_view), Ghost(timestamp)) =
             PAtomicWeakPtr::new(core::ptr::null_mut());
@@ -605,18 +762,32 @@ impl RegisteredLinkedListWeakAtomicLink {
             Map::empty().insert(source_info.obj(), source_info.ptr()),
         );
         let tracked (current, current_peer) = GhostVarAuth::new(None);
+        let tracked permissions = rcu_cpu_spec::RcuRootPermissionState::empty(
+            scheduler,
+            source_info.domain(),
+            root,
+            retire_observation_registry,
+        );
+        let tracked (lifecycle, lifecycle_peer) = GhostVarAuth::new(Map::empty());
         let tracked state = RegisteredLinkedListAtomicState {
             points_to,
             link,
             auth,
             registry,
             current,
+            permissions,
+            lifecycle,
         };
         let ghost key = RegisteredLinkedListAtomicKey {
+            scheduler,
             domain: source_info.domain(),
             root,
+            retire_observation_registry,
+            reclaim_registry: state.permissions().reclaim_registry(),
+            active_lease_registry: state.permissions().active_lease_registry(),
             registry: state.registry().id(),
             current: state.current().id(),
+            lifecycle: state.lifecycle().id(),
             timestamp_registry: state.link().timestamp_registry(),
             native_observation_registry: state.link().native_observation_registry(),
             source: source_info.ptr(),
@@ -629,6 +800,11 @@ impl RegisteredLinkedListWeakAtomicLink {
             assert(state.auth().state().objects == Map::empty().insert(key.source_obj, key.source));
             assert(state.auth().removed() == Set::<nat>::empty());
             assert(state.registry()@ == state.auth().state().objects);
+            assert(state.registry()@.dom().remove(key.source_obj) == Set::<nat>::empty());
+            assert(state.lifecycle()@ == Map::<nat, LinkedListChildPhase>::empty());
+            assert(state.permissions().allocations() == Set::<nat>::empty());
+            assert(state.permissions().keys() == Set::<nat>::empty());
+            assert(state.permissions().unretired_claims().dom() == Set::<nat>::empty());
             assert(state.link().native_observations() == Map::empty());
             assert(state.link().native_observations_wf(state.points_to())) by {
                 assert forall|observation_id: nat| #[trigger]
@@ -638,7 +814,7 @@ impl RegisteredLinkedListWeakAtomicLink {
                     &&& state.points_to().get_timestamp(observation.1) == Some(observation.2)
                 } by {};
             };
-            assert(RegisteredLinkedListAtomicInv::inv((key, atomic.loc()), state));
+            assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, atomic.loc()), state));
         }
         let tracked atomic_inv = AtomicInvariant::new((key, atomic.loc()), state, 0);
         let tracked atomic_inv = tracked_static_ref(atomic_inv);
@@ -647,6 +823,7 @@ impl RegisteredLinkedListWeakAtomicLink {
             tracked_atomic_inv: Tracked(atomic_inv),
             tracked_registry: Tracked(registry_peer),
             tracked_current: Tracked(current_peer),
+            tracked_lifecycle: Tracked(lifecycle_peer),
         }
     }
 
@@ -662,7 +839,7 @@ impl RegisteredLinkedListWeakAtomicLink {
     }
 
     pub proof fn tracked_atomic_inv(tracked &self) -> (tracked res:
-        &'static RegisteredLinkedListAtomicInvariant)
+        &'static RegisteredLinkedListAtomicInvariant<O, OwnPred>)
         requires
             self.well_formed(),
         ensures
@@ -678,6 +855,7 @@ impl RegisteredLinkedListWeakAtomicLink {
         target: *mut rcu_spec::LinkedListNode,
         tracked info: &rcu_spec::RcuBlockInfo<rcu_spec::LinkedListNode>,
         tracked retire: rcu_spec::RcuBaseRetirePerm<rcu_spec::LinkedListNode>,
+        tracked ownership: O,
         tracked credit: vstd::invariant::OpenInvariantCredit,
     )
         requires
@@ -691,6 +869,7 @@ impl RegisteredLinkedListWeakAtomicLink {
             equal(target, info.ptr()),
             info.obj() != old(self).constant().source_obj,
             !old(self).registered_targets().contains_key(info.obj()),
+            OwnPred::owns(target, ownership),
         ensures
             final(self).well_formed(),
             final(self).constant() == old(self).constant(),
@@ -700,6 +879,10 @@ impl RegisteredLinkedListWeakAtomicLink {
                 target,
             ),
             final(self).current_target() == old(self).current_target(),
+            final(self).target_lifecycles() == old(self).target_lifecycles().insert(
+                info.obj(),
+                LinkedListChildPhase::Unpublished,
+            ),
         opens_invariants [self.invariant_namespace()]
     {
         use_type_invariant(&*self);
@@ -707,14 +890,22 @@ impl RegisteredLinkedListWeakAtomicLink {
         let ghost native_loc = self.native_loc();
         let tracked atomic_inv = self.tracked_atomic_inv.get();
         vstd::invariant::open_atomic_invariant_in_proof!(credit => atomic_inv => state => {
+            let ghost state_before = state;
             let ghost old_auth = state.auth;
             let ghost old_objects = state.auth.state().objects;
             let ghost old_registry = state.registry@;
+            let ghost old_lifecycle = state.lifecycle@;
+            let ghost old_permissions = state.permissions;
             state.registry.agree(self.tracked_registry.borrow());
             state.current.agree(self.tracked_current.borrow());
-            assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+            state.lifecycle.agree(self.tracked_lifecycle.borrow());
+            assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
             assert(old_registry == self.registered_targets());
             assert(!old_objects.contains_key(info.obj()));
+            state.permissions.lemma_all_contains_iff_keys();
+            state.permissions.lemma_all_allocations_have_reclaim_states();
+            state.permissions.lemma_all_live_reclaim_states();
+            state.permissions.lemma_all_unretired_domains();
             state.auth.lemma_registry_domains();
             assert(state.auth.state().successors.contains_key(key.source_obj));
             state.auth.lemma_unregistered_has_no_resources(info.obj());
@@ -727,6 +918,11 @@ impl RegisteredLinkedListWeakAtomicLink {
             state.registry.update(
                 self.tracked_registry.borrow_mut(),
                 old_registry.insert(info.obj(), target),
+            );
+            state.permissions.tracked_insert(info, ownership);
+            state.lifecycle.update(
+                self.tracked_lifecycle.borrow_mut(),
+                old_lifecycle.insert(info.obj(), LinkedListChildPhase::Unpublished),
             );
             assert(state.registry@ == state.auth.state().objects);
             state.auth.lemma_registry_domains();
@@ -744,7 +940,76 @@ impl RegisteredLinkedListWeakAtomicLink {
                         == old_auth.state().successors[key.source_obj]);
                 },
             }
-            assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+            assert(state.registry@.dom().remove(key.source_obj)
+                == old_registry.dom().remove(key.source_obj).insert(info.obj()));
+            assert(state.permissions.allocations()
+                == old_permissions.allocations().insert(info.obj()));
+            assert(state.permissions.keys() == old_permissions.keys().insert(info.obj()));
+            assert(state.permissions.unretired_claims().dom()
+                == old_permissions.unretired_claims().dom().insert(info.obj()));
+            assert(state.lifecycle@.dom() == old_lifecycle.dom().insert(info.obj()));
+            assert(state.lifecycle@.dom()
+                == state.registry@.dom().remove(key.source_obj));
+            state.permissions.lemma_all_live_reclaim_states();
+            state.permissions.lemma_all_contains_iff_keys();
+            state.permissions.lemma_all_allocations_have_reclaim_states();
+            state.permissions.lemma_all_unretired_domains();
+            assert forall|obj: nat| #[trigger]
+                state.registry@.dom().remove(key.source_obj).contains(obj) implies
+                registered_linked_list_target_inv::<O, OwnPred>(key, state, obj) by {
+                assert(obj != key.source_obj);
+                assert(state.registry@.contains_key(obj));
+                assert(state.permissions.allocations().contains(obj));
+                if obj == info.obj() {
+                    assert(state.registry@[obj] == target);
+                    assert(state.permissions.reclaim_states()[obj] == Some(target));
+                    assert(state.permissions.ownership(obj) == ownership);
+                    assert(state.permissions.unretired_claims().dom().contains(obj));
+                    assert(state.permissions.has_unretired_claim(obj));
+                    assert(state.lifecycle@[obj] is Unpublished);
+                    assert(state.current@ != Some(obj));
+                    assert(state.auth.state().incoming_all[obj]
+                        == Set::<rcu_spec::LinkEdge>::empty());
+                    assert(!state.auth.removed().contains(obj));
+                    assert(state.auth.has_retire_perm(obj));
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                } else {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        key,
+                        state_before,
+                        obj,
+                    ));
+                    assert(old_registry.dom().remove(key.source_obj).contains(obj));
+                    assert(old_permissions.allocations().contains(obj));
+                    assert(state.permissions.allocations().contains(obj));
+                    assert(state.permissions.reclaim_states().dom().contains(obj));
+                    assert(state.registry@[obj] == old_registry[obj]);
+                    assert(state.lifecycle@[obj] == old_lifecycle[obj]);
+                    assert(state.points_to == state_before.points_to);
+                    assert(state.link == state_before.link);
+                    assert(state.current == state_before.current);
+                    assert(state.auth.removed() == state_before.auth.removed());
+                    assert(state.auth.has_retire_perm(obj)
+                        == state_before.auth.has_retire_perm(obj));
+                    assert(state.auth.state().successors[key.source_obj]
+                        == state_before.auth.state().successors[key.source_obj]);
+                    assert(state.auth.state().incoming_all[obj]
+                        == state_before.auth.state().incoming_all[obj]);
+                    assert(state.permissions.reclaim_states()[obj]
+                        == old_permissions.reclaim_states()[obj]);
+                    assert(state.permissions.has_unretired_claim(obj)
+                        == old_permissions.has_unretired_claim(obj));
+                    assert(state.permissions.reclaimed() == old_permissions.reclaimed());
+                    if !state.lifecycle@[obj].is_reclaimed() {
+                        assert(old_permissions.contains(obj));
+                        assert(state.permissions.contains(obj));
+                        assert(state.permissions.ownership(obj)
+                            == old_permissions.ownership(obj));
+                    }
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                }
+            };
+            assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
         });
     }
 
@@ -818,7 +1083,7 @@ impl RegisteredLinkedListWeakAtomicLink {
             proof {
                 state.registry.agree(self.tracked_registry.borrow());
                 state.current.agree(self.tracked_current.borrow());
-                assert(RegisteredLinkedListAtomicInv::inv(
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv(
                     (self.constant(), self.native_loc()),
                     state,
                 ));
@@ -900,7 +1165,7 @@ impl RegisteredLinkedListWeakAtomicLink {
                         ));
                     },
                 }
-                assert(RegisteredLinkedListAtomicInv::inv(
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv(
                     (self.constant(), self.native_loc()),
                     state,
                 ));
@@ -914,6 +1179,439 @@ impl RegisteredLinkedListWeakAtomicLink {
             );
         });
         result
+    }
+
+    /// Acquire-loads any registered target and splits that target's AId-keyed
+    /// physical permission pool in the same native atomic invariant opening.
+    #[inline(always)]
+    pub fn load_acquire_and_lease_cpu(
+        &self,
+        Tracked(guard): Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>,
+        Tracked(from): Tracked<&mut rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>,
+        Tracked(previous): Tracked<Option<&rcu_spec::LinkedListLinkObservation>>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: (
+        *mut rcu_spec::LinkedListNode,
+        Ghost<Timestamp>,
+        Ghost<rcu_spec::LinkIndex>,
+        Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>,
+        Tracked<Option<rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>>,
+        Tracked<Option<rcu_cpu_spec::RcuRootReadLease<O>>>,
+        Tracked<rcu_spec::LinkedListLinkObservation>,
+    ))
+        requires
+            self.well_formed(),
+            guard.wf(),
+            guard.scheduler() == self.constant().scheduler,
+            guard.domain() == self.constant().domain,
+            guard.root() == self.constant().root,
+            guard.retire_observation_registry() == self.constant().retire_observation_registry,
+            online_cpus().contains(guard.cpu()),
+            guard.seen_removed().removed == Set::<nat>::empty(),
+            match previous {
+                None => guard.paper_guard().seen_at(self.constant().source_obj) == 0,
+                Some(observation) => {
+                    &&& observation.registry() == self.constant().timestamp_registry
+                    &&& observation.native_registry() == self.constant().native_observation_registry
+                    &&& observation.loc() == self.native_loc()
+                    &&& old(tv)@.contains(observation.view())
+                    &&& guard.paper_guard().seen_at(self.constant().source_obj)
+                        == observation.index()
+                },
+            },
+            old(from).protected_by(guard.paper_guard()),
+            old(from).ptr() == self.constant().source,
+            old(from).obj() == self.constant().source_obj,
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            res.3@.wf(),
+            res.3@.binding() == guard.binding(),
+            res.3@.participant_id() == guard.participant_id(),
+            res.3@.cpu() == guard.cpu(),
+            res.3@.generation() == guard.generation(),
+            res.3@.participant_view() == guard.participant_view(),
+            res.3@.known_retired() == guard.known_retired(),
+            res.3@.scheduler() == guard.scheduler(),
+            res.3@.domain() == guard.domain(),
+            res.3@.root() == guard.root(),
+            res.3@.reader_registry() == guard.reader_registry(),
+            res.3@.retire_observation_registry() == guard.retire_observation_registry(),
+            res.3@.reader_context() == guard.reader_context(),
+            res.3@.start_view() == guard.start_view(),
+            res.3@.expired() == guard.expired(),
+            res.3@.seen_removed().removed == guard.seen_removed().removed,
+            res.3@.paper_guard().seen_at(self.constant().source_obj) == res.2@,
+            final(from).ptr() == self.constant().source,
+            final(from).obj() == self.constant().source_obj,
+            res.6@.registry() == self.constant().timestamp_registry,
+            res.6@.native_registry() == self.constant().native_observation_registry,
+            res.6@.loc() == self.native_loc(),
+            res.6@.timestamp() == res.1@,
+            res.6@.index() == res.2@,
+            res.6@.view() == final(tv)@,
+            (res.4@ is Some) == (res.0.addr() != 0),
+            res.5@ is Some ==> res.4@ is Some,
+            match (res.4@, res.5@) {
+                (None, None) => {
+                    &&& res.0.addr() == 0
+                    &&& res.3@.reader_fragment() == guard.reader_fragment()
+                },
+                (Some(child), Some(lease)) => {
+                    &&& equal(child.ptr(), res.0)
+                    &&& child.domain() == self.constant().domain
+                    &&& child.protected_by(res.3@.paper_guard())
+                    &&& child.obj() != self.constant().source_obj
+                    &&& self.registered_targets().contains_pair(child.obj(), child.ptr())
+                    &&& self.target_lifecycles().contains_key(child.obj())
+                    &&& !self.target_phase(child.obj()).is_reclaimed()
+                    &&& res.3@.reader_fragment().fraction() == guard.reader_fragment().fraction()
+                        / 2real
+                    &&& lease.key() == child.obj()
+                    &&& lease.active_registry() == self.constant().active_lease_registry
+                    &&& lease.participant_id() == res.3@.participant_id()
+                    &&& lease.reader_fraction() == res.3@.reader_fragment().fraction()
+                    &&& lease.domain() == res.3@.domain()
+                    &&& lease.root() == res.3@.root()
+                    &&& lease.reader_context() == res.3@.reader_context()
+                    &&& lease.start_view() == res.3@.start_view()
+                    &&& lease.protected_addr() == child.ptr().addr()
+                    &&& OwnPred::owns(child.ptr(), lease.resource())
+                },
+                (Some(child), None) => {
+                    &&& equal(child.ptr(), res.0)
+                    &&& child.domain() == self.constant().domain
+                    &&& child.protected_by(res.3@.paper_guard())
+                    &&& child.obj() != self.constant().source_obj
+                    &&& self.registered_targets().contains_pair(child.obj(), child.ptr())
+                    &&& self.target_lifecycles().contains_key(child.obj())
+                    &&& self.target_phase(child.obj()).is_reclaimed()
+                    &&& res.3@.reader_fragment() == guard.reader_fragment()
+                },
+                (None, Some(_)) => false,
+            },
+        no_unwind
+    {
+        let result;
+        let ghost view_before = tv@;
+        proof {
+            use_type_invariant(self);
+        }
+        proof_decl! {
+            let tracked (mut paper_guard, cpu_reader, binding) = guard.tracked_into_parts();
+        }
+        let raw_atomic = self.raw_atomic();
+        vstd::invariant::open_atomic_invariant!(self.tracked_atomic_inv() => state => {
+            let ghost state_before = state;
+            let ghost permissions_before = state.permissions;
+            proof {
+                state.registry.agree(self.tracked_registry.borrow());
+                state.current.agree(self.tracked_current.borrow());
+                state.lifecycle.agree(self.tracked_lifecycle.borrow());
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv(
+                    (self.constant(), self.native_loc()),
+                    state,
+                ));
+                match previous {
+                    None => {},
+                    Some(observation) => {
+                        use_type_invariant(observation);
+                        state.link.lemma_observation_agrees(observation);
+                        state.link.lemma_native_observation_agrees(observation);
+                        assert(state.points_to.get_timestamp(observation.view())
+                            == Some(observation.timestamp()));
+                        state.points_to.get_timestamp_monotonic(
+                            view_before,
+                            observation.view(),
+                        );
+                    },
+                }
+            }
+            let loaded = raw_atomic.load(
+                Ordering::Acquire,
+                Tracked(tv),
+                Tracked(&state.points_to),
+            );
+            let ghost timestamp = loaded.2@.timestamp;
+            let ghost index = state.link.index_at(timestamp);
+            proof {
+                match previous {
+                    None => {},
+                    Some(observation) => {
+                        assert(state.points_to.get_timestamp(view_before).is_some());
+                        assert(observation.timestamp()
+                            <= state.points_to.get_timestamp(view_before).unwrap());
+                        assert(state.points_to.get_timestamp(view_before).unwrap() <= timestamp);
+                        assert(observation.index() <= index);
+                    },
+                }
+                assert(paper_guard.seen_at(from.obj()) <= index);
+                assert(rcu_spec::LinkedListTraversalSpec::seen_removed_sound(
+                    paper_guard.seen_removed(),
+                    state.auth.state(),
+                )) by {
+                    assert forall|obj: nat| #[trigger]
+                        paper_guard.seen_removed().removed.contains(obj) implies {
+                        &&& state.auth.state().incoming_all.contains_key(obj)
+                        &&& forall|edge: rcu_spec::LinkEdge| #[trigger]
+                            state.auth.state().incoming_all[obj].contains(edge)
+                                ==> paper_guard.seen_removed().dead_edge(edge)
+                    } by {};
+                };
+            }
+            proof_decl! {
+                let tracked protected = state.link.tracked_load_and_protect(
+                    state.points_to.hist(),
+                    &state.auth,
+                    &mut paper_guard,
+                    from,
+                    timestamp,
+                );
+                let tracked cpu_guard = rcu_cpu_spec::CpuRcuReadGuardToken::tracked_new(
+                    paper_guard,
+                    cpu_reader,
+                    binding,
+                );
+                let tracked final_guard;
+                let tracked lease;
+                let tracked observation;
+            }
+            proof {
+                observation = state.link.tracked_observation_at(
+                    &state.points_to,
+                    &state.auth,
+                    timestamp,
+                    tv@,
+                );
+                assert(equal(state.points_to.hist().value(timestamp), loaded.0));
+                state.permissions.lemma_all_contains_iff_keys();
+                match &protected {
+                    None => {
+                        final_guard = cpu_guard;
+                        lease = None;
+                    },
+                    Some(child) => {
+                        assert(rcu_spec::LinkedListTraversalSpec::link_inv(
+                            self.constant().source,
+                            self.constant().source_obj,
+                            index,
+                            child.ptr(),
+                            child.obj(),
+                            state.auth.state(),
+                        ));
+                        assert(state.auth.state().successors[
+                            self.constant().source_obj
+                        ][index as int] == Some((child.ptr(), child.obj())));
+                        assert(state.registry@.contains_pair(child.obj(), child.ptr()));
+                        assert(child.obj() != self.constant().source_obj);
+                        assert(state.registry@.dom().remove(
+                            self.constant().source_obj,
+                        ).contains(child.obj()));
+                        assert(registered_linked_list_target_inv::<O, OwnPred>(
+                            self.constant(),
+                            state,
+                            child.obj(),
+                        ));
+                        if state.lifecycle@[child.obj()].is_reclaimed() {
+                            final_guard = cpu_guard;
+                            lease = None;
+                        } else {
+                            assert(state.permissions.contains(child.obj()));
+                            let ghost ownership = state.permissions.ownership(child.obj());
+                            assert(OwnPred::owns(child.ptr(), ownership));
+                            let tracked split = state.permissions.tracked_split_protected(
+                                cpu_guard,
+                                child,
+                            );
+                            final_guard = split.0;
+                            lease = Some(split.1);
+                            assert(split.1.resource() == ownership);
+                            assert(OwnPred::owns(child.ptr(), split.1.resource()));
+                        }
+                    },
+                }
+                assert(state.permissions.allocations() == permissions_before.allocations());
+                assert(state.permissions.keys() == permissions_before.keys());
+                assert(state.permissions.reclaim_states() == permissions_before.reclaim_states());
+                assert(state.permissions.reclaimed() == permissions_before.reclaimed());
+                assert(state.permissions.unretired_claims()
+                    == permissions_before.unretired_claims());
+                assert(state.points_to == state_before.points_to);
+                assert(state.link.source() == state_before.link.source());
+                assert(state.link.source_obj() == state_before.link.source_obj());
+                assert(state.link.timestamps() == state_before.link.timestamps());
+                assert(state.link.current_timestamp()
+                    == state_before.link.current_timestamp());
+                assert(state.auth == state_before.auth);
+                assert(state.registry == state_before.registry);
+                assert(state.current == state_before.current);
+                assert(state.lifecycle == state_before.lifecycle);
+                state.permissions.lemma_all_contains_iff_keys();
+                state.permissions.lemma_all_live_reclaim_states();
+                assert forall|obj: nat| #[trigger]
+                    state.registry@.dom().remove(self.constant().source_obj).contains(obj) implies
+                    registered_linked_list_target_inv::<O, OwnPred>(
+                        self.constant(),
+                        state,
+                        obj,
+                    ) by {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        self.constant(),
+                        state_before,
+                        obj,
+                    ));
+                    if !state.lifecycle@[obj].is_reclaimed() {
+                        assert(permissions_before.contains(obj));
+                        assert(permissions_before.keys().contains(obj));
+                        assert(state.permissions.keys().contains(obj));
+                        assert(state.permissions.contains(obj));
+                        assert(state.permissions.ownership(obj)
+                            == permissions_before.ownership(obj));
+                    }
+                };
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv(
+                    (self.constant(), self.native_loc()),
+                    state,
+                ));
+            }
+            result = (
+                loaded.0,
+                Ghost(timestamp),
+                Ghost(index),
+                Tracked(final_guard),
+                Tracked(protected),
+                Tracked(lease),
+                Tracked(observation),
+            );
+        });
+        result
+    }
+
+    /// Returns an AId-keyed traversal lease and rejoins its saved CPU reader
+    /// fraction with the live guard.
+    #[verifier::atomic]
+    pub fn return_registered_lease_cpu(
+        &self,
+        Tracked(lease): Tracked<Option<rcu_cpu_spec::RcuRootReadLease<O>>>,
+        Tracked(guard): Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>)
+        requires
+            self.well_formed(),
+            match lease {
+                None => true,
+                Some(lease) => {
+                    &&& lease.active_registry() == self.constant().active_lease_registry
+                    &&& lease.participant_id() == guard.participant_id()
+                    &&& lease.reader_fraction() == guard.reader_fragment().fraction()
+                    &&& lease.domain() == guard.domain()
+                    &&& lease.root() == guard.root()
+                    &&& lease.reader_context() == guard.reader_context()
+                    &&& lease.start_view() == guard.start_view()
+                    &&& guard.protects(lease.protected_addr(), lease.key())
+                },
+            },
+            guard.wf(),
+            guard.scheduler() == self.constant().scheduler,
+            guard.domain() == self.constant().domain,
+            guard.root() == self.constant().root,
+            guard.retire_observation_registry() == self.constant().retire_observation_registry,
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            res@.wf(),
+            res@.paper_guard() == guard.paper_guard(),
+            res@.binding() == guard.binding(),
+            res@.participant_id() == guard.participant_id(),
+            res@.cpu() == guard.cpu(),
+            res@.generation() == guard.generation(),
+            res@.participant_view() == guard.participant_view(),
+            res@.known_retired() == guard.known_retired(),
+            res@.domain() == guard.domain(),
+            res@.root() == guard.root(),
+            res@.reader_registry() == guard.reader_registry(),
+            res@.retire_observation_registry() == guard.retire_observation_registry(),
+            res@.reader_context() == guard.reader_context(),
+            res@.start_view() == guard.start_view(),
+            res@.expired() == guard.expired(),
+            res@.seen_removed() == guard.seen_removed(),
+            res@.protected() == guard.protected(),
+            res@.reader_fragment().fraction() == match lease {
+                None => guard.reader_fragment().fraction(),
+                Some(_) => guard.reader_fragment().fraction() * 2real,
+            },
+        no_unwind
+    {
+        let raw_atomic = &self.atomic;
+        proof_decl! {
+            let tracked final_guard;
+        }
+        vstd::invariant::open_atomic_invariant!(self.tracked_atomic_inv() => state => {
+            let ghost state_before = state;
+            let ghost permissions_before = state.permissions;
+            let _loaded = raw_atomic.load(
+                Ordering::Relaxed,
+                Tracked(tv),
+                Tracked(&state.points_to),
+            );
+            proof {
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv(
+                    (self.constant(), self.native_loc()),
+                    state,
+                ));
+                state.permissions.lemma_all_contains_iff_keys();
+                match lease {
+                    None => {
+                        final_guard = guard;
+                    },
+                    Some(lease) => {
+                        final_guard = state.permissions.tracked_return_loaded(lease, guard);
+                    },
+                }
+                assert(state.permissions.allocations() == permissions_before.allocations());
+                assert(state.permissions.keys() == permissions_before.keys());
+                assert(state.permissions.reclaim_states() == permissions_before.reclaim_states());
+                assert(state.permissions.reclaimed() == permissions_before.reclaimed());
+                assert(state.permissions.unretired_claims()
+                    == permissions_before.unretired_claims());
+                assert(state.points_to == state_before.points_to);
+                assert(state.link.source() == state_before.link.source());
+                assert(state.link.source_obj() == state_before.link.source_obj());
+                assert(state.link.timestamps() == state_before.link.timestamps());
+                assert(state.link.current_timestamp()
+                    == state_before.link.current_timestamp());
+                assert(state.auth == state_before.auth);
+                assert(state.registry == state_before.registry);
+                assert(state.current == state_before.current);
+                assert(state.lifecycle == state_before.lifecycle);
+                state.permissions.lemma_all_contains_iff_keys();
+                state.permissions.lemma_all_live_reclaim_states();
+                assert forall|obj: nat| #[trigger]
+                    state.registry@.dom().remove(self.constant().source_obj).contains(obj) implies
+                    registered_linked_list_target_inv::<O, OwnPred>(
+                        self.constant(),
+                        state,
+                        obj,
+                    ) by {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        self.constant(),
+                        state_before,
+                        obj,
+                    ));
+                    if !state.lifecycle@[obj].is_reclaimed() {
+                        assert(permissions_before.contains(obj));
+                        assert(permissions_before.keys().contains(obj));
+                        assert(state.permissions.keys().contains(obj));
+                        assert(state.permissions.contains(obj));
+                        assert(state.permissions.ownership(obj)
+                            == permissions_before.ownership(obj));
+                    }
+                };
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv(
+                    (self.constant(), self.native_loc()),
+                    state,
+                ));
+            }
+        });
+        Tracked(final_guard)
     }
 
     /// Publishes any registered target from a null link.
@@ -932,6 +1630,10 @@ impl RegisteredLinkedListWeakAtomicLink {
             old(self).current_target() is None,
             target_obj != old(self).constant().source_obj,
             old(self).registered_targets().contains_pair(target_obj, target),
+            old(self).target_lifecycles().contains_key(target_obj),
+            old(self).target_phase(target_obj).is_unpublished() || old(self).target_phase(
+                target_obj,
+            ).is_unlinked(),
         ensures
             old(tv)@.spec_le(final(tv)@),
             final(self).well_formed(),
@@ -940,7 +1642,17 @@ impl RegisteredLinkedListWeakAtomicLink {
             final(self).registered_targets() == old(self).registered_targets(),
             (res.0 is Ok) == (res.1@ is Some),
             res.0 is Ok ==> final(self).current_target() == Some(target_obj),
+            res.0 is Ok ==> final(self).target_lifecycles() == old(self).target_lifecycles().insert(
+                target_obj,
+                LinkedListChildPhase::Linked {
+                    index: res.1@->Some_0,
+                    timestamp: final(self).target_phase(target_obj)->Linked_timestamp,
+                },
+            ),
+            res.0 is Ok ==> final(self).target_phase(target_obj).is_linked(),
+            res.0 is Ok ==> final(self).target_phase(target_obj)->Linked_index == res.1@->Some_0,
             res.0 is Err ==> final(self).current_target() is None,
+            res.0 is Err ==> final(self).target_lifecycles() == old(self).target_lifecycles(),
         no_unwind
     {
         let result;
@@ -956,10 +1668,13 @@ impl RegisteredLinkedListWeakAtomicLink {
             let tracked release_view = ReleaseViewSeen::new();
         }
         vstd::invariant::open_atomic_invariant!(atomic_inv => state => {
+            let ghost state_before = state;
+            let ghost old_lifecycle = state.lifecycle@;
             proof {
                 state.registry.agree(self.tracked_registry.borrow());
                 state.current.agree(self.tracked_current.borrow());
-                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+                state.lifecycle.agree(self.tracked_lifecycle.borrow());
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
                 assert(state.current@ is None);
                 assert(state.auth.state().objects.contains_pair(target_obj, target));
                 state.auth.lemma_registry_domains();
@@ -1016,13 +1731,85 @@ impl RegisteredLinkedListWeakAtomicLink {
                             self.tracked_current.borrow_mut(),
                             Some(target_obj),
                         );
+                        state.lifecycle.update(
+                            self.tracked_lifecycle.borrow_mut(),
+                            old_lifecycle.insert(
+                                target_obj,
+                                LinkedListChildPhase::Linked {
+                                    index,
+                                    timestamp: update.load_timestamp + 1,
+                                },
+                            ),
+                        );
                         published_index = Some(index);
                     },
                     Result::Err(_) => {
                         published_index = None;
                     },
                 }
-                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+                assert forall|obj: nat| #[trigger]
+                    state.registry@.dom().remove(key.source_obj).contains(obj) implies
+                    registered_linked_list_target_inv::<O, OwnPred>(key, state, obj) by {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        key,
+                        state_before,
+                        obj,
+                    ));
+                    match cas.0 {
+                        Result::Ok(_) => {
+                            if obj == target_obj {
+                                assert(state.lifecycle@[obj] is Linked);
+                                assert(state.current@ == Some(obj));
+                                assert(state.auth.state().incoming_all[obj]
+                                    == state_before.auth.state().incoming_all[obj].insert((
+                                        key.source_obj,
+                                        published_index->Some_0,
+                                    )));
+                                assert forall|edge: rcu_spec::LinkEdge| #[trigger]
+                                    state.auth.state().incoming_all[obj].contains(edge) implies {
+                                    &&& edge.0 == key.source_obj
+                                    &&& edge.1 <= published_index->Some_0
+                                } by {
+                                    if edge != (key.source_obj, published_index->Some_0) {
+                                        assert(state_before.auth.state().incoming_all[obj].contains(
+                                            edge,
+                                        ));
+                                        match old_lifecycle[obj] {
+                                            LinkedListChildPhase::Unpublished => assert(false),
+                                            LinkedListChildPhase::Unlinked {
+                                                index: old_index,
+                                                removal: _,
+                                            } => {
+                                                assert(edge.1 < old_index);
+                                                assert(old_index
+                                                    < state_before.auth.state().successors[
+                                                        key.source_obj
+                                                    ].len());
+                                            },
+                                            _ => assert(false),
+                                        }
+                                    }
+                                };
+                            } else {
+                                assert(state.lifecycle@[obj] == old_lifecycle[obj]);
+                                assert(!old_lifecycle[obj].is_linked());
+                                assert(state.current@ != Some(obj));
+                            }
+                        },
+                        Result::Err(_) => {
+                            assert(state.lifecycle@ == old_lifecycle);
+                            assert(state.current@ is None);
+                        },
+                    }
+                };
+                assert(old_lifecycle.contains_key(target_obj));
+                assert(state.lifecycle@.dom() == old_lifecycle.dom());
+                assert(state.lifecycle@.dom()
+                    == state.registry@.dom().remove(key.source_obj));
+                assert(state.permissions.allocations()
+                    == state.registry@.dom().remove(key.source_obj));
+                state.auth.lemma_registry_domains();
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
             }
             result = (cas.0, Ghost(published_index));
         });
@@ -1046,6 +1833,8 @@ impl RegisteredLinkedListWeakAtomicLink {
             old(self).well_formed(),
             old(self).current_target() == Some(target_obj),
             old(self).registered_targets().contains_pair(target_obj, target),
+            old(self).target_lifecycles().contains_key(target_obj),
+            old(self).target_phase(target_obj).is_linked(),
         ensures
             old(tv)@.spec_le(final(tv)@),
             final(self).well_formed(),
@@ -1056,7 +1845,16 @@ impl RegisteredLinkedListWeakAtomicLink {
             res.0 is Ok ==> final(self).current_target() is None,
             res.0 is Ok ==> res.1@->Some_0.1.root == final(self).constant().root,
             res.0 is Ok ==> res.1@->Some_0.1.observed_by(final(tv)@),
+            res.0 is Ok ==> final(self).target_lifecycles() == old(self).target_lifecycles().insert(
+                target_obj,
+                LinkedListChildPhase::Unlinked {
+                    index: res.1@->Some_0.0,
+                    removal: res.1@->Some_0.1,
+                },
+            ),
+            res.0 is Ok ==> final(self).target_phase(target_obj).is_unlinked(),
             res.0 is Err ==> final(self).current_target() == Some(target_obj),
+            res.0 is Err ==> final(self).target_lifecycles() == old(self).target_lifecycles(),
         no_unwind
     {
         let result;
@@ -1072,11 +1870,16 @@ impl RegisteredLinkedListWeakAtomicLink {
             let tracked release_view = ReleaseViewSeen::new();
         }
         vstd::invariant::open_atomic_invariant!(atomic_inv => state => {
+            let ghost state_before = state;
+            let ghost old_lifecycle = state.lifecycle@;
             proof {
                 state.registry.agree(self.tracked_registry.borrow());
                 state.current.agree(self.tracked_current.borrow());
-                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+                state.lifecycle.agree(self.tracked_lifecycle.borrow());
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
                 assert(state.current@ == Some(target_obj));
+                state.auth.lemma_registry_domains();
+                assert(state.auth.state().successors.contains_key(key.source_obj));
                 assert(state.auth.state().successors[key.source_obj].last()
                     == Some((target, target_obj)));
             }
@@ -1129,17 +1932,647 @@ impl RegisteredLinkedListWeakAtomicLink {
                             message_view: update.store_message_view,
                         };
                         state.current.update(self.tracked_current.borrow_mut(), None);
+                        state.lifecycle.update(
+                            self.tracked_lifecycle.borrow_mut(),
+                            old_lifecycle.insert(
+                                target_obj,
+                                LinkedListChildPhase::Unlinked { index, removal },
+                            ),
+                        );
                         unlinked = Some((index, removal));
                     },
                     Result::Err(_) => {
                         unlinked = None;
                     },
                 }
-                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+                assert forall|obj: nat| #[trigger]
+                    state.registry@.dom().remove(key.source_obj).contains(obj) implies
+                    registered_linked_list_target_inv::<O, OwnPred>(key, state, obj) by {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        key,
+                        state_before,
+                        obj,
+                    ));
+                    match cas.0 {
+                        Result::Ok(_) => {
+                            if obj == target_obj {
+                                assert(state.lifecycle@[obj] is Unlinked);
+                                assert(state.auth.state().incoming_all[obj]
+                                    == state_before.auth.state().incoming_all[obj]);
+                                assert forall|edge: rcu_spec::LinkEdge| #[trigger]
+                                    state.auth.state().incoming_all[obj].contains(edge) implies {
+                                    &&& edge.0 == key.source_obj
+                                    &&& edge.1 < unlinked->Some_0.0
+                                } by {
+                                    assert(edge.1
+                                        <= old_lifecycle[obj]->Linked_index);
+                                    assert(old_lifecycle[obj]->Linked_index + 1
+                                        == unlinked->Some_0.0);
+                                };
+                            } else {
+                                assert(state.lifecycle@[obj] == old_lifecycle[obj]);
+                                assert(obj != target_obj);
+                            }
+                            assert(!state.lifecycle@[obj].is_linked());
+                            assert(state.current@ is None);
+                        },
+                        Result::Err(_) => {
+                            assert(state.lifecycle@ == old_lifecycle);
+                            assert(state.current@ == Some(target_obj));
+                        },
+                    }
+                };
+                assert(old_lifecycle.contains_key(target_obj));
+                assert(state.lifecycle@.dom() == old_lifecycle.dom());
+                assert(state.lifecycle@.dom()
+                    == state.registry@.dom().remove(key.source_obj));
+                assert(state.permissions.allocations()
+                    == state.registry@.dom().remove(key.source_obj));
+                state.auth.lemma_registry_domains();
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
             }
             result = (cas.0, Ghost(unlinked));
         });
         result
+    }
+
+    /// Converts one unlinked registered AId into the traversal-retire and
+    /// physical-reclaim resources needed by the existing RCU monitor.
+    #[verifier::atomic]
+    pub fn retire_unlinked_target(
+        &mut self,
+        target: *mut rcu_spec::LinkedListNode,
+        Ghost(target_obj): Ghost<nat>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: Tracked<LinkedListDetachedChild>)
+        requires
+            old(self).well_formed(),
+            old(self).registered_targets().contains_pair(target_obj, target),
+            old(self).target_lifecycles().contains_key(target_obj),
+            old(self).target_phase(target_obj).is_unlinked(),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            final(self).well_formed(),
+            final(self).constant() == old(self).constant(),
+            final(self).native_loc() == old(self).native_loc(),
+            final(self).registered_targets() == old(self).registered_targets(),
+            final(self).current_target() == old(self).current_target(),
+            final(self).target_lifecycles() == old(self).target_lifecycles().insert(
+                target_obj,
+                LinkedListChildPhase::Retired {
+                    index: old(self).target_phase(target_obj)->Unlinked_index,
+                    removal: old(self).target_phase(target_obj)->Unlinked_removal,
+                },
+            ),
+            final(self).target_phase(target_obj).is_retired(),
+            res@.object().wf(),
+            res@.object().domain() == final(self).constant().domain,
+            res@.object().obj() == target_obj,
+            res@.object().ptr() == target,
+            res@.retire().wf(),
+            res@.retire().ready_to_retire(),
+            res@.retire().domain() == final(self).constant().domain,
+            res@.retire().obj() == target_obj,
+            res@.retire().ptr() == target,
+            res@.claim().registry() == final(self).constant().reclaim_registry,
+            res@.claim().obj() == target_obj,
+            res@.claim().is_pending(),
+            res@.claim().ptr() == target,
+            res@.removal() == old(self).target_phase(target_obj)->Unlinked_removal,
+        no_unwind
+    {
+        proof {
+            use_type_invariant(&*self);
+        }
+        let raw_atomic = &self.atomic;
+        proof_decl! {
+            let ghost key = self.constant();
+            let ghost native_loc = self.native_loc();
+            let tracked atomic_inv = self.tracked_atomic_inv.get();
+            let tracked detached;
+        }
+        vstd::invariant::open_atomic_invariant!(atomic_inv => state => {
+            let ghost state_before = state;
+            let ghost old_lifecycle = state.lifecycle@;
+            let ghost permissions_before = state.permissions;
+            let _loaded = raw_atomic.load(
+                Ordering::Relaxed,
+                Tracked(tv),
+                Tracked(&state.points_to),
+            );
+            proof {
+                state.registry.agree(self.tracked_registry.borrow());
+                state.current.agree(self.tracked_current.borrow());
+                state.lifecycle.agree(self.tracked_lifecycle.borrow());
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
+                assert(registered_linked_list_target_inv::<O, OwnPred>(
+                    key,
+                    state,
+                    target_obj,
+                ));
+                state.auth.lemma_registry_domains();
+                state.permissions.lemma_all_unretired_domains();
+                assert(state.auth.state().successors.contains_key(key.source_obj));
+                assert(state.auth.state().incoming_all.contains_key(target_obj));
+                assert(state.lifecycle@[target_obj] is Unlinked);
+                let ghost index = state.lifecycle@[target_obj]->Unlinked_index;
+                let ghost removal = state.lifecycle@[target_obj]->Unlinked_removal;
+                let ghost latest = (state.auth.state().successors[key.source_obj].len() - 1)
+                    as nat;
+                let ghost prior = rcu_spec::RcuSeenRemoved {
+                    removed: state.auth.removed(),
+                    link_view: rcu_spec::RcuLinkView::empty().observe(key.source_obj, latest),
+                };
+                assert(state.auth.state().successors[key.source_obj].len() > 0);
+                assert(latest + 1 == state.auth.state().successors[key.source_obj].len());
+                assert(state.auth.state().bounds(prior.link_view)) by {
+                    assert forall|from: *mut rcu_spec::LinkedListNode, from_obj: nat| #[trigger]
+                        state.auth.state().objects.contains_pair(from_obj, from)
+                            && prior.link_view.seen.contains_key(from_obj) implies {
+                        &&& state.auth.state().successors[from_obj].len() > 0
+                        &&& prior.link_view.seen_at(from_obj)
+                            < state.auth.state().successors[from_obj].len()
+                    } by {
+                        assert(from_obj == key.source_obj);
+                        assert(state.auth.state().successors.contains_key(from_obj));
+                        assert(prior.link_view.seen_at(from_obj) == latest);
+                    };
+                }
+                assert(rcu_spec::LinkedListTraversalSpec::seen_removed_sound(
+                    prior,
+                    state.auth.state(),
+                )) by {
+                    assert forall|obj: nat| #[trigger]
+                        prior.removed.contains(obj) implies {
+                        &&& state.auth.state().incoming_all.contains_key(obj)
+                        &&& forall|edge: rcu_spec::LinkEdge| #[trigger]
+                            state.auth.state().incoming_all[obj].contains(edge)
+                                ==> prior.dead_edge(edge)
+                    } by {
+                        assert(state.auth.removed().contains(obj));
+                        assert(state.registry@.dom().remove(key.source_obj).contains(obj));
+                        assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                        assert(state.registry@.contains_key(obj));
+                        assert(state.auth.state().objects.contains_key(obj));
+                        assert(state.auth.state().incoming_all.contains_key(obj));
+                        assert(state.lifecycle@[obj].is_retired()
+                            || state.lifecycle@[obj].is_reclaimed());
+                        assert forall|edge: rcu_spec::LinkEdge| #[trigger]
+                            state.auth.state().incoming_all[obj].contains(edge) implies
+                            prior.dead_edge(edge) by {
+                            match state.lifecycle@[obj] {
+                                LinkedListChildPhase::Retired {
+                                    index: removed_index,
+                                    removal: _,
+                                }
+                                | LinkedListChildPhase::Reclaimed {
+                                    index: removed_index,
+                                    removal: _,
+                                } => {
+                                    assert(edge.0 == key.source_obj);
+                                    assert(edge.1 < removed_index);
+                                    assert(removed_index
+                                        < state.auth.state().successors[key.source_obj].len());
+                                    assert(removed_index <= latest);
+                                },
+                                _ => assert(false),
+                            }
+                        };
+                    };
+                };
+                assert forall|edge: rcu_spec::LinkEdge| #[trigger]
+                    state.auth.state().incoming_all[target_obj].contains(edge) implies
+                    prior.dead_edge(edge) by {
+                    assert(edge.0 == key.source_obj);
+                    assert(edge.1 < index);
+                    assert(index < state.auth.state().successors[key.source_obj].len());
+                };
+                assert(state.auth.state().incoming_all[target_obj].len() > 0) by {
+                    assert(state.auth.state().successors[key.source_obj][(index - 1) as int]
+                        == Some((target, target_obj)));
+                    assert(rcu_spec::LinkedListTraversalSpec::link_inv(
+                        key.source,
+                        key.source_obj,
+                        (index - 1) as nat,
+                        target,
+                        target_obj,
+                        state.auth.state(),
+                    ));
+                    assert(state.auth.state().incoming_all[target_obj].contains((
+                        key.source_obj,
+                        (index - 1) as nat,
+                    )));
+                };
+                state.auth.lemma_has_info_for_object(target_obj);
+                let tracked object = state.auth.tracked_info_for(target_obj);
+                let tracked retire = state.auth.tracked_retire_node(target_obj, prior);
+                let tracked claim = state.permissions.tracked_retire(target_obj);
+                state.lifecycle.update(
+                    self.tracked_lifecycle.borrow_mut(),
+                    old_lifecycle.insert(
+                        target_obj,
+                        LinkedListChildPhase::Retired { index, removal },
+                    ),
+                );
+                state.permissions.lemma_all_contains_iff_keys();
+                state.permissions.lemma_all_allocations_have_reclaim_states();
+                state.permissions.lemma_all_unretired_domains();
+                assert forall|obj: nat| #[trigger]
+                    state.registry@.dom().remove(key.source_obj).contains(obj) implies
+                    registered_linked_list_target_inv::<O, OwnPred>(key, state, obj) by {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        key,
+                        state_before,
+                        obj,
+                    ));
+                    if obj == target_obj {
+                        assert(state.lifecycle@[obj] is Retired);
+                        assert(state.auth.removed().contains(obj));
+                        assert(!state.auth.has_retire_perm(obj));
+                        assert(state.permissions.contains(obj));
+                        assert(!state.permissions.has_unretired_claim(obj));
+                        assert(state.permissions.ownership(obj)
+                            == permissions_before.ownership(obj));
+                        assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                    } else {
+                        assert(state.lifecycle@[obj] == old_lifecycle[obj]);
+                        assert(state.auth.removed().contains(obj)
+                            == state_before.auth.removed().contains(obj));
+                        assert(state.auth.has_retire_perm(obj)
+                            == state_before.auth.has_retire_perm(obj));
+                        assert(state.permissions.has_unretired_claim(obj)
+                            == permissions_before.has_unretired_claim(obj));
+                        if !state.lifecycle@[obj].is_reclaimed() {
+                            assert(state.permissions.contains(obj));
+                            assert(state.permissions.ownership(obj)
+                                == permissions_before.ownership(obj));
+                        }
+                        assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                    }
+                };
+                assert(state.auth.removed().subset_of(
+                    state.registry@.dom().remove(key.source_obj),
+                ));
+                assert(old_lifecycle.contains_key(target_obj));
+                assert(state.lifecycle@.dom() == old_lifecycle.dom());
+                assert(state.lifecycle@.dom()
+                    == state.registry@.dom().remove(key.source_obj));
+                assert(state.permissions.allocations()
+                    == permissions_before.allocations());
+                assert(state.permissions.allocations()
+                    == state.registry@.dom().remove(key.source_obj));
+                assert(state.registry@ == state.auth.state().objects);
+                assert(state.points_to == state_before.points_to);
+                assert(state.link == state_before.link);
+                assert(state.auth.state() == state_before.auth.state());
+                assert(state.registry == state_before.registry);
+                assert(state.current == state_before.current);
+                assert(state.lifecycle.id() == state_before.lifecycle.id());
+                assert(state.permissions.wf());
+                assert(state.permissions.scheduler() == permissions_before.scheduler());
+                assert(state.permissions.domain() == permissions_before.domain());
+                assert(state.permissions.root() == permissions_before.root());
+                assert(state.permissions.retire_observation_registry()
+                    == permissions_before.retire_observation_registry());
+                assert(state.permissions.reclaim_registry()
+                    == permissions_before.reclaim_registry());
+                assert(state.permissions.active_lease_registry()
+                    == permissions_before.active_lease_registry());
+                assert(state.link.wf(state.points_to.hist(), state.auth));
+                assert(state.link.native_observations_wf(state.points_to));
+                assert forall|n: rcu_spec::LinkIndex|
+                    n < state.auth.state().successors[key.source_obj].len()
+                        && state.auth.state().successors[key.source_obj][n as int] is Some
+                        implies #[trigger]
+                            state.auth.state().successors[key.source_obj][n as int]->Some_0.1
+                                != key.source_obj by {};
+                assert(match state.current@ {
+                    None => state.auth.state().successors[key.source_obj].last() is None,
+                    Some(obj) => {
+                        &&& obj != key.source_obj
+                        &&& state.registry@.contains_key(obj)
+                        &&& state.auth.state().successors[key.source_obj].last() == Some((
+                            state.registry@[obj],
+                            obj,
+                        ))
+                    },
+                });
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
+                assert(object.ptr() == target);
+                assert(retire.ptr() == target);
+                assert(claim.ptr() == target);
+                detached = LinkedListDetachedChild { object, retire, claim, removal };
+            }
+        });
+        Tracked(detached)
+    }
+
+    /// Recovers one retired registered allocation after a completed grace
+    /// period has excluded all outstanding leases for that AId.
+    #[verifier::atomic]
+    pub fn reclaim_retired_target(
+        &mut self,
+        target: *mut rcu_spec::LinkedListNode,
+        Ghost(target_obj): Ghost<nat>,
+        Tracked(claim): Tracked<rcu_cpu_spec::RcuReclaimClaim<rcu_spec::LinkedListNode>>,
+        Tracked(completed): Tracked<rcu_cpu_spec::RcuReclaimedWitness>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: Tracked<O>)
+        requires
+            old(self).well_formed(),
+            old(self).registered_targets().contains_pair(target_obj, target),
+            old(self).target_lifecycles().contains_key(target_obj),
+            old(self).target_phase(target_obj).is_retired(),
+            claim.registry() == old(self).constant().reclaim_registry,
+            claim.obj() == target_obj,
+            claim.is_pending(),
+            claim.ptr() == target,
+            completed.wf(),
+            completed.scheduler() == old(self).constant().scheduler,
+            completed.record().domain == old(self).constant().domain,
+            completed.record().obj == target_obj,
+            completed.record().retire_observation_registry == old(
+                self,
+            ).constant().retire_observation_registry,
+            completed.record().removal == old(self).target_phase(target_obj)->Retired_removal,
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            final(self).well_formed(),
+            final(self).constant() == old(self).constant(),
+            final(self).native_loc() == old(self).native_loc(),
+            final(self).registered_targets() == old(self).registered_targets(),
+            final(self).current_target() == old(self).current_target(),
+            final(self).target_lifecycles() == old(self).target_lifecycles().insert(
+                target_obj,
+                LinkedListChildPhase::Reclaimed {
+                    index: old(self).target_phase(target_obj)->Retired_index,
+                    removal: old(self).target_phase(target_obj)->Retired_removal,
+                },
+            ),
+            final(self).target_phase(target_obj).is_reclaimed(),
+            OwnPred::owns(target, res@),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(&*self);
+        }
+        let raw_atomic = &self.atomic;
+        proof_decl! {
+            let ghost key = self.constant();
+            let ghost native_loc = self.native_loc();
+            let tracked atomic_inv = self.tracked_atomic_inv.get();
+            let tracked ownership;
+        }
+        vstd::invariant::open_atomic_invariant!(atomic_inv => state => {
+            let ghost state_before = state;
+            let ghost old_lifecycle = state.lifecycle@;
+            let ghost permissions_before = state.permissions;
+            let _loaded = raw_atomic.load(
+                Ordering::Relaxed,
+                Tracked(tv),
+                Tracked(&state.points_to),
+            );
+            proof {
+                state.registry.agree(self.tracked_registry.borrow());
+                state.current.agree(self.tracked_current.borrow());
+                state.lifecycle.agree(self.tracked_lifecycle.borrow());
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
+                assert(registered_linked_list_target_inv::<O, OwnPred>(
+                    key,
+                    state,
+                    target_obj,
+                ));
+                assert(state.lifecycle@[target_obj] is Retired);
+                let ghost index = state.lifecycle@[target_obj]->Retired_index;
+                let ghost removal = state.lifecycle@[target_obj]->Retired_removal;
+                assert(completed.record().removal == removal);
+                assert(OwnPred::owns(
+                    target,
+                    permissions_before.ownership(target_obj),
+                ));
+                state.permissions.lemma_completed_excludes_active(&completed, target_obj);
+                assert(!state.permissions.has_active(target_obj));
+                ownership = state.permissions.tracked_reclaim(claim, completed);
+                state.lifecycle.update(
+                    self.tracked_lifecycle.borrow_mut(),
+                    old_lifecycle.insert(
+                        target_obj,
+                        LinkedListChildPhase::Reclaimed { index, removal },
+                    ),
+                );
+                state.permissions.lemma_all_contains_iff_keys();
+                state.permissions.lemma_all_allocations_have_reclaim_states();
+                state.permissions.lemma_all_unretired_domains();
+                assert forall|obj: nat| #[trigger]
+                    state.registry@.dom().remove(key.source_obj).contains(obj) implies
+                    registered_linked_list_target_inv::<O, OwnPred>(key, state, obj) by {
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(
+                        key,
+                        state_before,
+                        obj,
+                    ));
+                    if obj == target_obj {
+                        assert(state.lifecycle@[obj] is Reclaimed);
+                        assert(!state.permissions.contains(obj));
+                        assert(state.permissions.reclaim_states()[obj] is None);
+                        assert(state.permissions.reclaimed().contains_pair(obj, completed));
+                        assert(state.permissions.reclaimed()[obj].record().removal == removal);
+                        assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                    } else {
+                        assert(state.lifecycle@[obj] == old_lifecycle[obj]);
+                        assert(state.permissions.reclaim_states()[obj]
+                            == permissions_before.reclaim_states()[obj]);
+                        assert(state.permissions.has_unretired_claim(obj)
+                            == permissions_before.has_unretired_claim(obj));
+                        if state.lifecycle@[obj].is_reclaimed() {
+                            assert(permissions_before.reclaimed().contains_key(obj));
+                            assert(state.permissions.reclaimed().contains_key(obj));
+                            assert(state.permissions.reclaimed()[obj]
+                                == permissions_before.reclaimed()[obj]);
+                        }
+                        if !state.lifecycle@[obj].is_reclaimed() {
+                            assert(state.permissions.contains(obj));
+                            assert(state.permissions.ownership(obj)
+                                == permissions_before.ownership(obj));
+                        }
+                        assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                    }
+                };
+                assert(old_lifecycle.contains_key(target_obj));
+                assert(state.lifecycle@.dom() == old_lifecycle.dom());
+                assert(state.lifecycle@.dom()
+                    == state.registry@.dom().remove(key.source_obj));
+                assert(state.permissions.allocations()
+                    == permissions_before.allocations());
+                assert(state.permissions.allocations()
+                    == state.registry@.dom().remove(key.source_obj));
+                assert(state.points_to == state_before.points_to);
+                assert(state.link == state_before.link);
+                assert(state.auth == state_before.auth);
+                assert(state.registry == state_before.registry);
+                assert(state.current == state_before.current);
+                assert(state.lifecycle.id() == state_before.lifecycle.id());
+                assert(state.permissions.wf());
+                assert(state.permissions.scheduler() == permissions_before.scheduler());
+                assert(state.permissions.domain() == permissions_before.domain());
+                assert(state.permissions.root() == permissions_before.root());
+                assert(state.permissions.retire_observation_registry()
+                    == permissions_before.retire_observation_registry());
+                assert(state.permissions.reclaim_registry()
+                    == permissions_before.reclaim_registry());
+                assert(state.permissions.active_lease_registry()
+                    == permissions_before.active_lease_registry());
+                assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
+                assert(ownership == permissions_before.ownership(target_obj));
+                assert(OwnPred::owns(target, ownership));
+            }
+        });
+        Tracked(ownership)
+    }
+
+    /// Proof-mode reclaim entry used by a type-erased callback that already
+    /// owns an invariant-opening credit from the monitor.
+    pub proof fn tracked_reclaim_retired_target(
+        tracked &mut self,
+        target: *mut rcu_spec::LinkedListNode,
+        target_obj: nat,
+        tracked claim: rcu_cpu_spec::RcuReclaimClaim<rcu_spec::LinkedListNode>,
+        tracked completed: rcu_cpu_spec::RcuReclaimedWitness,
+        tracked credit: vstd::invariant::OpenInvariantCredit,
+    ) -> (tracked ownership: O)
+        requires
+            old(self).well_formed(),
+            old(self).registered_targets().contains_pair(target_obj, target),
+            old(self).target_lifecycles().contains_key(target_obj),
+            old(self).target_phase(target_obj).is_retired(),
+            claim.registry() == old(self).constant().reclaim_registry,
+            claim.obj() == target_obj,
+            claim.is_pending(),
+            claim.ptr() == target,
+            completed.wf(),
+            completed.scheduler() == old(self).constant().scheduler,
+            completed.record().domain == old(self).constant().domain,
+            completed.record().obj == target_obj,
+            completed.record().retire_observation_registry == old(
+                self,
+            ).constant().retire_observation_registry,
+            completed.record().removal == old(self).target_phase(target_obj)->Retired_removal,
+        ensures
+            final(self).well_formed(),
+            final(self).constant() == old(self).constant(),
+            final(self).native_loc() == old(self).native_loc(),
+            final(self).registered_targets() == old(self).registered_targets(),
+            final(self).current_target() == old(self).current_target(),
+            final(self).target_lifecycles() == old(self).target_lifecycles().insert(
+                target_obj,
+                LinkedListChildPhase::Reclaimed {
+                    index: old(self).target_phase(target_obj)->Retired_index,
+                    removal: old(self).target_phase(target_obj)->Retired_removal,
+                },
+            ),
+            final(self).target_phase(target_obj).is_reclaimed(),
+            OwnPred::owns(target, ownership),
+        opens_invariants [self.invariant_namespace()]
+    {
+        use_type_invariant(&*self);
+        let ghost key = self.constant();
+        let ghost native_loc = self.native_loc();
+        let tracked atomic_inv = self.tracked_atomic_inv.get();
+        let tracked mut recovered;
+        vstd::invariant::open_atomic_invariant_in_proof!(credit => atomic_inv => state => {
+            let ghost state_before = state;
+            let ghost old_lifecycle = state.lifecycle@;
+            let ghost permissions_before = state.permissions;
+            state.registry.agree(self.tracked_registry.borrow());
+            state.current.agree(self.tracked_current.borrow());
+            state.lifecycle.agree(self.tracked_lifecycle.borrow());
+            assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
+            assert(registered_linked_list_target_inv::<O, OwnPred>(
+                key,
+                state,
+                target_obj,
+            ));
+            assert(state.lifecycle@[target_obj] is Retired);
+            let ghost index = state.lifecycle@[target_obj]->Retired_index;
+            let ghost removal = state.lifecycle@[target_obj]->Retired_removal;
+            assert(completed.record().removal == removal);
+            assert(OwnPred::owns(target, permissions_before.ownership(target_obj)));
+            state.permissions.lemma_completed_excludes_active(&completed, target_obj);
+            assert(!state.permissions.has_active(target_obj));
+            recovered = state.permissions.tracked_reclaim(claim, completed);
+            state.lifecycle.update(
+                self.tracked_lifecycle.borrow_mut(),
+                old_lifecycle.insert(
+                    target_obj,
+                    LinkedListChildPhase::Reclaimed { index, removal },
+                ),
+            );
+            state.permissions.lemma_all_contains_iff_keys();
+            state.permissions.lemma_all_allocations_have_reclaim_states();
+            state.permissions.lemma_all_unretired_domains();
+            assert forall|obj: nat| #[trigger]
+                state.registry@.dom().remove(key.source_obj).contains(obj) implies
+                registered_linked_list_target_inv::<O, OwnPred>(key, state, obj) by {
+                assert(registered_linked_list_target_inv::<O, OwnPred>(
+                    key,
+                    state_before,
+                    obj,
+                ));
+                if obj == target_obj {
+                    assert(state.lifecycle@[obj] is Reclaimed);
+                    assert(!state.permissions.contains(obj));
+                    assert(state.permissions.reclaim_states()[obj] is None);
+                    assert(state.permissions.reclaimed().contains_pair(obj, completed));
+                    assert(state.permissions.reclaimed()[obj].record().removal == removal);
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                } else {
+                    assert(state.lifecycle@[obj] == old_lifecycle[obj]);
+                    assert(state.permissions.reclaim_states()[obj]
+                        == permissions_before.reclaim_states()[obj]);
+                    assert(state.permissions.has_unretired_claim(obj)
+                        == permissions_before.has_unretired_claim(obj));
+                    if state.lifecycle@[obj].is_reclaimed() {
+                        assert(permissions_before.reclaimed().contains_key(obj));
+                        assert(state.permissions.reclaimed().contains_key(obj));
+                        assert(state.permissions.reclaimed()[obj]
+                            == permissions_before.reclaimed()[obj]);
+                    }
+                    if !state.lifecycle@[obj].is_reclaimed() {
+                        assert(state.permissions.contains(obj));
+                        assert(state.permissions.ownership(obj)
+                            == permissions_before.ownership(obj));
+                    }
+                    assert(registered_linked_list_target_inv::<O, OwnPred>(key, state, obj));
+                }
+            };
+            assert(old_lifecycle.contains_key(target_obj));
+            assert(state.lifecycle@.dom() == old_lifecycle.dom());
+            assert(state.lifecycle@.dom()
+                == state.registry@.dom().remove(key.source_obj));
+            assert(state.permissions.allocations() == permissions_before.allocations());
+            assert(state.permissions.allocations()
+                == state.registry@.dom().remove(key.source_obj));
+            assert(state.points_to == state_before.points_to);
+            assert(state.link == state_before.link);
+            assert(state.auth == state_before.auth);
+            assert(state.registry == state_before.registry);
+            assert(state.current == state_before.current);
+            assert(state.lifecycle.id() == state_before.lifecycle.id());
+            assert(state.permissions.wf());
+            assert(state.permissions.scheduler() == permissions_before.scheduler());
+            assert(state.permissions.domain() == permissions_before.domain());
+            assert(state.permissions.root() == permissions_before.root());
+            assert(state.permissions.retire_observation_registry()
+                == permissions_before.retire_observation_registry());
+            assert(state.permissions.reclaim_registry()
+                == permissions_before.reclaim_registry());
+            assert(state.permissions.active_lease_registry()
+                == permissions_before.active_lease_registry());
+            assert(RegisteredLinkedListAtomicInv::<OwnPred>::inv((key, native_loc), state));
+            assert(recovered == permissions_before.ownership(target_obj));
+            assert(OwnPred::owns(target, recovered));
+        });
+        recovered
     }
 }
 

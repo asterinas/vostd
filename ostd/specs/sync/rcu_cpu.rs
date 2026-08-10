@@ -46,20 +46,20 @@
 //! counter and is not an authority for this persistent CPU generation. Reader
 //! contexts obtain their CPU generation from [`CpuRcuReaderFragment`].
 use crate::specs::{
-    mm::cpu::{CpuId, online_cpus},
+    mm::cpu::{online_cpus, CpuId},
     task::cpu_core::{CpuCoreLocalState, CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreRegistration},
 };
 use vstd::{
     modes::tracked_swap,
     prelude::*,
     resource::{
-        Loc,
         agree::AgreementRA,
         algebra::{Resource, ResourceAlgebra},
         frac::FractionRA,
         map::{GhostMapAuth, GhostPointsTo},
         product::ProductRA,
         relations::frame_preserving_update_opt,
+        Loc,
     },
 };
 
@@ -2009,6 +2009,16 @@ impl<T, O> RcuRootPermissionState<T, O> {
         self.registry.lemma_contains_iff_key(obj);
     }
 
+    /// Opens pool membership for every allocation identity at once.
+    pub proof fn lemma_all_contains_iff_keys(tracked &self)
+        ensures
+            forall|obj: nat| #[trigger] self.contains(obj) <==> self.keys().contains(obj),
+    {
+        reveal(RcuRootPermissionState::contains);
+        reveal(RcuRootPermissionState::keys);
+        self.registry.lemma_all_contains_iff_keys();
+    }
+
     /// Opens the allocation-state facts associated with a live permission pool.
     pub proof fn lemma_live_reclaim_state(tracked &self, obj: nat)
         requires
@@ -2089,6 +2099,16 @@ impl<T, O> RcuRootPermissionState<T, O> {
             self.allocations().contains(obj),
         ensures
             self.reclaim_states().dom().contains(obj),
+    {
+    }
+
+    /// Opens every append-only allocation cell in one quantified fact.
+    pub proof fn lemma_all_allocations_have_reclaim_states(tracked &self)
+        requires
+            self.wf(),
+        ensures
+            forall|obj: nat| #[trigger]
+                self.allocations().contains(obj) ==> self.reclaim_states().dom().contains(obj),
     {
     }
 

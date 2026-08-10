@@ -20,7 +20,7 @@ verus! {
 
 broadcast use vstd::thread_view::group_thread_view_axioms;
 
-pub const PREEMPT_SESSION_FRACTIONS: u64 = 1 << 31;
+pub const PREEMPT_SESSION_FRACTIONS: usize = 1 << 31;
 
 /// Proof token carried by a nested preemption-disable guard.
 ///
@@ -71,7 +71,7 @@ impl PreemptSessionToken {
         ensures
             res.wf(),
     {
-        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000usize) by (compute);
         assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
         let tracked mut tokens = CountGhostResource::<
             PreemptSessionState,
@@ -144,7 +144,7 @@ impl PreemptThreadViewSession {
             res.wf_session_resource(),
             res.wf(sched_view),
     {
-        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000usize) by (compute);
         assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
         let task = task_view.task();
         let ghost state = PreemptSessionState { task, quiescent_generation: 0 };
@@ -258,7 +258,7 @@ impl PreemptThreadViewSession {
             final(self).available_fractions() == old(self).available_fractions() + token.frac(),
             final(self).wf_session_resource(),
     {
-        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000usize) by (compute);
         let ghost old_frac = self.tokens.frac();
         let tracked PreemptSessionToken { token } = token;
         let ghost returned_frac = token.frac();
@@ -496,7 +496,7 @@ impl RunningTaskContext {
             preempt_depth: Ghost(0),
             cpu: Ghost(cpu),
         };
-        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000usize) by (compute);
         assert(res.wf());
         assert(res.session.wf(sched_view));
         assert(res.wf_scheduler(sched_view));
@@ -1134,7 +1134,7 @@ impl RunningTaskContext {
             PreemptGuardResource::Nested { session: token, nested }
         };
         self.preempt_depth = Ghost(depth_before + 1);
-        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000usize) by (compute);
         assert(self.wf());
         resource
     }
@@ -1165,7 +1165,7 @@ impl RunningTaskContext {
         let ghost old_depth = self.preempt_depth@;
         resource.tracked_return_to_session(&mut self.session);
         self.preempt_depth = Ghost((old_depth - 1) as nat);
-        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000usize) by (compute);
         assert(self.wf());
     }
 }

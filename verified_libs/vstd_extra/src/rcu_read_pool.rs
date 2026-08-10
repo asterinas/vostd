@@ -7,7 +7,7 @@
 //! only after all leases have been returned and the pool fraction is whole.
 use vstd::{
     prelude::*,
-    resource::{Loc, frac_opt::Frac},
+    resource::{frac_opt::Frac, Loc},
 };
 
 verus! {
@@ -421,7 +421,7 @@ impl<K, T> RcuReadPoolRegistry<K, T> {
     /// Relates registry membership to the complete key set for all keys.
     pub proof fn lemma_all_contains_iff_keys(tracked &self)
         ensures
-            forall|key: K| #[trigger] self.keys().contains(key) ==> self.contains(key),
+            forall|key: K| #[trigger] self.contains(key) <==> self.keys().contains(key),
     {
     }
 
@@ -544,7 +544,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
     /// Relates registry membership to the complete key set for all keys.
     pub proof fn lemma_all_contains_iff_keys(tracked &self)
         ensures
-            forall|key: K| #[trigger] self.keys().contains(key) ==> self.contains(key),
+            forall|key: K| #[trigger] self.contains(key) <==> self.keys().contains(key),
     {
     }
 
