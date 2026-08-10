@@ -3892,6 +3892,39 @@ impl LinkedListTraversalAuth {
             }
     }
 
+    /// Opens the registry-domain equalities hidden by [`Self::wf`].
+    /// Native-link adapters use these facts to move between an AId's object,
+    /// successor, incoming-edge, and persistent-info entries.
+    pub proof fn lemma_registry_domains(tracked &self)
+        requires
+            self.wf(),
+        ensures
+            self.state().wf(),
+            self.state().successors.dom() == self.state().objects.dom(),
+            self.state().incoming_all.dom() == self.state().objects.dom(),
+            forall|obj: nat| #[trigger]
+                self.has_info(obj) <==> self.state().objects.contains_key(obj),
+    {
+    }
+
+    /// A fresh AId cannot already own any list-local registration resource.
+    pub proof fn lemma_unregistered_has_no_resources(tracked &self, obj: nat)
+        requires
+            self.wf(),
+            !self.state().objects.contains_key(obj),
+        ensures
+            !self.state().successors.contains_key(obj),
+            !self.state().incoming_all.contains_key(obj),
+            !self.has_info(obj),
+            !self.has_retire_perm(obj),
+    {
+        self.lemma_registry_domains();
+        if self.has_retire_perm(obj) {
+            assert(self.retire_perms.contains_key(obj));
+            assert(self.state().objects.contains_pair(obj, self.retire_perms[obj].ptr()));
+        }
+    }
+
     /// Starts an authoritative list with one registered root allocation.
     pub proof fn tracked_new(
         tracked root_info: &RcuBlockInfo<LinkedListNode>,
@@ -4612,6 +4645,83 @@ impl LinkedListAtomicLinkGhost {
             assert(later == timestamp);
         };
         res
+    }
+
+    /// Registers a fresh target while preserving the native link/history
+    /// correspondence. Registration adds an empty successor history and an
+    /// empty incoming-edge set for the new AId, so every pre-existing native
+    /// timestamp continues to resolve to the same traversal event.
+    pub proof fn tracked_register_target(
+        tracked &self,
+        history: Irc11History<*mut LinkedListNode>,
+        tracked auth: &mut LinkedListTraversalAuth,
+        tracked info: &RcuBlockInfo<LinkedListNode>,
+        tracked retire: RcuBaseRetirePerm<LinkedListNode>,
+    )
+        requires
+            self.wf(history, *old(auth)),
+            info.wf(),
+            retire.wf(),
+            info.domain() == old(auth).domain(),
+            retire.domain() == old(auth).domain(),
+            retire.obj() == info.obj(),
+            retire.ptr() == info.ptr(),
+            !old(auth).state().objects.contains_key(info.obj()),
+            !old(auth).state().incoming_all.contains_key(info.obj()),
+            !old(auth).has_retire_perm(info.obj()),
+        ensures
+            self.wf(history, *final(auth)),
+            final(auth).wf(),
+            final(auth).domain() == old(auth).domain(),
+            final(auth).state().root == old(auth).state().root,
+            final(auth).state().root_obj == old(auth).state().root_obj,
+            final(auth).state().objects == old(auth).state().objects.insert(info.obj(), info.ptr()),
+            final(auth).state().successors == old(auth).state().successors.insert(
+                info.obj(),
+                Seq::empty(),
+            ),
+            final(auth).state().incoming_all == old(auth).state().incoming_all.insert(
+                info.obj(),
+                Set::empty(),
+            ),
+            final(auth).removed() == old(auth).removed(),
+            final(auth).has_info(info.obj()),
+            final(auth).info(info.obj()).ptr() == info.ptr(),
+            final(auth).has_retire_perm(info.obj()),
+    {
+        let ghost old_state = auth.state();
+        let ghost source_obj = self.source_obj();
+        assert(old_state.objects.contains_key(source_obj));
+        assert(info.obj() != source_obj);
+        auth.tracked_register_node(info, retire);
+        auth.lemma_registry_domains();
+        assert(auth.state().successors[source_obj] == old_state.successors[source_obj]);
+        assert forall|timestamp: nat| history.contains_timestamp(timestamp) implies {
+            let n = #[trigger] self.timestamps()[timestamp];
+            &&& n < auth.state().successors[source_obj].len()
+            &&& match auth.state().successors[source_obj][n as int] {
+                None => history.value(timestamp).addr() == 0,
+                Some((ptr, obj)) => {
+                    &&& history.value(timestamp).addr() != 0
+                    &&& equal(ptr, history.value(timestamp))
+                    &&& auth.has_info(obj)
+                    &&& auth.info(obj).ptr() == ptr
+                },
+            }
+        } by {
+            assert(auth.state().successors[source_obj][self.timestamps()[timestamp] as int]
+                == old_state.successors[source_obj][self.timestamps()[timestamp] as int]);
+            match old_state.successors[source_obj][self.timestamps()[timestamp] as int] {
+                None => {},
+                Some((ptr, obj)) => {
+                    assert(old_state.objects.contains_pair(obj, ptr));
+                    assert(auth.state().objects.contains_pair(obj, ptr));
+                    assert(auth.has_info(obj));
+                    assert(auth.info(obj).ptr() == ptr);
+                },
+            }
+        };
+        assert(self.wf(history, *auth));
     }
 
     /// Issues persistent evidence for one native timestamp's dense index.
@@ -5746,6 +5856,187 @@ pub proof fn linked_list_native_cas_unlink_enables_retire(
         assert(prior.seen_at(root_info.obj()) == unlinked_index);
     };
     auth.tracked_retire_node(child_info.obj(), prior)
+}
+
+/// Regression proof for one native link publishing multiple registered AIds.
+///
+/// `first` and `second` deliberately name distinct allocation identities at
+/// the same address. The native CAS values are therefore indistinguishable by
+/// address, while the append-only traversal history still records the exact
+/// AId selected by each publication.
+pub proof fn linked_list_native_single_link_multiple_registered_aids(
+    tracked root_info: &RcuBlockInfo<LinkedListNode>,
+    tracked root_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked first_info: &RcuBlockInfo<LinkedListNode>,
+    tracked first_retire: RcuBaseRetirePerm<LinkedListNode>,
+    tracked second_info: &RcuBlockInfo<LinkedListNode>,
+    tracked second_retire: RcuBaseRetirePerm<LinkedListNode>,
+    initial_history: Irc11History<*mut LinkedListNode>,
+    initial_timestamp: nat,
+    initial_view: Irc11ThreadView,
+    first_publish_view: Irc11ThreadView,
+    first_unlink_view: Irc11ThreadView,
+    second_publish_view: Irc11ThreadView,
+    second_unlink_view: Irc11ThreadView,
+    first_republish_view: Irc11ThreadView,
+) -> (tracked res: (LinkedListTraversalAuth, LinkedListAtomicLinkGhost))
+    requires
+        root_info.wf(),
+        root_retire.wf(),
+        root_retire.domain() == root_info.domain(),
+        root_retire.obj() == root_info.obj(),
+        root_retire.ptr() == root_info.ptr(),
+        first_info.wf(),
+        first_retire.wf(),
+        first_info.domain() == root_info.domain(),
+        first_retire.domain() == root_info.domain(),
+        first_retire.obj() == first_info.obj(),
+        first_retire.ptr() == first_info.ptr(),
+        second_info.wf(),
+        second_retire.wf(),
+        second_info.domain() == root_info.domain(),
+        second_retire.domain() == root_info.domain(),
+        second_retire.obj() == second_info.obj(),
+        second_retire.ptr() == second_info.ptr(),
+        first_info.obj() != root_info.obj(),
+        second_info.obj() != root_info.obj(),
+        first_info.obj() != second_info.obj(),
+        first_info.ptr() == second_info.ptr(),
+        initial_history.is_singleton(initial_timestamp, (core::ptr::null_mut(), initial_view)),
+    ensures
+        res.0.wf(),
+        res.0.removed() == Set::<nat>::empty(),
+        res.0.state().objects.contains_pair(first_info.obj(), first_info.ptr()),
+        res.0.state().objects.contains_pair(second_info.obj(), first_info.ptr()),
+        res.0.state().successors[root_info.obj()][0] is None,
+        res.0.state().successors[root_info.obj()][1] == Some((first_info.ptr(), first_info.obj())),
+        res.0.state().successors[root_info.obj()][2] is None,
+        res.0.state().successors[root_info.obj()][3] == Some(
+            (second_info.ptr(), second_info.obj()),
+        ),
+        res.0.state().successors[root_info.obj()][4] is None,
+        res.0.state().successors[root_info.obj()][5] == Some((first_info.ptr(), first_info.obj())),
+        res.0.state().incoming_all[first_info.obj()].contains((root_info.obj(), 1)),
+        res.0.state().incoming_all[first_info.obj()].contains((root_info.obj(), 5)),
+        res.0.state().incoming_all[second_info.obj()].contains((root_info.obj(), 3)),
+        res.1.current_timestamp() == initial_timestamp + 5,
+        res.1.wf(
+            initial_history.insert(
+                initial_timestamp + 1,
+                first_info.ptr(),
+                first_publish_view,
+            ).insert(initial_timestamp + 2, core::ptr::null_mut(), first_unlink_view).insert(
+                initial_timestamp + 3,
+                second_info.ptr(),
+                second_publish_view,
+            ).insert(initial_timestamp + 4, core::ptr::null_mut(), second_unlink_view).insert(
+                initial_timestamp + 5,
+                first_info.ptr(),
+                first_republish_view,
+            ),
+            res.0,
+        ),
+{
+    let tracked mut auth = LinkedListTraversalAuth::tracked_new(root_info, root_retire);
+    let initial_index = auth.tracked_initialize_null(root_info.ptr(), root_info.obj());
+    assert(initial_index == 0);
+    let tracked mut link = LinkedListAtomicLinkGhost::tracked_initial_null(
+        initial_history,
+        initial_timestamp,
+        initial_view,
+        &auth,
+        root_info.ptr(),
+        root_info.obj(),
+    );
+    link.tracked_register_target(initial_history, &mut auth, first_info, first_retire);
+    link.tracked_register_target(initial_history, &mut auth, second_info, second_retire);
+
+    let ghost first_published = initial_history.insert(
+        initial_timestamp + 1,
+        first_info.ptr(),
+        first_publish_view,
+    );
+    let first_index = link.tracked_cas_publish(
+        &mut auth,
+        initial_history,
+        first_published,
+        initial_timestamp,
+        initial_timestamp + 1,
+        first_info.ptr(),
+        first_info.obj(),
+        first_publish_view,
+    );
+    assert(first_index == 1);
+
+    let ghost first_unlinked = first_published.insert(
+        initial_timestamp + 2,
+        core::ptr::null_mut(),
+        first_unlink_view,
+    );
+    let first_unlink_index = link.tracked_cas_unlink(
+        &mut auth,
+        first_published,
+        first_unlinked,
+        initial_timestamp + 1,
+        initial_timestamp + 2,
+        first_info.ptr(),
+        first_info.obj(),
+        first_unlink_view,
+    );
+    assert(first_unlink_index == 2);
+
+    let ghost second_published = first_unlinked.insert(
+        initial_timestamp + 3,
+        second_info.ptr(),
+        second_publish_view,
+    );
+    let second_index = link.tracked_cas_publish(
+        &mut auth,
+        first_unlinked,
+        second_published,
+        initial_timestamp + 2,
+        initial_timestamp + 3,
+        second_info.ptr(),
+        second_info.obj(),
+        second_publish_view,
+    );
+    assert(second_index == 3);
+
+    let ghost second_unlinked = second_published.insert(
+        initial_timestamp + 4,
+        core::ptr::null_mut(),
+        second_unlink_view,
+    );
+    let second_unlink_index = link.tracked_cas_unlink(
+        &mut auth,
+        second_published,
+        second_unlinked,
+        initial_timestamp + 3,
+        initial_timestamp + 4,
+        second_info.ptr(),
+        second_info.obj(),
+        second_unlink_view,
+    );
+    assert(second_unlink_index == 4);
+
+    let ghost first_republished = second_unlinked.insert(
+        initial_timestamp + 5,
+        first_info.ptr(),
+        first_republish_view,
+    );
+    let first_republish_index = link.tracked_cas_publish(
+        &mut auth,
+        second_unlinked,
+        first_republished,
+        initial_timestamp + 4,
+        initial_timestamp + 5,
+        first_info.ptr(),
+        first_info.obj(),
+        first_republish_view,
+    );
+    assert(first_republish_index == 5);
+    assert(second_info.ptr() == first_info.ptr());
+    (auth, link)
 }
 
 /// Uses an authoritative history snapshot to discharge the structural

@@ -416,6 +416,733 @@ impl LinkedListRetiredChild {
     }
 }
 
+/// Immutable identities carried by a native linked-list link whose target is
+/// selected from an extensible allocation-ID registry.
+pub ghost struct RegisteredLinkedListAtomicKey {
+    pub domain: Loc,
+    pub root: Loc,
+    pub registry: Loc,
+    pub current: Loc,
+    pub timestamp_registry: Loc,
+    pub native_observation_registry: Loc,
+    pub source: *mut rcu_spec::LinkedListNode,
+    pub source_obj: nat,
+}
+
+/// Complete proof state for one native link with arbitrary registered targets.
+///
+/// `registry` is append-only in the current API. `current` records the AId of
+/// the latest non-null successor independently of its address, which is what
+/// makes a successful address-based CAS safe when a reclaimed address is later
+/// reused by a fresh allocation identity.
+pub tracked struct RegisteredLinkedListAtomicState {
+    pub(crate) points_to: AtomicPointsTo<*mut rcu_spec::LinkedListNode>,
+    pub(crate) link: rcu_spec::LinkedListAtomicLinkGhost,
+    pub(crate) auth: rcu_spec::LinkedListTraversalAuth,
+    pub(crate) registry: GhostVarAuth<Map<nat, *mut rcu_spec::LinkedListNode>>,
+    pub(crate) current: GhostVarAuth<Option<nat>>,
+}
+
+unsafe impl Objective for RegisteredLinkedListAtomicState {
+
+}
+
+impl RegisteredLinkedListAtomicState {
+    pub closed spec fn points_to(self) -> AtomicPointsTo<*mut rcu_spec::LinkedListNode> {
+        self.points_to
+    }
+
+    pub closed spec fn link(self) -> rcu_spec::LinkedListAtomicLinkGhost {
+        self.link
+    }
+
+    pub closed spec fn auth(self) -> rcu_spec::LinkedListTraversalAuth {
+        self.auth
+    }
+
+    pub closed spec fn registry(self) -> GhostVarAuth<Map<nat, *mut rcu_spec::LinkedListNode>> {
+        self.registry
+    }
+
+    pub closed spec fn current(self) -> GhostVarAuth<Option<nat>> {
+        self.current
+    }
+}
+
+/// Native IRC11 invariant for one link ranging over any registered AId.
+pub struct RegisteredLinkedListAtomicInv;
+
+impl InvariantPredicate<
+    (RegisteredLinkedListAtomicKey, Irc11AtomicId),
+    RegisteredLinkedListAtomicState,
+> for RegisteredLinkedListAtomicInv {
+    open spec fn inv(
+        key_loc: (RegisteredLinkedListAtomicKey, Irc11AtomicId),
+        state: RegisteredLinkedListAtomicState,
+    ) -> bool {
+        let (key, loc) = key_loc;
+        &&& state.points_to().loc() == loc
+        &&& key.source.addr() != 0
+        &&& state.auth().wf()
+        &&& state.auth().domain() == key.domain
+        &&& state.auth().state().root == key.source
+        &&& state.auth().state().root_obj == key.source_obj
+        &&& state.auth().removed() == Set::<nat>::empty()
+        &&& state.registry().id() == key.registry
+        &&& state.registry()@ == state.auth().state().objects
+        &&& state.current().id() == key.current
+        &&& state.link().source() == key.source
+        &&& state.link().source_obj() == key.source_obj
+        &&& state.link().timestamp_registry() == key.timestamp_registry
+        &&& state.link().native_observation_registry() == key.native_observation_registry
+        &&& state.link().wf(state.points_to().hist(), state.auth())
+        &&& state.link().native_observations_wf(state.points_to())
+        &&& match state.current()@ {
+            None => state.auth().state().successors[key.source_obj].last() is None,
+            Some(obj) => {
+                &&& obj != key.source_obj
+                &&& state.registry()@.contains_key(obj)
+                &&& state.auth().state().successors[key.source_obj].last() == Some(
+                    (state.registry()@[obj], obj),
+                )
+            },
+        }
+    }
+}
+
+pub type RegisteredLinkedListAtomicInvariant = AtomicInvariant<
+    (RegisteredLinkedListAtomicKey, Irc11AtomicId),
+    RegisteredLinkedListAtomicState,
+    RegisteredLinkedListAtomicInv,
+>;
+
+/// A real weak atomic link whose non-null values are selected by AId from an
+/// extensible registry rather than fixed by the wrapper's constructor.
+pub struct RegisteredLinkedListWeakAtomicLink {
+    atomic: PAtomicWeakPtr<rcu_spec::LinkedListNode>,
+    tracked_atomic_inv: Tracked<&'static RegisteredLinkedListAtomicInvariant>,
+    tracked_registry: Tracked<GhostVar<Map<nat, *mut rcu_spec::LinkedListNode>>>,
+    tracked_current: Tracked<GhostVar<Option<nat>>>,
+}
+
+impl RegisteredLinkedListWeakAtomicLink {
+    pub closed spec fn constant(&self) -> RegisteredLinkedListAtomicKey {
+        self.tracked_atomic_inv@.constant().0
+    }
+
+    pub closed spec fn native_loc(&self) -> Irc11AtomicId {
+        self.atomic.loc()
+    }
+
+    pub closed spec fn invariant_namespace(&self) -> int {
+        self.tracked_atomic_inv@.namespace()
+    }
+
+    pub closed spec fn registered_targets(&self) -> Map<nat, *mut rcu_spec::LinkedListNode> {
+        self.tracked_registry@.view()
+    }
+
+    pub closed spec fn current_target(&self) -> Option<nat> {
+        self.tracked_current@.view()
+    }
+
+    pub closed spec fn well_formed(&self) -> bool {
+        &&& self.tracked_atomic_inv@.constant().1 == self.native_loc()
+        &&& self.tracked_registry@.id() == self.constant().registry
+        &&& self.tracked_current@.id() == self.constant().current
+        &&& self.registered_targets().contains_pair(
+            self.constant().source_obj,
+            self.constant().source,
+        )
+    }
+
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(&self) -> bool {
+        self.well_formed()
+    }
+
+    /// Creates a null native link. Additional target AIds can be registered
+    /// after construction and then selected by the publication CAS.
+    pub const fn new(
+        Ghost(root): Ghost<Loc>,
+        Tracked(source_info): Tracked<&rcu_spec::RcuBlockInfo<rcu_spec::LinkedListNode>>,
+        Tracked(source_retire): Tracked<rcu_spec::RcuBaseRetirePerm<rcu_spec::LinkedListNode>>,
+    ) -> (res: Self)
+        requires
+            source_info.wf(),
+            source_retire.wf(),
+            source_retire.domain() == source_info.domain(),
+            source_retire.obj() == source_info.obj(),
+            source_retire.ptr() == source_info.ptr(),
+        ensures
+            res.well_formed(),
+            res.constant().domain == source_info.domain(),
+            res.constant().root == root,
+            res.constant().source == source_info.ptr(),
+            res.constant().source_obj == source_info.obj(),
+            res.registered_targets() == Map::empty().insert(source_info.obj(), source_info.ptr()),
+            res.current_target() is None,
+    {
+        let (atomic, Tracked(points_to), Tracked(initial_view), Ghost(timestamp)) =
+            PAtomicWeakPtr::new(core::ptr::null_mut());
+        let tracked mut auth = rcu_spec::LinkedListTraversalAuth::tracked_new(
+            source_info,
+            source_retire,
+        );
+        let ghost initial_index = auth.tracked_initialize_null(
+            source_info.ptr(),
+            source_info.obj(),
+        );
+        let tracked link = rcu_spec::LinkedListAtomicLinkGhost::tracked_initial_null(
+            points_to.hist(),
+            timestamp,
+            initial_view@,
+            &auth,
+            source_info.ptr(),
+            source_info.obj(),
+        );
+        let tracked (registry, registry_peer) = GhostVarAuth::new(
+            Map::empty().insert(source_info.obj(), source_info.ptr()),
+        );
+        let tracked (current, current_peer) = GhostVarAuth::new(None);
+        let tracked state = RegisteredLinkedListAtomicState {
+            points_to,
+            link,
+            auth,
+            registry,
+            current,
+        };
+        let ghost key = RegisteredLinkedListAtomicKey {
+            domain: source_info.domain(),
+            root,
+            registry: state.registry().id(),
+            current: state.current().id(),
+            timestamp_registry: state.link().timestamp_registry(),
+            native_observation_registry: state.link().native_observation_registry(),
+            source: source_info.ptr(),
+            source_obj: source_info.obj(),
+        };
+        proof {
+            source_info.lemma_wf_facts();
+            assert(initial_index == 0);
+            assert(state.points_to().loc() == atomic.loc());
+            assert(state.auth().state().objects == Map::empty().insert(key.source_obj, key.source));
+            assert(state.auth().removed() == Set::<nat>::empty());
+            assert(state.registry()@ == state.auth().state().objects);
+            assert(state.link().native_observations() == Map::empty());
+            assert(state.link().native_observations_wf(state.points_to())) by {
+                assert forall|observation_id: nat| #[trigger]
+                    state.link().native_observations().contains_key(observation_id) implies {
+                    let observation = state.link().native_observations()[observation_id];
+                    &&& observation.0 == state.points_to().loc()
+                    &&& state.points_to().get_timestamp(observation.1) == Some(observation.2)
+                } by {};
+            };
+            assert(RegisteredLinkedListAtomicInv::inv((key, atomic.loc()), state));
+        }
+        let tracked atomic_inv = AtomicInvariant::new((key, atomic.loc()), state, 0);
+        let tracked atomic_inv = tracked_static_ref(atomic_inv);
+        RegisteredLinkedListWeakAtomicLink {
+            atomic,
+            tracked_atomic_inv: Tracked(atomic_inv),
+            tracked_registry: Tracked(registry_peer),
+            tracked_current: Tracked(current_peer),
+        }
+    }
+
+    fn raw_atomic(&self) -> (res: &PAtomicWeakPtr<rcu_spec::LinkedListNode>)
+        requires
+            self.well_formed(),
+        ensures
+            res.loc() == self.native_loc(),
+        opens_invariants none
+        no_unwind
+    {
+        &self.atomic
+    }
+
+    pub proof fn tracked_atomic_inv(tracked &self) -> (tracked res:
+        &'static RegisteredLinkedListAtomicInvariant)
+        requires
+            self.well_formed(),
+        ensures
+            res.constant() == (self.constant(), self.native_loc()),
+    {
+        self.tracked_atomic_inv.get()
+    }
+
+    /// Adds a fresh allocation identity to this link's target registry under
+    /// the caller's writer-side invariant-opening authority.
+    pub proof fn tracked_register_target(
+        tracked &mut self,
+        target: *mut rcu_spec::LinkedListNode,
+        tracked info: &rcu_spec::RcuBlockInfo<rcu_spec::LinkedListNode>,
+        tracked retire: rcu_spec::RcuBaseRetirePerm<rcu_spec::LinkedListNode>,
+        tracked credit: vstd::invariant::OpenInvariantCredit,
+    )
+        requires
+            old(self).well_formed(),
+            info.wf(),
+            retire.wf(),
+            info.domain() == old(self).constant().domain,
+            retire.domain() == old(self).constant().domain,
+            retire.obj() == info.obj(),
+            retire.ptr() == info.ptr(),
+            equal(target, info.ptr()),
+            info.obj() != old(self).constant().source_obj,
+            !old(self).registered_targets().contains_key(info.obj()),
+        ensures
+            final(self).well_formed(),
+            final(self).constant() == old(self).constant(),
+            final(self).native_loc() == old(self).native_loc(),
+            final(self).registered_targets() == old(self).registered_targets().insert(
+                info.obj(),
+                target,
+            ),
+            final(self).current_target() == old(self).current_target(),
+        opens_invariants [self.invariant_namespace()]
+    {
+        use_type_invariant(&*self);
+        let ghost key = self.constant();
+        let ghost native_loc = self.native_loc();
+        let tracked atomic_inv = self.tracked_atomic_inv.get();
+        vstd::invariant::open_atomic_invariant_in_proof!(credit => atomic_inv => state => {
+            let ghost old_auth = state.auth;
+            let ghost old_objects = state.auth.state().objects;
+            let ghost old_registry = state.registry@;
+            state.registry.agree(self.tracked_registry.borrow());
+            state.current.agree(self.tracked_current.borrow());
+            assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+            assert(old_registry == self.registered_targets());
+            assert(!old_objects.contains_key(info.obj()));
+            state.auth.lemma_registry_domains();
+            assert(state.auth.state().successors.contains_key(key.source_obj));
+            state.auth.lemma_unregistered_has_no_resources(info.obj());
+            state.link.tracked_register_target(
+                state.points_to.hist(),
+                &mut state.auth,
+                info,
+                retire,
+            );
+            state.registry.update(
+                self.tracked_registry.borrow_mut(),
+                old_registry.insert(info.obj(), target),
+            );
+            assert(state.registry@ == state.auth.state().objects);
+            state.auth.lemma_registry_domains();
+            match state.current@ {
+                None => {
+                    assert(state.auth.state().successors[key.source_obj]
+                        == old_auth.state().successors[key.source_obj]);
+                },
+                Some(obj) => {
+                    assert(obj != info.obj());
+                    assert(old_registry.contains_key(obj));
+                    assert(state.registry@.contains_key(obj));
+                    assert(state.registry@[obj] == old_registry[obj]);
+                    assert(state.auth.state().successors[key.source_obj]
+                        == old_auth.state().successors[key.source_obj]);
+                },
+            }
+            assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+        });
+    }
+
+    /// Acquire-loads the native link and resolves a non-null message to the
+    /// exact registered AId selected by that historical message.
+    #[inline(always)]
+    pub fn load_acquire_and_protect(
+        &self,
+        Tracked(guard): Tracked<&mut rcu_spec::RcuReadGuardToken<rcu_spec::LinkedListNode>>,
+        Tracked(from): Tracked<&mut rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>,
+        Tracked(previous): Tracked<Option<&rcu_spec::LinkedListLinkObservation>>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: (
+        *mut rcu_spec::LinkedListNode,
+        Ghost<Timestamp>,
+        Ghost<rcu_spec::LinkIndex>,
+        Tracked<Option<rcu_spec::RcuProtectedPtr<rcu_spec::LinkedListNode>>>,
+        Tracked<rcu_spec::LinkedListLinkObservation>,
+    ))
+        requires
+            self.well_formed(),
+            old(guard).wf(),
+            old(guard).domain() == self.constant().domain,
+            old(guard).seen_removed().removed == Set::<nat>::empty(),
+            match previous {
+                None => old(guard).seen_at(self.constant().source_obj) == 0,
+                Some(observation) => {
+                    &&& observation.registry() == self.constant().timestamp_registry
+                    &&& observation.native_registry() == self.constant().native_observation_registry
+                    &&& observation.loc() == self.native_loc()
+                    &&& old(tv)@.contains(observation.view())
+                    &&& old(guard).seen_at(self.constant().source_obj) == observation.index()
+                },
+            },
+            old(from).protected_by(*old(guard)),
+            old(from).ptr() == self.constant().source,
+            old(from).obj() == self.constant().source_obj,
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            final(guard).wf(),
+            final(guard).domain() == old(guard).domain(),
+            final(guard).seen_removed().removed == old(guard).seen_removed().removed,
+            final(guard).seen_at(self.constant().source_obj) == res.2@,
+            final(from).ptr() == self.constant().source,
+            final(from).obj() == self.constant().source_obj,
+            res.4@.registry() == self.constant().timestamp_registry,
+            res.4@.native_registry() == self.constant().native_observation_registry,
+            res.4@.loc() == self.native_loc(),
+            res.4@.timestamp() == res.1@,
+            res.4@.index() == res.2@,
+            res.4@.view() == final(tv)@,
+            (res.3@ is Some) == (res.0.addr() != 0),
+            match res.3@ {
+                None => res.0.addr() == 0,
+                Some(child) => {
+                    &&& equal(child.ptr(), res.0)
+                    &&& child.domain() == self.constant().domain
+                    &&& child.protected_by(*final(guard))
+                    &&& self.registered_targets().contains_pair(child.obj(), child.ptr())
+                },
+            },
+        no_unwind
+    {
+        let result;
+        let ghost view_before = tv@;
+        proof {
+            use_type_invariant(&*self);
+        }
+        let raw_atomic = self.raw_atomic();
+        vstd::invariant::open_atomic_invariant!(self.tracked_atomic_inv() => state => {
+            proof {
+                state.registry.agree(self.tracked_registry.borrow());
+                state.current.agree(self.tracked_current.borrow());
+                assert(RegisteredLinkedListAtomicInv::inv(
+                    (self.constant(), self.native_loc()),
+                    state,
+                ));
+                match previous {
+                    None => {},
+                    Some(observation) => {
+                        use_type_invariant(observation);
+                        state.link.lemma_observation_agrees(observation);
+                        state.link.lemma_native_observation_agrees(observation);
+                        assert(state.points_to.get_timestamp(observation.view())
+                            == Some(observation.timestamp()));
+                        state.points_to.get_timestamp_monotonic(
+                            view_before,
+                            observation.view(),
+                        );
+                    },
+                }
+            }
+            let loaded = raw_atomic.load(
+                Ordering::Acquire,
+                Tracked(tv),
+                Tracked(&state.points_to),
+            );
+            let ghost timestamp = loaded.2@.timestamp;
+            let ghost index = state.link.index_at(timestamp);
+            proof {
+                match previous {
+                    None => {},
+                    Some(observation) => {
+                        assert(state.points_to.get_timestamp(view_before).is_some());
+                        assert(observation.timestamp()
+                            <= state.points_to.get_timestamp(view_before).unwrap());
+                        assert(state.points_to.get_timestamp(view_before).unwrap() <= timestamp);
+                        assert(observation.index() <= index);
+                    },
+                }
+                assert(guard.seen_at(from.obj()) <= index);
+                assert(rcu_spec::LinkedListTraversalSpec::seen_removed_sound(
+                    old(guard).seen_removed(),
+                    state.auth.state(),
+                )) by {
+                    assert forall|obj: nat| #[trigger]
+                        old(guard).seen_removed().removed.contains(obj) implies {
+                            &&& state.auth.state().incoming_all.contains_key(obj)
+                            &&& forall|edge: rcu_spec::LinkEdge| #[trigger]
+                                state.auth.state().incoming_all[obj].contains(edge)
+                                    ==> old(guard).seen_removed().dead_edge(edge)
+                        } by {};
+                };
+            }
+            proof_decl! {
+                let tracked protected = state.link.tracked_load_and_protect(
+                    state.points_to.hist(),
+                    &state.auth,
+                    guard,
+                    from,
+                    timestamp,
+                );
+                let tracked observation = state.link.tracked_observation_at(
+                    &state.points_to,
+                    &state.auth,
+                    timestamp,
+                    tv@,
+                );
+            }
+            proof {
+                assert(equal(state.points_to.hist().value(timestamp), loaded.0));
+                match &protected {
+                    None => {},
+                    Some(child) => {
+                        assert(state.auth.state().objects.contains_pair(
+                            child.obj(),
+                            child.ptr(),
+                        ));
+                        assert(state.registry@.contains_pair(child.obj(), child.ptr()));
+                        assert(self.registered_targets().contains_pair(
+                            child.obj(),
+                            child.ptr(),
+                        ));
+                    },
+                }
+                assert(RegisteredLinkedListAtomicInv::inv(
+                    (self.constant(), self.native_loc()),
+                    state,
+                ));
+            }
+            result = (
+                loaded.0,
+                Ghost(timestamp),
+                Ghost(index),
+                Tracked(protected),
+                Tracked(observation),
+            );
+        });
+        result
+    }
+
+    /// Publishes any registered target from a null link.
+    #[inline(always)]
+    pub fn compare_exchange_publish(
+        &mut self,
+        target: *mut rcu_spec::LinkedListNode,
+        Ghost(target_obj): Ghost<nat>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: (
+        Result<*mut rcu_spec::LinkedListNode, *mut rcu_spec::LinkedListNode>,
+        Ghost<Option<rcu_spec::LinkIndex>>,
+    ))
+        requires
+            old(self).well_formed(),
+            old(self).current_target() is None,
+            target_obj != old(self).constant().source_obj,
+            old(self).registered_targets().contains_pair(target_obj, target),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            final(self).well_formed(),
+            final(self).constant() == old(self).constant(),
+            final(self).native_loc() == old(self).native_loc(),
+            final(self).registered_targets() == old(self).registered_targets(),
+            (res.0 is Ok) == (res.1@ is Some),
+            res.0 is Ok ==> final(self).current_target() == Some(target_obj),
+            res.0 is Err ==> final(self).current_target() is None,
+        no_unwind
+    {
+        let result;
+        proof {
+            use_type_invariant(&*self);
+        }
+        let raw_atomic = &self.atomic;
+        let null = core::ptr::null_mut();
+        proof_decl! {
+            let ghost key = self.constant();
+            let ghost native_loc = self.native_loc();
+            let tracked atomic_inv = self.tracked_atomic_inv.get();
+            let tracked release_view = ReleaseViewSeen::new();
+        }
+        vstd::invariant::open_atomic_invariant!(atomic_inv => state => {
+            proof {
+                state.registry.agree(self.tracked_registry.borrow());
+                state.current.agree(self.tracked_current.borrow());
+                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+                assert(state.current@ is None);
+                assert(state.auth.state().objects.contains_pair(target_obj, target));
+                state.auth.lemma_registry_domains();
+                assert(state.auth.state().incoming_all.contains_key(target_obj));
+                state.auth.lemma_has_info_for_object(target_obj);
+                let tracked target_info = state.auth.tracked_info_for(target_obj);
+                assert(target_info.ptr() == target);
+                target_info.lemma_wf_facts();
+                assert(target.addr() != 0);
+                assert(state.auth.state().successors.contains_key(key.source_obj));
+            }
+            let ghost prev = state.points_to.hist();
+            let cas = raw_atomic.compare_exchange(
+                null,
+                target,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                Tracked(tv),
+                Tracked(release_view),
+                Tracked(&mut state.points_to),
+            );
+            let ghost update = cas.2@;
+            let ghost next = state.points_to.hist();
+            proof_decl! {
+                let ghost published_index: Option<rcu_spec::LinkIndex>;
+            }
+            proof {
+                match cas.0 {
+                    Result::Ok(value) => {
+                        let ghost current_timestamp = state.link.current_timestamp();
+                        assert(prev.is_max_timestamp(update.load_timestamp));
+                        assert(prev.contains_timestamp(current_timestamp));
+                        assert(prev.contains_timestamp(update.load_timestamp));
+                        assert(update.load_timestamp == current_timestamp);
+                        assert(equal(prev.value(current_timestamp), value));
+                        assert(value.addr() == 0);
+                        assert(state.auth.state().successors[key.source_obj].last() is None);
+                        assert(next == prev.insert(
+                            update.load_timestamp + 1,
+                            target,
+                            update.store_message_view,
+                        ));
+                        let index = state.link.tracked_cas_publish(
+                            &mut state.auth,
+                            prev,
+                            next,
+                            update.load_timestamp,
+                            update.load_timestamp + 1,
+                            target,
+                            target_obj,
+                            update.store_message_view,
+                        );
+                        state.current.update(
+                            self.tracked_current.borrow_mut(),
+                            Some(target_obj),
+                        );
+                        published_index = Some(index);
+                    },
+                    Result::Err(_) => {
+                        published_index = None;
+                    },
+                }
+                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+            }
+            result = (cas.0, Ghost(published_index));
+        });
+        result
+    }
+
+    /// Unlinks the currently selected AId. The AId precondition, rather than
+    /// pointer-address equality, identifies which logical allocation loses its
+    /// incoming edge.
+    #[inline(always)]
+    pub fn compare_exchange_unlink(
+        &mut self,
+        target: *mut rcu_spec::LinkedListNode,
+        Ghost(target_obj): Ghost<nat>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
+    ) -> (res: (
+        Result<*mut rcu_spec::LinkedListNode, *mut rcu_spec::LinkedListNode>,
+        Ghost<Option<(rcu_spec::LinkIndex, rcu_spec::RcuRemovalObservation)>>,
+    ))
+        requires
+            old(self).well_formed(),
+            old(self).current_target() == Some(target_obj),
+            old(self).registered_targets().contains_pair(target_obj, target),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            final(self).well_formed(),
+            final(self).constant() == old(self).constant(),
+            final(self).native_loc() == old(self).native_loc(),
+            final(self).registered_targets() == old(self).registered_targets(),
+            (res.0 is Ok) == (res.1@ is Some),
+            res.0 is Ok ==> final(self).current_target() is None,
+            res.0 is Ok ==> res.1@->Some_0.1.root == final(self).constant().root,
+            res.0 is Ok ==> res.1@->Some_0.1.observed_by(final(tv)@),
+            res.0 is Err ==> final(self).current_target() == Some(target_obj),
+        no_unwind
+    {
+        let result;
+        proof {
+            use_type_invariant(&*self);
+        }
+        let raw_atomic = &self.atomic;
+        let null = core::ptr::null_mut();
+        proof_decl! {
+            let ghost key = self.constant();
+            let ghost native_loc = self.native_loc();
+            let tracked atomic_inv = self.tracked_atomic_inv.get();
+            let tracked release_view = ReleaseViewSeen::new();
+        }
+        vstd::invariant::open_atomic_invariant!(atomic_inv => state => {
+            proof {
+                state.registry.agree(self.tracked_registry.borrow());
+                state.current.agree(self.tracked_current.borrow());
+                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+                assert(state.current@ == Some(target_obj));
+                assert(state.auth.state().successors[key.source_obj].last()
+                    == Some((target, target_obj)));
+            }
+            let ghost prev = state.points_to.hist();
+            let cas = raw_atomic.compare_exchange(
+                target,
+                null,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                Tracked(tv),
+                Tracked(release_view),
+                Tracked(&mut state.points_to),
+            );
+            let ghost update = cas.2@;
+            let ghost next = state.points_to.hist();
+            proof_decl! {
+                let ghost unlinked: Option<(
+                    rcu_spec::LinkIndex,
+                    rcu_spec::RcuRemovalObservation,
+                )>;
+            }
+            proof {
+                match cas.0 {
+                    Result::Ok(value) => {
+                        let ghost current_timestamp = state.link.current_timestamp();
+                        assert(prev.is_max_timestamp(update.load_timestamp));
+                        assert(prev.contains_timestamp(current_timestamp));
+                        assert(prev.contains_timestamp(update.load_timestamp));
+                        assert(update.load_timestamp == current_timestamp);
+                        assert(equal(prev.value(current_timestamp), value));
+                        assert(value.addr() == target.addr());
+                        assert(next == prev.insert(
+                            update.load_timestamp + 1,
+                            null,
+                            update.store_message_view,
+                        ));
+                        let index = state.link.tracked_cas_unlink(
+                            &mut state.auth,
+                            prev,
+                            next,
+                            update.load_timestamp,
+                            update.load_timestamp + 1,
+                            target,
+                            target_obj,
+                            update.store_message_view,
+                        );
+                        let ghost removal = rcu_spec::RcuRemovalObservation {
+                            root: key.root,
+                            timestamp: update.load_timestamp + 1,
+                            message_view: update.store_message_view,
+                        };
+                        state.current.update(self.tracked_current.borrow_mut(), None);
+                        unlinked = Some((index, removal));
+                    },
+                    Result::Err(_) => {
+                        unlinked = None;
+                    },
+                }
+                assert(RegisteredLinkedListAtomicInv::inv((key, native_loc), state));
+            }
+            result = (cas.0, Ghost(unlinked));
+        });
+        result
+    }
+}
+
 /// Immutable identities carried by the native atomic invariant for the
 /// two-node linked-list traversal example.
 pub ghost struct LinkedListAtomicKey {
