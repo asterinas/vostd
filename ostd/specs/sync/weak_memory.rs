@@ -427,6 +427,7 @@ pub ghost struct LinkedListAtomicKey {
     pub active_lease_registry: Loc,
     pub lifecycle: Loc,
     pub timestamp_registry: Loc,
+    pub native_observation_registry: Loc,
     pub source: *mut rcu_spec::LinkedListNode,
     pub source_obj: nat,
     pub child: *mut rcu_spec::LinkedListNode,
@@ -515,9 +516,9 @@ impl<O> LinkedListAtomicState<O> {
 /// Native IRC11 invariant for a link whose only non-null value is one
 /// pre-registered child.
 ///
-/// Restricting the first executable-style wrapper to two nodes keeps the
-/// atomic protocol closed while the general node-registration and physical
-/// permission pools are still being designed.
+/// Restricting the first executable-style wrapper to two nodes keeps this
+/// acceptance protocol closed while a production data-structure adapter and
+/// its public node-registration API are still being selected.
 pub struct LinkedListAtomicInv<OwnPred> {
     _marker: PhantomData<OwnPred>,
 }
@@ -561,7 +562,9 @@ impl<O: Objective, OwnPred> InvariantPredicate<
         &&& state.link().source() == key.source
         &&& state.link().source_obj() == key.source_obj
         &&& state.link().timestamp_registry() == key.timestamp_registry
+        &&& state.link().native_observation_registry() == key.native_observation_registry
         &&& state.link().wf(state.points_to().hist(), state.auth())
+        &&& state.link().native_observations_wf(state.points_to())
         &&& forall|n: rcu_spec::LinkIndex|
             n < state.auth().state().successors[key.source_obj].len()
                 && state.auth().state().successors[key.source_obj][n as int] is Some
@@ -835,6 +838,7 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
             active_lease_registry,
             lifecycle: state.lifecycle().id(),
             timestamp_registry: state.link().timestamp_registry(),
+            native_observation_registry: state.link().native_observation_registry(),
             source: source_info.ptr(),
             source_obj: source_info.obj(),
             child: child_info.ptr(),
@@ -875,6 +879,15 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
             assert(state.link().source() == key.source);
             assert(state.link().source_obj() == key.source_obj);
             assert(state.link().wf(state.points_to().hist(), state.auth()));
+            assert(state.link().native_observations() == Map::empty());
+            assert(state.link().native_observations_wf(state.points_to())) by {
+                assert forall|observation_id: nat| #[trigger]
+                    state.link().native_observations().contains_key(observation_id) implies {
+                    let observation = state.link().native_observations()[observation_id];
+                    &&& observation.0 == state.points_to().loc()
+                    &&& state.points_to().get_timestamp(observation.1) == Some(observation.2)
+                } by {};
+            };
             assert forall|n: rcu_spec::LinkIndex|
                 n < state.auth().state().successors[key.source_obj].len()
                     && state.auth().state().successors[key.source_obj][n as int] is Some implies #[trigger] state.auth().state().successors[key.source_obj][n as int]
@@ -947,6 +960,7 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                 None => old(guard).seen_at(self.constant().source_obj) == 0,
                 Some(observation) => {
                     &&& observation.registry() == self.constant().timestamp_registry
+                    &&& observation.native_registry() == self.constant().native_observation_registry
                     &&& observation.loc() == self.native_loc()
                     &&& old(tv)@.contains(observation.view())
                     &&& old(guard).seen_at(self.constant().source_obj) == observation.index()
@@ -964,6 +978,7 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
             final(from).ptr() == self.constant().source,
             final(from).obj() == self.constant().source_obj,
             res.4@.registry() == self.constant().timestamp_registry,
+            res.4@.native_registry() == self.constant().native_observation_registry,
             res.4@.loc() == self.native_loc(),
             res.4@.timestamp() == res.1@,
             res.4@.index() == res.2@,
@@ -1011,26 +1026,14 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                     },
                     Some(observation) => {
                         use_type_invariant(observation);
-                        observation.lemma_view_timestamp();
-                        assert(vstd_extra::atomic_irc11::timestamp_in_view(
-                            observation.loc(),
-                            observation.view(),
-                        ) == Some(observation.timestamp()));
                         assert(observation.loc() == self.native_loc());
                         state.link.lemma_observation_agrees(observation);
+                        state.link.lemma_native_observation_agrees(observation);
                         assert(state.link.index_at(observation.timestamp())
                             == observation.index());
                         assert(state.points_to.hist().contains_timestamp(
                             observation.timestamp(),
                         ));
-                        vstd_extra::atomic_irc11::axiom_get_timestamp_is_location_projection(
-                            &state.points_to,
-                            observation.view(),
-                        );
-                        assert(vstd_extra::atomic_irc11::timestamp_in_view(
-                            self.native_loc(),
-                            observation.view(),
-                        ) == Some(observation.timestamp()));
                         assert(state.points_to.get_timestamp(observation.view())
                             == Some(observation.timestamp()));
                         state.points_to.get_timestamp_monotonic(
@@ -1090,19 +1093,10 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                 let tracked observation;
             }
             proof {
-                vstd_extra::atomic_irc11::axiom_get_timestamp_is_location_projection(
-                    &state.points_to,
-                    tv@,
-                );
-                assert(vstd_extra::atomic_irc11::timestamp_in_view(
-                    self.native_loc(),
-                    tv@,
-                ) == Some(timestamp));
                 observation = state.link.tracked_observation_at(
-                    state.points_to.hist(),
+                    &state.points_to,
                     &state.auth,
                     timestamp,
-                    self.native_loc(),
                     tv@,
                 );
                 assert(equal(state.points_to.hist().value(timestamp), loaded.0));
@@ -1173,6 +1167,7 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                 None => guard.paper_guard().seen_at(self.constant().source_obj) == 0,
                 Some(observation) => {
                     &&& observation.registry() == self.constant().timestamp_registry
+                    &&& observation.native_registry() == self.constant().native_observation_registry
                     &&& observation.loc() == self.native_loc()
                     &&& old(tv)@.contains(observation.view())
                     &&& guard.paper_guard().seen_at(self.constant().source_obj)
@@ -1204,6 +1199,7 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
             final(from).ptr() == self.constant().source,
             final(from).obj() == self.constant().source_obj,
             res.6@.registry() == self.constant().timestamp_registry,
+            res.6@.native_registry() == self.constant().native_observation_registry,
             res.6@.loc() == self.native_loc(),
             res.6@.timestamp() == res.1@,
             res.6@.index() == res.2@,
@@ -1279,26 +1275,14 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                     },
                     Some(observation) => {
                         use_type_invariant(observation);
-                        observation.lemma_view_timestamp();
-                        assert(vstd_extra::atomic_irc11::timestamp_in_view(
-                            observation.loc(),
-                            observation.view(),
-                        ) == Some(observation.timestamp()));
                         assert(observation.loc() == self.native_loc());
                         state.link.lemma_observation_agrees(observation);
+                        state.link.lemma_native_observation_agrees(observation);
                         assert(state.link.index_at(observation.timestamp())
                             == observation.index());
                         assert(state.points_to.hist().contains_timestamp(
                             observation.timestamp(),
                         ));
-                        vstd_extra::atomic_irc11::axiom_get_timestamp_is_location_projection(
-                            &state.points_to,
-                            observation.view(),
-                        );
-                        assert(vstd_extra::atomic_irc11::timestamp_in_view(
-                            self.native_loc(),
-                            observation.view(),
-                        ) == Some(observation.timestamp()));
                         assert(state.points_to.get_timestamp(observation.view())
                             == Some(observation.timestamp()));
                         state.points_to.get_timestamp_monotonic(
@@ -1367,19 +1351,10 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                 let tracked observation;
             }
             proof {
-                vstd_extra::atomic_irc11::axiom_get_timestamp_is_location_projection(
-                    &state.points_to,
-                    tv@,
-                );
-                assert(vstd_extra::atomic_irc11::timestamp_in_view(
-                    self.native_loc(),
-                    tv@,
-                ) == Some(timestamp));
                 observation = state.link.tracked_observation_at(
-                    state.points_to.hist(),
+                    &state.points_to,
                     &state.auth,
                     timestamp,
-                    self.native_loc(),
                     tv@,
                 );
                 assert(equal(state.points_to.hist().value(timestamp), loaded.0));
@@ -2156,7 +2131,7 @@ impl<O: Objective + 'static, OwnPred: 'static> LinkedListWeakAtomicLink<O, OwnPr
                 self,
             ).child_phase()->Retired_removal,
             OwnPred::owns(final(self).constant().child, ownership),
-        opens_invariants [ self.invariant_namespace() ]
+        opens_invariants [self.invariant_namespace()]
     {
         use_type_invariant(&*self);
         let ghost key = self.constant();

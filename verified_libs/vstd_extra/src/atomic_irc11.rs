@@ -32,28 +32,6 @@ verus! {
 /// Logical timestamp used by one native atomic history.
 pub type Timestamp = nat;
 
-/// Canonical per-location projection of a native subjective thread view.
-///
-/// Upstream exposes this projection only through
-/// [`AtomicPointsTo::get_timestamp`], whose receiver also contains the
-/// location's changing history.  Naming the projection independently lets a
-/// client retain a load observation while the authoritative history grows.
-pub uninterp spec fn timestamp_in_view(loc: AtomicId, view: ThreadView) -> Option<nat>;
-
-/// `AtomicPointsTo::get_timestamp` depends only on the atomic location and the
-/// supplied native thread view, not on the current version of its append-only
-/// history.
-///
-/// This is a thin exposure of the native IRC11 view projection; it does not
-/// introduce a second memory model or any new ordering relation.
-pub axiom fn axiom_get_timestamp_is_location_projection<T>(
-    tracked points_to: &AtomicPointsTo<T>,
-    view: ThreadView,
-)
-    ensures
-        points_to.get_timestamp(view) == timestamp_in_view(points_to.loc(), view),
-;
-
 /// Compatibility vocabulary for ordering native subjective views.
 ///
 /// `old.spec_le(new)` is only notation for the native relation

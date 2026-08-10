@@ -21,11 +21,15 @@
 //! for an internal node with arbitrary incoming links; such nodes require the
 //! tracked `RcuPointedBy` transition from the traversal layer.
 //!
-//! Two paper-level connections remain deliberately incomplete.
-//! `Guard-seen-retired` still needs a persistent start-snapshot resource, not
-//! only the guard's pure `expired` set, and monitor completion still needs the
-//! per-CPU closed-generation resources. Until both are connected, callback
-//! completion is not an end-to-end reclamation-safety theorem.
+//! The paper-level reclamation chain is connected through persistent reader
+//! start snapshots, per-CPU closed-generation resources, physical read leases,
+//! and type-erased callback reclaim permits. The linked-list acceptance path
+//! additionally connects native internal-link loads and unlink CAS events to
+//! AId-keyed traversal authority. Remaining limitations are integration
+//! boundaries rather than missing logical steps: the linked-list adapter is
+//! still private and acceptance-specific, `read_with()` retains a trusted
+//! shared-reference bridge, and implicit Rust `Drop` cannot yet carry the
+//! verified consuming transition.
 use core::marker::PhantomData;
 
 use crate::specs::mm::cpu::CpuId;
@@ -4344,21 +4348,28 @@ impl LinkedListTraversalAuth {
 /// assumed.
 pub tracked struct LinkedListLinkObservation {
     fact: GhostPersistentPointsTo<nat, LinkIndex>,
-    ghost loc: Irc11AtomicId,
-    ghost view: Irc11ThreadView,
+    native_fact: GhostPersistentPointsTo<nat, (Irc11AtomicId, Irc11ThreadView, nat)>,
 }
 
 impl LinkedListLinkObservation {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        vstd_extra::atomic_irc11::timestamp_in_view(self.loc(), self.view()) == Some(
-            self.timestamp(),
-        )
+        self.native_fact.value().2 == self.timestamp()
     }
 
     /// Persistent registry that certifies this timestamp/index pair.
     pub closed spec fn registry(self) -> Loc {
         self.fact.id()
+    }
+
+    /// Persistent registry that certifies the native view observation.
+    pub closed spec fn native_registry(self) -> Loc {
+        self.native_fact.id()
+    }
+
+    /// Fresh identifier allocated for this native load observation.
+    pub closed spec fn native_observation_id(self) -> nat {
+        self.native_fact.key()
     }
 
     /// Native IRC11 timestamp observed by the load.
@@ -4373,36 +4384,29 @@ impl LinkedListLinkObservation {
 
     /// Native atomic location whose timestamp was observed.
     pub closed spec fn loc(self) -> Irc11AtomicId {
-        self.loc
+        self.native_fact.value().0
     }
 
     /// Subjective view immediately after the load that minted this token.
     pub closed spec fn view(self) -> Irc11ThreadView {
-        self.view
-    }
-
-    /// Exposes the native view projection retained by this persistent
-    /// observation without revealing its private representation.
-    pub proof fn lemma_view_timestamp(tracked &self)
-        ensures
-            vstd_extra::atomic_irc11::timestamp_in_view(self.loc(), self.view()) == Some(
-                self.timestamp(),
-            ),
-    {
-        use_type_invariant(self);
+        self.native_fact.value().1
     }
 
     /// Duplicates the persistent timestamp/index observation.
     pub proof fn tracked_duplicate(tracked &self) -> (tracked res: Self)
         ensures
             res.registry() == self.registry(),
+            res.native_registry() == self.native_registry(),
             res.timestamp() == self.timestamp(),
             res.index() == self.index(),
             res.loc() == self.loc(),
             res.view() == self.view(),
     {
         use_type_invariant(self);
-        LinkedListLinkObservation { fact: self.fact.duplicate(), loc: self.loc, view: self.view }
+        LinkedListLinkObservation {
+            fact: self.fact.duplicate(),
+            native_fact: self.native_fact.duplicate(),
+        }
     }
 }
 
@@ -4412,6 +4416,8 @@ pub tracked struct LinkedListAtomicLinkGhost {
     ghost timestamp_to_index: Map<nat, LinkIndex>,
     timestamp_registry: GhostMapAuth<nat, LinkIndex>,
     timestamp_facts: Map<nat, GhostPersistentPointsTo<nat, LinkIndex>>,
+    native_observation_registry: GhostMapAuth<nat, (Irc11AtomicId, Irc11ThreadView, nat)>,
+    ghost next_observation: nat,
     ghost current_timestamp: nat,
 }
 
@@ -4442,6 +4448,22 @@ impl LinkedListAtomicLinkGhost {
         GhostPersistentPointsTo<nat, LinkIndex>,
     > {
         self.timestamp_facts
+    }
+
+    /// Append-only registry of native `(location, view, timestamp)` load facts.
+    pub closed spec fn native_observation_registry(self) -> Loc {
+        self.native_observation_registry.id()
+    }
+
+    pub closed spec fn native_observations(self) -> Map<
+        nat,
+        (Irc11AtomicId, Irc11ThreadView, nat),
+    > {
+        self.native_observation_registry@
+    }
+
+    pub closed spec fn next_observation(self) -> nat {
+        self.next_observation
     }
 
     pub closed spec fn current_timestamp(self) -> nat {
@@ -4476,6 +4498,9 @@ impl LinkedListAtomicLinkGhost {
                 &&& fact.key() == timestamp
                 &&& fact.value() == self.timestamps()[timestamp]
             }
+        &&& forall|observation_id: nat| #[trigger]
+            self.native_observations().contains_key(observation_id) ==> observation_id
+                < self.next_observation()
         &&& auth.state().successors[self.source_obj()].len() > 0
         &&& self.index_at(self.current_timestamp()) + 1
             == auth.state().successors[self.source_obj()].len()
@@ -4499,6 +4524,20 @@ impl LinkedListAtomicLinkGhost {
                 < later <==> self.index_at(earlier) < self.index_at(later))
     }
 
+    /// Every issued native observation remains valid for the current
+    /// append-only atomic points-to resource.
+    pub open spec fn native_observations_wf(
+        self,
+        points_to: AtomicPointsTo<*mut LinkedListNode>,
+    ) -> bool {
+        forall|observation_id: nat| #[trigger]
+            self.native_observations().contains_key(observation_id) ==> {
+                let observation = self.native_observations()[observation_id];
+                &&& observation.0 == points_to.loc()
+                &&& points_to.get_timestamp(observation.1) == Some(observation.2)
+            }
+    }
+
     /// Creates the timestamp mapping for an atomic link initialized to null.
     pub proof fn tracked_initial_null(
         history: Irc11History<*mut LinkedListNode>,
@@ -4519,6 +4558,8 @@ impl LinkedListAtomicLinkGhost {
             res.source() == source,
             res.source_obj() == source_obj,
             res.timestamps() == Map::empty().insert(timestamp, 0),
+            res.native_observations() == Map::empty(),
+            res.next_observation() == 0,
             res.current_timestamp() == timestamp,
     {
         assert(history.is_max_timestamp(timestamp));
@@ -4535,12 +4576,17 @@ impl LinkedListAtomicLinkGhost {
         let tracked initial_fact = timestamp_registry.insert(timestamp, 0).persist();
         let tracked mut timestamp_facts = Map::tracked_empty();
         timestamp_facts.tracked_insert(timestamp, initial_fact);
+        let tracked (native_observation_registry, _native_observations) = GhostMapAuth::new(
+            Map::empty(),
+        );
         let tracked res = LinkedListAtomicLinkGhost {
             source,
             source_obj,
             timestamp_to_index: Map::empty().insert(timestamp, 0),
             timestamp_registry,
             timestamp_facts,
+            native_observation_registry,
+            next_observation: 0,
             current_timestamp: timestamp,
         };
         assert forall|ts: nat| history.contains_timestamp(ts) implies {
@@ -4570,26 +4616,68 @@ impl LinkedListAtomicLinkGhost {
 
     /// Issues persistent evidence for one native timestamp's dense index.
     pub proof fn tracked_observation_at(
-        tracked &self,
-        history: Irc11History<*mut LinkedListNode>,
+        tracked &mut self,
+        tracked points_to: &AtomicPointsTo<*mut LinkedListNode>,
         tracked auth: &LinkedListTraversalAuth,
         timestamp: nat,
-        loc: Irc11AtomicId,
         view: Irc11ThreadView,
     ) -> (tracked res: LinkedListLinkObservation)
         requires
-            self.wf(history, *auth),
-            history.contains_timestamp(timestamp),
-            vstd_extra::atomic_irc11::timestamp_in_view(loc, view) == Some(timestamp),
+            old(self).wf(points_to.hist(), *auth),
+            old(self).native_observations_wf(*points_to),
+            points_to.hist().contains_timestamp(timestamp),
+            points_to.get_timestamp(view) == Some(timestamp),
         ensures
-            res.registry() == self.timestamp_registry(),
+            final(self).wf(points_to.hist(), *auth),
+            final(self).native_observations_wf(*points_to),
+            final(self).source() == old(self).source(),
+            final(self).source_obj() == old(self).source_obj(),
+            final(self).timestamp_registry() == old(self).timestamp_registry(),
+            final(self).native_observation_registry() == old(self).native_observation_registry(),
+            final(self).timestamps() == old(self).timestamps(),
+            final(self).current_timestamp() == old(self).current_timestamp(),
+            res.registry() == final(self).timestamp_registry(),
+            res.native_registry() == final(self).native_observation_registry(),
             res.timestamp() == timestamp,
-            res.index() == self.index_at(timestamp),
-            res.loc() == loc,
+            res.index() == final(self).index_at(timestamp),
+            res.loc() == points_to.loc(),
             res.view() == view,
     {
+        let ghost old_native_observations = self.native_observations();
+        let ghost observation_id = self.next_observation;
+        assert(!old_native_observations.contains_key(observation_id)) by {
+            if old_native_observations.contains_key(observation_id) {
+                assert(observation_id < self.next_observation);
+                assert(false);
+            }
+        };
+        let tracked native_fact = self.native_observation_registry.insert(
+            observation_id,
+            (points_to.loc(), view, timestamp),
+        ).persist();
+        self.next_observation = observation_id + 1;
         let tracked fact = self.timestamp_facts.tracked_borrow(timestamp).duplicate();
-        LinkedListLinkObservation { fact, loc, view }
+        let tracked res = LinkedListLinkObservation { fact, native_fact };
+        assert forall|id: nat| #[trigger] self.native_observations().contains_key(id) implies id
+            < self.next_observation by {
+            if id == observation_id {
+            } else {
+                assert(old_native_observations.contains_key(id));
+                assert(old_native_observations[id] == self.native_observations()[id]);
+            }
+        };
+        assert forall|id: nat| #[trigger] self.native_observations().contains_key(id) implies {
+            let observation = self.native_observations()[id];
+            &&& observation.0 == points_to.loc()
+            &&& points_to.get_timestamp(observation.1) == Some(observation.2)
+        } by {
+            if id == observation_id {
+            } else {
+                assert(old_native_observations.contains_key(id));
+                assert(old_native_observations[id] == self.native_observations()[id]);
+            }
+        };
+        res
     }
 
     /// Agrees a prior persistent observation with the current append-only
@@ -4605,6 +4693,24 @@ impl LinkedListAtomicLinkGhost {
             self.timestamps().contains_pair(observation.timestamp(), observation.index()),
     {
         observation.fact.agree(&self.timestamp_registry);
+    }
+
+    /// Agrees a prior persistent native observation with the current
+    /// append-only observation registry.
+    pub proof fn lemma_native_observation_agrees(
+        tracked &self,
+        tracked observation: &LinkedListLinkObservation,
+    )
+        requires
+            observation.native_registry() == self.native_observation_registry(),
+        ensures
+            self.native_observations().contains_pair(
+                observation.native_observation_id(),
+                (observation.loc(), observation.view(), observation.timestamp()),
+            ),
+    {
+        use_type_invariant(observation);
+        observation.native_fact.agree(&self.native_observation_registry);
     }
 
     /// Records a successful native CAS that publishes a non-null successor.
@@ -4637,6 +4743,9 @@ impl LinkedListAtomicLinkGhost {
             final(self).source() == old(self).source(),
             final(self).source_obj() == old(self).source_obj(),
             final(self).timestamp_registry() == old(self).timestamp_registry(),
+            final(self).native_observation_registry() == old(self).native_observation_registry(),
+            final(self).native_observations() == old(self).native_observations(),
+            final(self).next_observation() == old(self).next_observation(),
             final(self).timestamps() == old(self).timestamps().insert(store_timestamp, n),
             final(self).current_timestamp() == store_timestamp,
             final(auth).domain() == old(auth).domain(),
@@ -4666,6 +4775,8 @@ impl LinkedListAtomicLinkGhost {
         let ghost source = self.source;
         let ghost source_obj = self.source_obj;
         let ghost old_timestamps = self.timestamp_to_index;
+        let ghost old_native_observations = self.native_observations();
+        let ghost old_next_observation = self.next_observation();
         let ghost old_state = auth.state();
         let ghost old_current = self.current_timestamp;
 
@@ -4692,6 +4803,11 @@ impl LinkedListAtomicLinkGhost {
             };
         };
         assert(self.timestamps().dom() == next.dom());
+        assert(self.native_observations() == old_native_observations);
+        assert(self.next_observation() == old_next_observation);
+        assert forall|observation_id: nat| #[trigger]
+            self.native_observations().contains_key(observation_id) implies observation_id
+            < self.next_observation() by {};
         assert(self.index_at(store_timestamp) == n);
         assert(n + 1 == auth.state().successors[source_obj].len());
         assert forall|timestamp: nat| next.contains_timestamp(timestamp) implies {
@@ -4778,6 +4894,9 @@ impl LinkedListAtomicLinkGhost {
             final(self).source() == old(self).source(),
             final(self).source_obj() == old(self).source_obj(),
             final(self).timestamp_registry() == old(self).timestamp_registry(),
+            final(self).native_observation_registry() == old(self).native_observation_registry(),
+            final(self).native_observations() == old(self).native_observations(),
+            final(self).next_observation() == old(self).next_observation(),
             final(self).timestamps() == old(self).timestamps().insert(store_timestamp, n),
             final(self).current_timestamp() == store_timestamp,
             final(auth).domain() == old(auth).domain(),
@@ -4800,6 +4919,8 @@ impl LinkedListAtomicLinkGhost {
         let ghost source = self.source;
         let ghost source_obj = self.source_obj;
         let ghost old_timestamps = self.timestamp_to_index;
+        let ghost old_native_observations = self.native_observations();
+        let ghost old_next_observation = self.next_observation();
         let ghost old_state = auth.state();
         let ghost old_current = self.current_timestamp;
 
@@ -4826,6 +4947,11 @@ impl LinkedListAtomicLinkGhost {
             };
         };
         assert(self.timestamps().dom() == next.dom());
+        assert(self.native_observations() == old_native_observations);
+        assert(self.next_observation() == old_next_observation);
+        assert forall|observation_id: nat| #[trigger]
+            self.native_observations().contains_key(observation_id) implies observation_id
+            < self.next_observation() by {};
         assert(self.index_at(store_timestamp) == n);
         assert(n + 1 == auth.state().successors[source_obj].len());
         assert forall|timestamp: nat| next.contains_timestamp(timestamp) implies {

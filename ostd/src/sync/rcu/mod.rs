@@ -236,6 +236,8 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
                 == self.link.constant().retire_observation_registry
             &&& self.tracked_observation@->Some_0.registry()
                 == self.link.constant().timestamp_registry
+            &&& self.tracked_observation@->Some_0.native_registry()
+                == self.link.constant().native_observation_registry
             &&& self.tracked_observation@->Some_0.loc() == self.link.native_loc()
             &&& self.tracked_guard@->Some_0.paper_guard().seen_at(self.link.constant().source_obj)
                 == self.tracked_observation@->Some_0.index()
@@ -267,7 +269,9 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
 
     /// Loads an internal child and retains both its traversal witness and its
     /// physical lease. `previous` may be supplied to repeat a load from the
-    /// same source without resetting the dense traversal view.
+    /// same source without resetting the dense traversal view. The retained
+    /// observation is certified by the link's native-view registry and stays
+    /// valid as the atomic history grows.
     fn load(
         link: &'a RcuLinkedListAtomicLink<P>,
         Tracked(guard): Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<rcu_spec::LinkedListNode>>,
@@ -289,6 +293,7 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
                 None => guard.paper_guard().seen_at(link.constant().source_obj) == 0,
                 Some(observation) => {
                     &&& observation.registry() == link.constant().timestamp_registry
+                    &&& observation.native_registry() == link.constant().native_observation_registry
                     &&& observation.loc() == link.native_loc()
                     &&& old(tv)@.contains(observation.view())
                     &&& guard.paper_guard().seen_at(link.constant().source_obj)
@@ -386,6 +391,7 @@ impl<'a, P> LinkedListChildReadGuard<'a, P> where P: NonNullPtr<Target = rcu_spe
             res@.0.wf(),
             res@.0.paper_guard().seen_at(self.link.constant().source_obj) == res@.2.index(),
             res@.2.registry() == self.link.constant().timestamp_registry,
+            res@.2.native_registry() == self.link.constant().native_observation_registry,
             res@.2.loc() == self.link.native_loc(),
             (res@.1 is Some) == (self.obj_ptr.addr() != 0),
     {
