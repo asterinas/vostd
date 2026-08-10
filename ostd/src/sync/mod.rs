@@ -20,7 +20,7 @@ pub use self::{
     rwarc::{RoArc, RwArc},
     rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard},
     rwmutex::{RwMutex, RwMutexReadGuard, RwMutexUpgradeableGuard, RwMutexWriteGuard},
-    spin::{SpinLock, SpinLockGuard},
+    spin::{SpinLock, SpinLockGuard, SpinLockPredicate, TrivialSpinLockPredicate},
     wait::{WaitQueue, Waiter, Waker},
 };
 /*
