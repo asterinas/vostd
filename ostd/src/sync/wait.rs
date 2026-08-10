@@ -2,8 +2,8 @@
 use vstd::atomic_ghost::*;
 use vstd::prelude::*;
 use vstd::resource::{
-    ghost_var::{GhostVar, GhostVarAuth},
     Loc,
+    ghost_var::{GhostVar, GhostVarAuth},
 };
 
 use alloc::{collections::VecDeque, sync::Arc};
@@ -11,7 +11,7 @@ use core::intrinsics::atomic_cxchg;
 use core::sync::atomic::{/*AtomicBool,*/ Ordering};
 
 use super::{LocalIrqDisabled, SpinLock, SpinLockPredicate};
-use crate::task::{scheduler, Task};
+use crate::task::{Task, scheduler};
 
 // # Explanation on the memory orders
 //
@@ -59,11 +59,7 @@ impl SpinLockPredicate<VecDeque<Arc<Waker>>> for WakersPredicate {
     /// While the spin lock is unlocked, its mirror records the exact queue
     /// length. Lock acquisition transfers the mirror to the guard, allowing
     /// the relation to be updated together with `num_wakers` before unlock.
-    closed spec fn inv(
-        self,
-        wakers: VecDeque<Arc<Waker>>,
-        mirror: GhostVar<int>,
-    ) -> bool {
+    closed spec fn inv(self, wakers: VecDeque<Arc<Waker>>, mirror: GhostVar<int>) -> bool {
         &&& mirror.id() == self.id()
         &&& mirror@ == wakers@.len()
     }
@@ -112,10 +108,7 @@ impl WaitQueue {
             Ghost(WakersPredicate { ghost_id: Ghost(ghost_id) }),
             Tracked(count_mirror),
         );
-        WaitQueue {
-            num_wakers: AtomicU32::new(Ghost(wakers), 0, Tracked(count_auth)),
-            wakers,
-        }
+        WaitQueue { num_wakers: AtomicU32::new(Ghost(wakers), 0, Tracked(count_auth)), wakers }
     }
 
     /// Waits until some condition is met.
