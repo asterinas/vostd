@@ -128,12 +128,13 @@
 //! Before invoking a callback, its reclaim permit excludes every active lease
 //! for the retired allocation. Reclamation then recovers the complete
 //! `P::Permission` from the root invariant and passes it to the typed callback.
-//! Two language-integration boundaries remain explicit: `read_with()` uses
-//! `assume_shared_ref` until external atomic-mode guards expose the same lease
-//! protocol, and verified callers use the consuming guard `drop()` method
-//! because Verus cannot yet attach this invariant-opening transition to Rust's
-//! implicit `Drop::drop(&mut self)`. Runtime destruction still restores the
-//! executable preemption counter through `DisabledPreemptGuard`.
+//! Two language-integration boundaries remain explicit: the legacy
+//! `read_with()` compatibility API uses `assume_shared_ref`, while new callers
+//! can use `read_with_guard()` to retain the physical lease in a verified read
+//! guard. Verified callers use the consuming guard `drop()` method because
+//! Verus cannot yet attach this invariant-opening transition to Rust's implicit
+//! `Drop::drop(&mut self)`. Runtime destruction still restores the executable
+//! preemption counter through `DisabledPreemptGuard`.
 use alloc::boxed::Box;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
@@ -157,7 +158,7 @@ use crate::{
         task::InAtomicMode,
     },
     sync::Once,
-    task::{disable_preempt_in_context, DisabledPreemptGuard, RunningTaskContext},
+    task::{DisabledPreemptGuard, RunningTaskContext, disable_preempt_in_context},
 };
 use vstd_extra::atomic_irc11::{ThreadViewOrder, ViewSeen};
 
@@ -2066,6 +2067,33 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             old(session).available_fractions() > 1,
     )]
     pub fn read<'a>(&'a self) -> RcuOptionReadGuard<'a, P> {
+        proof {
+            use_type_invariant(self);
+        }
+        RcuOptionReadGuard(self.0.read(Tracked(session)))
+    }
+
+    /// Acquires the current pointer while an external atomic-mode guard is live.
+    ///
+    /// Unlike the legacy [`Self::read_with`] compatibility API, this method
+    /// returns an RCU read guard that retains the loaded allocation's physical
+    /// read lease. Call [`RcuOptionReadGuard::get`] to borrow the pointer and
+    /// consume [`RcuOptionReadGuard::drop`] before the external guard expires.
+    /// The returned guard owns a nested preemption-disable scope, so its lease
+    /// protocol does not rely on an unverified projection from `InAtomicMode`.
+    #[inline]
+    #[verus_spec(res =>
+        with
+            Tracked(session): Tracked<&'a mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            old(session).scheduler() == rcu_spec::rcu_scheduler(),
+            old(session).available_fractions() > 1,
+    )]
+    pub fn read_with_guard<'a, A: InAtomicMode>(&'a self, _guard: &'a A) -> RcuOptionReadGuard<
+        'a,
+        P,
+    > {
         proof {
             use_type_invariant(self);
         }
