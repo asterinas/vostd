@@ -5,6 +5,7 @@
 #![feature(nonzero_internals)]
 #![feature(sized_hierarchy)]
 #![feature(proc_macro_hygiene)]
+#![feature(ptr_metadata)]
 #![cfg_attr(verus_keep_ghost, feature(allocator_api))]
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
@@ -39,3 +40,4 @@ pub mod spec_operators;
 pub mod state_machine;
 pub mod sum;
 pub mod temporal_logic;
+pub mod typing;
