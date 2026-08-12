@@ -4,6 +4,7 @@
 #![no_std]
 #![feature(nonzero_internals)]
 #![feature(sized_hierarchy)]
+#![feature(btree_cursors)]
 #![feature(proc_macro_hygiene)]
 #![cfg_attr(verus_keep_ghost, feature(allocator_api))]
 #![allow(non_snake_case)]
