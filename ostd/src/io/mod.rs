@@ -20,6 +20,7 @@ cfg_if!(
     }
 );
 
+/*
 /// Initializes the static allocator based on builder.
 ///
 /// # Safety
@@ -43,4 +44,4 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     unsafe {
         self::io_port::init()
     };
-}
+}*/

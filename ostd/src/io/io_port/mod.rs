@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port and its allocator that allocates port I/O (PIO) to device drivers.
+use vstd::prelude::*;
+
 use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
-mod allocator;
+/*mod allocator;*/
 
 use core::{marker::PhantomData, mem::size_of};
 
-pub(super) use self::allocator::init;
+/*pub(super) use self::allocator::init;*/
 use crate::{Error, prelude::*};
 
 /// An I/O port, representing a specific address in the I/O address of x86.
@@ -20,23 +22,37 @@ use crate::{Error, prelude::*};
 /// }
 /// ```
 ///
+#[verus_verify]
 pub struct IoPort<T, A> {
     port: u16,
     value_marker: PhantomData<T>,
     access_marker: PhantomData<A>,
 }
 
+verus! {
+
+impl<T, A> View for IoPort<T, A> {
+    type V = u16;
+
+    closed spec fn view(&self) -> u16 {
+        self.port
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl<T, A> IoPort<T, A> {
     /// Acquires an `IoPort` instance for the given range.
-    pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
+    /*pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
         allocator::IO_PORT_ALLOCATOR
             .get()
             .unwrap()
             .acquire(port)
             .ok_or(Error::AccessDenied)
-    }
+    }*/
 
     /// Returns the port number.
+    #[verus_spec(returns self@)]
     pub const fn port(&self) -> u16 {
         self.port
     }
@@ -52,6 +68,7 @@ impl<T, A> IoPort<T, A> {
     ///
     /// This function is marked unsafe as creating an I/O port is considered
     /// a privileged operation.
+    #[verus_spec(ret => ensures ret@ == port)]
     pub const unsafe fn new(port: u16) -> Self {
         Self {
             port,
@@ -61,6 +78,8 @@ impl<T, A> IoPort<T, A> {
     }
 }
 
+#[verus_verify]
+#[verifier::allow(undeclared_external_trait)]
 impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
     /// Reads from the I/O port
     #[inline]
@@ -69,6 +88,8 @@ impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
     }
 }
 
+#[verus_verify]
+#[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
     #[inline]
@@ -77,7 +98,7 @@ impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     }
 }
 
-impl<T, A> Drop for IoPort<T, A> {
+/*impl<T, A> Drop for IoPort<T, A> {
     fn drop(&mut self) {
         // SAFETY: The caller have ownership of the PIO region.
         unsafe {
@@ -87,7 +108,7 @@ impl<T, A> Drop for IoPort<T, A> {
                 .recycle(self.port..(self.port + size_of::<T>() as u16));
         }
     }
-}
+}*/
 
 /// Reserves an I/O port range which may refer to the port I/O range used by the
 /// system device driver.
@@ -162,6 +183,7 @@ pub(crate) use sensitive_io_port;
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
+#[verus_verify]
 pub(crate) struct RawIoPortRange {
     pub(crate) begin: u16,
     pub(crate) end: u16,

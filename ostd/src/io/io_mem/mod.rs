@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
+use crate::specs::arch::PAGE_SIZE;
+use crate::specs::{mm::virt_mem::VirtPtr, task::AnyAtomicGuard};
+use vstd::prelude::*;
+
 mod allocator;
 
 use core::ops::{Deref, Range};
@@ -11,8 +15,8 @@ pub(super) use self::allocator::init;
 use crate::{
     Error,
     mm::{
-        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, PAGE_SIZE, Paddr, PodOnce, VmIo,
-        VmIoOnce, VmReader, VmWriter,
+        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, /*PAGE_SIZE,*/ Paddr, PodOnce,
+        VmIo, VmIoOnce, VmReader, VmWriter,
         kspace::kvirt_area::KVirtArea,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
@@ -21,6 +25,7 @@ use crate::{
 
 /// I/O memory.
 #[derive(Debug, Clone)]
+#[verus_verify]
 pub struct IoMem {
     kvirt_area: Arc<KVirtArea>,
     // The actually used range for MMIO is `kvirt_area.start + offset..kvirt_area.start + offset + limit`
@@ -29,7 +34,29 @@ pub struct IoMem {
     pa: Paddr,
 }
 
+verus! {
+
+impl IoMem {
+    /// Logical physical-address projection used by verified callers.
+    pub closed spec fn paddr_spec(&self) -> Paddr {
+        self.pa
+    }
+
+    /// Logical byte length used by verified callers.
+    pub closed spec fn length_spec(&self) -> usize {
+        self.limit
+    }
+
+    /// Logical offset into the page-aligned mapping.
+    pub closed spec fn offset_spec(&self) -> usize {
+        self.offset
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl HasPaddr for IoMem {
+    #[verus_spec(result => ensures result == self.paddr_spec())]
     fn paddr(&self) -> Paddr {
         self.pa
     }
@@ -46,11 +73,15 @@ impl IoMem {
     }
 
     /// Returns the physical address of the I/O memory.
+    #[verus_verify]
+    #[verus_spec(result => ensures result == self.paddr_spec())]
     pub fn paddr(&self) -> Paddr {
         self.pa
     }
 
     /// Returns the length of the I/O memory region.
+    #[verus_verify]
+    #[verus_spec(result => ensures result == self.length_spec())]
     pub fn length(&self) -> usize {
         self.limit
     }
@@ -60,15 +91,31 @@ impl IoMem {
     /// # Panics
     ///
     /// This method will panic if the range is empty or out of bounds.
+    #[verus_verify]
+    #[verus_spec(result =>
+        requires
+            range.start < range.end,
+            range.end <= self.length_spec(),
+            self.offset_spec() + range.start <= usize::MAX,
+            self.paddr_spec() + range.start <= usize::MAX,
+        ensures
+            result.offset_spec() == self.offset_spec() + range.start,
+            result.length_spec() == range.end - range.start,
+            result.paddr_spec() == self.paddr_spec() + range.start,
+    )]
     pub fn slice(&self, range: Range<usize>) -> Self {
         // This ensures `range.start < range.end` and `range.end <= limit`.
+        /*
         assert!(!range.is_empty() && range.end <= self.limit);
+        */
+        vstd_extra::assert!(range.start < range.end && range.end <= self.limit);
 
         // We've checked the range is in bounds, so we can construct the new `IoMem` safely.
         Self {
             kvirt_area: self.kvirt_area.clone(),
             offset: self.offset + range.start,
-            limit: range.len(),
+            /* limit: range.len(), */
+            limit: range.end - range.start,
             pa: self.pa + range.start,
         }
     }
@@ -123,7 +170,11 @@ impl IoMem {
 
         // SAFETY: The caller of `IoMem::new()` ensures that the given
         // physical address range is I/O memory, so it is safe to map.
-        let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
+        // Original Rust:
+        // let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
+        let kva = unsafe {
+            KVirtArea::map_untracked_frames::<AnyAtomicGuard>(area_size, 0, frames_range, prop)
+        };
 
         Self {
             kvirt_area: Arc::new(kva),
@@ -146,8 +197,10 @@ impl IoMem {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of reading from the mapped physical address, and the mapping is valid.
         unsafe {
+            // `from_kernel_space` in ostd/src/mm/io.rs is changed
+            // (self.kvirt_area.deref().start() + self.offset) as *mut u8
             VmReader::from_kernel_space(
-                (self.kvirt_area.deref().start() + self.offset) as *mut u8,
+                VirtPtr::from_vaddr(self.kvirt_area.deref().start() + self.offset, self.limit),
                 self.limit,
             )
         }
@@ -157,15 +210,17 @@ impl IoMem {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of writing to the mapped physical address, and the mapping is valid.
         unsafe {
+            // Original Rust passed the raw pointer
+            // `(self.kvirt_area.deref().start() + self.offset) as *mut u8`.
             VmWriter::from_kernel_space(
-                (self.kvirt_area.deref().start() + self.offset) as *mut u8,
+                VirtPtr::from_vaddr(self.kvirt_area.deref().start() + self.offset, self.limit),
                 self.limit,
             )
         }
     }
 }
 
-impl VmIo for IoMem {
+/*impl VmIo for IoMem {
     fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> {
         let offset = offset + self.offset;
         if self
@@ -213,7 +268,7 @@ impl VmIoOnce for IoMem {
     fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()> {
         self.writer().skip(offset).write_once(new_val)
     }
-}
+}*/
 
 impl Drop for IoMem {
     fn drop(&mut self) {

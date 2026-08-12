@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
+use vstd::prelude::*;
+
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -13,6 +15,7 @@ use crate::{
 };
 
 /// I/O memory allocator that allocates memory I/O access to device drivers.
+#[verus_verify]
 pub struct IoMemAllocator {
     allocators: Vec<RangeAllocator>,
 }
@@ -29,7 +32,8 @@ impl IoMemAllocator {
         debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end);
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
-        unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
+        // Original Rust used the upstream bitflags-style associated constant `PageFlags::RW`.
+        unsafe { Some(IoMem::new(range, PageFlags::RW(), CachePolicy::Uncacheable)) }
     }
 
     /// Recycles an MMIO range.
@@ -51,6 +55,7 @@ impl IoMemAllocator {
     /// # Safety
     ///
     /// User must ensure the range doesn't belong to physical memory or system device I/O.
+    #[verus_verify]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }
     }
@@ -60,6 +65,7 @@ impl IoMemAllocator {
 ///
 /// The builder must contains the memory I/O regions that don't belong to the physical memory. Also, OSTD
 /// must exclude the memory I/O regions of the system device before building the `IoMemAllocator`.
+#[verus_verify]
 pub(crate) struct IoMemAllocatorBuilder {
     allocators: Vec<RangeAllocator>,
 }
@@ -70,11 +76,12 @@ impl IoMemAllocatorBuilder {
     /// # Safety
     ///
     /// User must ensure the range doesn't belong to physical memory.
+    #[verus_verify]
     pub(crate) unsafe fn new(ranges: Vec<Range<usize>>) -> Self {
-        info!(
+        /* info!(
             "Creating new I/O memory allocator builder, ranges: {:#x?}",
             ranges
-        );
+        ); */
         let mut allocators = Vec::with_capacity(ranges.len());
         for range in ranges {
             allocators.push(RangeAllocator::new(range));
@@ -116,17 +123,24 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
 }
 
+#[verus_verify]
 fn find_allocator<'a>(
     allocators: &'a [RangeAllocator],
     range: &Range<usize>,
 ) -> Option<&'a RangeAllocator> {
     for allocator in allocators.iter() {
         let allocator_range = allocator.fullrange();
+        // Verus does not yet support `continue` in `for` loops. Original Rust:
+        /*
         if allocator_range.start >= range.end || allocator_range.end <= range.start {
             continue;
         }
 
         return Some(allocator);
+        */
+        if allocator_range.start < range.end && allocator_range.end > range.start {
+            return Some(allocator);
+        }
     }
     None
 }
