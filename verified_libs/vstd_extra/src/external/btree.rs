@@ -3,11 +3,16 @@ use alloc::{
     alloc::Allocator,
     collections::{BTreeMap, btree_map::CursorMut},
 };
-use core::{borrow::Borrow, ops::Bound};
+use core::{borrow::Borrow, cmp::Ordering, ops::Bound};
 use vstd::{
     laws_cmp::obeys_cmp,
     prelude::*,
-    std_specs::btree::{borrowed_key_removed, contains_borrowed_key, maps_borrowed_key_to_value},
+    std_specs::{
+        btree::{
+            borrowed_key_removed, contains_borrowed_key, increasing_seq, maps_borrowed_key_to_value,
+        },
+        cmp::OrdSpec,
+    },
 };
 
 verus! {
@@ -20,13 +25,43 @@ verus! {
 #[verifier::reject_recursive_types(A)]
 pub struct ExCursorMut<'a, K: 'a, V: 'a, A>(CursorMut<'a, K, V, A>);
 
-/// Additional ghost state used to remember the keys matching an excluded lower bound.
-pub trait CursorMutAdditionalSpecFns<Key> {
-    spec fn excluded_keys(&self) -> ISet<Key>;
+/// The abstract state of a mutable B-tree cursor.
+///
+/// A cursor points at the gap immediately before `keys[position]`. Therefore `peek_next`
+/// accesses `keys[position]`, while `peek_prev` accesses `keys[position - 1]`.
+pub ghost struct CursorMutModel<Key, Value> {
+    /// All keys in the underlying map, in strictly increasing order.
+    pub keys: Seq<Key>,
+    /// The index of the element immediately after the cursor.
+    pub position: int,
+    /// The current contents of the complete map borrowed by the cursor.
+    pub map: Map<Key, Value>,
 }
 
-impl<'a, Key, Value, A> CursorMutAdditionalSpecFns<Key> for CursorMut<'a, Key, Value, A> {
-    uninterp spec fn excluded_keys(&self) -> ISet<Key>;
+impl<Key, Value> CursorMutModel<Key, Value> {
+    /// Whether this model consistently represents an ordered map and a gap in that map.
+    pub open spec fn wf(self) -> bool {
+        &&& 0 <= self.position <= self.keys.len()
+        &&& self.keys.no_duplicates()
+        &&& self.keys.to_set() == self.map.dom()
+        &&& increasing_seq(self.keys)
+    }
+}
+
+/// Additional abstract and prophetic state for mutable B-tree cursors.
+pub trait CursorMutAdditionalSpecFns<Key, Value>: Sized {
+    spec fn model(self) -> CursorMutModel<Key, Value>;
+
+    /// The contents of the borrowed map when this cursor's borrow is resolved.
+    #[verifier::prophetic]
+    spec fn final_map(self) -> Map<Key, Value>;
+}
+
+impl<'a, Key, Value, A> CursorMutAdditionalSpecFns<Key, Value> for CursorMut<'a, Key, Value, A> {
+    uninterp spec fn model(self) -> CursorMutModel<Key, Value>;
+
+    #[verifier::prophetic]
+    uninterp spec fn final_map(self) -> Map<Key, Value>;
 }
 
 /// Whether a borrowed lookup key's ordering agrees with the ordering of stored keys.
@@ -35,10 +70,69 @@ impl<'a, Key, Value, A> CursorMutAdditionalSpecFns<Key> for CursorMut<'a, Key, V
 /// borrowed-key `BTreeMap` operations.
 pub uninterp spec fn borrowed_key_ordering_matches<Key, Q: ?Sized>(key: &Q) -> bool;
 
+/// The ordering of a stored key relative to a borrowed lookup key.
+pub uninterp spec fn borrowed_key_cmp<Key, Q: ?Sized>(stored_key: Key, key: &Q) -> Ordering;
+
 /// A key type has the same ordering as itself.
 pub broadcast axiom fn axiom_deref_key_ordering_matches<Key>(key: &Key)
     ensures
         #[trigger] borrowed_key_ordering_matches::<Key, Key>(key),
+;
+
+/// Comparing a stored key against a borrowed key of the same type agrees with `Ord`'s model.
+pub broadcast axiom fn axiom_deref_key_cmp<Key: Ord>(stored_key: Key, key: &Key)
+    ensures
+        #[trigger] borrowed_key_cmp::<Key, Key>(stored_key, key) == stored_key.cmp_spec(key),
+;
+
+/// Whether a key occurs before the gap returned by `lower_bound_mut`.
+pub open spec fn before_lower_bound<Key, Q: ?Sized>(key: Key, bound: Bound<&Q>) -> bool {
+    match bound {
+        Bound::Included(bound_key) => borrowed_key_cmp(key, bound_key) is Less,
+        Bound::Excluded(bound_key) => !(borrowed_key_cmp(key, bound_key) is Greater),
+        Bound::Unbounded => false,
+    }
+}
+
+/// Whether a key occurs before the gap returned by `upper_bound_mut`.
+pub open spec fn before_upper_bound<Key, Q: ?Sized>(key: Key, bound: Bound<&Q>) -> bool {
+    match bound {
+        Bound::Included(bound_key) => !(borrowed_key_cmp(key, bound_key) is Greater),
+        Bound::Excluded(bound_key) => borrowed_key_cmp(key, bound_key) is Less,
+        Bound::Unbounded => true,
+    }
+}
+
+/// Whether a cursor is at the gap selected by `lower_bound_mut`.
+pub open spec fn positioned_at_lower_bound<Key, Value, Q: ?Sized>(
+    model: CursorMutModel<Key, Value>,
+    bound: Bound<&Q>,
+) -> bool {
+    &&& forall|i: int|
+        #![trigger before_lower_bound(model.keys[i], bound)]
+        0 <= i < model.position ==> before_lower_bound(model.keys[i], bound)
+    &&& forall|i: int|
+        #![trigger before_lower_bound(model.keys[i], bound)]
+        model.position <= i < model.keys.len() ==> !before_lower_bound(model.keys[i], bound)
+}
+
+/// Whether a cursor is at the gap selected by `upper_bound_mut`.
+pub open spec fn positioned_at_upper_bound<Key, Value, Q: ?Sized>(
+    model: CursorMutModel<Key, Value>,
+    bound: Bound<&Q>,
+) -> bool {
+    &&& forall|i: int|
+        #![trigger before_upper_bound(model.keys[i], bound)]
+        0 <= i < model.position ==> before_upper_bound(model.keys[i], bound)
+    &&& forall|i: int|
+        #![trigger before_upper_bound(model.keys[i], bound)]
+        model.position <= i < model.keys.len() ==> !before_upper_bound(model.keys[i], bound)
+}
+
+/// Once the cursor has been dropped, its prophesied map is its current map.
+pub broadcast axiom fn axiom_has_resolved_cursor<Key, Value, A>(cursor: CursorMut<Key, Value, A>)
+    ensures
+        #[trigger] has_resolved(cursor) ==> cursor.final_map() == cursor.model().map,
 ;
 
 /// Relates a map before and after mutating the value selected by a borrowed key.
@@ -63,6 +157,8 @@ pub open spec fn borrowed_key_mutated<Key, Value, Q: ?Sized>(
 /// Additional axioms for mutable B-tree operations.
 pub broadcast group group_btree_extra_axioms {
     axiom_deref_key_ordering_matches,
+    axiom_deref_key_cmp,
+    axiom_has_resolved_cursor,
 }
 
 /// Specification for [`BTreeMap::get_mut`].
@@ -86,10 +182,6 @@ pub assume_specification<
 ;
 
 /// Specification for [`BTreeMap::lower_bound_mut`].
-///
-/// This deliberately over-approximates the cursor position until vstd exposes a reusable ordered
-/// cursor model. It still provides a sound verified boundary for callers that do not rely on the
-/// selected key in their postconditions.
 pub assume_specification<
     'a,
     Key: Borrow<Q> + Ord,
@@ -108,13 +200,11 @@ pub assume_specification<
             Bound::Unbounded => true,
         },
     ensures
-        final(map)@.dom() == old(map)@.dom(),
-        cursor.excluded_keys() == match bound {
-            Bound::Excluded(key) => ISet::new(
-                |stored_key: Key|
-                    contains_borrowed_key(Map::<Key, ()>::empty().insert(stored_key, ()), key),
-            ),
-            _ => ISet::empty(),
+        obeys_cmp::<Key>() ==> {
+            &&& cursor.model().wf()
+            &&& cursor.model().map == old(map)@
+            &&& final(map)@ == cursor.final_map()
+            &&& positioned_at_lower_bound(cursor.model(), bound)
         },
 ;
 
@@ -137,8 +227,12 @@ pub assume_specification<
             Bound::Unbounded => true,
         },
     ensures
-        final(map)@.dom() == old(map)@.dom(),
-        cursor.excluded_keys() == ISet::empty(),
+        obeys_cmp::<Key>() ==> {
+            &&& cursor.model().wf()
+            &&& cursor.model().map == old(map)@
+            &&& final(map)@ == cursor.final_map()
+            &&& positioned_at_upper_bound(cursor.model(), bound)
+        },
 ;
 
 /// Specification for [`CursorMut::peek_prev`].
@@ -146,7 +240,26 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
     cursor: &'b mut CursorMut<'a, Key, Value, A>,
 ) -> (result: Option<(&'b Key, &'b mut Value)>)
     ensures
-        final(cursor).excluded_keys() == old(cursor).excluded_keys(),
+        final(cursor).final_map() == old(cursor).final_map(),
+        old(cursor).model().wf() ==> final(cursor).model().wf(),
+        match result {
+            Some((key, value)) => {
+                let old_model = old(cursor).model();
+                let new_model = final(cursor).model();
+                &&& old_model.position > 0
+                &&& *key == old_model.keys[old_model.position - 1]
+                &&& *value == old_model.map[*key]
+                &&& new_model.keys == old_model.keys
+                &&& new_model.position == old_model.position
+                &&& new_model.map == old_model.map.insert(*key, *final(value))
+            },
+            None => {
+                &&& old(cursor).model().position == 0
+                &&& final(cursor).model().keys == old(cursor).model().keys
+                &&& final(cursor).model().position == old(cursor).model().position
+                &&& final(cursor).model().map == old(cursor).model().map
+            },
+        },
 ;
 
 /// Specification for [`CursorMut::peek_next`].
@@ -154,10 +267,25 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
     cursor: &'b mut CursorMut<'a, Key, Value, A>,
 ) -> (result: Option<(&'b Key, &'b mut Value)>)
     ensures
-        final(cursor).excluded_keys() == old(cursor).excluded_keys(),
+        final(cursor).final_map() == old(cursor).final_map(),
+        old(cursor).model().wf() ==> final(cursor).model().wf(),
         match result {
-            Some((key, _)) => !old(cursor).excluded_keys().contains(*key),
-            None => true,
+            Some((key, value)) => {
+                let old_model = old(cursor).model();
+                let new_model = final(cursor).model();
+                &&& old_model.position < old_model.keys.len()
+                &&& *key == old_model.keys[old_model.position]
+                &&& *value == old_model.map[*key]
+                &&& new_model.keys == old_model.keys
+                &&& new_model.position == old_model.position
+                &&& new_model.map == old_model.map.insert(*key, *final(value))
+            },
+            None => {
+                &&& old(cursor).model().position == old(cursor).model().keys.len()
+                &&& final(cursor).model().keys == old(cursor).model().keys
+                &&& final(cursor).model().position == old(cursor).model().position
+                &&& final(cursor).model().map == old(cursor).model().map
+            },
         },
 ;
 
