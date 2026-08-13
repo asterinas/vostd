@@ -3,11 +3,11 @@
 use vstd::prelude::*;
 
 use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
-/*mod allocator;*/
+mod allocator;
 
 use core::{marker::PhantomData, mem::size_of};
 
-/*pub(super) use self::allocator::init;*/
+pub(super) use self::allocator::init;
 use crate::{Error, prelude::*};
 
 /// An I/O port, representing a specific address in the I/O address of x86.
@@ -40,16 +40,35 @@ impl<T, A> View for IoPort<T, A> {
 }
 
 } // verus!
+/// Returns the initialized global PIO allocator.
+///
+/// The executable body intentionally preserves the original `get().unwrap()` behavior. This
+/// helper is trusted only because Verus cannot connect an `exec static` to a spec-level boot-state
+/// predicate.
+#[verifier::external_body]
+#[verus_spec(
+    requires allocator::io_port_allocator_initialized(),
+)]
+fn initialized_allocator() -> &'static allocator::IoPortAllocator {
+    allocator::IO_PORT_ALLOCATOR.get().unwrap()
+}
+
 #[verus_verify]
 impl<T, A> IoPort<T, A> {
     /// Acquires an `IoPort` instance for the given range.
-    /*pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
-        allocator::IO_PORT_ALLOCATOR
-            .get()
-            .unwrap()
+    #[verus_spec(result =>
+        requires
+            size_of::<T>() <= u16::MAX,
+            port as usize + size_of::<T>() <= u16::MAX,
+            allocator::io_port_allocator_initialized(),
+        ensures
+            result is Ok ==> result->Ok_0@ == port,
+    )]
+    pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
+        initialized_allocator()
             .acquire(port)
             .ok_or(Error::AccessDenied)
-    }*/
+    }
 
     /// Returns the port number.
     #[verus_spec(returns self@)]
@@ -68,7 +87,13 @@ impl<T, A> IoPort<T, A> {
     ///
     /// This function is marked unsafe as creating an I/O port is considered
     /// a privileged operation.
-    #[verus_spec(ret => ensures ret@ == port)]
+    #[verus_spec(ret =>
+        requires
+            size_of::<T>() <= u16::MAX,
+            port as usize + size_of::<T>() <= u16::MAX,
+        ensures
+            ret@ == port,
+    )]
     pub const unsafe fn new(port: u16) -> Self {
         Self {
             port,
@@ -98,7 +123,7 @@ impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     }
 }
 
-/*impl<T, A> Drop for IoPort<T, A> {
+impl<T, A> Drop for IoPort<T, A> {
     fn drop(&mut self) {
         // SAFETY: The caller have ownership of the PIO region.
         unsafe {
@@ -108,7 +133,7 @@ impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
                 .recycle(self.port..(self.port + size_of::<T>() as u16));
         }
     }
-}*/
+}
 
 /// Reserves an I/O port range which may refer to the port I/O range used by the
 /// system device driver.

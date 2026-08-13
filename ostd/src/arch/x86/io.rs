@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use alloc::vec::Vec;
+use vstd::prelude::*;
+
+/*use alloc::vec::Vec;
 
 use align_ext::AlignExt;
 
@@ -55,6 +57,7 @@ pub(super) fn construct_io_mem_allocator_builder() -> IoMemAllocatorBuilder {
     // SAFETY: The range is guaranteed not to access physical memory.
     unsafe { IoMemAllocatorBuilder::new(ranges) }
 }
-
+*/
 /// Port I/O definition reference: <https://bochs.sourceforge.io/techspec/PORTS.LST>.
+#[verus_verify]
 pub const MAX_IO_PORT: u16 = u16::MAX;

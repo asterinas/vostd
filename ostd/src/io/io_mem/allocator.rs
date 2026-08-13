@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
+use crate::specs::arch::PAGE_SIZE;
+use crate::sync::{OnceImpl, TrivialPred};
 use vstd::prelude::*;
 
 use alloc::vec::Vec;
 use core::ops::Range;
 
 use log::{debug, info};
-use spin::Once;
+/*use spin::Once;*/
 
 use crate::{
     io::io_mem::IoMem,
@@ -20,16 +22,27 @@ pub struct IoMemAllocator {
     allocators: Vec<RangeAllocator>,
 }
 
+#[verus_verify]
 impl IoMemAllocator {
     /// Acquires the I/O memory access for `range`.
     ///
     /// If the range is not available, then the return value will be `None`.
+    #[verus_spec(result =>
+        requires
+            vstd::arithmetic::power2::is_pow2(PAGE_SIZE as int),
+            range.start < range.end,
+            range.end <= usize::MAX - (PAGE_SIZE - 1),
+        ensures
+            result is Some ==> result->Some_0.paddr_spec() == range.start,
+            result is Some ==> result->Some_0.length_spec()
+                == vstd_extra::external::range::range_usize_len_spec(&range),
+    )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         find_allocator(&self.allocators, &range)?
             .alloc_specific(&range)
             .ok()?;
 
-        debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end);
+        /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
         // Original Rust used the upstream bitflags-style associated constant `PageFlags::RW`.
@@ -42,10 +55,11 @@ impl IoMemAllocator {
     ///
     /// The caller must have ownership of the MMIO region through the `IoMemAllocator::get` interface.
     #[expect(dead_code)]
+    #[verifier::external_body]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
         let allocator = find_allocator(&self.allocators, &range).unwrap();
 
-        debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end);
+        /* debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end); */
 
         allocator.free(range);
     }
@@ -70,6 +84,7 @@ pub(crate) struct IoMemAllocatorBuilder {
     allocators: Vec<RangeAllocator>,
 }
 
+#[verus_verify]
 impl IoMemAllocatorBuilder {
     /// Initializes memory I/O region for devices.
     ///
@@ -92,35 +107,42 @@ impl IoMemAllocatorBuilder {
     /// Removes access to a specific memory I/O range.
     ///
     /// All drivers in OSTD must use this method to prevent peripheral drivers from accessing illegal memory I/O range.
+    #[verus_spec(
+        requires
+            range.start < range.end,
+            vstd_extra::panic::may_panic(),
+    )]
     pub(crate) fn remove(&self, range: Range<usize>) {
-        let Some(allocator) = find_allocator(&self.allocators, &range) else {
-            panic!(
-                "Allocator for the system device's MMIO was not found. Range: {:x?}",
-                range
-            );
-        };
-
-        if let Err(err) = allocator.alloc_specific(&range) {
-            panic!(
-                "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
-                range, err
-            );
-        }
+        // Formatting machinery used by the original panic is not modeled by Verus.
+        // Original Rust used two formatted `panic!` branches here.
+        let allocator = find_allocator(&self.allocators, &range);
+        vstd_extra::assert!(allocator.is_some());
+        let result = allocator.unwrap().alloc_specific(&range);
+        vstd_extra::assert!(result.is_ok());
     }
 }
 
 /// The I/O Memory allocator of the system.
-pub static IO_MEM_ALLOCATOR: Once<IoMemAllocator> = Once::new();
+verus! {
 
+pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialPred>
+    ensures
+        IO_MEM_ALLOCATOR.wf(),
+{
+    OnceImpl::new(Ghost(TrivialPred))
+}
+
+} // verus!
 /// Initializes the static `IO_MEM_ALLOCATOR` based on builder.
 ///
 /// # Safety
 ///
 /// User must ensure all the memory I/O regions that belong to the system device have been removed by calling the
 /// `remove` function.
+#[verus_verify]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
-    IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
+    IO_MEM_ALLOCATOR.init(unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
 }
 
 #[verus_verify]
