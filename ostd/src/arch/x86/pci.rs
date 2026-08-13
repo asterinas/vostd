@@ -13,12 +13,21 @@ pub assume_specification[ u32::to_le ](value: u32) -> (result: u32)
         result == value,
 ;
 
-} // verus!
-#[verus_verify]
-static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
-#[verus_verify]
-static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
+exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess>
+    ensures
+        PCI_ADDRESS_PORT.well_formed(),
+{
+    unsafe { IoPort::new(0x0CF8) }
+}
 
+exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess>
+    ensures
+        PCI_DATA_PORT.well_formed(),
+{
+    unsafe { IoPort::new(0x0CFC) }
+}
+
+} // verus!
 #[verus_verify]
 const BIT32_ALIGN_MASK: u32 = 0xFFFC;
 

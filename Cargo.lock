@@ -331,6 +331,7 @@ dependencies = [
  "spin",
  "tdx-guest",
  "unwinding",
+ "verus_state_machines_macros",
  "volatile 0.6.1",
  "vstd",
  "vstd_extra",
