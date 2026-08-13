@@ -12,8 +12,8 @@ use crate::specs::mm::cpu::online_cpus;
 use vstd::invariant::{AtomicInvariant, InvariantPredicate};
 use vstd::modes::tracked_static_ref;
 use vstd::prelude::*;
-use vstd::resource::ghost_var::{GhostVar, GhostVarAuth};
 use vstd::resource::Loc;
+use vstd::resource::ghost_var::{GhostVar, GhostVarAuth};
 use vstd::thread_view::Objective;
 use vstd_extra::atomic_irc11::{
     AtomicId as Irc11AtomicId, AtomicPointsTo, PAtomicWeakBool as Irc11AtomicBool, PAtomicWeakPtr,

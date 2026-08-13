@@ -36,8 +36,8 @@ use crate::specs::mm::cpu::CpuId;
 
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
-use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo};
 use vstd::resource::Loc;
+use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo};
 use vstd::thread_view::Objective;
 use vstd_extra::atomic_irc11::{
     AtomicHistory as Irc11History, AtomicId as Irc11AtomicId, AtomicPointsTo,
@@ -1666,6 +1666,7 @@ pub proof fn rcu_monitor_flag_initial_inv(
 {
     assert(history.dom() == Set::empty().insert(timestamp)) by {
         assert forall|ts: nat|
+            #![auto]
             history.dom().contains(ts) <==> Set::empty().insert(timestamp).contains(ts) by {
             if history.dom().contains(ts) {
                 assert(history.contains_timestamp(ts));
@@ -4617,6 +4618,7 @@ impl LinkedListAtomicLinkGhost {
         assert(history.is_max_timestamp(timestamp));
         assert(history.dom() == Set::empty().insert(timestamp)) by {
             assert forall|ts: nat|
+                #![auto]
                 history.dom().contains(ts) <==> Set::empty().insert(timestamp).contains(ts) by {
                 if history.dom().contains(ts) {
                     assert(history.contains_timestamp(ts));

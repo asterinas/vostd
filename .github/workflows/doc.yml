@@ -86,7 +86,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: tools/verus
-          key: ${{ runner.os }}-verus-irc11-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
+          key: ${{ runner.os }}-verus-irc11-weak-memory-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
 
       - name: Cache verusfmt
         id: cache-verusfmt
@@ -108,12 +108,12 @@ jobs:
             git -C tools/verus checkout --detach FETCH_HEAD
             git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
             git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
-            cargo dv bootstrap
+            bash tools/bootstrap-verus-irc11.sh
           fi
 
           if ! command -v verusfmt >/dev/null 2>&1; then
-            echo "verusfmt not found, installing via cargo dv bootstrap..."
-            cargo dv bootstrap
+            echo "verusfmt not found, installing..."
+            curl --proto '=https' --tlsv1.2 -LsSf https://github.com/verus-lang/verusfmt/releases/latest/download/verusfmt-installer.sh | sh
           fi
           test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
           test -f tools/verus/source/vstd/atomic_weak.rs

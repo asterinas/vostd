@@ -699,7 +699,7 @@ impl<P: NonNullPtr + Send> RawCallbackContextWithProof<
                 state.permissions.lemma_active_registry_projection();
                 let ghost permissions_before_exclusion = state.permissions;
                 let ghost registry_before_exclusion = state.permissions.registry();
-                assert forall|lease_id: nat|
+                assert forall|lease_id: nat| #![auto]
                     state.permissions.active_ids().contains(lease_id)
                         && state.permissions.active_record(lease_id).key() == callback.obj
                     implies {
@@ -734,7 +734,7 @@ impl<P: NonNullPtr + Send> RawCallbackContextWithProof<
                 {
                     let tracked registry = state.permissions.tracked_registry_mut();
                     assert(*registry == registry_before_exclusion);
-                    assert forall|lease_id: nat|
+                    assert forall|lease_id: nat| #![auto]
                         (*registry).active_ids().contains(lease_id)
                             && (*registry).active_record(lease_id).key() == callback.obj
                         implies {
@@ -927,6 +927,7 @@ fn callback_from_detached<P: NonNullPtr + Send>(
     ensures
         res.1@.removal() == owned.retired().removal(),
         forall|permit: monitor::RcuReclaimPermit|
+            #![auto]
             permit.wf() && permit.callback().domain == res.1@.domain() && permit.callback().obj
                 == res.1@.obj() && permit.callback().removal == res.1@.removal()
                 && permit.callback().retire_observation_registry
@@ -1012,6 +1013,7 @@ fn callback_from_linked_list_child<P>(
         res.1@.removal() == link.target_phase(target_obj)->Retired_removal,
         res.1@.retire_observation_registry() == link.constant().retire_observation_registry,
         forall|permit: monitor::RcuReclaimPermit|
+            #![auto]
             permit.wf() && permit.callback().domain == res.1@.domain() && permit.callback().obj
                 == res.1@.obj() && permit.callback().removal == res.1@.removal()
                 && permit.callback().retire_observation_registry

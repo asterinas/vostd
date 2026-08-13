@@ -122,7 +122,7 @@ impl<S> RawCallbackWithProof<S> {
     #[verifier::external_body]
     pub fn new<C: RawCallbackContextWithProof<S>>(context: C) -> (res: Self)
         ensures
-            forall|proof: S| res.call_requires(proof) == context.call_requires(proof),
+            forall|proof: S| #![auto] res.call_requires(proof) == context.call_requires(proof),
     {
         let payload = Box::new(RawCallbackPayloadWithProof { context, _proof: PhantomData });
         Self {

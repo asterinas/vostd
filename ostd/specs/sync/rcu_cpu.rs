@@ -46,20 +46,20 @@
 //! counter and is not an authority for this persistent CPU generation. Reader
 //! contexts obtain their CPU generation from [`CpuRcuReaderFragment`].
 use crate::specs::{
-    mm::cpu::{online_cpus, CpuId},
+    mm::cpu::{CpuId, online_cpus},
     task::cpu_core::{CpuCoreLocalState, CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreRegistration},
 };
 use vstd::{
     modes::tracked_swap,
     prelude::*,
     resource::{
+        Loc,
         agree::AgreementRA,
         algebra::{Resource, ResourceAlgebra},
         frac::FractionRA,
         map::{GhostMapAuth, GhostPointsTo},
         product::ProductRA,
         relations::frame_preserving_update_opt,
-        Loc,
     },
 };
 
@@ -2783,8 +2783,10 @@ impl<T, O> RcuRootPermissionState<T, O> {
     {
         if self.has_active(obj) {
             assert(exists|lease_id: nat|
+                #![auto]
                 self.active_ids().contains(lease_id) && self.active_record(lease_id).key() == obj);
             let ghost lease_id = choose|lease_id: nat|
+                #![auto]
                 self.active_ids().contains(lease_id) && self.active_record(lease_id).key() == obj;
             let ghost record = self.active_record(lease_id);
             assert(record.key() == obj);

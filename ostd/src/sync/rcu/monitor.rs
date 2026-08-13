@@ -221,6 +221,7 @@ impl RcuCallback {
         requires
             cert.removal().observed_by(retire_view),
             forall|permit: RcuReclaimPermit|
+                #![auto]
                 permit.wf() && permit.callback().domain == cert.domain() && permit.callback().obj
                     == cert.obj() && permit.callback().removal == cert.removal()
                     && permit.callback().retire_observation_registry
@@ -508,6 +509,7 @@ impl RcuReclaimPermit {
             self.authorizes(callback),
             old(registry).wf(),
             forall|lease_id: nat|
+                #![auto]
                 old(registry).active_ids().contains(lease_id) && old(registry).active_record(
                     lease_id,
                 ).key() == callback.obj ==> {
@@ -529,6 +531,7 @@ impl RcuReclaimPermit {
     {
         if old(registry).has_active(callback.obj) {
             let ghost lease_id = choose|lease_id: nat|
+                #![auto]
                 old(registry).active_ids().contains(lease_id) && old(registry).active_record(
                     lease_id,
                 ).key() == callback.obj;
@@ -1025,6 +1028,7 @@ impl GracePeriod {
                         assert(self.callback_summaries()[i] == old(self).callback_summaries()[i]);
                     };
                     assert forall|i: int|
+                        #![auto]
                         0 <= i
                             < self.callback_summaries().len() implies self.tracked_closed_generations@[cpu].known_retired().contains(
                     self.callback_summaries()[i].retired_record()) by {
@@ -1049,6 +1053,7 @@ impl GracePeriod {
                         assert(self.callback_summaries()[i] == old(self).callback_summaries()[i]);
                     };
                     assert forall|i: int|
+                        #![auto]
                         0 <= i
                             < self.callback_summaries().len() implies self.tracked_closed_generations@[cpu].known_retired().contains(
                     self.callback_summaries()[i].retired_record()) by {
@@ -1840,7 +1845,7 @@ impl RcuMonitor {
             old(session).wf(),
             old(session).scheduler() == rcu_spec::rcu_scheduler(),
             cert@.removal().observed_by(old(session).irc11_view()),
-            forall|permit: RcuReclaimPermit|
+            forall|permit: RcuReclaimPermit| #![auto]
                 permit.wf()
                     && permit.callback().domain == cert@.domain()
                     && permit.callback().obj == cert@.obj()

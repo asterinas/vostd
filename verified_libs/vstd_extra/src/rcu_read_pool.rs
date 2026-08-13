@@ -7,7 +7,7 @@
 //! only after all leases have been returned and the pool fraction is whole.
 use vstd::{
     prelude::*,
-    resource::{frac_opt::Frac, Loc},
+    resource::{Loc, frac_opt::Frac},
 };
 
 verus! {
@@ -276,7 +276,7 @@ proof fn lemma_active_fraction_zero<K, W>(
     upto: nat,
 )
     requires
-        forall|id: nat| id < upto && active.contains_key(id) ==> active[id].key() != key,
+        forall|id: nat| #![auto] id < upto && active.contains_key(id) ==> active[id].key() != key,
     ensures
         active_lease_fraction(active, key, upto) == 0real,
     decreases upto,
@@ -615,6 +615,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             ).fraction(),
             final(self).active_record(lease_id).witness() == *final(witness),
             forall|other: nat|
+                #![auto]
                 other != lease_id && old(self).active_ids().contains(other)
                     ==> final(self).active_record(other) == old(self).active_record(other),
     {
@@ -624,6 +625,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
 
     pub open spec fn has_active(self, key: K) -> bool {
         exists|lease_id: nat|
+            #![auto]
             self.active_ids().contains(lease_id) && self.active_record(lease_id).key() == key
     }
 
@@ -655,6 +657,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             final(self).active_ids() == old(self).active_ids(),
             final(self).next_lease() == old(self).next_lease(),
             forall|lease_id: nat|
+                #![auto]
                 old(self).active_ids().contains(lease_id) ==> final(self).active_record(lease_id)
                     == old(self).active_record(lease_id),
             final(self).contains(key),
@@ -682,7 +685,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         ) == 1real by {};
         let tracked pool = RcuReadPool::new(resource);
         self.pools.tracked_insert(key, pool);
-        assert forall|lease_id: nat| self.active_ids().contains(lease_id) implies {
+        assert forall|lease_id: nat| #![auto] self.active_ids().contains(lease_id) implies {
             &&& lease_id < self.next_lease()
             &&& self.contains(self.active_record(lease_id).key())
             &&& self.active_record(lease_id).pool_id() == self.pool(
@@ -694,6 +697,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             assert(old(self).active_record(lease_id).key() != key);
         };
         assert forall|lease_id: nat|
+            #![auto]
             lease_id < self.next_lease() && self.active_records().contains_key(
                 lease_id,
             ) implies self.active_records()[lease_id].key() != key by {
@@ -703,7 +707,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         assert(active_lease_fraction(self.active_records(), key, self.next_lease()) == 0real) by {
             lemma_active_fraction_zero(self.active_records(), key, self.next_lease());
         };
-        assert forall|other: K| self.contains(other) implies self.pool(other).fraction()
+        assert forall|other: K| #![auto] self.contains(other) implies self.pool(other).fraction()
             + active_lease_fraction(self.active_records(), other, self.next_lease()) == 1real by {
             if other == key {
                 assert(self.pool(key).fraction() == 1real);
@@ -734,6 +738,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             final(self).active_record(lease.lease_id()).fraction() == lease.fraction(),
             final(self).active_record(lease.lease_id()).witness() == witness,
             forall|lease_id: nat|
+                #![auto]
                 old(self).active_ids().contains(lease_id) ==> final(self).active_record(lease_id)
                     == old(self).active_record(lease_id),
             lease.pool_id() == old(self).pool(key).id(),
@@ -767,7 +772,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         self.active.tracked_insert(lease_id, record);
         self.next_lease = lease_id + 1;
 
-        assert forall|active_id: nat| self.active_ids().contains(active_id) implies {
+        assert forall|active_id: nat| #![auto] self.active_ids().contains(active_id) implies {
             &&& active_id < self.next_lease()
             &&& self.contains(self.active_record(active_id).key())
             &&& self.active_record(active_id).pool_id() == self.pool(
@@ -783,7 +788,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             }
         };
 
-        assert forall|other: K| self.contains(other) implies self.pool(other).fraction()
+        assert forall|other: K| #![auto] self.contains(other) implies self.pool(other).fraction()
             + active_lease_fraction(self.active_records(), other, self.next_lease()) == 1real by {
             lemma_active_fraction_insert_next(
                 old(self).active_records(),
@@ -830,6 +835,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             final(self).active_ids() == old(self).active_ids().remove(lease.lease_id()),
             witness == old(self).active_record(lease.lease_id()).witness(),
             forall|lease_id: nat|
+                #![auto]
                 lease_id != lease.lease_id() && old(self).active_ids().contains(lease_id)
                     ==> final(self).active_record(lease_id) == old(self).active_record(lease_id),
             final(self).pool(lease.key()).id() == old(self).pool(lease.key()).id(),
@@ -856,7 +862,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         let tracked pool = self.pools.tracked_borrow_mut(key);
         pool.return_lease(lease.lease);
 
-        assert forall|active_id: nat| self.active_ids().contains(active_id) implies {
+        assert forall|active_id: nat| #![auto] self.active_ids().contains(active_id) implies {
             &&& active_id < self.next_lease()
             &&& self.contains(self.active_record(active_id).key())
             &&& self.active_record(active_id).pool_id() == self.pool(
@@ -869,7 +875,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             assert(self.active_record(active_id) == old(self).active_record(active_id));
         };
 
-        assert forall|other: K| self.contains(other) implies self.pool(other).fraction()
+        assert forall|other: K| #![auto] self.contains(other) implies self.pool(other).fraction()
             + active_lease_fraction(self.active_records(), other, self.next_lease()) == 1real by {
             lemma_active_fraction_remove(
                 old(self).active_records(),
@@ -909,6 +915,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             final(self).active_records() == old(self).active_records(),
             final(self).next_lease() == old(self).next_lease(),
             forall|lease_id: nat|
+                #![auto]
                 old(self).active_ids().contains(lease_id) ==> final(self).active_record(lease_id)
                     == old(self).active_record(lease_id),
             !final(self).contains(key),
@@ -929,12 +936,14 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             old(self).next_lease(),
         ) == 1real by {};
         assert forall|lease_id: nat|
+            #![auto]
             lease_id < self.next_lease() && self.active_records().contains_key(
                 lease_id,
             ) implies self.active_records()[lease_id].key() != key by {
             if self.active_records()[lease_id].key() == key {
                 assert(self.active_ids().contains(lease_id));
                 assert(exists|candidate: nat|
+                    #![auto]
                     self.active_ids().contains(candidate) && self.active_record(candidate).key()
                         == key) by {
                     assert(self.active_record(lease_id).key() == key);
@@ -946,7 +955,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
         assert(self.pool(key).fraction() == 1real);
         let tracked pool = self.pools.tracked_remove(key);
         let tracked resource = pool.reclaim();
-        assert forall|lease_id: nat| self.active_ids().contains(lease_id) implies {
+        assert forall|lease_id: nat| #![auto] self.active_ids().contains(lease_id) implies {
             &&& lease_id < self.next_lease()
             &&& self.contains(self.active_record(lease_id).key())
             &&& self.active_record(lease_id).pool_id() == self.pool(
@@ -957,7 +966,7 @@ impl<K, T, W> RcuTrackedReadPoolRegistry<K, T, W> {
             assert(old(self).active_ids().contains(lease_id));
             assert(old(self).active_record(lease_id).key() != key);
         };
-        assert forall|other: K| self.contains(other) implies self.pool(other).fraction()
+        assert forall|other: K| #![auto] self.contains(other) implies self.pool(other).fraction()
             + active_lease_fraction(self.active_records(), other, self.next_lease()) == 1real by {
             assert(other != key);
             assert(old(self).contains(other));
