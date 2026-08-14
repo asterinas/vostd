@@ -1,5 +1,5 @@
 diff --git a/source/vstd/Cargo.toml b/source/vstd/Cargo.toml
-index 1c106c81..ef05ea7e 100644
+index 8147c1e..4966896 100644
 --- a/source/vstd/Cargo.toml
 +++ b/source/vstd/Cargo.toml
 @@ -33,6 +33,7 @@ allocator = []
@@ -11,10 +11,11 @@ index 1c106c81..ef05ea7e 100644
  
  [package.metadata.verus]
 diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
+index 550a1b8..774ae77 100644
 --- a/source/vstd/atomic.rs
 +++ b/source/vstd/atomic.rs
-@@ -5,10 +5,8 @@ use super::prelude::*;
- use super::raw_ptr::PointsTo;
+@@ -4,10 +4,8 @@ use super::pervasive::*;
+ use super::prelude::*;
  use super::view::*;
  
 -#[cfg(not(feature = "weak-memory"))]
@@ -24,16 +25,15 @@ diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
  mod sc_atomic_types {
  
      use core::sync::atomic::{
-@@ -22,7 +20,8 @@ mod sc_atomic_types {
+@@ -21,6 +19,7 @@ mod sc_atomic_types {
      use super::super::modes::*;
      use super::super::pervasive::*;
      use super::super::prelude::*;
-     use super::super::raw_ptr::PointsTo;
 +    use super::super::thread_view::Objective;
      use super::super::view::*;
      use super::super::wrapping::*;
  
-@@ -73,6 +73,9 @@ mod sc_atomic_types {
+@@ -72,6 +71,9 @@ mod sc_atomic_types {
              unused: $value_ty,
          }
  
@@ -43,7 +43,7 @@ diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
          pub ghost struct $p_data_ident {
              pub patomic: int,
              pub value: $value_ty,
-@@ -122,6 +125,9 @@ mod sc_atomic_types {
+@@ -121,6 +123,9 @@ mod sc_atomic_types {
              unusued: $value_ty,
          }
  
@@ -54,7 +54,7 @@ diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
          pub ghost struct $p_data_ident <T> {
              pub patomic: int,
 diff --git a/source/vstd/atomic_ghost.rs b/source/vstd/atomic_ghost.rs
-index 0d6a3b8a..4b456bfb 100644
+index 0d6a3b8..4b456bf 100644
 --- a/source/vstd/atomic_ghost.rs
 +++ b/source/vstd/atomic_ghost.rs
 @@ -2,16 +2,15 @@
@@ -139,7 +139,7 @@ index 0d6a3b8a..4b456bfb 100644
          {
              pub open spec fn well_formed(&self) -> bool {
 diff --git a/source/vstd/thread_view.rs b/source/vstd/thread_view.rs
-index bfb1c293..2a2ad51b 100644
+index bfb1c29..2a2ad51 100644
 --- a/source/vstd/thread_view.rs
 +++ b/source/vstd/thread_view.rs
 @@ -223,6 +223,34 @@ unsafe impl<RA: algebra::ResourceAlgebra> Objective for algebra::Resource<RA> {
