@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/ci-irc11.yml"
       - "tools/bootstrap-verus-irc11.sh"
+      - "tools/patches/verus-irc11.patch"
       - "tools/patches/verus-irc11-vstd.patch"
       - "tools/tests/irc11_smoke.rs"
       - "rust-toolchain.toml"
@@ -17,6 +18,7 @@ on:
     paths:
       - ".github/workflows/ci-irc11.yml"
       - "tools/bootstrap-verus-irc11.sh"
+      - "tools/patches/verus-irc11.patch"
       - "tools/patches/verus-irc11-vstd.patch"
       - "tools/tests/irc11_smoke.rs"
       - "rust-toolchain.toml"
@@ -36,8 +38,9 @@ jobs:
     timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
-      VERUS_REPOSITORY: https://github.com/verus-lang/verus.git
-      VERUS_COMMIT: 5ddfa4dca52ec0225600d45e0a34f53087c70a93
+      VERUS_REPOSITORY: https://github.com/asterinas/verus.git
+      VERUS_BASE_COMMIT: bb61343fc97e4b3a97b1029f385ffb6bbb291da2
+      VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
       VERUS_COMPAT_PATCH: tools/patches/verus-irc11-vstd.patch
 
     steps:
@@ -59,7 +62,7 @@ jobs:
 
           echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
           echo "Using Rust $RUST_VERSION"
-          echo "Using pinned upstream Verus IRC11 commit $VERUS_COMMIT"
+          echo "Using pinned Asterinas Verus base $VERUS_BASE_COMMIT"
 
       - name: Cache IRC11 Rust toolchain
         uses: actions/cache@v6
@@ -76,7 +79,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-irc11-cargo-${{ env.VERUS_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11-vstd.patch') }}
+          key: ${{ runner.os }}-irc11-cargo-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
           restore-keys: |
             ${{ runner.os }}-irc11-cargo-
 
@@ -85,7 +88,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: tools/verus
-          key: ${{ runner.os }}-irc11-verus-v1-${{ env.VERUS_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11-vstd.patch') }}
+          key: ${{ runner.os }}-irc11-verus-v1-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
 
       - name: Bootstrap IRC11 Verus
         run: |
@@ -93,15 +96,16 @@ jobs:
             rm -rf tools/verus
             git init tools/verus
             git -C tools/verus remote add origin "$VERUS_REPOSITORY"
-            git -C tools/verus fetch --depth=1 origin "$VERUS_COMMIT"
+            git -C tools/verus fetch --depth=1 origin "$VERUS_BASE_COMMIT"
             git -C tools/verus checkout --detach FETCH_HEAD
+            git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
             git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_COMPAT_PATCH"
             bash tools/bootstrap-verus-irc11.sh
           else
             echo "Using cached IRC11 Verus"
           fi
 
-          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_COMMIT"
+          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
           git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_COMPAT_PATCH"
           git -C tools/verus diff --check
           test -x tools/verus/source/target-verus/release/verus

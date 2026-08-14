@@ -22,8 +22,8 @@ fi
 
 cargo build --release --manifest-path "$vargo_manifest"
 
-# This IRC11 revision does not include weak-memory mode in Vargo's build
-# fingerprint, so force vstd to rebuild whenever this bootstrap path is invoked.
+# The IRC11 patch predates weak-memory in Vargo's build fingerprint, so force
+# vstd to rebuild whenever this bootstrap path is invoked.
 rm -f "$source_dir/target-verus/release/.vstd-fingerprint"
 
 (
