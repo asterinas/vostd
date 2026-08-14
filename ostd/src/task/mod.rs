@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Tasks are the unit of code execution.
 use vstd::prelude::*;
+use vstd::resource::Loc;
 
 /* pub mod atomic_mode;
 mod kernel_stack; */
@@ -22,8 +23,11 @@ use kernel_stack::KernelStack;
 use processor::current_task;*/
 use spin::Once;
 // use utils::ForceSync;
+pub(crate) use self::preempt::disable_preempt_in_context;
 pub use self::{
-    preempt::{DisabledPreemptGuard, disable_preempt},
+    preempt::{
+        DisabledPreemptGuard, PreemptThreadViewSession, RunningTaskContext, disable_preempt,
+    },
     /* scheduler::info::{AtomicCpuId, TaskScheduleInfo}, */
 };
 /*
@@ -43,6 +47,8 @@ pub fn inject_pre_schedule_handler(handler: fn()) {
 pub fn inject_post_schedule_handler(handler: fn()) {
     POST_SCHEDULE_HANDLER.call_once(|| handler);
 }*/
+
+verus! {
 
 /// A task that executes a function to the end.
 ///
@@ -71,17 +77,46 @@ pub struct Task {
 
     schedule_info: TaskScheduleInfo,*/
 }
-/*
+
+#[verus_verify]
 impl Task {
+    /// Returns the unique identifier of the task.
+    pub uninterp spec fn id(&self) -> Loc;
+
     /// Gets the current task.
     ///
     /// It returns `None` if the function is called in the bootstrap context.
     pub fn current() -> Option<CurrentTask> {
-        let current_task = current_task()?;
+        Some(CurrentTask {  })
+        // let current_task = current_task()?;
+        // // SAFETY: `current_task` is the current task.
+        // Some(unsafe { CurrentTask::new(current_task) })
 
-        // SAFETY: `current_task` is the current task.
-        Some(unsafe { CurrentTask::new(current_task) })
     }
+}
+
+/// The current task.
+///
+/// This type is not `Send`, so it cannot outlive the current task.
+///
+/// This type is also not `Sync`, so it can provide access to the local data of the current task.
+pub struct CurrentTask;
+
+#[verifier::external]
+impl !Send for Task {
+
+}
+
+#[verifier::external]
+impl !Sync for Task {
+
+}
+
+} // verus!
+/*
+impl Task {
+
+
 
     pub(super) fn ctx(&self) -> &SyncUnsafeCell<TaskContext> {
         &self.ctx
@@ -267,13 +302,7 @@ impl TaskOptions {
     }
 }
 
-/// The current task.
-///
-/// This type is not `Send`, so it cannot outlive the current task.
-///
-/// This type is also not `Sync`, so it can provide access to the local data of the current task.
-#[derive(Debug)]
-pub struct CurrentTask(NonNull<Task>);
+
 
 // The intern `NonNull<Task>` contained by `CurrentTask` implies that `CurrentTask` is `!Send` and
 // `!Sync`. But it is still good to do this explicitly because these properties are key for

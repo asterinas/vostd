@@ -1,4 +1,4 @@
-name: Verify VOSTD (Main) with verus-lang/verus
+name: Verify VOSTD with rebased Verus IRC11
 
 on:
   push:
@@ -23,6 +23,10 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       CARGO_TERM_COLOR: always
+      VERUS_REPOSITORY: https://github.com/asterinas/verus.git
+      VERUS_BASE_COMMIT: bb61343fc97e4b3a97b1029f385ffb6bbb291da2
+      VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
+      VERUS_PATCH: tools/patches/verus-irc11-vstd.patch
 
     steps:
       - name: Get PR head commit
@@ -53,7 +57,7 @@ jobs:
               sha: '${{ steps.pr.outputs.head_sha }}',
               state: 'pending',
               context: 'ci/upstream-verus',
-              description: 'Upstream Verus verification is running',
+              description: 'Upstream Verus IRC11 verification is running',
               target_url: runUrl,
             });
 
@@ -68,10 +72,27 @@ jobs:
           sudo apt update -qq
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
-      - name: Run dv bootstrap with upstream verus
-        run: cargo dv bootstrap --upstream-verus
+      - name: Bootstrap rebased Verus IRC11
+        run: |
+          rm -rf tools/verus
+          git init tools/verus
+          git -C tools/verus remote add origin "$VERUS_REPOSITORY"
+          git -C tools/verus fetch --depth=1 origin "$VERUS_BASE_COMMIT"
+          git -C tools/verus checkout --detach FETCH_HEAD
+          git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
+          bash tools/bootstrap-verus-irc11.sh
+          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
+          git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
 
-      - name: Verify ostd with upstream verus
+      - name: Enable IRC11 alongside existing SC atomics
+        run: |
+          if git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_PATCH"; then
+            echo "IRC11 compatibility patch is already applied"
+          else
+            git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_PATCH"
+          fi
+
+      - name: Verify ostd with upstream Verus IRC11
         run: make
 
       - name: Report upstream Verus verification status
@@ -85,8 +106,8 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const state = '${{ job.status }}' === 'success' ? 'success' : 'failure';
             const description = state === 'success'
-              ? 'Upstream Verus verification passed'
-              : 'Upstream Verus verification failed';
+              ? 'Upstream Verus IRC11 verification passed'
+              : 'Upstream Verus IRC11 verification failed';
 
             await github.rest.repos.createCommitStatus({
               owner,
