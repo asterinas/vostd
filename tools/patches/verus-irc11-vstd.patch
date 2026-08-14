@@ -1,0 +1,199 @@
+diff --git a/source/vstd/Cargo.toml b/source/vstd/Cargo.toml
+index 1c106c81..ef05ea7e 100644
+--- a/source/vstd/Cargo.toml
++++ b/source/vstd/Cargo.toml
+@@ -33,6 +33,7 @@ allocator = []
+ strict_provenance_atomic_ptr = []
+ allow_panic = [] # code is allowed to panic.
+ nonzero_internals = []
++weak-memory = []
+ 
+ 
+ [package.metadata.verus]
+diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
+--- a/source/vstd/atomic.rs
++++ b/source/vstd/atomic.rs
+@@ -5,10 +5,8 @@ use super::prelude::*;
+ use super::raw_ptr::PointsTo;
+ use super::view::*;
+ 
+-#[cfg(not(feature = "weak-memory"))]
+ pub use sc_atomic_types::*;
+ 
+-#[cfg(not(feature = "weak-memory"))]
+ mod sc_atomic_types {
+ 
+     use core::sync::atomic::{
+@@ -22,7 +20,8 @@ mod sc_atomic_types {
+     use super::super::modes::*;
+     use super::super::pervasive::*;
+     use super::super::prelude::*;
+     use super::super::raw_ptr::PointsTo;
++    use super::super::thread_view::Objective;
+     use super::super::view::*;
+     use super::super::wrapping::*;
+ 
+@@ -73,6 +73,9 @@ mod sc_atomic_types {
+             unused: $value_ty,
+         }
+ 
++        #[cfg(verus_keep_ghost)]
++        unsafe impl Objective for $p_ident {}
++
+         pub ghost struct $p_data_ident {
+             pub patomic: int,
+             pub value: $value_ty,
+@@ -122,6 +125,9 @@ mod sc_atomic_types {
+             unusued: $value_ty,
+         }
+ 
++        #[cfg(verus_keep_ghost)]
++        unsafe impl<T> Objective for $p_ident<T> {}
++
+         #[verifier::accept_recursive_types(T)]
+         pub ghost struct $p_data_ident <T> {
+             pub patomic: int,
+diff --git a/source/vstd/atomic_ghost.rs b/source/vstd/atomic_ghost.rs
+index 0d6a3b8a..4b456bfb 100644
+--- a/source/vstd/atomic_ghost.rs
++++ b/source/vstd/atomic_ghost.rs
+@@ -2,16 +2,15 @@
+ //! See the [`atomic_with_ghost!`] documentation for more information.
+ #![allow(unused_imports)]
+ 
+-#[cfg(not(feature = "weak-memory"))]
+ pub use atomic_ghost::*;
+ 
+-#[cfg(not(feature = "weak-memory"))]
+ mod atomic_ghost {
+ 
+     use super::super::atomic::*;
+     use super::super::invariant::*;
+     use super::super::modes::*;
+     use super::super::prelude::*;
++    use super::super::thread_view::Objective;
+ 
+     verus! {
+ 
+@@ -26,7 +25,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+ 
+         pub struct $atomic_pred_ty<Pred> { p: Pred }
+ 
+-        impl<K, G, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<Pred>
++        impl<K, G: Objective, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<Pred>
+             where Pred: AtomicInvariantPredicate<K, $value_ty, G>
+         {
+             open spec fn inv(k_loc: (K, int), perm_g: ($perm_ty, G)) -> bool {
+@@ -46,7 +45,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+         ///
+         /// See the [`atomic_with_ghost!`] documentation for usage information.
+ 
+-        pub struct $at_ident<K, G, Pred>
++        pub struct $at_ident<K, G: Objective, Pred>
+             //where Pred: AtomicInvariantPredicate<K, $value_ty, G>
+         {
+             #[doc(hidden)]
+@@ -56,7 +55,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+             pub atomic_inv: Tracked<AtomicInvariant<(K, int), ($perm_ty, G), $atomic_pred_ty<Pred>>>,
+         }
+ 
+-        impl<K, G, Pred> $at_ident<K, G, Pred> {
++        impl<K, G: Objective, Pred> $at_ident<K, G, Pred> {
+             pub open spec fn constant(&self) -> K {
+                 self.atomic_inv@.constant().0
+             }
+@@ -66,7 +65,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+             }
+         }
+ 
+-        impl<K, G, Pred> $at_ident<K, G, Pred>
++        impl<K, G: Objective, Pred> $at_ident<K, G, Pred>
+             where Pred: AtomicInvariantPredicate<K, $value_ty, G>
+         {
+             #[inline(always)]
+@@ -117,7 +116,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+ 
+         pub struct $atomic_pred_ty<T, Pred> { t: T, p: Pred }
+ 
+-        impl<T, K, G, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<T, Pred>
++        impl<T, K, G: Objective, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<T, Pred>
+             where Pred: AtomicInvariantPredicate<K, $value_ty, G>
+         {
+             open spec fn inv(k_loc: (K, int), perm_g: ($perm_ty, G)) -> bool {
+@@ -137,7 +136,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+         ///
+         /// See the [`atomic_with_ghost!`] documentation for usage information.
+ 
+-        pub struct $at_ident<T, K, G, Pred>
++        pub struct $at_ident<T, K, G: Objective, Pred>
+             //where Pred: AtomicInvariantPredicate<K, $value_ty, G>
+         {
+             #[doc(hidden)]
+@@ -147,7 +146,7 @@ pub trait AtomicInvariantPredicate<K, V, G> {
+             pub atomic_inv: Tracked<AtomicInvariant<(K, int), ($perm_ty, G), $atomic_pred_ty<T, Pred>>>,
+         }
+ 
+-        impl<T, K, G, Pred> $at_ident<T, K, G, Pred>
++        impl<T, K, G: Objective, Pred> $at_ident<T, K, G, Pred>
+             where Pred: AtomicInvariantPredicate<K, $value_ty, G>
+         {
+             pub open spec fn well_formed(&self) -> bool {
+diff --git a/source/vstd/thread_view.rs b/source/vstd/thread_view.rs
+index bfb1c293..2a2ad51b 100644
+--- a/source/vstd/thread_view.rs
++++ b/source/vstd/thread_view.rs
+@@ -223,6 +223,34 @@ unsafe impl<RA: algebra::ResourceAlgebra> Objective for algebra::Resource<RA> {
+ 
+ }
+ 
++// Memory ownership permissions are objective independently of the type stored
++// at the location. Their views describe global memory, not one thread's
++// subjective weak-memory observations.
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::cell::PointsTo<T> {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::cell::pcell::PointsTo<T> {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::raw_ptr::PointsTo<T> {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::simple_pptr::PointsTo<T> {
++
++}
++
+ // primitive types are objective because they do not hold permissions
+ macro_rules! declare_primitive_is_objective {
+     ($($a:ty),*) => {
+@@ -237,6 +265,19 @@ macro_rules! declare_primitive_is_objective {
+ 
+ declare_primitive_is_objective!(bool, char, (), u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, int, nat, str);
+ 
++// Verus does not currently derive the auto-trait bound for a tuple when one of
++// its elements is a type parameter. State the binary case explicitly since
++// invariants commonly package a permission and user ghost state as a pair.
++#[cfg(verus_keep_ghost)]
++unsafe impl<A: Objective, B: Objective> Objective for (A, B) {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T: Objective> Objective for Option<T> {
++
++}
++
+ // note: the fact that tuples are Objective (above) suffices for OBJMOD-SEP
+ // OBJ with wand update
+ #[cfg(verus_keep_ghost)]
