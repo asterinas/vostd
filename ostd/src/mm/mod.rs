@@ -26,20 +26,29 @@ mod test;
 
 use core::{fmt::Debug, ops::Range};
 
-pub use self::io::{
-    Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoOnce, VmReader,
-    VmWriter,
+pub use self::{
+    dma::{Daddr, DmaCoherent, /* DmaDirection, DmaStream, DmaStreamSlice, */ HasDaddr},
+    frame::{
+        Frame,
+        allocator::FrameAllocOptions,
+        segment::{Segment, USegment},
+        unique::UniqueFrame,
+        untyped::{AnyUFrameMeta, UFrame, UntypedMem},
+    },
+    io::{
+        Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoOnce, VmReader,
+        VmWriter,
+    },
+    page_prop::{CachePolicy, PageFlags, PageProperty},
+    vm_space::VmSpace,
 };
-#[doc(hidden)]
-pub use crate::arch::mm::PagingConsts;
-
-// Re-export paddr_to_vaddr from kspace
-#[doc(hidden)]
-pub use self::kspace::paddr_to_vaddr;
+pub(crate) use self::{
+    kspace::paddr_to_vaddr, page_prop::PrivilegedPageFlags, page_table::PageTable,
+};
+pub(crate) use crate::arch::mm::PagingConsts;
 
 // Re-export largest_pages from page_table
-#[doc(hidden)]
-pub use page_table::largest_pages;
+pub(crate) use page_table::largest_pages;
 
 /// The level of a page table node or a frame.
 pub type PagingLevel = u8;

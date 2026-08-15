@@ -1,19 +1,42 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
 
 use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
+#[verus_verify]
 pub struct RangeAllocator {
     fullrange: Range<usize>,
-    freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>>,
+    // TODO: PreemptDisabled added, SpinLock should be improved.
+    freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled>,
 }
 
 /// An error returned when allocating from a [`RangeAllocator`].
+#[verus_verify]
 #[derive(Debug)]
 pub struct RangeAllocError;
 
+verus! {
+
+impl View for RangeAllocator {
+    type V = Range<int>;
+
+    /// Specification view of the allocator's managed full range.
+    closed spec fn view(&self) -> Range<int> {
+        Range { start: self.fullrange.start as int, end: self.fullrange.end as int }
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl RangeAllocator {
+    #[verus_spec(ret =>
+        ensures
+            ret@.start == fullrange.start,
+            ret@.end == fullrange.end,
+    )]
     pub const fn new(fullrange: Range<usize>) -> Self {
         Self {
             fullrange,
@@ -21,11 +44,23 @@ impl RangeAllocator {
         }
     }
 
+    #[verus_spec(ret =>
+        ensures
+            ret.start == self@.start,
+            ret.end == self@.end,
+    )]
     pub const fn fullrange(&self) -> &Range<usize> {
         &self.fullrange
     }
 
     /// Allocates a specific kernel virtual area.
+    #[verifier::external_body]
+    #[verus_spec(res =>
+        requires allocate_range.start < allocate_range.end,
+        ensures
+            res is Ok ==> (self@.start <= allocate_range.start
+                && allocate_range.end <= self@.end),
+    )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
         debug_assert!(allocate_range.start < allocate_range.end);
 
@@ -69,6 +104,13 @@ impl RangeAllocator {
     /// Allocates a range specific by the `size`.
     ///
     /// This is currently implemented with a simple FIRST-FIT algorithm.
+    #[verifier::external_body]
+    #[verus_spec(res =>
+        ensures
+            res is Ok ==> (res->Ok_0.end - res->Ok_0.start == size),
+            res is Ok ==> (self@.start <= res->Ok_0.start
+                && res->Ok_0.end <= self@.end),
+    )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
@@ -101,6 +143,7 @@ impl RangeAllocator {
     }
 
     /// Frees a `range`.
+    #[verifier::external_body]
     pub fn free(&self, range: Range<usize>) {
         let mut lock_guard = self.freelist.lock();
         let freelist = lock_guard.as_mut().unwrap_or_else(|| {
@@ -137,6 +180,7 @@ impl RangeAllocator {
         }
     }
 
+    #[verifier::external_body]
     fn get_freelist_guard(
         &self,
     ) -> SpinLockGuard<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled> {
@@ -150,11 +194,18 @@ impl RangeAllocator {
     }
 }
 
+#[verus_verify]
 struct FreeRange {
     block: Range<usize>,
 }
 
+#[verus_verify]
 impl FreeRange {
+    #[verus_spec(ret =>
+        ensures
+            ret.block.start == range.start,
+            ret.block.end == range.end,
+    )]
     const fn new(range: Range<usize>) -> Self {
         Self { block: range }
     }

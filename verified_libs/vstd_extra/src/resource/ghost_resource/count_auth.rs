@@ -8,13 +8,13 @@ use vstd::resource::storage_protocol::*;
 verus! {
 
 /// A protocol monoid that tracks a resource value, its fraction, and **the authority**.
-ghost enum FractionalCarrierOpt<T, const TOTAL: u64> {
+ghost enum FractionalCarrierOpt<T, const TOTAL: usize> {
     Value { v: Option<T>, n: int, auth: bool },
     Empty,
     Invalid,
 }
 
-impl<T, const TOTAL: u64> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
+impl<T, const TOTAL: usize> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
     closed spec fn op(self, other: Self) -> Self {
         match self {
             FractionalCarrierOpt::Invalid => FractionalCarrierOpt::Invalid,
@@ -64,15 +64,15 @@ impl<T, const TOTAL: u64> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
     }
 }
 
-pub tracked struct Count<T, const TOTAL: u64 = 2> {
+pub tracked struct Count<T, const TOTAL: usize = 2> {
     r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
 
-pub tracked struct EmptyCount<T, const TOTAL: u64 = 2> {
+pub tracked struct EmptyCount<T, const TOTAL: usize = 2> {
     r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
 
-impl<T, const TOTAL: u64> Count<T, TOTAL> {
+impl<T, const TOTAL: usize> Count<T, TOTAL> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.r.value() matches FractionalCarrierOpt::Value { v: Some(_), .. }
@@ -299,7 +299,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
     }
 }
 
-impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
+impl<T, const TOTAL: usize> EmptyCount<T, TOTAL> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.r.value() matches FractionalCarrierOpt::Value { v: None, n, auth: true }
@@ -360,11 +360,11 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
 ///
 /// The authority and every dispatched [`Count`] use the same [`Loc`]. The
 /// authority remains present and records the resource when the pool's fraction reaches zero.
-pub tracked struct CountResource<T, const TOTAL: u64> {
+pub tracked struct CountResource<T, const TOTAL: usize> {
     tracked r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
 
-impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
+impl<T, const TOTAL: usize> CountResource<T, TOTAL> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0

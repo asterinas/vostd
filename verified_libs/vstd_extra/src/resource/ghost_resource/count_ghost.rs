@@ -10,19 +10,19 @@ use vstd::resource::pcm::{PCM, Resource};
 verus! {
 
 /// A PCM that tracks a resource value, its fraction, and **the authority**.
-ghost enum FractionalCarrier<T, const TOTAL: u64> {
+ghost enum FractionalCarrier<T, const TOTAL: usize> {
     Value { v: T, n: int, auth: bool },
     Empty,
     Invalid,
 }
 
-impl<T, const TOTAL: u64> FractionalCarrier<T, TOTAL> {
+impl<T, const TOTAL: usize> FractionalCarrier<T, TOTAL> {
     spec fn new(v: T) -> Self {
         FractionalCarrier::Value { v, n: TOTAL as int, auth: true }
     }
 }
 
-impl<T, const TOTAL: u64> ResourceAlgebra for FractionalCarrier<T, TOTAL> {
+impl<T, const TOTAL: usize> ResourceAlgebra for FractionalCarrier<T, TOTAL> {
     closed spec fn valid(self) -> bool {
         match self {
             FractionalCarrier::Invalid => false,
@@ -63,7 +63,7 @@ impl<T, const TOTAL: u64> ResourceAlgebra for FractionalCarrier<T, TOTAL> {
     }
 }
 
-impl<T, const TOTAL: u64> PCM for FractionalCarrier<T, TOTAL> {
+impl<T, const TOTAL: usize> PCM for FractionalCarrier<T, TOTAL> {
     closed spec fn unit() -> Self {
         FractionalCarrier::Empty
     }
@@ -75,11 +75,11 @@ impl<T, const TOTAL: u64> PCM for FractionalCarrier<T, TOTAL> {
     }
 }
 
-pub tracked struct CountGhost<T, const TOTAL: u64 = 2> {
+pub tracked struct CountGhost<T, const TOTAL: usize = 2> {
     r: Resource<FractionalCarrier<T, TOTAL>>,
 }
 
-impl<T, const TOTAL: u64> CountGhost<T, TOTAL> {
+impl<T, const TOTAL: usize> CountGhost<T, TOTAL> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.r.value() is Value
@@ -257,11 +257,11 @@ impl<T, const TOTAL: u64> CountGhost<T, TOTAL> {
 /// A struct that stores and dispatches `CountGhost<T>`.
 /// Unlike `CountGhost`, it provides an `empty` state: after all fractions have been split out,
 /// it still remembers the resource value inside the carrier, mirroring `CountResource`.
-pub tracked struct CountGhostResource<T, const TOTAL: u64> {
+pub tracked struct CountGhostResource<T, const TOTAL: usize> {
     tracked r: Resource<FractionalCarrier<T, TOTAL>>,
 }
 
-impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
+impl<T, const TOTAL: usize> CountGhostResource<T, TOTAL> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
@@ -445,8 +445,8 @@ impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
     }
 }
 
-pub type TokenResource<const TOTAL: u64> = CountGhostResource<(), TOTAL>;
+pub type TokenResource<const TOTAL: usize> = CountGhostResource<(), TOTAL>;
 
-pub type Token<const TOTAL: u64> = CountGhost<(), TOTAL>;
+pub type Token<const TOTAL: usize> = CountGhost<(), TOTAL>;
 
 } // verus!

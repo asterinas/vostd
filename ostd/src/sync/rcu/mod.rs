@@ -52,7 +52,7 @@ broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
 // `CountResource`; the final RCU proof should discharge the admission assumption
 // with an unbounded ghost registry or a CPU/epoch-based sharding model.
 
-const RCU_READER_SLOTS: u64 = 1u64 << 60;
+const RCU_READER_SLOTS: usize = 1usize << 60;
 
 type RcuReadPool<P> = CountResource<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
 

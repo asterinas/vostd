@@ -27,21 +27,6 @@ use super::{
 
 verus! {
 
-const MAX_READER_U64: u64 = MAX_READER as u64;
-
-spec const V_MAX_READ_RETRACT_FRACS_SPEC: u64 = (MAX_READER_MASK + 1) as u64;
-
-#[verifier::when_used_as_spec(V_MAX_READ_RETRACT_FRACS_SPEC)]
-exec const V_MAX_READ_RETRACT_FRACS: u64
-    ensures
-        V_MAX_READ_RETRACT_FRACS == V_MAX_READ_RETRACT_FRACS_SPEC,
-        V_MAX_READ_RETRACT_FRACS == MAX_READER_MASK + 1,
-        V_MAX_READ_RETRACT_FRACS < u64::MAX,
-{
-    assert(MAX_READER_MASK + 1 < u64::MAX) by (compute_only);
-    (MAX_READER_MASK + 1) as u64
-}
-
 /// The token reserved in the lock when the write permission is given out.
 type NoPerm<T> = EmptyCount<PointsTo<T>>;
 
@@ -60,15 +45,15 @@ tracked struct RwPerms<T> {
     /// The permission to retract a `READER` count. Its total quantity tracks the gap between
     /// the number of `try_read` increments recorded in the lock atomic and the number of active
     /// `RwLockReadGuard`s (created and ongoing creation that will succeed) represented by `read_guard_token`.
-    /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
-    /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock.
-    read_retract_token: TokenResource<V_MAX_READ_RETRACT_FRACS>,
+    /// It can be splited up to `MAX_READER_MASK` pieces,
+    /// which allows at most `MAX_READER_MASK - 1` `try_read` attempts that will fail to acquire the lock.
+    read_retract_token: TokenResource<MAX_READER_MASK>,
     /// The permission to retract the set of `UPGRADEABLE_READER` bit.
     upread_retract_token: Option<UniqueToken>,
     /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
     /// Tracks the remaining read permissions, or an empty state while a writer owns the resource.
-    read_guard_token: CountResource<ReadPerm<T>, MAX_READER_U64>,
+    read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
 }
 
 ghost struct RwId {
@@ -209,12 +194,12 @@ closed spec fn wf(self) -> bool {
         let active_read_guards: int = if g.read_guard_token.is_resource_vacant() {
             0
         } else {
-            MAX_READER_U64 - g.read_guard_token.frac()
+            MAX_READER - g.read_guard_token.frac()
         };
         // The first `try_upread` that fails, which has not returned yet.
         let pending_failed_upread_attempt: bool = g.upread_retract_token is None;
         // The number of `try_read` attempts that will fail.
-        let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
+        let failed_reader_attempts: int = MAX_READER_MASK - g.read_retract_token.frac();
 
         &&& if g.core_token.is_left() {
             let resource = g.read_guard_token.resource();
@@ -360,11 +345,11 @@ impl<T, G> RwLock<T, G> {
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
         let tracked mut core_token = SumResource::alloc_left(frac_perm);
-        let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
+        let tracked read_retract_token = TokenResource::<MAX_READER_MASK>::alloc(());
         let tracked upread_retract_token = UniqueToken::alloc(());
         let tracked upreader_guard_token = core_token.split_one_left_owner();
         let tracked left_token = core_token.split_one_left_knowledge();
-        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
+        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER>::alloc(
             (read_half_cell_perm, left_token),
         );
         let ghost ghost_id = RwId {
@@ -456,8 +441,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T, G>> {
         proof_decl!{
-            let tracked mut read_token: Option<Count<ReadPerm<T>,MAX_READER_U64>> = None;
-            let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
+            let tracked mut read_token: Option<Count<ReadPerm<T>,MAX_READER>> = None;
+            let tracked mut retract_read_token: Option<Token<MAX_READER_MASK>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -701,7 +686,7 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 pub struct RwLockReadGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
-    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
+    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER>>,
 }
 
 /*
