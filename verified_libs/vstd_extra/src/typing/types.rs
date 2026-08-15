@@ -13,107 +13,47 @@ pub trait ByteSized<const SIZE: usize>: Sized {
     ;
 }
 
-/// A trait for types whose bit-level representation needs to be visible to Verus.
-///
-/// # The law
-///
-/// Encoding a value and decoding the result recovers it. That is the *only*
-/// thing an aggregate needs from a member's representation: it is what makes
-/// [`Member::holds`] achievable by a constructor — see [`lemma_leaf_holds`],
-/// which is the sole consumer of this law — and hence what makes
-/// [`HasId::wf`] establishable by construction rather than assumed.
-///
-/// Note it is *not* what supplies the id. The id is held directly as ghost state
-/// beside the bytes, so nothing here has to be strong enough to recover it. That
-/// separation is what lets aggregates nest; see [`GhostTaggedArray`].
-///
-/// Note what is deliberately absent. There is no claim that decoding an
-/// *arbitrary* byte pattern fails, and none that two different types decode the
-/// same bytes differently. Neither is true in general — two members may well
-/// share a byte pattern — and neither is needed: telling members apart is the
-/// job of [`DisjointFrom`], on the id sets, not of the encoding.
-///
-/// Getting that division wrong would be the classic mistake here: using the
-/// representation as an identity witness. The bytes say *what the value is*; the
-/// ids say *which member it belongs to*.
 pub trait ByteRepr<const SIZE: usize>: ByteSized<SIZE> + TryFromSpec<[u8; SIZE]> +
     IntoSpec<[u8; SIZE]> {
     proof fn round_trip(self)
         ensures
             Self::try_from_spec(self.into_spec()) == Ok(self),
     ;
+
+    proof fn canonical(data: [u8; SIZE])
+        requires
+            Self::try_from_spec(data) is Ok,
+        ensures
+            Self::try_from_spec(data)->Ok_0.into_spec() == data,
+    ;
 }
 
-/// Verus does not expose the `typeId` of a type, though in principle it could.
-/// So we need to do it ourselves, by enumerating all of the possible subtypes.
-/// Since we are dealing with aggregate types, we model `typeId` as a boolean
-/// (or a set of identifiers).
-pub trait TypeId {
-    spec fn inhabits(type_id: nat) -> bool where Self: Sized;
-
+pub trait TypeSet {
+    spec fn possible_types() -> Set<nat> where Self: Sized;
 }
 
-/// A type whose *values* carry an id, not merely a type denoting a set of them.
-///
-/// Split from [`TypeId`] because the two are genuinely different: a type used
-/// only to name an id set (the right-hand side of a nest, say) has no values to
-/// report an id for, and forcing it to invent one would mean an unprovable law.
-/// Only members that actually hold a value implement this.
-pub trait HasId: TypeId {
+pub trait HasId: TypeSet {
     /// The id of *this value*.
-    ///
-    /// `inhabits` cannot supply this: it is a set-membership test, so even for a
-    /// type admitting exactly one id there is no way to *extract* that id.
-    ///
-    /// Deliberately not `where Self: Sized` — this is the one thing that must
-    /// survive erasure, since it is what a downcast tests.
     spec fn id_of(&self) -> nat;
 
     /// This value's id and its contents agree.
-    ///
-    /// Lives on the trait rather than as an inherent predicate because the laws
-    /// below need it as a precondition, and a trait method impl may not add one.
-    /// For a member that carries its own identity in its type this is just
-    /// `true`; for a tagged aggregate it is the tag/bytes pairing.
-    ///
-    /// Not `where Self: Sized`, for the same reason as `id_of`: a downcast holds
-    /// an erased value and still has to know it is well-formed.
     spec fn wf(&self) -> bool;
 
-    /// A well-formed value's id lies in its own type's set.
-    ///
-    /// This is the "at least one" half of [`Either`]'s law; `DisjointFrom`
-    /// supplies the "not both" half. Neither implies the other, and the law
-    /// needs both — disjointness alone would permit a value whose id belongs to
-    /// no side at all.
-    ///
-    /// The `wf` precondition is not a weakening: a value whose tag disagrees
-    /// with its contents has no meaningful id, so there is nothing true to say
-    /// about it. Requiring it here is what lets an aggregate hold the id
-    /// *directly* as a ghost field instead of having to recover it by decoding.
-    proof fn id_of_inhabits(&self)
+    proof fn id_of_in_possible_types(&self)
         where Self: Sized
         requires
             self.wf(),
         ensures
-            Self::inhabits(self.id_of()),
+            Self::possible_types().contains(self.id_of()),
     ;
 }
 
 /// A witness that two members' id sets do not overlap.
-///
-/// This is where the per-node obligation lives. `Either`'s law cannot be proven
-/// generically — knowing a value came from one side says nothing about the other
-/// side unless the two are known disjoint — so the disjointness has to be
-/// supplied, and this is the thing that supplies it.
-///
-/// Requiring it as a bound on the aggregate means a collision is caught at the
-/// node that joins the two members, at compile time, rather than by a global
-/// check someone has to remember to run.
-pub trait DisjointFrom<B: TypeId>: TypeId + Sized {
+pub trait DisjointFrom<B: TypeSet>: TypeSet + Sized {
     proof fn disjoint(type_id: nat)
         ensures
-            !(Self::inhabits(type_id) && B::inhabits(type_id)),
+            !(Self::possible_types().contains(type_id)
+              && B::possible_types().contains(type_id)),
     ;
 }
 
@@ -133,17 +73,17 @@ pub trait DisjointFrom<B: TypeId>: TypeId + Sized {
 /// object about which nothing can be concluded, which defeats the purpose.
 ///
 /// [`HasId`] is deliberately *not* a supertrait, for a second reason: it extends
-/// [`TypeId`], and Verus's dyn type does not satisfy that bound, so `dyn HasId`
+/// [`TypeSet`], and Verus's dyn type does not satisfy that bound, so `dyn HasId`
 /// does not even typecheck. Aggregates implement both traits independently —
-/// `HasId` for use at the concrete type, `Either` for use through an erased one —
-/// and [`lemma_dyn_agrees`] moves between them.
+/// `HasId` for use at the concrete type, `EitherType` for use through an erased
+/// one — and [`lemma_dyn_agrees`] moves between them.
 ///
-/// Note the sides are bounded by [`TypeId`], not [`HasId`]: the law below names
-/// only `A::inhabits` and `B::inhabits`. That matters for nesting — the right
+/// Note the sides are bounded by [`TypeSet`], not [`HasId`]: the law below names
+/// only `A::possible_types` and `B::possible_types`. That matters for nesting — the right
 /// side of a nest is a *phantom* describing an id set, with no values of its own,
 /// so demanding `HasId` of it would mean inventing an `id_of` for a type that
 /// never has one.
-pub trait Either<A: TypeId, B: TypeId> {
+pub trait EitherType<A: TypeSet, B: TypeSet> {
     /// This value's id, readable through an erased reference.
     spec fn dyn_id(&self) -> nat;
 
@@ -159,102 +99,89 @@ pub trait Either<A: TypeId, B: TypeId> {
     /// member is added — which is the advantage over a flat tag registry with a
     /// hand-kept range discipline.
     ///
-    /// This is also the aggregate's *dispatch*: callable on `&dyn Either<A, B>`,
+    /// This is also the aggregate's *dispatch*: callable on `&dyn EitherType<A, B>`,
     /// it yields the disjunction without the caller knowing which member is live.
-    ///
-    /// Note what is *not* stated here: `Self::inhabits(self.dyn_id())`. It cannot
-    /// be — `inhabits` is `where Self: Sized`, and with a `&self` receiver `Self`
-    /// may be `dyn Either<A, B>`, which is precisely the case this trait exists
-    /// to serve. It is also redundant: an impl whose `inhabits` is the union of
-    /// its sides' gets it from the disjunction below.
     proof fn type_id_laws(tracked &self)
         requires
             self.dyn_wf(),
         ensures
             {
-                ||| A::inhabits(self.dyn_id()) && !B::inhabits(self.dyn_id())
-                ||| B::inhabits(self.dyn_id()) && !A::inhabits(self.dyn_id())
+                ||| A::possible_types().contains(self.dyn_id())
+                    && !B::possible_types().contains(self.dyn_id())
+                ||| B::possible_types().contains(self.dyn_id())
+                    && !A::possible_types().contains(self.dyn_id())
             },
     ;
 
 }
 
 /// A description of what byte patterns encode which members.
-///
-/// This is the part that nests. It has no values — it is a phantom naming an id
-/// set together with a validity test — so a node can join two of them without
-/// anything needing to be stored, and without either side having to be
-/// recoverable from the bytes.
-///
-/// That is the whole trick. The earlier binary-tag design could not nest because
-/// an inner tagged array's tag was not a function of its bytes, so
-/// [`ByteRepr::round_trip`] was unprovable for it. Here the tag is not per-level:
-/// there is one id, held once, and `holds` merely *checks* it against the bytes
-/// at whatever depth the matching member sits.
-pub trait Member<const SIZE: usize>: TypeId + Sized {
+/// 
+pub trait Member<const SIZE: usize>: TypeSet + Sized {
     /// `data` is a valid encoding of the member of this aggregate named by `id`.
-    spec fn holds(id: nat, data: [u8; SIZE]) -> bool;
+    spec fn valid(id: nat, data: [u8; SIZE]) -> bool;
 
     /// Only ids this aggregate admits can be held by it.
     ///
     /// Proved rather than assumed at every impl below, which is what keeps
-    /// `GhostTaggedArray`'s `id_of_inhabits` axiom-free.
-    proof fn holds_inhabits(id: nat, data: [u8; SIZE])
+    /// `GhostTaggedArray`'s `id_of_in_possible_types` axiom-free.
+    proof fn valid_in_possible_types(id: nat, data: [u8; SIZE])
         requires
-            Self::holds(id, data),
+            Self::valid(id, data),
         ensures
-            Self::inhabits(id),
+            Self::possible_types().contains(id),
     ;
 }
 
 /// A single-member aggregate wrapping a concrete representable type.
-pub struct Leaf<M>(pub PhantomData<M>);
+pub struct LeafType<M>(pub PhantomData<M>);
 
-impl<M: TypeId> TypeId for Leaf<M> {
-    open spec fn inhabits(type_id: nat) -> bool {
-        M::inhabits(type_id)
+impl<M: TypeSet> TypeSet for LeafType<M> {
+    open spec fn possible_types() -> Set<nat> {
+        M::possible_types()
     }
 }
 
-impl<const SIZE: usize, M: TypeId + ByteRepr<SIZE>> Member<SIZE> for Leaf<M> {
+impl<const SIZE: usize, M: TypeSet + ByteRepr<SIZE>> Member<SIZE> for LeafType<M> {
     /// The bytes decode as `M`, and `id` is one of `M`'s ids.
     ///
     /// Note it does not say the decoded value's `id_of` *equals* `id`. It cannot
     /// without knowing that value is well-formed, and it need not: for a member
     /// owning a single id the two coincide, and for one owning several, which of
     /// them is live is not something the aggregate arbitrates.
-    open spec fn holds(id: nat, data: [u8; SIZE]) -> bool {
+    open spec fn valid(id: nat, data: [u8; SIZE]) -> bool {
         &&& M::try_from_spec(data) is Ok
-        &&& M::inhabits(id)
+        &&& M::possible_types().contains(id)
     }
 
-    proof fn holds_inhabits(id: nat, data: [u8; SIZE]) {
+    proof fn valid_in_possible_types(id: nat, data: [u8; SIZE]) {
     }
 }
 
 /// Two aggregates joined: ids and valid encodings are the union of the sides'.
 ///
-/// Stating `inhabits` as the union is what makes `Self::inhabits(self.id_of())`
-/// derivable rather than an extra obligation: given [`Either`]'s disjunction,
-/// membership in one side gives membership in the union.
-pub struct Node<A, B>(pub PhantomData<(A, B)>);
+/// Stating `possible_types` as the union is what makes
+/// `Self::possible_types().contains(self.id_of())` derivable rather than an extra
+/// obligation: given [`EitherType`]'s disjunction, membership in one side gives
+/// membership in the union.
+pub struct ConsType<A, B>(pub PhantomData<(A, B)>);
 
-impl<A: TypeId, B: TypeId> TypeId for Node<A, B> {
-    open spec fn inhabits(type_id: nat) -> bool {
-        A::inhabits(type_id) || B::inhabits(type_id)
+impl<A: TypeSet, B: TypeSet> TypeSet for ConsType<A, B> {
+    open spec fn possible_types() -> Set<nat> {
+        A::possible_types().union(B::possible_types())
     }
 }
 
-impl<const SIZE: usize, A: Member<SIZE>, B: Member<SIZE>> Member<SIZE> for Node<A, B> {
-    open spec fn holds(id: nat, data: [u8; SIZE]) -> bool {
-        A::holds(id, data) || B::holds(id, data)
+impl<const SIZE: usize, A: Member<SIZE>, B: Member<SIZE>> Member<SIZE> for ConsType<A, B> {
+    open spec fn valid(id: nat, data: [u8; SIZE]) -> bool {
+        A::valid(id, data) || B::valid(id, data)
     }
 
-    proof fn holds_inhabits(id: nat, data: [u8; SIZE]) {
-        if A::holds(id, data) {
-            A::holds_inhabits(id, data);
+    proof fn valid_in_possible_types(id: nat, data: [u8; SIZE]) {
+        if A::valid(id, data) {
+            A::valid_in_possible_types(id, data);
         } else {
-            B::holds_inhabits(id, data);
+            B::valid_in_possible_types(id, data);
         }
     }
 }
@@ -263,7 +190,7 @@ impl<const SIZE: usize, A: Member<SIZE>, B: Member<SIZE>> Member<SIZE> for Node<
 ///
 /// The id is held *directly* rather than recovered by decoding, and it is a
 /// member id rather than a per-level `LEFT`/`RIGHT`. Both changes are what make
-/// this nest: `T` may be an arbitrarily deep [`Node`] tree, and no matter how
+/// this nest: `T` may be an arbitrarily deep [`ConsType`] tree, and no matter how
 /// deep the matching member sits, there is exactly one tag and it is stored
 /// exactly once — in ghost state, so the runtime footprint is still just the
 /// bytes, as upstream.
@@ -276,21 +203,14 @@ impl<const SIZE: usize, A: Member<SIZE>, B: Member<SIZE>> Member<SIZE> for Node<
 /// both together" convention.
 pub struct GhostTaggedArray<const SIZE: usize, T: Member<SIZE>> {
     /// The member id, as ghost state.
-    ///
-    /// `Ghost<nat>` rather than a `ghost` field, and the difference is not
-    /// cosmetic: a `ghost` field cannot be initialised from executable code
-    /// ("cannot access spec-mode place in executable context"), so a struct
-    /// carrying one can only ever exist as a ghost value. That would make every
-    /// consumer below unreachable. `Ghost<nat>` is zero-sized, so the runtime
-    /// footprint is still just the bytes.
     pub id: Ghost<nat>,
     pub data: [u8; SIZE],
     pub _t: PhantomData<T>,
 }
 
-impl<const SIZE: usize, T: Member<SIZE>> TypeId for GhostTaggedArray<SIZE, T> {
-    open spec fn inhabits(type_id: nat) -> bool {
-        T::inhabits(type_id)
+impl<const SIZE: usize, T: Member<SIZE>> TypeSet for GhostTaggedArray<SIZE, T> {
+    open spec fn possible_types() -> Set<nat> {
+        T::possible_types()
     }
 }
 
@@ -300,41 +220,41 @@ impl<const SIZE: usize, T: Member<SIZE>> HasId for GhostTaggedArray<SIZE, T> {
     }
 
     open spec fn wf(&self) -> bool {
-        T::holds(self.id@, self.data)
+        T::valid(self.id@, self.data)
     }
 
-    proof fn id_of_inhabits(&self) {
-        T::holds_inhabits(self.id@, self.data);
+    proof fn id_of_in_possible_types(&self) {
+        T::valid_in_possible_types(self.id@, self.data);
     }
 }
 
-impl<const SIZE: usize, A: Member<SIZE> + DisjointFrom<B>, B: Member<SIZE>> Either<
+impl<const SIZE: usize, A: Member<SIZE> + DisjointFrom<B>, B: Member<SIZE>> EitherType<
     A,
     B,
-> for GhostTaggedArray<SIZE, Node<A, B>> {
+> for GhostTaggedArray<SIZE, ConsType<A, B>> {
     open spec fn dyn_id(&self) -> nat {
         self.id@
     }
 
     open spec fn dyn_wf(&self) -> bool {
-        Node::<A, B>::holds(self.id@, self.data)
+        ConsType::<A, B>::valid(self.id@, self.data)
     }
 
     proof fn type_id_laws(tracked &self) {
         // "not both" from the disjointness witness ...
         A::disjoint(self.dyn_id());
         // ... and "at least one" from whichever side admits the bytes.
-        if A::holds(self.id@, self.data) {
-            A::holds_inhabits(self.id@, self.data);
+        if A::valid(self.id@, self.data) {
+            A::valid_in_possible_types(self.id@, self.data);
         } else {
-            B::holds_inhabits(self.id@, self.data);
+            B::valid_in_possible_types(self.id@, self.data);
         }
     }
 }
 
 impl<const SIZE: usize, A: Member<SIZE> + DisjointFrom<B>, B: Member<SIZE>> GhostTaggedArray<
     SIZE,
-    Node<A, B>,
+    ConsType<A, B>,
 > {
     /// Upcast: view the stored bytes as an erased member of the `A | B` aggregate.
     ///
@@ -352,7 +272,7 @@ impl<const SIZE: usize, A: Member<SIZE> + DisjointFrom<B>, B: Member<SIZE>> Ghos
     /// the vtable — without them the result would be an opaque object nothing
     /// could be concluded about, which is what an `external_body` version of
     /// this promising nothing would have amounted to.
-    pub exec fn as_dyn(&self) -> (r: &dyn Either<A, B>)
+    pub exec fn as_dyn(&self) -> (r: &dyn EitherType<A, B>)
         ensures
             r.dyn_id() == self.dyn_id(),
             r.dyn_wf() == self.dyn_wf(),
@@ -365,9 +285,9 @@ impl<const SIZE: usize, A: Member<SIZE> + DisjointFrom<B>, B: Member<SIZE>> Ghos
 ///
 /// Both sides are `open`, so this is definitional — it exists to be cited rather
 /// than to be proved, and it is the seam between constructors (which establish
-/// [`HasId::wf`]) and consumers (which see [`Either::dyn_wf`]).
+/// [`HasId::wf`]) and consumers (which see [`EitherType::dyn_wf`]).
 pub proof fn lemma_dyn_agrees<const SIZE: usize, A: Member<SIZE> + DisjointFrom<B>, B: Member<SIZE>>(
-    s: &GhostTaggedArray<SIZE, Node<A, B>>,
+    s: &GhostTaggedArray<SIZE, ConsType<A, B>>,
 )
     ensures
         s.dyn_id() == s.id_of(),
@@ -375,20 +295,20 @@ pub proof fn lemma_dyn_agrees<const SIZE: usize, A: Member<SIZE> + DisjointFrom<
 {
 }
 
-/// Storing a well-formed member establishes [`Member::holds`] at its own id.
+/// Storing a well-formed member establishes [`Member::valid`] at its own id.
 ///
 /// This is the constructor side of `wf`, and the one place [`ByteRepr`]'s
 /// round-trip law is consumed: it is what says the bytes just written decode
-/// again, while `id_of_inhabits` says the id recorded beside them is one this
+/// again, while `id_of_in_possible_types` says the id recorded beside them is one this
 /// leaf admits.
-pub proof fn lemma_leaf_holds<const SIZE: usize, M: HasId + ByteRepr<SIZE>>(m: M)
+pub proof fn lemma_leaf_valid<const SIZE: usize, M: HasId + ByteRepr<SIZE>>(m: M)
     requires
         m.wf(),
     ensures
-        <Leaf<M> as Member<SIZE>>::holds(m.id_of(), m.into_spec()),
+        <LeafType<M> as Member<SIZE>>::valid(m.id_of(), m.into_spec()),
 {
     m.round_trip();
-    m.id_of_inhabits();
+    m.id_of_in_possible_types();
 }
 
 
@@ -409,13 +329,6 @@ pub proof fn lemma_leaf_holds<const SIZE: usize, M: HasId + ByteRepr<SIZE>>(m: M
 /// a statement about layout, which is why the precondition is exactly the decode
 /// and nothing weaker: bytes that do not decode may not be borrowed at all.
 ///
-/// Note what it does *not* assume. It says nothing about which member the bytes
-/// belong to — `M` is chosen by the caller, and choosing wrong is prevented by
-/// the precondition, not by this signature. Identity remains the ids' job. In
-/// particular this is not a downcast: it will happily borrow the same bytes as
-/// two different members if both decode, and the reason that is sound is that
-/// `DisjointFrom` stops both from being *the* member at one id.
-///
 /// The frame layer's `borrow_meta_mut` is the same axiom for the mutable case.
 #[verifier::external_body]
 pub exec fn borrow_as<'a, const SIZE: usize, M: ByteRepr<SIZE>>(data: &'a [u8; SIZE]) -> (r: &'a M)
@@ -425,6 +338,28 @@ pub exec fn borrow_as<'a, const SIZE: usize, M: ByteRepr<SIZE>>(data: &'a [u8; S
         *r == M::try_from_spec(*data)->Ok_0,
 {
     unimplemented!()
+}
+
+/// Distinct valid byte patterns decode to distinct values.
+///
+/// The content of [`ByteRepr::canonical`], stated the way it is usually wanted:
+/// decoding is injective on valid patterns. Together with
+/// [`ByteRepr::round_trip`] — which makes it surjective onto values — this is the
+/// bijection, and it is what a storage abstraction needs in order to promise that
+/// reading a value out and writing it back leaves the bytes alone.
+pub proof fn lemma_decode_injective<const SIZE: usize, M: ByteRepr<SIZE>>(
+    a: [u8; SIZE],
+    b: [u8; SIZE],
+)
+    requires
+        M::try_from_spec(a) is Ok,
+        M::try_from_spec(b) is Ok,
+        M::try_from_spec(a) == M::try_from_spec(b),
+    ensures
+        a == b,
+{
+    M::canonical(a);
+    M::canonical(b);
 }
 
 } // verus!

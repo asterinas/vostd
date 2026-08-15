@@ -27,7 +27,7 @@ verus! {
 pub struct S1(pub u64);
 
 /// A two-member world's members. Fresh types, not reused from `World`: a type
-/// belongs to exactly one world, since its id lives in its own `TypeId` impl.
+/// belongs to exactly one world, since its id lives in its own `TypeSet` impl.
 /// Reusing `W1` here fails with `E0119 conflicting implementations`.
 pub struct P1(pub u64);
 
@@ -44,7 +44,7 @@ verus! {
 /// The generated tree admits exactly the three ids.
 pub proof fn world_admits_three(t: nat)
     ensures
-        World::inhabits(t) <==> (t == 1 || t == 2 || t == 3),
+        World::possible_types().contains(t) <==> (t == 1 || t == 2 || t == 3),
 {
 }
 
@@ -54,22 +54,25 @@ pub proof fn world_admits_three(t: nat)
 /// holds here with no hand-written disjointness at all.
 pub proof fn world_exactly_one(t: nat)
     requires
-        World::inhabits(t),
+        World::possible_types().contains(t),
     ensures
         ({
-            &&& W1::inhabits(t) ==> !W2::inhabits(t) && !W3::inhabits(t)
-            &&& W2::inhabits(t) ==> !W1::inhabits(t) && !W3::inhabits(t)
-            &&& W3::inhabits(t) ==> !W1::inhabits(t) && !W2::inhabits(t)
+            &&& W1::possible_types().contains(t) ==> !W2::possible_types().contains(t)
+                && !W3::possible_types().contains(t)
+            &&& W2::possible_types().contains(t) ==> !W1::possible_types().contains(t)
+                && !W3::possible_types().contains(t)
+            &&& W3::possible_types().contains(t) ==> !W1::possible_types().contains(t)
+                && !W2::possible_types().contains(t)
         }),
 {
 }
 
 /// The generated `HasId` satisfies its law.
-pub proof fn world_id_of_inhabits(v: W2)
+pub proof fn world_id_of_in_possible_types(v: W2)
     ensures
-        W2::inhabits(v.id_of()),
+        W2::possible_types().contains(v.id_of()),
 {
-    v.id_of_inhabits();
+    v.id_of_in_possible_types();
 }
 
 } // verus!

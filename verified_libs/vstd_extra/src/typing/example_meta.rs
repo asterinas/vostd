@@ -55,11 +55,11 @@
 //! - Without the bound, the cast is rejected by *rustc*, before Verus sees it:
 //!   `E0605: non-primitive cast: &dyn AnyMeta as &(dyn core::any::Any + 'static)`.
 //!
-//! # `Either` cannot stand in for `Any` either
+//! # `EitherType` cannot stand in for `Any` either
 //!
 //! The natural repair is to notice that `x as &dyn Any` is a dyn-to-dyn *upcast*,
-//! and to put [`super::types::Either`] in that slot: make it a supertrait of
-//! `AnyMeta`, upcast to `&dyn Either<A, B>`, and read the id from there. It would
+//! and to put [`super::types::EitherType`] in that slot: make it a supertrait of
+//! `AnyMeta`, upcast to `&dyn EitherType<A, B>`, and read the id from there. It would
 //! be a one-to-one syntactic match, and it would recover the id through the
 //! upcast rather than through `AnyMeta`.
 //!
@@ -69,10 +69,10 @@
 //!
 //! **Verus's dyn type does not implement the erased trait's Verus supertraits.**
 //! Probed with a parameter-free supertrait carrying a single spec fn, which fails
-//! identically (`Dyn<3, ()>: T198_Marker`), so this is not about `Either`'s
+//! identically (`Dyn<3, ()>: T198_Marker`), so this is not about `EitherType`'s
 //! generics. Only marker and auto traits (`Send`, `Sync`) survive in supertrait
 //! position. The same root cause explains two earlier observations: `dyn HasId`
-//! does not typecheck because `HasId: TypeId`, and a spec fn inherited from a
+//! does not typecheck because `HasId: TypeSet`, and a spec fn inherited from a
 //! supertrait is not preserved across the `&T -> &dyn Trait` coercion. Verus
 //! simply does not model the supertrait relation for dyn types.
 //!

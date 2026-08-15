@@ -45,9 +45,9 @@ pub struct L2(pub u64);
 pub struct L3(pub u64);
 
 // Leaves each own a single id.
-impl TypeId for L1 {
-    open spec fn inhabits(type_id: nat) -> bool {
-        type_id == 1
+impl TypeSet for L1 {
+    open spec fn possible_types() -> Set<nat> {
+        Set::empty().insert(1nat)
     }
 }
 
@@ -62,13 +62,13 @@ impl HasId for L1 {
         true
     }
 
-    proof fn id_of_inhabits(&self) {
+    proof fn id_of_in_possible_types(&self) {
     }
 }
 
-impl TypeId for L2 {
-    open spec fn inhabits(type_id: nat) -> bool {
-        type_id == 2
+impl TypeSet for L2 {
+    open spec fn possible_types() -> Set<nat> {
+        Set::empty().insert(2nat)
     }
 }
 
@@ -83,13 +83,13 @@ impl HasId for L2 {
         true
     }
 
-    proof fn id_of_inhabits(&self) {
+    proof fn id_of_in_possible_types(&self) {
     }
 }
 
-impl TypeId for L3 {
-    open spec fn inhabits(type_id: nat) -> bool {
-        type_id == 3
+impl TypeSet for L3 {
+    open spec fn possible_types() -> Set<nat> {
+        Set::empty().insert(3nat)
     }
 }
 
@@ -104,7 +104,7 @@ impl HasId for L3 {
         true
     }
 
-    proof fn id_of_inhabits(&self) {
+    proof fn id_of_in_possible_types(&self) {
     }
 }
 
@@ -131,6 +131,21 @@ pub uninterp spec fn l1_decode(b: [u8; EX_SIZE]) -> Result<L1, ()>;
 pub broadcast proof fn axiom_l1_round_trip(v: L1)
     ensures
         #[trigger] l1_decode(l1_encode(v)) == Ok(v),
+{
+}
+
+/// A valid byte pattern is the encoding of what it decodes to.
+///
+/// The second representation obligation, independent of the round trip above and
+/// equally a layout fact. It is what makes the encoding canonical: no two byte
+/// patterns decode to the same `L1`. A real member discharges this from its
+/// layout, by having no padding and no redundant encodings.
+#[verifier::external_body]
+pub broadcast proof fn axiom_l1_canonical(b: [u8; EX_SIZE])
+    requires
+        l1_decode(b) is Ok,
+    ensures
+        #[trigger] l1_encode(l1_decode(b)->Ok_0) == b,
 {
 }
 
@@ -183,6 +198,10 @@ impl ByteRepr<{ EX_SIZE }> for L1 {
     proof fn round_trip(self) {
         broadcast use axiom_l1_round_trip;
     }
+
+    proof fn canonical(data: [u8; EX_SIZE]) {
+        broadcast use axiom_l1_canonical;
+    }
 }
 
 /// Encoding of [`L2`], left uninterpreted.
@@ -207,6 +226,21 @@ pub uninterp spec fn l2_decode(b: [u8; EX_SIZE]) -> Result<L2, ()>;
 pub broadcast proof fn axiom_l2_round_trip(v: L2)
     ensures
         #[trigger] l2_decode(l2_encode(v)) == Ok(v),
+{
+}
+
+/// A valid byte pattern is the encoding of what it decodes to.
+///
+/// The second representation obligation, independent of the round trip above and
+/// equally a layout fact. It is what makes the encoding canonical: no two byte
+/// patterns decode to the same `L2`. A real member discharges this from its
+/// layout, by having no padding and no redundant encodings.
+#[verifier::external_body]
+pub broadcast proof fn axiom_l2_canonical(b: [u8; EX_SIZE])
+    requires
+        l2_decode(b) is Ok,
+    ensures
+        #[trigger] l2_encode(l2_decode(b)->Ok_0) == b,
 {
 }
 
@@ -259,6 +293,10 @@ impl ByteRepr<{ EX_SIZE }> for L2 {
     proof fn round_trip(self) {
         broadcast use axiom_l2_round_trip;
     }
+
+    proof fn canonical(data: [u8; EX_SIZE]) {
+        broadcast use axiom_l2_canonical;
+    }
 }
 
 /// Encoding of [`L3`], left uninterpreted.
@@ -283,6 +321,21 @@ pub uninterp spec fn l3_decode(b: [u8; EX_SIZE]) -> Result<L3, ()>;
 pub broadcast proof fn axiom_l3_round_trip(v: L3)
     ensures
         #[trigger] l3_decode(l3_encode(v)) == Ok(v),
+{
+}
+
+/// A valid byte pattern is the encoding of what it decodes to.
+///
+/// The second representation obligation, independent of the round trip above and
+/// equally a layout fact. It is what makes the encoding canonical: no two byte
+/// patterns decode to the same `L3`. A real member discharges this from its
+/// layout, by having no padding and no redundant encodings.
+#[verifier::external_body]
+pub broadcast proof fn axiom_l3_canonical(b: [u8; EX_SIZE])
+    requires
+        l3_decode(b) is Ok,
+    ensures
+        #[trigger] l3_encode(l3_decode(b)->Ok_0) == b,
 {
 }
 
@@ -335,23 +388,27 @@ impl ByteRepr<{ EX_SIZE }> for L3 {
     proof fn round_trip(self) {
         broadcast use axiom_l3_round_trip;
     }
+
+    proof fn canonical(data: [u8; EX_SIZE]) {
+        broadcast use axiom_l3_canonical;
+    }
 }
 
 // The aggregate tree. Each leaf wraps a representable type; nodes join them.
 /// `L1` as a one-member aggregate.
-pub type M1 = Leaf<L1>;
+pub type M1 = LeafType<L1>;
 
 /// `L2` as a one-member aggregate.
-pub type M2 = Leaf<L2>;
+pub type M2 = LeafType<L2>;
 
 /// `L3` as a one-member aggregate.
-pub type M3 = Leaf<L3>;
+pub type M3 = LeafType<L3>;
 
 /// The inner node, `L2 | L3`.
-pub type Inner = Node<M2, M3>;
+pub type Inner = ConsType<M2, M3>;
 
 /// The whole aggregate, `L1 | (L2 | L3)`.
-pub type Outer = Node<M1, Inner>;
+pub type Outer = ConsType<M1, Inner>;
 
 /// Bytes tagged with which of the three members they hold.
 ///
@@ -360,7 +417,7 @@ pub type Outer = Node<M1, Inner>;
 pub type Store = GhostTaggedArray<{ EX_SIZE }, Outer>;
 
 // Disjointness witnesses, discharged by computation on the leaf ids. Note
-// these are stated on the *aggregates*, since that is what `Either` joins.
+// these are stated on the *aggregates*, since that is what `EitherType` joins.
 impl DisjointFrom<M3> for M2 {
     proof fn disjoint(type_id: nat) {
     }
@@ -382,20 +439,20 @@ pub exec fn store_l2(v: L2) -> (r: Store)
         r.data == <L2 as IntoSpec<[u8; EX_SIZE]>>::into_spec(v),
 {
     proof {
-        lemma_leaf_holds::<{ EX_SIZE }, L2>(v);
+        lemma_leaf_valid::<{ EX_SIZE }, L2>(v);
     }
     let data: [u8; EX_SIZE] = v.into();
     Store { id: Ghost(2nat), data, _t: PhantomData }
 }
 
-/// A well-formed `Store` holding `L2`'s id satisfies the `Either` law at the
+/// A well-formed `Store` holding `L2`'s id satisfies the `EitherType` law at the
 /// outer node: the id belongs to the `L2 | L3` side and not to `L1`.
 pub proof fn stored_is_one_side(tracked r: &Store)
     requires
         r.wf(),
         r.id_of() == 2,
     ensures
-        Inner::inhabits(r.id_of()) && !M1::inhabits(r.id_of()),
+        Inner::possible_types().contains(r.id_of()) && !M1::possible_types().contains(r.id_of()),
 {
     r.type_id_laws();
 }
@@ -403,7 +460,7 @@ pub proof fn stored_is_one_side(tracked r: &Store)
 /// Disjointness at the inner node: `L2` and `L3` share no id.
 pub proof fn inner_disjoint(t: nat)
     ensures
-        !(M2::inhabits(t) && M3::inhabits(t)),
+        !(M2::possible_types().contains(t) && M3::possible_types().contains(t)),
 {
 }
 
@@ -414,7 +471,7 @@ pub proof fn inner_disjoint(t: nat)
 /// adding a member changes only the node that admits it.
 pub proof fn outer_disjoint(t: nat)
     ensures
-        !(M1::inhabits(t) && Inner::inhabits(t)),
+        !(M1::possible_types().contains(t) && Inner::possible_types().contains(t)),
 {
 }
 
@@ -425,12 +482,12 @@ pub proof fn outer_disjoint(t: nat)
 /// succeed for the wrong one.
 pub proof fn exactly_one_leaf(t: nat)
     requires
-        Outer::inhabits(t),
+        Outer::possible_types().contains(t),
     ensures
         ({
-            &&& L1::inhabits(t) ==> !L2::inhabits(t) && !L3::inhabits(t)
-            &&& L2::inhabits(t) ==> !L1::inhabits(t) && !L3::inhabits(t)
-            &&& L3::inhabits(t) ==> !L1::inhabits(t) && !L2::inhabits(t)
+            &&& L1::possible_types().contains(t) ==> !L2::possible_types().contains(t) && !L3::possible_types().contains(t)
+            &&& L2::possible_types().contains(t) ==> !L1::possible_types().contains(t) && !L3::possible_types().contains(t)
+            &&& L3::possible_types().contains(t) ==> !L1::possible_types().contains(t) && !L2::possible_types().contains(t)
         }),
 {
 }
@@ -442,9 +499,9 @@ pub proof fn exactly_one_leaf(t: nat)
 /// **Upcast.** A stored member, viewed as an erased aggregate.
 ///
 /// Two erasures compose here: the concrete `L2` becomes bytes-plus-ghost-id
-/// ([`store_l2`]), and that becomes `&dyn Either<M1, Inner>` (`as_dyn`). The id
+/// ([`store_l2`]), and that becomes `&dyn EitherType<M1, Inner>` (`as_dyn`). The id
 /// survives both, which is what makes the result useful rather than opaque.
-pub fn upcast_l2(s: &Store) -> (r: &dyn Either<M1, Inner>)
+pub fn upcast_l2(s: &Store) -> (r: &dyn EitherType<M1, Inner>)
     requires
         s.wf(),
         s.id_of() == 2,
@@ -463,13 +520,13 @@ pub fn upcast_l2(s: &Store) -> (r: &dyn Either<M1, Inner>)
 ///
 /// This is proof-mode dynamic dispatch: `type_id_laws` is resolved through the
 /// vtable of whatever concrete type was erased.
-pub proof fn dispatch_erased(tracked r: &dyn Either<M1, Inner>)
+pub proof fn dispatch_erased(tracked r: &dyn EitherType<M1, Inner>)
     requires
         r.dyn_wf(),
     ensures
         ({
-            ||| M1::inhabits(r.dyn_id()) && !Inner::inhabits(r.dyn_id())
-            ||| Inner::inhabits(r.dyn_id()) && !M1::inhabits(r.dyn_id())
+            ||| M1::possible_types().contains(r.dyn_id()) && !Inner::possible_types().contains(r.dyn_id())
+            ||| Inner::possible_types().contains(r.dyn_id()) && !M1::possible_types().contains(r.dyn_id())
         }),
 {
     r.type_id_laws();
@@ -499,9 +556,9 @@ pub fn downcast_l2(s: &Store, id: usize) -> (r: Option<L2>)
         (r is Some) <==> s.id_of() == 2,
 {
     if id == 2 {
-        assert(<M2 as Member<{ EX_SIZE }>>::holds(2, s.data)) by {
-            assert(!<M1 as Member<{ EX_SIZE }>>::holds(2, s.data));
-            assert(!<M3 as Member<{ EX_SIZE }>>::holds(2, s.data));
+        assert(<M2 as Member<{ EX_SIZE }>>::valid(2, s.data)) by {
+            assert(!<M1 as Member<{ EX_SIZE }>>::valid(2, s.data));
+            assert(!<M3 as Member<{ EX_SIZE }>>::valid(2, s.data));
         }
         match L2::try_from(s.data) {
             Ok(v) => Some(v),
@@ -518,15 +575,15 @@ pub fn downcast_l2(s: &Store, id: usize) -> (r: Option<L2>)
 /// The downcast cannot succeed for a member other than the one stored.
 ///
 /// Stated separately because it is the property worth having in isolation:
-/// given only that some id inhabits the aggregate, at most one leaf claims it.
+/// given only that some id belongs to the aggregate, at most one leaf claims it.
 pub proof fn downcast_rejects_others(s: &Store)
     requires
         s.wf(),
         s.id_of() == 2,
     ensures
-        !M1::inhabits(s.id_of()),
-        !M3::inhabits(s.id_of()),
-        M2::inhabits(s.id_of()),
+        !M1::possible_types().contains(s.id_of()),
+        !M3::possible_types().contains(s.id_of()),
+        M2::possible_types().contains(s.id_of()),
 {
 }
 
@@ -536,10 +593,10 @@ pub proof fn downcast_rejects_others(s: &Store)
 /// aggregate's tag is ghost, so nothing executable can branch on it. Runtime
 /// dispatch has to come from a real vtable, which means erasing the *member*
 /// types rather than the storage. The two erasures answer different questions —
-/// `Either` says which member it is, `Payload` runs its code.
+/// `EitherType` says which member it is, `Payload` runs its code.
 ///
 /// Note `Payload` has no supertrait. Giving it [`HasId`] would drag in
-/// [`TypeId`], which `dyn` does not satisfy, so it re-declares the id itself.
+/// [`TypeSet`], which `dyn` does not satisfy, so it re-declares the id itself.
 pub trait Payload {
     spec fn word_spec(&self) -> u64;
 
@@ -664,17 +721,17 @@ pub fn dispatch_store(s: &Store, tag: usize) -> (r: &dyn Payload)
 {
     proof {
         // `wf` says some member admits these bytes; that pins the id to a leaf.
-        <Outer as Member<{ EX_SIZE }>>::holds_inhabits(s.id_of(), s.data);
+        <Outer as Member<{ EX_SIZE }>>::valid_in_possible_types(s.id_of(), s.data);
     }
     if tag == 1 {
-        assert(<M1 as Member<{ EX_SIZE }>>::holds(1, s.data));
+        assert(<M1 as Member<{ EX_SIZE }>>::valid(1, s.data));
         borrow_as::<{ EX_SIZE }, L1>(&s.data)
     } else if tag == 2 {
-        assert(<M2 as Member<{ EX_SIZE }>>::holds(2, s.data));
+        assert(<M2 as Member<{ EX_SIZE }>>::valid(2, s.data));
         borrow_as::<{ EX_SIZE }, L2>(&s.data)
     } else {
         assert(tag == 3);
-        assert(<M3 as Member<{ EX_SIZE }>>::holds(3, s.data));
+        assert(<M3 as Member<{ EX_SIZE }>>::valid(3, s.data));
         borrow_as::<{ EX_SIZE }, L3>(&s.data)
     }
 }
