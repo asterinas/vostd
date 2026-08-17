@@ -132,6 +132,12 @@ jobs:
 
       - name: Verify IRC11 vstd_extra adapters
         run: |
+          # The pinned IRC11 and mainline Verus toolchains use different
+          # package versions. Keep the repository lockfile aligned with
+          # mainline while allowing Cargo to resolve the IRC11 versions here.
+          IRC11_LOCKFILE_BACKUP="$RUNNER_TEMP/Cargo.lock.mainline"
+          cp Cargo.lock "$IRC11_LOCKFILE_BACKUP"
+          trap 'cp "$IRC11_LOCKFILE_BACKUP" Cargo.lock' EXIT
           cargo dv verify --targets vstd_extra \
             --features irc11,vstd/weak-memory
 
