@@ -11,6 +11,10 @@ on:
       - "tools/patches/verus-irc11.patch"
       - "tools/patches/verus-irc11-vstd.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "dv"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "verified_libs/vstd_extra/**"
       - "rust-toolchain.toml"
   pull_request:
     branches:
@@ -21,6 +25,10 @@ on:
       - "tools/patches/verus-irc11.patch"
       - "tools/patches/verus-irc11-vstd.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "dv"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "verified_libs/vstd_extra/**"
       - "rust-toolchain.toml"
   workflow_dispatch:
 
@@ -33,7 +41,7 @@ concurrency:
 
 jobs:
   verify-irc11:
-    name: Build and smoke test
+    name: Build and verify
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -46,6 +54,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install dependencies
         run: |
@@ -108,6 +118,7 @@ jobs:
           test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
           git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_COMPAT_PATCH"
           git -C tools/verus diff --check
+          test -x tools/verus/source/target-verus/release/cargo-verus
           test -x tools/verus/source/target-verus/release/verus
           test -f tools/verus/source/target-verus/release/vstd.vir
           test -f tools/verus/source/vstd/atomic_weak.rs
@@ -119,6 +130,11 @@ jobs:
             --crate-type=lib \
             tools/tests/irc11_smoke.rs
 
+      - name: Verify IRC11 vstd_extra adapters
+        run: |
+          cargo dv verify --targets vstd_extra \
+            --features irc11,vstd/weak-memory
+
       - name: Check for unexpected source changes
         if: always()
         run: git diff --exit-code
@@ -127,7 +143,7 @@ jobs:
         if: always()
         run: |
           if [[ "${{ job.status }}" = "success" ]]; then
-            echo "## IRC11 toolchain smoke test: passed" >> "$GITHUB_STEP_SUMMARY"
+            echo "## IRC11 toolchain and adapter verification: passed" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "## IRC11 toolchain smoke test: failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "## IRC11 toolchain and adapter verification: failed" >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -17,6 +17,8 @@ extern crate alloc;
 
 pub mod arithmetic;
 pub mod array_ptr;
+#[cfg(feature = "irc11")]
+pub mod atomic_irc11;
 pub mod auxiliary;
 pub mod cast_ptr;
 pub mod drop_tracking;
