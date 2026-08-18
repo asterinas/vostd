@@ -50,7 +50,7 @@ impl<Key, Value> CursorMutModel<Key, Value> {
 
 /// Additional abstract and prophetic state for mutable B-tree cursors.
 pub trait CursorMutAdditionalSpecFns<Key, Value>: Sized {
-    spec fn model(self) -> CursorMutModel<Key, Value>;
+    spec fn view(&self) -> CursorMutModel<Key, Value>;
 
     /// The contents of the borrowed map when this cursor's borrow is resolved.
     #[verifier::prophetic]
@@ -58,7 +58,7 @@ pub trait CursorMutAdditionalSpecFns<Key, Value>: Sized {
 }
 
 impl<'a, Key, Value, A> CursorMutAdditionalSpecFns<Key, Value> for CursorMut<'a, Key, Value, A> {
-    uninterp spec fn model(self) -> CursorMutModel<Key, Value>;
+    uninterp spec fn view(&self) -> CursorMutModel<Key, Value>;
 
     #[verifier::prophetic]
     uninterp spec fn final_map(self) -> Map<Key, Value>;
@@ -132,7 +132,7 @@ pub open spec fn positioned_at_upper_bound<Key, Value, Q: ?Sized>(
 /// Once the cursor has been dropped, its prophesied map is its current map.
 pub broadcast axiom fn axiom_has_resolved_cursor<Key, Value, A>(cursor: CursorMut<Key, Value, A>)
     ensures
-        #[trigger] has_resolved(cursor) ==> cursor.final_map() == cursor.model().map,
+        #[trigger] has_resolved(cursor) ==> cursor.final_map() == cursor@.map,
 ;
 
 /// Relates a map before and after mutating the value selected by a borrowed key.
@@ -201,10 +201,10 @@ pub assume_specification<
         },
     ensures
         obeys_cmp::<Key>() ==> {
-            &&& cursor.model().wf()
-            &&& cursor.model().map == old(map)@
+            &&& cursor@.wf()
+            &&& cursor@.map == old(map)@
             &&& final(map)@ == cursor.final_map()
-            &&& positioned_at_lower_bound(cursor.model(), bound)
+            &&& positioned_at_lower_bound(cursor@, bound)
         },
 ;
 
@@ -228,10 +228,10 @@ pub assume_specification<
         },
     ensures
         obeys_cmp::<Key>() ==> {
-            &&& cursor.model().wf()
-            &&& cursor.model().map == old(map)@
+            &&& cursor@.wf()
+            &&& cursor@.map == old(map)@
             &&& final(map)@ == cursor.final_map()
-            &&& positioned_at_upper_bound(cursor.model(), bound)
+            &&& positioned_at_upper_bound(cursor@, bound)
         },
 ;
 
@@ -241,11 +241,11 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
 ) -> (result: Option<(&'b Key, &'b mut Value)>)
     ensures
         final(cursor).final_map() == old(cursor).final_map(),
-        old(cursor).model().wf() ==> final(cursor).model().wf(),
+        old(cursor)@.wf() ==> final(cursor)@.wf(),
         match result {
             Some((key, value)) => {
-                let old_model = old(cursor).model();
-                let new_model = final(cursor).model();
+                let old_model = old(cursor)@;
+                let new_model = final(cursor)@;
                 &&& old_model.position > 0
                 &&& *key == old_model.keys[old_model.position - 1]
                 &&& *value == old_model.map[*key]
@@ -254,10 +254,10 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
                 &&& new_model.map == old_model.map.insert(*key, *final(value))
             },
             None => {
-                &&& old(cursor).model().position == 0
-                &&& final(cursor).model().keys == old(cursor).model().keys
-                &&& final(cursor).model().position == old(cursor).model().position
-                &&& final(cursor).model().map == old(cursor).model().map
+                &&& old(cursor)@.position == 0
+                &&& final(cursor)@.keys == old(cursor)@.keys
+                &&& final(cursor)@.position == old(cursor)@.position
+                &&& final(cursor)@.map == old(cursor)@.map
             },
         },
 ;
@@ -268,11 +268,11 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
 ) -> (result: Option<(&'b Key, &'b mut Value)>)
     ensures
         final(cursor).final_map() == old(cursor).final_map(),
-        old(cursor).model().wf() ==> final(cursor).model().wf(),
+        old(cursor)@.wf() ==> final(cursor)@.wf(),
         match result {
             Some((key, value)) => {
-                let old_model = old(cursor).model();
-                let new_model = final(cursor).model();
+                let old_model = old(cursor)@;
+                let new_model = final(cursor)@;
                 &&& old_model.position < old_model.keys.len()
                 &&& *key == old_model.keys[old_model.position]
                 &&& *value == old_model.map[*key]
@@ -281,10 +281,10 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
                 &&& new_model.map == old_model.map.insert(*key, *final(value))
             },
             None => {
-                &&& old(cursor).model().position == old(cursor).model().keys.len()
-                &&& final(cursor).model().keys == old(cursor).model().keys
-                &&& final(cursor).model().position == old(cursor).model().position
-                &&& final(cursor).model().map == old(cursor).model().map
+                &&& old(cursor)@.position == old(cursor)@.keys.len()
+                &&& final(cursor)@.keys == old(cursor)@.keys
+                &&& final(cursor)@.position == old(cursor)@.position
+                &&& final(cursor)@.map == old(cursor)@.map
             },
         },
 ;
