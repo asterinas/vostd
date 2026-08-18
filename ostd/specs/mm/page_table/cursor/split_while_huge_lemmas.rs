@@ -588,6 +588,10 @@ impl<C: PageTableConfig> CursorView<C> {
                 vstd::set::lemma_set_choose_len(f);
                 // page_size % new_size == 0
                 assert(m.inv());
+                assert(m.page_size % new_size == 0) by {
+                    assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
+                    assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
+                };
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
                     if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);

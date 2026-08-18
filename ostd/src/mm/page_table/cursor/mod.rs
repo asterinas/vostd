@@ -3991,6 +3991,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> Option<PageTableFrag<C>> {
+        hide(CursorOwner::path_metaregion_sound);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         let ghost owner0 = *owner;
@@ -4037,6 +4038,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(entry_idx == cont0.idx);
             assert(cur_path_guard == cont0.guard);
             cont0.inv_children_rel_unroll(cont0.idx as int);
+            assert(cont0.entry_own.metaregion_sound(regions0)) by {
+                reveal(CursorOwner::path_metaregion_sound);
+            };
             assert(old_child_owner.value().match_pte(
                 cont0.entry_own.node().children_perm.value()[cont0.idx as int],
                 cont0.entry_own.node().level,
@@ -4260,6 +4264,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
 
             assert(owner.path_metaregion_sound(*regions)) by {
+                reveal(CursorOwner::path_metaregion_sound);
                 if old_child_pre_replace.is_node() {
                     owner0.inv_continuation(owner0.level - 1);
                     cont0.inv_children_unroll(cont0.idx as int);
@@ -4461,6 +4466,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     - 1].children[j] == owner_before_dfs.continuations[owner.level
                                     - 1].children[j]);
                         }
+                    };
+                    assert(owner.path_metaregion_sound(*regions)) by {
+                        reveal(CursorOwner::path_metaregion_sound);
                     };
 
                     assert forall|i: int|
