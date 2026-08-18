@@ -817,7 +817,6 @@ impl<C: PageTableConfig> CursorView<C> {
             assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
             assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
         };
-        assert(new_size > 0);
         assert(m.page_size > new_size) by {
             assert(2097152usize > 2097152usize / 512usize) by (compute_only);
             assert(1073741824usize > 1073741824usize / 512usize) by (compute_only);
@@ -838,11 +837,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 // and disjointness from x follows from disjointness of m and x.
                 Self::split_if_mapped_huge_spec_refinement(self, new_size, m2);
                 assert(Mapping::disjoint_vaddrs(m, x));
-                if m.va_range.end <= x.va_range.start {
-                    // m2.va_range.end <= m.va_range.end <= x.va_range.start
-                } else {
-                    // x.va_range.end <= m.va_range.start <= m2.va_range.start
-                }
             }
         };
 
