@@ -191,11 +191,7 @@ pub assume_specification<
     bound: Bound<&Q>,
 ) -> (cursor: CursorMut<'a, Key, Value, A>)
     requires
-        match bound {
-            Bound::Included(_) | Bound::Excluded(_) => { borrowed_key_ordering_matches::<Key, Q>()
-            },
-            Bound::Unbounded => true,
-        },
+        borrowed_key_ordering_matches::<Key, Q>(),
     ensures
         obeys_cmp::<Key>() ==> {
             &&& cursor@.wf()
@@ -217,11 +213,7 @@ pub assume_specification<
     bound: Bound<&Q>,
 ) -> (cursor: CursorMut<'a, Key, Value, A>)
     requires
-        match bound {
-            Bound::Included(_) | Bound::Excluded(_) => { borrowed_key_ordering_matches::<Key, Q>()
-            },
-            Bound::Unbounded => true,
-        },
+        borrowed_key_ordering_matches::<Key, Q>(),
     ensures
         obeys_cmp::<Key>() ==> {
             &&& cursor@.wf()
@@ -235,9 +227,11 @@ pub assume_specification<
 pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>::peek_prev ](
     cursor: &'b mut CursorMut<'a, Key, Value, A>,
 ) -> (result: Option<(&'b Key, &'b mut Value)>)
+    requires
+        old(cursor)@.wf(),
     ensures
         final(cursor).final_map() == old(cursor).final_map(),
-        old(cursor)@.wf() ==> final(cursor)@.wf(),
+        final(cursor)@.wf(),
         match result {
             Some((key, value)) => {
                 let old_model = old(cursor)@;
@@ -251,9 +245,7 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
             },
             None => {
                 &&& old(cursor)@.position == 0
-                &&& final(cursor)@.keys == old(cursor)@.keys
-                &&& final(cursor)@.position == old(cursor)@.position
-                &&& final(cursor)@.map == old(cursor)@.map
+                &&& final(cursor)@ == old(cursor)@
             },
         },
 ;
@@ -262,9 +254,11 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
 pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>::peek_next ](
     cursor: &'b mut CursorMut<'a, Key, Value, A>,
 ) -> (result: Option<(&'b Key, &'b mut Value)>)
+    requires
+        old(cursor)@.wf(),
     ensures
         final(cursor).final_map() == old(cursor).final_map(),
-        old(cursor)@.wf() ==> final(cursor)@.wf(),
+        final(cursor)@.wf(),
         match result {
             Some((key, value)) => {
                 let old_model = old(cursor)@;
@@ -278,9 +272,7 @@ pub assume_specification<'a, 'b, Key, Value, A>[ CursorMut::<'a, Key, Value, A>:
             },
             None => {
                 &&& old(cursor)@.position == old(cursor)@.keys.len()
-                &&& final(cursor)@.keys == old(cursor)@.keys
-                &&& final(cursor)@.position == old(cursor)@.position
-                &&& final(cursor)@.map == old(cursor)@.map
+                &&& final(cursor)@ == old(cursor)@
             },
         },
 ;
