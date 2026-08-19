@@ -64,19 +64,19 @@ impl<'a, Key, Value, A> CursorMutAdditionalSpecFns<Key, Value> for CursorMut<'a,
     uninterp spec fn final_map(self) -> Map<Key, Value>;
 }
 
-/// Whether a borrowed lookup key's ordering agrees with the ordering of stored keys.
+/// Whether a borrowed key type's ordering agrees with the ordering of stored keys.
 ///
 /// This is the semantic requirement imposed on `Key: Borrow<Q>` by the standard library's
 /// borrowed-key `BTreeMap` operations.
-pub uninterp spec fn borrowed_key_ordering_matches<Key, Q: ?Sized>(key: &Q) -> bool;
+pub uninterp spec fn borrowed_key_ordering_matches<Key: Borrow<Q> + Ord, Q: Ord + ?Sized>() -> bool;
 
 /// The ordering of a stored key relative to a borrowed lookup key.
 pub uninterp spec fn borrowed_key_cmp<Key, Q: ?Sized>(stored_key: Key, key: &Q) -> Ordering;
 
 /// A key type has the same ordering as itself.
-pub broadcast axiom fn axiom_deref_key_ordering_matches<Key>(key: &Key)
+pub broadcast axiom fn axiom_deref_key_ordering_matches<Key: Ord>()
     ensures
-        #[trigger] borrowed_key_ordering_matches::<Key, Key>(key),
+        #[trigger] borrowed_key_ordering_matches::<Key, Key>(),
 ;
 
 /// Comparing a stored key against a borrowed key of the same type agrees with `Ord`'s model.
@@ -143,8 +143,6 @@ pub open spec fn borrowed_key_mutated<Key, Value, Q: ?Sized>(
     old_value: Value,
     new_value: Value,
 ) -> bool {
-    &&& contains_borrowed_key(old_map, key)
-    &&& contains_borrowed_key(new_map, key)
     &&& maps_borrowed_key_to_value(old_map, key, old_value)
     &&& maps_borrowed_key_to_value(new_map, key, new_value)
     &&& exists|remainder: Map<Key, Value>|
@@ -173,7 +171,7 @@ pub assume_specification<
     key: &Q,
 ) -> (result: Option<&'a mut Value>)
     requires
-        borrowed_key_ordering_matches::<Key, Q>(key),
+        borrowed_key_ordering_matches::<Key, Q>(),
     ensures
         obeys_cmp::<Key>() ==> match result {
             Some(value) => borrowed_key_mutated(old(map)@, final(map)@, key, *value, *final(value)),
@@ -194,8 +192,7 @@ pub assume_specification<
 ) -> (cursor: CursorMut<'a, Key, Value, A>)
     requires
         match bound {
-            Bound::Included(key) | Bound::Excluded(key) => {
-                borrowed_key_ordering_matches::<Key, Q>(key)
+            Bound::Included(_) | Bound::Excluded(_) => { borrowed_key_ordering_matches::<Key, Q>()
             },
             Bound::Unbounded => true,
         },
@@ -221,8 +218,7 @@ pub assume_specification<
 ) -> (cursor: CursorMut<'a, Key, Value, A>)
     requires
         match bound {
-            Bound::Included(key) | Bound::Excluded(key) => {
-                borrowed_key_ordering_matches::<Key, Q>(key)
+            Bound::Included(_) | Bound::Excluded(_) => { borrowed_key_ordering_matches::<Key, Q>()
             },
             Bound::Unbounded => true,
         },
