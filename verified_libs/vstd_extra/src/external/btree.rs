@@ -5,6 +5,7 @@ use alloc::{
 };
 use core::{borrow::Borrow, cmp::Ordering, ops::Bound};
 use vstd::{
+    assert_maps_equal,
     laws_cmp::obeys_cmp,
     prelude::*,
     std_specs::{
@@ -152,11 +153,51 @@ pub open spec fn borrowed_key_mutated<Key, Value, Q: ?Sized>(
         }
 }
 
+/// Simplifies [`borrowed_key_mutated`] when the borrowed key has the map's key type.
+pub broadcast proof fn lemma_borrowed_key_mutated_deref<Key, Value>(
+    old_map: Map<Key, Value>,
+    new_map: Map<Key, Value>,
+    key: &Key,
+    old_value: Value,
+    new_value: Value,
+)
+    ensures
+        #[trigger] borrowed_key_mutated(old_map, new_map, key, old_value, new_value) <==> {
+            &&& old_map.contains_key(*key)
+            &&& old_map[*key] == old_value
+            &&& new_map == old_map.insert(*key, new_value)
+        },
+{
+    broadcast use vstd::std_specs::btree::group_btree_axioms;
+
+    if borrowed_key_mutated(old_map, new_map, key, old_value, new_value) {
+        let remainder = choose|remainder: Map<Key, Value>|
+            {
+                &&& borrowed_key_removed(old_map, remainder, key)
+                &&& borrowed_key_removed(new_map, remainder, key)
+            };
+        assert(remainder == new_map.remove(*key));
+        assert_maps_equal!(new_map, old_map.insert(*key, new_value), candidate => {
+            if candidate != *key {
+                assert(old_map.remove(*key)[candidate] == old_map[candidate]);
+            }
+        });
+    } else if old_map.contains_key(*key) && old_map[*key] == old_value && new_map == old_map.insert(
+        *key,
+        new_value,
+    ) {
+        let remainder = old_map.remove(*key);
+        assert_maps_equal!(new_map.remove(*key), remainder, candidate => {});
+        assert(borrowed_key_removed(new_map, remainder, key));
+    }
+}
+
 /// Additional axioms for mutable B-tree operations.
 pub broadcast group group_btree_extra_axioms {
     axiom_deref_key_ordering_matches,
     axiom_deref_key_cmp,
     axiom_has_resolved_cursor,
+    lemma_borrowed_key_mutated_deref,
 }
 
 /// Specification for [`BTreeMap::get_mut`].
