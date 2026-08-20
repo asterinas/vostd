@@ -162,9 +162,7 @@ pub tracked struct MetadataPerms {
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
 }
 
-/// Well-formedness of a concrete metadata representation. The outer slot
-/// permission remains permanently in `MetaRegionOwners`; the metadata bundle
-/// describes the permissions tied to the currently installed metadata.
+/// Well-formedness of a concrete metadata representation.
 pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
     metadata_perms: MetadataPerms,
@@ -176,6 +174,7 @@ pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     &&& M::wf(metadata_perms.storage_perm.value(), repr_perm)
 }
 
+/// The value of a concrete metadata.
 pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     metadata_perms: MetadataPerms,
     repr_perm: M::ReprPerm,
@@ -192,8 +191,8 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     requires
         typed_meta_wf::<M>(*points_to, *metadata_perms, *repr_perm),
         ptr.addr() == points_to.addr(),
-    ensures
-        *res == typed_meta_value::<M>(*metadata_perms, *repr_perm),
+    returns
+        typed_meta_value::<M>(*metadata_perms, *repr_perm),
 {
     let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(points_to));
     M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perms.storage_perm)), Tracked(repr_perm))
