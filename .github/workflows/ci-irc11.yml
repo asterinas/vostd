@@ -1,0 +1,155 @@
+name: IRC11 Toolchain
+
+on:
+  push:
+    branches:
+      - main
+      - "irc11-*"
+    paths:
+      - ".github/workflows/ci-irc11.yml"
+      - "tools/bootstrap-verus-irc11.sh"
+      - "tools/patches/verus-irc11.patch"
+      - "tools/patches/verus-irc11-vstd.patch"
+      - "tools/tests/irc11_smoke.rs"
+      - "dv"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "verified_libs/vstd_extra/**"
+      - "rust-toolchain.toml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ci-irc11.yml"
+      - "tools/bootstrap-verus-irc11.sh"
+      - "tools/patches/verus-irc11.patch"
+      - "tools/patches/verus-irc11-vstd.patch"
+      - "tools/tests/irc11_smoke.rs"
+      - "dv"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "verified_libs/vstd_extra/**"
+      - "rust-toolchain.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: irc11-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-irc11:
+    name: Build and verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+      VERUS_REPOSITORY: https://github.com/asterinas/verus.git
+      VERUS_BASE_COMMIT: bb61343fc97e4b3a97b1029f385ffb6bbb291da2
+      VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
+      VERUS_COMPAT_PATCH: tools/patches/verus-irc11-vstd.patch
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -qq
+          sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
+
+      - name: Record toolchain revisions
+        run: |
+          RUST_VERSION=$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)
+          if [[ -z "$RUST_VERSION" ]]; then
+            echo "Failed to extract the Rust version from rust-toolchain.toml" >&2
+            exit 1
+          fi
+
+          echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
+          echo "Using Rust $RUST_VERSION"
+          echo "Using pinned Asterinas Verus base $VERUS_BASE_COMMIT"
+
+      - name: Cache IRC11 Rust toolchain
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/tmp
+          key: ${{ runner.os }}-irc11-rust-${{ env.RUST_VERSION }}
+
+      - name: Cache IRC11 Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-irc11-cargo-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
+          restore-keys: |
+            ${{ runner.os }}-irc11-cargo-
+
+      - name: Cache IRC11 Verus
+        id: cache-verus
+        uses: actions/cache@v6
+        with:
+          path: tools/verus
+          key: ${{ runner.os }}-irc11-verus-v1-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/bootstrap-verus-irc11.sh', 'tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
+
+      - name: Bootstrap IRC11 Verus
+        run: |
+          if [[ "${{ steps.cache-verus.outputs.cache-hit }}" != "true" ]]; then
+            rm -rf tools/verus
+            git init tools/verus
+            git -C tools/verus remote add origin "$VERUS_REPOSITORY"
+            git -C tools/verus fetch --depth=1 origin "$VERUS_BASE_COMMIT"
+            git -C tools/verus checkout --detach FETCH_HEAD
+            git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
+            git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_COMPAT_PATCH"
+            bash tools/bootstrap-verus-irc11.sh
+          else
+            echo "Using cached IRC11 Verus"
+          fi
+
+          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
+          git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_COMPAT_PATCH"
+          git -C tools/verus diff --check
+          test -x tools/verus/source/target-verus/release/cargo-verus
+          test -x tools/verus/source/target-verus/release/verus
+          test -f tools/verus/source/target-verus/release/vstd.vir
+          test -f tools/verus/source/vstd/atomic_weak.rs
+          test -f tools/verus/source/vstd/thread_view.rs
+
+      - name: Smoke test SC and IRC11 atomics together
+        run: |
+          tools/verus/source/target-verus/release/verus \
+            --crate-type=lib \
+            tools/tests/irc11_smoke.rs
+
+      - name: Verify IRC11 vstd_extra adapters
+        run: |
+          # The pinned IRC11 and mainline Verus toolchains use different
+          # package versions. Keep the repository lockfile aligned with
+          # mainline while allowing Cargo to resolve the IRC11 versions here.
+          IRC11_LOCKFILE_BACKUP="$RUNNER_TEMP/Cargo.lock.mainline"
+          cp Cargo.lock "$IRC11_LOCKFILE_BACKUP"
+          trap 'cp "$IRC11_LOCKFILE_BACKUP" Cargo.lock' EXIT
+          cargo dv verify --targets vstd_extra \
+            --features irc11,vstd/weak-memory
+
+      - name: Check for unexpected source changes
+        if: always()
+        run: git diff --exit-code
+
+      - name: Publish summary
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" = "success" ]]; then
+            echo "## IRC11 toolchain and adapter verification: passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## IRC11 toolchain and adapter verification: failed" >> "$GITHUB_STEP_SUMMARY"
+          fi

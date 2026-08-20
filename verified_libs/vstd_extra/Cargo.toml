@@ -8,6 +8,9 @@ verify = true
 
 [features]
 default = []
+# The isolated IRC11 toolchain builds vstd with weak-memory support. Keep this
+# feature as a source gate so the mainline vstd dependency remains unchanged.
+irc11 = []
 std = ["vstd/std"]
 
 [dependencies]

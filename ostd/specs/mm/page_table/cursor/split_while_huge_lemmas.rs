@@ -813,6 +813,14 @@ impl<C: PageTableConfig> CursorView<C> {
                 assert(false);
             }
         };
+        assert(m.page_size % new_size == 0) by {
+            assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
+            assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
+        };
+        assert(m.page_size > new_size) by {
+            assert(2097152usize > 2097152usize / 512usize) by (compute_only);
+            assert(1073741824usize > 1073741824usize / 512usize) by (compute_only);
+        };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         let new_self = self.split_if_mapped_huge_spec(new_size);
@@ -825,21 +833,10 @@ impl<C: PageTableConfig> CursorView<C> {
             if self.mappings.contains(m2) {
                 // Existing mapping preserved by split: va-disjoint by hypothesis.
             } else {
-                // m2 is a sub-mapping of m, with va_range ⊆ m.va_range.
-                let new_mappings = Set::<int>::range(
-                    0int,
-                    m.page_size as int / new_size as int,
-                ).map(|n: int| Self::split_index(m, new_size, n as usize));
-                let k = choose|k: int|
-                    0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
-                        m,
-                        new_size,
-                        k as usize,
-                    ) == m2;
-                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                    m.page_size as int,
-                    new_size as int,
-                );
+                // m2 is a sub-mapping of m, so its va_range is contained in m.va_range,
+                // and disjointness from x follows from disjointness of m and x.
+                Self::split_if_mapped_huge_spec_refinement(self, new_size, m2);
+                assert(Mapping::disjoint_vaddrs(m, x));
             }
         };
 

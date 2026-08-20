@@ -15,7 +15,8 @@ This work is ongoing. Our current focus is OSTD's *memory management* and *synch
 This project is tied to the following papers:
 
 - 🏆 **CortenMM** — *CortenMM: Efficient Memory Management with Strong Correctness Guarantees*, SOSP 2025 (**Best Paper Award**). Concurrency proofs for OSTD memory management. [[paper](https://dl.acm.org/doi/10.1145/3731569.3764836)] [[code](https://github.com/TELOS-syslab/CortenMM-Artifact)]
-- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. Upstream-accepted proofs in OSTD `AI-assist`; see [these PRs](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [[paper](https://arxiv.org/abs/2605.03822)]
+- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. KVerus-generated proofs accepted upstream are tracked under the [`AI-assist` label](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [[paper](https://arxiv.org/abs/2605.03822)]
+- **StarVerus** - *StarVerus: LLM-Powered Multi-Agent Collaboration for Industrial Rust Code Verification Automation*, KDD 2026 (ADS Track). Multi-agent verification for industrial Rust. [[paper](https://dl.acm.org/doi/10.1145/3770855.3818485)]
 - **Beyond Benchmarks** — *Beyond Benchmarks: A Case Study of LLM-Generated Verus Specification Failures on Asterinas Vostd*, ASE 2026 (Industry Track). *coming soon*
 
 ## Bugs Found by Verification
@@ -64,10 +65,14 @@ Verus is cloned and built under `tools/verus`. If the download fails, clone it m
 ### Verify
 
 ```bash
-make                                         # verify everything (or: cargo dv verify)
-cargo dv verify -f --targets ostd            # ostd only, skip dependencies
-cargo dv verify --targets vstd_extra         # the verified dependency crate
+make                                                               # verify everything (or: cargo dv verify)
+cargo dv focus --targets ostd                                      # ostd only, skip dependency proofs
+cargo dv focus --targets ostd -- --verify-only-module sync::rwlock # verify one ostd module
+cargo dv verify --targets vstd_extra                               # the verified dependency crate
 ```
+
+Partial verification selectors such as `--verify-only-module` require the
+`focus` command.
 
 ### Clean
 

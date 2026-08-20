@@ -16,7 +16,7 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
   - `make verus update` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify`: verify the whole target.
-- `cargo dv verify --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`.
+- `cargo dv focus --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`, without re-checking dependency proofs.
 - `cargo dv verify --targets vstd_extra`: compile and verify the `vstd_extra` library independently.
 - `make fmt`: format Verus/Rust sources using the project formatter.
 - `make doc`: verify and generate API documentation in `doc/`.
@@ -53,7 +53,7 @@ For proof-sensitive changes, use Verus-related skills in `.agents/skills` only w
 
 ## Testing and Verification Guidelines
 
-Verification is the primary correctness gate. Run `make` before submitting changes that affect `ostd`, `verified_libs`, or proof code. For targeted work on specific modules, use the `--verify-only-module` flag to speed up iteration.
+Verification is the primary correctness gate. Run `make` before submitting changes that affect `ostd`, `verified_libs`, or proof code. For targeted work on specific modules, use `cargo dv focus` with the `--verify-only-module` flag to speed up iteration.
 
 ## Commit & Pull Request Guidelines
 

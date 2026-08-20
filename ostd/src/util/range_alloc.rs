@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
+use vstd_extra::{
+    debug_assert,
+    external::btree::*,
+    panic::{UnwrapOrPanic, may_panic},
+};
 
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
@@ -19,6 +24,8 @@ pub struct RangeAllocator {
 pub struct RangeAllocError;
 
 verus! {
+
+broadcast use {group_btree_extra_axioms, vstd::std_specs::btree::group_btree_axioms};
 
 impl View for RangeAllocator {
     type V = Range<int>;
@@ -54,9 +61,9 @@ impl RangeAllocator {
     }
 
     /// Allocates a specific kernel virtual area.
-    #[verifier::external_body]
     #[verus_spec(res =>
-        requires allocate_range.start < allocate_range.end,
+        requires
+            self@.start <= allocate_range.start < allocate_range.end <= self@.end,
         ensures
             res is Ok ==> (self@.start <= allocate_range.start
                 && allocate_range.end <= self@.end),
@@ -70,6 +77,11 @@ impl RangeAllocator {
         let mut left_length = 0;
         let mut right_length = 0;
 
+        #[verus_spec(invariant
+                self@.start <= allocate_range.start,
+                allocate_range.end <= self@.end,
+                right_length <= usize::MAX - allocate_range.end,
+        )]
         for (key, value) in freelist.iter() {
             if value.block.end >= allocate_range.end && value.block.start <= allocate_range.start {
                 target_node = Some(*key);
@@ -104,8 +116,8 @@ impl RangeAllocator {
     /// Allocates a range specific by the `size`.
     ///
     /// This is currently implemented with a simple FIRST-FIT algorithm.
-    #[verifier::external_body]
     #[verus_spec(res =>
+        requires self@.start <= self@.end,
         ensures
             res is Ok ==> (res->Ok_0.end - res->Ok_0.start == size),
             res is Ok ==> (self@.start <= res->Ok_0.start
@@ -114,10 +126,23 @@ impl RangeAllocator {
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
-        let mut allocate_range = None;
-        let mut to_remove = None;
-
+        let mut allocate_range: Option<Range<usize>> = None;
+        let mut to_remove: Option<usize> = None;
+        #[verus_spec(invariant
+                allocate_range is Some ==> allocate_range->0.end - allocate_range->0.start == size,
+                allocate_range is Some ==> self@.start <= allocate_range->0.start,
+                allocate_range is Some ==> allocate_range->0.end <= self@.end,
+                to_remove is Some ==> allocate_range is Some,
+                to_remove is Some ==> freelist@.contains_key(to_remove->0),
+                to_remove is Some ==> freelist@[to_remove->0].block.end == allocate_range->0.end,
+        )]
         for (key, value) in freelist.iter() {
+            proof! {
+                // TODO: Remove once the lock enforces the freelist invariant; `alloc` has no callers.
+                assume(self@.start <= value.block.start
+                    && value.block.start <= value.block.end
+                    && value.block.end <= self@.end);
+            }
             if value.block.end - value.block.start >= size {
                 allocate_range = Some((value.block.end - size)..value.block.end);
                 to_remove = Some(*key);
@@ -143,12 +168,18 @@ impl RangeAllocator {
     }
 
     /// Frees a `range`.
-    #[verifier::external_body]
+    #[verus_spec(
+        requires
+            self@.start <= range.start <= range.end <= self@.end,
+            // TODO: Once freelist initialization is modeled, replace this with
+            // `self@.freelist is None ==> may_panic()`.
+            may_panic(),
+    )]
     pub fn free(&self, range: Range<usize>) {
         let mut lock_guard = self.freelist.lock();
-        let freelist = lock_guard.as_mut().unwrap_or_else(|| {
-            panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.")
-        });
+        /* let freelist = lock_guard.as_mut().unwrap_or_else(|| {
+        panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.") */
+        let freelist = lock_guard.as_mut().unwrap_or_panic();
         // 1. get the previous free block, check if we can merge this block with the free one
         //     - if contiguous, merge this area with the free block.
         //     - if not contiguous, create a new free block, insert it into the list.
@@ -174,16 +205,26 @@ impl RangeAllocator {
             if free_range.end == next_node.block.start {
                 let next_va = *next_va;
                 free_range.end = next_node.block.end;
+                proof! {
+                    assert(!before_lower_bound(
+                        next_va,
+                        core::ops::Bound::Excluded(&free_range.start),
+                    ));
+                }
                 freelist.remove(&next_va);
                 freelist.get_mut(&free_range.start).unwrap().block.end = free_range.end;
             }
         }
     }
 
-    #[verifier::external_body]
+    #[verus_spec(ret =>
+        requires self@.start <= self@.end,
+        ensures
+            ret@ is Some,
+    )]
     fn get_freelist_guard(
         &self,
-    ) -> SpinLockGuard<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled> {
+    ) -> SpinLockGuard<'_, Option<BTreeMap<usize, FreeRange>>, PreemptDisabled> {
         let mut lock_guard = self.freelist.lock();
         if lock_guard.is_none() {
             let mut freelist: BTreeMap<usize, FreeRange> = BTreeMap::new();
