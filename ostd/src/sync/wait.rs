@@ -43,24 +43,18 @@ use crate::task::{Task, scheduler};
 
 verus! {
 
-struct WakersPredicate {
-    ghost_id: Ghost<Loc>,
-}
-
-impl WakersPredicate {
-    closed spec fn id(self) -> Loc {
-        self.ghost_id@
-    }
-}
+struct WakersPredicate;
 
 impl SpinLockPredicate<VecDeque<Arc<Waker>>> for WakersPredicate {
+    type Constant = Loc;
+
     type State = GhostVar<int>;
 
     /// While the spin lock is unlocked, its mirror records the exact queue
     /// length. Lock acquisition transfers the mirror to the guard, allowing
     /// the relation to be updated together with `num_wakers` before unlock.
-    closed spec fn inv(self, wakers: VecDeque<Arc<Waker>>, mirror: GhostVar<int>) -> bool {
-        &&& mirror.id() == self.id()
+    closed spec fn inv(ghost_id: Loc, wakers: VecDeque<Arc<Waker>>, mirror: GhostVar<int>) -> bool {
+        &&& mirror.id() == ghost_id
         &&& mirror@ == wakers@.len()
     }
 }
@@ -83,7 +77,7 @@ closed spec fn wf(self) -> bool {
     // The authoritative half agrees with the executable atomic counter. Its
     // ID links it to the mirror protected by `wakers`.
     invariant on num_wakers with (wakers) is (v: u32, g: GhostVarAuth<int>) {
-        &&& g.id() == wakers.predicate().id()
+        &&& g.id() == wakers.constant()
         &&& g@ == v as int
     }
 }
@@ -105,7 +99,7 @@ impl WaitQueue {
         let ghost ghost_id = count_auth.id();
         let wakers = SpinLock::new_with_pred(
             VecDeque::new(),
-            Ghost(WakersPredicate { ghost_id: Ghost(ghost_id) }),
+            Ghost(ghost_id),
             Tracked(count_mirror),
         );
         WaitQueue { num_wakers: AtomicU32::new(Ghost(wakers), 0, Tracked(count_auth)), wakers }

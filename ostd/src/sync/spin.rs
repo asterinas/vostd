@@ -25,13 +25,16 @@ verus! {
 /// temporarily break it, but must restore it before returning the state when
 /// the guard is dropped.
 pub trait SpinLockPredicate<T>: Sized {
+    /// Immutable ghost data fixed when a spin lock is created.
+    type Constant;
+
     /// Tracked state used to relate the protected value to external ghost
     /// state.
     type State;
 
     /// The relation that must hold between the protected value and its tracked
     /// state while the spin lock is unlocked.
-    spec fn inv(self, value: T, state: Self::State) -> bool;
+    spec fn inv(constant: Self::Constant, value: T, state: Self::State) -> bool;
 }
 
 /// A spin-lock invariant that imposes no condition on the protected value.
@@ -41,27 +44,84 @@ pub trait SpinLockPredicate<T>: Sized {
 pub struct TrivialSpinLockPredicate;
 
 impl<T> SpinLockPredicate<T> for TrivialSpinLockPredicate {
+    type Constant = ();
     type State = ();
 
-    open spec fn inv(self, _value: T, _state: ()) -> bool {
+    open spec fn inv(_constant: (), _value: T, _state: ()) -> bool {
         true
     }
 }
 
+/// The tracked resources transferred from the unlocked spin lock to its guard
+/// when the lock is acquired, and returned to the lock when the guard is dropped.
 tracked struct SpinLockResource<T, P: SpinLockPredicate<T>> {
     tracked perm: PointsTo<T>,
     tracked state: P::State,
 }
 
 impl<T, P: SpinLockPredicate<T>> SpinLockResource<T, P> {
-    closed spec fn value(self) -> T {
+    pub closed spec fn cell_id(self) -> cell::CellId {
+        self.perm.id()
+    }
+
+    pub closed spec fn value(self) -> T {
         *self.perm.value()
     }
 
-    closed spec fn predicate_state(self) -> P::State {
+    pub closed spec fn predicate_state(self) -> P::State {
         self.state
     }
+}
 
+/// The following structs adapt [`SpinLockPredicate`] to [`AtomicBool`]'s invariant by pairing the
+/// protected [`PCell`]'s id with the user-supplied predicate constant. The atomic predicate
+/// ensures that the stored [`PointsTo`] permission belongs to that cell and satisfies the user
+/// invariant. Atomic operations may update the lock bit and tracked resource, while this paired
+/// constant remains fixed for the lifetime of the [`AtomicBool`].
+ghost struct SpinLockConstant<C> {
+    cell_id: cell::CellId,
+    user_constant: C,
+}
+
+impl<C> SpinLockConstant<C> {
+    pub closed spec fn cell_id(self) -> cell::CellId {
+        self.cell_id
+    }
+
+    pub closed spec fn user_constant(self) -> C {
+        self.user_constant
+    }
+}
+
+struct SpinLockAtomicPredicate<T, P: SpinLockPredicate<T>> {
+    phantom: PhantomData<(T, P)>,
+}
+
+impl<T, P: SpinLockPredicate<T>>
+    AtomicInvariantPredicate<
+        SpinLockConstant<P::Constant>,
+        bool,
+        Option<SpinLockResource<T, P>>,
+    > for SpinLockAtomicPredicate<T, P>
+{
+    open spec fn atomic_inv(
+        constant: SpinLockConstant<P::Constant>,
+        locked: bool,
+        resource: Option<SpinLockResource<T, P>>,
+    ) -> bool {
+        match resource {
+            None => locked,
+            Some(resource) => {
+                &&& !locked
+                &&& resource.cell_id() == constant.cell_id()
+                &&& P::inv(
+                    constant.user_constant(),
+                    resource.value(),
+                    resource.predicate_state(),
+                )
+            }
+        }
+    }
 }
 
 } // verus!
@@ -107,26 +167,18 @@ impl<T, P: SpinLockPredicate<T>> SpinLockResource<T, P> {
 /// resources are stored in the lock, the permission must match the `val`'s ID, and the user
 /// predicate must hold.
 /// ```rust
-/// struct_with_invariants! {
 /// struct SpinLockInner<T, P: SpinLockPredicate<T>> {
-///    lock: AtomicBool<_, Option<SpinLockResource<T, P>>, _>,
-///    predicate: Ghost<P>,
+///    lock: AtomicBool<
+///        SpinLockConstant<P::Constant>,
+///        Option<SpinLockResource<T, P>>,
+///        SpinLockAtomicPredicate<T, P>,
+///    >,
 ///    val: PCell<T>,
 /// }
 ///
 /// closed spec fn wf(self) -> bool {
-///    invariant on lock with (val, predicate) is
-///        (v: bool, g: Option<SpinLockResource<T, P>>) {
-///        match g {
-///            None => v,
-///            Some(resource) => {
-///                &&& !v
-///                &&& resource.perm.id() == val.id()
-///                &&& predicate@.inv(resource.value(), resource.predicate_state())
-///            }
-///        }
-///    }
-/// }
+///    self.lock.well_formed()
+///        && self.lock.constant().cell_id() == self.val.id()
 /// }
 /// ```
 ///
@@ -150,32 +202,25 @@ pub struct SpinLock<T, G, P: SpinLockPredicate<T> = TrivialSpinLockPredicate> {
     inner: SpinLockInner<T, P>,
 }
 
-struct_with_invariants! {
+#[verus_verify]
 struct SpinLockInner<T, P: SpinLockPredicate<T>> {
-    lock: AtomicBool<_, Option<SpinLockResource<T, P>>, _>,
-    predicate: Ghost<P>,
+    lock: AtomicBool<
+        SpinLockConstant<P::Constant>,
+        Option<SpinLockResource<T, P>>,
+        SpinLockAtomicPredicate<T, P>,
+    >,
     val: PCell<T>, //TODO: Waiting the new PCell that supports ?Sized
-    //val: UnsafeCell<T>,
-}
-
-closed spec fn wf(self) -> bool {
-    invariant on lock with (val, predicate) is
-        (v: bool, g: Option<SpinLockResource<T, P>>) {
-        match g {
-            None => v == true,
-            Some(resource) => {
-                &&& !v
-                &&& resource.perm.id() == val.id()
-                &&& predicate@.inv(resource.value(), resource.predicate_state())
-            }
-        }
-    }
-}
+                   //val: UnsafeCell<T>,
 }
 
 verus! {
 impl<T, P: SpinLockPredicate<T>> SpinLockInner<T, P>
 {
+    closed spec fn wf(self) -> bool {
+        &&& self.lock.well_formed()
+        &&& self.lock.constant().cell_id() == self.val.id()
+    }
+
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool{
         self.wf()
@@ -195,7 +240,7 @@ impl<T, G> SpinLock<T, G, TrivialSpinLockPredicate> {
     /// - The created spin lock satisfies the invariant.
     pub const fn new(val: T) -> Self
     {
-        Self::new_with_pred(val, Ghost(TrivialSpinLockPredicate), Tracked(()))
+        Self::new_with_pred(val, Ghost(()), Tracked(()))
     }
 }
 
@@ -204,23 +249,27 @@ impl<T, G, P: SpinLockPredicate<T>> SpinLock<T, G, P> {
     /// tracked state.
     pub const fn new_with_pred(
         val: T,
-        Ghost(predicate): Ghost<P>,
+        Ghost(user_constant): Ghost<P::Constant>,
         Tracked(state): Tracked<P::State>,
     ) -> (res: Self)
         requires
-            predicate.inv(val, state),
+            P::inv(user_constant, val, state),
         ensures
-            res.predicate() == predicate,
+            res.constant() == user_constant,
     {
         let (val, Tracked(perm)) = PCell::new(val);
+        let ghost constant = SpinLockConstant { cell_id: val.id(), user_constant };
         let tracked resource = SpinLockResource { perm, state };
         let lock_inner = SpinLockInner {
-            lock: AtomicBool::new(
-                Ghost((val, Ghost(predicate))),
+            lock: AtomicBool::<
+                SpinLockConstant<P::Constant>,
+                Option<SpinLockResource<T, P>>,
+                SpinLockAtomicPredicate<T, P>,
+            >::new(
+                Ghost(constant),
                 false,
                 Tracked(Some(resource)),
             ),
-            predicate: Ghost(predicate),
             //val: UnsafeCell::new(val),
             val: val,
         };
@@ -238,9 +287,9 @@ impl<T, G, P: SpinLockPredicate<T>> SpinLock<T, G, P>
         self.inner.val.id()
     }
 
-    /// The predicate associated with the protected value.
-    pub closed spec fn predicate(self) -> P {
-        self.inner.predicate@
+    /// The immutable user constant associated with the spin-lock predicate.
+    pub closed spec fn constant(self) -> P::Constant {
+        self.inner.lock.constant().user_constant()
     }
 
     /// Public well-formedness predicate for external wrappers.
@@ -301,7 +350,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
     /// ```
     #[verus_spec(ret =>
         ensures
-            ret.predicate() == self.predicate(),
+            ret.constant() == self.constant(),
             ret.predicate_inv(),
     )]
     pub fn lock(&self) -> SpinLockGuard<'_, T, G, P> {
@@ -338,7 +387,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
     #[verus_spec(ret =>
         ensures
             ret is Some ==> {
-                &&& ret->0.predicate() == self.predicate()
+                &&& ret->0.constant() == self.constant()
                 &&& ret->0.predicate_inv()
             },
     )]
@@ -377,7 +426,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
             -> resource: Tracked<SpinLockResource<T, P>>,
         ensures
             resource@.perm.id() == self.inner.val.id(),
-            self.predicate().inv(resource@.value(), resource@.predicate_state()),
+            P::inv(self.constant(), resource@.value(), resource@.predicate_state()),
             )]
     #[verifier::exec_allows_no_decreases_clause]
     fn acquire_lock(&self) {
@@ -407,7 +456,8 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
             ret ==> {
                 &&& resource@ is Some
                 &&& resource@->0.perm.id() == self.inner.val.id()
-                &&& self.predicate().inv(
+                &&& P::inv(
+                    self.constant(),
                     resource@->0.value(),
                     resource@->0.predicate_state(),
                 )
@@ -440,7 +490,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
             Tracked(resource): Tracked<SpinLockResource<T, P>>,
         requires
             resource.perm.id() == self.inner.val.id(),
-            self.predicate().inv(resource.value(), resource.predicate_state()),
+            P::inv(self.constant(), resource.value(), resource.predicate_state()),
     )]
     fn release_lock(&self) {
         proof!{
@@ -539,15 +589,15 @@ impl<'a, T, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLockGuard<'a, T, G, P>
         self.tracked_state@ is Some
     }
 
-    /// The predicate associated with the guarded spin lock.
-    pub closed spec fn predicate(self) -> P {
-        self.lock.predicate()
+    /// The immutable user constant associated with the guarded spin lock.
+    pub closed spec fn constant(self) -> P::Constant {
+        self.lock.constant()
     }
 
     /// Whether the user-supplied invariant currently holds.
     pub open spec fn predicate_inv(self) -> bool {
         &&& self.has_predicate_state()
-        &&& self.predicate().inv(self.value(), self.predicate_state())
+        &&& P::inv(self.constant(), self.value(), self.predicate_state())
     }
 
     /// The value stored in the lock. It is an alias of `Self::value`.
@@ -565,7 +615,7 @@ impl<'a, T, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLockGuard<'a, T, G, P>
             state@ == old(self).predicate_state(),
             !final(self).has_predicate_state(),
             final(self).value() == old(self).value(),
-            final(self).predicate() == old(self).predicate(),
+            final(self).constant() == old(self).constant(),
     )]
     pub fn take_predicate_state(&mut self) {
         proof! {
@@ -588,7 +638,7 @@ impl<'a, T, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLockGuard<'a, T, G, P>
             final(self).has_predicate_state(),
             final(self).predicate_state() == state,
             final(self).value() == old(self).value(),
-            final(self).predicate() == old(self).predicate(),
+            final(self).constant() == old(self).constant(),
     )]
     pub fn put_predicate_state(&mut self) {
         proof! {
@@ -638,7 +688,7 @@ impl<T: /* ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> DerefMut
             final(self).has_predicate_state() == old(self).has_predicate_state(),
             old(self).has_predicate_state() ==> final(self).predicate_state()
                 == old(self).predicate_state(),
-            final(self).predicate() == old(self).predicate(),
+            final(self).constant() == old(self).constant(),
     )]
     fn deref_mut(&mut self) -> &mut Self::Target
     {
