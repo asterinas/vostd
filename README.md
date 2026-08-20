@@ -64,10 +64,14 @@ Verus is cloned and built under `tools/verus`. If the download fails, clone it m
 ### Verify
 
 ```bash
-make                                         # verify everything (or: cargo dv verify)
-cargo dv verify -f --targets ostd            # ostd only, skip dependencies
-cargo dv verify --targets vstd_extra         # the verified dependency crate
+make                                                          # verify everything (or: cargo dv verify)
+cargo dv focus --targets ostd                                  # ostd only, skip dependency proofs
+cargo dv focus --targets ostd -- --verify-only-module sync::rwlock # verify one ostd module
+cargo dv verify --targets vstd_extra                           # the verified dependency crate
 ```
+
+Partial verification selectors such as `--verify-only-module` require the
+`focus` command.
 
 ### Clean
 
