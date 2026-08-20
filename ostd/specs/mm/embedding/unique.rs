@@ -86,8 +86,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
         valid_frame_paddr(paddr),
         old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owner(paddr).usage is Unused,
-        old(regions).slot_owner(paddr).ref_count()
-            == REF_COUNT_UNUSED,
+        old(regions).slot_owner(paddr).ref_count() == REF_COUNT_UNUSED,
     ensures
         final(regions).inv(),
         // Design-B re-park: `slots` domain preserved.
