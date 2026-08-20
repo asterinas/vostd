@@ -24,3 +24,19 @@ macro_rules! assert_eq {
         }
     };
 }
+
+#[macro_export]
+macro_rules! debug_assert {
+    ($cond:expr) => {
+        #[cfg(debug_assertions)]
+        if !($cond) {
+            $crate::panic::panic_diverge()
+        }
+    };
+    ($cond:expr, $msg:literal) => {
+        #[cfg(debug_assertions)]
+        if !($cond) {
+            $crate::panic::panic_diverge()
+        }
+    };
+}
