@@ -138,8 +138,7 @@ impl RangeAllocator {
         )]
         for (key, value) in freelist.iter() {
             proof! {
-                // `alloc` currently has no callers. Trust that any future caller preserves the
-                // allocator's intended freelist invariant until the lock carries this predicate.
+                // TODO: Remove once the lock enforces the freelist invariant; `alloc` has no callers.
                 assume(self@.start <= value.block.start
                     && value.block.start <= value.block.end
                     && value.block.end <= self@.end);
