@@ -63,8 +63,9 @@ use crate::{
 };
 
 use super::{
-    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
+    Child, ChildRef, CurrentPagingConstsTrait, Entry, EntryOwner, FrameView, PageTable,
+    PageTableConfig, PageTableError, PageTableGuard, PageTablePageMeta, PagingConstsTrait,
+    PagingLevel, pte_index,
 };
 
 verus! {
@@ -1085,6 +1086,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
+                                C::lemma_current_paging_consts_requirements();
                                 assert(self.level < NR_LEVELS);
                             }
                         }
@@ -3573,34 +3575,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
             return None;
         }
-        let tracked mut absent_entry_owner = EntryOwner::tracked_new_absent(
-            owner.cur_entry_owner().path,
-            owner.level,
-        );
-        let ghost subtree_level = (owner.continuations[owner.level - 1].tree_level + 1) as nat;
-        assert(absent_entry_owner.inv()) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree_level < INC_LEVELS) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        let tracked subtree = OwnerSubtree::tracked_new_val(absent_entry_owner, subtree_level);
+        let tracked subtree = owner.tracked_new_absent_subtree();
 
         proof {
             owner.absent_not_in_tree(subtree.value());
         }
-        assert(subtree.value().path.len() <= INC_LEVELS - 1) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree.value().parent_level == owner.continuations[owner.level
-            - 1].child().value().parent_level) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree.value().path == owner.continuations[owner.level - 1].path().push_tail(
-            owner.continuations[owner.level - 1].idx as int,
-        )) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
 
         let ghost owner_before_replace = *owner;
         let ghost regions_before_replace = *regions;

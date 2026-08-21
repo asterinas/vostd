@@ -2,7 +2,7 @@ use core::ops::{Deref, Range};
 
 use vstd::prelude::*;
 
-use vstd::{arithmetic::power2::pow2, seq::*, seq_lib::*, set_lib::*};
+use vstd::{seq::*, seq_lib::*, set_lib::*};
 use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
 
 use crate::specs::{
@@ -11,7 +11,8 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+                lemma_nr_entries_times_sub_page_size, lemma_page_size_divides,
+                lemma_page_size_ge_page_size, lemma_page_size_spec_values,
             },
             *,
         },
@@ -21,7 +22,7 @@ use crate::specs::{
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    page_size,
+    page_size, page_size_spec,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
 };
 
@@ -35,7 +36,7 @@ pub open spec fn vaddr_shift_bits<const L: usize>(idx: int) -> nat
         0 < L,
         idx < L,
 {
-    (12 + 9 * (L - 1 - idx)) as nat
+    page_size_spec((L - idx) as PagingLevel).ilog2() as nat
 }
 
 #[verifier::inline]
@@ -44,7 +45,7 @@ pub open spec fn vaddr_shift<const L: usize>(idx: int) -> usize
         0 < L,
         idx < L,
 {
-    pow2(vaddr_shift_bits::<L>(idx)) as usize
+    page_size_spec((L - idx) as PagingLevel)
 }
 
 #[verifier::inline]
@@ -52,9 +53,9 @@ pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
     recommends
         0 < L,
         idx < L,
-        0 <= offset < 512,
+        offset < NR_ENTRIES,
 {
-    (vaddr_shift::<L>(idx) * offset) as usize
+    (page_size_spec((L - idx) as PagingLevel) * offset) as usize
 }
 
 pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
@@ -71,6 +72,183 @@ pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
 
 pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
+}
+
+/// A path index advances by one page at the corresponding paging level.
+proof fn lemma_vaddr_make_eq_page_size(idx: int, offset: int)
+    requires
+        0 <= idx < NR_LEVELS,
+        0 <= offset < NR_ENTRIES,
+    ensures
+        vaddr_make::<NR_LEVELS>(idx, offset as usize) == offset * page_size(
+            (NR_LEVELS - idx) as PagingLevel,
+        ),
+{
+    let entry_size = page_size((NR_LEVELS - idx) as PagingLevel) as int;
+    let parent_size = page_size((INC_LEVELS - idx) as PagingLevel) as int;
+    lemma_nr_entries_times_sub_page_size((INC_LEVELS - idx) as PagingLevel);
+    assert(offset * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
+        requires
+            0 <= offset <= NR_ENTRIES,
+            0 <= entry_size,
+    ;
+    assert(NR_ENTRIES * entry_size == parent_size);
+    assert(parent_size <= usize::MAX);
+    assert(offset as usize == offset);
+    assert(page_size_spec((NR_LEVELS - idx) as PagingLevel) == entry_size);
+    assert(vaddr_make::<NR_LEVELS>(idx, offset as usize) == (entry_size * offset) as usize);
+    assert(entry_size * offset == offset * entry_size) by (nonlinear_arith);
+}
+
+/// The suffix beginning at `idx`, together with the mapped page at the end of
+/// the path, fits in one entry at the parent level.
+proof fn lemma_rec_vaddr_suffix_bound(path: TreePath<NR_ENTRIES>, idx: int)
+    requires
+        path.inv(),
+        0 <= idx <= path.len() <= INC_LEVELS - 1,
+    ensures
+        rec_vaddr(path, idx) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= page_size(
+            (INC_LEVELS - idx) as PagingLevel,
+        ),
+    decreases path.len() - idx,
+{
+    if idx == path.len() {
+        assert(rec_vaddr(path, idx) == 0);
+    } else {
+        path.lemma_index_satisfies_elem_inv(idx);
+        lemma_rec_vaddr_suffix_bound(path, idx + 1);
+        lemma_nr_entries_times_sub_page_size((INC_LEVELS - idx) as PagingLevel);
+
+        let entry_size = page_size((NR_LEVELS - idx) as PagingLevel) as int;
+        let mapped_page_size = page_size((INC_LEVELS - path.len()) as PagingLevel) as int;
+        lemma_vaddr_make_eq_page_size(idx, path[idx]);
+        assert(path[idx] + 1 <= NR_ENTRIES);
+        assert((path[idx] + 1) * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
+            requires
+                0 <= path[idx] + 1 <= NR_ENTRIES,
+                0 <= entry_size,
+        ;
+        assert(entry_size * path[idx] + rec_vaddr(path, idx + 1) + mapped_page_size <= (path[idx]
+            + 1) * entry_size) by (nonlinear_arith)
+            requires
+                rec_vaddr(path, idx + 1) + mapped_page_size <= entry_size,
+                0 <= entry_size,
+        ;
+        assert(entry_size * path[idx] + rec_vaddr(path, idx + 1) <= usize::MAX);
+        assert(rec_vaddr(path, idx) == entry_size * path[idx] + rec_vaddr(path, idx + 1));
+        assert(rec_vaddr(path, idx) + mapped_page_size <= (path[idx] + 1) * entry_size);
+    }
+}
+
+/// Unfold one path entry without a truncating `usize` cast.
+proof fn lemma_rec_vaddr_unfold(path: TreePath<NR_ENTRIES>, idx: int)
+    requires
+        path.inv(),
+        0 <= idx < path.len() <= INC_LEVELS - 1,
+    ensures
+        rec_vaddr(path, idx) == path[idx] * page_size((NR_LEVELS - idx) as PagingLevel) + rec_vaddr(
+            path,
+            idx + 1,
+        ),
+{
+    path.lemma_index_satisfies_elem_inv(idx);
+    lemma_rec_vaddr_suffix_bound(path, idx + 1);
+    lemma_vaddr_make_eq_page_size(idx, path[idx]);
+    lemma_nr_entries_times_sub_page_size((INC_LEVELS - idx) as PagingLevel);
+
+    let entry_size = page_size((NR_LEVELS - idx) as PagingLevel) as int;
+    let parent_size = page_size((INC_LEVELS - idx) as PagingLevel) as int;
+    assert(path[idx] + 1 <= NR_ENTRIES);
+    assert(path[idx] * entry_size + rec_vaddr(path, idx + 1) <= (path[idx] + 1) * entry_size)
+        by (nonlinear_arith)
+        requires
+            rec_vaddr(path, idx + 1) <= entry_size,
+            0 <= entry_size,
+    ;
+    assert((path[idx] + 1) * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
+        requires
+            0 <= path[idx] + 1 <= NR_ENTRIES,
+            0 <= entry_size,
+    ;
+    assert(NR_ENTRIES * entry_size == parent_size);
+    assert(parent_size <= usize::MAX);
+    assert(path[idx] * entry_size + rec_vaddr(path, idx + 1) <= usize::MAX);
+}
+
+/// Every path suffix is aligned to the page size represented by its last
+/// entry.
+proof fn lemma_rec_vaddr_aligned(path: TreePath<NR_ENTRIES>, idx: int)
+    requires
+        path.inv(),
+        0 <= idx <= path.len() <= INC_LEVELS - 1,
+    ensures
+        rec_vaddr(path, idx) % page_size((INC_LEVELS - path.len()) as PagingLevel) == 0,
+    decreases path.len() - idx,
+{
+    let mapped_level = (INC_LEVELS - path.len()) as PagingLevel;
+    let mapped_page_size = page_size(mapped_level) as int;
+    lemma_page_size_ge_page_size(mapped_level);
+    assert(0 < mapped_page_size);
+    if idx == path.len() {
+        assert(rec_vaddr(path, idx) == 0);
+        assert(0usize % page_size(mapped_level) == 0);
+    } else {
+        path.lemma_index_satisfies_elem_inv(idx);
+        lemma_rec_vaddr_aligned(path, idx + 1);
+        lemma_rec_vaddr_unfold(path, idx);
+
+        let entry_level = (NR_LEVELS - idx) as PagingLevel;
+        let entry_size = page_size(entry_level) as int;
+        lemma_page_size_divides(mapped_level, entry_level);
+        assert(entry_size % mapped_page_size == 0);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(entry_size, mapped_page_size);
+        let entry_ratio = entry_size / mapped_page_size;
+        assert(entry_size == entry_ratio * mapped_page_size);
+        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
+            path[idx] * entry_ratio,
+            mapped_page_size,
+        );
+        vstd::arithmetic::mul::lemma_mul_is_associative(path[idx], entry_ratio, mapped_page_size);
+        assert(path[idx] * entry_size == (path[idx] * entry_ratio) * mapped_page_size);
+        assert((path[idx] * entry_size) % mapped_page_size == 0);
+        vstd_extra::arithmetic::lemma_mod_0_add(
+            path[idx] * entry_size,
+            rec_vaddr(path, idx + 1) as int,
+            mapped_page_size,
+        );
+        assert((path[idx] * entry_size + rec_vaddr(path, idx + 1)) % mapped_page_size == 0);
+        assert((rec_vaddr(path, idx) as int) % mapped_page_size == 0);
+        assert(rec_vaddr(path, idx) % page_size(mapped_level) == ((rec_vaddr(path, idx) as int)
+            % mapped_page_size) as usize);
+    }
+}
+
+/// Appending a path index adds exactly one entry-sized offset.
+proof fn lemma_rec_vaddr_push_tail(path: TreePath<NR_ENTRIES>, i: int, idx: int)
+    requires
+        path.inv(),
+        path.len() < INC_LEVELS - 1,
+        0 <= i < NR_ENTRIES,
+        0 <= idx <= path.len(),
+    ensures
+        rec_vaddr(path.push_tail(i), idx) == rec_vaddr(path, idx) + i * page_size(
+            (NR_LEVELS - path.len()) as PagingLevel,
+        ),
+    decreases path.len() - idx,
+{
+    let pt = path.push_tail(i);
+    path.lemma_push_tail_len(i);
+    path.lemma_push_tail_index(i);
+    path.lemma_push_tail_preserves_inv(i);
+    if idx == path.len() {
+        assert(rec_vaddr(path, idx) == 0);
+        lemma_rec_vaddr_unfold(pt, idx);
+        assert(rec_vaddr(pt, idx + 1) == 0);
+    } else {
+        lemma_rec_vaddr_push_tail(path, i, idx + 1);
+        lemma_rec_vaddr_unfold(path, idx);
+        lemma_rec_vaddr_unfold(pt, idx);
+    }
 }
 
 /// Virtual address of `path` with `leading_bits` placed in bits `[48, 64)`.
@@ -92,9 +270,9 @@ pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usi
     vaddr_at(path, C::LEADING_BITS_spec() as int)
 }
 
-/// `vaddr(path) < 2^48` for every valid path: each term in the positional
-/// sum is `i_k * 2^(12 + 9·k)` with `i_k < 512 = 2^9`, so the sum is
-/// strictly less than `2^48`.
+/// The positional VA of every valid path fits in the current paging address
+/// space. The concrete x86 bound is retained for callers that combine it with
+/// canonical leading bits.
 #[verifier::spinoff_prover]
 pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     requires
@@ -103,108 +281,28 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     ensures
         vaddr(path) < 0x1_0000_0000_0000int,
 {
-    vstd::arithmetic::power2::lemma2_to64();
-    vstd::arithmetic::power2::lemma2_to64_rest();
-    if path.len() == 0 {
-    } else if path.len() == 1 {
-        let i0 = path[0];
-        assert(rec_vaddr(path, 1) == 0);
-    } else if path.len() == 2 {
-        let i0 = path[0];
-        let i1 = path[1];
-        assert(rec_vaddr(path, 2) == 0);
-        assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
-    } else if path.len() == 3 {
-        let i0 = path[0];
-        let i1 = path[1];
-        let i2 = path[2];
-        assert(rec_vaddr(path, 3) == 0);
-        assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2 as usize) as usize);
-        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(2, i2 as usize)) as usize);
-    } else {
-        let i0 = path[0];
-        let i1 = path[1];
-        let i2 = path[2];
-        let i3 = path[3];
-        assert(rec_vaddr(path, 4) == 0);
-        assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3 as usize) as usize);
-        assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(3, i3 as usize)) as usize);
-        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(2, i2 as usize) + vaddr_make::<NR_LEVELS>(3, i3 as usize)) as usize);
-        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(1, i1 as usize) + vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<NR_LEVELS>(
-            3,
-            i3 as usize,
-        )) as usize);
-        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2 + 0x1000usize
-            * i3 < 0x1_0000_0000_0000int) by (nonlinear_arith)
-            requires
-                i0 < 512,
-                i1 < 512,
-                i2 < 512,
-                i3 < 512,
-        ;
-    }
+    lemma_rec_vaddr_suffix_bound(path, 0);
+    lemma_page_size_ge_page_size((INC_LEVELS - path.len()) as PagingLevel);
+    lemma_page_size_spec_values();
 }
 
-/// The VA of any path is within the `2^39`-sized cell of its top-level index:
-/// `path[0] * 2^39 <= vaddr(path)` and `vaddr(path) + page_size <= (path[0]+1) * 2^39`.
-/// Pure VA arithmetic (x86 4-level paging). Used by `view_rec_top_index_va_bound`.
+/// The VA of any path is within the cell selected by its top-level index.
 pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     requires
         path.inv(),
         1 <= path.len() <= INC_LEVELS - 1,
     ensures
-        (path[0]) * 0x80_0000_0000int <= vaddr(path),
+        (path[0]) * page_size(NR_LEVELS as PagingLevel) <= vaddr(path),
         vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= (path[0] + 1)
-            * 0x80_0000_0000int,
+            * page_size(NR_LEVELS as PagingLevel),
 {
     broadcast use TreePath::lemma_index_satisfies_elem_inv;
 
+    lemma_rec_vaddr_suffix_bound(path, 1);
+    lemma_nr_entries_times_sub_page_size(INC_LEVELS as PagingLevel);
     lemma_page_size_spec_values();
-    vstd::arithmetic::power2::lemma2_to64();
-    vstd::arithmetic::power2::lemma2_to64_rest();
     let i0 = path[0];
-    if path.len() == 1 {
-        assert(rec_vaddr(path, 1) == 0);
-    } else if path.len() == 2 {
-        let i1 = path[1];
-        assert(rec_vaddr(path, 2) == 0);
-        assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
-    } else if path.len() == 3 {
-        let i1 = path[1];
-        let i2 = path[2];
-        assert(rec_vaddr(path, 3) == 0);
-        assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2 as usize) as usize);
-        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(2, i2 as usize)) as usize);
-    } else {
-        let i1 = path[1];
-        let i2 = path[2];
-        let i3 = path[3];
-        assert(rec_vaddr(path, 4) == 0);
-        assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3 as usize) as usize);
-        assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(3, i3 as usize)) as usize);
-        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-            NR_LEVELS,
-        >(2, i2 as usize) + vaddr_make::<NR_LEVELS>(3, i3 as usize)) as usize);
-        assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int * i2 + 0x1000int * i3
-            + 0x1000int <= (i0 + 1) * 0x80_0000_0000int) by (nonlinear_arith)
-            requires
-                i1 < 512,
-                i2 < 512,
-                i3 < 512,
-        ;
-    }
+    lemma_vaddr_make_eq_page_size(0, i0);
 }
 
 /// `vaddr_of::<C>(path)` in `int` equals the unconditional sum — no usize
@@ -782,8 +880,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ).view_rec(path.push_tail(i)).contains(m)
     }
 
-    /// Closed-form for `vaddr(path.push_tail(i))` by case-split on `path.len() ∈ {0,1,2,3}`.
-    #[verifier::rlimit(200)]
+    /// Appending an index advances the VA by the entry size at that depth.
     pub proof fn lemma_vaddr_push_tail_eq(path: TreePath<NR_ENTRIES>, i: int)
         requires
             path.inv(),
@@ -802,62 +899,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             TreePath::lemma_index_satisfies_elem_inv,
         };
 
-        lemma_page_size_spec_values();
-        lemma_vaddr_strict_bound(path);
-        vstd::arithmetic::power2::lemma2_to64();
-        vstd::arithmetic::power2::lemma2_to64_rest();
         let pt = path.push_tail(i);
-        if path.len() >= 1 {
-        }
-        if path.len() == 0 {
-            assert(rec_vaddr(pt, 1) == 0);
-            assert(vaddr_make::<NR_LEVELS>(0, i as usize) == 0x80_0000_0000usize * i) by (compute);
-            assert(0x80_0000_0000usize * (i + 1) <= usize::MAX) by (nonlinear_arith)
-                requires
-                    i < 512,
-            ;
-        } else if path.len() == 1 {
-            let i0 = path[0];
-            assert(vaddr_make::<NR_LEVELS>(0, i0 as usize) == 0x80_0000_0000usize * i0);
-            assert(rec_vaddr(pt, 2) == 0);
-        } else if path.len() == 2 {
-            let i0 = path[0];
-            let i1 = path[1];
-            assert(rec_vaddr(path, 2) == 0);
-            assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
-            assert(rec_vaddr(pt, 3) == 0);
-            assert(rec_vaddr(pt, 2) == vaddr_make::<NR_LEVELS>(2, i as usize) as usize);
-            assert(rec_vaddr(pt, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-                NR_LEVELS,
-            >(2, i as usize)) as usize);
-        } else {
-            let i0 = path[0];
-            let i1 = path[1];
-            let i2 = path[2];
-            assert(rec_vaddr(path, 3) == 0);
-            assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2 as usize) as usize);
-            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-                NR_LEVELS,
-            >(2, i2 as usize)) as usize);
-            assert(vaddr_make::<NR_LEVELS>(1, i1 as usize) == 0x4000_0000usize * i1) by (compute);
-            assert(rec_vaddr(pt, 4) == 0);
-            assert(rec_vaddr(pt, 3) == vaddr_make::<NR_LEVELS>(3, i as usize) as usize);
-            assert(rec_vaddr(pt, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<
-                NR_LEVELS,
-            >(3, i as usize)) as usize);
-            assert(rec_vaddr(pt, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<
-                NR_LEVELS,
-            >(2, i2 as usize) + vaddr_make::<NR_LEVELS>(3, i as usize)) as usize);
-            assert(vaddr_make::<NR_LEVELS>(3, i as usize) == 0x1000usize * i) by (compute);
-            assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2
-                + 0x1000usize * (i + 1) <= usize::MAX) by (nonlinear_arith)
-                requires
-                    i0 < 512,
-                    i1 < 512,
-                    i2 < 512,
-                    i < 512,
-            ;
-        }
+        lemma_rec_vaddr_push_tail(path, i, 0);
+        lemma_rec_vaddr_suffix_bound(pt, 0);
+        let entry_size = page_size((INC_LEVELS - path.len() - 1) as PagingLevel) as int;
+        assert(vaddr(path) + (i + 1) * entry_size == vaddr(pt) + entry_size) by (nonlinear_arith)
+            requires
+                vaddr(pt) == vaddr(path) + i * entry_size,
+        ;
     }
 
     pub proof fn view_rec_vaddr_range(self, path: TreePath<NR_ENTRIES>, m: Mapping)
@@ -906,9 +955,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             Self::lemma_vaddr_push_tail_eq(path, i);
 
             let child_ps = page_size((INC_LEVELS - path.len() - 1) as PagingLevel) as int;
-            assert((i + 1) * child_ps <= 512 * child_ps) by (nonlinear_arith)
+            assert((i + 1) * child_ps <= NR_ENTRIES * child_ps) by (nonlinear_arith)
                 requires
-                    0 <= i < 512,
+                    0 <= i < NR_ENTRIES,
                     child_ps >= 0,
             ;
             lemma_vaddr_of_eq_int::<C>(path.push_tail(i));
@@ -940,6 +989,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         self.view_rec_vaddr_range(path, m);
         lemma_vaddr_of_eq_int::<C>(path);
         lemma_vaddr_top_index_cell(path);
+        lemma_page_size_spec_values();
         // `vaddr_of(path) == vaddr(path) + LEADING_BITS*2^48` (lemma_vaddr_of_eq_int);
         // the positional `vaddr(path)` lies in the top-index cell
         // `[index(0)*2^39, (index(0)+1)*2^39)` (lemma_vaddr_top_index_cell), and
@@ -1167,8 +1217,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// every `vaddr(path)` is aligned to `page_size(INC_LEVELS - path.len())`
     /// and `vaddr(path) + page_size(...)` cannot overflow usize.
     ///
-    /// Proved by case analysis on `path.len() ∈ {0, 1, 2, 3, 4}`, unrolling
-    /// `rec_vaddr` and using concrete `pow2` values.
+    /// Follows from the divisibility of adjacent architecture-defined page
+    /// sizes and the suffix bound used by the VA construction.
     #[verifier::rlimit(200)]
     proof fn lemma_vaddr_path_alignment_and_bound(path: TreePath<NR_ENTRIES>)
         requires
@@ -1179,88 +1229,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             vaddr(path) % page_size((INC_LEVELS - path.len()) as PagingLevel) == 0,
             vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= usize::MAX,
     {
-        lemma_page_size_spec_values();
-        vstd::arithmetic::power2::lemma2_to64();
-        vstd::arithmetic::power2::lemma2_to64_rest();
-        broadcast use TreePath::lemma_index_satisfies_elem_inv;
-        // NR_LEVELS = 4; each index is < 512.
-        // rec_vaddr values per path.len():
-        //   0: 0
-        //   1: i0 * 2^39
-        //   2: i0 * 2^39 + i1 * 2^30
-        //   3: i0 * 2^39 + i1 * 2^30 + i2 * 2^21
-        //   4: i0 * 2^39 + i1 * 2^30 + i2 * 2^21 + i3 * 2^12
-        // page_size(INC_LEVELS - path.len()) per path.len():
-        //   1: 2^39, 2: 2^30, 3: 2^21, 4: 2^12
-        // In each case every term is a multiple of the smallest (= page_size).
-
-        if path.len() == 0 {
-            assert(rec_vaddr(path, 0) == 0);
-        } else if path.len() == 1 {
-            let i0 = path[0];
-            assert(rec_vaddr(path, 1) == 0);
-            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + rec_vaddr(
-                path,
-                1,
-            )) as usize);
-        } else if path.len() == 2 {
-            let i0 = path[0];
-            let i1 = path[1];
-            assert(rec_vaddr(path, 2) == 0);
-            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + rec_vaddr(
-                path,
-                2,
-            )) as usize);
-            let s = 0x80_0000_0000usize * i0 + 0x4000_0000usize * i1;
-        } else if path.len() == 3 {
-            let i0 = path[0];
-            let i1 = path[1];
-            let i2 = path[2];
-            assert(rec_vaddr(path, 3) == 0);
-            assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + rec_vaddr(
-                path,
-                3,
-            )) as usize);
-            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + rec_vaddr(
-                path,
-                1,
-            )) as usize);
-            let s = 0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2;
-            assert(rec_vaddr(path, 0) == s);
-            assert(s % 0x20_0000 == 0) by (nonlinear_arith)
-                requires
-                    s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2,
-            ;
-        } else {
-            assert(path.len() == 4);
-            let i0 = path[0];
-            let i1 = path[1];
-            let i2 = path[2];
-            let i3 = path[3];
-            assert(rec_vaddr(path, 4) == 0);
-            assert(rec_vaddr(path, 3) == (vaddr_make::<NR_LEVELS>(3, i3 as usize) + rec_vaddr(
-                path,
-                4,
-            )) as usize);
-            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + rec_vaddr(
-                path,
-                2,
-            )) as usize);
-            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + rec_vaddr(
-                path,
-                1,
-            )) as usize);
-            let s = (0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2
-                + 0x1000usize * i3) as int;
-            assert(s + 0x1000 <= usize::MAX) by (nonlinear_arith)
-                requires
-                    s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2 + 0x1000 * i3,
-                    i0 < 512,
-                    i1 < 512,
-                    i2 < 512,
-                    i3 < 512,
-            ;
-        }
+        lemma_rec_vaddr_aligned(path, 0);
+        lemma_rec_vaddr_suffix_bound(path, 0);
     }
 
     /// Every mapping in `view_rec` satisfies `Mapping::inv()`.
@@ -1309,32 +1279,23 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             lemma_vaddr_strict_bound(path);
             let lb = C::LEADING_BITS_spec() as int;
             vstd::arithmetic::power2::lemma2_to64_rest();
-            // (A) Alignment. For `ps ∈ {2^12, 2^21, 2^30}`, `ps | 2^48`, so
-            //     `lb * 2^48 % ps == 0` and `vaddr(path) % ps == 0` gives
+            let limit = page_size(INC_LEVELS as PagingLevel) as int;
+            lemma_page_size_divides(pt_level, INC_LEVELS as PagingLevel);
+            // (A) Alignment. The mapped page size divides the full paging
+            //     address-space size, so the leading-bit offset is aligned.
             //     `vaddr_of(path) % ps == 0` via `lemma_mod_adds`.
-            assert(lb * 0x1_0000_0000_0000int % ps == 0) by (nonlinear_arith)
-                requires
-                    lb >= 0,
-                    (ps == 0x1000int || ps == 0x20_0000int || ps == 0x4000_0000int),
-            ;
-            vstd::arithmetic::div_mod::lemma_mod_adds(
-                vaddr(path) as int,
-                lb * 0x1_0000_0000_0000int,
-                ps,
-            );
+            assert(limit % ps == 0);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(limit, ps);
+            let limit_ratio = limit / ps;
+            assert(limit == limit_ratio * ps);
+            vstd::arithmetic::mul::lemma_mul_is_associative(lb, limit_ratio, ps);
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(lb * limit_ratio, ps);
+            assert(lb * limit == (lb * limit_ratio) * ps);
+            assert((lb * limit) % ps == 0);
+            vstd::arithmetic::div_mod::lemma_mod_adds(vaddr(path) as int, lb * limit, ps);
             // (B) Overflow: `vaddr_of(path) + ps <= 2^64`.
             //     `vaddr(path) + ps <= 2^48`: from strict bound plus alignment.
             let v = vaddr(path) as int;
-            let limit = 0x1_0000_0000_0000int;
-            assert(limit % ps == 0) by {
-                if ps == 0x1000int {
-                    assert(0x1_0000_0000_0000int % 0x1000int == 0) by (compute_only);
-                } else if ps == 0x20_0000int {
-                    assert(0x1_0000_0000_0000int % 0x20_0000int == 0) by (compute_only);
-                } else {
-                    assert(0x1_0000_0000_0000int % 0x4000_0000int == 0) by (compute_only);
-                }
-            };
             vstd::arithmetic::div_mod::lemma_mod_equivalence(limit, v, ps);
             let diff = limit - v;
             let q = diff / ps;
@@ -1346,7 +1307,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     diff == ps * q,
             ;
             vstd::arithmetic::mul::lemma_mul_inequality(1, q, ps);
-            vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, 0x1_0000_0000_0000int);
+            vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, limit);
             assert(v + ps <= limit) by (nonlinear_arith)
                 requires
                     q >= 1,
@@ -1354,8 +1315,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     diff == ps * q,
                     diff == limit - v,
             ;
-            assert(0xffffint * 0x1_0000_0000_0000int + 0x1_0000_0000_0000int
-                == 0x1_0000_0000_0000_0000int) by (compute_only);
+            assert(0xffffint * limit + limit == 0x1_0000_0000_0000_0000int);
             assert(lb * limit + v + ps <= 0x1_0000_0000_0000_0000int);
             vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
             assert(set![4096, 2097152, 1073741824].contains(m.page_size));
