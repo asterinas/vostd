@@ -52,7 +52,12 @@ verus! {
 pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     frame: Frame<T>,
 ) -> DynFrame {
-    DynFrame { ptr: frame.ptr, _marker: PhantomData }
+    DynFrame {
+        ptr: frame.ptr,
+        _marker: PhantomData,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_perm: frame.tracked_perm,
+    }
 }
 
 /// Converts `Frame<T>` to `DynFrame`, with a spec postcondition connecting the result
@@ -62,7 +67,12 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
         res == frame_as_dynframe(frame),
 {
     /* frame.into() */
-    DynFrame { ptr: frame.ptr, _marker: PhantomData }
+    DynFrame {
+        ptr: frame.ptr,
+        _marker: PhantomData,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_perm: frame.tracked_perm,
+    }
 }
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
@@ -72,7 +82,12 @@ pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     prop: PageProperty,
     entry_owner: EntryOwner<KernelPtConfig>,
 ) -> bool {
-    let frame_mss = DynFrame { ptr: frame.ptr, _marker: PhantomData };
+    let frame_mss = DynFrame {
+        ptr: frame.ptr,
+        _marker: PhantomData,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_perm: frame.tracked_perm,
+    };
     let item = MappedItem::Tracked(frame_mss, prop);
     let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
     Child::Frame(pa, level, prop_from_item).wf(entry_owner)
@@ -682,6 +697,7 @@ impl KVirtArea {
                     cur_path,
                     cur_parent_level,
                     prop,
+                    None,
                 );
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
             }

@@ -202,7 +202,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let inc = self.inc_index();
         inc.zero_preserves_all_but_va();
         inc.zero_below_level_va();
-        assert(inc.va.inv());
+        assert(inc.va.inv()) by {
+            assert(inc.va.offset == self.va.offset);
+            assert(inc.va.leading_bits == self.va.leading_bits);
+            assert(inc.va.index.dom() =~= self.va.index.dom());
+            assert forall|i: int| 0 <= i < NR_LEVELS implies inc.va.index.contains_key(i) && 0
+                <= #[trigger] inc.va.index[i] && inc.va.index[i] < NR_ENTRIES by {
+                if i != self.level - 1 {
+                }
+            };
+        };
 
         let ps = page_size(self.level as PagingLevel) as nat;
         let self_va = self.va.to_vaddr() as nat;
@@ -216,6 +225,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // align_down_concrete gives .reflect(nat_align_down(inc_va, ps)).
         inc.va.align_down_concrete(self.level as int);
         let new_va = vstd_extra::arithmetic::nat_align_down(inc_va, ps);
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(inc_va, ps);
+        assert(new_va <= usize::MAX);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(new_va as Vaddr);
         // Now inc.zero_below_level().va.to_vaddr() == new_va.
 

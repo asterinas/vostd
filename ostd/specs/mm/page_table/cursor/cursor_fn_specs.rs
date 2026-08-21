@@ -17,7 +17,10 @@ use crate::specs::{
 
 use crate::mm::{
     PagingConstsTrait, Vaddr,
-    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
+    frame::{
+        Frame,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
+    },
     page_table::*,
 };
 
@@ -143,30 +146,30 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     // routing that `path[level-1] is None` fact into `pop_level`'s panic precondition.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.0.va >= self.0.barrier_va.end
-        ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
-        ||| C::item_into_raw(item).1 >= self.0.guard_level
-        ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
-        ||| self.0.va % page_size(C::item_into_raw(item).1) != 0
-        ||| self.0.va + page_size(C::item_into_raw(item).1) > self.0.barrier_va.end
+        ||| C::item_into_raw_spec(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
+        ||| C::item_into_raw_spec(item).1 >= self.0.guard_level
+        ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw_spec(item).1 >= NR_LEVELS)
+        ||| self.0.va % page_size(C::item_into_raw_spec(item).1) != 0
+        ||| self.0.va + page_size(C::item_into_raw_spec(item).1) > self.0.barrier_va.end
     }
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
-        let (paddr, level, prop) = C::item_into_raw(item);
+        let (paddr, level, prop) = C::item_into_raw_spec(item);
         &&& C::item_well_formed(item)
         &&& entry_owner.inv()
         &&& (entry_owner.is_absent() || Child::Frame(paddr, level, prop).wf(entry_owner))
     }
 
     pub open spec fn item_not_mapped(item: C::Item, regions: MetaRegionOwners) -> bool {
-        let (pa, level, prop) = C::item_into_raw(item);
+        let (pa, level, prop) = C::item_into_raw_spec(item);
         let size = page_size(level);
         let range = pa..(pa + size) as usize;
         regions.paddr_range_not_mapped(range)
     }
 
     pub open spec fn item_slot_in_regions(item: C::Item, regions: MetaRegionOwners) -> bool {
-        let (pa, level, prop) = C::item_into_raw(item);
+        let (pa, level, prop) = C::item_into_raw_spec(item);
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
@@ -179,8 +182,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
         // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
         // inv clause vacuous.
-        &&& C::tracked(item) ==> regions.slot_owners[idx].ref_count()
-            <= REF_COUNT_MAX
+        &&& C::tracked(item) ==> regions.slot_owners[idx].ref_count() <= REF_COUNT_MAX
+        &&& C::tracked(item) ==> C::item_permission(item) is Some
+        &&& C::tracked(item) ==> Frame::<
+            crate::specs::mm::frame::meta_owners::MetaSlotStorage,
+        >::frame_permission_wf(regions, pa, C::item_permission(item)->0)
+        &&& !C::tracked(item) ==> C::item_permission(
+            item,
+        ) is None
         // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
             forall|j: usize|
@@ -206,7 +215,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         old_view: CursorView<C>,
         new_view: CursorView<C>,
     ) -> bool {
-        let (pa, level, prop) = C::item_into_raw(item);
+        let (pa, level, prop) = C::item_into_raw_spec(item);
         new_view == old_view.map_spec(pa, page_size(level), prop)
     }
 }

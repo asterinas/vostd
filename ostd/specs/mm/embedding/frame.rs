@@ -19,8 +19,8 @@
 //!
 //! - **Generic `M: AnyFrameMeta`**: `Frame::from_unused` takes a
 //!   `metadata: M` parameter and threads it through the slot's typed storage permission.
-//!   We don't model the metadata type — `get_from_unused_spec` itself
-//!   ignores `M` and just commits to `usage is Frame`.
+//!   We don't model the metadata type, so this layer uses
+//!   `get_from_unused_region_spec` and hides the returned fraction.
 //! - **Drop-last-in-place teardown**: when `ref_count == 1`, dropping
 //!   the handle invokes the metadata destructor (which may require
 //!   `storage.is_init`, `in_list.value() == 0`). We model this by
@@ -87,11 +87,11 @@ pub axiom fn frame_from_unused_embedded(
         // the `None` branch below).
         !valid_frame_paddr(paddr) ==> res is None,
         // Success branch is conditioned on the slot being unused
-        // (per `get_from_unused_spec` recommends + the body's
+        // (per `get_from_unused_region_spec` recommends + the body's
         // `MetaSlot::get_from_unused` failing otherwise). The reparked
         // location (`slot_perm_reparked_spec`) keeps the slot perm in
         // `regions.slots` (Design B).
-        res is Some ==> MetaSlot::get_from_unused_spec(
+        res is Some ==> MetaSlot::get_from_unused_region_spec(
             paddr,
             false,
             *old(regions),
@@ -187,11 +187,9 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
     requires
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owner(paddr).ref_count() > 0,
-        old(regions).slot_owner(paddr).ref_count() != REF_COUNT_UNUSED,
-        old(regions).slot_owner(paddr).ref_count() <= REF_COUNT_MAX,
+        0 < old(regions).slot_owner(paddr).ref_count() <= REF_COUNT_MAX,
+        old(regions).slot_owner(paddr).storage_perm().is_init(),
         old(regions).slot_owner(paddr).ref_count() == 1 ==> {
-            &&& old(regions).slot_owner(paddr).storage_perm().is_init()
             &&& old(regions).slot_owner(paddr).in_list_perm.value()
                 == 0
             // Mirrors the FUTURE-plan strengthening of exec
@@ -226,9 +224,6 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
         final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
             paddr,
         ).in_list_perm,
-        old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
-            paddr,
-        ).paths_in_pt.is_empty(),
         // `drop` never touches the free-list `in_list` field (the
         // decrement branch leaves it; `drop_last_in_place` preserves
         // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
@@ -271,7 +266,7 @@ pub(super) proof fn from_unused_step(
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
-        res is Some ==> MetaSlot::get_from_unused_spec(
+        res is Some ==> MetaSlot::get_from_unused_region_spec(
             paddr,
             false,
             *old(regions),
@@ -339,11 +334,9 @@ pub(super) proof fn from_in_use_step(
 pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     let so = regions.slot_owner(paddr);
     &&& regions.contains(frame_to_index(paddr))
-    &&& so.ref_count() > 0
-    &&& so.ref_count() != REF_COUNT_UNUSED
-    &&& so.ref_count() <= REF_COUNT_MAX
+    &&& 0 < so.ref_count() <= REF_COUNT_MAX
+    &&& so.storage_perm().is_init()
     &&& so.ref_count() == 1 ==> {
-        &&& so.storage_perm().is_init()
         &&& so.in_list_perm.value() == 0
         &&& so.paths_in_pt.is_empty()
     }

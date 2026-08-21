@@ -21,7 +21,10 @@ use crate::specs::{
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::meta::{META_SLOT_SIZE, MetaSlot, mapping::meta_to_frame},
+    frame::{
+        Frame,
+        meta::{META_SLOT_SIZE, MetaSlot, mapping::meta_to_frame},
+    },
     kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
     page_table::{PageTableGuard, *},
@@ -225,6 +228,7 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
+    pub frame_permission: FracMetadataPerm,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub ghost level: PagingLevel,
     pub ghost tree_level: int,
@@ -234,6 +238,7 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
+        &&& self.frame_permission.frac() == 1
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.wf()
@@ -254,6 +259,22 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
+    pub proof fn tracked_borrow_frame_metadata_perms(
+        tracked permission: &FracMetadataPerm,
+    ) -> (tracked res: &MetadataPerms)
+        ensures
+            *res == permission.resource(),
+    {
+        permission.tracked_borrow()
+    }
+
+    pub proof fn tracked_borrow_metadata_perms(tracked &self) -> (tracked res: &MetadataPerms)
+        ensures
+            *res == self.frame_permission.resource(),
+    {
+        self.frame_permission.tracked_borrow()
+    }
+
     /// The meta address of this node's slot, computed from `slot_index`.
     pub open spec fn meta_vaddr(self) -> Vaddr {
         index_to_meta(self.slot_index)
@@ -262,16 +283,13 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<PageTablePageMeta<C>>(
             *regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].metadata_perm,
+            self.frame_permission.resource(),
             (),
         )
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C> {
-        typed_meta_value::<PageTablePageMeta<C>>(
-            regions.slot_owners[self.slot_index].metadata_perm,
-            (),
-        )
+        typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
     }
 
     /// Regions-tied invariants that used to live in `NodeOwner::inv()` via
@@ -280,6 +298,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
         &&& regions.contains(idx)
+        &&& Frame::<PageTablePageMeta<C>>::frame_permission_wf(
+            regions,
+            meta_to_frame(self.meta_vaddr()),
+            self.frame_permission,
+        )
         &&& self.meta_wf(regions)
         &&& self.meta_value(regions).wf(self.meta_own)
         &&& self.level == self.meta_value(regions).level
@@ -384,10 +407,8 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
 impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn invariants(self, owner: NodeOwner<C>) -> bool {
         &&& owner.inv()
-        &&& self.wf(
-            owner,
-        )
-        //        &&& owner.meta_perm.wf(owner.meta_perm.storage_perm())
+        &&& self.wf(owner)
+        //        &&& owner.meta_perm.wf(...)
         //        &&& owner.meta_perm.addr() == self.ptr.addr()
         //        &&& owner.meta_perm.addr() == self.ptr.addr()
 

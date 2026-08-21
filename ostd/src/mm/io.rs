@@ -299,6 +299,7 @@ impl<'a> VmWriter<'a, Infallible> {
             is_fallible: fallible,
             is_kernel: true,
             mem_view,
+            raw_frame_permissions: Map::tracked_empty(),
         };
 
         proof_with!(|= Tracked(owner));
@@ -727,6 +728,7 @@ impl<'a> VmReader<'a, Infallible> {
             is_fallible: false,
             is_kernel: true,
             mem_view: Some(VmIoMemView::ReadView(mv)),
+            raw_frame_permissions: Map::tracked_empty(),
         };
 
         proof_with!(|= Tracked(owner));
@@ -962,6 +964,7 @@ impl<'a> VmReader<'a, Infallible> {
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).read_view_initialized(),
+            final(owner).raw_frame_permissions == old(owner).raw_frame_permissions,
             old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
@@ -1070,6 +1073,7 @@ impl<'a> VmReader<'a, Fallible> {
             is_fallible: true,
             is_kernel: false,
             mem_view: None,
+            raw_frame_permissions: Map::tracked_empty(),
         };
         proof_with!(|= Tracked(owner));
         Self { ghost_id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
@@ -1670,6 +1674,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             final(self).remain_spec() == old(self).remain_spec() - nbytes,
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
+            final(owner).raw_frame_permissions == old(owner).raw_frame_permissions,
 
             old(owner).mem_view matches Some(crate::specs::mm::io::VmIoMemView::ReadView(_)) ==>
                 forall|va: usize|
@@ -1821,6 +1826,7 @@ impl<'a> VmWriter<'a, Fallible> {
             is_fallible: true,
             is_kernel: false,
             mem_view: None,
+            raw_frame_permissions: Map::tracked_empty(),
         };
         proof_with!(|= Tracked(owner));
         Self { ghost_id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }

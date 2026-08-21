@@ -86,8 +86,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
         valid_frame_paddr(paddr),
         old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owner(paddr).usage is Unused,
-        old(regions).slot_owner(paddr).ref_count()
-            == REF_COUNT_UNUSED,
+        old(regions).slot_owner(paddr).ref_count() == REF_COUNT_UNUSED,
     ensures
         final(regions).inv(),
         // Design-B re-park: `slots` domain preserved.
@@ -100,7 +99,6 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             &&& so_new.usage is Frame
             &&& so_new.ref_count() == REF_COUNT_UNIQUE
             &&& so_new.in_list_perm.value() == 0
-            &&& so_new.storage_perm().is_init()
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
@@ -132,7 +130,6 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
         old(regions).slot_owner(paddr).ref_count()
             == REF_COUNT_UNIQUE,
         old(regions).slot_owner(paddr).in_list_perm.value() == 0,
-        old(regions).slot_owner(paddr).storage_perm().is_init(),
         old(regions).slot_owner(paddr).paths_in_pt.is_empty(),
     ensures
         final(regions).inv(),
@@ -184,7 +181,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.usage == so_old.usage
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.in_list_perm == so_old.in_list_perm
-            &&& so_new.storage_perm() == so_old.storage_perm()
+            &&& so_new.metadata_perm.id() == so_old.metadata_perm.id()
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         forall|i: int|
@@ -221,7 +218,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
             &&& so_new.usage == so_old.usage
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.in_list_perm == so_old.in_list_perm
-            &&& so_new.storage_perm() == so_old.storage_perm()
+            &&& so_new.metadata_perm.id() == so_old.metadata_perm.id()
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         forall|i: int|

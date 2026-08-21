@@ -49,7 +49,9 @@ use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::specs::mm::frame::mapping::{
     frame_to_index, index_to_meta, max_meta_slots, meta_to_index,
 };
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, is_mmio_paddr};
+use crate::specs::mm::frame::meta_owners::{
+    FracMetadataPerm, MetaSlotOwner, PageUsage, is_mmio_paddr,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
 
@@ -217,7 +219,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             item.clone_requires(*old(regions)),
             C::item_into_raw_spec(*item).0 == pa,
         ensures
-            res == *item,
+            C::item_into_raw_spec(res) == C::item_into_raw_spec(*item),
+            C::tracked(res) == C::tracked(*item),
             item.clone_ensures(*old(regions), *final(regions), res),
             final(regions).inv(),
             final(regions).slots == old(regions).slots,
@@ -230,12 +233,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             C::tracked(*item) ==> {
                 &&& final(regions).slot_owner(pa).ref_count_perm.id()
                     == old(regions).slot_owner(pa).ref_count_perm.id()
-                &&& final(regions).slot_owner(pa).storage_perm() == old(
-                    regions,
-                ).slot_owner(pa).storage_perm()
-                &&& final(regions).slot_owner(pa).vtable_ptr_perm() == old(
-                    regions,
-                ).slot_owner(pa).vtable_ptr_perm()
+                &&& final(regions).slot_owner(pa).metadata_perm.id()
+                    == old(regions).slot_owner(pa).metadata_perm.id()
+                &&& final(regions).slot_owner(pa).metadata_perm.frac() + 1
+                    == old(regions).slot_owner(pa).metadata_perm.frac()
                 &&& final(regions).slot_owner(pa).in_list_perm == old(
                     regions,
                 ).slot_owner(pa).in_list_perm
@@ -258,13 +259,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // Linear-drop pilot: `clone_item` doesn't mint or redeem segment
             // obligations. Canonically a *tracked* clone MINTS one per-frame
             // entry (`Frame::clone` via `MappedItem::clone`), so the helper
-            // makes no `frame_obligations` promise on that path. An
             // *untracked* clone (kernel MMIO) is a true no-op, so the ledger
             // is preserved — `Cursor::query`'s untracked branch relies on
             // `*regions == old_regions`.
-            !C::tracked(*item) ==> final(regions).frame_obligations == old(
-                regions,
-            ).frame_obligations,
     )]
     pub fn clone_item(item: &C::Item) -> C::Item {
         let res = item.clone(Tracked(regions));
@@ -527,12 +524,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             != REF_COUNT_UNUSED || old(
                             regions,
                         ).slot_owners[idx].ref_count() == REF_COUNT_UNUSED
-                        &&& regions.slot_owners[idx].storage_perm() == old(
+                        &&& regions.slot_owners[idx].metadata_perm == old(
                             regions,
-                        ).slot_owners[idx].storage_perm()
-                        &&& regions.slot_owners[idx].vtable_ptr_perm().pptr() == old(
-                            regions,
-                        ).slot_owners[idx].vtable_ptr_perm().pptr()
+                        ).slot_owners[idx].metadata_perm
                         &&& regions.slot_owners[idx].in_list_perm.id() == old(
                             regions,
                         ).slot_owners[idx].in_list_perm.id()
@@ -637,6 +631,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         owner.cur_entry_frame_present();
                     }
+                    let ghost owner_before_permission_take = *owner;
+                    let ghost continuation_before_permission_take = owner.continuations[owner.level
+                        - 1];
+                    let ghost child_before_permission_take =
+                        continuation_before_permission_take.child();
+                    let ghost entry_before_permission_take = owner.cur_entry_owner();
+                    let tracked mut continuation = owner.continuations.tracked_remove(
+                        owner.level - 1,
+                    );
+                    let tracked mut child_owner = continuation.tracked_take_child();
+                    let tracked raw_permission = {
+                        let tracked child_value = child_owner.tracked_borrow_mut_value();
+                        child_value.tracked_take_frame_permission()
+                    };
+                    proof {
+                        assert(raw_permission is Some
+                            <==> entry_before_permission_take.frame_is_tracked());
+                    }
 
                     // debug_assert_eq!(ch_level, level);
                     // SAFETY:
@@ -648,13 +660,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     // For page table configs that require the `AVAIL1` flag to be kept
                     // (currently, only kernel page tables), the callers of the unsafe
                     // `protect_next` method uphold this invariant.
-                    let item =   /*ManuallyDrop::new(*/
-                    unsafe { C::item_from_raw(pa, level, prop) }  /*)*/
-                    ;
+                    let item = unsafe {
+                        C::item_from_raw(pa, level, prop, Tracked(regions), Tracked(raw_permission))
+                    };
 
                     proof {
-                        C::lemma_item_from_raw_well_formed(pa, level, prop);
-                        C::lemma_item_into_raw_roundtrip(pa, level, prop);
+                        C::lemma_item_from_raw_well_formed(pa, level, prop, raw_permission);
+                        C::lemma_item_into_raw_roundtrip(pa, level, prop, raw_permission);
                     }
 
                     let ghost old_regions = *regions;
@@ -663,22 +675,55 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let idx = frame_to_index(pa);
                         old(regions).lemma_contains_valid_frame_paddr(pa);
                         assert(regions.slot_owners.contains_key(idx));
-                        assert(owner.cur_entry_owner().inv_base());
+                        assert(owner_before_permission_take.cur_entry_owner().inv_base());
                         if C::tracked(item) && regions.slot_owners[idx].ref_count()
                             >= REF_COUNT_MAX {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner(),
+                                owner_before_permission_take.cur_entry_owner(),
                             );
                             assert(!is_mmio_paddr(pa));
                             assert(old(self).query_panic_condition(*old(owner), *old(regions)));
                             assert(may_panic());
                         }
                         assert(C::raw_item_well_formed(pa, level, prop));
-                        owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
+                        assert(C::item_permission(item) == raw_permission);
+                        assert(raw_permission == entry_before_permission_take.frame_permission());
+                        assert(owner_before_permission_take.cur_entry_owner()
+                            == entry_before_permission_take);
+                        owner_before_permission_take.cur_frame_clone_requires(
+                            item,
+                            pa,
+                            level,
+                            prop,
+                            *regions,
+                        );
                     }
 
                     #[verus_spec(with Tracked(regions), Ghost(pa))]
                     let cloned = Self::clone_item(&item);
+
+                    let (_raw, Tracked(restored_permission)) = C::item_into_raw(
+                        item,
+                        Tracked(regions),
+                    );
+                    proof {
+                        assert(restored_permission == raw_permission);
+                        {
+                            let tracked child_value = child_owner.tracked_borrow_mut_value();
+                            child_value.tracked_put_frame_permission(restored_permission);
+                            assert(*child_value == entry_before_permission_take);
+                        }
+                        assert(child_owner.value() == child_before_permission_take.value());
+                        assert(child_owner.level() == child_before_permission_take.level());
+                        assert(child_owner.children() == child_before_permission_take.children());
+                        assert(child_owner == child_before_permission_take);
+                        continuation.tracked_put_child(child_owner);
+                        continuation_before_permission_take.take_put_child();
+                        assert(continuation == continuation_before_permission_take);
+                        owner.continuations.tracked_insert(owner.level - 1, continuation);
+                        assert(owner.continuations == owner_before_permission_take.continuations);
+                        assert(*owner == owner_before_permission_take);
+                    }
 
                     proof {
                         let idx = frame_to_index(pa);
@@ -710,6 +755,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         // gives `old value < REF_COUNT_MAX` (saturation
                         // conjunct false); an MMIO leaf has `is_mmio_paddr`
                         // (non-MMIO conjunct false).
+                        assert(owner_before_permission_take@ == old(owner)@);
                         assert(owner@ == old(owner)@);
                         assert(owner@.query_mapping().pa_range.start == pa);
                         if C::tracked(item) {
@@ -745,24 +791,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         regions.lemma_contains_valid_frame_paddr(e.meta_slot_paddr().unwrap());
                     }
                     if e.is_frame() && e.parent_level > 1 {
-                        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
-                        assert forall|j: usize|
-                            #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                            0 < j < nr_pages implies {
-                            let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                            &&& regions.contains(sub_idx)
-                            &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                                &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
-                                &&& regions.slot_owners[sub_idx].ref_count() > 0
-                            }
-                        } by {
-                            let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                            assert(old(regions).contains(sub_idx));
-                            assert(regions.contains(sub_idx));
-                        }
+                        C::lemma_huge_raw_item_untracked(
+                            e.frame().mapped_pa,
+                            e.parent_level,
+                            e.frame().prop,
+                        );
+                        assert(!e.frame_is_tracked());
+                        assert(e.frame_sub_pages_valid(*regions));
                     }
                 };
             }
@@ -2152,8 +2187,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall |p: PageProperty| op.requires((p,)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) ==>
-                    C::tracked(C::item_from_raw_spec(pa, level, p_out))
-                    == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+                    C::tracked(C::item_from_raw_spec(pa, level, p_out, None))
+                    == C::tracked(C::item_from_raw_spec(pa, level, p_in, None)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
                     C::E::new_page_req(pa, level, p_out),
@@ -2220,6 +2255,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 (INC_LEVELS - child_owner.level()) as nat,
             );
             assert(PageTableOwner(child_owner).pt_inv());
+            child_owner0.value().metaregion_sound_frame_prop_changed(child_owner.value(), *regions);
+            assert(child_owner.value().metaregion_sound(*regions));
+            assert(child_owner.subtree_satisfies(
+                child_owner.value().path,
+                PageTableOwner::<C>::metaregion_sound_pred(*regions),
+            ));
             continuation.tracked_put_child(child_owner);
             continuation.entry_own.tracked_put_node(parent_owner);
             cont0.take_put_child();
@@ -2925,7 +2966,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             *old(regions),
                         ) implies #[trigger] Self::item_slot_in_regions(item, *regions) by {
                         assert(Self::item_slot_in_regions(item, regions0));
-                        let idx = frame_to_index(C::item_into_raw(item).0);
+                        let idx = frame_to_index(C::item_into_raw_spec(item).0);
                         assert(regions_after_ref.contains(idx));
                         assert(Self::item_slot_in_regions(item, regions_after_ref));
                     };
@@ -2990,7 +3031,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             *old(regions),
                         ) implies #[trigger] Self::item_slot_in_regions(item, *regions) by {
                         assert(Self::item_slot_in_regions(item, regions0));
-                        let idx = frame_to_index(C::item_into_raw(item).0);
+                        let idx = frame_to_index(C::item_into_raw_spec(item).0);
                         assert(regions_after_ref.contains(idx));
                         assert(Self::item_slot_in_regions(item, regions_after_ref));
                     };
@@ -3076,13 +3117,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(owner)@,
                 final(owner)@,
             ),
-            (C::item_into_raw(item).1 <= old(self).0.level
+            (C::item_into_raw_spec(item).1 <= old(self).0.level
                 && old(owner).cur_entry_owner().is_absent()) ==> res.is_ok(),
-            res is Err && res.unwrap_err() is StrayPageTable ==> C::item_into_raw(item).1 > 1,
+            res is Err && res.unwrap_err() is StrayPageTable ==> C::item_into_raw_spec(item).1 > 1,
             // For non-UNUSED indices other than the mapped frame, paths_in_pt is preserved.
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).contains(idx) &&
-                idx != frame_to_index(C::item_into_raw(item).0) &&
+                idx != frame_to_index(C::item_into_raw_spec(item).0) &&
                 old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
             // For non-UNUSED indices, ref_count stays non-UNUSED across the map.
@@ -3101,7 +3142,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // for unrelated paddrs.
             forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 old(regions).contains(idx) &&
-                idx != frame_to_index(C::item_into_raw(item).0) &&
+                idx != frame_to_index(C::item_into_raw_spec(item).0) &&
                 old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].ref_count()
                     == old(regions).slot_owners[idx].ref_count(),
@@ -3109,23 +3150,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // already > 0). Together with `slots.contains_key` monotonicity,
             // gives `item_slot_in_regions(item, *final(regions))` post-map.
             (C::tracked(item)
-                && old(regions).contains(frame_to_index(C::item_into_raw(item).0))
+                && old(regions).contains(frame_to_index(C::item_into_raw_spec(item).0))
                 && old(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].ref_count() > 0)
+                    frame_to_index(C::item_into_raw_spec(item).0)].ref_count() > 0)
                 ==>
                 final(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].ref_count() > 0,
+                    frame_to_index(C::item_into_raw_spec(item).0)].ref_count() > 0,
             // At the mapped index, the SHARED upper bound is preserved: on the
             // non-panic path the clone's saturation guard keeps `rc <= MAX`.
             // Lets callers re-derive `item_slot_in_regions`'s `rc <= MAX` for the
             // mapped frame (covers duplicate frames in a map sequence).
             (C::tracked(item)
                 && old(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].ref_count()
+                    frame_to_index(C::item_into_raw_spec(item).0)].ref_count()
                     <= REF_COUNT_MAX)
                 ==>
                 final(regions).slot_owners[
-                    frame_to_index(C::item_into_raw(item).0)].ref_count()
+                    frame_to_index(C::item_into_raw_spec(item).0)].ref_count()
                     <= REF_COUNT_MAX,
             // `regions.slots` is monotonic — slot existence is preserved through map.
             forall|idx: int| #![trigger final(regions).contains(idx)]
@@ -3142,9 +3183,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost owner0 = *owner;
 
         assert!(self.0.va < self.0.barrier_va.end);
-        let (pa, level, prop) = C::item_into_raw(item);
+        let ((pa, level, prop), Tracked(raw_permission)) = C::item_into_raw(item, Tracked(regions));
         proof {
-            C::lemma_item_from_raw_roundtrip(item, pa, level, prop);
+            C::lemma_item_from_raw_roundtrip(item, pa, level, prop, raw_permission);
         }
         assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
         assert!(level < self.0.guard_level);
@@ -3188,6 +3229,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(
             pa,
             prop,
+            raw_permission,
             regions,
         );
 
@@ -3201,6 +3243,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont.path().push_tail(cont.idx as int),
                 cont.level(),
                 prop,
+                raw_permission,
             ));
             assert(new_owner.value().is_frame());
             assert(new_owner.value().frame().mapped_pa == pa);
@@ -3247,19 +3290,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 //   axiom_mmio_usage_iff_mmio_paddr (usage == MMIO <=> is_mmio_paddr)
                 EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(new_owner.value());
                 if level > 1 {
-                    assert forall|j: usize|
-                        #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                        0 < j < page_size(level) / PAGE_SIZE implies {
-                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        regions.slot_owners[sub_idx].usage !is MMIO ==> C::tracked(item)
-                    } by {
-                        let sub_pa = (pa + j * PAGE_SIZE) as usize;
-                        crate::specs::mm::frame::meta_owners::axiom_mmio_paddr_huge_page_closed(
-                            pa,
-                            page_size(level),
-                            (j * PAGE_SIZE) as usize,
-                        );
-                    }
+                    C::lemma_huge_raw_item_untracked(pa, level, prop);
+                    assert(!new_owner.value().frame_is_tracked());
                 }
                 assert(new_owner.value().frame_sub_pages_valid(*regions));
             };
@@ -3354,7 +3386,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     owner2.move_forward_increases_va();
                 }
             };
-            let ghost pa_idx2 = frame_to_index(C::item_into_raw(item).0);
+            let ghost pa_idx2 = frame_to_index(C::item_into_raw_spec(item).0);
             assert forall|idx: int|
                 old(regions).contains(idx) && idx != pa_idx2 && old(
                     regions,
@@ -3704,7 +3736,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // symmetric counterpart of `map()`'s
                 // `paths_in_pt.insert` (cursor/mod.rs:2613). Keeping it
                 // here makes the eventual exact ref-count accounting
-                // (`ref_count == #handles + paths_in_pt.len()`) a true
+                // (ref_count == #handles + paths_in_pt.len()`) a true
                 // system invariant rather than monotonically inflated.
                 let ghost removed_idx = frame_to_index(cur_st.value().frame().mapped_pa);
                 let ghost removed_path = cur_st.value().path;
@@ -3820,8 +3852,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // reduces to "op preserves AVAIL1".
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) ==>
-                    C::tracked(C::item_from_raw_spec(pa, level, p_out))
-                    == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+                    C::tracked(C::item_from_raw_spec(pa, level, p_out, None))
+                    == C::tracked(C::item_from_raw_spec(pa, level, p_in, None)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
                     C::E::new_page_req(pa, level, p_out),
@@ -4326,6 +4358,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let result = match old {
             Child::None => None,
             Child::Frame(pa, ch_level, prop) => {
+                let tracked raw_permission = {
+                    let tracked old_child_value = old_child_owner.tracked_borrow_mut_value();
+                    old_child_value.tracked_take_frame_permission()
+                };
                 // SAFETY:
                 // This is part of (if `split_huge` happens) a page table item mapped
                 // with a previous call to `C::item_into_raw`, where:
@@ -4335,29 +4371,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // For page table configs that require the `AVAIL1` flag to be kept
                 // (currently, only kernel page tables), the callers of the unsafe
                 // `protect_next` method uphold this invariant.
-                let item = unsafe { C::item_from_raw(pa, level, prop) };
+                let item = unsafe {
+                    C::item_from_raw(pa, level, prop, Tracked(regions), Tracked(raw_permission))
+                };
                 proof {
-                    C::lemma_item_from_raw_well_formed(pa, level, prop);
-                    C::lemma_item_into_raw_roundtrip(pa, level, prop);
+                    C::lemma_item_from_raw_well_formed(pa, level, prop, raw_permission);
+                    C::lemma_item_into_raw_roundtrip(pa, level, prop, raw_permission);
                 }
                 Some(PageTableFrag::Mapped { va, item })
             },
             Child::PageTable(pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
                 if !C::TOP_LEVEL_CAN_UNMAP() && level as usize == NR_LEVELS {
-                    proof_decl! {
-                        // The PT-node model tracks `raw_count`, not the
-                        // per-frame ledger; mint the entry that `MD::new`
-                        // consumes (net-zero), mirroring `into_pte`.
-                        let tracked redeem_obl = regions.tracked_mint_frame_obligation(
-                            meta_to_index(pt.ptr.addr()),
-                        );
-                        regions.tracked_redeem_frame_obligation(redeem_obl);
-                        let tracked md_obl = DropObligation::tracked_mint(
-                            meta_to_index(pt.ptr.addr()),
-                        );
-                    }
-                    proof_with!(Tracked(md_obl));
+                    proof_with!(Tracked(()));
                     let _ = ManuallyDrop::new(pt);  // leak it to make shared PTs stay `'static`.
                     // Runtime panic. Discharges the conditional postcondition
                     // `res matches Some(StrayPageTable) && !TOP_LEVEL_CAN_UNMAP
@@ -4376,8 +4402,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost regions_before_borrow = *regions;
 
-                #[verus_spec(with Tracked(regions))]
-                let borrow_pt = pt.borrow();
+                #[verus_spec(with
+                    Tracked(&old_node_owner.frame_permission),
+                    Tracked(regions)
+                )]
+                let borrow_pt = pt.borrow_with_permission();
 
                 let ghost regions_after_borrow = *regions;
 

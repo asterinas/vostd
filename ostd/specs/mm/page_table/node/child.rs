@@ -120,34 +120,11 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
 impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
-        if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr()->0);
-            MetaRegionOwners {
-                frame_obligations: regions.frame_obligations.insert(index),
-                ..regions
-            }
-        } else {
-            regions
-        }
+        regions
     }
 
     pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
-        if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr()->0);
-            // Canonical model: forgetting a live PT-node into a PTE CONSUMES
-            // its pending-Drop obligation (the body's `MD::new` redeems one
-            // entry at the node's slot), mirroring `Frame::into_raw`. `slots`
-            // / `slot_owners` are untouched. Balances the `+1` minted by
-            // `from_pte` (`from_pte_regions_spec`) / `PageTableNode::alloc`.
-            MetaRegionOwners {
-                frame_obligations: regions.frame_obligations.remove(index),
-                ..regions
-            }
-        } else {
-            // Forgetting a mapped frame / clearing an absent entry leaves the
-            // per-frame ledger untouched (`item_into_raw` is `external_body`).
-            regions
-        }
+        regions
     }
 
     pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {
