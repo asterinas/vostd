@@ -187,15 +187,7 @@ impl MetaSlot {
     pub open spec fn drop_last_in_place_safety_cond(owner: MetaSlotOwner) -> bool {
         &&& (owner.ref_count() == 0 || owner.ref_count() == REF_COUNT_UNIQUE)
         &&& owner.storage_perm().is_init()
-        &&& owner.in_list_perm.value()
-            == 0
-        // The slot is torn down to `REF_COUNT_UNUSED`; the strengthened
-        // `MetaSlotOwner::inv` UNUSED branch requires an empty
-        // `paths_in_pt`, and `drop_last_in_place` does not touch
-        // `paths_in_pt`, so it must already be empty. Sound: a slot at
-        // the teardown point has no live PTE mapping (a mapping is a
-        // reference — it would keep the count above the teardown
-        // threshold).
+        &&& owner.in_list_perm.value() == 0
         &&& owner.paths_in_pt.is_empty()
     }
 

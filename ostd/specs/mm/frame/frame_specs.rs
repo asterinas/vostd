@@ -218,8 +218,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
 
     // It is unsound to drop a `Frame` while raw paddrs to it remain
     // outstanding (`raw_count > 0`), since those raw paddrs could be revived
-    // via `from_raw` after the slot has been torn down. Hence the drop is
-    // only permitted when `raw_count == 0`.
+    // via `from_raw`. Hence the drop is only permitted when `raw_count == 0`.
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
         let idx = self.index();
         let slot_own = s.slot_owners[idx];
@@ -227,27 +226,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // the slot is in the SHARED rc range. `wf_with_region` carries the
         // slot identity + pointer agreement + `rc ∈ (0, MAX] ∧ ≠ UNIQUE`
         // bounds.
-        &&& self.wf_with_region(
-            s,
-        )
-        // Borrow-protocol transition: `raw_count` is dormant. The
-        // "outstanding raw paddrs must be drained before drop" guarantee
-        // is now carried by the `frame_obligations` ledger together with
-        // `from_raw`'s `ref_count >= 1` safety check (a torn-down slot is
-        // `UNUSED` and cannot be `from_raw`'d).
-        // At `ref_count == 1` the teardown branch of `drop_last_in_place`
-        // runs, requiring an empty `paths_in_pt` (the strengthened
-        // `MetaSlotOwner::inv` UNUSED branch demands it post-teardown,
-        // and `drop_last_in_place` doesn't touch paths). Sound: at
-        // `ref_count == 1` the `Frame` being dropped is the sole
-        // reference, so there is no live PTE mapping (a mapping would
-        // be a further reference, forcing `ref_count >= 2`).
-        //
-        // The other `drop_last_in_place_safety_cond` conjuncts
-        // (`storage.is_init`, `in_list == 0`) are subsumed by the
-        // strengthened `MetaSlotOwner::inv` SHARED branch
-        // (`0 < rc <= REF_COUNT_MAX`) — they hold universally for any
-        // in-use slot, not just at `rc == 1`.
+        &&& self.wf_with_region(s)
         &&& slot_own.ref_count() == 1 ==> {
             &&& slot_own.paths_in_pt.is_empty()
         }
@@ -275,12 +254,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // drop (it only adjusts refcount and, on teardown, storage).
         &&& so1.slot_vaddr == so0.slot_vaddr
         &&& so1.usage == so0.usage
-        &&& so1.paths_in_pt
-            == so0.paths_in_pt
-        // Refcount transition. `drop_requires` guarantees the old value
-        // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
-        //  - last reference (== 1): the slot is torn down to UNUSED.
-        //  - otherwise (> 1): the refcount is decremented by one.
+        &&& so1.paths_in_pt == so0.paths_in_pt
         &&& so0.ref_count() == 1 ==> so1.ref_count() == REF_COUNT_UNUSED
         &&& so0.ref_count() > 1 ==> so1.ref_count() == (so0.ref_count()
             - 1) as u64

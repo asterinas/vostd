@@ -565,10 +565,6 @@ impl<M> Frame<M> {
         requires
             Self::from_raw_requires_safety(*old(regions), paddr),
             old(regions).contains(frame_to_index(paddr)),
-            // Borrow-protocol safety: the slot must be alive (not torn
-            // down). The `unsafe` keyword still gates whether the produced
-            // Frame corresponds to a real prior `into_raw`; this condition
-            // only ensures the slot isn't a dead/unused one.
             old(regions).slot_owner(paddr).ref_count()
                 != REF_COUNT_UNUSED,
         ensures

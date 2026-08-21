@@ -217,13 +217,6 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
         final(regions).slot_owner(paddr).slot_vaddr == old(regions).slot_owner(paddr).slot_vaddr,
         final(regions).slot_owner(paddr).usage == old(regions).slot_owner(paddr).usage,
         final(regions).slot_owner(paddr).paths_in_pt == old(regions).slot_owner(paddr).paths_in_pt,
-        // `ref_count == 1` ⟹ the torn-down slot has no page-table
-        // mappings. A mapping is itself a reference (see the doc
-        // comment above: `reference_count()` counts the mappings), so a
-        // mapped slot would have `ref_count >= 2`. Hence `paths_in_pt`
-        // is empty — same epistemic status as the `metaregion_sound`-
-        // preserves clause (sound to assert, reflecting real exec; not
-        // derivable from the incomplete `drop_pre` predicate alone).
         old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
             paddr,
         ).paths_in_pt.is_empty(),
@@ -385,8 +378,6 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
         final(regions).slot_owner(entry.paddr).paths_in_pt == old(regions).slot_owner(
             entry.paddr,
         ).paths_in_pt,
-        // `ref_count == 1` ⟹ no mappings ⟹ empty `paths_in_pt` at the
-        // torn-down slot — see [`frame_drop_embedded`].
         old(regions).slot_owner(entry.paddr).ref_count() == 1 ==> final(regions).slot_owner(
             entry.paddr,
         ).paths_in_pt.is_empty(),
