@@ -5,6 +5,8 @@
 //! through _allocators_. There are two types of device I/O:
 //!  - `IoMem` for memory I/O (MMIO).
 //!  - `IoPort` for port I/O (PIO).
+use vstd::prelude::*;
+
 mod io_mem;
 
 use cfg_if::cfg_if;
@@ -34,6 +36,7 @@ cfg_if!(
 ///
 /// 3. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to
 ///    exceed the maximum value specified by architecture.
+#[verus_verify]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
     unsafe { self::io_mem::init(io_mem_builder) };
