@@ -1,5 +1,6 @@
 use core::ops::{Range, RangeInclusive};
 use vstd::prelude::*;
+use vstd::std_specs::cmp::{PartialOrdIs, PartialOrdSpec};
 
 verus! {
 
@@ -35,8 +36,7 @@ pub open spec fn range_usize_is_empty_spec(r: &Range<usize>) -> bool {
 }
 
 /// Exec-mode `is_empty` for a `Range<usize>`: use in place of `r.is_empty()`
-/// which needs `Idx: PartialOrd<Idx>` bound that doesn't round-trip cleanly
-/// through `assume_specification`.
+/// when the generic `assume_specification` below is not in scope.
 #[verifier::when_used_as_spec(range_usize_is_empty_spec)]
 pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
     ensures
@@ -44,6 +44,18 @@ pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
 {
     !(r.start < r.end)
 }
+
+/// Std definition: `!(self.start < self.end)`. Empty if either endpoint is
+/// incomparable under `PartialOrd`.
+pub open spec fn range_is_empty_spec<Idx: PartialOrd<Idx>>(r: &Range<Idx>) -> bool {
+    !r.start.is_lt(&r.end)
+}
+
+pub assume_specification<Idx: PartialOrd<Idx>>[ Range::<Idx>::is_empty ](r: &Range<Idx>) -> (res:
+    bool) where Idx: PartialOrd<Idx>
+    ensures
+        <Idx as PartialOrdSpec<Idx>>::obeys_partial_cmp_spec() ==> res == range_is_empty_spec(r),
+;
 
 pub assume_specification<Idx>[ RangeInclusive::start ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
     ensures
