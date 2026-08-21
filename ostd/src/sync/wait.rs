@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
 use vstd::prelude::*;
+use vstd::resource::{
+    Loc,
+    ghost_var::{GhostVar, GhostVarAuth},
+};
 
 use alloc::{collections::VecDeque, sync::Arc};
 use core::intrinsics::atomic_cxchg;
 use core::sync::atomic::{/*AtomicBool,*/ Ordering};
 
-use super::{LocalIrqDisabled, SpinLock};
+use super::{LocalIrqDisabled, SpinLock, SpinLockPredicate};
 use crate::task::{Task, scheduler};
 
 // # Explanation on the memory orders
@@ -39,6 +43,22 @@ use crate::task::{Task, scheduler};
 
 verus! {
 
+struct WakersPredicate;
+
+impl SpinLockPredicate<VecDeque<Arc<Waker>>> for WakersPredicate {
+    type Constant = Loc;
+
+    type State = GhostVar<int>;
+
+    /// While the spin lock is unlocked, its mirror records the exact queue
+    /// length. Lock acquisition transfers the mirror to the guard, allowing
+    /// the relation to be updated together with `num_wakers` before unlock.
+    closed spec fn inv(ghost_id: Loc, wakers: VecDeque<Arc<Waker>>, mirror: GhostVar<int>) -> bool {
+        &&& mirror.id() == ghost_id
+        &&& mirror@ == wakers@.len()
+    }
+}
+
 struct_with_invariants! {
 
 /// A wait queue.
@@ -49,13 +69,16 @@ struct_with_invariants! {
 /// wake up one or many waiting threads.
 pub struct WaitQueue {
     // A copy of `wakers.len()`, used for the lock-free fast path in `wake_one` and `wake_all`.
-    num_wakers: AtomicU32<_, (), _>,
-    wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled>,
+    num_wakers: AtomicU32<_, GhostVarAuth<int>, _>,
+    wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled, WakersPredicate>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on num_wakers is (v: u32, g: ()) {
-        true
+    // The authoritative half agrees with the executable atomic counter. Its
+    // ID links it to the mirror protected by `wakers`.
+    invariant on num_wakers with (wakers) is (v: u32, g: GhostVarAuth<int>) {
+        &&& g.id() == wakers.constant()
+        &&& g@ == v as int
     }
 }
 }
@@ -70,10 +93,16 @@ impl WaitQueue {
 impl WaitQueue {
     /// Creates a new, empty wait queue.
     pub const fn new() -> Self {
-        WaitQueue {
-            num_wakers: AtomicU32::new(Ghost(()), 0, Tracked(())),
-            wakers: SpinLock::new(VecDeque::new()),
+        proof_decl! {
+            let tracked (count_auth, count_mirror) = GhostVarAuth::<int>::new(0int);
         }
+        let ghost ghost_id = count_auth.id();
+        let wakers = SpinLock::new_with_pred(
+            VecDeque::new(),
+            Ghost(ghost_id),
+            Tracked(count_mirror),
+        );
+        WaitQueue { num_wakers: AtomicU32::new(Ghost(wakers), 0, Tracked(count_auth)), wakers }
     }
 
     /// Waits until some condition is met.
@@ -131,15 +160,26 @@ impl WaitQueue {
         {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
+                wakers.drop();
                 return false;
             };
+            proof_decl! {
+                let tracked mut count_mirror: GhostVar<int>;
+            }
+            #[verus_spec(with => Tracked(count_mirror))]
+            wakers.take_predicate_state();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {
-                    assume(prev > 0);
+                ghost count_auth => {
+                    count_auth.agree(&count_mirror);
+                    assert(prev == count_mirror@);
+                    assert(prev > 0);
+                    count_auth.update(&mut count_mirror, next);
                 }
             };
+            #[verus_spec(with Tracked(count_mirror))]
+            wakers.put_predicate_state();
             // Avoid holding lock when calling `wake_up`
             //drop(wakers);
             wakers.drop();
@@ -169,15 +209,26 @@ impl WaitQueue {
         {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
+                wakers.drop();
                 break;
             };
+            proof_decl! {
+                let tracked mut count_mirror: GhostVar<int>;
+            }
+            #[verus_spec(with => Tracked(count_mirror))]
+            wakers.take_predicate_state();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {
-                    assume(prev > 1);
+                ghost count_auth => {
+                    count_auth.agree(&count_mirror);
+                    assert(prev == count_mirror@);
+                    assert(prev > 0);
+                    count_auth.update(&mut count_mirror, next);
                 }
             };
+            #[verus_spec(with Tracked(count_mirror))]
+            wakers.put_predicate_state();
             // Avoid holding lock when calling `wake_up`
             //drop(wakers);
             wakers.drop();
@@ -191,8 +242,10 @@ impl WaitQueue {
         num_woken
     }
 
-    #[verifier::external_body]
     fn is_empty(&self) -> bool {
+        proof! {
+            use_type_invariant(self);
+        }
         self.num_wakers.load() == 0
     }
 
@@ -204,13 +257,24 @@ impl WaitQueue {
         }
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
+        proof_decl! {
+            let tracked mut count_mirror: GhostVar<int>;
+        }
+        #[verus_spec(with => Tracked(count_mirror))]
+        wakers.take_predicate_state();
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;
-            ghost g => {
+            ghost count_auth => {
+                count_auth.agree(&count_mirror);
+                assert(prev == count_mirror@);
                 assume(prev < u32::MAX);
+                count_auth.update(&mut count_mirror, next);
             }
         };
+        #[verus_spec(with Tracked(count_mirror))]
+        wakers.put_predicate_state();
+        wakers.drop();
     }
 }
 
