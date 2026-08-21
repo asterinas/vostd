@@ -30,14 +30,8 @@ verus! {
 // to break the AnyFrameMeta trait-resolution cycle in PT-node on_drop) can
 // reference these helpers via `Self::from_raw_*`.
 impl<'a, M: ?Sized> Frame<M> {
-    // ── from_raw precondition predicates ──
-    /// **Safety**: The frame exists, is addressable, and its slot is alive
-    /// (not torn down: `ref_count != REF_COUNT_UNUSED`). Under the
-    /// borrow-protocol redesign this liveness gate replaces the prior
-    /// `raw_count <= 1` check — a slot that has not been torn down is safe
-    /// to re-materialize as a `Frame` value. (`>= 1` is *not* the right
-    /// gate, since the `UNUSED` sentinel `u64::MAX` also satisfies it; and
-    /// the PT-node ownership model only exposes `!= UNUSED`.)
+    // from_raw precondition predicates
+    // **Safety**: The frame exists, is addressable, and its slot is alive.
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.contains(frame_to_index(paddr))
         &&& regions.slot_owner(paddr).slot_vaddr == frame_to_meta(paddr)
@@ -73,17 +67,6 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.frame_obligations =~= old_regions.frame_obligations.insert(
             frame_to_index(paddr),
         )
-    }
-
-    // ── into_raw precondition predicates ──
-    /// **Safety Invariant**: The frame's structural invariant must hold.
-    pub open spec fn into_raw_pre_frame_inv(self) -> bool {
-        self.inv()
-    }
-
-    /// **Bookkeeping**: The frame must be in use (not unused).
-    pub open spec fn into_raw_pre_not_unused(self, regions: MetaRegionOwners) -> bool {
-        regions.slot_owners[self.index()].ref_count() != REF_COUNT_UNUSED
     }
 
     /// **Safety**: Frames other than this one are not affected by the call.
