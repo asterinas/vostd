@@ -12,12 +12,12 @@
 use core::sync::atomic::{AtomicPtr, Ordering};
 
 pub use vstd::atomic_weak::{
-    fence_acquire, fence_release, history_get_contains_timestamp, load_acquire,
-    load_reads_from_history, load_relaxed, load_timestamp_in_view, load_view_nondecreasing,
-    store_insert_history, store_relaxed, store_release, store_timestamp_in_view,
-    store_view_increasing, AtomicHistory, AtomicPointsTo, LoadData, PAtomicWeakBool,
-    PAtomicWeakI16, PAtomicWeakI32, PAtomicWeakI8, PAtomicWeakIsize, PAtomicWeakU16,
-    PAtomicWeakU32, PAtomicWeakU8, PAtomicWeakUsize, StoreData, UpdateData,
+    AtomicHistory, AtomicPointsTo, LoadData, PAtomicWeakBool, PAtomicWeakI8, PAtomicWeakI16,
+    PAtomicWeakI32, PAtomicWeakIsize, PAtomicWeakU8, PAtomicWeakU16, PAtomicWeakU32,
+    PAtomicWeakUsize, StoreData, UpdateData, fence_acquire, fence_release,
+    history_get_contains_timestamp, load_acquire, load_reads_from_history, load_relaxed,
+    load_timestamp_in_view, load_view_nondecreasing, store_insert_history, store_relaxed,
+    store_release, store_timestamp_in_view, store_view_increasing,
 };
 #[cfg(target_has_atomic = "64")]
 pub use vstd::atomic_weak::{PAtomicWeakI64, PAtomicWeakU64};
