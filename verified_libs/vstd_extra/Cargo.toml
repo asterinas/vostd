@@ -15,3 +15,6 @@ std = ["vstd/std"]
 
 [dependencies]
 vstd = { workspace = true }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+x86_64 = "0.14.13"
