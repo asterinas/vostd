@@ -9,6 +9,7 @@ use vstd_extra::{
     drop_tracking::{Drop, DropObligation, TrackDrop},
     ownership::*,
 };
+use vstd_extra::typing::types::Any;
 
 use crate::specs::{
     arch::*,
@@ -1714,6 +1715,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
 unsafe impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
+    open spec fn meta_id(&self) -> TypeIdSpec {
+        type_id::<Self>()
+    }
+
+    fn to_any(&self) -> (r: &dyn Any) {
+        let d: &dyn Any = self;
+        assert(d.type_id_spec() == self.type_id_spec());
+        d
+    }
+
     open spec fn on_drop_pre(
         &self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,

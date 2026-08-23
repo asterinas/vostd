@@ -1,4 +1,5 @@
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
+use vstd_extra::typing::types::Any;
 use vstd_extra::{
     cast_ptr::{self, Repr},
     ghost_tree::TreePath,
@@ -103,6 +104,16 @@ pub enum MetaSlotStorage {
 /// it can then be used to stand in for `dyn AnyFrameMeta`.
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
+
+    open spec fn meta_id(&self) -> TypeIdSpec {
+        type_id::<Self>()
+    }
+
+    fn to_any(&self) -> (r: &dyn Any) {
+        let d: &dyn Any = self;
+        assert(d.type_id_spec() == self.type_id_spec());
+        d
+    }
 }
 
 impl Repr<MetaSlotStorage> for MetaSlotStorage {

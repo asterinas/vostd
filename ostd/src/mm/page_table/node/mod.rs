@@ -35,6 +35,7 @@ use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*, simple_pptr:
 use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
+use vstd_extra::typing::types::Any;
 use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
@@ -105,6 +106,16 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
+    open spec fn meta_id(&self) -> TypeIdSpec {
+        type_id::<Self>()
+    }
+
+    fn to_any(&self) -> (r: &dyn Any) {
+        let d: &dyn Any = self;
+        assert(d.type_id_spec() == self.type_id_spec());
+        d
+    }
+
     /// Caller invariants the PT-node `on_drop` body relies on:
     /// - Reader well-formedness + `vm_io_owner` matching + read view
     ///   initialized + at least `PAGE_SIZE` bytes remaining for the
