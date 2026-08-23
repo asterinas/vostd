@@ -84,10 +84,10 @@ use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
 use vstd_extra::panic::{may_panic, panic_diverge};
 use vstd_extra::prelude::*;
+use vstd_extra::typing::types::Any;
 
 use core::{
     alloc::Layout,
-    any::Any,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
@@ -262,6 +262,24 @@ Send + Sync {
     }
 
     spec fn vtable_ptr(&self) -> usize where Self: Sized;
+
+    /// The identity of this metadata's concrete type.
+    ///
+    /// Upstream gets this from `AnyFrameMeta: Any`. We cannot: Verus propagates an
+    /// unsized-blanket-impl rejection from supertrait to subtrait
+    /// (`vir/src/traits.rs`) -- `dyn AnyFrameMeta` would stop being a legal type.
+    spec fn meta_id(&self) -> TypeIdSpec;
+
+    /// Mimics the upcast `self as &dyn core::any::Any`.
+    ///
+    /// Upstream writes that upcast directly, which is legal for it because
+    /// `AnyFrameMeta: Any` makes `Any` a supertrait. We make it a method
+    /// instead: each impl performs the *sized* coercion `&Self -> &dyn Any`, which
+    /// is the same operation the vtable would have performed.
+    fn to_any(&self) -> (r: &dyn Any)
+        ensures
+            r.type_id_spec() == self.meta_id(),
+    ;
 }
 
 /*/// Makes a structure usable as a frame metadata.
