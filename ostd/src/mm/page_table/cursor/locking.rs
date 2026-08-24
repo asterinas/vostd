@@ -58,15 +58,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
         (*ret.1).as_page_table_owner() == pt_own,
-        // The root continuation's path matches the input's root path — this
-        // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
-        // `view_rec(continuations[3].path())`.
         (*ret.1).continuations[3].path() == pt_own.0.value().path,
-        // Non-saturation preservation: if the caller established that no
-        // non-UNUSED slot was one increment away from REF_COUNT_MAX before
-        // locking, the same bound holds after. Locking may allocate new PT
-        // nodes (bumping some parent ref counts), but ref counts stay within
-        // safe bounds during a single lock_range call.
         (forall |i: int| #![trigger old(regions).slot_owners[i]]
             old(regions).contains(i)
             && old(regions).slot_owners[i].ref_count()
@@ -87,10 +79,6 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
-        // For *in-use* slots, refcount value and usage are exactly
-        // preserved across `lock_range` — composes
-        // `try_traverse_and_lock_subtree_root`'s in-use preservation with
-        // `dfs_acquire_lock`'s `slot_owners ==` preservation.
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).contains(idx)
             && old(regions).slot_owners[idx].ref_count()
@@ -99,9 +87,6 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
                     == old(regions).slot_owners[idx].ref_count()
                 && final(regions).slot_owners[idx].usage
                     == old(regions).slot_owners[idx].usage,
-        // Saturated-slot bridge (bidirectional): a slot is at
-        // `>= REF_COUNT_MAX` before iff after, with the same value.
-        // Composes helpers' clauses (see their ensures).
         forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
             final(regions).slot_owners[idx].ref_count()
                 >= REF_COUNT_MAX
