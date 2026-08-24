@@ -1,24 +1,33 @@
 diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
-index 8fceab37..48434b7b 100644
+index 8fceab37..ed82d23d 100644
 --- a/source/builtin/src/lib.rs
 +++ b/source/builtin/src/lib.rs
-@@ -2322,6 +2322,22 @@ pub fn arch_word_bits() -> nat {
+@@ -2322,6 +2322,31 @@ pub fn arch_word_bits() -> nat {
      unimplemented!();
  }
  
++/// The identity of a type, as a ghost value.
 +///
-+/// Dynamic type id, as in `std::any`.
++/// The spec-level counterpart of `core::any::TypeId`. The name carries the `Spec`
++/// suffix so that a *runtime* type id -- which is what `std` calls `TypeId`, and
++/// what a library layered on this will want to call it too -- keeps the unsuffixed
++/// name.
 +///
++/// Identity here is *undecorated*: `T` and `&T` share a `TypeIdSpec`, unlike
++/// `core::any::TypeId`, which separates them. This is forced by the encoding
++/// rather than chosen -- a type's decoration is not part of the `Type` sort that
++/// tags are computed from.
 +#[cfg(verus_keep_ghost)]
-+#[rustc_diagnostic_item = "verus::verus_builtin::TypeId"]
++#[rustc_diagnostic_item = "verus::verus_builtin::TypeIdSpec"]
 +#[verifier::external_body]
-+pub struct TypeId {
++pub struct TypeIdSpec {
 +    _private: (),
 +}
 +
++/// The [`TypeIdSpec`] of `T`.
 +#[cfg(verus_keep_ghost)]
 +#[rustc_diagnostic_item = "verus::verus_builtin::type_id"]
-+pub fn type_id<T: ?Sized>() -> TypeId {
++pub fn type_id<T: ?Sized>() -> TypeIdSpec {
 +    unimplemented!();
 +}
 +
@@ -94,7 +103,7 @@ index ff8f9255..9f98285a 100644
              gen_num_typ(n, gen_typs(state, ts))
          }
 diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/verus_items.rs
-index 689a1df6..45d61997 100644
+index 689a1df6..c08a9f80 100644
 --- a/source/rust_verify/src/verus_items.rs
 +++ b/source/rust_verify/src/verus_items.rs
 @@ -144,6 +144,7 @@ pub(crate) enum ExprItem {
@@ -125,10 +134,173 @@ index 689a1df6..45d61997 100644
          ("verus::verus_builtin::FnSpec",                  VerusItem::BuiltinType(BuiltinTypeItem::FnSpec)),
          ("verus::verus_builtin::Ghost",                   VerusItem::BuiltinType(BuiltinTypeItem::Ghost)),
          ("verus::verus_builtin::Tracked",                 VerusItem::BuiltinType(BuiltinTypeItem::Tracked)),
-+        ("verus::verus_builtin::TypeId",                  VerusItem::BuiltinType(BuiltinTypeItem::TypeId)),
++        ("verus::verus_builtin::TypeIdSpec",              VerusItem::BuiltinType(BuiltinTypeItem::TypeId)),
  
          ("verus::verus_builtin::Integer",                 VerusItem::BuiltinTrait(BuiltinTraitItem::Integer)),
          ("verus::verus_builtin::Chainable",               VerusItem::BuiltinTrait(BuiltinTraitItem::Chainable)),
+diff --git a/source/rust_verify_test/tests/type_id.rs b/source/rust_verify_test/tests/type_id.rs
+new file mode 100644
+index 00000000..0e25a040
+--- /dev/null
++++ b/source/rust_verify_test/tests/type_id.rs
+@@ -0,0 +1,157 @@
++#![feature(rustc_private)]
++#[macro_use]
++mod common;
++use common::*;
++
++// `type_id::<T>()` yields the identity of `T`. Two of them are equal exactly when
++// the tag axioms make the types equal; see vir::def's TYPE_TAG documentation.
++
++test_verify_one_file! {
++    #[test] distinct_primitive_constructors verus_code! {
++        use verus_builtin::type_id;
++        proof fn t() {
++            assert(type_id::<u8>() != type_id::<u16>());
++            assert(type_id::<bool>() != type_id::<u8>());
++            assert(type_id::<int>() != type_id::<nat>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] distinct_datatypes verus_code! {
++        use verus_builtin::type_id;
++        struct A;
++        struct B;
++        proof fn t() {
++            assert(type_id::<A>() != type_id::<B>());
++            assert(type_id::<A>() != type_id::<bool>());
++        }
++    } => Ok(())
++}
++
++// The case no user-level axiom can express: two instantiations of one constructor.
++test_verify_one_file! {
++    #[test] distinct_instantiations verus_code! {
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        proof fn t() {
++            assert(type_id::<Wrap<u8>>() != type_id::<Wrap<u16>>());
++            assert(type_id::<Wrap<bool>>() != type_id::<Wrap<u8>>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] argument_order_matters verus_code! {
++        use verus_builtin::type_id;
++        struct Pair<A, B>(A, B);
++        proof fn t() {
++            assert(type_id::<Pair<bool, u8>>() != type_id::<Pair<u8, bool>>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] nested_and_recursive verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        enum List<T> { Nil, Cons(T, Box<List<T>>) }
++        proof fn t() {
++            assert(type_id::<Wrap<Wrap<u8>>>() != type_id::<Wrap<u8>>());
++            assert(type_id::<List<u8>>() != type_id::<List<bool>>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] const_generics verus_code! {
++        use verus_builtin::type_id;
++        struct Slab<const N: usize>;
++        proof fn t() {
++            assert(type_id::<Slab<64>>() != type_id::<Slab<128>>());
++            assert(type_id::<[u8; 4]>() != type_id::<[u8; 8]>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] reflexive verus_code! {
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        proof fn t() {
++            assert(type_id::<Wrap<u8>>() == type_id::<Wrap<u8>>());
++        }
++    } => Ok(())
++}
++
++// A TypeIdSpec is an ordinary ghost value: it can be stored, passed and compared.
++test_verify_one_file! {
++    #[test] storable verus_code! {
++        use verus_builtin::{type_id, TypeIdSpec};
++        struct Wrap<T>(T);
++        proof fn t(x: TypeIdSpec) {
++            let s = Wrap(x);
++            assert(s.0 == x);
++        }
++        spec fn is_u8(x: TypeIdSpec) -> bool { x == type_id::<u8>() }
++        proof fn u() {
++            assert(is_u8(type_id::<u8>()));
++        }
++    } => Ok(())
++}
++
++// --- Soundness controls: these must NOT be provable ------------------------
++
++// A and B may be instantiated to the same type.
++test_verify_one_file! {
++    #[test] type_params_not_distinct verus_code! {
++        use verus_builtin::type_id;
++        proof fn t<A, B>() {
++            assert(type_id::<A>() != type_id::<B>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++test_verify_one_file! {
++    #[test] type_params_not_distinct_nested verus_code! {
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        proof fn t<A, B>() {
++            assert(type_id::<Wrap<A>>() != type_id::<Wrap<B>>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// Identity is *undecorated*: `&T` and `T` share a TypeIdSpec. This differs from
++// core::any::TypeId, and is forced by the encoding -- a decoration is not part
++// of the `Type` sort that tags are computed from.
++test_verify_one_file! {
++    #[test] decoration_is_not_part_of_identity verus_code! {
++        use verus_builtin::type_id;
++        proof fn t() {
++            assert(type_id::<&u8>() != type_id::<u8>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// An unresolved associated type is opaque, like a type parameter.
++test_verify_one_file! {
++    #[test] projections_not_distinct verus_code! {
++        use verus_builtin::type_id;
++        trait Tr { type Out; }
++        proof fn t<A: Tr, B: Tr>() {
++            assert(type_id::<A::Out>() != type_id::<B::Out>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// type_id is spec-only.
++test_verify_one_file! {
++    #[test] not_usable_in_exec verus_code! {
++        use verus_builtin::type_id;
++        fn t() {
++            let x = type_id::<u8>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "cannot use spec-mode expression in executable context")
++}
 diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
 index 27e6c0a4..4fbf978c 100644
 --- a/source/vir/src/ast.rs
@@ -780,169 +952,3 @@ index 89c59c93..3dbc7260 100644
          ExpX::NullaryOpr(crate::ast::NullaryOpr::TraitBound(..)) => {
              Err(error(&exp.span, "triggers cannot contain trait bounds"))
          }
-diff --git a/source/rust_verify_test/tests/type_id.rs b/source/rust_verify_test/tests/type_id.rs
-new file mode 100644
-index 00000000..7f3f8e90
---- /dev/null
-+++ b/source/rust_verify_test/tests/type_id.rs
-@@ -0,0 +1,157 @@
-+#![feature(rustc_private)]
-+#[macro_use]
-+mod common;
-+use common::*;
-+
-+// `type_id::<T>()` yields the identity of `T`. Two of them are equal exactly when
-+// the tag axioms make the types equal; see vir::def's TYPE_TAG documentation.
-+
-+test_verify_one_file! {
-+    #[test] distinct_primitive_constructors verus_code! {
-+        use verus_builtin::type_id;
-+        proof fn t() {
-+            assert(type_id::<u8>() != type_id::<u16>());
-+            assert(type_id::<bool>() != type_id::<u8>());
-+            assert(type_id::<int>() != type_id::<nat>());
-+        }
-+    } => Ok(())
-+}
-+
-+test_verify_one_file! {
-+    #[test] distinct_datatypes verus_code! {
-+        use verus_builtin::type_id;
-+        struct A;
-+        struct B;
-+        proof fn t() {
-+            assert(type_id::<A>() != type_id::<B>());
-+            assert(type_id::<A>() != type_id::<bool>());
-+        }
-+    } => Ok(())
-+}
-+
-+// The case no user-level axiom can express: two instantiations of one constructor.
-+test_verify_one_file! {
-+    #[test] distinct_instantiations verus_code! {
-+        use verus_builtin::type_id;
-+        struct Wrap<T>(T);
-+        proof fn t() {
-+            assert(type_id::<Wrap<u8>>() != type_id::<Wrap<u16>>());
-+            assert(type_id::<Wrap<bool>>() != type_id::<Wrap<u8>>());
-+        }
-+    } => Ok(())
-+}
-+
-+test_verify_one_file! {
-+    #[test] argument_order_matters verus_code! {
-+        use verus_builtin::type_id;
-+        struct Pair<A, B>(A, B);
-+        proof fn t() {
-+            assert(type_id::<Pair<bool, u8>>() != type_id::<Pair<u8, bool>>());
-+        }
-+    } => Ok(())
-+}
-+
-+test_verify_one_file! {
-+    #[test] nested_and_recursive verus_code! {
-+        use vstd::prelude::*;
-+        use verus_builtin::type_id;
-+        struct Wrap<T>(T);
-+        enum List<T> { Nil, Cons(T, Box<List<T>>) }
-+        proof fn t() {
-+            assert(type_id::<Wrap<Wrap<u8>>>() != type_id::<Wrap<u8>>());
-+            assert(type_id::<List<u8>>() != type_id::<List<bool>>());
-+        }
-+    } => Ok(())
-+}
-+
-+test_verify_one_file! {
-+    #[test] const_generics verus_code! {
-+        use verus_builtin::type_id;
-+        struct Slab<const N: usize>;
-+        proof fn t() {
-+            assert(type_id::<Slab<64>>() != type_id::<Slab<128>>());
-+            assert(type_id::<[u8; 4]>() != type_id::<[u8; 8]>());
-+        }
-+    } => Ok(())
-+}
-+
-+test_verify_one_file! {
-+    #[test] reflexive verus_code! {
-+        use verus_builtin::type_id;
-+        struct Wrap<T>(T);
-+        proof fn t() {
-+            assert(type_id::<Wrap<u8>>() == type_id::<Wrap<u8>>());
-+        }
-+    } => Ok(())
-+}
-+
-+// A TypeId is an ordinary ghost value: it can be stored, passed and compared.
-+test_verify_one_file! {
-+    #[test] storable verus_code! {
-+        use verus_builtin::{type_id, TypeId};
-+        struct Wrap<T>(T);
-+        proof fn t(x: TypeId) {
-+            let s = Wrap(x);
-+            assert(s.0 == x);
-+        }
-+        spec fn is_u8(x: TypeId) -> bool { x == type_id::<u8>() }
-+        proof fn u() {
-+            assert(is_u8(type_id::<u8>()));
-+        }
-+    } => Ok(())
-+}
-+
-+// --- Soundness controls: these must NOT be provable ------------------------
-+
-+// A and B may be instantiated to the same type.
-+test_verify_one_file! {
-+    #[test] type_params_not_distinct verus_code! {
-+        use verus_builtin::type_id;
-+        proof fn t<A, B>() {
-+            assert(type_id::<A>() != type_id::<B>()); // FAILS
-+        }
-+    } => Err(err) => assert_one_fails(err)
-+}
-+
-+test_verify_one_file! {
-+    #[test] type_params_not_distinct_nested verus_code! {
-+        use verus_builtin::type_id;
-+        struct Wrap<T>(T);
-+        proof fn t<A, B>() {
-+            assert(type_id::<Wrap<A>>() != type_id::<Wrap<B>>()); // FAILS
-+        }
-+    } => Err(err) => assert_one_fails(err)
-+}
-+
-+// Identity is *undecorated*: `&T` and `T` share a TypeId. This differs from
-+// core::any::TypeId, and is forced by the encoding -- a decoration is not part
-+// of the `Type` sort that tags are computed from.
-+test_verify_one_file! {
-+    #[test] decoration_is_not_part_of_identity verus_code! {
-+        use verus_builtin::type_id;
-+        proof fn t() {
-+            assert(type_id::<&u8>() != type_id::<u8>()); // FAILS
-+        }
-+    } => Err(err) => assert_one_fails(err)
-+}
-+
-+// An unresolved associated type is opaque, like a type parameter.
-+test_verify_one_file! {
-+    #[test] projections_not_distinct verus_code! {
-+        use verus_builtin::type_id;
-+        trait Tr { type Out; }
-+        proof fn t<A: Tr, B: Tr>() {
-+            assert(type_id::<A::Out>() != type_id::<B::Out>()); // FAILS
-+        }
-+    } => Err(err) => assert_one_fails(err)
-+}
-+
-+// type_id is spec-only.
-+test_verify_one_file! {
-+    #[test] not_usable_in_exec verus_code! {
-+        use verus_builtin::type_id;
-+        fn t() {
-+            let x = type_id::<u8>();
-+        }
-+    } => Err(err) => assert_vir_error_msg(err, "cannot use spec-mode expression in executable context")
-+}
--- 
-2.43.0
-
