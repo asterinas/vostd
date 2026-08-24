@@ -101,12 +101,8 @@ impl MetaSlot {
         }
     }
 
-    /// Permission-location clause: the extracted slot perm was *re-parked* into
-    /// `regions.slots`, so the domain is preserved and every other slot's perm
-    /// is untouched. Callers that re-park (see
-    /// [`crate::mm::frame::Frame::from_unused`] — it hands the perm back via the
-    /// `perm` out-param and re-inserts it) pair this with [`get_from_unused_spec`]
-    /// (the `slot_owners` transition) to fully describe the Design-B post-state.
+    /// Permission-location clause for the static `MetaSlot` permissions.
+    /// Only the slot at `paddr` is changed.
     pub open spec fn slot_perm_reparked_spec(
         paddr: Paddr,
         pre: MetaRegionOwners,
