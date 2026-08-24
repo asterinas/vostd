@@ -1016,7 +1016,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
                 Some(item) => {
                     &&& final(range).start == old(range).start + PAGE_SIZE
                     &&& final(range).end == old(range).end
-                    &&& item.0.paddr() == old(range).start
+                    &&& item.0.start_paddr_spec() == old(range).start
                     &&& old(remaining).seq() == seq![item] + final(remaining).seq()
                 },
             },
