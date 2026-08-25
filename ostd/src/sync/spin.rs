@@ -54,8 +54,8 @@ impl<T> InvariantPredicate<(), (T, ())> for TrivialSpinLockPredicate {
 /// The tracked resources transferred from the unlocked spin lock to its guard
 /// when the lock is acquired, and returned to the lock when the guard is dropped.
 tracked struct SpinLockResource<T, P: SpinLockPredicate<T>> {
-    tracked perm: PointsTo<T>,
-    tracked state: P::State,
+    perm: PointsTo<T>,
+    state: P::State,
 }
 
 impl<T, P: SpinLockPredicate<T>> SpinLockResource<T, P> {
