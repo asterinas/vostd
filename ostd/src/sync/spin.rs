@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*};
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
@@ -17,24 +18,20 @@ use super::{guard::SpinGuardian, LocalIrqDisabled /*, PreemptDisabled*/};
 
 verus! {
 
-/// A user-supplied invariant for data protected by a [`SpinLock`].
+/// An [`AtomicInvariant`](vstd::invariant::AtomicInvariant) predicate for data protected by a
+/// [`SpinLock`].
 ///
-/// `State` is tracked state transferred together with the permission for the
-/// protected value. The invariant is required to hold
-/// while the state is stored in an unlocked spin lock. A lock guard may
-/// temporarily break it, but must restore it before returning the state when
-/// the guard is dropped.
-pub trait SpinLockPredicate<T>: Sized {
+/// The predicate value is `(T, Self::State)`. `State` moves to the guard while locked, and the
+/// predicate must be restored before the guard is released.
+pub trait SpinLockPredicate<T>:
+    InvariantPredicate<Self::Constant, (T, Self::State)> + Sized
+{
     /// Immutable ghost data fixed when a spin lock is created.
     type Constant;
 
     /// Tracked state used to relate the protected value to external ghost
     /// state.
     type State;
-
-    /// The relation that must hold between the protected value and its tracked
-    /// state while the spin lock is unlocked.
-    spec fn inv(constant: Self::Constant, value: T, state: Self::State) -> bool;
 }
 
 /// A spin-lock invariant that imposes no condition on the protected value.
@@ -46,8 +43,10 @@ pub struct TrivialSpinLockPredicate;
 impl<T> SpinLockPredicate<T> for TrivialSpinLockPredicate {
     type Constant = ();
     type State = ();
+}
 
-    open spec fn inv(_constant: (), _value: T, _state: ()) -> bool {
+impl<T> InvariantPredicate<(), (T, ())> for TrivialSpinLockPredicate {
+    open spec fn inv(_constant: (), _value_state: (T, ())) -> bool {
         true
     }
 }
@@ -116,8 +115,7 @@ impl<T, P: SpinLockPredicate<T>>
                 &&& resource.cell_id() == constant.cell_id()
                 &&& P::inv(
                     constant.user_constant(),
-                    resource.value(),
-                    resource.predicate_state(),
+                    (resource.value(), resource.predicate_state()),
                 )
             }
         }
@@ -253,7 +251,7 @@ impl<T, G, P: SpinLockPredicate<T>> SpinLock<T, G, P> {
         Tracked(state): Tracked<P::State>,
     ) -> (res: Self)
         requires
-            P::inv(user_constant, val, state),
+            P::inv(user_constant, (val, state)),
         ensures
             res.constant() == user_constant,
     {
@@ -426,7 +424,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
             -> resource: Tracked<SpinLockResource<T, P>>,
         ensures
             resource@.perm.id() == self.inner.val.id(),
-            P::inv(self.constant(), resource@.value(), resource@.predicate_state()),
+            P::inv(self.constant(), (resource@.value(), resource@.predicate_state())),
             )]
     #[verifier::exec_allows_no_decreases_clause]
     fn acquire_lock(&self) {
@@ -458,8 +456,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
                 &&& resource@->0.perm.id() == self.inner.val.id()
                 &&& P::inv(
                     self.constant(),
-                    resource@->0.value(),
-                    resource@->0.predicate_state(),
+                    (resource@->0.value(), resource@->0.predicate_state()),
                 )
             },
             !ret ==> resource@ is None,
@@ -490,7 +487,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLock<T, G, P
             Tracked(resource): Tracked<SpinLockResource<T, P>>,
         requires
             resource.perm.id() == self.inner.val.id(),
-            P::inv(self.constant(), resource.value(), resource.predicate_state()),
+            P::inv(self.constant(), (resource.value(), resource.predicate_state())),
     )]
     fn release_lock(&self) {
         proof!{
@@ -516,9 +513,9 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
 
 // SAFETY: Only a single lock holder is permitted to access the inner data of Spinlock.
 #[verifier::external]
-unsafe impl<T: Send, G, P: SpinLockPredicate<T>> Send for SpinLock<T, G, P> {}
+unsafe impl<T: Send, G, P: SpinLockPredicate<T>> Send for SpinLock<T, G, P> where P::State: Send {}
 #[verifier::external]
-unsafe impl<T: Send, G, P: SpinLockPredicate<T>> Sync for SpinLock<T, G, P> {}
+unsafe impl<T: Send, G, P: SpinLockPredicate<T>> Sync for SpinLock<T, G, P> where P::State: Send {}
 
 /// A guard that provides exclusive access to the data protected by a [`SpinLock`].
 ///
@@ -597,7 +594,7 @@ impl<'a, T, G: SpinGuardian, P: SpinLockPredicate<T>> SpinLockGuard<'a, T, G, P>
     /// Whether the user-supplied invariant currently holds.
     pub open spec fn predicate_inv(self) -> bool {
         &&& self.has_predicate_state()
-        &&& P::inv(self.constant(), self.value(), self.predicate_state())
+        &&& P::inv(self.constant(), (self.value(), self.predicate_state()))
     }
 
     /// The value stored in the lock. It is an alias of `Self::value`.

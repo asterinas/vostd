@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 use vstd::resource::{
     Loc,
@@ -49,11 +50,14 @@ impl SpinLockPredicate<VecDeque<Arc<Waker>>> for WakersPredicate {
     type Constant = Loc;
 
     type State = GhostVar<int>;
+}
 
+impl InvariantPredicate<Loc, (VecDeque<Arc<Waker>>, GhostVar<int>)> for WakersPredicate {
     /// While the spin lock is unlocked, its mirror records the exact queue
     /// length. Lock acquisition transfers the mirror to the guard, allowing
     /// the relation to be updated together with `num_wakers` before unlock.
-    closed spec fn inv(ghost_id: Loc, wakers: VecDeque<Arc<Waker>>, mirror: GhostVar<int>) -> bool {
+    closed spec fn inv(ghost_id: Loc, value_state: (VecDeque<Arc<Waker>>, GhostVar<int>)) -> bool {
+        let (wakers, mirror) = value_state;
         &&& mirror.id() == ghost_id
         &&& mirror@ == wakers@.len()
     }
