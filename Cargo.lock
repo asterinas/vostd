@@ -672,6 +672,7 @@ name = "vstd_extra"
 version = "0.1.0"
 dependencies = [
  "vstd",
+ "x86_64",
 ]
 
 [[package]]
