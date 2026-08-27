@@ -89,6 +89,9 @@ use vstd_extra::{
     prelude::*,
     sum::Sum,
 };
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
 
 use crate::specs::{

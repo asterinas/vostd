@@ -9,6 +9,9 @@ use vstd_extra::{
     drop_tracking::{Drop, DropObligation, TrackDrop},
     ownership::*,
 };
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
 
 use crate::specs::{

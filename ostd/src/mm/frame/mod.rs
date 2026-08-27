@@ -38,7 +38,11 @@ use vstd::{
     std_specs::cmp::PartialEqSpecImpl,
 };
 use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
+#[cfg(feature = "type_id")]
 use vstd::std_specs::convert::TryFromSpecImpl;
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::{Any, is_};
 
 pub mod allocator;
