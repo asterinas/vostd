@@ -14,18 +14,6 @@
 //! `Frame<dyn AnyFrameMeta>`, which works only because it exposes no
 //! associated type post-erasure).
 //!
-//! # Why `in_list` is a non-issue here
-//!
-//! `ListStore<M>` requires only `regions.inv()`
-//! ([`MetaRegionOwners::inv`]), which — unlike
-//! `VmStore::structural_inv` — does **not** constrain `in_list`. A
-//! listed frame sits at `rc == REF_COUNT_UNIQUE` with
-//! `in_list == list_id != 0`; the UNIQUE branch of `MetaSlotOwner::inv`
-//! pins only `storage`/`vtable_ptr` init, leaving `in_list` free. So
-//! listed frames are admitted with *no* invariant weakening — the
-//! `in_list == 0` constraint is purely a `VmStore` concern and does not
-//! arise in this harness.
-//!
 //! # State
 //!
 //! - `regions`: the shared metadata-region ownership.
@@ -146,12 +134,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.lists[id].inv()
                 &&& self.lists[id].relate_region(self.regions)
             }
-            // Each loose handle is a valid live `UniqueFrame<Link<M>>`:
-            // a UNIQUE slot with a pending drop-obligation, sitting
-            // *outside* every list — `in_list == 0` and unlinked
-            // (`frame_link_inv`: no `prev`/`next`). The `in_list == 0`
-            // fact makes list-vs-loose slot disjointness derivable (a
-            // listed slot has `in_list == list_id != 0`).
         &&& forall|lid: LooseId| #[trigger]
             self.loose.dom().contains(lid) ==> {
                 &&& self.loose[lid].inv()
@@ -159,12 +141,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid].frame_link_inv(self.regions)
                 &&& self.regions.slot_owners[self.loose[lid].slot_index].in_list_perm.value() == 0
             }
-            // Distinct lists carry distinct *nonzero* ids (`lazy_get_id`
-            // mints a globally fresh id per list — even a list emptied by
-            // pops keeps its unique id; only never-pushed lists share the
-            // placeholder `list_id == 0`). With each link's
-            // `in_list == list_id`, this makes cross-list slot
-            // disjointness derivable.
+            // Distinct lists carry distinct *nonzero* ids.
         &&& forall|id1: ListId, id2: ListId|
             #![trigger self.lists.dom().contains(id1), self.lists.dom().contains(id2)]
             self.lists.dom().contains(id1) && self.lists.dom().contains(id2)
@@ -185,11 +162,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             self.cursors.dom(),
         )
         // Each live cursor's checked-out list is well-formed and every
-        // link relates to its UNIQUE region slot, exactly as for a held
-        // list; additionally the cursor index is in range
-        // (`wf_with_region`). `list_own.inv()` is carried so the trusted
-        // per-op other-lists frame (stated over `inv() && relate_region`)
-        // applies to a cursor's list under region-changing ops.
+        // link relates to its UNIQUE region slot.
         &&& forall|cid: CursorId| #[trigger]
             self.cursors.dom().contains(cid) ==> {
                 &&& self.cursors[cid].list_own.inv()
@@ -211,8 +184,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 && self.cursors[cid1].list_own.list_id != 0 ==> cid1
                 == cid2
             // Membership registry: each held list's id tags exactly its own
-            // links in the region (forward + reverse — see [`list_registry_ok`]).
-            // This is what makes `contains` an exact membership test.
+            // links in the region.
         &&& forall|id: ListId| #[trigger]
             self.lists.dom().contains(id) ==> list_registry_ok(
                 self.regions,
@@ -230,10 +202,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 // =============================================================================
 // Fresh-id helpers + tracked constructors
 // =============================================================================
-/// Tracked constructor for a fresh *empty* list owner. Sound: an empty
-/// `LinkedListOwner` claims no permissions (cf.
-/// [`LinkedListOwner::tracked_destroy_empty`]), and carries
-/// `list_id == 0` — the real id is minted lazily on first push.
+/// Tracked constructor for a fresh *empty* list owner.
 pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -> (tracked res:
     LinkedListOwner<M>)
     ensures
@@ -252,9 +221,7 @@ pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -
     res
 }
 
-/// Fresh-id helper for the list id space. The id must avoid both held
-/// lists *and* checked-out cursors (a cursored list's home id is absent
-/// from `lists` but reserved in `cursors`).
+/// Fresh-id helper for the list id space.
 pub open spec fn fresh_list_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     lists: Map<ListId, LinkedListOwner<M>>,
     cursors: Map<CursorId, CursorOwner<M>>,
@@ -274,23 +241,7 @@ pub proof fn lemma_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
     lemma_finite_int_set_has_unused(lists.dom() + cursors.dom());
 }
 
-/// Trusted reflection of [`crate::mm::frame::LinkedList::push_front`]'s
-/// effect on `(regions, owner, frame_own)`. The first block of `ensures`
-/// mirrors the now-verified exec `push_front` ensures verbatim
-/// (`relate_region` of the pushed owner, the list / id / `in_list`
-/// effects, `s` consumption, and the outside-the-list
-/// slot-preservation frame). The last two add facts that *follow* from
-/// them — sound, hence safe to assert here:
-///   - **fresh minted id** (`old.list_id == 0 ==> final.list_id ∉
-///     used_ids`): the exec mints the id from a global counter, so it is
-///     fresh w.r.t. any finite in-use set; the caller passes the other
-///     lists' ids, keeping cross-list id uniqueness.
-///   - **other lists preserved**: any well-formed list `l` with a
-///     *different* id keeps its `relate_region`. The only slots the
-///     surgery touches are the loose frame's (`in_list == 0`, required
-///     below) and the old front's (`in_list == new id`); both are
-///     disjoint from `l`'s slots (which carry `in_list == l.list_id`),
-///     so by the slot-preservation frame `l` is untouched.
+/// Trusted reflection of [`crate::mm::frame::LinkedList::push_front`].
 pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
@@ -329,23 +280,11 @@ pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && l.list_id != final(owner).list_id
                 ==> l.relate_region(*final(regions)),
-        // Membership registry for the operated list: forward stamp of
-        // the (minted or preserved) id + reverse global uniqueness (see
-        // [`list_registry_ok`]).
         list_registry_ok(*final(regions), *final(owner)),
-        // Every other list/cursor list keeps its registry: the only slot
-        // the surgery retags now carries `final(owner).list_id` (or 0),
-        // never another list's id — so no foreign list gains or loses a
-        // tagged slot.
         forall|l: LinkedListOwner<M>|
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && list_registry_ok(*old(regions), l)
                 && l.list_id != final(owner).list_id ==> list_registry_ok(*final(regions), l),
-        // **other loose handles preserved**: a loose frame `fo` sitting
-        // at a different `in_list == 0` slot is untouched. Sound by the
-        // same disjointness — a list slot carries `in_list == list_id
-        // != 0`, so `fo`'s slot is neither the pushed frame's nor the
-        // old front's.
         forall|fo: UniqueFrameOwner<Link<M>>|
             #![trigger fo.global_inv(*old(regions))]
             fo.global_inv(*old(regions)) && fo.frame_link_inv(*old(regions)) && old(
@@ -374,21 +313,8 @@ pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmal
     lemma_finite_int_set_has_unused(m.dom());
 }
 
-/// Checked front specialization of [`take_at_embedded`], reflecting the
-/// (now properly `&mut owner`-threaded and fully verified)
-/// [`crate::mm::frame::LinkedList::pop_front`]. Pops the
-/// front link off `owner`, restoring it to a loose
-/// `UniqueFrame<Link<M>>` (its drop-obligation re-minted by `from_raw`,
-/// `in_list` reset to 0, `prev`/`next` cleared). The list shrinks by one
-/// from the front with `list_id` preserved.
-///
-/// The first block of `ensures` mirrors the verified exec `pop_front`
-/// verbatim. The last two are the sound companion facts (cf.
-/// [`push_front_embedded`]): other lists and other loose frames are
-/// untouched, and — additionally — the popped slot is *distinct* from
-/// every loose slot (it was a list link, `in_list == list_id != 0`),
-/// which keeps loose-slot disjointness when the popped frame joins
-/// `loose`.
+/// Checked front specialization of [`take_at_embedded`], reflecting
+/// [`crate::mm::frame::LinkedList::pop_front`].
 pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
@@ -414,8 +340,6 @@ pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
             meta_to_index(old(owner).list[0].paddr),
         ),
-        // Outside-the-list slot preservation (front specialisation:
-        // popped slot + the new front's metadata index).
         forall|j: int|
             #![trigger final(regions).slots[j]]
             #![trigger final(regions).slot_owners[j]]
@@ -428,20 +352,11 @@ pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && l.list_id != final(owner).list_id
                 ==> l.relate_region(*final(regions)),
-        // Membership registry for the operated list: forward stamp of
-        // the (minted or preserved) id + reverse global uniqueness (see
-        // [`list_registry_ok`]).
         list_registry_ok(*final(regions), *final(owner)),
-        // Every other list/cursor list keeps its registry: the only slot
-        // the surgery retags now carries `final(owner).list_id` (or 0),
-        // never another list's id — so no foreign list gains or loses a
-        // tagged slot.
         forall|l: LinkedListOwner<M>|
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && list_registry_ok(*old(regions), l)
                 && l.list_id != final(owner).list_id ==> list_registry_ok(*final(regions), l),
-        // Other loose frames preserved, and the popped slot is disjoint
-        // from every loose slot.
         forall|fo: UniqueFrameOwner<Link<M>>|
             #![trigger fo.global_inv(*old(regions))]
             fo.global_inv(*old(regions)) && fo.frame_link_inv(*old(regions)) && old(
@@ -457,9 +372,7 @@ pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 }
 
 /// Checked back specialization of [`insert_before_at_embedded`], reflecting the
-/// (verified) [`crate::mm::frame::LinkedList::push_back`]. Identical to
-/// [`push_front_embedded`] except the frame is spliced in at the *tail*
-/// (touching the back neighbours instead of the front).
+/// [`crate::mm::frame::LinkedList::push_back`].
 pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
@@ -507,14 +420,7 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && l.list_id != final(owner).list_id
                 ==> l.relate_region(*final(regions)),
-        // Membership registry for the operated list: forward stamp of
-        // the (minted or preserved) id + reverse global uniqueness (see
-        // [`list_registry_ok`]).
         list_registry_ok(*final(regions), *final(owner)),
-        // Every other list/cursor list keeps its registry: the only slot
-        // the surgery retags now carries `final(owner).list_id` (or 0),
-        // never another list's id — so no foreign list gains or loses a
-        // tagged slot.
         forall|l: LinkedListOwner<M>|
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && list_registry_ok(*old(regions), l)
@@ -537,9 +443,7 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 }
 
 /// Checked back specialization of [`take_at_embedded`], reflecting the
-/// (verified) [`crate::mm::frame::LinkedList::pop_back`]. Identical to
-/// [`tracked_pop_front_embedded`] except the *last* link is popped (touching the
-/// back neighbour's metadata index).
+/// [`crate::mm::frame::LinkedList::pop_back`].
 pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
@@ -576,14 +480,7 @@ pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && l.list_id != final(owner).list_id
                 ==> l.relate_region(*final(regions)),
-        // Membership registry for the operated list: forward stamp of
-        // the (minted or preserved) id + reverse global uniqueness (see
-        // [`list_registry_ok`]).
         list_registry_ok(*final(regions), *final(owner)),
-        // Every other list/cursor list keeps its registry: the only slot
-        // the surgery retags now carries `final(owner).list_id` (or 0),
-        // never another list's id — so no foreign list gains or loses a
-        // tagged slot.
         forall|l: LinkedListOwner<M>|
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && list_registry_ok(*old(regions), l)
@@ -603,11 +500,7 @@ pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     frame_own
 }
 
-/// Trusted reflection of [`crate::mm::frame::CursorMut::insert_before`]
-/// applied to a cursor at an arbitrary index `n` over `owner`. The
-/// general form of [`push_front_embedded`] (`n == 0`) /
-/// [`lemma_push_back_embedded`]: splices the loose frame in at position `n`
-/// (`0 <= n <= len`), touching `n`'s ≤2 link neighbours.
+/// Trusted reflection of [`crate::mm::frame::CursorMut::insert_before`].
 pub axiom fn insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
@@ -649,14 +542,7 @@ pub axiom fn insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && l.list_id != final(owner).list_id
                 ==> l.relate_region(*final(regions)),
-        // Membership registry for the operated list: forward stamp of
-        // the (minted or preserved) id + reverse global uniqueness (see
-        // [`list_registry_ok`]).
         list_registry_ok(*final(regions), *final(owner)),
-        // Every other list/cursor list keeps its registry: the only slot
-        // the surgery retags now carries `final(owner).list_id` (or 0),
-        // never another list's id — so no foreign list gains or loses a
-        // tagged slot.
         forall|l: LinkedListOwner<M>|
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && list_registry_ok(*old(regions), l)
@@ -671,11 +557,7 @@ pub axiom fn insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
                 && final(regions).slot_owners[fo.slot_index].in_list_perm.value() == 0,
 ;
 
-/// Trusted reflection of [`crate::mm::frame::CursorMut::take_current`]
-/// at an arbitrary index `n` over `owner`. The general form of
-/// [`tracked_pop_front_embedded`] (`n == 0`) / [`tracked_pop_back_embedded`]: removes
-/// the link at position `n` (`0 <= n < len`) back into a loose handle,
-/// touching `n`'s ≤2 bridged neighbours.
+/// Trusted reflection of [`crate::mm::frame::CursorMut::take_current`].
 pub axiom fn take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
@@ -713,14 +595,7 @@ pub axiom fn take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && l.list_id != final(owner).list_id
                 ==> l.relate_region(*final(regions)),
-        // Membership registry for the operated list: forward stamp of
-        // the (minted or preserved) id + reverse global uniqueness (see
-        // [`list_registry_ok`]).
         list_registry_ok(*final(regions), *final(owner)),
-        // Every other list/cursor list keeps its registry: the only slot
-        // the surgery retags now carries `final(owner).list_id` (or 0),
-        // never another list's id — so no foreign list gains or loses a
-        // tagged slot.
         forall|l: LinkedListOwner<M>|
             #![trigger l.relate_region(*old(regions))]
             l.inv() && l.relate_region(*old(regions)) && list_registry_ok(*old(regions), l)
@@ -736,22 +611,7 @@ pub axiom fn take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
                 && fo.slot_index != meta_to_index(old(owner).list[n].paddr),
 ;
 
-/// Trusted reflection of the (now-strengthened, verified) whole-list
-/// teardown [`crate::mm::frame::LinkedList`]'s `Drop`/`TrackDrop`. The
-/// destructor pops every link via `take_current` and `UniqueFrame::drop`s
-/// the recovered frame, so each former link's slot is **freed** —
-/// `rc → REF_COUNT_UNUSED`, `in_list → 0` — not orphaned. `owner` is
-/// consumed (emptied). The per-link `frame_obligations.count == 0`
-/// precondition mirrors the exec `drop_requires` (a listed frame was
-/// forgotten via `into_raw`); `ListStore` doesn't track that accounting
-/// fact, so it is surfaced here for an accounting-aware caller to supply.
-///
-/// `ensures` mirror the verified `drop_ensures` (freed slots + full
-/// preservation of every out-of-list slot, `slots.dom()`, `inv()`) plus
-/// the sound companion frames (cf. the push/pop axioms): other lists /
-/// cursors keep `relate_region` + [`list_registry_ok`], other loose
-/// frames are untouched, and — when the list was empty — the region is
-/// unchanged outright.
+/// Trusted reflection of the [`crate::mm::frame::LinkedList`]'s `Drop`/`TrackDrop`.
 pub axiom fn list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: LinkedListOwner<M>,
@@ -765,13 +625,6 @@ pub axiom fn list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             0 <= i < owner.list.len() ==> old(regions).frame_obligations.count(
                 meta_to_index(owner.list[i].paddr),
             ) == 0,
-        // Mirrors the exec `TrackDrop for LinkedList::drop_requires`
-        // conjunct (`linked_list.rs`): each link's slot has no live PTE
-        // mapping. The destructor `UniqueFrame::drop`s each link to
-        // `REF_COUNT_UNUSED`, which is only valid for an unmapped frame
-        // (a mapping is itself a reference). Discharged in `step_list_drop`
-        // from `MetaSlotOwner::inv`'s UNIQUE branch (a UNIQUE slot — which
-        // every link is, via `relate_region`) has empty `paths_in_pt`).
         forall|i: int|
             #![trigger meta_to_index(owner.list[i].paddr)]
             0 <= i < owner.list.len() ==> old(regions).slot_owners[meta_to_index(
@@ -848,15 +701,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         self.lists[id].list.len() == 0
     }
 
-    /// `LinkedList::contains`: whether `frame` is a link of list `id`. A
-    /// read-only query mirroring exec `contains(frame) -> bool`. `res`
-    /// holds iff `frame` is a safe managed slot AND one of the list's
-    /// links: for a real (non-zero) id the membership registry
-    /// ([`list_registry_ok`], an `inv` clause) makes the
-    /// `in_list[frame] == list_id` comparison an exact membership test;
-    /// an empty/never-pushed list (`list_id == 0`, hence empty) or a
-    /// `frame` that is not a safe slot (which exec's `get_slot` rejects)
-    /// contains nothing.
+    /// `LinkedList::contains`: whether `frame` is a link of list `id`.
     pub proof fn step_contains(tracked &self, id: ListId, frame: Paddr) -> (res: bool)
         requires
             self.inv(),
@@ -897,21 +742,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 }
                 res
             } else {
-                // `list_id == 0` ⟹ the list is empty (`LinkedListOwner::inv`:
-                // `len > 0 ==> list_id != 0`), so it has no links.
                 assert(self.lists[id].list.len() == 0);
                 false
             }
         } else {
-            // `!valid_frame_paddr(frame)`: exec `get_slot` rejects it, so the
-            // guarded membership is vacuously false.
             false
         }
     }
 
-    /// `LinkedList::new`: register a fresh *empty* list. No region
-    /// change; the new list is empty with `list_id == 0` (minted on
-    /// first push). Returns the fresh list id.
+    /// `LinkedList::new`: register a fresh *empty* list.
     pub proof fn step_list_new(tracked &mut self) -> (res: ListId)
         requires
             old(self).inv(),
@@ -929,30 +768,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let tracked empty = tracked_empty_list_owner::<M>();
         self.lists.tracked_insert(id, empty);
         assert(self.lists[id].list.len() == 0);
-        // The new list is empty: `inv()` (`len > 0 ==> ...` vacuous,
-        // per-link forall vacuous) and `relate_region` (both foralls
-        // vacuous over an empty `list`) hold. Every other list / loose
-        // entry is unchanged, and `regions` is untouched.
         assert(self.lists[id].relate_region(self.regions));
-        // Cursors untouched; `id` is fresh w.r.t. `cursors` (so
-        // disjointness holds), and the new list's `list_id == 0` makes
-        // the cross list/cursor id clause vacuous for it.
         assert(self.cursors == old_self.cursors);
         assert(self.lists.dom().disjoint(self.cursors.dom()));
         assert(self.lists[id].list_id == 0);
         id
     }
 
-    /// Drop of `LinkedList` `id`: tear the whole list down, *freeing*
-    /// every link's frame (slot → UNUSED, `in_list` → 0) and removing the
-    /// list from the store. Faithful to the verified destructor (each
-    /// link is popped and `UniqueFrame::drop`ped — no orphaning).
-    ///
-    /// The per-link `frame_obligations.count == 0` precondition mirrors
-    /// the exec `drop_requires` (listed frames are forgotten); the
-    /// accounting-free `ListStore` cannot itself supply it, so it is left
-    /// to the caller. The freed frames leave the store entirely (they
-    /// return to the allocator's UNUSED pool, tracked by nobody here).
+    /// Drop of `LinkedList` `id`. Faithful to the verified destructor.
     pub proof fn step_list_drop(tracked &mut self, id: ListId)
         requires
             old(self).inv(),
@@ -974,20 +797,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost dropped_id = self.lists[id].list_id;
         let ghost is_empty = self.lists[id].list.len() == 0;
         assert(self.lists[id].relate_region(self.regions));
-
-        // Discharge the axiom's unmapped-link precondition: every link's
-        // slot is a non-MMIO UNIQUE frame (via `relate_region_at`:
-        // `ref_count == REF_COUNT_UNIQUE` + `usage == Frame`), and
-        // `regions.inv()`'s UNIQUE branch (`usage != MMIO ==> empty`) then
-        // gives it an empty `paths_in_pt`.
         assert forall|i: int|
             #![trigger meta_to_index(self.lists[id].list[i].paddr)]
             0 <= i < self.lists[id].list.len() implies self.regions.slot_owners[meta_to_index(
             self.lists[id].list[i].paddr,
         )].paths_in_pt.is_empty() by {
             let idx = meta_to_index(self.lists[id].list[i].paddr);
-            // Instantiate `relate_region`'s per-link forall (trigger
-            // `self.list[i]`) to get `relate_region_at(regions, i)`.
             let _ = self.lists[id].list[i];
             self.lists[id].relate_region_at_facts(self.regions, i);
             assert(self.regions.contains(idx));
@@ -1001,10 +816,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         if is_empty {
             assert(self.regions == old_regions);
         }
-        // A non-empty dropped list has a real (non-zero) id, so every
-        // other list/cursor is separated from it by the id uniqueness;
-        // an empty drop left `regions` untouched outright.
-
         if !is_empty {
             assert(dropped_id != 0);
         }
@@ -1131,7 +942,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                     old_self.cursors.dom().contains(cid) && old_self.cursors[cid].list_own.list_id
                         == x),
         );
-        // Push preconditions, sourced from `inv`.
         assert(self.lists[id].relate_region(self.regions));
         assert(self.loose[lid].global_inv(self.regions));
         assert(self.loose[lid].frame_link_inv(self.regions));
@@ -1145,16 +955,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
         let ghost new_id = self.lists[id].list_id;
 
-        // Other lists with a nonzero id keep it distinct from `new_id`:
-        // the pushed list either kept its (uniquely-minted) id or minted
-        // one outside `used` (which holds every other list's id).
         assert forall|i: ListId| #[trigger]
             self.lists.dom().contains(i) && i != id && self.lists[i].list_id
                 != 0 implies self.lists[i].list_id != new_id by {
             assert(old_self.lists.dom().contains(i));
             assert(old_self.lists[i] == self.lists[i]);
             if old_self.lists[id].list_id != 0 {
-                // `new_id == old id`; old nonzero-id uniqueness separates `i`.
                 assert(new_id == old_self.lists[id].list_id);
             } else {
                 assert(used.contains(self.lists[i].list_id));
@@ -1279,8 +1085,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             old(self).lists[id].list.len() > 0 ==> res is Some,
     {
         if self.lists[id].list.len() == 0 {
-            // Exec `LinkedList::pop_front` returns `None` on an empty
-            // list; the store is unchanged.
             Option::None
         } else {
             let ghost old_self = *self;
@@ -1312,8 +1116,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                     assert(old_self.lists[i] == self.lists[i]);
                     assert(old_self.lists[i].relate_region(old_regions));
                     if self.lists[i].list.len() > 0 {
-                        // non-empty ⟹ nonzero id, distinct from `id`'s
-                        // (preserved) id by old uniqueness.
                         assert(self.lists[i].list_id != old_list_id);
                     }
                 }
@@ -1364,9 +1166,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             };
 
             // --- cursors: checked-out lists are untouched ---
-            // `id`'s (preserved, nonzero) `old_list_id` is separated from
-            // every cursor's list id by the old list/cursor uniqueness, so
-            // the axiom's other-lists frame preserves each cursor.
             assert(self.cursors == old_self.cursors);
             assert(self.lists.dom() =~= old_self.lists.dom());
             assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
@@ -1498,12 +1297,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- cursors: checked-out lists are untouched ---
-        // `cursors` is not read or written by a list op, and every
-        // cursor's list carries an id distinct from the just-minted
-        // `new_id` (other cursors' ids are in `used`, or — when the id
-        // was preserved — separated by the old list/cursor uniqueness),
-        // so the axiom's other-lists frame preserves each cursor's
-        // `relate_region`. Index bounds are unchanged.
         assert(self.cursors == old_self.cursors);
         assert(self.lists.dom() =~= old_self.lists.dom());
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
@@ -1560,8 +1353,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             old(self).lists[id].list.len() > 0 ==> res is Some,
     {
         if self.lists[id].list.len() == 0 {
-            // Exec `LinkedList::pop_back` returns `None` on an empty list;
-            // the store is unchanged.
             Option::None
         } else {
             let ghost old_self = *self;
@@ -1640,9 +1431,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             };
 
             // --- cursors: checked-out lists are untouched ---
-            // `id`'s (preserved, nonzero) `old_list_id` is separated from
-            // every cursor's list id by the old list/cursor uniqueness, so
-            // the axiom's other-lists frame preserves each cursor.
             assert(self.cursors == old_self.cursors);
             assert(self.lists.dom() =~= old_self.lists.dom());
             assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
@@ -1676,8 +1464,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         }
     }
 
-    /// Cursor `insert_before` at an arbitrary position `n`: move the
-    /// loose handle `lid` into list `id` at index `n` (`0 <= n <= len`).
     /// The general form of [`Self::step_push_front`] /
     /// [`Self::step_push_back`]; same global effect.
     pub proof fn step_insert_before_at(tracked &mut self, id: ListId, n: int, lid: LooseId)
@@ -1776,12 +1562,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- cursors: checked-out lists are untouched ---
-        // `cursors` is not read or written by a list op, and every
-        // cursor's list carries an id distinct from the just-minted
-        // `new_id` (other cursors' ids are in `used`, or — when the id
-        // was preserved — separated by the old list/cursor uniqueness),
-        // so the axiom's other-lists frame preserves each cursor's
-        // `relate_region`. Index bounds are unchanged.
         assert(self.cursors == old_self.cursors);
         assert(self.lists.dom() =~= old_self.lists.dom());
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
@@ -2097,9 +1877,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             new_self.lists.dom().contains(i1) && #[trigger] new_self.lists.dom().contains(i2)
                 && new_self.lists[i1].list_id == new_self.lists[i2].list_id
                 && new_self.lists[i1].list_id != 0 implies i1 == i2 by {
-            // The reinstated list at `id` carries the cursor's id; any
-            // other list with the same nonzero id is separated by the old
-            // cross list/cursor uniqueness.
             if i1 == id && i2 != id {
                 assert(old_self.lists.dom().contains(i2));
                 assert(new_self.lists[id] == old_self.cursors[id].list_own);
@@ -2155,9 +1932,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     }
 
     /// Invariant-preservation lemma for *revising a cursor's position in
-    /// place*: `cursors[id]` keeps its checked-out list (same `list_own`)
-    /// but adopts a new in-range `index`. Region-free; everything else is
-    /// untouched, so every fact transfers from the old store.
+    /// place*.
     proof fn lemma_revise_cursor_inv(old_self: Self, new_self: Self, id: CursorId)
         requires
             old_self.inv(),
@@ -2289,12 +2064,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         Self::lemma_checkout_inv(old_self, *self, id, bidx);
     }
 
-    /// `LinkedList::cursor_mut_at`: search list `id` for `frame` and, if
-    /// it is one of the list's links, check the list out into a cursor
-    /// positioned at that link; otherwise (the frame is absent — or not a
-    /// safe managed slot, which can never be a link) leave the store
-    /// unchanged. Mirrors exec `cursor_mut_at(frame) -> Option<CursorMut>`
-    /// (the `Some`/`None` outcome is returned as `res`).
+    /// `LinkedList::cursor_mut_at`.
     pub proof fn step_cursor_mut_at(tracked &mut self, id: ListId, frame: Paddr) -> (res: bool)
         requires
             old(self).inv(),
@@ -2341,8 +2111,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         }
     }
 
-    /// `CursorMut::move_next`: advance cursor `id` one step toward the
-    /// back (wrapping through the ghost slot). Pure position change.
+    /// `CursorMut::move_next`.
     pub proof fn step_move_next(tracked &mut self, id: CursorId)
         requires
             old(self).inv(),
@@ -2363,8 +2132,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         Self::lemma_revise_cursor_inv(old_self, *self, id);
     }
 
-    /// `CursorMut::move_prev`: retreat cursor `id` one step toward the
-    /// front (wrapping through the ghost slot). Pure position change.
+    /// `CursorMut::move_prev`.
     pub proof fn step_move_prev(tracked &mut self, id: CursorId)
         requires
             old(self).inv(),
@@ -2385,9 +2153,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         Self::lemma_revise_cursor_inv(old_self, *self, id);
     }
 
-    /// `CursorMut::current_meta`: read the link the cursor `id` is on.
-    /// A read-only query — returns the current [`LinkOwner`] (`None` at
-    /// the ghost slot); the store is unchanged.
+    /// `CursorMut::current_meta`.
     pub proof fn step_current_meta(tracked &self, id: CursorId) -> (res: Option<LinkOwner>)
         requires
             self.inv(),
@@ -2400,10 +2166,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     }
 
     /// `CursorMut::as_list`: borrow the cursor's checked-out list for
-    /// reading. A pure no-op — `&self` on the store, so `regions` /
-    /// `lists` / `loose` / `cursors` are all untouched; it merely exposes
-    /// the list's contents (the model `Seq` of links). Modeled for
-    /// completeness, to demonstrate the read-only view changes nothing.
+    /// reading. A pure no-op.
     pub proof fn step_as_list(tracked &self, id: CursorId) -> (res: Seq<LinkOwner>)
         requires
             self.inv(),
@@ -2437,12 +2200,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         Self::lemma_checkin_inv(old_self, *self, id);
     }
 
-    /// `CursorMut::insert_before`: through the checked-out cursor `id`,
-    /// move the loose handle `lid` into the cursor's list at the current
-    /// position (index `n`), advancing the cursor to `n + 1`. The general
-    /// [`Self::step_insert_before_at`], but on the list parked in
-    /// `cursors` rather than `lists` — so *every* held list is an "other
-    /// list" preserved by the axiom's frame.
+    /// `CursorMut::insert_before`.
     pub proof fn step_cursor_insert_before(tracked &mut self, id: CursorId, lid: LooseId)
         requires
             old(self).inv(),
@@ -2482,9 +2240,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost new_id = self.cursors[id].list_own.list_id;
         assert(self.cursors[id].list_own == owner);
 
-        // `new_id` is distinct from every list id and every *other*
-        // cursor id (minted outside `used`, or — when the cursor's list
-        // already had an id — separated by the old uniqueness).
         assert forall|i: ListId| #[trigger]
             old_self.lists.dom().contains(i) && self.lists[i].list_id
                 != 0 implies self.lists[i].list_id != new_id by {
@@ -2597,11 +2352,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     }
 
     /// `CursorMut::take_current`: through the checked-out cursor `id`,
-    /// pop the link the cursor is on (index `n`, requires the cursor be
-    /// on an element) back into the loose pool, leaving the cursor at the
-    /// same index (now on the following link). The general
-    /// [`Self::step_take_at`] on a cursored list. Returns the fresh loose
-    /// id.
     pub proof fn step_cursor_take_current(tracked &mut self, id: CursorId) -> (res: Option<LooseId>)
         requires
             old(self).inv(),

@@ -1118,21 +1118,13 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             ) ==> {
                 let idx = frame_to_index(paddr);
                 let so = regions.slot_owners[idx];
-                &&& <Frame<Self>>::from_raw_requires_safety(
-                    regions,
-                    paddr,
-                )
-                // Borrow-protocol transition: `raw_count` is dormant.
+                &&& <Frame<Self>>::from_raw_requires_safety(regions, paddr)
                 &&& 0 < so.ref_count() <= REF_COUNT_MAX
                 &&& so.ref_count() == 1 ==> {
                     &&& so.storage_perm().is_init()
                     &&& so.in_list_perm.value() == 0
                     &&& so.paths_in_pt.is_empty()
                 }
-                // Borrow-protocol redesign: in steady state between
-                // `into_pte`'s consume and `on_drop`'s `from_raw`-mint,
-                // the per-child `frame_obligations` count is 0.
-
             }
     }
 }

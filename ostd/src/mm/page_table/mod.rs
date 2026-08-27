@@ -1066,11 +1066,7 @@ impl PageTable<KernelPtConfig> {
             assert(!regions_after_kroot_borrow.contains(new_idx));
             assert forall|k: int|
                 regions_after_kroot_borrow.contains(k) implies regions_after_kroot_borrow.slots[k]
-                == #[trigger] regions.slots[k] by {
-                if k != new_idx {
-                    // borrow preserves slots[k] at k != self.index() == new_idx
-                }
-            };
+                == #[trigger] regions.slots[k] by {};
             assert(kernel_owner.metaregion_sound(regions_before_alloc));
 
             kernel_owner.0.lemma_subtree_satisfies_implies(

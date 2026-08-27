@@ -515,14 +515,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // `rc > 0`. The slot's `usage == MMIO` is pinned by the paddr's
             // range membership via `axiom_mmio_usage_iff_mmio_paddr`.
             &&& regions.slot_owners[idx].usage !is MMIO ==> {
-                &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
-                &&& regions.slot_owners[idx].ref_count()
-                    > 0
-                // A mapped (tracked) frame is SHARED, never the UNIQUE sentinel
-                // (`rc <= MAX < REF_COUNT_UNIQUE`). Lets the UNIQUE-branch
-                // `paths_in_pt`-empty inv clause hold vacuously for mapped
-                // frames whose `paths_in_pt` is non-empty.
-                &&& regions.slot_owners[idx].ref_count() <= REF_COUNT_MAX
+                // A mapped (tracked) frame is SHARED.
+                &&& 0 < regions.slot_owners[idx].ref_count() <= REF_COUNT_MAX
             }
             &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             &&& self.frame_sub_pages_valid(regions)

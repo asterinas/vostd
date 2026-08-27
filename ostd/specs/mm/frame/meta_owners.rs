@@ -155,44 +155,6 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
     }
 }
 
-impl MetaSlotStorage {
-    pub open spec fn get_link_spec(self) -> Option<StoredLink> {
-        match self {
-            MetaSlotStorage::FrameLink(link) => Some(link),
-            _ => None,
-        }
-    }
-
-    #[verifier::when_used_as_spec(get_link_spec)]
-    pub fn get_link(self) -> (res: Option<StoredLink>)
-        ensures
-            res == self.get_link_spec(),
-    {
-        match self {
-            MetaSlotStorage::FrameLink(link) => Some(link),
-            _ => None,
-        }
-    }
-
-    pub open spec fn get_node_spec(self) -> Option<StoredPageTablePageMeta> {
-        match self {
-            MetaSlotStorage::PTNode(node) => Some(node),
-            _ => None,
-        }
-    }
-
-    #[verifier::when_used_as_spec(get_node_spec)]
-    pub fn get_node(self) -> (res: Option<StoredPageTablePageMeta>)
-        ensures
-            res == self.get_node_spec(),
-    {
-        match self {
-            MetaSlotStorage::PTNode(node) => Some(node),
-            _ => None,
-        }
-    }
-}
-
 /// Permissions whose initialized contents belong to one installed metadata
 /// value.
 pub tracked struct MetadataPerms {
