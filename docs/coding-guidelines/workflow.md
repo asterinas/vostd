@@ -23,7 +23,9 @@ and [#674](https://github.com/asterinas/vostd/pull/674#issuecomment-5143566443).
 When a proof times out or becomes solver-version-sensitive, first split a large
 proof into smaller lemmas, remove irrelevant context, and make quantifier use
 more explicit. Increase `#[verifier::rlimit(...)]` only when the localized proof
-still has a justified resource requirement.
+still has a justified resource requirement. Keep the limit at or below `200`;
+if a proof requires more, decompose or simplify it instead of raising the limit
+further.
 
 An `rlimit` increase can be a temporary compatibility measure during a solver
 upgrade, but it should remain visible as proof debt and should not replace proof

@@ -5,8 +5,7 @@
 <!-- guideline: complete-external-contracts -->
 
 An external specification must state every caller obligation and every semantic
-fact on which a proof relies: preconditions, postconditions, frame conditions,
-well-formedness, and panic behavior.
+fact on which a proof relies: preconditions, postconditions, well-formedness, and panic behavior.
 
 For example, a `BTreeMap::get_mut` model must preserve entries other than the
 selected key and must express the documented compatibility between the stored
@@ -73,33 +72,28 @@ See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573), and
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3767737737).
 
-### Explicit well-formedness
+### Implement Inv for models
 
-<!-- guideline: explicit-well-formedness -->
+<!-- guideline: implement-inv-for-models -->
 
-When a spec-level ghost model cannot use `#[verifier::type_invariant]`, expose a
-clear `wf()` predicate and carry it explicitly through operation contracts.
-Require well-formedness before an operation and ensure it afterward whenever
-the API promises that the state remains valid.
+When a spec-level model has an intrinsic validity invariant, implement the
+`Inv` trait and define it through `inv()`:
 
-Do not make fields private under the assumption that representation hiding will
-cause Verus to establish an invariant automatically.
+```rust
+impl Inv for Model {
+    open spec fn inv(self) -> bool {
+        // The model invariant.
+    }
+}
+```
+
+Require `inv()` before operations that assume a valid state and ensure it after
+operations that promise to preserve validity. For mutable operations, state
+this as `old(self).inv()` and `final(self).inv()` where appropriate.
+
+Use a separate `wf(...)` predicate only for well-formedness relationships that
+depend on another value. Making fields private provides representation hiding;
+it does not cause Verus to establish `inv()` automatically.
 
 See also: PR [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3801496837)
 and [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3810349440).
-
-### Choose proof resource by scope
-
-<!-- guideline: choose-proof-resource-by-scope -->
-
-Use a tokenized state machine when the verified subsystem is self-contained and
-its internal state transitions define the relevant behavior. Prefer composable
-permissions or resource algebras when ownership must cross subsystem boundaries
-or evolve with loosely coupled kernel components.
-
-Decide from the verification goal and expected composition boundaries, not from
-the convenience of encoding the first local transition.
-
-See also: PR [#683](https://github.com/asterinas/vostd/pull/683#issuecomment-5163134765),
-[#683](https://github.com/asterinas/vostd/pull/683#issuecomment-5163188523), and
-[#683](https://github.com/asterinas/vostd/pull/683#issuecomment-5189197277).

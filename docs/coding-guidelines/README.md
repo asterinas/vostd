@@ -21,8 +21,7 @@ that a comment can link to the rule instead of restating it.
 - [`centralize-trusted-boundaries`](proof-engineering.md#centralize-trusted-boundaries) — keep unavoidable external specifications in `vstd_extra::external` and make their trust explicit.
 - [`reuse-existing-specifications`](proof-engineering.md#reuse-existing-specifications) — check `vstd` and existing project models before introducing a new abstraction.
 - [`canonical-spec-models`](proof-engineering.md#canonical-spec-models) — use the simplest standard mathematical model that preserves the API semantics.
-- [`explicit-well-formedness`](proof-engineering.md#explicit-well-formedness) — expose and preserve well-formedness when Verus cannot enforce it as a type invariant.
-- [`choose-proof-resource-by-scope`](proof-engineering.md#choose-proof-resource-by-scope) — use a tokenized state machine only when the modeled subsystem is sufficiently self-contained.
+- [`implement-inv-for-models`](proof-engineering.md#implement-inv-for-models) — implement `Inv` for intrinsic model invariants that Verus cannot enforce as type invariants.
 
 ### Maintainability
 

@@ -36,8 +36,8 @@ See also: PR [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720
 
 Use `snake_case` for modules and files, `CamelCase` for types and traits, and
 `SCREAMING_SNAKE_CASE` for constants. Prefix proved reusable facts with
-`lemma_`, axioms with `axiom_`, and helpers that lift ghost-returning operations
-into tracked mode with `tracked_`. Name resources after the ownership role they
+`lemma_`, axioms with `axiom_`, and helpers that manipulate tracked variables
+with `tracked_`. Name resources after the ownership role they
 represent, especially when several resources belong to the same protocol.
 
 ```rust
@@ -69,9 +69,9 @@ pub struct Foo {
 }
 ```
 
-Do not repeat the marker on every field of an already ghost-only struct, and do
-not declare a value `tracked` unless it carries linear proof state that requires
-tracked handling.
+Do not repeat the marker on every field of a `ghost struct`.
+For a `tracked struct`, fields are `tracked` by default,
+so we need to add `ghost` marker to fields that are not linear ownerships.
 
 See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
 
@@ -79,13 +79,42 @@ See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763
 
 <!-- guideline: document-verified-apis -->
 
-Add rustdoc to public verified APIs that explains both runtime behavior and the
-proof contract. Describe the meaning of important `requires` and `ensures`
-clauses, ownership transferred through tracked arguments or results, and any
-trusted boundary on which callers rely.
+Preserve the original runtime documentation. Add rustdoc for every public
+verified API and for proof functions or modules whose properties are important
+to callers or proof maintainers.
 
-Do not merely restate the function signature. Record the information a caller
-needs to use the API without reading its proof.
+Describe preconditions, postconditions, and invariants in natural language. The
+documentation need not correspond one-to-one with every Verus clause, but it
+must cover the critical properties and be understandable to kernel developers
+without requiring Verus knowledge.
+
+For a public executable API, add a `Verified Properties` section after its
+original documentation. Include:
+
+- `Safety`: State the classes of undefined behavior that have been ruled out
+  and identify any remaining trusted boundaries. Do not claim the absence of
+  all undefined behavior unless that claim is justified.
+- `Functional Correctness`, when applicable: Summarize the behavior established
+  by verification.
+- `Preconditions`: Explain the obligations that callers must satisfy.
+- `Postconditions`: Explain the properties guaranteed on return, including
+  whether the function cannot panic when this has been proved.
+
+For a proof function, begin with one sentence summarizing the fact being proved,
+followed by `Preconditions` and `Postconditions` sections that explain the
+important proof clauses.
+
+For a verified module, add a `Verified Properties` section describing its
+verification design, critical invariants, safety properties, and any verified
+functional-correctness properties.
+
+Do not merely restate signatures or Verus expressions. Record the information a
+caller needs to use the API without reading its implementation or proof.
+
+See also:
+[`SpinLock`](../../ostd/src/sync/spin.rs#L18),
+[`AlignExt`](../../ostd/libs/align_ext/src/lib.rs#L98), and
+[`entails_and_temp_reverse`](../../verified_libs/vstd_extra/src/temporal_logic/rules.rs#L793).
 
 ### Narrow lint suppressions
 
