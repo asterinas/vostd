@@ -37,7 +37,10 @@ pub use entry::*;
 
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
+#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 
 use vstd::atomic::PAtomicU8;
 use vstd_extra::array_ptr;
@@ -117,10 +120,12 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
-    open spec fn meta_id(&self) -> TypeIdSpec {
+    #[cfg(feature = "type_id")]
+    open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()
     }
 
+    #[cfg(feature = "type_id")]
     fn to_any(&self) -> (r: &dyn Any) {
         let d: &dyn Any = self;
         assert(d.type_id_spec() == self.type_id_spec());

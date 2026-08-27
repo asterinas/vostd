@@ -66,16 +66,16 @@ pub proof fn erased_is_exactly_one(x: &dyn Any)
 {
 }
 
-/// Recovering the concrete value, with no precondition at all.
+/// Identifying an erased value, with no precondition at all.
 ///
-/// The caller does not have to know what `x` is: [`downcast_ref`] tests, and the
-/// `<==>` in its postcondition is strong enough to conclude both that a match
-/// yields an `L2` and that a non-match cannot.
-pub exec fn downcast_l2<'a>(x: &'a dyn Any) -> (r: Option<&'a L2>)
+/// The caller does not have to know what `x` is, and the `<==>` is strong enough
+/// to conclude both that a match means an `L2`'s tag and that a non-match rules
+/// it out.
+pub exec fn is_l2(x: &dyn Any) -> (r: bool)
     ensures
-        (r is Some) <==> x.type_id_spec() == type_id::<L2>(),
+        r <==> x.type_id_spec() == type_id::<L2>(),
 {
-    downcast_ref::<L2>(x)
+    is_::<L2>(x)
 }
 
 /// The test discriminates, executably.
@@ -89,16 +89,16 @@ pub exec fn downcast_discriminates(b: &L2, c: &L3)
     let ec: &dyn Any = c;
     assert(eb.type_id_spec() == type_id::<L2>());
     assert(ec.type_id_spec() == type_id::<L3>());
-    let ok = downcast_l2(eb);
-    assert(ok is Some);
-    let no = downcast_l2(ec);
-    assert(no is None);
+    let ok = is_l2(eb);
+    assert(ok);
+    let no = is_l2(ec);
+    assert(!no);
 }
 
 /// Distinct members never satisfy each other's test.
 ///
-/// This is what stops an `L2` being read as an `L1`, and it is why
-/// [`downcast_ref`]'s rejecting half is sound rather than merely stated.
+/// This is what stops an `L2` being mistaken for an `L1`, and it is why [`is_l2`]'s
+/// rejecting half is sound rather than merely stated.
 pub proof fn downcast_rejects_others(a: &L1, b: &L2, c: &L3)
     ensures
         a.type_id_spec() != b.type_id_spec(),
