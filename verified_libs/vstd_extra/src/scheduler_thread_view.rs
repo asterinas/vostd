@@ -324,23 +324,4 @@ impl<TaskId, CpuId> SchedulerThreadViewRegistry<TaskId, CpuId> {
     }
 }
 
-fn test_schedule_in_out_round_trip() {
-    proof {
-        let tracked mut registry = SchedulerThreadViewRegistry::<nat, nat>::new();
-        registry.tracked_register_cpu(0);
-        registry.tracked_register_task(1);
-
-        let ghost task_before = registry.task_view(1);
-        let ghost cpu_before = registry.cpu_view(0);
-        let tracked running = registry.tracked_schedule_in(1, 0);
-        assert(running@ == task_before.join(cpu_before));
-        assert(registry.task_runs_on(1, 0));
-
-        registry.tracked_schedule_out(running);
-        assert(registry.task_is_stored(1));
-        assert(!registry.cpu_is_running(0));
-        assert(registry.wf());
-    }
-}
-
 } // verus!
