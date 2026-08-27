@@ -35,6 +35,9 @@ use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*, simple_pptr:
 use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
 use crate::specs::mm::{
     frame::{

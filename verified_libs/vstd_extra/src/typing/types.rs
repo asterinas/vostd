@@ -1,5 +1,7 @@
 use vstd::prelude::*;
 
+use core::any::TypeId;
+
 use vstd::std_specs::convert::{IntoSpec, TryFromSpec};
 
 verus! {
@@ -8,17 +10,21 @@ verus! {
 ///
 /// Never implemented by hand. The blanket impl below is the only impl and covers
 /// every sized type; coherence forbids a competing one. That is exactly `std`'s
-/// arrangement, and it is what makes a downcast sound: `type_id_spec` *cannot*
+/// arrangement, and it is half of what a downcast needs: `type_id_spec` *cannot*
 /// report the wrong type, because no one is in a position to write a version that
-/// does.
+/// does. The other half -- that a tag *determines* the type -- now holds too,
+/// since identity became decoration-sensitive; it rests on the collision
+/// assumption documented in `vstd::std_specs::any`. See
+/// [`crate::typing::soundness`] for the full argument.
 pub trait Any {
     /// The identity of this value's concrete type.
-    spec fn type_id_spec(&self) -> TypeIdSpec;
+    spec fn type_id_spec(&self) -> TypeId;
 
-    /// The same identity, as a runtime value.
+    /// The same identity, at runtime. The *same* value, not a counterpart: there
+    /// is one `TypeId` type, so no `view()` is needed to relate them.
     fn type_id(&self) -> (r: TypeId)
         ensures
-            r.view() == self.type_id_spec(),
+            r == self.type_id_spec(),
     ;
 
     /// A value's identity is its type's identity.
@@ -36,9 +42,12 @@ pub trait AnyCast: Any {
     ;
 }
 
-/// Blanket implementation of `Any` for all sized types.
-impl<T: Sized> Any for T {
-    open spec fn type_id_spec(&self) -> TypeIdSpec {
+/// Blanket implementation of `Any` for all sized `'static` types.
+///
+/// The `'static` bound is `core::any::TypeId::of`'s, and `core::any::Any`'s too --
+/// a non-`'static` type has no runtime identity to report.
+impl<T: Sized + 'static> Any for T {
+    open spec fn type_id_spec(&self) -> TypeId {
         type_id::<T>()
     }
 
@@ -50,7 +59,7 @@ impl<T: Sized> Any for T {
     }
 }
 
-impl<T: Sized> AnyCast for T {
+impl<T: Sized + 'static> AnyCast for T {
     fn to_any(&self) -> (r: &dyn Any) {
         let d: &dyn Any = self;
         // The `ToDyn` coercion preserves the trait's own spec fns; naming that
@@ -61,6 +70,11 @@ impl<T: Sized> AnyCast for T {
 }
 
 /// `x.is::<T>()`.
+///
+/// Identity is decoration-sensitive, so this is false for `&T`, `Box<T>`,
+/// `Rc<T>` and `Arc<T>` -- each has its own tag, at every level of nesting.
+/// Rejecting is unconditionally sound; accepting rests on the collision
+/// assumption in `vstd::std_specs::any`. See [`crate::typing::soundness`].
 pub open spec fn is_type<T>(x: &dyn Any) -> bool {
     x.type_id_spec() == type_id::<T>()
 }
@@ -76,73 +90,16 @@ pub proof fn lemma_distinct_types_distinct_values<A: Any + Sized, B: Any + Sized
     b.type_id_correct();
 }
 
-/// The exec counterpart of the ghost [`TypeIdSpec`].
-#[verifier::external_body]
-pub struct TypeId {
-    _private: (),
-}
-
-impl TypeId {
-    /// The ghost identity this runtime value stands for.
-    pub uninterp spec fn view(&self) -> TypeIdSpec;
-
-    /// `core::any::TypeIdSpec::of::<T>()`.
-    #[verifier::external_body]
-    pub exec fn of<T>() -> (r: Self)
-        ensures
-            r.view() == type_id::<T>(),
-    {
-        unimplemented!()
-    }
-
-    /// Deciding identity at runtime.
-    #[verifier::external_body]
-    pub exec fn eq(&self, other: &Self) -> (r: bool)
-        returns
-            self.view() == other.view(),
-    {
-        unimplemented!()
-    }
-}
-
-/// `<dyn Any>::is`
-pub exec fn is_<T>(x: &dyn Any) -> (r: bool)
+/// `<dyn Any>::is`.
+///
+/// Both sides are `core::any::TypeId` values -- the one dispatched through the
+/// vtable and the one the compiler knows statically -- compared with the real
+/// `PartialEq`.
+pub exec fn is_<T: 'static>(x: &dyn Any) -> (r: bool)
     ensures
         r == is_type::<T>(x),
 {
     x.type_id().eq(&TypeId::of::<T>())
-}
-
-/// Reinterpretation, once identity is settled.
-///
-/// The module's remaining assumed fact about identity, and it is now only the
-/// *cast*: the test that guards it is [`is_`], which is verified. What licenses
-/// the cast is [`Any::type_id_correct`] -- a value's reported identity is its
-/// concrete type's, so a matching identity really does mean a `T`.
-#[verifier::external_body]
-pub exec fn downcast_ref_unchecked<'a, T: Any + Sized>(x: &'a dyn Any) -> (r: &'a T)
-    requires
-        is_type::<T>(x),
-    ensures
-        r.type_id_spec() == x.type_id_spec(),
-{
-    unimplemented!()
-}
-
-/// `<dyn Any>::downcast_ref`.
-///
-/// The `<==>` records both halves: it succeeds for the right type *and fails for
-/// every other one*.
-pub exec fn downcast_ref<'a, T: Any + Sized>(x: &'a dyn Any) -> (r: Option<&'a T>)
-    ensures
-        (r is Some) <==> is_type::<T>(x),
-        r matches Some(v) ==> v.type_id_spec() == x.type_id_spec(),
-{
-    if is_::<T>(x) {
-        Some(downcast_ref_unchecked::<T>(x))
-    } else {
-        None
-    }
 }
 
 // ===========================================================================

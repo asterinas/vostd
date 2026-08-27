@@ -1,4 +1,7 @@
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
 use vstd_extra::{
     cast_ptr::{self, Repr},
