@@ -38,7 +38,7 @@ exec static DMA_MAPPING_SET: Once<
 
 #[inline(always)]
 pub fn init() {
-    let lock = SpinLock::new(BTreeSet::new());
+    let lock = SpinLock::new(BTreeSet::new(), Ghost(()), Tracked(()));
 
     proof {
         use_type_invariant(&lock);
@@ -166,7 +166,7 @@ pub fn dma_type() -> DmaType {
 }
 
 pub fn init() {
-    DMA_MAPPING_SET.call_once(|| SpinLock::new(BTreeSet::new()));
+    DMA_MAPPING_SET.call_once(|| SpinLock::new(BTreeSet::new(), Ghost(()), Tracked(())));
 }
 
 /// Checks whether the physical addresses has dma mapping.

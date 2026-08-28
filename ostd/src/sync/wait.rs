@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 use vstd::resource::{
     Loc,
     ghost_var::{GhostVar, GhostVarAuth},
 };
+use vstd_extra::resource_invariant::ResourceInvariant;
 
 use alloc::{collections::VecDeque, sync::Arc};
 use core::intrinsics::atomic_cxchg;
 use core::sync::atomic::{/*AtomicBool,*/ Ordering};
 
-use super::{LocalIrqDisabled, SpinLock, SpinLockPredicate};
+use super::{LocalIrqDisabled, SpinLock};
 use crate::task::{Task, scheduler};
 
 // # Explanation on the memory orders
@@ -44,20 +44,17 @@ use crate::task::{Task, scheduler};
 
 verus! {
 
-struct WakersPredicate;
+struct WakersInvariant;
 
-impl SpinLockPredicate<VecDeque<Arc<Waker>>> for WakersPredicate {
+impl ResourceInvariant<VecDeque<Arc<Waker>>> for WakersInvariant {
     type Constant = Loc;
 
-    type State = GhostVar<int>;
-}
+    type Resource = GhostVar<int>;
 
-impl InvariantPredicate<Loc, (VecDeque<Arc<Waker>>, GhostVar<int>)> for WakersPredicate {
     /// While the spin lock is unlocked, its mirror records the exact queue
     /// length. Lock acquisition transfers the mirror to the guard, allowing
     /// the relation to be updated together with `num_wakers` before unlock.
-    closed spec fn inv(ghost_id: Loc, value_state: (VecDeque<Arc<Waker>>, GhostVar<int>)) -> bool {
-        let (wakers, mirror) = value_state;
+    closed spec fn inv(ghost_id: Loc, wakers: VecDeque<Arc<Waker>>, mirror: GhostVar<int>) -> bool {
         &&& mirror.id() == ghost_id
         &&& mirror@ == wakers@.len()
     }
@@ -74,7 +71,7 @@ struct_with_invariants! {
 pub struct WaitQueue {
     // A copy of `wakers.len()`, used for the lock-free fast path in `wake_one` and `wake_all`.
     num_wakers: AtomicU32<_, GhostVarAuth<int>, _>,
-    wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled, WakersPredicate>,
+    wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled, WakersInvariant>,
 }
 
 closed spec fn wf(self) -> bool {
@@ -99,13 +96,9 @@ impl WaitQueue {
     pub const fn new() -> Self {
         proof_decl! {
             let tracked (count_auth, count_mirror) = GhostVarAuth::<int>::new(0int);
+            let ghost ghost_id = count_auth.id();
         }
-        let ghost ghost_id = count_auth.id();
-        let wakers = SpinLock::new_with_pred(
-            VecDeque::new(),
-            Ghost(ghost_id),
-            Tracked(count_mirror),
-        );
+        let wakers = SpinLock::new(VecDeque::new(), Ghost(ghost_id), Tracked(count_mirror));
         WaitQueue { num_wakers: AtomicU32::new(Ghost(wakers), 0, Tracked(count_auth)), wakers }
     }
 
@@ -171,7 +164,7 @@ impl WaitQueue {
                 let tracked mut count_mirror: GhostVar<int>;
             }
             #[verus_spec(with => Tracked(count_mirror))]
-            wakers.take_predicate_state();
+            wakers.take_resource();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
@@ -183,7 +176,7 @@ impl WaitQueue {
                 }
             };
             #[verus_spec(with Tracked(count_mirror))]
-            wakers.put_predicate_state();
+            wakers.put_resource();
             // Avoid holding lock when calling `wake_up`
             //drop(wakers);
             wakers.drop();
@@ -220,7 +213,7 @@ impl WaitQueue {
                 let tracked mut count_mirror: GhostVar<int>;
             }
             #[verus_spec(with => Tracked(count_mirror))]
-            wakers.take_predicate_state();
+            wakers.take_resource();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
@@ -232,7 +225,7 @@ impl WaitQueue {
                 }
             };
             #[verus_spec(with Tracked(count_mirror))]
-            wakers.put_predicate_state();
+            wakers.put_resource();
             // Avoid holding lock when calling `wake_up`
             //drop(wakers);
             wakers.drop();
@@ -265,7 +258,7 @@ impl WaitQueue {
             let tracked mut count_mirror: GhostVar<int>;
         }
         #[verus_spec(with => Tracked(count_mirror))]
-        wakers.take_predicate_state();
+        wakers.take_resource();
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;
@@ -277,7 +270,7 @@ impl WaitQueue {
             }
         };
         #[verus_spec(with Tracked(count_mirror))]
-        wakers.put_predicate_state();
+        wakers.put_resource();
         wakers.drop();
     }
 }

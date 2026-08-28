@@ -36,21 +36,22 @@ impl View for RangeAllocator {
     }
 }
 
-} // verus!
-#[verus_verify]
 impl RangeAllocator {
-    #[verus_spec(ret =>
+    pub const fn new(fullrange: Range<usize>) -> (ret: Self)
         ensures
             ret@.start == fullrange.start,
             ret@.end == fullrange.end,
-    )]
-    pub const fn new(fullrange: Range<usize>) -> Self {
+    {
         Self {
             fullrange,
-            freelist: SpinLock::new(None),
+            freelist: SpinLock::new(None, Ghost(()), Tracked(())),
         }
     }
+}
 
+} // verus!
+#[verus_verify]
+impl RangeAllocator {
     #[verus_spec(ret =>
         ensures
             ret.start == self@.start,
