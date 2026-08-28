@@ -177,8 +177,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     )]
     pub fn eq(&self, other: &Self) -> bool {
         proof {
-            regions.lemma_contains_valid_frame_paddr(self.paddr());
-            regions.lemma_contains_valid_frame_paddr(other.paddr());
+            regions.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
+            regions.lemma_contains_valid_frame_paddr(other.start_paddr_spec());
         }
         let tracked self_perm = regions.slots.tracked_borrow(self.index());
         let tracked other_perm = regions.slots.tracked_borrow(other.index());
@@ -348,7 +348,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         perm.is_init(),
         self.inv(),
     returns
-        meta_to_frame(self.ptr.addr()),
+        self.start_paddr_spec(),
     )]
     pub fn start_paddr(&self) -> Paddr {
         #[verus_spec(with Tracked(perm))]
@@ -443,7 +443,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     )]
     pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
         proof {
-            regions.lemma_contains_valid_frame_paddr(self.paddr());
+            regions.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
         }
         let tracked slot_perm = regions.slots.tracked_borrow(self.index());
 
@@ -488,7 +488,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             old(regions).frame_obligations.count(self.index()) > 0,
         ensures
             final(regions).inv(),
-            r == self.paddr(),
+            r == self.start_paddr_spec(),
             final(regions).slot_owners[self.index()].usage
                 == old(regions).slot_owners[self.index()].usage,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
@@ -499,7 +499,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         broadcast use group_page_meta;
 
         proof {
-            regions.lemma_contains_valid_frame_paddr(self.paddr());
+            regions.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
         }
 
         let tracked perm = regions.slots.tracked_borrow(self.index());
@@ -565,10 +565,6 @@ impl<M> Frame<M> {
         requires
             Self::from_raw_requires_safety(*old(regions), paddr),
             old(regions).contains(frame_to_index(paddr)),
-            // Borrow-protocol safety: the slot must be alive (not torn
-            // down). The `unsafe` keyword still gates whether the produced
-            // Frame corresponds to a real prior `into_raw`; this condition
-            // only ensures the slot isn't a dead/unused one.
             old(regions).slot_owner(paddr).ref_count()
                 != REF_COUNT_UNUSED,
         ensures
@@ -602,16 +598,15 @@ impl<M> Frame<M> {
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
-    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
-        let idx = self.index();
+    open spec fn clone_requires(self, regions: MetaRegionOwners) -> bool {
+        let paddr = self.start_paddr_spec();
+        let ref_count = regions.slot_owner(paddr).ref_count();
         &&& self.inv()
-        &&& perm.inv()
-        &&& perm.slot_owners[idx].ref_count() > 0
-        &&& perm.slot_owners[idx].ref_count()
-            != REF_COUNT_UNUSED
-        // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-        &&& perm.slot_owners[idx].ref_count() >= REF_COUNT_MAX ==> may_panic()
-        &&& valid_frame_paddr(self.paddr())
+        &&& regions.inv()
+        &&& ref_count > 0
+        &&& ref_count != REF_COUNT_UNUSED
+        &&& ref_count >= REF_COUNT_MAX ==> may_panic()
+        &&& valid_frame_paddr(self.start_paddr_spec())
     }
 
     open spec fn clone_ensures(
@@ -645,7 +640,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
 
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
         proof {
-            perm.lemma_contains_valid_frame_paddr(self.paddr());
+            perm.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
         }
 
         let paddr = meta_to_frame(self.ptr.addr());

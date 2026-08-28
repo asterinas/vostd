@@ -4508,10 +4508,7 @@ proof fn lemma_step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, padd
 /// `Op::UniqueDrop` step. Tears down the exclusive handle `uid`: the
 /// slot transitions `UNIQUE → UNUSED` (uninitialising storage), with
 /// `usage` (Frame) / `paths_in_pt` (empty) / `in_list` (0) preserved.
-/// `frames` / `segments` untouched. The torn-down slot satisfies
-/// accounting clause 1 (UNUSED ⟹ no users) because the UNIQUE slot had
-/// none (clause 0); the remaining unique entries stay valid because
-/// injectivity put none of them at `idx`.
+/// `frames` / `segments` untouched.
 proof fn lemma_step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     requires
         old(s).inv(),
