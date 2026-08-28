@@ -42,10 +42,7 @@ impl RangeAllocator {
             ret@.start == fullrange.start,
             ret@.end == fullrange.end,
     {
-        Self {
-            fullrange,
-            freelist: SpinLock::new(None, Ghost(()), Tracked(())),
-        }
+        Self { fullrange, freelist: SpinLock::new(None, Ghost(()), Tracked(())) }
     }
 }
 
