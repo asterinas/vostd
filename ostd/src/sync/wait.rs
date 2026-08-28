@@ -161,22 +161,20 @@ impl WaitQueue {
                 return false;
             };
             proof_decl! {
-                let tracked mut count_mirror: GhostVar<int>;
+                let tracked count_mirror: &mut GhostVar<int>;
             }
             #[verus_spec(with => Tracked(count_mirror))]
-            wakers.take_resource();
+            wakers.tracked_borrow_mut_resource();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
                 ghost count_auth => {
-                    count_auth.agree(&count_mirror);
+                    count_auth.agree(&*count_mirror);
                     assert(prev == count_mirror@);
                     assert(prev > 0);
-                    count_auth.update(&mut count_mirror, next);
+                    count_auth.update(count_mirror, next);
                 }
             };
-            #[verus_spec(with Tracked(count_mirror))]
-            wakers.put_resource();
             // Avoid holding lock when calling `wake_up`
             //drop(wakers);
             wakers.drop();
@@ -210,22 +208,20 @@ impl WaitQueue {
                 break;
             };
             proof_decl! {
-                let tracked mut count_mirror: GhostVar<int>;
+                let tracked count_mirror: &mut GhostVar<int>;
             }
             #[verus_spec(with => Tracked(count_mirror))]
-            wakers.take_resource();
+            wakers.tracked_borrow_mut_resource();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
                 ghost count_auth => {
-                    count_auth.agree(&count_mirror);
+                    count_auth.agree(&*count_mirror);
                     assert(prev == count_mirror@);
                     assert(prev > 0);
-                    count_auth.update(&mut count_mirror, next);
+                    count_auth.update(count_mirror, next);
                 }
             };
-            #[verus_spec(with Tracked(count_mirror))]
-            wakers.put_resource();
             // Avoid holding lock when calling `wake_up`
             //drop(wakers);
             wakers.drop();
@@ -255,22 +251,20 @@ impl WaitQueue {
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
         proof_decl! {
-            let tracked mut count_mirror: GhostVar<int>;
+            let tracked count_mirror: &mut GhostVar<int>;
         }
         #[verus_spec(with => Tracked(count_mirror))]
-        wakers.take_resource();
+        wakers.tracked_borrow_mut_resource();
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;
             ghost count_auth => {
-                count_auth.agree(&count_mirror);
+                count_auth.agree(&*count_mirror);
                 assert(prev == count_mirror@);
                 assume(prev < u32::MAX);
-                count_auth.update(&mut count_mirror, next);
+                count_auth.update(count_mirror, next);
             }
         };
-        #[verus_spec(with Tracked(count_mirror))]
-        wakers.put_resource();
         wakers.drop();
     }
 }

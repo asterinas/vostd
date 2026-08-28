@@ -38,6 +38,14 @@ impl<T, I: ResourceInvariant<T>> SpinLockResource<T, I> {
     }
 }
 
+proof fn tracked_borrow_mut<R>(tracked resource: &mut R) -> (tracked result: &mut R)
+    ensures
+        *result == *old(resource),
+        *final(resource) == *final(result),
+{
+    resource
+}
+
 } // verus!
 
 /// A spin lock.
@@ -106,8 +114,8 @@ pub struct SpinLock<T, G, I: ResourceInvariant<T> = TrivialResourceInvariant> {
 struct_with_invariants! {
 struct SpinLockInner<T, I: ResourceInvariant<T>> {
     lock: AtomicBool<_, Option<SpinLockResource<T, I>>, _>,
+    //val: UnsafeCell<T>,
     val: PCell<T>, //TODO: Waiting the new PCell that supports ?Sized
-                   //val: UnsafeCell<T>,
     ghost_resource_constant: Ghost<<I as ResourceInvariant<T>>::Constant>,
 }
 
@@ -147,25 +155,25 @@ impl<T, G, I: ResourceInvariant<T>> SpinLock<T, G, I> {
     /// - The created spin lock satisfies the invariant.
     pub const fn new(
         val: T,
-        Ghost(user_constant): Ghost<I::Constant>,
-        Tracked(user_resource): Tracked<I::Resource>,
+        Ghost(resource_constant): Ghost<I::Constant>,
+        Tracked(resource): Tracked<I::Resource>,
     ) -> (res: Self)
         requires
-            I::inv(user_constant, val, user_resource),
+            I::inv(resource_constant, val, resource),
         ensures
-            res.constant() == user_constant,
+            res.constant() == resource_constant,
     {
         let (val, Tracked(perm)) = PCell::new(val);
-        let tracked resource = SpinLockResource { perm, resource: user_resource };
+        let tracked resource = SpinLockResource { perm, resource: resource };
         let lock_inner = SpinLockInner {
             lock: AtomicBool::new(
-                Ghost((val, Ghost(user_constant))),
+                Ghost((val, Ghost(resource_constant))),
                 false,
                 Tracked(Some(resource)),
             ),
             //val: UnsafeCell::new(val),
             val: val,
-            ghost_resource_constant: Ghost(user_constant),
+            ghost_resource_constant: Ghost(resource_constant),
         };
         Self {
             phantom: PhantomData,
@@ -250,7 +258,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
     #[verus_spec(ret =>
         ensures
             ret.constant() == self.constant(),
-            ret.resource_inv(),
+            I::inv(ret.constant(), ret.value(), ret.resource()),
     )]
     pub fn lock(&self) -> SpinLockGuard<'_, T, G, I> {
         // Notice the guard must be created before acquiring the lock.
@@ -262,13 +270,13 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
         proof_with! {=> Tracked(resource)}
         self.acquire_lock();
         proof_decl! {
-            let tracked SpinLockResource { perm, resource: user_resource } = resource;
+            let tracked SpinLockResource { perm, resource: resource } = resource;
         }
         SpinLockGuard {
             lock: self,
             guard: inner_guard,
             tracked_perm: Tracked(perm),
-            tracked_resource: Tracked(Some(user_resource)),
+            tracked_resource: Tracked(resource),
         }
     }
 
@@ -287,7 +295,7 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
         ensures
             ret is Some ==> {
                 &&& ret->0.constant() == self.constant()
-                &&& ret->0.resource_inv()
+                &&& I::inv(ret->0.constant(), ret->0.value(), ret->0.resource())
             },
     )]
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T, G, I>> {
@@ -297,14 +305,14 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
         }
         if #[verus_spec(with => Tracked(resource))] self.try_acquire_lock() {
             proof_decl! {
-                let tracked SpinLockResource { perm, resource: user_resource } =
+                let tracked SpinLockResource { perm, resource: resource } =
                     resource.tracked_unwrap();
             }
             let lock_guard = SpinLockGuard {
                 lock: self,
                 guard: inner_guard,
                 tracked_perm: Tracked(perm),
-                tracked_resource: Tracked(Some(user_resource)),
+                tracked_resource: Tracked(resource),
             };
             return Some(lock_guard);
         }
@@ -460,7 +468,7 @@ pub struct SpinLockGuard<
     /// Ghost permission for the protected value.
     tracked_perm: Tracked<PointsTo<T>>,
     /// User-supplied tracked resource.
-    tracked_resource: Tracked<Option<I::Resource>>,
+    tracked_resource: Tracked<I::Resource>,
 }
 
 verus! {
@@ -477,16 +485,8 @@ impl<'a, T, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard<'a, T, G, I>
     }
 
     /// The tracked resource associated with the protected value.
-    pub closed spec fn resource(self) -> I::Resource
-        recommends
-            self.has_resource(),
-    {
-        self.tracked_resource@->0
-    }
-
-    /// Whether the guard currently owns the user-supplied resource.
-    pub closed spec fn has_resource(self) -> bool {
-        self.tracked_resource@ is Some
+    pub closed spec fn resource(self) -> I::Resource {
+        self.tracked_resource@
     }
 
     /// The immutable user constant associated with the guarded spin lock.
@@ -494,57 +494,30 @@ impl<'a, T, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard<'a, T, G, I>
         self.lock.constant()
     }
 
-    /// Whether the user-supplied invariant currently holds.
-    pub open spec fn resource_inv(self) -> bool {
-        &&& self.has_resource()
-        &&& I::inv(self.constant(), self.value(), self.resource())
-    }
-
     /// The value stored in the lock. It is an alias of `Self::value`.
     pub open spec fn view(self) -> T {
         self.value()
     }
 
-    /// Temporarily takes ownership of the user-supplied tracked resource.
+    /// Mutably borrows the user-supplied tracked resource.
     #[verus_spec(ret =>
         with
-            -> resource: Tracked<I::Resource>,
-        requires
-            old(self).has_resource(),
+            -> resource: Tracked<&mut I::Resource>,
         ensures
-            resource@ == old(self).resource(),
-            !final(self).has_resource(),
+            *resource@ == old(self).resource(),
+            final(self).resource() == *final(resource@),
             final(self).value() == old(self).value(),
             final(self).constant() == old(self).constant(),
     )]
-    pub fn take_resource(&mut self) {
+    pub fn tracked_borrow_mut_resource(&mut self) {
         proof! {
             use_type_invariant(&*self);
         }
         proof_decl! {
-            let tracked resource = OptionAdditionalFns::tracked_take(&mut *self.tracked_resource);
+            let tracked resource = tracked_borrow_mut(&mut *self.tracked_resource);
         }
         #[verus_spec(with |= Tracked(resource))]
         ()
-    }
-
-    /// Returns the user-supplied tracked resource to the guard.
-    #[verus_spec(
-        with
-            Tracked(resource): Tracked<I::Resource>,
-        requires
-            !old(self).has_resource(),
-        ensures
-            final(self).has_resource(),
-            final(self).resource() == resource,
-            final(self).value() == old(self).value(),
-            final(self).constant() == old(self).constant(),
-    )]
-    pub fn put_resource(&mut self) {
-        proof! {
-            use_type_invariant(&*self);
-            *self.tracked_resource = Some(resource);
-        }
     }
 }
 /*
@@ -585,8 +558,7 @@ impl<T: /* ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> DerefMut
         ensures
             final(self).view() == *final(ret),
             old(self).view() == *ret,
-            final(self).has_resource() == old(self).has_resource(),
-            old(self).has_resource() ==> final(self).resource() == old(self).resource(),
+            final(self).resource() == old(self).resource(),
             final(self).constant() == old(self).constant(),
     )]
     fn deref_mut(&mut self) -> &mut Self::Target
@@ -612,14 +584,14 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec(
         requires
-            self.resource_inv(),
+            I::inv(self.constant(), self.value(), self.resource()),
     )]
     pub fn drop(self) {
         proof! {use_type_invariant(&self);}
         proof_decl! {
             let tracked perm = self.tracked_perm.get();
-            let tracked user_resource = self.tracked_resource.get().tracked_unwrap();
-            let tracked resource = SpinLockResource { perm, resource: user_resource };
+            let tracked resource = self.tracked_resource.get();
+            let tracked resource = SpinLockResource { perm, resource: resource };
         }
         proof_with!(Tracked(resource));
         self.lock.release_lock();
