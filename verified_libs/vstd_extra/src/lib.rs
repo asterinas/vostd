@@ -29,6 +29,8 @@ pub mod ghost_tree;
 pub mod ownership;
 pub mod panic;
 pub mod resource;
+#[cfg(feature = "irc11")]
+pub mod scheduler_thread_view;
 
 #[macro_use]
 pub mod trans_macros;
