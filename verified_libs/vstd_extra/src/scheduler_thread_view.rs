@@ -243,11 +243,8 @@ impl<TaskId, CpuId> SchedulerThreadViewRegistry<TaskId, CpuId> {
     /// The returned task view imports the CPU's persistent observations. The
     /// bidirectional running entries reserve both identities until the token is
     /// returned by [`Self::tracked_schedule_out`].
-    pub proof fn tracked_schedule_in(
-        tracked &mut self,
-        task: TaskId,
-        cpu: CpuId,
-    ) -> (tracked res: ScheduledTaskView<TaskId, CpuId>)
+    pub proof fn tracked_schedule_in(tracked &mut self, task: TaskId, cpu: CpuId) -> (tracked res:
+        ScheduledTaskView<TaskId, CpuId>)
         requires
             old(self).wf(),
             old(self).task_is_stored(task),
@@ -271,12 +268,7 @@ impl<TaskId, CpuId> SchedulerThreadViewRegistry<TaskId, CpuId> {
         thread_view.tracked_join(cpu_view);
         self.running_by_task = self.running_by_task.insert(task, cpu);
         self.running_by_cpu = self.running_by_cpu.insert(cpu, task);
-        ScheduledTaskView {
-            registry_id: self.id(),
-            task,
-            cpu,
-            thread_view,
-        }
+        ScheduledTaskView { registry_id: self.id(), task, cpu, thread_view }
     }
 
     /// Returns a running task view at schedule-out.
@@ -310,12 +302,7 @@ impl<TaskId, CpuId> SchedulerThreadViewRegistry<TaskId, CpuId> {
             final(self).task_view(running.task()) == running@,
             final(self).cpu_view(running.cpu()) == old(self).cpu_view(running.cpu()).join(running@),
     {
-        let tracked ScheduledTaskView {
-            registry_id: _,
-            task,
-            cpu,
-            thread_view,
-        } = running;
+        let tracked ScheduledTaskView { registry_id: _, task, cpu, thread_view } = running;
         let tracked cpu_view = self.cpu_views.tracked_borrow_mut(cpu);
         cpu_view.tracked_join(&thread_view);
         self.task_views.tracked_insert(task, thread_view);
