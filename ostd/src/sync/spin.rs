@@ -591,7 +591,7 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
         proof_decl! {
             let tracked perm = self.tracked_perm.get();
             let tracked resource = self.tracked_resource.get();
-            let tracked resource = SpinLockResource { perm, resource: resource };
+            let tracked resource = SpinLockResource { perm, resource };
         }
         proof_with!(Tracked(resource));
         self.lock.release_lock();
