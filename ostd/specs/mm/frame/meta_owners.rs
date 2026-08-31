@@ -3,6 +3,10 @@
 //! - The invariants for both MetaSlot and MetaSlotModel.
 //! - The primitives for MetaSlot.
 use vstd::prelude::*;
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 
 use vstd::{atomic::*, cell::pcell_maybe_uninit, simple_pptr::*};
 use vstd_extra::{
@@ -109,6 +113,18 @@ pub enum MetaSlotStorage {
 /// it can then be used to stand in for `dyn AnyFrameMeta`.
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
+
+    #[cfg(feature = "type_id")]
+    open spec fn meta_id(&self) -> TypeId {
+        type_id::<Self>()
+    }
+
+    #[cfg(feature = "type_id")]
+    fn to_any(&self) -> (r: &dyn Any) {
+        let d: &dyn Any = self;
+        assert(d.type_id_spec() == self.type_id_spec());
+        d
+    }
 }
 
 impl Repr<MetaSlotStorage> for MetaSlotStorage {

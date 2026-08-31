@@ -31,11 +31,17 @@
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 use vstd::simple_pptr::{self, PPtr};
+#[cfg(feature = "type_id")]
+use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 use vstd_extra::panic::may_panic;
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::{Any, is_};
 
 pub mod allocator;
 pub mod linked_list;
@@ -380,13 +386,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         PAGE_SIZE
     }
 
-    /*    /// Gets the dynamically-typed metadata of this frame.
-    ///
-    /// If the type is known at compile time, use [`Frame::meta`] instead.
-    pub fn dyn_meta(&self) -> FrameMeta {
-        // SAFETY: The metadata is initialized and valid.
-        unsafe { &*self.slot().dyn_meta_ptr() }
-    }*/
     /// Gets the reference count of the frame.
     ///
     /// It returns the number of all references to the frame, including all the
@@ -746,8 +745,64 @@ impl<M: ?Sized> Drop for Frame<M> {
     }
 }
 
-/*
+verus! {
 
+#[cfg(feature = "type_id")]
+/// Identity of an erased frame's metadata.
+///
+/// A separate impl block because the surrounding one is bounded by
+/// `Repr<MetaSlotStorage>`, which `dyn AnyFrameMeta` does not satisfy -- and it is
+/// exactly the erased case these two are for.
+impl Frame<dyn AnyFrameMeta> {
+    /// The identity of the metadata this frame's slot holds.
+    ///
+    /// Uninterpreted, and a property of the *slot's contents* rather than of the
+    /// handle: the frame is a pointer, and which metadata type lives behind it is
+    /// not recoverable from the pointer alone. It is pinned at the point of
+    /// erasure, by [`Frame::into_dyn`], and read back by [`Self::dyn_meta`].
+    pub uninterp spec fn meta_type_id(&self) -> TypeId;
+
+    /// Gets the dynamically-typed metadata of this frame.
+    ///
+    /// If the type is known at compile time, use [`Frame::meta`] instead.
+    ///
+    /// `external_body` until we handle the vtable pointer again.
+    #[verifier::external_body]
+    pub fn dyn_meta(&self) -> (r: &dyn AnyFrameMeta)
+        ensures
+            r.meta_id() == self.meta_type_id(),
+    {
+        unimplemented!()
+    }
+}
+
+/// The transmute half of the downcast.
+#[verifier::external_body]
+pub fn transmute_frame_to_typed<M: AnyFrameMeta>(dyn_frame: Frame<dyn AnyFrameMeta>)
+-> (r: Frame<M>)
+    ensures
+        r.ptr == dyn_frame.ptr,
+{
+    // SAFETY: The metadata is coerceable and the struct is transmutable.
+    unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) }
+}
+
+#[cfg(feature = "type_id")]
+impl<M: AnyFrameMeta> TryFromSpecImpl<Frame<dyn AnyFrameMeta>> for Frame<M> {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(v: Frame<dyn AnyFrameMeta>) -> Result<Self, Self::Error> {
+        if v.meta_type_id() == type_id::<M>() {
+            Ok(Frame { ptr: v.ptr, _marker: PhantomData })
+        } else {
+            Err(v)
+        }
+    }
+}
+
+#[cfg(feature = "type_id")]
 impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     type Error = Frame<dyn AnyFrameMeta>;
 
@@ -755,26 +810,39 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     ///
     /// If the usage of the frame is not the same as the expected usage, it will
     /// return the dynamic frame itself as is.
-    fn try_from(dyn_frame: Frame<dyn AnyFrameMeta>) -> Result<Self, Self::Error> {
-        if (dyn_frame.dyn_meta() as &dyn core::any::Any).is::<M>() {
-            // SAFETY: The metadata is coerceable and the struct is transmutable.
-            Ok(unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) })
+    ///
+    /// Upstream tests with
+    ///
+    /// ```text
+    /// if (dyn_frame.dyn_meta() as &dyn core::any::Any).is::<M>() {
+    /// ```
+    ///
+    /// In our code the upcast is a method, [`AnyFrameMeta::to_any`]. Each impl
+    /// performs the coercion `&Self -> &dyn Any`, which Verus does model.
+    /// `is_` is then the same `is` upstream calls.
+    ///
+    /// For now, `transmute_frame_to_typed` stands in for an axiomatized `transmute`
+    /// function. Axiomatizing `transmute` is a separate task.
+    fn try_from(dyn_frame: Frame<dyn AnyFrameMeta>) -> (res: Result<Self, Self::Error>) {
+        if is_::<M>(dyn_frame.dyn_meta().to_any()) {
+            Ok(transmute_frame_to_typed::<M>(dyn_frame))
         } else {
             Err(dyn_frame)
         }
     }
-}*/
+}
 
+}  // verus!
 /*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
     fn from(frame: UFrame) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
 }*/
-
 /*impl TryFrom<Frame<FrameMeta>> for UFrame {
     type Error = Frame<FrameMeta>;
 }*/
+
 
 #[verifier::external]
 impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
@@ -917,11 +985,32 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> Frame<M> {
     ///
     /// Axiomatized (`external_body`) because the body is `transmute`, which
     /// Verus has no built-in spec for.
+    ///
+    /// Two versions, differing only in strength. `type_id` adds the clause that
+    /// pins the erased frame's identity, which is what makes the downcast in
+    /// [`TryFrom`] able to conclude anything; without the feature the frame still
+    /// erases, it just carries no recoverable identity. The runtime behaviour is
+    /// identical -- one `transmute` either way.
+    #[cfg(feature = "type_id")]
     #[verifier::external_body]
-    pub fn into_dyn(self) -> Frame<dyn AnyFrameMeta> {
+    pub fn into_dyn(self) -> (r: Frame<dyn AnyFrameMeta>)
+        ensures
+            r.ptr == self.ptr,
+            r.meta_type_id() == type_id::<M>(),
+    {
         // SAFETY: `Frame<M>` is `#[repr(transparent)]` over `PPtr<MetaSlot>`
         // plus a zero-size `PhantomData<M>`. `Frame<dyn AnyFrameMeta>` has
         // the same runtime layout (thin pointer + ZST phantom).
+        unsafe { core::mem::transmute(self) }
+    }
+
+    #[cfg(not(feature = "type_id"))]
+    #[verifier::external_body]
+    pub fn into_dyn(self) -> (r: Frame<dyn AnyFrameMeta>)
+        ensures
+            r.ptr == self.ptr,
+    {
+        // SAFETY: as above.
         unsafe { core::mem::transmute(self) }
     }
 }

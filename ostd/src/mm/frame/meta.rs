@@ -84,10 +84,13 @@ use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
 use vstd_extra::panic::{may_panic, panic_diverge};
 use vstd_extra::prelude::*;
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 
 use core::{
     alloc::Layout,
-    any::Any,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
@@ -216,7 +219,7 @@ type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 /// If `on_drop` reads the page using the provided `VmReader`, the
 /// implementer must ensure that the frame is safe to read.
 pub unsafe trait AnyFrameMeta:   /*Any +*/
-Send + Sync {
+Send + Sync + 'static {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region invariants) override this; the trait method's
@@ -262,6 +265,26 @@ Send + Sync {
     }
 
     spec fn vtable_ptr(&self) -> usize where Self: Sized;
+
+    /// The identity of this metadata's concrete type.
+    ///
+    /// Upstream gets this from `AnyFrameMeta: Any`. We cannot: Verus propagates an
+    /// unsized-blanket-impl rejection from supertrait to subtrait
+    /// (`vir/src/traits.rs`) -- `dyn AnyFrameMeta` would stop being a legal type.
+    #[cfg(feature = "type_id")]
+    spec fn meta_id(&self) -> TypeId;
+
+    /// Mimics the upcast `self as &dyn core::any::Any`.
+    ///
+    /// Upstream writes that upcast directly, which is legal for it because
+    /// `AnyFrameMeta: Any` makes `Any` a supertrait. We make it a method
+    /// instead: each impl performs the *sized* coercion `&Self -> &dyn Any`, which
+    /// is the same operation the vtable would have performed.
+    #[cfg(feature = "type_id")]
+    fn to_any(&self) -> (r: &dyn Any)
+        ensures
+            r.type_id_spec() == self.meta_id(),
+    ;
 }
 
 /*/// Makes a structure usable as a frame metadata.

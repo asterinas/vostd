@@ -82,6 +82,10 @@ allow_panic = []
 # The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
 cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
 coverage = ["minicov"]
+# The erased-metadata downcast (`Frame<dyn AnyFrameMeta>::try_from` and the
+# `AnyFrameMeta` identity methods) rests on Verus type identity; see
+# `patches/README.md`. Off by default so `ostd` still builds on a stock toolchain.
+type_id = ["vstd_extra/type_id"]
 
 [lints]
 workspace = true
