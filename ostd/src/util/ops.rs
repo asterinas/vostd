@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::iset::ISet;
+use vstd::iset::{ISet, group_iset_lemmas};
+use vstd::laws_cmp::{
+    obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+};
+use vstd::laws_eq::obeys_eq_spec_properties;
 use vstd::prelude::*;
 use vstd::std_specs::cmp::{OrdSpec, PartialEqSpec, PartialOrdIs, PartialOrdSpec};
 use vstd::std_specs::iter::{
@@ -72,7 +76,7 @@ pub open spec fn range_difference_seq<T: Ord>(a: Range<T>, b: Range<T>) -> Seq<R
 
 proof fn lemma_ord_laws<T: Ord>()
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
     ensures
         T::obeys_cmp_spec(),
         T::obeys_partial_cmp_spec(),
@@ -108,10 +112,10 @@ proof fn lemma_ord_laws<T: Ord>()
             (spec_ord_max(x, y) == x || spec_ord_max(x, y) == y) && x.is_le(&spec_ord_max(x, y))
                 && y.is_le(&spec_ord_max(x, y)),
 {
-    reveal(vstd::laws_cmp::obeys_partial_cmp_spec_properties);
-    reveal(vstd::laws_cmp::obeys_cmp_partial_ord);
-    reveal(vstd::laws_cmp::obeys_cmp_ord);
-    reveal(vstd::laws_eq::obeys_eq_spec_properties);
+    reveal(obeys_partial_cmp_spec_properties);
+    reveal(obeys_cmp_partial_ord);
+    reveal(obeys_cmp_ord);
+    reveal(obeys_eq_spec_properties);
     assert forall|x: T|
         #![trigger x.cmp_spec(&x)]
         x.is_le(&x) && !x.is_lt(&x) && x.cmp_spec(&x) == Ordering::Equal by {
@@ -129,7 +133,7 @@ proof fn lemma_ord_laws<T: Ord>()
 
 proof fn lemma_le_lt_trans<T: Ord>(x: T, y: T, z: T)
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
         x.is_le(&y),
         y.is_lt(&z),
     ensures
@@ -147,7 +151,7 @@ proof fn lemma_le_lt_trans<T: Ord>(x: T, y: T, z: T)
 
 proof fn lemma_lt_le_trans<T: Ord>(x: T, y: T, z: T)
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
         x.is_lt(&y),
         y.is_le(&z),
     ensures
@@ -166,7 +170,7 @@ proof fn lemma_lt_le_trans<T: Ord>(x: T, y: T, z: T)
 
 proof fn lemma_le_trans<T: Ord>(x: T, y: T, z: T)
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
         x.is_le(&y),
         y.is_le(&z),
     ensures
@@ -182,7 +186,7 @@ proof fn lemma_le_trans<T: Ord>(x: T, y: T, z: T)
 
 proof fn lemma_lt_min<T: Ord>(x: T, y: T, z: T)
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
     ensures
         x.is_lt(&spec_ord_min(y, z)) <==> x.is_lt(&y) && x.is_lt(&z),
 {
@@ -195,7 +199,7 @@ proof fn lemma_lt_min<T: Ord>(x: T, y: T, z: T)
 
 proof fn lemma_max_le<T: Ord>(x: T, y: T, z: T)
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
     ensures
         spec_ord_max(y, z).is_le(&x) <==> y.is_le(&x) && z.is_le(&x),
 {
@@ -208,12 +212,12 @@ proof fn lemma_max_le<T: Ord>(x: T, y: T, z: T)
 
 proof fn lemma_empty_range_as_set<T: Ord>(r: Range<T>)
     requires
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
         !r.start.is_lt(&r.end),
     ensures
         range_as_set(r) == ISet::<T>::empty(),
 {
-    broadcast use vstd::iset::group_iset_lemmas;
+    broadcast use group_iset_lemmas;
 
     assert forall|x: T| #![trigger range_as_set(r).contains(x)] !range_as_set(r).contains(x) by {
         if range_as_set(r).contains(x) {
@@ -232,7 +236,7 @@ proof fn lemma_seq_range_union_small<T: PartialOrd>(s: Seq<Range<T>>)
         s.len() == 2 ==> seq_range_union(s) == range_as_set(s[0]).union(range_as_set(s[1])),
     decreases s.len(),
 {
-    broadcast use vstd::iset::group_iset_lemmas;
+    broadcast use group_iset_lemmas;
 
     if s.len() == 1 {
         assert(seq_range_union(s) == range_as_set(s[0]).union(seq_range_union(s.drop_first())));
@@ -256,7 +260,7 @@ proof fn lemma_range_difference_sorted<T: Ord>(a: Range<T>, b: Range<T>)
     requires
         T::obeys_cmp_spec(),
         T::obeys_partial_cmp_spec(),
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
     ensures
         forall|i: int|
             0 <= i < range_difference_seq(a, b).len() - 1 ==> (#[trigger] range_difference_seq(
@@ -276,11 +280,11 @@ proof fn lemma_range_difference_set<T: Ord>(a: Range<T>, b: Range<T>)
     requires
         T::obeys_cmp_spec(),
         T::obeys_partial_cmp_spec(),
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
     ensures
         seq_range_union(range_difference_seq(a, b)) == range_as_set(a).difference(range_as_set(b)),
 {
-    broadcast use vstd::iset::group_iset_lemmas;
+    broadcast use group_iset_lemmas;
 
     lemma_ord_laws::<T>();
     let s = range_difference_seq(a, b);
@@ -331,7 +335,7 @@ proof fn lemma_range_difference_set<T: Ord>(a: Range<T>, b: Range<T>)
     requires
         T::obeys_cmp_spec(),
         T::obeys_partial_cmp_spec(),
-        vstd::laws_cmp::obeys_cmp::<T>(),
+        obeys_cmp::<T>(),
     ensures
         ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
             &&& ret.remaining() == range_difference_seq(*a, *b)
