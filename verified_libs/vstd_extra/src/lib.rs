@@ -39,6 +39,7 @@ pub mod map_extra;
 pub mod prelude;
 pub mod raw_ptr_extra;
 pub mod rcu_read_lease;
+pub mod resource_invariant;
 pub mod seq_extra;
 pub mod set_extra;
 pub mod spec_operators;
