@@ -2,8 +2,8 @@
 use vstd::iset::ISet;
 use vstd::prelude::*;
 use vstd::std_specs::cmp::{OrdSpec, PartialEqSpec, PartialOrdIs, PartialOrdSpec};
-use vstd::std_specs::iter::{IteratorSpec, filter_keep, filter_post};
-use vstd_extra::external::{iter::*, range::*};
+use vstd::std_specs::iter::IteratorSpec;
+use vstd_extra::external::range::*;
 
 use core::cmp::Ordering;
 use core::ops::Range;
@@ -374,12 +374,12 @@ pub fn range_difference<T: Ord + Copy>(
     }
     let ret = iter.filter(pred);
     proof! {
-        assert(filter_post(iter, pred, ret));
+        assert(vstd::std_specs::iter::filter_post(iter, pred, ret));
         assert forall|k: int| #![auto] 0 <= k < iter.remaining().len() implies
             call_requires(pred, (&iter.remaining()[k],)) by {}
         vstd::std_specs::iter::filter_postcondition(iter, pred, ret);
         if ret.will_return_none() {
-            let keep = filter_keep(ret);
+            let keep = vstd::std_specs::iter::filter_keep(ret);
             assert(keep.len() == iter.remaining().len());
             assert forall|j: int| #![auto] 0 <= j < keep.len() implies keep[j] ==
                 iter.remaining()[j].start.is_lt(&iter.remaining()[j].end) by {}
