@@ -3,12 +3,28 @@ use vstd::iset::ISet;
 use vstd::prelude::*;
 use vstd::std_specs::cmp::{OrdSpec, PartialEqSpec, PartialOrdIs, PartialOrdSpec};
 use vstd::std_specs::iter::{IteratorSpec, filter_keep, filter_post};
-use vstd_extra::external::{cmp::*, iter::*, range::*};
+use vstd_extra::external::{iter::*, range::*};
 
 use core::cmp::Ordering;
 use core::ops::Range;
 
 verus! {
+
+pub open spec fn spec_ord_min<T: Ord>(x: T, y: T) -> T {
+    match y.cmp_spec(&x) {
+        Ordering::Less => y,
+        Ordering::Equal => x,
+        Ordering::Greater => x,
+    }
+}
+
+pub open spec fn spec_ord_max<T: Ord>(x: T, y: T) -> T {
+    match y.cmp_spec(&x) {
+        Ordering::Less => x,
+        Ordering::Equal => y,
+        Ordering::Greater => y,
+    }
+}
 
 /// The set denoted by a half-open range.
 pub open spec fn range_as_set<T: PartialOrd>(r: Range<T>) -> ISet<T> {
@@ -331,12 +347,10 @@ pub fn range_difference<T: Ord + Copy>(
     a: &Range<T>,
     b: &Range<T>,
 ) -> impl Iterator<Item = Range<T>> {
-    use core::cmp::{max, min};
-
     let r = if b.is_empty() {
         [a.clone(), b.clone()]
     } else {
-        [a.start..min(a.end, b.start), max(a.start, b.end)..a.end]
+        [a.start..a.end.min(b.start), a.start.max(b.end)..a.end]
     };
 
     proof! {
