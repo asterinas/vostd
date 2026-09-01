@@ -23,20 +23,23 @@ below; if a rule named below no longer exists on the page, drop it.
    direction of each axiom and spec impl actually supplies the direction the proof
    needs (a missing converse is a gap); panic/`no_unwind` claims match what the spec
    promises.
-3. Vacuity experiment. For `ensures ... <antecedent> ==> ...` clauses the target
-   introduces, first check whether the antecedent is already discharged by verified
-   lemmas the file itself calls; only the ones resting on uninterpreted spec fns or
-   axiom-mediated facts are worth the run. For each such antecedent, copy its shape
-   into a standalone file and run the repository verus binary (`--crate-type lib`,
-   `VERUS_Z3_PATH` set to the vendored z3): the definition site failing the antecedent
-   means no caller can discharge it — the contract is vacuous, severity `high`. A
-   caller-shaped consumption attempt (e.g. a `for` loop over the result) is follow-up
-   evidence to characterize a confirmed vacuity, not a default step. Also list
-   unconditionally provable facts missing from the contract. For each closure carrying
-   a `#[verus_spec(...)]` contract: it must declare the `requires` its `ensures`
-   depends on; silently borrowing the enclosing function's preconditions is a finding
-   (the standalone version fails without the ambient `requires`, passes once the
-   closure declares it).
+3. Vacuity check. For `ensures ... <antecedent> ==> ...` clauses the target introduces,
+   first inspect verified lemmas and real callers that establish the antecedent. A
+   failure to prove the antecedent at the definition site is not evidence of vacuity:
+   callers may have stronger facts. Confirm vacuity only when a checked argument shows
+   that, under the original `requires`, the antecedent is false for every legal call
+   (for example, a faithful standalone proof of `!<antecedent>` from those
+   preconditions). Preserve all relevant definitions and trusted assumptions in a
+   standalone experiment, run it with the repository Verus binary (`--crate-type lib`,
+   `VERUS_Z3_PATH` set to the vendored z3), and try to refute the claim with a legal
+   witness or caller before reporting it. If real callers merely cannot establish the
+   antecedent, report a caller-usability or contract-completeness gap instead of
+   vacuity; choose severity from its impact rather than assigning `high`
+   automatically. Also list unconditionally provable facts missing from the contract.
+   For a closure carrying `#[verus_spec(...)]`, distinguish ambient facts legitimately
+   used to establish a self-contained closure contract at construction from obligations
+   that future invocations need. Report a finding only when the caller-visible closure
+   contract omits such a required obligation.
 4. Trust-boundary sweep. Grep the target for `assume|admit|external_body|uninterp|broadcast axiom|axiom`; a trusted fact kept beside a caller instead of in
    `vstd_extra::external` is a finding. Note unused or superseded helpers in the
    boundary modules the target points at.
