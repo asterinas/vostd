@@ -4,8 +4,9 @@ use vstd_extra::{
     debug_assert,
     external::btree::*,
     panic::{UnwrapOrPanic, may_panic},
-    resource::persistent_flag::{GhostFlagAuth, GhostPersistentFlag},
+    resource::flags::{OneShotPending, OneShotSet},
     resource_invariant::ResourceInvariant,
+    sum::Sum,
 };
 
 use alloc::collections::btree_map::BTreeMap;
@@ -15,28 +16,12 @@ use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 verus! {
 
-pub type FreelistInitializationToken = GhostPersistentFlag;
-
-tracked struct FreelistResource {
-    initialized_auth: GhostFlagAuth,
-    initialized_witness: Option<FreelistInitializationToken>,
-}
-
 ghost struct FreelistConstant {
     fullrange: Range<int>,
     initialized_id: Loc,
 }
 
 ghost struct FreelistInvariant;
-
-impl FreelistResource {
-    closed spec fn initialized_wf(self, constant: FreelistConstant) -> bool {
-        &&& self.initialized_auth.id() == constant.initialized_id
-        &&& self.initialized_auth.is_set()
-        &&& self.initialized_witness is Some
-        &&& self.initialized_witness->0.id() == constant.initialized_id
-    }
-}
 
 closed spec fn freelist_wf(fullrange: Range<int>, freelist: Map<usize, FreeRange>) -> bool {
     forall|key: usize| #[trigger]
@@ -49,21 +34,22 @@ closed spec fn freelist_wf(fullrange: Range<int>, freelist: Map<usize, FreeRange
 impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant {
     type Constant = FreelistConstant;
 
-    type Resource = FreelistResource;
+    type Resource = Sum<OneShotPending, OneShotSet>;
 
     closed spec fn inv(
         constant: FreelistConstant,
         freelist: Option<BTreeMap<usize, FreeRange>>,
         resource: Self::Resource,
     ) -> bool {
-        &&& resource.initialized_auth.id() == constant.initialized_id
-        &&& resource.initialized_auth.is_set() == (freelist is Some)
-        &&& match resource.initialized_witness {
-            Some(witness) => {
-                &&& witness.id() == constant.initialized_id
+        &&& match resource {
+            Sum::Left(pending) => {
+                &&& pending.id() == constant.initialized_id
+                &&& freelist is None
+            },
+            Sum::Right(set) => {
+                &&& set.id() == constant.initialized_id
                 &&& freelist is Some
             },
-            None => freelist is None,
         }
         &&& freelist is Some ==> freelist_wf(constant.fullrange, freelist->0@)
     }
@@ -116,12 +102,12 @@ impl RangeAllocator {
             start: fullrange.start as int,
             end: fullrange.end as int,
         };
-        let tracked initialized_auth = GhostFlagAuth::new();
+        let tracked initialized = OneShotPending::new();
         let ghost constant = FreelistConstant {
             fullrange: fullrange_view,
-            initialized_id: initialized_auth.id(),
+            initialized_id: initialized.id(),
         };
-        let tracked resource = FreelistResource { initialized_auth, initialized_witness: None };
+        let tracked resource = Sum::Left(initialized);
         Self { fullrange, freelist: SpinLock::new(None, Ghost(constant), Tracked(resource)) }
     }
 }
@@ -141,7 +127,7 @@ impl RangeAllocator {
     /// Allocates a specific kernel virtual area.
     #[verus_spec(res =>
         with
-            -> initialized: Tracked<FreelistInitializationToken>,
+            -> initialized: Tracked<OneShotSet>,
         requires
             self@.start <= allocate_range.start < allocate_range.end <= self@.end,
         ensures
@@ -153,7 +139,7 @@ impl RangeAllocator {
         debug_assert!(allocate_range.start < allocate_range.end);
 
         proof_decl! {
-            let tracked initialized: FreelistInitializationToken;
+            let tracked initialized: OneShotSet;
         }
         let mut lock_guard = #[verus_spec(with => Tracked(initialized))]
         self.get_freelist_guard();
@@ -213,7 +199,7 @@ impl RangeAllocator {
     /// This is currently implemented with a simple FIRST-FIT algorithm.
     #[verus_spec(res =>
         with
-            -> initialized: Tracked<FreelistInitializationToken>,
+            -> initialized: Tracked<OneShotSet>,
         requires self@.start <= self@.end,
         ensures
             res is Ok ==> (res->Ok_0.end - res->Ok_0.start == size),
@@ -223,7 +209,7 @@ impl RangeAllocator {
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         proof_decl! {
-            let tracked initialized: FreelistInitializationToken;
+            let tracked initialized: OneShotSet;
         }
         let mut lock_guard = #[verus_spec(with => Tracked(initialized))]
         self.get_freelist_guard();
@@ -278,7 +264,7 @@ impl RangeAllocator {
     /// Frees a `range`.
     #[verus_spec(
         with
-            Tracked(initialized): Tracked<Option<FreelistInitializationToken>>,
+            Tracked(initialized): Tracked<Option<OneShotSet>>,
         requires
             self@.start <= range.start <= range.end <= self@.end,
             initialized matches Some(token) ==> token.id() == self.initialized_id(),
@@ -291,14 +277,16 @@ impl RangeAllocator {
         let mut lock_guard = self.freelist.lock();
         proof_decl! {
             let ghost lock_value = lock_guard@;
-            let tracked resource: &mut FreelistResource;
+            let tracked resource: &mut Sum<OneShotPending, OneShotSet>;
         }
         #[verus_spec(with => Tracked(resource))]
         lock_guard.tracked_borrow_mut_resource();
         proof! {
             if initialized is Some {
                 let tracked initialized = initialized.tracked_unwrap();
-                initialized.agree(&resource.initialized_auth);
+                if *resource is Left {
+                    resource.tracked_borrow_left().incompatible(&initialized);
+                }
             }
         }
         /* let freelist = lock_guard.as_mut().unwrap_or_else(|| {
@@ -345,13 +333,14 @@ impl RangeAllocator {
 
     #[verus_spec(ret =>
         with
-            -> initialized: Tracked<FreelistInitializationToken>,
+            -> initialized: Tracked<OneShotSet>,
         requires self@.start <= self@.end,
         ensures
             ret@ is Some,
             freelist_wf(self@, ret@->0@),
             ret.constant().fullrange == self@,
-            ret.resource().initialized_wf(ret.constant()),
+            ret.resource() is Right,
+            ret.resource()->Right_0.id() == ret.constant().initialized_id,
             initialized@.id() == self.initialized_id(),
     )]
     fn get_freelist_guard(
@@ -368,19 +357,20 @@ impl RangeAllocator {
             *lock_guard = Some(freelist);
         }
         proof_decl! {
-            let tracked resource: &mut FreelistResource;
-            let tracked initialized: FreelistInitializationToken;
+            let tracked resource: &mut Sum<OneShotPending, OneShotSet>;
+            let tracked initialized: OneShotSet;
         }
         #[verus_spec(with => Tracked(resource))]
         lock_guard.tracked_borrow_mut_resource();
         proof! {
-            if resource.initialized_witness is Some {
-                let tracked witness = resource.initialized_witness.tracked_borrow();
-                initialized = witness.duplicate();
+            if *resource is Right {
+                initialized = resource.tracked_borrow_right().duplicate();
             } else {
-                let tracked witness = resource.initialized_auth.set();
-                initialized = witness.duplicate();
-                resource.initialized_witness = Some(witness);
+                let tracked replacement = OneShotPending::new();
+                let tracked pending = resource.tracked_swap_left(replacement);
+                let tracked set = pending.set();
+                initialized = set.duplicate();
+                *resource = Sum::Right(set);
             }
         }
         #[verus_spec(with |= Tracked(initialized))]
