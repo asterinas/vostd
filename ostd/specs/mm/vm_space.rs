@@ -336,10 +336,7 @@ impl<'a> VmSpaceOwner {
         reader: &'a VmReader<'a>,
         tracked owner_r: &'a mut VmIoOwner,
     ) {
-        let tracked mv = match self.mem_view {
-            Some(ref mv) => mv,
-            _ => { proof_from_false() },
-        };
+        let tracked mv = self.mem_view.tracked_borrow();
         let tracked borrowed_mv = mv.tracked_borrow_at(
             owner_r.range.start,
             (owner_r.range.end - owner_r.range.start) as usize,
