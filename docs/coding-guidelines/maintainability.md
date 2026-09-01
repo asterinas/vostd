@@ -13,6 +13,111 @@ Prefer small, coherent groups over interleaving mode changes throughout an
 implementation. Keep adjacent verified items in the same `verus!` block when
 no ordinary Rust item separates them.
 
+### Use chained comparisons
+
+<!-- guideline: use-chained-comparisons -->
+
+Write contiguous bounds as a single chained comparison when adjacent
+comparisons share the same intermediate expressions. Apply this rule in
+contracts, invariants, spec predicates, and proof assertions.
+
+```rust
+// Prefer this:
+fullrange.start <= block.start <= block.end <= fullrange.end
+
+// Over this:
+fullrange.start <= block.start
+    && block.start <= block.end
+    && block.end <= fullrange.end
+```
+
+Likewise, combine consecutive proof assertions that state the same contiguous
+bounds when doing so preserves their proof behavior. Only form a chain when it
+is logically equivalent to the original comparisons. Do not invent a missing
+relation, combine unrelated comparisons, or strengthen a contract merely to
+make it chainable.
+
+### Prefer imports in proof code
+
+<!-- guideline: prefer-imports-in-proof-code -->
+
+Use `use` declarations as much as possible for proof-only functions, lemmas,
+broadcast groups, and other proof symbols. Import the symbols once instead of
+repeating long fully qualified paths throughout contracts and proof bodies.
+Apply this style to all proof code, including lemma calls, `reveal`, and
+`broadcast use` expressions.
+
+```rust
+use vstd::{
+    laws_cmp::{obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties},
+    laws_eq::obeys_eq_spec_properties,
+};
+
+// Prefer this:
+reveal(obeys_partial_cmp_spec_properties);
+reveal(obeys_cmp_partial_ord);
+reveal(obeys_cmp_ord);
+reveal(obeys_eq_spec_properties);
+
+// Over repeatedly writing `reveal(vstd::laws_cmp::...)` and
+// `reveal(vstd::laws_eq::...)`.
+```
+
+Prefer explicit imports that keep the symbol's origin understandable. Retain a
+qualified path when importing it would introduce ambiguity or make a rare,
+one-off reference less clear.
+
+See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528)
+and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502).
+
+### Group imports by crate
+
+<!-- guideline: group-imports-by-crate -->
+
+Import definitions from the same crate within one `use` group, including when
+the definitions come from different modules in that crate.
+
+```rust
+// Prefer this:
+use vstd::{
+    laws_cmp::{obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties},
+    laws_eq::obeys_eq_spec_properties,
+};
+
+// Over this:
+use vstd::laws_cmp::{
+    obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+};
+use vstd::laws_eq::obeys_eq_spec_properties;
+```
+
+See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076).
+
+### Bind Option payloads
+
+<!-- guideline: bind-option-payloads -->
+
+When two or more facts depend on the payload of the same `Option`, bind the
+payload once with `matches` and group the facts in an implication block.
+
+```rust
+// Prefer this:
+result matches Some(value) ==> {
+    &&& value.start <= value.end
+    &&& valid(value)
+},
+
+// Over this:
+result is Some ==> result->0.start <= result->0.end,
+result is Some ==> valid(result->0),
+```
+
+Use a descriptive binder name and refer to it throughout the block. Do not add
+conditions merely to create a grouped block, and leave a single implication
+ungrouped when binding the payload would not improve clarity.
+
+See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893413063).
+
 ### Preserve exec code
 
 <!-- guideline: preserve-exec-code -->
@@ -74,6 +179,24 @@ For a `tracked struct`, fields are `tracked` by default,
 so we need to add `ghost` marker to fields that are not linear ownerships.
 
 See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
+
+### Prefer ghost model structs
+
+<!-- guideline: prefer-ghost-model-structs -->
+
+Determine the mode of every newly added Verus struct explicitly. Actively try
+`ghost struct` for constants, mathematical models, invariant markers, and
+other types whose values are used only in specifications or proofs. Confirm
+the choice with verification; do not assume that a zero-sized marker must be
+an executable type merely because it appears as a generic argument.
+
+Use `tracked struct` instead when the fields represent linear permissions,
+tokens, or ownership. Keep an ordinary struct when it contains runtime state,
+must survive erasure, or participates in executable behavior. The goal is to
+erase proof-only data, not to force runtime or linear resources into ghost
+mode.
+
+See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893393342).
 
 ### Document verified APIs
 

@@ -6,9 +6,8 @@ specifications and proofs. They complement, rather than replace, the operational
 rules in `AGENTS.md` and the Verus documentation.
 
 Use Rust 2021 style and run the project formatter. Formatting follows
-`rustfmt.toml`, including four-space indentation, crate-level import grouping,
-and reordered imports; these mechanically enforced rules are not repeated as
-individual guidelines.
+`rustfmt.toml`, including four-space indentation and reordered imports; these
+mechanically enforced rules are not repeated as individual guidelines.
 
 Each guideline has a stable kebab-case short name. Use that name in reviews so
 that a comment can link to the rule instead of restating it.
@@ -26,9 +25,14 @@ that a comment can link to the rule instead of restating it.
 ### Maintainability
 
 - [`separate-verus-modes`](maintainability.md#separate-verus-modes) — keep executable code, specifications, and proofs visually distinct.
+- [`use-chained-comparisons`](maintainability.md#use-chained-comparisons) — express contiguous bounds as one logically equivalent chained comparison.
+- [`prefer-imports-in-proof-code`](maintainability.md#prefer-imports-in-proof-code) — import proof symbols instead of repeatedly writing long fully qualified paths.
+- [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — combine definitions imported from the same crate into one `use` group.
+- [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
 - [`avoid-redundant-mode-markers`](maintainability.md#avoid-redundant-mode-markers) — do not add `ghost` or `tracked` markers where the enclosing mode already determines the value's role.
+- [`prefer-ghost-model-structs`](maintainability.md#prefer-ghost-model-structs) — actively use `ghost struct` for newly added specification- and proof-only types.
 - [`document-verified-apis`](maintainability.md#document-verified-apis) — document both runtime behavior and proof obligations on public verified APIs.
 - [`narrow-lint-suppressions`](maintainability.md#narrow-lint-suppressions) — suppress a lint only at the smallest scope that requires it.
 - [`right-size-spec-placement`](maintainability.md#right-size-spec-placement) — keep small local models near their implementation unless they form a reusable subsystem.
