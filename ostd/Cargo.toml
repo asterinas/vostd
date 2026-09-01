@@ -79,6 +79,7 @@ fdt = { version = "0.1.5", features = ["pretty-printing"] }
 # default = ["cvm_guest"]
 default = []
 allow_panic = []
+irc11 = ["vstd/weak-memory", "vstd_extra/irc11"]
 # The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
 cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
 coverage = ["minicov"]

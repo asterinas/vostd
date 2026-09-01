@@ -3,6 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
+use vstd::thread_view::Objective;
 use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
 
@@ -31,6 +32,10 @@ tracked struct RwPerms<T> {
     upread_retract_token: Option<UniqueToken>,
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
     read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
+}
+
+unsafe impl<T> Objective for RwPerms<T> {
+
 }
 
 ghost struct RwId {

@@ -7,7 +7,7 @@
 //! We may explore weak memory models in the future.
 use vstd::{
     atomic_ghost::AtomicPtr, atomic_with_ghost, map::Map, modes::tracked_static_ref, prelude::*,
-    resource::Loc,
+    resource::Loc, thread_view::Objective,
 };
 
 use vstd_extra::{
@@ -69,6 +69,12 @@ tracked struct RcuPtrGhost<P: NonNullPtr> {
     tracked current: Option<RcuReadPool<P>>,
     tracked retired: RcuRetiredPools<P>,
     tracked returned: RcuReturnedTokens<P>,
+}
+
+// This authority contains allocation ownership and bookkeeping only. Raw
+// addresses do not carry the pointee's subjective weak-memory observations.
+unsafe impl<P: NonNullPtr> Objective for RcuPtrGhost<P> {
+
 }
 
 closed spec fn retired_pools_inv<P: NonNullPtr>(retired: RcuRetiredPools<P>) -> bool {
