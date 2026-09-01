@@ -6,9 +6,8 @@ specifications and proofs. They complement, rather than replace, the operational
 rules in `AGENTS.md` and the Verus documentation.
 
 Use Rust 2021 style and run the project formatter. Formatting follows
-`rustfmt.toml`, including four-space indentation, crate-level import grouping,
-and reordered imports; these mechanically enforced rules are not repeated as
-individual guidelines.
+`rustfmt.toml`, including four-space indentation and reordered imports; these
+mechanically enforced rules are not repeated as individual guidelines.
 
 Each guideline has a stable kebab-case short name. Use that name in reviews so
 that a comment can link to the rule instead of restating it.
@@ -28,6 +27,7 @@ that a comment can link to the rule instead of restating it.
 - [`separate-verus-modes`](maintainability.md#separate-verus-modes) — keep executable code, specifications, and proofs visually distinct.
 - [`use-chained-comparisons`](maintainability.md#use-chained-comparisons) — express contiguous bounds as one logically equivalent chained comparison.
 - [`prefer-imports-in-proof-code`](maintainability.md#prefer-imports-in-proof-code) — import proof symbols instead of repeatedly writing long fully qualified paths.
+- [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — combine definitions imported from the same crate into one `use` group.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.

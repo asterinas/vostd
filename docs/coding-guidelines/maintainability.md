@@ -48,10 +48,10 @@ Apply this style to all proof code, including lemma calls, `reveal`, and
 `broadcast use` expressions.
 
 ```rust
-use vstd::laws_cmp::{
-    obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+use vstd::{
+    laws_cmp::{obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties},
+    laws_eq::obeys_eq_spec_properties,
 };
-use vstd::laws_eq::obeys_eq_spec_properties;
 
 // Prefer this:
 reveal(obeys_partial_cmp_spec_properties);
@@ -69,6 +69,29 @@ one-off reference less clear.
 
 See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528)
 and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502).
+
+### Group imports by crate
+
+<!-- guideline: group-imports-by-crate -->
+
+Import definitions from the same crate within one `use` group, including when
+the definitions come from different modules in that crate.
+
+```rust
+// Prefer this:
+use vstd::{
+    laws_cmp::{obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties},
+    laws_eq::obeys_eq_spec_properties,
+};
+
+// Over this:
+use vstd::laws_cmp::{
+    obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+};
+use vstd::laws_eq::obeys_eq_spec_properties;
+```
+
+See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076).
 
 ### Bind Option payloads
 
