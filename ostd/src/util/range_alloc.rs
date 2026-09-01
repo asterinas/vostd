@@ -33,15 +33,14 @@ ghost struct FreelistConstant {
 
 ghost struct FreelistInvariant;
 
-closed spec fn initialized_resource(
-    constant: FreelistConstant,
-    resource: FreelistResource,
-) -> bool {
-    &&& resource.initialized_auth.id() == constant.initialized_id
-    &&& resource.initialized_auth@.contains(())
-    &&& resource.initialized_witness is Some
-    &&& resource.initialized_witness->0.id() == constant.initialized_id
-    &&& resource.initialized_witness->0@ == ()
+impl FreelistResource {
+    closed spec fn initialized_wf(self, constant: FreelistConstant) -> bool {
+        &&& self.initialized_auth.id() == constant.initialized_id
+        &&& self.initialized_auth@.contains(())
+        &&& self.initialized_witness is Some
+        &&& self.initialized_witness->0.id() == constant.initialized_id
+        &&& self.initialized_witness->0@ == ()
+    }
 }
 
 closed spec fn freelist_wf(fullrange: Range<int>, freelist: Map<usize, FreeRange>) -> bool {
@@ -363,7 +362,7 @@ impl RangeAllocator {
             ret@ is Some,
             freelist_wf(self@, ret@->0@),
             ret.constant().fullrange == self@,
-            initialized_resource(ret.constant(), ret.resource()),
+            ret.resource().initialized_wf(ret.constant()),
             initialized@.id() == self.initialized_id(),
             initialized@@ == (),
     )]
