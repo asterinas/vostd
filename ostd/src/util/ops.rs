@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::iset::{ISet, group_iset_lemmas};
-use vstd::laws_cmp::{
-    obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
-};
-use vstd::laws_eq::obeys_eq_spec_properties;
-use vstd::prelude::*;
-use vstd::std_specs::cmp::{OrdSpec, PartialEqSpec, PartialOrdIs, PartialOrdSpec};
-use vstd::std_specs::iter::{
-    IteratorSpec, filter_keep, filter_post, filter_postcondition, group_iter_axioms,
+use vstd::{
+    iset::{ISet, group_iset_lemmas},
+    laws_cmp::{
+        obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+    },
+    laws_eq::obeys_eq_spec_properties,
+    prelude::*,
+    std_specs::{
+        cmp::{OrdSpec, PartialEqSpec, PartialOrdIs, PartialOrdSpec},
+        iter::{IteratorSpec, filter_keep, filter_postcondition},
+    },
 };
 use vstd_extra::external::{iter::*, range::*};
 
-use core::cmp::Ordering;
-use core::ops::Range;
+use core::{cmp::Ordering, ops::Range};
 
 verus! {
 
@@ -330,7 +331,31 @@ proof fn lemma_range_difference_set<T: Ord>(a: Range<T>, b: Range<T>)
 /// will be sorted in ascending order.
 ///
 /// [difference]: https://en.wikipedia.org/wiki/Set_(mathematics)#Set_difference
-#[verus_verify(spinoff_prover, rlimit(200))]
+///
+/// # Verified Properties
+///
+/// ## Safety
+///
+/// This function contains no unsafe code. Its proof relies on the trusted
+/// `vstd_extra` specifications for owned-array iteration and [`Range::is_empty`].
+///
+/// ## Functional Correctness
+///
+/// When the upstream filter model reports completion, the iterator's remaining
+/// sequence contains at most two non-empty, sorted ranges whose union is exactly
+/// the set difference `a - b`.
+///
+/// ## Preconditions
+///
+/// `T`'s comparison implementation must obey the Verus comparison model.
+///
+/// ## Postconditions
+///
+/// Subject to the upstream iterator model's law and termination predicates, the
+/// returned sequence matches [`range_difference_seq`] and satisfies the
+/// functional-correctness properties above. The contract does not claim that
+/// comparisons cannot panic.
+#[verus_verify(spinoff_prover, rlimit(50))]
 #[verus_spec(ret =>
     requires
         T::obeys_cmp_spec(),
@@ -356,37 +381,30 @@ pub fn range_difference<T: Ord + Copy>(
     let r = if b.is_empty() {
         [a.clone(), b.clone()]
     } else {
+        // `Ord::{min,max}` are the specified equivalents of `core::cmp::{min,max}`.
         [a.start..a.end.min(b.start), a.start.max(b.end)..a.end]
     };
 
     proof! {
-        broadcast use group_iter_axioms;
         reveal_with_fuel(Seq::filter, 3);
-        assert(r@.filter(|v: Range<T>| v.start.is_lt(&v.end)) == range_difference_seq(*a, *b));
+
         lemma_range_difference_sorted(*a, *b);
         lemma_range_difference_set(*a, *b);
     }
-    // Original execution code: `r.into_iter().filter(|v| !v.is_empty())`.
-    // The local names expose the same pipeline to Verus's filter proof contract.
+    // Original execution: `r.into_iter().filter(|v| !v.is_empty())`.
+    // Bind its operands so the upstream filter axiom can refer to them.
     let iter = r.into_iter();
     let pred = #[verus_spec(keep: bool =>
         ensures
             keep == v.start.is_lt(&v.end),
     )]
     |v: &Range<T>| !v.is_empty();
-    proof! {
-        assert(iter.obeys_prophetic_iter_laws());
-        assert(iter.decrease() is Some);
-    }
     let ret = iter.filter(pred);
     proof! {
-        assert(filter_post(iter, pred, ret));
-        assert forall|k: int| #![auto] 0 <= k < iter.remaining().len() implies
-            call_requires(pred, (&iter.remaining()[k],)) by {}
         filter_postcondition(iter, pred, ret);
         if ret.will_return_none() {
             let keep = filter_keep(ret);
-            assert(keep.len() == iter.remaining().len());
+
             assert forall|j: int| #![auto] 0 <= j < keep.len() implies keep[j] ==
                 iter.remaining()[j].start.is_lt(&iter.remaining()[j].end) by {}
             assert(iter.remaining().take(keep.len() as int).filter_index(|j: int| keep[j]) ==

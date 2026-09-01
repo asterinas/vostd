@@ -1,6 +1,9 @@
+use vstd::{
+    prelude::*,
+    std_specs::cmp::{PartialOrdIs, PartialOrdSpec},
+};
+
 use core::ops::{Range, RangeInclusive};
-use vstd::prelude::*;
-use vstd::std_specs::cmp::{PartialOrdIs, PartialOrdSpec};
 
 verus! {
 
@@ -49,7 +52,8 @@ pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
 /// Trusted specification of `Range::is_empty` from Rust 1.97.1's
 /// `core::ops::range::Range` implementation: a range is empty when its start
 /// is not less than its end. The result is related to Verus's comparison model
-/// only when the `PartialOrd` implementation obeys that model.
+/// only when the `PartialOrd` implementation obeys that model. This contract
+/// does not promise `no_unwind` because the user-provided comparison may panic.
 pub assume_specification<Idx: PartialOrd<Idx>>[ Range::<Idx>::is_empty ](r: &Range<Idx>) -> (res:
     bool) where Idx: PartialOrd<Idx>
     ensures

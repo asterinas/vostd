@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Specifications for standard iterator adapters not modeled by `vstd`.
+//! Specification for owned-array iteration not yet modeled by `vstd`.
 //!
 //! The array iterator contract follows Rust 1.97.1's
 //! `library/core/src/array/iter.rs` implementation, which initializes an
@@ -23,6 +23,8 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
         IteratorSpec::will_return_none(&iter),
         IteratorSpec::remaining(&iter) == array@,
         IteratorSpec::decrease(&iter) == Some(N as nat),
+    opens_invariants none
+    no_unwind
 ;
 
 } // verus!
