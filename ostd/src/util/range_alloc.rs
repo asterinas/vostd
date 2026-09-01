@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::prelude::*;
-use vstd::resource::{Loc, set::*};
+use vstd::{
+    prelude::*,
+    resource::{Loc, set::*},
+};
 use vstd_extra::{
     debug_assert,
     external::btree::*,
