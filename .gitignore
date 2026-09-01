@@ -52,7 +52,10 @@ doc
 *.rlib
 
 # Agents
-.agents/
+.agents/*
+!/.agents/skills/
+.agents/skills/*
+!/.agents/skills/vostd-guidelines-review/
 .codex/
 .claude/
 .copilot/
