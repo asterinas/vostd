@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{
-    prelude::*,
-    resource::{Loc, set::*},
-};
+use vstd::{prelude::*, resource::Loc};
 use vstd_extra::{
     debug_assert,
     external::btree::*,
     panic::{UnwrapOrPanic, may_panic},
+    resource::persistent_flag::{GhostFlagAuth, GhostPersistentFlag},
     resource_invariant::ResourceInvariant,
 };
 
@@ -17,12 +15,10 @@ use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 verus! {
 
-type FreelistInitializationAuth = GhostSetAuth<()>;
-
-pub type FreelistInitializationToken = GhostPersistentSingleton<()>;
+pub type FreelistInitializationToken = GhostPersistentFlag;
 
 tracked struct FreelistResource {
-    initialized_auth: FreelistInitializationAuth,
+    initialized_auth: GhostFlagAuth,
     initialized_witness: Option<FreelistInitializationToken>,
 }
 
@@ -36,10 +32,9 @@ ghost struct FreelistInvariant;
 impl FreelistResource {
     closed spec fn initialized_wf(self, constant: FreelistConstant) -> bool {
         &&& self.initialized_auth.id() == constant.initialized_id
-        &&& self.initialized_auth@.contains(())
+        &&& self.initialized_auth.is_set()
         &&& self.initialized_witness is Some
         &&& self.initialized_witness->0.id() == constant.initialized_id
-        &&& self.initialized_witness->0@ == ()
     }
 }
 
@@ -62,11 +57,10 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         resource: Self::Resource,
     ) -> bool {
         &&& resource.initialized_auth.id() == constant.initialized_id
-        &&& resource.initialized_auth@.contains(()) == (freelist is Some)
+        &&& resource.initialized_auth.is_set() == (freelist is Some)
         &&& match resource.initialized_witness {
             Some(witness) => {
                 &&& witness.id() == constant.initialized_id
-                &&& witness@ == ()
                 &&& freelist is Some
             },
             None => freelist is None,
@@ -122,7 +116,7 @@ impl RangeAllocator {
             start: fullrange.start as int,
             end: fullrange.end as int,
         };
-        let tracked (initialized_auth, _) = GhostSetAuth::new(Set::empty());
+        let tracked initialized_auth = GhostFlagAuth::new();
         let ghost constant = FreelistConstant {
             fullrange: fullrange_view,
             initialized_id: initialized_auth.id(),
@@ -154,7 +148,6 @@ impl RangeAllocator {
             res is Ok ==> (self@.start <= allocate_range.start
                 && allocate_range.end <= self@.end),
             initialized@.id() == self.initialized_id(),
-            initialized@@ == (),
     )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
         debug_assert!(allocate_range.start < allocate_range.end);
@@ -227,7 +220,6 @@ impl RangeAllocator {
             res is Ok ==> (self@.start <= res->Ok_0.start
                 && res->Ok_0.end <= self@.end),
             initialized@.id() == self.initialized_id(),
-            initialized@@ == (),
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         proof_decl! {
@@ -289,10 +281,7 @@ impl RangeAllocator {
             Tracked(initialized): Tracked<Option<FreelistInitializationToken>>,
         requires
             self@.start <= range.start <= range.end <= self@.end,
-            initialized matches Some(token) ==> {
-                &&& token.id() == self.initialized_id()
-                &&& token@ == ()
-            },
+            initialized matches Some(token) ==> token.id() == self.initialized_id(),
             initialized is None ==> may_panic(),
     )]
     pub fn free(&self, range: Range<usize>) {
@@ -364,7 +353,6 @@ impl RangeAllocator {
             ret.constant().fullrange == self@,
             ret.resource().initialized_wf(ret.constant()),
             initialized@.id() == self.initialized_id(),
-            initialized@@ == (),
     )]
     fn get_freelist_guard(
         &self,
@@ -390,8 +378,7 @@ impl RangeAllocator {
                 let tracked witness = resource.initialized_witness.tracked_borrow();
                 initialized = witness.duplicate();
             } else {
-                let tracked singleton = resource.initialized_auth.insert(());
-                let tracked witness = singleton.persist();
+                let tracked witness = resource.initialized_auth.set();
                 initialized = witness.duplicate();
                 resource.initialized_witness = Some(witness);
             }
