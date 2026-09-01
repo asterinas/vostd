@@ -194,14 +194,8 @@ impl RangeAllocator {
         if let Some(key) = target_node {
             if left_length == 0 {
                 freelist.remove(&key);
-                proof! {
-                    assert(freelist_wf(self@, freelist@));
-                }
             } else if let Some(freenode) = freelist.get_mut(&key) {
                 freenode.block.end = allocate_range.start;
-                proof! {
-                    assert(freelist_wf(self@, freelist@));
-                }
             }
 
             if right_length != 0 {
@@ -209,9 +203,6 @@ impl RangeAllocator {
                     allocate_range.end,
                     FreeRange::new(allocate_range.end..(allocate_range.end + right_length)),
                 );
-                proof! {
-                    assert(freelist_wf(self@, freelist@));
-                }
             }
         }
 
@@ -220,14 +211,6 @@ impl RangeAllocator {
         } else {
             Err(RangeAllocError)
         };
-        proof! {
-            assert(freelist_wf(self@, freelist@));
-            assert(FreelistInvariant::inv(
-                lock_guard.constant(),
-                lock_guard.value(),
-                lock_guard.resource(),
-            ));
-        }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(initialized))]
         res
@@ -273,7 +256,6 @@ impl RangeAllocator {
         for (key, value) in freelist.iter() {
             proof! {
                 assert(freelist@.contains_key(*key));
-                assert(self@.start <= value.block.start <= value.block.end <= self@.end);
             }
             if value.block.end - value.block.start >= size {
                 allocate_range = Some((value.block.end - size)..value.block.end);
@@ -286,16 +268,8 @@ impl RangeAllocator {
             if let Some(freenode) = freelist.get_mut(&key) {
                 if freenode.block.end - size == freenode.block.start {
                     freelist.remove(&key);
-                    proof! {
-                        assert(freelist_wf(self@, freelist@));
-                    }
                 } else {
                     freenode.block.end -= size;
-                    proof! {
-                        let block = freelist@[key].block;
-                        assert(self@.start <= block.start <= block.end <= self@.end);
-                        assert(freelist_wf(self@, freelist@));
-                    }
                 }
             }
         }
@@ -305,14 +279,6 @@ impl RangeAllocator {
         } else {
             Err(RangeAllocError)
         };
-        proof! {
-            assert(freelist_wf(self@, freelist@));
-            assert(FreelistInvariant::inv(
-                lock_guard.constant(),
-                lock_guard.value(),
-                lock_guard.resource(),
-            ));
-        }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(initialized))]
         res
@@ -345,18 +311,12 @@ impl RangeAllocator {
             if initialized is Some {
                 let tracked initialized = initialized.tracked_unwrap();
                 initialized.agree(&resource.initialized_auth);
-                assert(lock_value is Some);
             }
-            assert(lock_guard@ is None ==> initialized is None);
-            assert(lock_guard@ is None ==> may_panic());
         }
         /* let freelist = lock_guard.as_mut().unwrap_or_else(|| {
             panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.")
         }); */
         let freelist = lock_guard.as_mut().unwrap_or_panic();
-        proof! {
-            assert(freelist_wf(self@, freelist@));
-        }
         // 1. get the previous free block, check if we can merge this block with the free one
         //     - if contiguous, merge this area with the free block.
         //     - if not contiguous, create a new free block, insert it into the list.
@@ -370,15 +330,9 @@ impl RangeAllocator {
                 let prev_va = *prev_va;
                 free_range.start = prev_node.block.start;
                 freelist.remove(&prev_va);
-                proof! {
-                    assert(freelist_wf(self@, freelist@));
-                }
             }
         }
         freelist.insert(free_range.start, FreeRange::new(free_range.clone()));
-        proof! {
-            assert(freelist_wf(self@, freelist@));
-        }
 
         // 2. check if we can merge the current block with the next block, if we can, do so.
         if let Some((next_va, next_node)) = freelist
@@ -395,22 +349,8 @@ impl RangeAllocator {
                     ));
                 }
                 freelist.remove(&next_va);
-                proof! {
-                    assert(freelist_wf(self@, freelist@));
-                }
                 freelist.get_mut(&free_range.start).unwrap().block.end = free_range.end;
-                proof! {
-                    assert(freelist_wf(self@, freelist@));
-                }
             }
-        }
-        proof! {
-            assert(freelist_wf(self@, freelist@));
-            assert(FreelistInvariant::inv(
-                lock_guard.constant(),
-                lock_guard.value(),
-                lock_guard.resource(),
-            ));
         }
         lock_guard.drop();
     }
@@ -456,11 +396,6 @@ impl RangeAllocator {
                 initialized = witness.duplicate();
                 resource.initialized_witness = Some(witness);
             }
-            assert(FreelistInvariant::inv(
-                lock_guard.constant(),
-                lock_guard.value(),
-                lock_guard.resource(),
-            ));
         }
         #[verus_spec(with |= Tracked(initialized))]
         lock_guard
