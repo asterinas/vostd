@@ -19,13 +19,10 @@ verus! {
 
 type FreelistInitializationAuth = GhostSetAuth<()>;
 
-type FreelistInitializationRemainder = GhostSubset<()>;
-
 pub type FreelistInitializationToken = GhostPersistentSingleton<()>;
 
 tracked struct FreelistResource {
     initialized_auth: FreelistInitializationAuth,
-    initialized_remainder: FreelistInitializationRemainder,
     initialized_witness: Option<FreelistInitializationToken>,
 }
 
@@ -41,8 +38,6 @@ closed spec fn initialized_resource(
     resource: FreelistResource,
 ) -> bool {
     &&& resource.initialized_auth.id() == constant.initialized_id
-    &&& resource.initialized_remainder.id() == constant.initialized_id
-    &&& resource.initialized_remainder@.is_empty()
     &&& resource.initialized_auth@.contains(())
     &&& resource.initialized_witness is Some
     &&& resource.initialized_witness->0.id() == constant.initialized_id
@@ -68,8 +63,6 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         resource: Self::Resource,
     ) -> bool {
         &&& resource.initialized_auth.id() == constant.initialized_id
-        &&& resource.initialized_remainder.id() == constant.initialized_id
-        &&& resource.initialized_remainder@.is_empty()
         &&& resource.initialized_auth@.contains(()) == (freelist is Some)
         &&& match resource.initialized_witness {
             Some(witness) => {
@@ -116,8 +109,7 @@ impl RangeAllocator {
 
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        &&& self.freelist.constant().fullrange.start == self.fullrange.start
-        &&& self.freelist.constant().fullrange.end == self.fullrange.end
+        self.freelist.constant().fullrange == self@
     }
 }
 
@@ -131,16 +123,12 @@ impl RangeAllocator {
             start: fullrange.start as int,
             end: fullrange.end as int,
         };
-        let tracked (initialized_auth, initialized_remainder) = GhostSetAuth::new(Set::empty());
+        let tracked (initialized_auth, _) = GhostSetAuth::new(Set::empty());
         let ghost constant = FreelistConstant {
             fullrange: fullrange_view,
             initialized_id: initialized_auth.id(),
         };
-        let tracked resource = FreelistResource {
-            initialized_auth,
-            initialized_remainder,
-            initialized_witness: None,
-        };
+        let tracked resource = FreelistResource { initialized_auth, initialized_witness: None };
         Self { fullrange, freelist: SpinLock::new(None, Ghost(constant), Tracked(resource)) }
     }
 }
@@ -234,7 +222,11 @@ impl RangeAllocator {
         };
         proof! {
             assert(freelist_wf(self@, freelist@));
-            assert(initialized_resource(lock_guard.constant(), lock_guard.resource()));
+            assert(FreelistInvariant::inv(
+                lock_guard.constant(),
+                lock_guard.value(),
+                lock_guard.resource(),
+            ));
         }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(initialized))]
@@ -262,10 +254,6 @@ impl RangeAllocator {
         let mut lock_guard = #[verus_spec(with => Tracked(initialized))]
         self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
-        proof! {
-            use_type_invariant(self);
-            assert(freelist_wf(self@, freelist@));
-        }
         let mut allocate_range: Option<Range<usize>> = None;
         let mut to_remove: Option<usize> = None;
         #[verus_spec(invariant
@@ -319,7 +307,11 @@ impl RangeAllocator {
         };
         proof! {
             assert(freelist_wf(self@, freelist@));
-            assert(initialized_resource(lock_guard.constant(), lock_guard.resource()));
+            assert(FreelistInvariant::inv(
+                lock_guard.constant(),
+                lock_guard.value(),
+                lock_guard.resource(),
+            ));
         }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(initialized))]
@@ -343,9 +335,6 @@ impl RangeAllocator {
             use_type_invariant(self);
         }
         let mut lock_guard = self.freelist.lock();
-        proof! {
-            assert(lock_guard.constant().fullrange == self@);
-        }
         proof_decl! {
             let ghost lock_value = lock_guard@;
             let tracked resource: &mut FreelistResource;
@@ -417,7 +406,11 @@ impl RangeAllocator {
         }
         proof! {
             assert(freelist_wf(self@, freelist@));
-            assert(initialized_resource(lock_guard.constant(), lock_guard.resource()));
+            assert(FreelistInvariant::inv(
+                lock_guard.constant(),
+                lock_guard.value(),
+                lock_guard.resource(),
+            ));
         }
         lock_guard.drop();
     }
@@ -442,9 +435,6 @@ impl RangeAllocator {
             use_type_invariant(self);
         }
         let mut lock_guard = self.freelist.lock();
-        proof! {
-            assert(lock_guard.constant().fullrange == self@);
-        }
         if lock_guard.is_none() {
             let mut freelist: BTreeMap<usize, FreeRange> = BTreeMap::new();
             freelist.insert(self.fullrange.start, FreeRange::new(self.fullrange.clone()));
