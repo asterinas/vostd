@@ -1,5 +1,34 @@
 # Verification Workflow
 
+### Inspect the owning model
+
+<!-- guideline: inspect-the-owning-model -->
+
+Start with the target and relevant sibling modules. For code under `ostd/src/`,
+inspect the corresponding `ostd/specs/` subsystem when it models the same
+concept. Follow imports and fresh verification diagnostics to decide whether a
+verified library or architecture/task model belongs in the repair.
+
+Do not inspect or modify every neighboring proof library preemptively. Search
+the active `vstd` checkout after checking the owning VOSTD model and local
+helpers, especially when the failure concerns an existing standard-library
+specification.
+
+### Verify target then repository
+
+<!-- guideline: verify-target-then-repository -->
+
+Use focused verification of the enclosing Rust module while iterating on a
+known failure. An item locator such as `path/to/file.rs::item_name` is not a
+Verus module path; resolve it to the enclosing module before invoking the
+focused command.
+
+Focused verification is partial feedback. Before finalizing proof-sensitive
+changes, run the full repository verification gate and report focused-only
+success as such when the full gate is unavailable. Use the current commands in
+[`AGENTS.md`](../../AGENTS.md#build-test-and-development-commands) rather than
+copying command lines into proof documentation.
+
 ### Verify across supported hosts
 
 <!-- guideline: verify-across-supported-hosts -->
@@ -66,3 +95,16 @@ and which configuration needs them.
 
 See also: PR [#708](https://github.com/asterinas/vostd/pull/708#issuecomment-5290616590)
 and [#708](https://github.com/asterinas/vostd/pull/708#issuecomment-5290899675).
+
+### Finish proof cleanup
+
+<!-- guideline: finish-proof-cleanup -->
+
+Before finalizing a proof-sensitive change, remove redundant assertions, stale
+proof-only bindings, obsolete comments, and empty proof blocks when verification
+does not need them. Preserve assertions that deliberately expose triggers or
+document a non-obvious boundary.
+
+Run the project formatter after cleanup, then repeat focused verification for
+the affected modules and the full repository gate. Do not infer success from a
+shell pipeline that hides the verification command's exit status.
