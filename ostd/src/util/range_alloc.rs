@@ -15,26 +15,32 @@ use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 verus! {
 
+type FreelistInitializationAuth = GhostSetAuth<()>;
+
+type FreelistInitializationRemainder = GhostSubset<()>;
+
+pub type FreelistInitializationToken = GhostPersistentSingleton<()>;
+
 tracked struct FreelistResource {
-    initialized_auth: GhostSetAuth<()>,
-    initialized_empty: GhostSubset<()>,
-    initialized_witness: Option<GhostPersistentSingleton<()>>,
+    initialized_auth: FreelistInitializationAuth,
+    initialized_remainder: FreelistInitializationRemainder,
+    initialized_witness: Option<FreelistInitializationToken>,
 }
 
-struct FreelistConstant {
+ghost struct FreelistConstant {
     fullrange: Range<int>,
     initialized_id: Loc,
 }
 
-struct FreelistInvariant;
+ghost struct FreelistInvariant;
 
 closed spec fn initialized_resource(
     constant: FreelistConstant,
     resource: FreelistResource,
 ) -> bool {
     &&& resource.initialized_auth.id() == constant.initialized_id
-    &&& resource.initialized_empty.id() == constant.initialized_id
-    &&& resource.initialized_empty@.is_empty()
+    &&& resource.initialized_remainder.id() == constant.initialized_id
+    &&& resource.initialized_remainder@.is_empty()
     &&& resource.initialized_auth@.contains(())
     &&& resource.initialized_witness is Some
     &&& resource.initialized_witness->0.id() == constant.initialized_id
@@ -49,32 +55,6 @@ closed spec fn freelist_wf(fullrange: Range<int>, freelist: Map<usize, FreeRange
         }
 }
 
-proof fn lemma_freelist_wf_remove(
-    fullrange: Range<int>,
-    freelist: Map<usize, FreeRange>,
-    key: usize,
-)
-    requires
-        freelist_wf(fullrange, freelist),
-    ensures
-        freelist_wf(fullrange, freelist.remove(key)),
-{
-}
-
-proof fn lemma_freelist_wf_insert(
-    fullrange: Range<int>,
-    freelist: Map<usize, FreeRange>,
-    key: usize,
-    value: FreeRange,
-)
-    requires
-        freelist_wf(fullrange, freelist),
-        fullrange.start <= value.block.start <= value.block.end <= fullrange.end,
-    ensures
-        freelist_wf(fullrange, freelist.insert(key, value)),
-{
-}
-
 impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant {
     type Constant = FreelistConstant;
 
@@ -86,8 +66,8 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         resource: Self::Resource,
     ) -> bool {
         &&& resource.initialized_auth.id() == constant.initialized_id
-        &&& resource.initialized_empty.id() == constant.initialized_id
-        &&& resource.initialized_empty@.is_empty()
+        &&& resource.initialized_remainder.id() == constant.initialized_id
+        &&& resource.initialized_remainder@.is_empty()
         &&& resource.initialized_auth@.contains(()) == (freelist is Some)
         &&& match resource.initialized_witness {
             Some(witness) => {
@@ -149,14 +129,14 @@ impl RangeAllocator {
             start: fullrange.start as int,
             end: fullrange.end as int,
         };
-        let tracked (initialized_auth, initialized_empty) = GhostSetAuth::new(Set::empty());
+        let tracked (initialized_auth, initialized_remainder) = GhostSetAuth::new(Set::empty());
         let ghost constant = FreelistConstant {
             fullrange: fullrange_view,
             initialized_id: initialized_auth.id(),
         };
         let tracked resource = FreelistResource {
             initialized_auth,
-            initialized_empty,
+            initialized_remainder,
             initialized_witness: None,
         };
         Self { fullrange, freelist: SpinLock::new(None, Ghost(constant), Tracked(resource)) }
@@ -178,7 +158,7 @@ impl RangeAllocator {
     /// Allocates a specific kernel virtual area.
     #[verus_spec(res =>
         with
-            -> initialized: Tracked<GhostPersistentSingleton<()>>,
+            -> initialized: Tracked<FreelistInitializationToken>,
         requires
             self@.start <= allocate_range.start < allocate_range.end <= self@.end,
         ensures
@@ -191,7 +171,7 @@ impl RangeAllocator {
         debug_assert!(allocate_range.start < allocate_range.end);
 
         proof_decl! {
-            let tracked initialized: GhostPersistentSingleton<()>;
+            let tracked initialized: FreelistInitializationToken;
         }
         let mut lock_guard = #[verus_spec(with => Tracked(initialized))]
         self.get_freelist_guard();
@@ -201,20 +181,16 @@ impl RangeAllocator {
         let mut right_length = 0;
 
         #[verus_spec(invariant
-                self@.start <= allocate_range.start,
-                allocate_range.end <= self@.end,
+                self@.start <= allocate_range.start < allocate_range.end <= self@.end,
                 right_length <= usize::MAX - allocate_range.end,
                 freelist_wf(self@, freelist@),
-                target_node is Some ==> freelist@.contains_key(target_node->0),
-                target_node is Some ==>
-                    freelist@[target_node->0].block.start <= allocate_range.start,
-                target_node is Some ==>
-                    allocate_range.end <= freelist@[target_node->0].block.end,
-                target_node is Some ==>
-                    left_length == allocate_range.start
-                        - freelist@[target_node->0].block.start,
-                target_node is Some ==>
-                    right_length == freelist@[target_node->0].block.end - allocate_range.end,
+                target_node matches Some(target_key) ==> {
+                    &&& freelist@.contains_key(target_key)
+                    &&& freelist@[target_key].block.start <= allocate_range.start
+                        < allocate_range.end <= freelist@[target_key].block.end
+                    &&& left_length == allocate_range.start - freelist@[target_key].block.start
+                    &&& right_length == freelist@[target_key].block.end - allocate_range.end
+                },
         )]
         for (key, value) in freelist.iter() {
             if value.block.end >= allocate_range.end && value.block.start <= allocate_range.start {
@@ -226,40 +202,24 @@ impl RangeAllocator {
         }
 
         if let Some(key) = target_node {
-            proof_decl! { let ghost old_freelist = freelist@; }
             if left_length == 0 {
                 freelist.remove(&key);
                 proof! {
-                    lemma_freelist_wf_remove(self@, old_freelist, key);
                     assert(freelist_wf(self@, freelist@));
                 }
             } else if let Some(freenode) = freelist.get_mut(&key) {
                 freenode.block.end = allocate_range.start;
                 proof! {
-                    lemma_freelist_wf_remove(self@, old_freelist, key);
-                    lemma_freelist_wf_insert(
-                        self@,
-                        old_freelist.remove(key),
-                        key,
-                        freelist@[key],
-                    );
                     assert(freelist_wf(self@, freelist@));
                 }
             }
 
             if right_length != 0 {
-                proof_decl! { let ghost old_freelist = freelist@; }
                 freelist.insert(
                     allocate_range.end,
                     FreeRange::new(allocate_range.end..(allocate_range.end + right_length)),
                 );
                 proof! {
-                    lemma_freelist_wf_insert(
-                        self@,
-                        old_freelist,
-                        allocate_range.end,
-                        freelist@[allocate_range.end],
-                    );
                     assert(freelist_wf(self@, freelist@));
                 }
             }
@@ -284,7 +244,7 @@ impl RangeAllocator {
     /// This is currently implemented with a simple FIRST-FIT algorithm.
     #[verus_spec(res =>
         with
-            -> initialized: Tracked<GhostPersistentSingleton<()>>,
+            -> initialized: Tracked<FreelistInitializationToken>,
         requires self@.start <= self@.end,
         ensures
             res is Ok ==> (res->Ok_0.end - res->Ok_0.start == size),
@@ -295,7 +255,7 @@ impl RangeAllocator {
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         proof_decl! {
-            let tracked initialized: GhostPersistentSingleton<()>;
+            let tracked initialized: FreelistInitializationToken;
         }
         let mut lock_guard = #[verus_spec(with => Tracked(initialized))]
         self.get_freelist_guard();
@@ -307,14 +267,17 @@ impl RangeAllocator {
         let mut allocate_range: Option<Range<usize>> = None;
         let mut to_remove: Option<usize> = None;
         #[verus_spec(invariant
-                allocate_range is Some ==> allocate_range->0.end - allocate_range->0.start == size,
-                allocate_range is Some ==> self@.start <= allocate_range->0.start,
-                allocate_range is Some ==> allocate_range->0.end <= self@.end,
-                to_remove is Some ==> allocate_range is Some,
-                to_remove is Some ==> freelist@.contains_key(to_remove->0),
-                to_remove is Some ==>
-                    freelist@[to_remove->0].block.start <= allocate_range->0.start,
-                to_remove is Some ==> freelist@[to_remove->0].block.end == allocate_range->0.end,
+                allocate_range matches Some(range) ==> {
+                    &&& range.end - range.start == size
+                    &&& self@.start <= range.start
+                    &&& range.end <= self@.end
+                },
+                to_remove matches Some(key) ==> {
+                    &&& allocate_range is Some
+                    &&& freelist@.contains_key(key)
+                    &&& freelist@[key].block.start <= allocate_range->0.start
+                    &&& freelist@[key].block.end == allocate_range->0.end
+                },
                 freelist_wf(self@, freelist@),
         )]
         for (key, value) in freelist.iter() {
@@ -330,12 +293,10 @@ impl RangeAllocator {
         }
 
         if let Some(key) = to_remove {
-            proof_decl! { let ghost old_freelist = freelist@; }
             if let Some(freenode) = freelist.get_mut(&key) {
                 if freenode.block.end - size == freenode.block.start {
                     freelist.remove(&key);
                     proof! {
-                        lemma_freelist_wf_remove(self@, old_freelist, key);
                         assert(freelist_wf(self@, freelist@));
                     }
                 } else {
@@ -343,13 +304,6 @@ impl RangeAllocator {
                     proof! {
                         let block = freelist@[key].block;
                         assert(self@.start <= block.start <= block.end <= self@.end);
-                        lemma_freelist_wf_remove(self@, old_freelist, key);
-                        lemma_freelist_wf_insert(
-                            self@,
-                            old_freelist.remove(key),
-                            key,
-                            freelist@[key],
-                        );
                         assert(freelist_wf(self@, freelist@));
                     }
                 }
@@ -373,11 +327,13 @@ impl RangeAllocator {
     /// Frees a `range`.
     #[verus_spec(
         with
-            Tracked(initialized): Tracked<Option<GhostPersistentSingleton<()>>>,
+            Tracked(initialized): Tracked<Option<FreelistInitializationToken>>,
         requires
             self@.start <= range.start <= range.end <= self@.end,
-            initialized is Some ==> initialized->0.id() == self.initialized_id(),
-            initialized is Some ==> initialized->0@ == (),
+            initialized matches Some(token) ==> {
+                &&& token.id() == self.initialized_id()
+                &&& token@ == ()
+            },
             initialized is None ==> may_panic(),
     )]
     pub fn free(&self, range: Range<usize>) {
@@ -390,8 +346,6 @@ impl RangeAllocator {
         }
         proof_decl! {
             let ghost lock_value = lock_guard@;
-        }
-        proof_decl! {
             let tracked resource: &mut FreelistResource;
         }
         #[verus_spec(with => Tracked(resource))]
@@ -424,23 +378,14 @@ impl RangeAllocator {
             if prev_node.block.end == free_range.start {
                 let prev_va = *prev_va;
                 free_range.start = prev_node.block.start;
-                proof_decl! { let ghost old_freelist = freelist@; }
                 freelist.remove(&prev_va);
                 proof! {
-                    lemma_freelist_wf_remove(self@, old_freelist, prev_va);
                     assert(freelist_wf(self@, freelist@));
                 }
             }
         }
-        proof_decl! { let ghost old_freelist = freelist@; }
         freelist.insert(free_range.start, FreeRange::new(free_range.clone()));
         proof! {
-            lemma_freelist_wf_insert(
-                self@,
-                old_freelist,
-                free_range.start,
-                freelist@[free_range.start],
-            );
             assert(freelist_wf(self@, freelist@));
         }
 
@@ -458,22 +403,12 @@ impl RangeAllocator {
                         core::ops::Bound::Excluded(&free_range.start),
                     ));
                 }
-                proof_decl! { let ghost old_freelist = freelist@; }
                 freelist.remove(&next_va);
                 proof! {
-                    lemma_freelist_wf_remove(self@, old_freelist, next_va);
                     assert(freelist_wf(self@, freelist@));
                 }
-                proof_decl! { let ghost old_freelist = freelist@; }
                 freelist.get_mut(&free_range.start).unwrap().block.end = free_range.end;
                 proof! {
-                    lemma_freelist_wf_remove(self@, old_freelist, free_range.start);
-                    lemma_freelist_wf_insert(
-                        self@,
-                        old_freelist.remove(free_range.start),
-                        free_range.start,
-                        freelist@[free_range.start],
-                    );
                     assert(freelist_wf(self@, freelist@));
                 }
             }
@@ -487,7 +422,7 @@ impl RangeAllocator {
 
     #[verus_spec(ret =>
         with
-            -> initialized: Tracked<GhostPersistentSingleton<()>>,
+            -> initialized: Tracked<FreelistInitializationToken>,
         requires self@.start <= self@.end,
         ensures
             ret@ is Some,
@@ -515,7 +450,7 @@ impl RangeAllocator {
         }
         proof_decl! {
             let tracked resource: &mut FreelistResource;
-            let tracked initialized: GhostPersistentSingleton<()>;
+            let tracked initialized: FreelistInitializationToken;
         }
         #[verus_spec(with => Tracked(resource))]
         lock_guard.tracked_borrow_mut_resource();
