@@ -44,7 +44,7 @@ pub(crate) mod kvirt_area;
 mod test;
 
 use super::{
-    Paddr, PagingConstsTrait, Vaddr,
+    CurrentPagingConstsTrait, Paddr, PagingConstsTrait, Vaddr,
     frame::{
         Frame, Segment,
         meta::{AnyFrameMeta, MetaPageMeta, MetaSlot, mapping},
@@ -177,6 +177,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         use crate::mm::nr_subpage_per_huge;
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
         Self::C::lemma_paging_consts_properties();
+        Self::C::lemma_current_paging_consts_requirements();
         PageTableEntry::lemma_layout();
         lemma2_to64();
         lemma2_to64_rest();

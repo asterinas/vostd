@@ -34,7 +34,7 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    CurrentPagingConstsTrait, MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
@@ -2369,6 +2369,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 {
     C::lemma_paging_consts_properties();
+    C::lemma_current_paging_consts_requirements();
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
 

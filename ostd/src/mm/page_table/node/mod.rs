@@ -72,6 +72,7 @@ use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 
 use crate::{
     mm::{
+        CurrentPagingConstsTrait,
         PagingConstsTrait,
         PagingLevel,
         //        FrameAllocOptions, Infallible,
@@ -174,6 +175,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_paging_consts_properties();
+            C::lemma_current_paging_consts_requirements();
             C::lemma_page_table_config_constant_properties();
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range.start as int,
@@ -217,6 +219,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         proof {
             C::lemma_page_table_config_constant_properties();
             C::lemma_paging_consts_properties();
+            C::lemma_current_paging_consts_requirements();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
                 size_of_e,
                 NR_ENTRIES as int,
@@ -999,11 +1002,10 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         ensures
             ({
                 let pte = Self::walk_pte_at_view(view, c);
-                pte.is_present() && pte.is_last(self.level) ==> C::raw_item_well_formed(
-                    pte.paddr(),
-                    self.level,
-                    pte.prop(),
-                )
+                pte.is_present() && pte.is_last(self.level) ==> {
+                    &&& valid_frame_paddr(pte.paddr())
+                    &&& C::raw_item_well_formed(pte.paddr(), self.level, pte.prop())
+                }
             }),
     {
     }
@@ -1058,8 +1060,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             }
     }
 
-    /// Every present leaf PTE encountered by the drop walk contains a canonical
-    /// raw item for the node's paging level.
+    /// Every present leaf PTE encountered by the drop walk contains a valid
+    /// frame address and a canonical raw item for the node's paging level.
     pub open spec fn walk_items_well_formed_from_view(
         self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
@@ -1072,11 +1074,10 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 C::E,
             >() as int == 0 ==> {
                 let pte = Self::walk_pte_at_view(view, c);
-                pte.is_present() && pte.is_last(self.level) ==> C::raw_item_well_formed(
-                    pte.paddr(),
-                    self.level,
-                    pte.prop(),
-                )
+                pte.is_present() && pte.is_last(self.level) ==> {
+                    &&& valid_frame_paddr(pte.paddr())
+                    &&& C::raw_item_well_formed(pte.paddr(), self.level, pte.prop())
+                }
             }
     }
 

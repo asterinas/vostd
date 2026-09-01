@@ -10,6 +10,8 @@ pub mod arch;
 #[allow(rustdoc::invalid_rust_codeblocks)]
 #[allow(rustdoc::invalid_html_tags)]
 pub mod mm;
+#[path = "arch/riscv/mod.rs"]
+pub mod riscv_arch;
 #[allow(unused_parens)]
 #[allow(unused_braces)]
 mod sync;
