@@ -7,12 +7,6 @@ use crate::{bus::pci::PciDeviceLocation, io::IoPort, prelude::*};
 
 verus! {
 
-/// x86 is little-endian, so converting a native-endian `u32` to little endian is the identity.
-pub assume_specification[ u32::to_le ](value: u32) -> (result: u32)
-    ensures
-        result == value,
-;
-
 exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess>
     ensures
         PCI_ADDRESS_PORT.well_formed(),

@@ -670,6 +670,7 @@ dependencies = [
 name = "vstd_extra"
 version = "0.1.0"
 dependencies = [
+ "id-alloc",
  "vstd",
  "x86_64",
 ]
