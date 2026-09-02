@@ -5,6 +5,8 @@ use alloc::sync::Arc;
 use vstd::layout::valid_layout;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 
 // A unified interface for the raw ptr permission returned by `into_raw` methods of smart pointers like `Box` and `Arc`.
 verus! {
@@ -61,6 +63,18 @@ pub tracked struct BoxPointsTo<T> {
 /// See <https://doc.rust-lang.org/src/alloc/sync.rs.html#1480>.
 pub tracked struct ArcPointsTo<T: 'static> {
     pub perm: &'static PointsTo<T>,
+}
+
+// Raw-memory ownership is global state and does not depend on a thread's
+// subjective weak-memory view.
+#[cfg(feature = "irc11")]
+unsafe impl<T> Objective for BoxPointsTo<T> {
+
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T> Objective for ArcPointsTo<T> {
+
 }
 
 impl<T> BoxPointsTo<T> {

@@ -1,3 +1,5 @@
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{
     atomic_with_ghost,
     cell::pcell::{PCell, PointsTo},
@@ -25,6 +27,11 @@ pub tracked enum OnceState<V: 'static> {
     /// The cell is initialized with a value and extended with
     /// static lifetime.
     Init(&'static PointsTo<Option<V>>),
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<V> Objective for OnceState<V> {
+
 }
 
 /// A [`Predicate`] is something you're gonna preserve during the lifetime

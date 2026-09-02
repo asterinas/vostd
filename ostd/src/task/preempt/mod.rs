@@ -2,6 +2,8 @@
 // pub(super) mod cpu_local;
 mod guard;
 
+#[cfg(feature = "irc11")]
+pub use self::guard::RunningTaskContext;
 pub use self::guard::{DisabledPreemptGuard, disable_preempt};
 /*
 /// Halts the CPU until interrupts if no preemption is required.

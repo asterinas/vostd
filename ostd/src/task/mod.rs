@@ -22,6 +22,8 @@ use kernel_stack::KernelStack;
 use processor::current_task;*/
 use spin::Once;
 // use utils::ForceSync;
+#[cfg(feature = "irc11")]
+pub use self::preempt::RunningTaskContext;
 pub use self::{
     preempt::{DisabledPreemptGuard, disable_preempt},
     /* scheduler::info::{AtomicCpuId, TaskScheduleInfo}, */

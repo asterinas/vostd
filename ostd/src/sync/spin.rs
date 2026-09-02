@@ -2,6 +2,8 @@
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*};
 use vstd::prelude::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd_extra::prelude::*;
 
 use core::{
@@ -22,6 +24,11 @@ verus! {
 tracked struct SpinLockResource<T, I: ResourceInvariant<T>> {
     perm: PointsTo<T>,
     resource: I::Resource,
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T, I: ResourceInvariant<T>> Objective for SpinLockResource<T, I> {
+
 }
 
 impl<T, I: ResourceInvariant<T>> SpinLockResource<T, I> {
