@@ -82,6 +82,7 @@ impl IoMemAllocator {
     #[verus_spec(ret =>
         requires
             windows_ordered(allocators@),
+            windows_match_registered(allocators@),
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }
@@ -107,6 +108,7 @@ impl IoMemAllocatorBuilder {
     #[verus_spec(ret =>
         requires
             usize_ranges_ordered(ranges@),
+            usize_ranges_match_registered(ranges@),
         ensures
             ret.type_inv(),
     )]
@@ -124,6 +126,9 @@ impl IoMemAllocatorBuilder {
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
                 usize_ranges_ordered(it.seq()),
+                usize_ranges_match_registered(it.seq()),
+                forall|j: int| 0 <= j < it.index() ==>
+                    allocators@[j]@ == registered_io_mem_windows()[j],
                 windows_ordered(allocators@),
         )]
         for range in ranges {
@@ -133,6 +138,8 @@ impl IoMemAllocatorBuilder {
             allocators.push(RangeAllocator::new(range));
             proof! {
                 assert(allocators@[allocators@.len() - 1]@.start == range.start);
+                assert(range.start == registered_io_mem_windows()[it.index()].start);
+                assert(range.end == registered_io_mem_windows()[it.index()].end);
                 assert forall|i: int|
                     0 <= i < allocators@.len() - 1
                     implies allocators@[i]@.end <= range.start by {
@@ -141,6 +148,10 @@ impl IoMemAllocatorBuilder {
                 }
                 assert(windows_ordered(allocators@));
             }
+        }
+        proof! {
+            assert(allocators@.len() == registered_io_mem_windows().len());
+            assert(windows_match_registered(allocators@));
         }
         Self { allocators }
     }
@@ -190,11 +201,31 @@ pub open spec fn usize_ranges_ordered(ranges: Seq<Range<usize>>) -> bool {
     forall|i: int, j: int| 0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start
 }
 
+/// The abstract MMIO windows registered by platform boot code.
+pub uninterp spec fn registered_io_mem_windows() -> Seq<Range<int>>;
+
+/// The concrete range allocators represent the abstract boot-time windows exactly.
+pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bool {
+    &&& allocators.len() == registered_io_mem_windows().len()
+    &&& forall|i: int|
+        0 <= i < allocators.len() ==> allocators[i]@ == registered_io_mem_windows()[i]
+}
+
+/// The ranges passed across the unsafe builder boundary represent the abstract windows.
+pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> bool {
+    &&& ranges.len() == registered_io_mem_windows().len()
+    &&& forall|i: int|
+        0 <= i < ranges.len() ==> {
+            &&& ranges[i].start == registered_io_mem_windows()[i].start
+            &&& ranges[i].end == registered_io_mem_windows()[i].end
+        }
+}
+
 impl IoMemAllocatorBuilder {
     /// The builder always holds the ordered windows handed to [`IoMemAllocatorBuilder::new`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        windows_ordered(self.allocators@)
+        windows_ordered(self.allocators@) && windows_match_registered(self.allocators@)
     }
 }
 
@@ -202,7 +233,7 @@ impl IoMemAllocator {
     /// The allocator inherits the ordered windows of the builder it was built from.
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        windows_ordered(self.allocators@)
+        windows_ordered(self.allocators@) && windows_match_registered(self.allocators@)
     }
 }
 
@@ -212,17 +243,16 @@ pub proof fn lemma_registered_window(windows: &Vec<RangeAllocator>, range: Range
     int)
     requires
         windows_ordered(windows@),
+        windows_match_registered(windows@),
         io_mem_range_registered(range),
     ensures
         0 <= idx < windows@.len(),
         windows@[idx]@.start <= range.start && range.end <= windows@[idx]@.end,
 {
-    assume(exists|m: int|
-        0 <= m < windows@.len() && windows@[m]@.start <= range.start && range.end
-            <= windows@[m]@.end);
     let idx = choose|m: int|
-        0 <= m < windows@.len() && windows@[m]@.start <= range.start && range.end
-            <= windows@[m]@.end;
+        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
+            <= range.start && range.end <= registered_io_mem_windows()[m].end;
+    assert(windows@[idx]@ == registered_io_mem_windows()[idx]);
     idx
 }
 
@@ -236,6 +266,7 @@ pub proof fn lemma_found_window_contains(
 )
     requires
         windows_ordered(windows@),
+        windows_match_registered(windows@),
         io_mem_range_registered(*range),
         found@.start < range.end && found@.end > range.start,
         exists|k: int| 0 <= k < windows@.len() && windows@[k]@ == found@,
@@ -257,14 +288,12 @@ pub proof fn lemma_found_window_contains(
     }
 }
 
-/// Trusted boot-state fact required before allocating or removing a `range`.
-///
-/// Verus cannot mention an exec static in a specification, so this predicate is the explicit
-/// specification boundary for the boot-time guarantee that `range` lies within a single window
-/// registered by the boot builder. Combined with the ordered-window invariant
-/// ([`IoMemAllocator::type_inv`]) it yields exactly what [`RangeAllocator::alloc_specific`]
-/// requires; see [`IoMemAllocator::lemma_found_window_contains`].
-pub uninterp spec fn io_mem_range_registered(range: Range<usize>) -> bool;
+/// A range is registered when one abstract boot-time MMIO window contains it.
+pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
+    exists|m: int|
+        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
+            <= range.start && range.end <= registered_io_mem_windows()[m].end
+}
 
 pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialPred>
     ensures
