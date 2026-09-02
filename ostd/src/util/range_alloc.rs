@@ -3,7 +3,7 @@ use vstd::{prelude::*, resource::Loc};
 use vstd_extra::{
     debug_assert,
     external::btree::*,
-    panic::{UnwrapOrPanic, may_panic},
+    panic::UnwrapOrPanic,
     resource::flags::{OneShotPending, OneShotSet},
     resource_invariant::ResourceInvariant,
     sum::Sum,
@@ -264,11 +264,10 @@ impl RangeAllocator {
     /// Frees a `range`.
     #[verus_spec(
         with
-            Tracked(initialized): Tracked<Option<OneShotSet>>,
+            Tracked(initialized): Tracked<OneShotSet>,
         requires
             self@.start <= range.start <= range.end <= self@.end,
-            initialized matches Some(token) ==> token.id() == self.initialized_id(),
-            initialized is None ==> may_panic(),
+            initialized.id() == self.initialized_id(),
     )]
     pub fn free(&self, range: Range<usize>) {
         proof! {
@@ -281,11 +280,8 @@ impl RangeAllocator {
         #[verus_spec(with => Tracked(resource))]
         lock_guard.tracked_borrow_mut_resource();
         proof! {
-            if initialized is Some {
-                let tracked initialized = initialized.tracked_unwrap();
-                if *resource is Left {
-                    resource.tracked_borrow_left().incompatible(&initialized);
-                }
+            if *resource is Left {
+                resource.tracked_borrow_left().incompatible(&initialized);
             }
         }
         /* let freelist = lock_guard.as_mut().unwrap_or_else(|| {
