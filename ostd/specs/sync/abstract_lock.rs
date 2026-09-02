@@ -330,6 +330,12 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     let inv_not_locked_iff_no_cs_closure = StatePred::new(
         |s: ProgramState| s.inv_not_locked_iff_no_cs(),
     );
+    assert forall|s: ProgramState| #[trigger]
+        init(n).apply(s) implies inv_not_locked_iff_no_cs_closure.apply(s) by {
+        let in_cs_or_unlock = |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock;
+
+        let filtered = s.ProcSet.filter(in_cs_or_unlock);
+    };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
         acquire_lock(tid).apply(s, s_prime) && s.inv_unchanged(n)
             && pc_stack_match_state_pred.apply(s)
@@ -369,9 +375,6 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
         ).insert(tid));
     };
 
-    assert(forall|s: ProgramState, s_prime: ProgramState| #[trigger]
-        next().apply(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred.apply(s)
-            && s.inv_not_locked_iff_no_cs() ==> s_prime.inv_not_locked_iff_no_cs());
     implies_new_invariant_n!(spec, init(n), next(), inv_not_locked_iff_no_cs_closure, inv_unchanged_state_pred, pc_stack_match_state_pred);
 }
 
