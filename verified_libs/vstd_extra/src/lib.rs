@@ -29,6 +29,8 @@ pub mod ghost_tree;
 pub mod ownership;
 pub mod panic;
 pub mod resource;
+#[cfg(feature = "irc11")]
+pub mod scheduler_thread_view;
 
 #[macro_use]
 pub mod trans_macros;
@@ -36,6 +38,8 @@ pub mod map_extra;
 
 pub mod prelude;
 pub mod raw_ptr_extra;
+pub mod rcu_read_lease;
+pub mod resource_invariant;
 pub mod seq_extra;
 pub mod set_extra;
 pub mod spec_operators;

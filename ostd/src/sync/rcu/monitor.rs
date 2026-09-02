@@ -87,7 +87,7 @@ impl Inv for GracePeriod {
 impl RcuMonitor {
     /// Creates a new RCU monitor.
     pub(super) fn new() -> Self {
-        let state = SpinLock::new(State::new());
+        let state = SpinLock::new(State::new(), Ghost(()), Tracked(()));
         proof {
             use_type_invariant(&state);
         }
@@ -179,7 +179,7 @@ impl RcuMonitor {
     pub(super) fn new() -> Self {
         Self {
             is_monitoring: AtomicBool::new(false),
-            state: SpinLock::new(State::new()),
+            state: SpinLock::new(State::new(), Ghost(()), Tracked(())),
         }
     }
 

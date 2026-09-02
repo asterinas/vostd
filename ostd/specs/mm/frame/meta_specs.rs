@@ -101,12 +101,8 @@ impl MetaSlot {
         }
     }
 
-    /// Permission-location clause: the extracted slot perm was *re-parked* into
-    /// `regions.slots`, so the domain is preserved and every other slot's perm
-    /// is untouched. Callers that re-park (see
-    /// [`crate::mm::frame::Frame::from_unused`] — it hands the perm back via the
-    /// `perm` out-param and re-inserts it) pair this with [`get_from_unused_spec`]
-    /// (the `slot_owners` transition) to fully describe the Design-B post-state.
+    /// Permission-location clause for the static `MetaSlot` permissions.
+    /// Only the slot at `paddr` is changed.
     pub open spec fn slot_perm_reparked_spec(
         paddr: Paddr,
         pre: MetaRegionOwners,
@@ -187,15 +183,7 @@ impl MetaSlot {
     pub open spec fn drop_last_in_place_safety_cond(owner: MetaSlotOwner) -> bool {
         &&& (owner.ref_count() == 0 || owner.ref_count() == REF_COUNT_UNIQUE)
         &&& owner.storage_perm().is_init()
-        &&& owner.in_list_perm.value()
-            == 0
-        // The slot is torn down to `REF_COUNT_UNUSED`; the strengthened
-        // `MetaSlotOwner::inv` UNUSED branch requires an empty
-        // `paths_in_pt`, and `drop_last_in_place` does not touch
-        // `paths_in_pt`, so it must already be empty. Sound: a slot at
-        // the teardown point has no live PTE mapping (a mapping is a
-        // reference — it would keep the count above the teardown
-        // threshold).
+        &&& owner.in_list_perm.value() == 0
         &&& owner.paths_in_pt.is_empty()
     }
 
