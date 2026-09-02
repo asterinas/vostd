@@ -59,7 +59,6 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
 #[verus_verify]
 pub struct RangeAllocator {
     fullrange: Range<usize>,
-    // TODO: PreemptDisabled added, SpinLock should be improved.
     freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled, FreelistInvariant>,
 }
 
@@ -75,7 +74,6 @@ broadcast use {group_btree_extra_axioms, vstd::std_specs::btree::group_btree_axi
 impl View for RangeAllocator {
     type V = Range<int>;
 
-    /// Specification view of the allocator's managed full range.
     closed spec fn view(&self) -> Range<int> {
         Range { start: self.fullrange.start as int, end: self.fullrange.end as int }
     }
@@ -102,12 +100,13 @@ impl RangeAllocator {
             start: fullrange.start as int,
             end: fullrange.end as int,
         };
-        let tracked initialized = OneShotPending::new();
+        let tracked initialized = OneShotPending::alloc();
         let ghost constant = FreelistConstant {
             fullrange: fullrange_view,
             initialized_id: initialized.id(),
         };
         let tracked resource = Sum::Left(initialized);
+
         Self { fullrange, freelist: SpinLock::new(None, Ghost(constant), Tracked(resource)) }
     }
 }
@@ -131,8 +130,7 @@ impl RangeAllocator {
         requires
             self@.start <= allocate_range.start < allocate_range.end <= self@.end,
         ensures
-            res is Ok ==> (self@.start <= allocate_range.start
-                && allocate_range.end <= self@.end),
+            res is Ok ==> self@.start <= allocate_range.start < allocate_range.end <= self@.end,
             initialized@.id() == self.initialized_id(),
     )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
@@ -202,9 +200,10 @@ impl RangeAllocator {
             -> initialized: Tracked<OneShotSet>,
         requires self@.start <= self@.end,
         ensures
-            res is Ok ==> (res->Ok_0.end - res->Ok_0.start == size),
-            res is Ok ==> (self@.start <= res->Ok_0.start
-                && res->Ok_0.end <= self@.end),
+            res matches Ok(res) ==> {
+                &&& res.end - res.start == size
+                &&& self@.start <= res.start <= res.end <= self@.end
+            },
             initialized@.id() == self.initialized_id(),
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
@@ -264,7 +263,7 @@ impl RangeAllocator {
     /// Frees a `range`.
     #[verus_spec(
         with
-            Tracked(initialized): Tracked<OneShotSet>,
+            Tracked(initialized): Tracked<&OneShotSet>,
         requires
             self@.start <= range.start <= range.end <= self@.end,
             initialized.id() == self.initialized_id(),
@@ -275,13 +274,9 @@ impl RangeAllocator {
         }
         let mut lock_guard = self.freelist.lock();
         proof_decl! {
-            let tracked resource: &mut Sum<OneShotPending, OneShotSet>;
-        }
-        #[verus_spec(with => Tracked(resource))]
-        lock_guard.tracked_borrow_mut_resource();
-        proof! {
+            let tracked resource = lock_guard.tracked_borrow_mut_resource();
             if *resource is Left {
-                resource.tracked_borrow_left().incompatible(&initialized);
+                resource.tracked_borrow_left().incompatible(initialized);
             }
         }
         /* let freelist = lock_guard.as_mut().unwrap_or_else(|| {
@@ -350,15 +345,14 @@ impl RangeAllocator {
             let mut freelist: BTreeMap<usize, FreeRange> = BTreeMap::new();
             freelist.insert(self.fullrange.start, FreeRange::new(self.fullrange.clone()));
             *lock_guard = Some(freelist);
+            proof_decl! {
+                let tracked resource = lock_guard.tracked_borrow_mut_resource();
+                let tracked  pending = resource.tracked_swap_left(OneShotPending::alloc());
+                *resource = Sum::Right(pending.set());
+            }
         }
         proof_decl! {
-            let tracked resource: &mut Sum<OneShotPending, OneShotSet>;
-            let tracked initialized: OneShotSet;
-        }
-        #[verus_spec(with => Tracked(resource))]
-        lock_guard.tracked_borrow_mut_resource();
-        proof! {
-            initialized = resource.tracked_ensure_set();
+            let tracked initialized = lock_guard.tracked_borrow_mut_resource().tracked_borrow_right().duplicate();
         }
         #[verus_spec(with |= Tracked(initialized))]
         lock_guard
