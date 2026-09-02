@@ -15,6 +15,7 @@ std = ["vstd/std"]
 
 [dependencies]
 vstd = { workspace = true }
+id-alloc = { path = "../../ostd/libs/id-alloc" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = "0.14.13"

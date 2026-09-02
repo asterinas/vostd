@@ -5,6 +5,7 @@
 pub mod btree;
 pub mod convert;
 pub mod deref;
+pub mod id_alloc;
 pub mod ilog2;
 pub mod int_specs;
 #[cfg(target_arch = "x86_64")]
@@ -17,6 +18,7 @@ pub mod smart_ptr;
 pub mod time;
 
 pub use btree::*;
+pub use id_alloc::*;
 pub use ilog2::*;
 pub use int_specs::*;
 #[cfg(target_arch = "x86_64")]
