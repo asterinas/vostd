@@ -181,7 +181,7 @@ pub struct IoPortAllocator {
     ///
     /// Instead of using `RangeAllocator` like `IoMemAllocator` does, it is more reasonable to use `IdAlloc`,
     /// as PIO space includes only a small region; for example, x86 module in OSTD allows just 65536 I/O ports.
-    allocator: SpinLock<IoPortAllocatorInner, LocalIrqDisabled>,
+    allocator: SpinLock</* Original Rust: IdAlloc */ IoPortAllocatorInner, LocalIrqDisabled>,
 }
 
 #[verus_verify]
@@ -209,7 +209,8 @@ impl IoPortAllocator {
             use_type_invariant(&*allocator_inner);
         }
         let mut range = port..(port + size_of::<T>() as u16);
-        // `Iterator::any` with a capturing closure is not supported by Verus. Original Rust:
+        // `Iterator::any` with a capturing closure is not supported by Verus.
+        // Original Rust:
         // if range.any(|i| allocator.is_allocated(i as usize)) { return None; }
         let mut already_allocated = false;
         #[verus_spec(scan_iter =>
@@ -319,6 +320,7 @@ impl IoPortAllocator {
                 Ghost(allocator_inner.tracked_allocated@.instance_id()),
                 Ghost(allocator_inner.tracked_allocated@.value()),
             )]
+            /* Original Rust: allocator.alloc_specific(i as usize); */
             let _ = allocator_inner.allocator.alloc_specific(i as usize);
             proof! {
                 lemma_port_id_set_insert(range.start as usize, i as usize);
@@ -336,6 +338,7 @@ impl IoPortAllocator {
         }
 
         // SAFETY: The created IoPort is guaranteed not to access system device I/O
+        /* Original Rust: unsafe { Some(IoPort::new(port)) } */
         let result = unsafe { Some(IoPort::new(port)) };
         allocator.drop();
         proof_with!(|= Tracked(Some(range_claim)));
@@ -357,6 +360,11 @@ impl IoPortAllocator {
     )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<u16>) {
         /* debug!("Recycling MMIO range: {:#x?}", range); */
+        /* Original Rust:
+        self.allocator
+            .lock()
+            .free_consecutive(range.start as usize..range.end as usize);
+        */
 
         let mut allocator = self.allocator.lock();
         let allocator_inner = &mut *allocator;
@@ -435,6 +443,10 @@ pub(crate) unsafe fn init() {
         }
     }
 
+    /* Original Rust:
+    IO_PORT_ALLOCATOR.call_once(|| IoPortAllocator {
+        allocator: SpinLock::new(allocator),
+    }); */
     IO_PORT_ALLOCATOR.call_once(|| {
         proof_decl! {
             let tracked allocated = IoPortAllocation::initialize();
@@ -444,7 +456,6 @@ pub(crate) unsafe fn init() {
             #[cfg(verus_keep_ghost_body)]
             tracked_allocated: Tracked::new(allocated),
         };
-        // Original Rust: `IoPortAllocator { allocator: SpinLock::new(allocator) }`.
         IoPortAllocator {
             allocator: SpinLock::new(inner, Ghost::new(()), Tracked::new(())),
         }

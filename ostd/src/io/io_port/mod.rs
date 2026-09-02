@@ -126,6 +126,7 @@ impl<T, A> IoPort<T, A> {
             let tracked claim: Option<allocator::IoPortClaim>;
         }
         #[verus_spec(with => Tracked(claim))]
+        /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
         let port = initialized_allocator().acquire(port);
         let result = port.ok_or(Error::AccessDenied);
         proof_with!(|= Tracked(claim));

@@ -40,6 +40,11 @@ impl IoMemAllocator {
                 == vstd_extra::external::range::range_usize_len_spec(&range),
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
+        /* Original Rust:
+        find_allocator(&self.allocators, &range)?
+            .alloc_specific(&range)
+            .ok()?;
+        */
         let allocator = find_allocator(&self.allocators, &range)?;
         proof! {
             use_type_invariant(self);
@@ -55,7 +60,7 @@ impl IoMemAllocator {
         /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
-        // Original Rust used the upstream bitflags-style associated constant `PageFlags::RW`.
+        /* Original Rust: PageFlags::RW */
         unsafe { Some(IoMem::new(range, PageFlags::RW(), CachePolicy::Uncacheable)) }
     }
 
@@ -166,8 +171,22 @@ impl IoMemAllocatorBuilder {
             io_mem_range_registered(range),
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
-        // Formatting machinery used by the original panic is not modeled by Verus.
-        // Original Rust used two formatted `panic!` branches here.
+        /* Formatting machinery used by the original panic is not modeled by Verus.
+        Original Rust:
+        let Some(allocator) = find_allocator(&self.allocators, &range) else {
+            panic!(
+                "Allocator for the system device's MMIO was not found. Range: {:x?}",
+                range
+            );
+        };
+
+        if let Err(err) = allocator.alloc_specific(&range) {
+            panic!(
+                "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
+                range, err
+            );
+        }
+        */
         let allocator = find_allocator(&self.allocators, &range);
         vstd_extra::assert!(allocator.is_some());
         let allocator = allocator.unwrap();
@@ -185,6 +204,7 @@ impl IoMemAllocatorBuilder {
 }
 
 /// The I/O Memory allocator of the system.
+// Original Rust: pub static IO_MEM_ALLOCATOR: Once<IoMemAllocator> = Once::new();
 verus! {
 
 broadcast use vstd::std_specs::vec::group_vec_axioms;
@@ -324,6 +344,7 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
         use_type_invariant(&io_mem_builder);
     }
     // SAFETY: The safety is upheld by the caller.
+    // Original Rust: IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
     IO_MEM_ALLOCATOR.init(unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
 }
 
@@ -343,8 +364,8 @@ fn find_allocator<'a>(
 ) -> Option<&'a RangeAllocator> {
     for allocator in allocators.iter() {
         let allocator_range = allocator.fullrange();
-        // Verus does not yet support `continue` in `for` loops. Original Rust:
-        /*
+        /* Verus does not yet support `continue` in `for` loops.
+        Original Rust:
         if allocator_range.start >= range.end || allocator_range.end <= range.start {
             continue;
         }

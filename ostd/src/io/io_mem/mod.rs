@@ -83,6 +83,7 @@ impl IoMem {
     pub fn acquire(range: Range<Paddr>) -> Result<IoMem> {
         allocator::IO_MEM_ALLOCATOR
             .get()
+            /* .unwrap() */
             .ok_or(Error::AccessDenied)?
             .acquire(range)
             .ok_or(Error::AccessDenied)
@@ -224,9 +225,9 @@ impl IoMem {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of reading from the mapped physical address, and the mapping is valid.
         unsafe {
-            // `from_kernel_space` in ostd/src/mm/io.rs is changed
-            // (self.kvirt_area.deref().start() + self.offset) as *mut u8
             VmReader::from_kernel_space(
+                /* Original Rust:
+                (self.kvirt_area.deref().start() + self.offset) as *mut u8, */
                 VirtPtr::from_vaddr(self.kvirt_area.deref().start() + self.offset, self.limit),
                 self.limit,
             )
@@ -237,9 +238,9 @@ impl IoMem {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of writing to the mapped physical address, and the mapping is valid.
         unsafe {
-            // Original Rust passed the raw pointer
-            // `(self.kvirt_area.deref().start() + self.offset) as *mut u8`.
             VmWriter::from_kernel_space(
+                /* Original Rust:
+                (self.kvirt_area.deref().start() + self.offset) as *mut u8, */
                 VirtPtr::from_vaddr(self.kvirt_area.deref().start() + self.offset, self.limit),
                 self.limit,
             )
@@ -249,6 +250,7 @@ impl IoMem {
 
 verus! {
 
+/* Original Rust: impl VmIo for IoMem { */
 impl VmIo<()> for IoMem {
     closed spec fn obeys_vmio_spec() -> bool {
         false
@@ -293,6 +295,7 @@ impl VmIo<()> for IoMem {
     /// Device reads are a trusted hardware boundary; the range checks and cursor updates remain
     /// identical to the original implementation.
     #[verifier::external_body]
+    /* Original Rust: fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> { */
     fn read(
         &self,
         offset: usize,
@@ -312,6 +315,7 @@ impl VmIo<()> for IoMem {
 
     /// Device writes are a trusted hardware boundary for the same reason as [`Self::read`].
     #[verifier::external_body]
+    /* Original Rust: fn write(&self, offset: usize, reader: &mut VmReader) -> Result<()> { */
     fn write(
         &self,
         offset: usize,
