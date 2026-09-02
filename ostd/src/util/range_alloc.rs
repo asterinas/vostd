@@ -49,9 +49,9 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
             Sum::Right(set) => {
                 &&& set.id() == constant.initialized_id
                 &&& freelist is Some
+                &&& freelist_wf(constant.fullrange, freelist->0@)
             },
         }
-        &&& freelist is Some ==> freelist_wf(constant.fullrange, freelist->0@)
     }
 }
 
@@ -276,7 +276,6 @@ impl RangeAllocator {
         }
         let mut lock_guard = self.freelist.lock();
         proof_decl! {
-            let ghost lock_value = lock_guard@;
             let tracked resource: &mut Sum<OneShotPending, OneShotSet>;
         }
         #[verus_spec(with => Tracked(resource))]
@@ -363,15 +362,7 @@ impl RangeAllocator {
         #[verus_spec(with => Tracked(resource))]
         lock_guard.tracked_borrow_mut_resource();
         proof! {
-            if *resource is Right {
-                initialized = resource.tracked_borrow_right().duplicate();
-            } else {
-                let tracked replacement = OneShotPending::new();
-                let tracked pending = resource.tracked_swap_left(replacement);
-                let tracked set = pending.set();
-                initialized = set.duplicate();
-                *resource = Sum::Right(set);
-            }
+            initialized = resource.tracked_ensure_set();
         }
         #[verus_spec(with |= Tracked(initialized))]
         lock_guard
