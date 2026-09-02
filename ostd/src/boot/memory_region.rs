@@ -261,14 +261,13 @@ impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
         Self::new()
     }
 }
-/*
 impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
     type Target = [MemoryRegion];
 
     fn deref(&self) -> &Self::Target {
         &self.regions[..self.count]
     }
-}*/
+}
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.

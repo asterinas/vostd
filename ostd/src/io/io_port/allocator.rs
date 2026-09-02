@@ -203,7 +203,7 @@ impl IoPortClaim {
 }
 
 } // verus!
-/// Lock-protected executable bitmap and the ghost allocation token.
+/// Lock-protected executable bitmap and the state-machine token that models it.
 #[verus_verify]
 struct IoPortAllocatorInner {
     allocator: ModeledIdAlloc,
