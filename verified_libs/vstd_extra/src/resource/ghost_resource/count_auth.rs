@@ -4,6 +4,8 @@ use vstd::modes::tracked_swap;
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::resource::storage_protocol::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 
 verus! {
 
@@ -70,6 +72,16 @@ pub tracked struct Count<T, const TOTAL: usize = 2> {
 
 pub tracked struct EmptyCount<T, const TOTAL: usize = 2> {
     r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T: Objective, const TOTAL: usize> Objective for Count<T, TOTAL> {
+
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T: Objective, const TOTAL: usize> Objective for EmptyCount<T, TOTAL> {
+
 }
 
 impl<T, const TOTAL: usize> Count<T, TOTAL> {

@@ -64,6 +64,8 @@
 //! can have catastrophic consequences,
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
 // mod fifo_scheduler;
+#[cfg(feature = "irc11")]
+mod thread_view;
 // pub mod info;
 use alloc::sync::Arc;
 use spin::Once;
@@ -77,6 +79,9 @@ use super::Task;
 //     timer,
 // };
 use crate::specs::mm::cpu::CpuId;
+
+#[cfg(feature = "irc11")]
+pub use self::thread_view::SchedulerIrc11State;
 
 /// Injects a custom implementation of task scheduler into OSTD.
 ///
