@@ -2,16 +2,18 @@
 use vstd::{
     laws_cmp::obeys_cmp,
     prelude::*,
+    set_lib::FiniteRange,
     std_specs::{
         cmp::{OrdSpec, PartialOrdIs, PartialOrdSpec},
         iter::{IteratorSpec, filter_keep, filter_postcondition},
     },
 };
-use vstd_extra::external::{iter::*, range::*};
-
-use crate::specs::util::range::{
-    lemma_range_difference_set, lemma_range_difference_sorted, range_as_set, range_difference_seq,
-    seq_range_union, spec_ord_max, spec_ord_min,
+use vstd_extra::{
+    external::{iter::*, range::*},
+    range::{
+        finite_range_matches_ord, lemma_range_difference_set, lemma_range_difference_sorted_at,
+        range_as_set, range_difference_seq, seq_range_union, spec_ord_max, spec_ord_min,
+    },
 };
 
 use core::ops::Range;
@@ -39,7 +41,7 @@ use core::ops::Range;
 ///
 /// ## Preconditions
 ///
-/// `T`'s comparison implementation must obey the Verus comparison model.
+/// `T` must have a finite range whose model agrees with its Verus ordering model.
 ///
 /// ## Postconditions
 ///
@@ -53,6 +55,7 @@ use core::ops::Range;
         T::obeys_cmp_spec(),
         T::obeys_partial_cmp_spec(),
         obeys_cmp::<T>(),
+        finite_range_matches_ord::<T>(),
     ensures
         ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
             &&& ret.remaining() == range_difference_seq(*a, *b)
@@ -66,7 +69,7 @@ use core::ops::Range;
             &&& seq_range_union(ret.remaining()) == range_as_set(*a).difference(range_as_set(*b))
         },
 )]
-pub fn range_difference<T: Ord + Copy>(
+pub fn range_difference<T: Ord + Copy + FiniteRange>(
     a: &Range<T>,
     b: &Range<T>,
 ) -> impl Iterator<Item = Range<T>> {
@@ -79,9 +82,6 @@ pub fn range_difference<T: Ord + Copy>(
 
     proof! {
         reveal_with_fuel(Seq::filter, 3);
-
-        lemma_range_difference_sorted(*a, *b);
-        lemma_range_difference_set(*a, *b);
     }
     // Original execution: `r.into_iter().filter(|v| !v.is_empty())`.
     // Bind its operands so the upstream filter axiom can refer to them.
@@ -108,6 +108,15 @@ pub fn range_difference<T: Ord + Copy>(
                 reveal(range_difference_seq);
                 reveal(spec_ord_min);
                 reveal(spec_ord_max);
+            }
+            assert forall|i: int|
+                0 <= i < ret.remaining().len() - 1 implies (
+                #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start) by {
+                lemma_range_difference_sorted_at(*a, *b, i);
+            }
+            assert(seq_range_union(ret.remaining()) ==
+                range_as_set(*a).difference(range_as_set(*b))) by {
+                lemma_range_difference_set(*a, *b);
             }
         }
     }
