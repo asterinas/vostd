@@ -50,7 +50,7 @@ impl<T, A> IoPort<T, A> {
 
     /// Whether `claim` is the allocator-issued ownership token for this complete typed range.
     pub open spec fn claim_matches_set(&self, claim: Set<usize>) -> bool {
-        claim =~= port_id_set(self@ as usize, (self@ as usize + size_of::<T>()) as usize)
+        claim == port_id_set(self@ as usize, (self@ as usize + size_of::<T>()) as usize)
     }
 }
 

@@ -121,13 +121,13 @@ impl IoMemAllocatorBuilder {
         #[verus_spec(it =>
             invariant
                 allocators@.len() == it.index(),
-                forall|j: int| 0 <= j < it.index() ==> {
+                forall|j: int| #![trigger it.seq()[j]] 0 <= j < it.index() ==> {
                     &&& allocators@[j]@.start == it.seq()[j].start
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
                 usize_ranges_ordered(it.seq()),
                 usize_ranges_match_registered(it.seq()),
-                forall|j: int| 0 <= j < it.index() ==>
+                forall|j: int| #![trigger registered_io_mem_windows()[j]] 0 <= j < it.index() ==>
                     allocators@[j]@ == registered_io_mem_windows()[j],
                 windows_ordered(allocators@),
         )]
@@ -140,7 +140,7 @@ impl IoMemAllocatorBuilder {
                 assert(allocators@[allocators@.len() - 1]@.start == range.start);
                 assert(range.start == registered_io_mem_windows()[it.index()].start);
                 assert(range.end == registered_io_mem_windows()[it.index()].end);
-                assert forall|i: int|
+                assert forall|i: int| #![trigger allocators@[i]]
                     0 <= i < allocators@.len() - 1
                     implies allocators@[i]@.end <= range.start by {
                     assert(allocators@[i]@.end == it.seq()[i].end);
@@ -193,12 +193,15 @@ broadcast use vstd::std_specs::vec::group_vec_axioms;
 /// of the next one, so no window can partially cover a range that is contained in another one.
 pub open spec fn windows_ordered(allocators: Seq<RangeAllocator>) -> bool {
     forall|i: int, j: int|
+        #![trigger allocators[i], allocators[j]]
         0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
 }
 
 /// The format of the windows handed to [`IoMemAllocatorBuilder::new`].
 pub open spec fn usize_ranges_ordered(ranges: Seq<Range<usize>>) -> bool {
-    forall|i: int, j: int| 0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start
+    forall|i: int, j: int|
+        #![trigger ranges[i], ranges[j]]
+        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start
 }
 
 /// The abstract MMIO windows registered by platform boot code.
@@ -208,6 +211,7 @@ pub uninterp spec fn registered_io_mem_windows() -> Seq<Range<int>>;
 pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bool {
     &&& allocators.len() == registered_io_mem_windows().len()
     &&& forall|i: int|
+        #![trigger registered_io_mem_windows()[i]]
         0 <= i < allocators.len() ==> allocators[i]@ == registered_io_mem_windows()[i]
 }
 
@@ -215,6 +219,7 @@ pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bo
 pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> bool {
     &&& ranges.len() == registered_io_mem_windows().len()
     &&& forall|i: int|
+        #![trigger ranges[i]]
         0 <= i < ranges.len() ==> {
             &&& ranges[i].start == registered_io_mem_windows()[i].start
             &&& ranges[i].end == registered_io_mem_windows()[i].end
@@ -250,6 +255,7 @@ pub proof fn lemma_registered_window(windows: &Vec<RangeAllocator>, range: Range
         windows@[idx]@.start <= range.start && range.end <= windows@[idx]@.end,
 {
     let idx = choose|m: int|
+        #![trigger registered_io_mem_windows()[m]]
         0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
             <= range.start && range.end <= registered_io_mem_windows()[m].end;
     assert(windows@[idx]@ == registered_io_mem_windows()[idx]);
@@ -269,12 +275,14 @@ pub proof fn lemma_found_window_contains(
         windows_match_registered(windows@),
         io_mem_range_registered(*range),
         found@.start < range.end && found@.end > range.start,
-        exists|k: int| 0 <= k < windows@.len() && windows@[k]@ == found@,
+        exists|k: int| #![trigger windows@[k]] 0 <= k < windows@.len() && windows@[k]@ == found@,
     ensures
         found@.start <= range.start && range.end <= found@.end,
 {
     let container_idx = lemma_registered_window(windows, *range);
-    let found_idx = choose|k: int| 0 <= k < windows@.len() && windows@[k]@ == found@;
+    let found_idx = choose|k: int|
+        #![trigger windows@[k]]
+        0 <= k < windows@.len() && windows@[k]@ == found@;
     if found_idx < container_idx {
         assert(windows@[found_idx]@.end <= windows@[container_idx]@.start);
         assert(windows@[container_idx]@.start <= range.start);
@@ -291,6 +299,7 @@ pub proof fn lemma_found_window_contains(
 /// A range is registered when one abstract boot-time MMIO window contains it.
 pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
     exists|m: int|
+        #![trigger registered_io_mem_windows()[m]]
         0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
             <= range.start && range.end <= registered_io_mem_windows()[m].end
 }
@@ -324,7 +333,8 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
         ret matches Some(res) ==> {
             &&& res@.start < range.end
             &&& res@.end > range.start
-            &&& exists|k: int| 0 <= k < allocators@.len() && allocators@[k]@ == res@
+            &&& exists|k: int| #![trigger allocators@[k]]
+                0 <= k < allocators@.len() && allocators@[k]@ == res@
         }
 )]
 fn find_allocator<'a>(

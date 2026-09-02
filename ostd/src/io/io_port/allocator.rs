@@ -280,7 +280,7 @@ impl IoPortAllocator {
                 ),
                 id_alloc_capacity(&allocator_inner.allocator.inner) ==
                     crate::arch::io::MAX_IO_PORT as usize,
-                id_alloc_view(&allocator_inner.allocator.inner) =~=
+                id_alloc_view(&allocator_inner.allocator.inner) ==
                     allocation_start_view.union(
                         port_id_set(
                             range.start as usize,
@@ -322,7 +322,7 @@ impl IoPortAllocator {
             let _ = allocator_inner.allocator.alloc_specific(i as usize);
             proof! {
                 lemma_port_id_set_insert(range.start as usize, i as usize);
-                assert(id_alloc_view(&allocator_inner.allocator.inner) =~=
+                assert(id_alloc_view(&allocator_inner.allocator.inner) ==
                     old_view.insert(i as usize));
             }
         }
