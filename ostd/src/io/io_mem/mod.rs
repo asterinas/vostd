@@ -74,6 +74,7 @@ impl IoMem {
             vstd::arithmetic::power2::is_pow2(PAGE_SIZE as int),
             range.start < range.end,
             range.end <= usize::MAX - (PAGE_SIZE - 1),
+            allocator::io_mem_range_registered(range),
         ensures
             result is Ok ==> result->Ok_0.paddr_spec() == range.start,
             result is Ok ==> result->Ok_0.length_spec()

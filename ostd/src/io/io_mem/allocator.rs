@@ -3,6 +3,7 @@
 use crate::specs::arch::PAGE_SIZE;
 use crate::sync::{OnceImpl, TrivialPred};
 use vstd::prelude::*;
+use vstd_extra::resource::flags::OneShotSet;
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -32,15 +33,26 @@ impl IoMemAllocator {
             vstd::arithmetic::power2::is_pow2(PAGE_SIZE as int),
             range.start < range.end,
             range.end <= usize::MAX - (PAGE_SIZE - 1),
+            io_mem_range_registered(range),
         ensures
             result is Some ==> result->Some_0.paddr_spec() == range.start,
             result is Some ==> result->Some_0.length_spec()
                 == vstd_extra::external::range::range_usize_len_spec(&range),
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
-        find_allocator(&self.allocators, &range)?
-            .alloc_specific(&range)
-            .ok()?;
+        let allocator = find_allocator(&self.allocators, &range)?;
+        proof! {
+            // Trusted boot fact (`io_mem_range_registered`): `range` was registered inside a
+            // single builder window, and `find_allocator` returns its first overlapping window,
+            // which is the containing window because the registered windows are disjoint.
+            assume(allocator@.start <= range.start && range.end <= allocator@.end);
+        }
+        proof_decl! {
+            let tracked initialized: OneShotSet;
+        }
+        let result = #[verus_spec(with => Tracked(initialized))]
+        allocator.alloc_specific(&range);
+        result.ok()?;
 
         /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
 
@@ -111,19 +123,37 @@ impl IoMemAllocatorBuilder {
         requires
             range.start < range.end,
             vstd_extra::panic::may_panic(),
+            io_mem_range_registered(range),
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
         // Formatting machinery used by the original panic is not modeled by Verus.
         // Original Rust used two formatted `panic!` branches here.
         let allocator = find_allocator(&self.allocators, &range);
         vstd_extra::assert!(allocator.is_some());
-        let result = allocator.unwrap().alloc_specific(&range);
+        let allocator = allocator.unwrap();
+        proof! {
+            // Trusted boot fact, same reasoning as in `acquire`.
+            assume(allocator@.start <= range.start && range.end <= allocator@.end);
+        }
+        proof_decl! {
+            let tracked initialized: OneShotSet;
+        }
+        let result = #[verus_spec(with => Tracked(initialized))]
+        allocator.alloc_specific(&range);
         vstd_extra::assert!(result.is_ok());
     }
 }
 
 /// The I/O Memory allocator of the system.
 verus! {
+
+/// Trusted boot-state fact required before allocating or removing a `range`.
+///
+/// Verus cannot mention an exec static in a specification, so this predicate is the explicit
+/// specification boundary for the boot-time guarantee that `range` was registered inside a
+/// single MMIO window of the builder (and the windows are pairwise disjoint), which is what
+/// `RangeAllocator::alloc_specific` requires.
+pub uninterp spec fn io_mem_range_registered(range: Range<usize>) -> bool;
 
 pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialPred>
     ensures

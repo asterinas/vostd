@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
-use verus_state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
-use vstd::tokens::{InstanceId, SetToken, ValueToken};
+use vstd::resource::set::{GhostSetAuth, GhostSubset};
+use vstd::tokens::InstanceId;
 
 use core::ops::Range;
 
@@ -40,12 +40,10 @@ pub uninterp spec fn id_alloc_capacity(allocator: &IdAlloc) -> usize;
 pub uninterp spec fn io_port_allocator_instance_id() -> InstanceId;
 
 closed spec fn io_port_inner_inv_values(
-    instance_id: InstanceId,
     allocated_instance_id: InstanceId,
     allocated: Set<usize>,
     allocator: &IdAlloc,
 ) -> bool {
-    &&& instance_id == io_port_allocator_instance_id()
     &&& allocated_instance_id == io_port_allocator_instance_id()
     &&& allocated.subset_of(id_alloc_view(allocator))
     &&& id_alloc_capacity(allocator) == crate::arch::io::MAX_IO_PORT as usize
@@ -104,24 +102,17 @@ struct ModeledIdAlloc {
 impl ModeledIdAlloc {
     #[verus_spec(result =>
         with
-            Ghost(instance_id): Ghost<InstanceId>,
             Ghost(allocated_instance_id): Ghost<InstanceId>,
             Ghost(preserved): Ghost<Set<usize>>,
         requires
             id < id_alloc_capacity(&old(self).inner),
-            io_port_inner_inv_values(
-                instance_id,
-                allocated_instance_id,
-                preserved,
-                &old(self).inner,
-            ),
+            io_port_inner_inv_values(allocated_instance_id, preserved, &old(self).inner),
         ensures
             id_alloc_capacity(&final(self).inner) == id_alloc_capacity(&old(self).inner),
             id_alloc_view(&final(self).inner) == id_alloc_view(&old(self).inner).insert(id),
             id_alloc_view(&old(self).inner).subset_of(id_alloc_view(&final(self).inner)),
             preserved.subset_of(id_alloc_view(&final(self).inner)),
             io_port_inner_inv_values(
-                instance_id,
                 allocated_instance_id,
                 preserved,
                 &final(self).inner,
@@ -137,66 +128,87 @@ impl ModeledIdAlloc {
 
 verus! {
 
-tokenized_state_machine! {
-    IoPortAllocationState {
-        fields {
-            #[sharding(variable)]
-            pub allocated: Set<usize>,
-            #[sharding(set)]
-            pub claims: Set<usize>,
-        }
+/// Authority over the set of PIO ids currently allocated by the global allocator.
+///
+/// The `Loc` of `auth` identifies the protocol instance and `auth@` is the set of allocated
+/// ids. [`IoPortClaim`] fragments minted by [`IoPortAllocation::allocate`] transfer the
+/// ownership of an acquired PIO range to the caller.
+pub(super) tracked struct IoPortAllocation {
+    auth: GhostSetAuth<usize>,
+}
 
-        #[invariant]
-        pub fn allocated_matches_claims(&self) -> bool {
-            self.allocated =~= self.claims
-        }
+/// Fragment claiming ownership of a PIO id range handed out by [`IoPortAllocator::acquire`].
+///
+/// A claim asserts that its ids are allocated by the [`IoPortAllocation`] with the same
+/// instance identity, and is consumed when the ids are released by
+/// [`IoPortAllocator::recycle`].
+pub(super) tracked struct IoPortClaim {
+    subset: GhostSubset<usize>,
+}
 
-        init! {
-            initialize() {
-                init allocated = Set::empty();
-                init claims = Set::empty();
-            }
-        }
+impl IoPortAllocation {
+    /// Instance identity of the protocol.
+    pub closed spec fn instance_id(self) -> InstanceId {
+        self.auth.id()
+    }
 
-        transition! {
-            allocate(ids: Set<usize>) {
-                require pre.allocated.disjoint(ids);
-                update allocated = pre.allocated.union(ids);
-                add claims += (ids) by {
-                    assert(pre.claims =~= pre.allocated);
-                };
-            }
-        }
+    /// Ids currently allocated.
+    pub closed spec fn value(self) -> Set<usize> {
+        self.auth@
+    }
 
-        transition! {
-            release(ids: Set<usize>) {
-                update allocated = pre.allocated.difference(ids);
-                remove claims -= (ids);
-            }
-        }
+    /// Creates a fresh protocol instance with an empty allocated set.
+    pub proof fn initialize() -> (tracked result: Self) {
+        let tracked (auth, _empty_claims) = GhostSetAuth::new(Set::empty());
+        Self { auth }
+    }
 
-        #[inductive(initialize)]
-        fn initialize_inductive(post: Self) {}
+    /// Allocates `ids`, requiring them to be currently free, and mints the matching claim
+    /// fragment.
+    pub proof fn allocate(tracked &mut self, ids: Set<usize>) -> (tracked claim: IoPortClaim)
+        requires
+            old(self).value().disjoint(ids),
+        ensures
+            final(self).instance_id() == old(self).instance_id(),
+            final(self).value() == old(self).value().union(ids),
+            claim.instance_id() == final(self).instance_id(),
+            claim.set() == ids,
+    {
+        let tracked subset = self.auth.insert_set(ids);
+        IoPortClaim { subset }
+    }
 
-        #[inductive(allocate)]
-        fn allocate_inductive(pre: Self, post: Self, ids: Set<usize>) {}
+    /// Consumes `claim`, removing its ids from the allocated set.
+    pub proof fn release(tracked &mut self, tracked claim: IoPortClaim)
+        requires
+            claim.instance_id() == old(self).instance_id(),
+        ensures
+            final(self).instance_id() == old(self).instance_id(),
+            final(self).value() == old(self).value().difference(claim.set()),
+    {
+        self.auth.delete(claim.subset);
+    }
+}
 
-        #[inductive(release)]
-        fn release_inductive(pre: Self, post: Self, ids: Set<usize>) {}
+impl IoPortClaim {
+    /// Instance identity of the protocol that issued this claim.
+    pub closed spec fn instance_id(self) -> InstanceId {
+        self.subset.id()
+    }
+
+    /// Ids claimed by this fragment.
+    pub closed spec fn set(self) -> Set<usize> {
+        self.subset@
     }
 }
 
 } // verus!
-pub(super) type IoPortClaim = IoPortAllocationState::claims_set;
-
-/// Lock-protected executable bitmap and the state-machine token that models it.
+/// Lock-protected executable bitmap and the ghost allocation token.
 #[verus_verify]
 struct IoPortAllocatorInner {
     allocator: ModeledIdAlloc,
     #[cfg(verus_keep_ghost_body)]
-    tracked_instance: Tracked<IoPortAllocationState::Instance>,
-    #[cfg(verus_keep_ghost_body)]
-    tracked_allocated: Tracked<IoPortAllocationState::allocated>,
+    tracked_allocated: Tracked<IoPortAllocation>,
 }
 
 verus! {
@@ -205,7 +217,6 @@ impl IoPortAllocatorInner {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         io_port_inner_inv_values(
-            self.tracked_instance@.id(),
             self.tracked_allocated@.instance_id(),
             self.tracked_allocated@.value(),
             &self.allocator.inner,
@@ -312,7 +323,6 @@ impl IoPortAllocator {
         #[verus_spec(allocation_iter =>
             invariant
                 range.end as usize <= id_alloc_capacity(&allocator_inner.allocator.inner),
-                allocator_inner.tracked_instance@.id() == io_port_allocator_instance_id(),
                 allocator_inner.tracked_allocated@.instance_id() ==
                     io_port_allocator_instance_id(),
                 allocator_inner.tracked_allocated@.value().subset_of(allocation_start_view),
@@ -351,14 +361,12 @@ impl IoPortAllocator {
                     }
                 }
                 assert(io_port_inner_inv_values(
-                    allocator_inner.tracked_instance@.id(),
                     allocator_inner.tracked_allocated@.instance_id(),
                     allocator_inner.tracked_allocated@.value(),
                     &allocator_inner.allocator.inner,
                 ));
             }
             #[verus_spec(with
-                Ghost(allocator_inner.tracked_instance@.id()),
                 Ghost(allocator_inner.tracked_allocated@.instance_id()),
                 Ghost(allocator_inner.tracked_allocated@.value()),
             )]
@@ -375,10 +383,7 @@ impl IoPortAllocator {
                     !allocator_inner.tracked_allocated@.value().contains(id) by {
                 }
             }
-            range_claim = allocator_inner.tracked_instance.borrow().allocate(
-                ids,
-                allocator_inner.tracked_allocated.borrow_mut(),
-            );
+            range_claim = allocator_inner.tracked_allocated.borrow_mut().allocate(ids);
         }
 
         // SAFETY: The created IoPort is guaranteed not to access system device I/O
@@ -406,17 +411,11 @@ impl IoPortAllocator {
 
         let mut allocator = self.allocator.lock();
         let allocator_inner = &mut *allocator;
-        proof_decl! {
-            let ghost ids = port_id_set(range.start as usize, range.end as usize);
-        }
         proof! {
             use_type_invariant(&*allocator_inner);
             assert(range.start as usize <= range.end as usize);
-            allocator_inner.tracked_instance.borrow().release(
-                ids,
-                allocator_inner.tracked_allocated.borrow_mut(),
-                claim,
-            );
+            assert(claim.instance_id() == allocator_inner.tracked_allocated@.instance_id());
+            allocator_inner.tracked_allocated.borrow_mut().release(claim);
             assert forall|id: usize|
                 #[trigger] allocator_inner.tracked_allocated@.value().contains(id) implies {
                 &&& id_alloc_view(&allocator_inner.allocator.inner).contains(id)
@@ -489,19 +488,16 @@ pub(crate) unsafe fn init() {
 
     IO_PORT_ALLOCATOR.call_once(|| {
         proof_decl! {
-            let tracked (Tracked(instance), Tracked(allocated), Tracked(_empty_claims)) =
-                IoPortAllocationState::Instance::initialize();
+            let tracked allocated = IoPortAllocation::initialize();
         }
         let inner = IoPortAllocatorInner {
             allocator: ModeledIdAlloc { inner: allocator },
-            #[cfg(verus_keep_ghost_body)]
-            tracked_instance: Tracked::new(instance),
             #[cfg(verus_keep_ghost_body)]
             tracked_allocated: Tracked::new(allocated),
         };
         // Original Rust: `IoPortAllocator { allocator: SpinLock::new(allocator) }`.
         IoPortAllocator {
-            allocator: SpinLock::new(inner),
+            allocator: SpinLock::new(inner, Ghost::new(()), Tracked::new(())),
         }
     });
 }

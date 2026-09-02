@@ -51,4 +51,3 @@ codegen-units = 1
 [workspace.dependencies]
 # Verus
 vstd = { path = "tools/verus/source/vstd", default-features = false, features = ["alloc"] }
-verus_state_machines_macros = { path = "tools/verus/source/state_machines_macros" }
