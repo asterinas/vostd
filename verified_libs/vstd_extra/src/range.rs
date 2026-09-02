@@ -95,22 +95,11 @@ proof fn lemma_ord_base_laws<T: Ord>()
         forall|x: T, y: T|
             #![trigger x.partial_cmp_spec(&y)]
             x.is_le(&y) <==> x.cmp_spec(&y) != Ordering::Greater,
-        forall|x: T, y: T| #![trigger x.partial_cmp_spec(&y)] x.is_le(&y) <==> !y.is_lt(&x),
-        forall|x: T|
-            #![trigger x.cmp_spec(&x)]
-            x.is_le(&x) && !x.is_lt(&x) && x.cmp_spec(&x) == Ordering::Equal,
 {
     reveal(obeys_partial_cmp_spec_properties);
     reveal(obeys_cmp_partial_ord);
     reveal(obeys_cmp_ord);
     reveal(obeys_eq_spec_properties);
-    assert forall|x: T|
-        #![trigger x.cmp_spec(&x)]
-        x.is_le(&x) && !x.is_lt(&x) && x.cmp_spec(&x) == Ordering::Equal by {
-        if x.is_lt(&x) {
-            assert(false);
-        }
-    }
 }
 
 proof fn lemma_seq_range_union_contains<T: FiniteRange>(s: Seq<Range<T>>, x: T)
