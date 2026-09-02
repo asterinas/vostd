@@ -44,7 +44,8 @@ The skill:
 
 1. snapshots the commit series or current working-tree target contents;
 2. runs isolated reviews for maintainability, proof engineering, and workflow;
-3. checks important claims against the source and available Verus libraries;
+3. checks important claims against the source, the complete active `vstd`, and existing
+   verified code throughout VOSTD;
 4. consolidates the results by severity; and
 5. writes an English Markdown report containing findings, compliant rules,
    suggested fix order, and evidence-check details.

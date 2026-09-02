@@ -43,13 +43,21 @@ below; if a rule named below no longer exists on the page, drop it.
 4. Trust-boundary sweep. Grep the target for `assume|admit|external_body|uninterp|broadcast axiom|axiom`; a trusted fact kept beside a caller instead of in
    `vstd_extra::external` is a finding. Note unused or superseded helpers in the
    boundary modules the target points at.
-5. Reuse sweep. For each spec fn and lemma defined in the target, search the vendored
-   vstd (`std_specs/cmp.rs`, `std_specs/iter.rs`, `std_specs/range.rs`, `laws_cmp.rs`,
-   `laws_eq.rs`, `iset.rs`, `relations.rs`) and `vstd_extra` for equivalent semantics or
-   signatures; report overlapping names and signatures verbatim. Check `git log` for
-   items previously living in `vstd_extra` and re-created locally, or deleted upstream
-   axioms silently replaced. Flag restated postconditions that merely unfold the
-   lemma's own `requires` and inflate the SMT goal for every downstream lemma.
+5. Reuse sweep. Inventory every spec fn, proof fn, lemma, axiom, model, and external
+   specification introduced or materially changed in the reporting scope. Search for
+   equivalent semantics and signatures across all active verified-code roots, not a
+   hand-picked file list:
+   - the entire vendored `vstd` source tree;
+   - all of `verified_libs/`, including `vstd_extra`;
+   - `ostd/specs/`; and
+   - other Verus-bearing files under `ostd/src/`.
+   Batch name and signature searches across these roots, then inspect semantic
+   candidates even when their names differ. Report a duplicate only with quoted
+   signatures or definitions showing the overlap; name similarity alone is not
+   evidence. Prefer the existing verified operation or extend the narrowest reusable
+   layer instead of adding an overlapping local model. Also flag restated
+   postconditions that merely unfold the lemma's own `requires` and inflate the SMT
+   goal for every downstream lemma.
 6. Model-choice review: is each model the simplest standard mathematical type; when
    both an operational spec and a set-level spec exist, is each justified; is the
    bound narrowing (`PartialOrd` vs `Ord` plus obeying-laws `requires`) principled; are

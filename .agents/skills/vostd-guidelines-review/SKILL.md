@@ -53,8 +53,7 @@ Locate these once, before fanning out; the personas need the absolute paths:
 | Item | How to locate |
 |------|---------------|
 | Guideline pages | `docs/coding-guidelines/{README,maintainability,proof-engineering,workflow}.md`. |
-| Vendored vstd source | `grep '^vstd' Cargo.toml` (typical: `tools/verus/source/vstd`). |
-| vstd_extra | `verified_libs/vstd_extra/` (external specs under `src/external/`). |
+| Existing verified code | The entire vendored vstd tree located from `grep '^vstd' Cargo.toml` (typically `tools/verus/source/vstd`), all of `verified_libs/`, `ostd/specs/`, and Verus-bearing files under `ostd/src/`. |
 | Verus binary + Z3 | `tools/verus/source/target-verus/release/verus` and `tools/verus/source/z3` — used for standalone contract experiments. |
 | Verification gate | `AGENTS.md`, `Makefile`, `.github/workflows/`. |
 | History rationale | `git log --follow -p -- <target>`. In `diff` mode, the captured commit series is the primary review input. |
@@ -133,8 +132,8 @@ context below.
 Each pass prompt is built the same way:
 
 1. the persona file's full text (`personas/<persona>.md`), verbatim, as the stable head;
-2. the absolute paths of the repository-context table (guideline pages, vendored vstd,
-   vstd_extra, Verus binary, verification-gate configuration, branch);
+2. the absolute paths of the repository-context table (guideline pages, existing
+   verified-code roots, Verus binary, verification-gate configuration, branch);
 3. the mode and its immutable review input: in `diff` mode, the absolute captured-log
    path, merge-base, HEAD, commit IDs, and changed paths; in `files` mode, each original
    target path plus its absolute snapshot path, content hash, and reporting ranges.
