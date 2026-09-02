@@ -160,11 +160,9 @@ impl WaitQueue {
                 wakers.drop();
                 return false;
             };
-            proof_decl! {
-                let tracked count_mirror: &mut GhostVar<int>;
+            proof_decl!{
+                let tracked count_mirror = wakers.tracked_borrow_mut_resource();
             }
-            #[verus_spec(with => Tracked(count_mirror))]
-            wakers.tracked_borrow_mut_resource();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
@@ -207,11 +205,9 @@ impl WaitQueue {
                 wakers.drop();
                 break;
             };
-            proof_decl! {
-                let tracked count_mirror: &mut GhostVar<int>;
+            proof_decl!{
+                let tracked count_mirror = wakers.tracked_borrow_mut_resource();
             }
-            #[verus_spec(with => Tracked(count_mirror))]
-            wakers.tracked_borrow_mut_resource();
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
@@ -250,11 +246,9 @@ impl WaitQueue {
         }
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
-        proof_decl! {
-            let tracked count_mirror: &mut GhostVar<int>;
+        proof_decl!{
+            let tracked count_mirror = wakers.tracked_borrow_mut_resource();
         }
-        #[verus_spec(with => Tracked(count_mirror))]
-        wakers.tracked_borrow_mut_resource();
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;

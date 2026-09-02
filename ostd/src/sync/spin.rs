@@ -500,24 +500,16 @@ impl<'a, T, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard<'a, T, G, I>
     }
 
     /// Mutably borrows the user-supplied tracked resource.
-    #[verus_spec(ret =>
-        with
-            -> resource: Tracked<&mut I::Resource>,
+    pub proof fn tracked_borrow_mut_resource(tracked &mut self) -> (tracked resource: &mut I::Resource)
         ensures
-            *resource@ == old(self).resource(),
-            final(self).resource() == *final(resource@),
+            *resource == old(self).resource(),
+            final(self).resource() == *final(resource),
             final(self).value() == old(self).value(),
             final(self).constant() == old(self).constant(),
-    )]
-    pub fn tracked_borrow_mut_resource(&mut self) {
-        proof! {
-            use_type_invariant(&*self);
-        }
-        proof_decl! {
-            let tracked resource = tracked_borrow_mut(&mut *self.tracked_resource);
-        }
-        #[verus_spec(with |= Tracked(resource))]
-        ()
+    {
+        use_type_invariant(&*self);
+        let tracked resource = tracked_borrow_mut(&mut *self.tracked_resource);
+        resource
     }
 }
 /*
