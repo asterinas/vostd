@@ -5,8 +5,7 @@
 <!-- guideline: complete-external-contracts -->
 
 An external specification must state every caller obligation and every semantic
-fact on which a proof relies: preconditions, postconditions, well-formedness,
-mutation frame conditions, and panic behavior.
+fact on which a proof relies: preconditions, postconditions, well-formedness, and panic behavior.
 
 For example, a `BTreeMap::get_mut` model must preserve entries other than the
 selected key and must express the documented compatibility between the stored
@@ -16,30 +15,6 @@ not be specified as `no_unwind`.
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3747054386),
 [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763419050), and
 [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3732701232).
-
-### Audit external implementations
-
-<!-- guideline: audit-external-implementations -->
-
-Before adding or changing an `assume_specification`, establish the exact Rust
-toolchain and read the matching `core`, `alloc`, or `std` implementation and its
-API documentation. Trace delegated helpers, panic paths, mutation, aliasing, and
-ownership behavior that affect the contract. Do not derive a contract from an
-unpinned newer implementation or from the needs of one caller.
-
-Record the source version and item on which the contract is based. Verification
-shows that callers are consistent with the assumed contract; it does not verify
-that the external implementation satisfies it. Report this residual trusted
-boundary even when every VOSTD verification target passes.
-
-For opaque runtime effects such as standard-library atomics, raw pointers, or
-unsafe calls, trace both the proof-state update and the executable operation to
-their active contracts. A checked tracked-permission update alone does not
-verify the runtime effect.
-
-See also: PR [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3672552179),
-[#699](https://github.com/asterinas/vostd/pull/699), and
-[#704](https://github.com/asterinas/vostd/pull/704).
 
 ### Centralize trusted boundaries
 
@@ -76,9 +51,15 @@ let result = lhs.saturating_add(rhs);
 If existing support is incomplete, extend it at the narrowest reusable layer
 instead of creating overlapping local models.
 
+When a checked proof replaces an axiom, call the proved fact directly and remove
+obsolete wrappers and bridge lemmas. Keep a compatibility lemma only when
+current callers use a meaningfully different abstraction boundary; potential
+future use is not sufficient reason to retain it.
+
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#issuecomment-5225757765),
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308), and
-[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672).
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308),
+[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672), and
+[#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054).
 
 ### Canonical spec models
 
@@ -122,18 +103,3 @@ it does not cause Verus to establish `inv()` automatically.
 
 See also: PR [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3801496837)
 and [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3810349440).
-
-### Construct finite sets
-
-<!-- guideline: construct-finite-sets -->
-
-Do not use `Set::new_assuming_finite` to bypass a missing finiteness proof.
-Construct a finite set from finite components, such as a bounded sequence or a
-recursive union over a finite tree, and provide introduction and elimination
-lemmas when callers need to move between membership and structural witnesses.
-
-Keep those bridge lemmas close to the model that owns the recursive definition.
-See [the recursive-set proof pattern](proof-patterns.md#recursive-finite-set-models)
-for the page-table example.
-
-See also: PR [#692](https://github.com/asterinas/vostd/pull/692).

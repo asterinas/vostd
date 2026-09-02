@@ -7,9 +7,8 @@ and `vstd` versions before reusing it.
 
 ## Recursive finite set models
 
-The page-table owner model builds mapping sets from finite recursive unions
-instead of using `Set::new_assuming_finite`. The recursive definition is paired
-with two directions of bridge reasoning:
+The page-table owner model builds mapping sets from finite recursive unions. The
+recursive definition is paired with two directions of bridge reasoning:
 
 - An elimination lemma turns membership in the combined set into a structural
   witness identifying a child that contains the element.

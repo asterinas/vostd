@@ -132,13 +132,20 @@ items. If Verus requires a different executable expression, keep the change
 minimal, demonstrate that runtime behavior is unchanged, and make the original
 form visible in review.
 
+When VOSTD mirrors an upstream API or defines round-trip conversions for an
+executable type, preserve the documented API shape and conversion direction.
+Adapt ownership with narrowly scoped proof lemmas instead of reversing a
+round-trip lemma, reconstructing an executable value, adding a runtime clone, or
+changing a caller-facing standard-library API merely to simplify a proof.
+
 This includes preserving import-independent item order: proof migration should
 not move constants, methods, or module declarations merely to make a partial
 file compile.
 
 See also: PR [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720382959),
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945), and
-[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187).
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945),
+[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187), and
+[#699](https://github.com/asterinas/vostd/pull/699).
 
 ### Name proof roles
 
@@ -163,23 +170,6 @@ See also: PR [#679](https://github.com/asterinas/vostd/pull/679#discussion_r3690
 [#723](https://github.com/asterinas/vostd/pull/723#issuecomment-5392419977), and
 [#672](https://github.com/asterinas/vostd/pull/672#issuecomment-5099747820).
 
-### Choose proof modes by ownership
-
-<!-- guideline: choose-proof-modes-by-ownership -->
-
-Use a ghost model for duplicable specification state and a tracked model for
-linear proof resources whose ownership must be transferred. An all-ghost
-tracked type should normally be a ghost type unless its tracked identity is
-required by an enclosing ownership protocol.
-
-Within proof functions, pass and return tracked resources with tracked binders.
-Do not wrap every component of an all-tracked proof tuple in `Tracked<_>`;
-reserve `Tracked<T>` and `Ghost<T>` wrappers for executable or mixed-mode
-boundaries where erased values must cross an executable signature.
-
-See also: PR [#656](https://github.com/asterinas/vostd/pull/656#issuecomment-5019089808)
-and [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
-
 ### Avoid redundant mode markers
 
 <!-- guideline: avoid-redundant-mode-markers -->
@@ -200,7 +190,13 @@ Do not repeat the marker on every field of a `ghost struct`.
 For a `tracked struct`, fields are `tracked` by default,
 so we need to add `ghost` marker to fields that are not linear ownerships.
 
-See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
+Within proof functions, pass and return tracked resources with tracked binders.
+Do not wrap every component of an all-tracked proof tuple in `Tracked<_>`;
+reserve `Tracked<T>` and `Ghost<T>` wrappers for executable or mixed-mode
+boundaries where erased values must cross an executable signature.
+
+See also: PR [#656](https://github.com/asterinas/vostd/pull/656#issuecomment-5019089808)
+and [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
 
 ### Prefer ghost model structs
 
@@ -216,41 +212,10 @@ Use `tracked struct` instead when the fields represent linear permissions,
 tokens, or ownership. Keep an ordinary struct when it contains runtime state,
 must survive erasure, or participates in executable behavior. The goal is to
 erase proof-only data, not to force runtime or linear resources into ghost
-mode.
+mode. An all-ghost tracked type should normally be a ghost type unless its
+tracked identity is required by an enclosing ownership protocol.
 
 See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893393342).
-
-### Remove redundant proof APIs
-
-<!-- guideline: remove-redundant-proof-apis -->
-
-When an axiom is replaced by a checked proof, remove obsolete wrappers and
-bridge lemmas that only duplicate the proved fact. Keep a compatibility lemma
-only when current callers use a meaningfully different abstraction boundary;
-potential future use is not sufficient reason to retain it.
-
-Apply the same rule to unused external helpers: deleting a dead trusted boundary
-is preferable to preserving it as proof scaffolding.
-
-See also: PR [#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054)
-and [#703](https://github.com/asterinas/vostd/pull/703#issuecomment-5264921275).
-
-### Preserve verified mirrors
-
-<!-- guideline: preserve-verified-mirrors -->
-
-When VOSTD mirrors an upstream API or defines round-trip conversions for an
-executable type, preserve the documented API shape and conversion direction.
-Do not reverse a round-trip lemma, reconstruct an executable value, add a
-runtime clone, or change a caller-facing standard-library API solely because a
-different proof shape is easier.
-
-Adapt ownership and add narrowly scoped proof lemmas around the existing data
-flow. If an executable change is unavoidable, make its behavioral equivalence
-explicit in review.
-
-See also: PR [#692](https://github.com/asterinas/vostd/pull/692) and
-[#699](https://github.com/asterinas/vostd/pull/699).
 
 ### Document verified APIs
 
