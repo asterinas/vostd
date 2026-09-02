@@ -3,6 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
+#[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
@@ -57,6 +58,7 @@ tracked struct RwPerms<T> {
     read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
 }
 
+#[cfg(feature = "irc11")]
 unsafe impl<T> Objective for RwPerms<T> {
 
 }

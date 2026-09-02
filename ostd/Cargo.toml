@@ -79,7 +79,9 @@ fdt = { version = "0.1.5", features = ["pretty-printing"] }
 # default = ["cvm_guest"]
 default = []
 allow_panic = []
-irc11 = ["vstd/weak-memory", "vstd_extra/irc11"]
+# Source gate only. The isolated IRC11 CI enables `vstd/weak-memory`
+# explicitly because the mainline Verus toolchain does not define it.
+irc11 = ["vstd_extra/irc11"]
 # The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
 cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
 coverage = ["minicov"]

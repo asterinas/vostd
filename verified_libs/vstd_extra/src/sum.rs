@@ -1,6 +1,7 @@
 use crate::ownership::Inv;
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
+#[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 
 verus! {
@@ -11,6 +12,7 @@ pub tracked enum Sum<L, R> {
     Right(R),
 }
 
+#[cfg(feature = "irc11")]
 unsafe impl<L: Objective, R: Objective> Objective for Sum<L, R> {
 
 }

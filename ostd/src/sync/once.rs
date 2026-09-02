@@ -1,9 +1,10 @@
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{
     atomic_with_ghost,
     cell::pcell::{PCell, PointsTo},
     modes::tracked_static_ref,
     prelude::*,
-    thread_view::Objective,
 };
 
 use super::AtomicDataWithOwner;
@@ -28,6 +29,7 @@ pub tracked enum OnceState<V: 'static> {
     Init(&'static PointsTo<Option<V>>),
 }
 
+#[cfg(feature = "irc11")]
 unsafe impl<V> Objective for OnceState<V> {
 
 }

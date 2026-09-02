@@ -139,13 +139,25 @@ index 0d6a3b8a..4b456bfb 100644
          {
              pub open spec fn well_formed(&self) -> bool {
 diff --git a/source/vstd/thread_view.rs b/source/vstd/thread_view.rs
-index bfb1c293..2a2ad51b 100644
+index bfb1c293..d6660fa3 100644
 --- a/source/vstd/thread_view.rs
 +++ b/source/vstd/thread_view.rs
-@@ -223,6 +223,34 @@ unsafe impl<RA: algebra::ResourceAlgebra> Objective for algebra::Resource<RA> {
+@@ -223,6 +223,46 @@ unsafe impl<RA: algebra::ResourceAlgebra> Objective for algebra::Resource<RA> {
  
  }
  
++// Ghost-variable tokens are resource-algebra ownership and do not carry a
++// thread's subjective weak-memory observations.
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::resource::ghost_var::GhostVar<T> {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::resource::ghost_var::GhostVarAuth<T> {
++
++}
++
 +// Memory ownership permissions are objective independently of the type stored
 +// at the location. Their views describe global memory, not one thread's
 +// subjective weak-memory observations.
@@ -177,7 +189,7 @@ index bfb1c293..2a2ad51b 100644
  // primitive types are objective because they do not hold permissions
  macro_rules! declare_primitive_is_objective {
      ($($a:ty),*) => {
-@@ -237,6 +265,19 @@ macro_rules! declare_primitive_is_objective {
+@@ -237,6 +277,19 @@ macro_rules! declare_primitive_is_objective {
  
  declare_primitive_is_objective!(bool, char, (), u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, int, nat, str);
  
