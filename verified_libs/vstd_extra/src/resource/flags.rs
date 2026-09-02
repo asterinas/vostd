@@ -1,5 +1,7 @@
 //! Persistent flags for recording that an event has occurred.
 use crate::sum::Sum;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{
     prelude::*,
     resource::{Loc, set::*},
@@ -15,6 +17,18 @@ pub tracked struct OneShotPending {
 /// Duplicable knowledge that a one-shot transition has occurred.
 pub tracked struct OneShotSet {
     flag: GhostPersistentSingleton<()>,
+}
+
+// One-shot flags describe global ghost-resource ownership and do not carry a
+// thread's subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl Objective for OneShotPending {
+
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl Objective for OneShotSet {
+
 }
 
 impl OneShotPending {
