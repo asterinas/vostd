@@ -333,7 +333,6 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     assert forall|s: ProgramState| #[trigger]
         init(n).apply(s) implies inv_not_locked_iff_no_cs_closure.apply(s) by {
         let in_cs_or_unlock = |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock;
-
         let filtered = s.ProcSet.filter(in_cs_or_unlock);
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
