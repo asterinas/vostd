@@ -37,9 +37,9 @@ is logically equivalent to the original comparisons. Do not invent a missing
 relation, combine unrelated comparisons, or strengthen a contract merely to
 make it chainable.
 
-### Prefer imports in proof code
+### Organize proof imports
 
-<!-- guideline: prefer-imports-in-proof-code -->
+<!-- guideline: organize-proof-imports -->
 
 Use `use` declarations as much as possible for proof-only functions, lemmas,
 broadcast groups, and other proof symbols. Import the symbols once instead of
@@ -66,6 +66,11 @@ reveal(obeys_eq_spec_properties);
 Prefer explicit imports that keep the symbol's origin understandable. Retain a
 qualified path when importing it would introduce ambiguity or make a rare,
 one-off reference less clear.
+
+Keep newly added `vstd` and Verus-only imports visibly separate from imports
+inherited from the executable Rust source when the formatter permits it. A
+proof migration should not obscure which dependencies exist only for
+verification.
 
 See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528)
 and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502).
@@ -127,13 +132,20 @@ items. If Verus requires a different executable expression, keep the change
 minimal, demonstrate that runtime behavior is unchanged, and make the original
 form visible in review.
 
+When VOSTD mirrors an upstream API or defines round-trip conversions for an
+executable type, preserve the documented API shape and conversion direction.
+Adapt ownership with narrowly scoped proof lemmas instead of reversing a
+round-trip lemma, reconstructing an executable value, adding a runtime clone, or
+changing a caller-facing standard-library API merely to simplify a proof.
+
 This includes preserving import-independent item order: proof migration should
 not move constants, methods, or module declarations merely to make a partial
 file compile.
 
 See also: PR [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720382959),
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945), and
-[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187).
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945),
+[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187), and
+[#699](https://github.com/asterinas/vostd/pull/699).
 
 ### Name proof roles
 
@@ -178,7 +190,13 @@ Do not repeat the marker on every field of a `ghost struct`.
 For a `tracked struct`, fields are `tracked` by default,
 so we need to add `ghost` marker to fields that are not linear ownerships.
 
-See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
+Within proof functions, pass and return tracked resources with tracked binders.
+Do not wrap every component of an all-tracked proof tuple in `Tracked<_>`;
+reserve `Tracked<T>` and `Ghost<T>` wrappers for executable or mixed-mode
+boundaries where erased values must cross an executable signature.
+
+See also: PR [#656](https://github.com/asterinas/vostd/pull/656#issuecomment-5019089808)
+and [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
 
 ### Prefer ghost model structs
 
@@ -194,7 +212,8 @@ Use `tracked struct` instead when the fields represent linear permissions,
 tokens, or ownership. Keep an ordinary struct when it contains runtime state,
 must survive erasure, or participates in executable behavior. The goal is to
 erase proof-only data, not to force runtime or linear resources into ghost
-mode.
+mode. An all-ghost tracked type should normally be a ghost type unless its
+tracked identity is required by an enclosing ownership protocol.
 
 See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893393342).
 
