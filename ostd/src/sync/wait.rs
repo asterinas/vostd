@@ -4,7 +4,7 @@ use alloc::{collections::VecDeque, sync::Arc};
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use super::{LocalIrqDisabled, SpinLock};
-use crate::task::{scheduler, Task};
+use crate::task::{Task, scheduler};
 
 // # Explanation on the memory orders
 //
@@ -210,10 +210,10 @@ impl Waiter {
         &self,
         mut cond: F,
         cancel_cond: FCancel,
-    ) -> core::result::Result<R, E>
+    ) -> Result<R, E>
     where
         F: FnMut() -> Option<R>,
-        FCancel: Fn() -> core::result::Result<(), E>,
+        FCancel: Fn() -> Result<(), E>,
     {
         loop {
             if let Some(res) = cond() {
@@ -284,117 +284,117 @@ impl Waker {
 
 // #[cfg(ktest)]
 // mod test {
-    // use super::*;
-    // use crate::{prelude::*, task::TaskOptions};
+//     use super::*;
+//     use crate::{prelude::*, task::TaskOptions};
 
-    // fn queue_wake<F>(wake: F)
-    // where
-        // F: Fn(&WaitQueue) + Sync + Send + 'static,
-    // {
-        // let queue = Arc::new(WaitQueue::new());
-        // let queue_cloned = queue.clone();
+//     fn queue_wake<F>(wake: F)
+//     where
+//         F: Fn(&WaitQueue) + Sync + Send + 'static,
+//     {
+//         let queue = Arc::new(WaitQueue::new());
+//         let queue_cloned = queue.clone();
 
-        // let cond = Arc::new(AtomicBool::new(false));
-        // let cond_cloned = cond.clone();
+//         let cond = Arc::new(AtomicBool::new(false));
+//         let cond_cloned = cond.clone();
 
-        // TaskOptions::new(move || {
-            // Task::yield_now();
+//         TaskOptions::new(move || {
+//             Task::yield_now();
 
-            // cond_cloned.store(true, Ordering::Relaxed);
-            // wake(&queue_cloned);
-        // })
-        // .data(())
-        // .spawn()
-        // .unwrap();
+//             cond_cloned.store(true, Ordering::Relaxed);
+//             wake(&queue_cloned);
+//         })
+//         .data(())
+//         .spawn()
+//         .unwrap();
 
-        // queue.wait_until(|| cond.load(Ordering::Relaxed).then_some(()));
+//         queue.wait_until(|| cond.load(Ordering::Relaxed).then_some(()));
 
-        // assert!(cond.load(Ordering::Relaxed));
-    // }
+//         assert!(cond.load(Ordering::Relaxed));
+//     }
 
-    // #[ktest]
-    // fn queue_wake_one() {
-        // queue_wake(|queue| {
-            // queue.wake_one();
-        // });
-    // }
+//     #[ktest]
+//     fn queue_wake_one() {
+//         queue_wake(|queue| {
+//             queue.wake_one();
+//         });
+//     }
 
-    // #[ktest]
-    // fn queue_wake_all() {
-        // queue_wake(|queue| {
-            // queue.wake_all();
-        // });
-    // }
+//     #[ktest]
+//     fn queue_wake_all() {
+//         queue_wake(|queue| {
+//             queue.wake_all();
+//         });
+//     }
 
-    // #[ktest]
-    // fn waiter_wake_twice() {
-        // let (_waiter, waker) = Waiter::new_pair();
+//     #[ktest]
+//     fn waiter_wake_twice() {
+//         let (_waiter, waker) = Waiter::new_pair();
 
-        // assert!(waker.wake_up());
-        // assert!(!waker.wake_up());
-    // }
+//         assert!(waker.wake_up());
+//         assert!(!waker.wake_up());
+//     }
 
-    // #[ktest]
-    // fn waiter_wake_drop() {
-        // let (waiter, waker) = Waiter::new_pair();
+//     #[ktest]
+//     fn waiter_wake_drop() {
+//         let (waiter, waker) = Waiter::new_pair();
 
-        // drop(waiter);
-        // assert!(!waker.wake_up());
-    // }
+//         drop(waiter);
+//         assert!(!waker.wake_up());
+//     }
 
-    // #[ktest]
-    // fn waiter_wake_async() {
-        // let (waiter, waker) = Waiter::new_pair();
+//     #[ktest]
+//     fn waiter_wake_async() {
+//         let (waiter, waker) = Waiter::new_pair();
 
-        // let cond = Arc::new(AtomicBool::new(false));
-        // let cond_cloned = cond.clone();
+//         let cond = Arc::new(AtomicBool::new(false));
+//         let cond_cloned = cond.clone();
 
-        // TaskOptions::new(move || {
-            // Task::yield_now();
+//         TaskOptions::new(move || {
+//             Task::yield_now();
 
-            // cond_cloned.store(true, Ordering::Relaxed);
-            // assert!(waker.wake_up());
-        // })
-        // .data(())
-        // .spawn()
-        // .unwrap();
+//             cond_cloned.store(true, Ordering::Relaxed);
+//             assert!(waker.wake_up());
+//         })
+//         .data(())
+//         .spawn()
+//         .unwrap();
 
-        // waiter.wait();
+//         waiter.wait();
 
-        // assert!(cond.load(Ordering::Relaxed));
-    // }
+//         assert!(cond.load(Ordering::Relaxed));
+//     }
 
-    // #[ktest]
-    // fn waiter_wake_reorder() {
-        // let (waiter, waker) = Waiter::new_pair();
+//     #[ktest]
+//     fn waiter_wake_reorder() {
+//         let (waiter, waker) = Waiter::new_pair();
 
-        // let cond = Arc::new(AtomicBool::new(false));
-        // let cond_cloned = cond.clone();
+//         let cond = Arc::new(AtomicBool::new(false));
+//         let cond_cloned = cond.clone();
 
-        // let (waiter2, waker2) = Waiter::new_pair();
+//         let (waiter2, waker2) = Waiter::new_pair();
 
-        // let cond2 = Arc::new(AtomicBool::new(false));
-        // let cond2_cloned = cond2.clone();
+//         let cond2 = Arc::new(AtomicBool::new(false));
+//         let cond2_cloned = cond2.clone();
 
-        // TaskOptions::new(move || {
-            // Task::yield_now();
+//         TaskOptions::new(move || {
+//             Task::yield_now();
 
-            // cond2_cloned.store(true, Ordering::Relaxed);
-            // assert!(waker2.wake_up());
+//             cond2_cloned.store(true, Ordering::Relaxed);
+//             assert!(waker2.wake_up());
 
-            // Task::yield_now();
+//             Task::yield_now();
 
-            // cond_cloned.store(true, Ordering::Relaxed);
-            // assert!(waker.wake_up());
-        // })
-        // .data(())
-        // .spawn()
-        // .unwrap();
+//             cond_cloned.store(true, Ordering::Relaxed);
+//             assert!(waker.wake_up());
+//         })
+//         .data(())
+//         .spawn()
+//         .unwrap();
 
-        // waiter.wait();
-        // assert!(cond.load(Ordering::Relaxed));
+//         waiter.wait();
+//         assert!(cond.load(Ordering::Relaxed));
 
-        // waiter2.wait();
-        // assert!(cond2.load(Ordering::Relaxed));
-    // }
+//         waiter2.wait();
+//         assert!(cond2.load(Ordering::Relaxed));
+//     }
 // }

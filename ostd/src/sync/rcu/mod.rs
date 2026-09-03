@@ -17,9 +17,13 @@ use non_null::NonNullPtr;
 use spin::once::Once;
 
 use self::monitor::RcuMonitor;
-use crate::task::{
-    atomic_mode::{AsAtomicModeGuard, InAtomicMode},
-    disable_preempt, DisabledPreemptGuard,
+use crate::{
+    panic::PanicGuard,
+    task::{
+        DisabledPreemptGuard,
+        atomic_mode::{AsAtomicModeGuard, InAtomicMode},
+        disable_preempt,
+    },
 };
 
 mod monitor;
@@ -37,8 +41,8 @@ pub mod non_null;
 /// multiple readers to access shared data simultaneously without contention,
 /// while writers can update the data safely in a way that does not disrupt
 /// ongoing reads. RCU is particularly suited for situations where reads are
-/// far more frequent than writes.  
-///  
+/// far more frequent than writes.
+///
 /// The original design and implementation of RCU is described in paper _The
 /// Read-Copy-Update Mechanism for Supporting Real-Time Applications on Shared-
 /// Memory Multiprocessor Systems with Linux_ published on IBM Systems Journal
@@ -68,7 +72,7 @@ pub struct Rcu<P: NonNullPtr>(RcuInner<P>);
 #[must_use]
 pub struct RcuReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
 
-/// A Read-Copy Update (RCU) cell for sharing a _nullable_ pointer.  
+/// A Read-Copy Update (RCU) cell for sharing a _nullable_ pointer.
 ///
 /// This is a variant of [`Rcu`] that allows the contained pointer to be null.
 /// So that it can implement `Rcu<Option<P>>` where `P` is not a nullable
@@ -167,7 +171,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         RcuReadGuardInner {
             obj_ptr: self.ptr.load(Acquire),
             rcu: self,
-            _inner_guard: guard,
+            inner_guard: guard,
         }
     }
 
@@ -203,7 +207,7 @@ impl<P: NonNullPtr> Drop for RcuInner<P> {
 struct RcuReadGuardInner<'a, P: NonNullPtr> {
     obj_ptr: *mut <P as NonNullPtr>::Target,
     rcu: &'a RcuInner<P>,
-    _inner_guard: DisabledPreemptGuard,
+    inner_guard: DisabledPreemptGuard,
 }
 
 impl<P: NonNullPtr + Send> RcuReadGuardInner<'_, P> {
@@ -303,7 +307,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
 
     /// Creates a new RCU primitive that contains nothing.
     ///
-    /// This is a constant equivalence to [`RcuOption::new(None)`].
+    /// This is a constant equivalence to [`RcuOption::new`] with parameter `None`.
     pub const fn new_none() -> Self {
         Self(RcuInner::new_none())
     }
@@ -375,6 +379,12 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
     }
 }
 
+impl<P: NonNullPtr> AsAtomicModeGuard for RcuReadGuard<'_, P> {
+    fn as_atomic_mode_guard(&self) -> &dyn InAtomicMode {
+        self.0.inner_guard.as_atomic_mode_guard()
+    }
+}
+
 impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     /// Gets the reference of the protected data.
     ///
@@ -404,6 +414,12 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
     pub fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
         self.0.compare_exchange(new_ptr)
+    }
+}
+
+impl<P: NonNullPtr> AsAtomicModeGuard for RcuOptionReadGuard<'_, P> {
+    fn as_atomic_mode_guard(&self) -> &dyn InAtomicMode {
+        self.0.inner_guard.as_atomic_mode_guard()
     }
 }
 
@@ -451,8 +467,8 @@ unsafe fn delay_drop<P: NonNullPtr + Send>(pointer: NonNull<<P as NonNullPtr>::T
 ///
 /// [`RcuDrop<T>`] is guaranteed to have the same layout as `T`. You can also
 /// access the inner value safely via [`RcuDrop<T>`].
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RcuDrop<T: Send + 'static> {
     value: ManuallyDrop<T>,
 }
@@ -463,6 +479,26 @@ impl<T: Send + 'static> RcuDrop<T> {
         Self {
             value: ManuallyDrop::new(value),
         }
+    }
+
+    /// Extracts the value from the `RcuDrop` container.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned value will be dropped after
+    /// all the threads cannot access it anymore. Specifically, dropping it
+    /// after the RCU grace period is guaranteed to be safe.
+    ///
+    /// Note that panic unwinding may cause the returned value to be dropped
+    /// immediately, which is not sound. Therefore, the caller must forget the
+    /// [`PanicGuard`] after it ensures that the value will be dropped at the
+    /// correct time.
+    pub(crate) unsafe fn into_inner(slot: RcuDrop<T>) -> (T, PanicGuard) {
+        let mut slot = ManuallyDrop::new(slot);
+        let panic_guard = PanicGuard::new();
+        // SAFETY: The `slot` will not be used after this point.
+        let val = unsafe { ManuallyDrop::take(&mut slot.value) };
+        (val, panic_guard)
     }
 }
 

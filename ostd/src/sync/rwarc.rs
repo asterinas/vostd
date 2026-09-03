@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use alloc::sync::Arc;
-use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering, fence};
 
 use super::{PreemptDisabled, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -41,13 +41,18 @@ impl<T> RwArc<T> {
     }
 
     /// Acquires the read lock for immutable access.
-    pub fn read(&self) -> RwLockReadGuard<T, PreemptDisabled> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T, PreemptDisabled> {
         self.0.data.read()
     }
 
     /// Acquires the write lock for mutable access.
-    pub fn write(&self) -> RwLockWriteGuard<T, PreemptDisabled> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T, PreemptDisabled> {
         self.0.data.write()
+    }
+
+    /// Returns a raw pointer to the contained value.
+    pub fn as_ptr(&self) -> *const T {
+        self.0.data.as_ptr()
     }
 
     /// Returns an immutable reference if no other `RwArc` points to the same allocation.
@@ -108,28 +113,28 @@ impl<T: Clone> RwArc<T> {
 
 impl<T> RoArc<T> {
     /// Acquires the read lock for immutable access.
-    pub fn read(&self) -> RwLockReadGuard<T, PreemptDisabled> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T, PreemptDisabled> {
         self.0.data.read()
     }
 }
 
 // #[cfg(ktest)]
 // mod test {
-    // use super::*;
-    // use crate::prelude::*;
+//     use super::*;
+//     use crate::prelude::*;
 
-    // #[ktest]
-    // fn lockless_get() {
-        // let mut rw1 = RwArc::new(1u32);
-        // assert_eq!(rw1.get(), Some(1).as_ref());
+//     #[ktest]
+//     fn lockless_get() {
+//         let mut rw1 = RwArc::new(1u32);
+//         assert_eq!(rw1.get(), Some(1).as_ref());
 
-        // let _ro = rw1.clone_ro();
-        // assert_eq!(rw1.get(), Some(1).as_ref());
+//         let _ro = rw1.clone_ro();
+//         assert_eq!(rw1.get(), Some(1).as_ref());
 
-        // let rw2 = rw1.clone();
-        // assert_eq!(rw1.get(), None);
+//         let rw2 = rw1.clone();
+//         assert_eq!(rw1.get(), None);
 
-        // drop(rw2);
-        // assert_eq!(rw1.get(), Some(1).as_ref());
-    // }
+//         drop(rw2);
+//         assert_eq!(rw1.get(), Some(1).as_ref());
+//     }
 // }

@@ -1,3 +1,7 @@
+> ⚠️ **Versioning note.** This repository is currently in a transitional state: the components under `ostd/src/sync` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+
+---
+
 <p align="center">
     <img src="docs/src/images/logo_en.svg" alt="asterinas-logo" width="620"><br>
     A secure, fast, and general-purpose OS kernel written in Rust and compatible with Linux<br/>
