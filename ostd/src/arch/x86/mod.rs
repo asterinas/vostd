@@ -3,7 +3,6 @@
 /*pub mod boot;
 pub(crate) mod cpu;*/
 pub mod device;
-
 /*pub(crate) mod ex_table;*/
 pub(crate) mod io;
 /*pub(crate) mod iommu;*/
