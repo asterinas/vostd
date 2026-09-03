@@ -306,10 +306,10 @@ impl<T> RwMutex<T> {
         };
 
         Self {
-            // val: UnsafeCell::new(val),
-            val,
             lock: AtomicUsize::new(Ghost((val, Ghost(ghost_id))), 0, Tracked(perms)),
             queue: WaitQueue::new(),
+            // val: UnsafeCell::new(val),
+            val,
             ghost_id: Ghost(ghost_id),
         }
     }
