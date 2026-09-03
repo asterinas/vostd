@@ -29,7 +29,7 @@ use core::{
 };
 
 use super::{
-    Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
+    CurrentPagingConstsTrait, Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::{CachePolicy, PageProperty},
@@ -181,7 +181,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     type E: PageTableEntryTrait;
 
     /// The paging constants.
-    type C: PagingConstsTrait;
+    type C: CurrentPagingConstsTrait;
 
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
@@ -499,6 +499,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             ) == NR_ENTRIES,
     {
         Self::C::lemma_paging_consts_properties();
+        Self::C::lemma_current_paging_consts_requirements();
         Self::lemma_page_table_config_constant_requirements();
     }
 }
@@ -559,6 +560,12 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 
     proof fn lemma_paging_consts_requirements() {
         C::C::lemma_paging_consts_requirements();
+    }
+}
+
+impl<C: PageTableConfig> CurrentPagingConstsTrait for C {
+    proof fn lemma_current_paging_consts_requirements() {
+        C::C::lemma_current_paging_consts_requirements();
     }
 }
 
@@ -626,6 +633,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
 {
     proof {
         C::lemma_paging_consts_properties();
+        C::lemma_current_paging_consts_requirements();
         C::lemma_page_table_config_constant_properties();
     }
 
@@ -640,6 +648,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 {
     proof {
         C::lemma_paging_consts_properties();
+        C::lemma_current_paging_consts_requirements();
         let ghost idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
         let ghost offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS());
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_start_shift_facts::<C>(
@@ -666,6 +675,7 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
     proof {
         C::lemma_paging_consts_properties();
+        C::lemma_current_paging_consts_requirements();
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -818,7 +828,7 @@ fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
 }
 
 /// The index of a VA's PTE in a page table node at the given level.
-fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
+fn pte_index<C: CurrentPagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
         1 <= level <= NR_LEVELS,
     ensures
@@ -827,6 +837,7 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
     proof {
         let offset = pte_index_bit_offset_spec::<C>(level);
         C::lemma_paging_consts_properties();
+        C::lemma_current_paging_consts_requirements();
         lemma_arch_specific_consts_properties::<C>();
         assert(0 <= offset < usize::BITS) by (nonlinear_arith)
             requires
@@ -850,7 +861,7 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 /// This function returns the bit offset of the least significant bit. Take
 /// x86-64 as an example, the `pte_index_bit_offset(2)` should return 21, which
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
-fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
+fn pte_index_bit_offset<C: CurrentPagingConstsTrait>(level: PagingLevel) -> usize
     requires
         1 <= level <= NR_LEVELS,
     returns
@@ -858,6 +869,7 @@ fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
 {
     proof {
         C::lemma_paging_consts_properties();
+        C::lemma_current_paging_consts_requirements();
         lemma_arch_specific_consts_properties::<C>();
         assert(12 + 9 * (level - 1) <= 39) by (nonlinear_arith)
             requires
@@ -1669,12 +1681,16 @@ pub trait PageTableEntryTrait:
     /// The physical address recorded in the PTE is either:
     /// - the physical address of the next-level page table, or
     /// - the physical address of the page that the PTE maps to.
+    ///
+    /// This getter only guarantees page alignment. `paddr < MAX_PADDR` is an
+    /// obligation of well-formed owned PTEs, not of an arbitrary encoded PTE
+    /// word.
     spec fn paddr_spec(&self) -> Paddr;
 
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            valid_frame_paddr(res),
+            res % PAGE_SIZE == 0,
         returns
             self.paddr(),
     ;

@@ -407,6 +407,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     }
 
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(20)]
     pub proof fn push_level_owner_preserves_invs(
         self,
         guard: PageTableGuard<'rcu, C>,
@@ -936,13 +938,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // Same as the no-carry branch below: use align_up_advances_general.
                 let inc = self.inc_index();
 
-                assert(inc.va.inv()) by {
-                    assert forall|i: int| 0 <= i < NR_LEVELS implies inc.va.index.contains_key(i)
-                        && 0 <= #[trigger] inc.va.index[i] && inc.va.index[i] < NR_ENTRIES by {
-                        if i != self.level - 1 {
-                        }
-                    };
-                };
+                self.lemma_inc_index_va_inv();
                 inc.va.align_down_concrete(self.level as int);
                 let ps = page_size(self.level as PagingLevel) as nat;
                 let self_va = self.va.to_vaddr() as nat;

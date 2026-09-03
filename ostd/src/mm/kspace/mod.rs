@@ -44,7 +44,7 @@ pub(crate) mod kvirt_area;
 mod test;
 
 use super::{
-    Paddr, PagingConstsTrait, Vaddr,
+    CurrentPagingConstsTrait, Paddr, PagingConstsTrait, Vaddr,
     frame::{
         Frame, Segment,
         meta::{AnyFrameMeta, MetaPageMeta, MetaSlot, mapping},
@@ -135,7 +135,7 @@ pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..
 
 /// Convert physical address to virtual address using offset, only available inside `ostd`
 pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize {
-    (pa + LINEAR_MAPPING_BASE_VADDR) as usize
+    model::paddr_to_vaddr_for::<CurrentArch>(pa)
 }
 
 #[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
@@ -177,6 +177,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         use crate::mm::nr_subpage_per_huge;
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
         Self::C::lemma_paging_consts_properties();
+        Self::C::lemma_current_paging_consts_requirements();
         PageTableEntry::lemma_layout();
         lemma2_to64();
         lemma2_to64_rest();
