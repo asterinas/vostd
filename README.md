@@ -4,6 +4,9 @@
 [![verify](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci.yml?branch=main&label=verify)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
+> [!NOTE]
+> This repository is currently in a transitional state: the components under `ostd/src/sync` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+
 ## Overview
 
 The `vostd` project provides a formally-verified version of [OSTD](https://asterinas.github.io/book/ostd/index.html), the (unofficial) standard library for OS development in safe Rust. OSTD encapsulates low-level hardware interactions—which require `unsafe` Rust—into a small set of high-level, safe abstractions, enabling complex, general-purpose OSes like [Asterinas](https://github.com/asterinas/asterinas) to be written entirely in safe Rust. By design, OSTD guarantees *soundness*: no undefined behavior is possible regardless of how its API is used. The goal of `vostd` is to bolster this soundness through formal verification with [Verus](https://github.com/verus-lang/verus).
