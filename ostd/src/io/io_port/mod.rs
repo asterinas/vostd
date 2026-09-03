@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port and its allocator that allocates port I/O (PIO) to device drivers.
-use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
+use vstd::prelude::*;
+
+use crate::arch::device::io_port::{
+    IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite, valid_io_port_access,
+};
 mod allocator;
 
 use core::{marker::PhantomData, mem::size_of};
@@ -20,23 +24,117 @@ use crate::{Error, prelude::*};
 /// }
 /// ```
 ///
+#[verus_verify]
 pub struct IoPort<T, A> {
     port: u16,
     value_marker: PhantomData<T>,
     access_marker: PhantomData<A>,
 }
 
+verus! {
+
+impl<T, A> View for IoPort<T, A> {
+    type V = u16;
+
+    closed spec fn view(&self) -> u16 {
+        self.port
+    }
+}
+
+impl<T, A> IoPort<T, A> {
+    /// The complete byte range occupied by this typed port lies in the x86 PIO address space.
+    #[verifier::type_invariant]
+    pub open spec fn well_formed(&self) -> bool {
+        valid_io_port_access::<T>(self@ as int)
+    }
+
+    /// Whether `claim` is the allocator-issued ownership token for this complete typed range.
+    pub open spec fn claim_matches_set(&self, claim: Set<usize>) -> bool {
+        claim == port_id_set(self@ as usize, (self@ as usize + size_of::<T>()) as usize)
+    }
+}
+
+/// Set of byte-sized PIO numbers in the half-open interval `[start, end)`.
+pub open spec fn port_id_set(start: usize, end: usize) -> Set<usize>
+    decreases end - start,
+{
+    if start < end {
+        port_id_set(start, (end - 1) as usize).insert((end - 1) as usize)
+    } else {
+        Set::empty()
+    }
+}
+
+/// Extending a PIO interval by one byte is equivalent to inserting its old endpoint.
+pub proof fn lemma_port_id_set_insert(start: usize, end: usize)
+    requires
+        start <= end,
+        end < usize::MAX,
+    ensures
+        port_id_set(start, end).insert(end) == port_id_set(start, (end + 1) as usize),
+{
+}
+
+/// Membership characterization for [`port_id_set`].
+pub proof fn lemma_port_id_set_contains(start: usize, end: usize, id: usize)
+    requires
+        start <= end,
+    ensures
+        port_id_set(start, end).contains(id) <==> start <= id < end,
+    decreases end - start,
+{
+    if start < end {
+        lemma_port_id_set_contains(start, (end - 1) as usize, id);
+    }
+}
+
+} // verus!
+/// Returns the initialized global PIO allocator.
+///
+/// The executable body intentionally preserves the original `get().unwrap()` behavior. This
+/// helper is trusted only because Verus cannot connect an `exec static` to a spec-level boot-state
+/// predicate.
+#[verifier::external_body]
+#[verus_spec(
+    requires allocator::io_port_allocator_initialized(),
+)]
+fn initialized_allocator() -> &'static allocator::IoPortAllocator {
+    allocator::IO_PORT_ALLOCATOR.get().unwrap()
+}
+
+#[verus_verify]
 impl<T, A> IoPort<T, A> {
     /// Acquires an `IoPort` instance for the given range.
+    #[verus_spec(result =>
+        with
+            -> claim: Tracked<Option<allocator::IoPortClaim>>,
+        requires
+            vstd::layout::size_of::<T>() <= u16::MAX,
+            size_of::<T>() <= u16::MAX,
+            port as usize + size_of::<T>() <= u16::MAX,
+            allocator::io_port_allocator_initialized(),
+        ensures
+            result is Ok ==> result->Ok_0@ == port,
+            result is Ok ==> result->Ok_0.well_formed(),
+            result is Ok <==> claim@ is Some,
+            result is Ok ==> claim@->Some_0.instance_id() ==
+                allocator::io_port_allocator_instance_id(),
+            result is Ok ==> result->Ok_0.claim_matches_set(claim@->Some_0.set()),
+    )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
-        allocator::IO_PORT_ALLOCATOR
-            .get()
-            .unwrap()
-            .acquire(port)
-            .ok_or(Error::AccessDenied)
+        proof_decl! {
+            let tracked claim: Option<allocator::IoPortClaim>;
+        }
+        #[verus_spec(with => Tracked(claim))]
+        /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
+        let port = initialized_allocator().acquire(port);
+        let result = port.ok_or(Error::AccessDenied);
+        proof_with!(|= Tracked(claim));
+        result
     }
 
     /// Returns the port number.
+    #[verus_spec(returns self@)]
     pub const fn port(&self) -> u16 {
         self.port
     }
@@ -52,6 +150,15 @@ impl<T, A> IoPort<T, A> {
     ///
     /// This function is marked unsafe as creating an I/O port is considered
     /// a privileged operation.
+    #[verus_spec(ret =>
+        requires
+            vstd::layout::size_of::<T>() <= u16::MAX,
+            size_of::<T>() <= u16::MAX,
+            port as usize + size_of::<T>() <= u16::MAX,
+        ensures
+            ret@ == port,
+            ret.well_formed(),
+    )]
     pub const unsafe fn new(port: u16) -> Self {
         Self {
             port,
@@ -59,25 +166,52 @@ impl<T, A> IoPort<T, A> {
             access_marker: PhantomData,
         }
     }
+
+    /// Releases the allocator claim for this port.
+    ///
+    /// VERUS LIMITATION: this is called explicitly because Verus does not yet support proving the
+    /// standard `Drop` implementation below.
+    #[verus_spec(
+        with
+            Tracked(claim): Tracked<allocator::IoPortClaim>,
+        requires
+            allocator::io_port_allocator_initialized(),
+            claim.instance_id() == allocator::io_port_allocator_instance_id(),
+            self.claim_matches_set(claim.set()),
+            self@ as usize + size_of::<T>() <= u16::MAX,
+    )]
+    pub fn drop(self) {
+        let range = self.port..(self.port + size_of::<T>() as u16);
+        unsafe {
+            #[verus_spec(with Tracked(claim))]
+            initialized_allocator().recycle(range);
+        }
+    }
 }
 
+#[verus_verify]
+#[verifier::allow(undeclared_external_trait)]
 impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
     /// Reads from the I/O port
     #[inline]
+    #[verus_spec(requires self.well_formed())]
     pub fn read(&self) -> T {
         unsafe { PortRead::read_from_port(self.port) }
     }
 }
 
+#[verus_verify]
+#[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
     #[inline]
+    #[verus_spec(requires self.well_formed())]
     pub fn write(&self, value: T) {
         unsafe { PortWrite::write_to_port(self.port, value) }
     }
 }
 
-impl<T, A> Drop for IoPort<T, A> {
+/* impl<T, A> Drop for IoPort<T, A> {
     fn drop(&mut self) {
         // SAFETY: The caller have ownership of the PIO region.
         unsafe {
@@ -87,7 +221,7 @@ impl<T, A> Drop for IoPort<T, A> {
                 .recycle(self.port..(self.port + size_of::<T>() as u16));
         }
     }
-}
+} */
 
 /// Reserves an I/O port range which may refer to the port I/O range used by the
 /// system device driver.
@@ -162,6 +296,7 @@ pub(crate) use sensitive_io_port;
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
+#[verus_verify]
 pub(crate) struct RawIoPortRange {
     pub(crate) begin: u16,
     pub(crate) end: u16,

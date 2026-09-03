@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_code)]
 

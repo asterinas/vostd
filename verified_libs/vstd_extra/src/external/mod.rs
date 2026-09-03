@@ -5,8 +5,11 @@
 pub mod btree;
 pub mod convert;
 pub mod deref;
+pub mod id_alloc;
 pub mod ilog2;
 pub mod int_specs;
+#[cfg(target_arch = "x86_64")]
+pub mod io_port;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;
@@ -15,8 +18,11 @@ pub mod smart_ptr;
 pub mod time;
 
 pub use btree::*;
+pub use id_alloc::*;
 pub use ilog2::*;
 pub use int_specs::*;
+#[cfg(target_arch = "x86_64")]
+pub use io_port::*;
 pub use nonnull::*;
 pub use ptr::*;
 pub use range::*;
