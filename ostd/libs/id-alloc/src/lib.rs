@@ -26,30 +26,6 @@ impl IdAlloc {
         }
     }
 
-    /// Constructs a new id allocator from a slice of `u8` bytes and a maximum capacity.
-    ///
-    /// The slice of `u8` bytes is the raw data of a bitmap.
-    pub fn from_bytes_with_capacity(slice: &[u8], capacity: usize) -> Self {
-        let bitset = if capacity > slice.len() * 8 {
-            let mut bitset = BitVec::from_slice(slice);
-            bitset.resize(capacity, false);
-            bitset
-        } else {
-            let mut bitset = BitVec::from_slice(&slice[..capacity.div_ceil(8)]);
-            bitset.truncate(capacity);
-            bitset
-        };
-
-        let first_available_id = (0..bitset.len())
-            .find(|&i| !bitset[i])
-            .map_or(bitset.len(), |i| i);
-
-        Self {
-            bitset,
-            first_available_id,
-        }
-    }
-
     /// Allocates and returns a new `id`.
     ///
     /// If allocation is not possible, it returns `None`.
@@ -57,9 +33,7 @@ impl IdAlloc {
         if self.first_available_id < self.bitset.len() {
             let id = self.first_available_id;
             self.bitset.set(id, true);
-            self.first_available_id = (id + 1..self.bitset.len())
-                .find(|&i| !self.bitset[i])
-                .map_or(self.bitset.len(), |i| i);
+            self.update_first_available_id(id + 1);
             Some(id)
         } else {
             None
@@ -75,6 +49,11 @@ impl IdAlloc {
     /// TODO: Choose a more efficient strategy.
     pub fn alloc_consecutive(&mut self, count: usize) -> Option<Range<usize>> {
         if count == 0 {
+            return None;
+        }
+
+        let end = self.first_available_id.checked_add(count)?;
+        if end > self.bitset.len() {
             return None;
         }
 
@@ -105,9 +84,7 @@ impl IdAlloc {
 
         // In case we need to update first_available_id
         if self.is_allocated(self.first_available_id) {
-            self.first_available_id = (allocated_range.end..self.bitset.len())
-                .find(|&i| !self.bitset[i])
-                .map_or(self.bitset.len(), |i| i);
+            self.update_first_available_id(allocated_range.end);
         }
 
         Some(allocated_range)
@@ -148,7 +125,7 @@ impl IdAlloc {
         }
     }
 
-    /// Allocate a specific ID.
+    /// Allocates a specific ID.
     ///
     /// If the ID is already allocated, it returns `None`, otherwise it
     /// returns the allocated ID.
@@ -162,9 +139,7 @@ impl IdAlloc {
         }
         self.bitset.set(id, true);
         if id == self.first_available_id {
-            self.first_available_id = (id + 1..self.bitset.len())
-                .find(|&i| !self.bitset[i])
-                .map_or(self.bitset.len(), |i| i);
+            self.update_first_available_id(id + 1);
         }
         Some(id)
     }
@@ -178,9 +153,17 @@ impl IdAlloc {
         self.bitset[id]
     }
 
-    /// Views the id allocator as a slice of `u8` bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        self.bitset.as_raw_slice()
+    /// Updates the `first_available_id` field to the first zero index at or after `start`.
+    fn update_first_available_id(&mut self, start: usize) {
+        let len = self.bitset.len();
+        let bit_slice = self
+            .bitset
+            .get(start..len)
+            .expect("start is guaranteed to be valid by the caller");
+        self.first_available_id = bit_slice
+            .first_zero()
+            .map(|offset| start + offset)
+            .unwrap_or(len);
     }
 }
 
@@ -190,5 +173,24 @@ impl Debug for IdAlloc {
             .field("len", &self.bitset.len())
             .field("first_available_id", &self.first_available_id)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::IdAlloc;
+
+    #[test]
+    fn bitmap_alloc_out_of_bounds() {
+        let capacity = 16;
+        let mut bitmap = IdAlloc::with_capacity(capacity);
+
+        for _ in 0..capacity {
+            assert!(bitmap.alloc().is_some());
+        }
+
+        // Allocating one more ID should fail since the
+        // bitmap's `first_available_id` + `count` is out of bounds.
+        assert!(bitmap.alloc_consecutive(1).is_none());
     }
 }
