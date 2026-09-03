@@ -13,11 +13,6 @@ Prefer small, coherent groups over interleaving mode changes throughout an
 implementation. Keep adjacent verified items in the same `verus!` block when
 no ordinary Rust item separates them.
 
-Keep newly added `vstd` and Verus-only imports visibly separate from imports
-inherited from the executable Rust source when the formatter permits it. A
-proof migration should not obscure which dependencies exist only for
-verification.
-
 ### Use chained comparisons
 
 <!-- guideline: use-chained-comparisons -->
@@ -42,9 +37,9 @@ is logically equivalent to the original comparisons. Do not invent a missing
 relation, combine unrelated comparisons, or strengthen a contract merely to
 make it chainable.
 
-### Prefer imports in proof code
+### Organize proof imports
 
-<!-- guideline: prefer-imports-in-proof-code -->
+<!-- guideline: organize-proof-imports -->
 
 Use `use` declarations as much as possible for proof-only functions, lemmas,
 broadcast groups, and other proof symbols. Import the symbols once instead of
@@ -71,6 +66,11 @@ reveal(obeys_eq_spec_properties);
 Prefer explicit imports that keep the symbol's origin understandable. Retain a
 qualified path when importing it would introduce ambiguity or make a rare,
 one-off reference less clear.
+
+Keep newly added `vstd` and Verus-only imports visibly separate from imports
+inherited from the executable Rust source when the formatter permits it. A
+proof migration should not obscure which dependencies exist only for
+verification.
 
 See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528)
 and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502).
