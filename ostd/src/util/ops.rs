@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{
-    laws_cmp::obeys_cmp,
+    laws_cmp::{obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord},
     prelude::*,
     set_lib::FiniteRange,
     std_specs::{
-        cmp::{OrdSpec, PartialOrdIs, PartialOrdSpec},
+        cmp::PartialOrdIs,
         iter::{IteratorSpec, filter_keep, filter_postcondition},
     },
 };
@@ -52,8 +52,6 @@ use core::ops::Range;
 #[verus_verify(spinoff_prover, rlimit(50))]
 #[verus_spec(ret =>
     requires
-        T::obeys_cmp_spec(),
-        T::obeys_partial_cmp_spec(),
         obeys_cmp::<T>(),
         finite_range_matches_ord::<T>(),
     ensures
@@ -73,6 +71,10 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
     a: &Range<T>,
     b: &Range<T>,
 ) -> impl Iterator<Item = Range<T>> {
+    proof! {
+        reveal(obeys_cmp_partial_ord);
+        reveal(obeys_cmp_ord);
+    }
     let r = if b.is_empty() {
         [a.clone(), b.clone()]
     } else {

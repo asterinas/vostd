@@ -4,6 +4,11 @@
 //! The array iterator contract follows Rust 1.97.1's
 //! `library/core/src/array/iter.rs` implementation, which initializes an
 //! iterator over the array in left-to-right order.
+//!
+//! # Verified Properties
+//!
+//! The trusted contract records the iterator's element order, termination,
+//! remaining length, and prophetic iterator laws.
 use vstd::{prelude::*, std_specs::iter::IteratorSpec};
 
 verus! {

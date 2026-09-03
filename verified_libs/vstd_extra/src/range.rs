@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
+//! Finite-set models and proof lemmas for half-open ranges.
+//!
+//! # Verified Properties
+//!
+//! This module relates range difference to finite set difference and proves that
+//! the resulting ranges are ordered when the element type obeys its comparison
+//! specification.
 use vstd::{
     laws_cmp::{
         obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
@@ -6,13 +13,14 @@ use vstd::{
     laws_eq::obeys_eq_spec_properties,
     prelude::*,
     set_lib::{FiniteRange, range_set_properties},
-    std_specs::cmp::{OrdSpec, PartialEqSpec, PartialOrdIs, PartialOrdSpec},
+    std_specs::cmp::{OrdSpec, PartialOrdIs},
 };
 
 use core::{cmp::Ordering, ops::Range};
 
 verus! {
 
+/// Returns `y` when it compares less than `x`, and returns `x` otherwise.
 pub open spec fn spec_ord_min<T: Ord>(x: T, y: T) -> T {
     match y.cmp_spec(&x) {
         Ordering::Less => y,
@@ -21,6 +29,7 @@ pub open spec fn spec_ord_min<T: Ord>(x: T, y: T) -> T {
     }
 }
 
+/// Returns `x` when `y` compares less than it, and returns `y` otherwise.
 pub open spec fn spec_ord_max<T: Ord>(x: T, y: T) -> T {
     match y.cmp_spec(&x) {
         Ordering::Less => x,
@@ -68,38 +77,6 @@ pub open spec fn range_difference_seq<T: Ord>(a: Range<T>, b: Range<T>) -> Seq<R
     } else {
         Seq::empty()
     }
-}
-
-proof fn lemma_ord_base_laws<T: Ord>()
-    requires
-        obeys_cmp::<T>(),
-    ensures
-        T::obeys_cmp_spec(),
-        T::obeys_partial_cmp_spec(),
-        T::obeys_eq_spec(),
-        forall|x: T, y: T|
-            #![trigger x.partial_cmp_spec(&y)]
-            #![trigger x.cmp_spec(&y)]
-            x.partial_cmp_spec(&y) == Some(x.cmp_spec(&y)),
-        forall|x: T, y: T| x.partial_cmp_spec(&y) == Some(Ordering::Equal) <==> x.eq_spec(&y),
-        forall|x: T, y: T|
-            x.partial_cmp_spec(&y) == Some(Ordering::Less) <==> y.partial_cmp_spec(&x) == Some(
-                Ordering::Greater,
-            ),
-        forall|x: T, y: T, z: T|
-            x.partial_cmp_spec(&y) == Some(Ordering::Less) && y.partial_cmp_spec(&z) == Some(
-                Ordering::Less,
-            ) ==> x.partial_cmp_spec(&z) == Some(Ordering::Less),
-        forall|x: T, y: T| x.eq_spec(&y) <==> y.eq_spec(&x),
-        forall|x: T, y: T, z: T| x.eq_spec(&y) && y.eq_spec(&z) ==> x.eq_spec(&z),
-        forall|x: T, y: T|
-            #![trigger x.partial_cmp_spec(&y)]
-            x.is_le(&y) <==> x.cmp_spec(&y) != Ordering::Greater,
-{
-    reveal(obeys_partial_cmp_spec_properties);
-    reveal(obeys_cmp_partial_ord);
-    reveal(obeys_cmp_ord);
-    reveal(obeys_eq_spec_properties);
 }
 
 proof fn lemma_seq_range_union_contains<T: FiniteRange>(s: Seq<Range<T>>, x: T)
@@ -159,22 +136,41 @@ proof fn lemma_seq_range_union_small<T: FiniteRange>(s: Seq<Range<T>>)
     }
 }
 
+/// Proves that two adjacent ranges produced by [`range_difference_seq`] are ordered.
+///
+/// # Preconditions
+///
+/// The element comparison obeys its specification, and `i` identifies two
+/// adjacent output ranges.
+///
+/// # Postconditions
+///
+/// The first range ends at or before the second range starts.
 pub proof fn lemma_range_difference_sorted_at<T: Ord>(a: Range<T>, b: Range<T>, i: int)
     requires
-        T::obeys_cmp_spec(),
-        T::obeys_partial_cmp_spec(),
         obeys_cmp::<T>(),
         0 <= i < range_difference_seq(a, b).len() - 1,
     ensures
         range_difference_seq(a, b)[i].end.is_le(&range_difference_seq(a, b)[i + 1].start),
 {
-    lemma_ord_base_laws::<T>();
+    reveal(obeys_partial_cmp_spec_properties);
+    reveal(obeys_cmp_partial_ord);
+    reveal(obeys_cmp_ord);
+    reveal(obeys_eq_spec_properties);
 }
 
+/// Proves that [`range_difference_seq`] denotes the finite set difference `a - b`.
+///
+/// # Preconditions
+///
+/// The element comparison obeys its specification, and the finite-range model
+/// agrees with that ordering.
+///
+/// # Postconditions
+///
+/// The union of the output ranges equals the elements in `a` that are not in `b`.
 pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Range<T>)
     requires
-        T::obeys_cmp_spec(),
-        T::obeys_partial_cmp_spec(),
         obeys_cmp::<T>(),
         finite_range_matches_ord::<T>(),
     ensures
@@ -182,7 +178,10 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
 {
     broadcast use range_set_properties;
 
-    lemma_ord_base_laws::<T>();
+    reveal(obeys_partial_cmp_spec_properties);
+    reveal(obeys_cmp_partial_ord);
+    reveal(obeys_cmp_ord);
+    reveal(obeys_eq_spec_properties);
     let s = range_difference_seq(a, b);
     lemma_seq_range_union_small(s);
     assert forall|x: T|
