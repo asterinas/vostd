@@ -407,6 +407,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     }
 
+    #[verifier::rlimit(50)]
     pub proof fn push_level_owner_preserves_invs(
         self,
         guard: PageTableGuard<'rcu, C>,
