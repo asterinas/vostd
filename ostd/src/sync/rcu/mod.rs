@@ -5,6 +5,8 @@
 //!
 //! Currently this RCU model assumes a sequential consistency (SC) memory model.
 //! We may explore weak memory models in the future.
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{
     atomic_ghost::AtomicPtr, atomic_with_ghost, map::Map, modes::tracked_static_ref, prelude::*,
     resource::Loc,
@@ -69,6 +71,13 @@ tracked struct RcuPtrGhost<P: NonNullPtr> {
     tracked current: Option<RcuReadPool<P>>,
     tracked retired: RcuRetiredPools<P>,
     tracked returned: RcuReturnedTokens<P>,
+}
+
+// This authority contains allocation ownership and bookkeeping only. Raw
+// addresses do not carry the pointee's subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl<P: NonNullPtr> Objective for RcuPtrGhost<P> {
+
 }
 
 closed spec fn retired_pools_inv<P: NonNullPtr>(retired: RcuRetiredPools<P>) -> bool {

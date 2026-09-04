@@ -3,6 +3,8 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};
@@ -54,6 +56,11 @@ tracked struct RwPerms<T> {
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
     /// Tracks the remaining read permissions, or an empty state while a writer owns the resource.
     read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T> Objective for RwPerms<T> {
+
 }
 
 ghost struct RwId {
@@ -471,8 +478,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
             Some(
                 RwLockReadGuard {
-                    inner: self,
                     guard,
+                    inner: self,
                     tracked_token: Tracked(read_token.tracked_unwrap()),
                 },
             )
@@ -539,8 +546,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         ).is_ok() {
             Some(
                 RwLockWriteGuard {
-                    inner: self,
                     guard,
+                    inner: self,
                     tracked_perm: Tracked(guard_perm.tracked_unwrap()),
                     tracked_token: Tracked(guard_token.tracked_unwrap()),
                 },
@@ -583,8 +590,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         if lock == 0 {
             return Some(
                 RwLockUpgradeableGuard {
-                    inner: self,
                     guard,
+                    inner: self,
                     tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()),
                 },
             );
@@ -609,11 +616,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             );
         }
         None
-    }
-}
-
-/*
-impl<T, G: SpinGuardian> RwLock<T, G> {
+    }/*
     /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
@@ -628,8 +631,9 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
     /// is still safe.
     pub(super) fn as_ptr(&self) -> *mut T {
         self.val.get()
-    }
-}*/
+    }*/
+
+}
 
 /* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
@@ -1029,8 +1033,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             }
         );
         if res.is_ok() {
-            let inner = this.inner;
             let guard = this.guard.transfer_to();
+            let inner = this.inner;
             // drop(self);
             atomic_with_ghost!(
                 inner.lock => fetch_sub(UPGRADEABLE_READER);
@@ -1049,8 +1053,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             );
             Ok(
                 RwLockWriteGuard {
-                    inner,
                     guard,
+                    inner,
                     tracked_perm: Tracked(write_perm.tracked_unwrap()),
                     tracked_token: Tracked(write_guard_token.tracked_unwrap()),
                 },
@@ -1058,8 +1062,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         } else {
             Err(
                 RwLockUpgradeableGuard {
-                    inner: this.inner,
                     guard: this.guard,
+                    inner: this.inner,
                     tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )

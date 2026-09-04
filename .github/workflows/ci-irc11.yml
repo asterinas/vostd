@@ -14,6 +14,7 @@ on:
       - "dv"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "ostd/**"
       - "verified_libs/vstd_extra/**"
       - "rust-toolchain.toml"
   pull_request:
@@ -28,6 +29,7 @@ on:
       - "dv"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "ostd/**"
       - "verified_libs/vstd_extra/**"
       - "rust-toolchain.toml"
   workflow_dispatch:
@@ -130,7 +132,7 @@ jobs:
             --crate-type=lib \
             tools/tests/irc11_smoke.rs
 
-      - name: Verify IRC11 vstd_extra adapters
+      - name: Verify IRC11 adapters and OSTD bridge
         run: |
           # The pinned IRC11 and mainline Verus toolchains use different
           # package versions. Keep the repository lockfile aligned with
@@ -139,6 +141,8 @@ jobs:
           cp Cargo.lock "$IRC11_LOCKFILE_BACKUP"
           trap 'cp "$IRC11_LOCKFILE_BACKUP" Cargo.lock' EXIT
           cargo dv verify --targets vstd_extra \
+            --features irc11,vstd/weak-memory
+          cargo dv verify --targets ostd \
             --features irc11,vstd/weak-memory
 
       - name: Check for unexpected source changes
@@ -149,7 +153,7 @@ jobs:
         if: always()
         run: |
           if [[ "${{ job.status }}" = "success" ]]; then
-            echo "## IRC11 toolchain and adapter verification: passed" >> "$GITHUB_STEP_SUMMARY"
+            echo "## IRC11 toolchain, adapters, and OSTD bridge verification: passed" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "## IRC11 toolchain and adapter verification: failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "## IRC11 toolchain, adapters, and OSTD bridge verification: failed" >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -3,6 +3,8 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
 
@@ -31,6 +33,11 @@ tracked struct RwPerms<T> {
     upread_retract_token: Option<UniqueToken>,
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
     read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T> Objective for RwPerms<T> {
+
 }
 
 ghost struct RwId {
@@ -299,10 +306,10 @@ impl<T> RwMutex<T> {
         };
 
         Self {
-            // val: UnsafeCell::new(val),
-            val,
             lock: AtomicUsize::new(Ghost((val, Ghost(ghost_id))), 0, Tracked(perms)),
             queue: WaitQueue::new(),
+            // val: UnsafeCell::new(val),
+            val,
             ghost_id: Ghost(ghost_id),
         }
     }

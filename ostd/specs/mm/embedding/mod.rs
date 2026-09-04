@@ -4025,7 +4025,7 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     // exec `inc_frame_ref_count` saturation guard) comes from this fn's
     // `requires`.
     assert forall|paddr: Paddr|
-        #![trigger old_regions.slot_owner(paddr)]
+        #![trigger frame_to_index(paddr)]
         (sub_range.start <= paddr < sub_range.end && paddr % PAGE_SIZE == 0) implies {
         let so = old_regions.slot_owner(paddr);
         &&& so.usage is Frame

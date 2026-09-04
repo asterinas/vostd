@@ -51,9 +51,15 @@ let result = lhs.saturating_add(rhs);
 If existing support is incomplete, extend it at the narrowest reusable layer
 instead of creating overlapping local models.
 
+When a checked proof replaces an axiom, call the proved fact directly and remove
+obsolete wrappers and bridge lemmas. Keep a compatibility lemma only when
+current callers use a meaningfully different abstraction boundary; potential
+future use is not sufficient reason to retain it.
+
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#issuecomment-5225757765),
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308), and
-[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672).
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308),
+[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672), and
+[#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054).
 
 ### Canonical spec models
 
