@@ -1632,6 +1632,7 @@ impl AbstractVaddr {
                     + aligned.rec_compute_vaddr(4)) as Vaddr);
             };
             assert(aligned.rec_compute_vaddr(2) == self.index[3] * 0x80_0000_0000usize) by {
+                assert(aligned.index[2] == 0);
                 assert(aligned.rec_compute_vaddr(2) == (aligned.index[2] * page_size(3)
                     + aligned.rec_compute_vaddr(3)) as Vaddr);
             };

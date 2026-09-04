@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{
-    laws_cmp::{obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord},
+    laws_cmp::{
+        obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+    },
+    laws_eq::obeys_eq_spec_properties,
     prelude::*,
     set_lib::FiniteRange,
     std_specs::{
@@ -11,8 +14,8 @@ use vstd::{
 use vstd_extra::{
     external::{iter::*, range::*},
     range::{
-        finite_range_matches_ord, lemma_range_difference_set, lemma_range_difference_sorted_at,
-        range_as_set, range_difference_seq, seq_range_union, spec_ord_max, spec_ord_min,
+        RangeExtraFns, finite_range_matches_ord, lemma_range_difference_set, range_difference_seq,
+        seq_range_union, spec_ord_max, spec_ord_min,
     },
 };
 
@@ -58,13 +61,13 @@ use core::ops::Range;
         ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
             &&& ret.remaining() == range_difference_seq(*a, *b)
             &&& ret.remaining().len() <= 2
-            &&& forall|i: int|
-                0 <= i < ret.remaining().len() ==> (
-                #[trigger] ret.remaining()[i]).start.is_lt(&ret.remaining()[i].end)
+            &&& ret.remaining().all(
+                |range: Range<T>| range.start.is_lt(&range.end),
+            )
             &&& forall|i: int|
                 0 <= i < ret.remaining().len() - 1 ==> (
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start)
-            &&& seq_range_union(ret.remaining()) == range_as_set(*a).difference(range_as_set(*b))
+            &&& seq_range_union(ret.remaining()) == (*a).view_set().difference((*b).view_set())
         },
 )]
 pub fn range_difference<T: Ord + Copy + FiniteRange>(
@@ -114,10 +117,13 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
             assert forall|i: int|
                 0 <= i < ret.remaining().len() - 1 implies (
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start) by {
-                lemma_range_difference_sorted_at(*a, *b, i);
+                reveal(obeys_partial_cmp_spec_properties);
+                reveal(obeys_cmp_partial_ord);
+                reveal(obeys_cmp_ord);
+                reveal(obeys_eq_spec_properties);
             }
             assert(seq_range_union(ret.remaining()) ==
-                range_as_set(*a).difference(range_as_set(*b))) by {
+                (*a).view_set().difference((*b).view_set())) by {
                 lemma_range_difference_set(*a, *b);
             }
         }
