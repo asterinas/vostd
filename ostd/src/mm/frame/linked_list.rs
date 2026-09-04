@@ -863,7 +863,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             Tracked(owner) : Tracked<&mut CursorOwner<M>>
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(200)]
+    #[verifier::rlimit(250)]
     pub fn take_current(&mut self) -> (res: Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
     >)

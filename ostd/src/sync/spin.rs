@@ -280,8 +280,8 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
             let tracked SpinLockResource { perm, resource: resource } = resource;
         }
         SpinLockGuard {
-            lock: self,
             guard: inner_guard,
+            lock: self,
             tracked_perm: Tracked(perm),
             tracked_resource: Tracked(resource),
         }
@@ -316,8 +316,8 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
                     resource.tracked_unwrap();
             }
             let lock_guard = SpinLockGuard {
-                lock: self,
                 guard: inner_guard,
+                lock: self,
                 tracked_perm: Tracked(perm),
                 tracked_resource: Tracked(resource),
             };
