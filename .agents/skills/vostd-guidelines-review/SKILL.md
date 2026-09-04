@@ -1,13 +1,13 @@
 ---
 name: vostd-guidelines-review
-description: Review a Git change or selected Verus files against VOSTD's coding guidelines (docs/coding-guidelines) and write a Markdown review file. Fans out one isolated reviewer per guideline aspect — maintainability, proof-engineering, workflow — verifies their claims by experiment where possible, and consolidates the findings into one severity-ranked English report.
+description: Review a Git change or selected Verus files against VOSTD's coding guidelines and write a Markdown report. Always reviews maintainability and proof engineering; conditionally checks only rlimit caps and whether changed std/core/alloc external specs should be upstreamed.
 ---
 
 # vostd-guidelines-review
 
 Review a Git change or selected code against VOSTD's coding guidelines
-— the aspect-keyed pages under `docs/coding-guidelines/`
-(`maintainability.md`, `proof-engineering.md`, `workflow.md`)
+— primarily `maintainability.md` and `proof-engineering.md`, with two narrowly
+scoped checks from `workflow.md`
 — and write one Markdown review file. There are two modes, both anchored at the
 current checkout (`HEAD`):
 
@@ -52,10 +52,9 @@ Locate these once, before fanning out; the personas need the absolute paths:
 
 | Item | How to locate |
 |------|---------------|
-| Guideline pages | `docs/coding-guidelines/{README,maintainability,proof-engineering,workflow}.md`. |
+| Guideline pages | `docs/coding-guidelines/{README,maintainability,proof-engineering,workflow}.md`. The workflow reviewer uses only `decompose-before-raising-rlimit`'s numeric cap and `upstream-reusable-specs`. |
 | Existing verified code | The entire vendored vstd tree located from `grep '^vstd' Cargo.toml` (typically `tools/verus/source/vstd`), all of `verified_libs/`, `ostd/specs/`, and Verus-bearing files under `ostd/src/`. |
 | Verus binary + Z3 | `tools/verus/source/target-verus/release/verus` and `tools/verus/source/z3` — used for standalone contract experiments. |
-| Verification gate | `AGENTS.md`, `Makefile`, `.github/workflows/`. |
 | History rationale | `git log --follow -p -- <target>`. In `diff` mode, the captured commit series is the primary review input. |
 
 ## Pipeline
@@ -76,18 +75,27 @@ Run these steps in order.
 
    Use only these immutable inputs throughout the review. Read each input **in full**
    before fanning out; do not silently refresh it from a changing worktree. Read the
-   four guideline pages live at review start; they are the authority for what to check,
-   so if they have changed since the personas were last edited, the pages win. Resolve
-   the repository-context paths above and record relevant earlier history.
+   `README.md`, `maintainability.md`, and `proof-engineering.md` live at review start;
+   they are the authority for those review aspects. Read only the two permitted
+   sections of `workflow.md`: the `200` rlimit cap under
+   `decompose-before-raising-rlimit` and `upstream-reusable-specs`. Resolve the
+   repository-context paths above and record relevant earlier history.
 
 2. **Activate personas.**
-   Activate all three personas for every reviewed Verus path (changed paths in `diff`
-   mode, named paths in `files` mode). Do not skip the workflow
-   persona merely because the target has no solver knob: host coverage, upstream
-   readiness, or toolchain configuration may still apply. Each persona first performs
-   its cheap static applicability checks and records non-applicable rules as N/A with
-   evidence. Persona activation does not by itself justify running verification or
-   another expensive experiment.
+   Activate the maintainability and proof-engineering personas for every reviewed
+   Verus path. Activate the workflow persona only when the immutable review input has
+   at least one of these changes in reporting scope:
+
+   - an added, removed, or changed `#[verifier::rlimit(...)]`; or
+   - a newly added or materially changed external specification for a `std`, `core`,
+     or `alloc` API. A material change affects the specified API, contract, model, or
+     panic/unwind semantics; formatting, imports, and comments alone are not material.
+
+   In `files` mode, determine whether the target changed by comparing its captured
+   bytes with `HEAD` (treat an untracked file as wholly added). If neither condition
+   applies, do not launch the workflow persona and do not report workflow Compliance
+   or N/A entries. Persona activation does not justify running verification or another
+   expensive experiment.
 
 3. **Fan out.**
    Spawn the persona passes (see *Spawning*): by default **one isolated agent per
@@ -141,22 +149,25 @@ Each pass prompt is built the same way:
 
 Pass rules stated in every prompt:
 
-- Read the full guideline page and immutable review input from the supplied paths; do
-  not replace it with live Git output or working-tree files and do not rely on
-  summaries. The live repository may be read only for surrounding context and
-  verification. Report locations using original paths and source line numbers, never
-  disposable paths.
+- Read the immutable review input from the supplied paths; do not replace it with live
+  Git output or working-tree files and do not rely on summaries. Maintainability and
+  proof-engineering reviewers read their full guideline page; the workflow reviewer
+  reads only the two permitted rule sections named in its persona. The live repository
+  may be read only for surrounding context and verification. Report locations using
+  original paths and source line numbers, never disposable paths.
 - Enforce reporting scope. In `diff` mode, a finding's primary violating location must
   be introduced or materially changed by a reviewed commit; removed code may support a
   finding about the resulting change. In `files` mode, the primary location must
   intersect the target's requested range union. Context outside the scope cannot create
   an independent finding. Scope Compliance claims the same way.
-- The guideline page outranks the persona file's own method list: enumerate the page's
-  current rules and check every one — the persona's concerns are recipes for how to
-  look, not the rule inventory.
-- A method may only propose a finding; a finding stands only if a rule on the current
-  page grounds it. If a page rule fits no method, design the check on the spot and
-  keep the finding format.
+- For maintainability and proof engineering, the guideline page outranks the persona
+  file's method list: enumerate and check every current rule. The workflow persona is
+  the explicit exception: check only the triggered `rlimit > 200` condition and/or
+  whether a newly added or materially changed `std`/`core`/`alloc` external spec
+  should be proposed upstream. Do not inspect or report any other workflow concern.
+- A method may only propose a finding; a finding stands only if a permitted rule on the
+  current page grounds it. For maintainability and proof engineering, if a page rule
+  fits no method, design the check on the spot and keep the finding format.
 - A finding exists only with quoted evidence — code lines, comment lines, command
   output, or named lemma/spec signatures checked in vstd/vstd_extra. State unknown
   facts as unknown.
@@ -203,12 +214,15 @@ Compliance:
     compliance_or_na_reason: <what is demonstrated, or why the rule does not apply>
 ```
 
-Each current rule from the persona's guideline page appears at least once under either
-`Findings` or `Compliance`. Findings use a primary location inside the requested diff
-or file/range scope; out-of-scope support stays inside `quoted_evidence`. Commit
-messages may establish intent but are not independently reviewed for style unless a
-current VOSTD guideline explicitly requires it. Do not assign the orchestrator's
-`confirmed` / `uncertain` / `refuted` verdict in persona output.
+For maintainability and proof engineering, each current rule from the persona's
+guideline page appears at least once under either `Findings` or `Compliance`. For
+workflow, include only the applicable triggered check(s); omit all non-triggered and
+all other workflow rules rather than recording N/A entries. Findings use a primary
+location inside the requested diff or file/range scope; out-of-scope support stays
+inside `quoted_evidence`. Commit messages may establish intent but are not independently
+reviewed for style unless a current VOSTD guideline explicitly requires it. Do not
+assign the orchestrator's `confirmed` / `uncertain` / `refuted` verdict in persona
+output.
 
 ## Output format
 

@@ -19,7 +19,10 @@ below; if a rule named below no longer exists on the page, drop it.
 2. Executable shape: recover the original executable code from `git log -p` and the
    upstream history. Flag moved items, rewritten expressions whose original form is not
    visible in a comment (a sibling rewrite usually shows how), and equivalences that
-   cannot be checked from the review text alone.
+   cannot be checked from the review text alone. For every exec-code modification,
+   read `../../kverus-common/references/exec-code-preservation.md` and enforce its
+   reason-first `Origin Rust:` block-comment format. Report any violation under
+   `preserve-exec-code`.
 3. Proof-body hygiene: grep for fully qualified paths leaked into proof bodies,
    `broadcast use` statements, and `reveal` calls (prose inside comments does not
    count); verify imports are grouped in one `use` block per crate; check that
@@ -44,5 +47,5 @@ below; if a rule named below no longer exists on the page, drop it.
    `#[expect]`).
 
 You own readability and structure, not contract completeness or proof reuse
-(Proof-engineering persona) and not solver configuration or host coverage
-(Workflow persona) — except where the page names documentation of solver debt.
+(Proof-engineering persona), the `rlimit > 200` threshold, or whether a changed
+standard-library external spec should be proposed upstream (Workflow persona).

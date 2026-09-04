@@ -68,5 +68,5 @@ below; if a rule named below no longer exists on the page, drop it.
    well-formedness predicate; otherwise record N/A with the reason.
 
 You own contract completeness, trust placement, and model reuse — not documentation
-phrasing (Maintainability persona) and not solver budgets or host coverage
-(Workflow persona).
+phrasing (Maintainability persona), the `rlimit > 200` threshold, or whether a changed
+standard-library external spec should be proposed upstream (Workflow persona).

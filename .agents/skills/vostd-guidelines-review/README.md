@@ -2,8 +2,8 @@
 
 `vostd-guidelines-review` reviews either a Git change or selected Verus source
 files against the VOSTD coding guidelines and writes a single, evidence-backed
-Markdown report. It covers the maintainability, proof-engineering, and workflow
-aspects in
+Markdown report. It covers the maintainability and proof-engineering aspects, plus
+two conditional workflow checks, in
 [`docs/coding-guidelines`](../../../docs/coding-guidelines/README.md).
 
 ## Usage
@@ -43,12 +43,20 @@ overwritten unless `--overwrite` is present.
 The skill:
 
 1. snapshots the commit series or current working-tree target contents;
-2. runs isolated reviews for maintainability, proof engineering, and workflow;
-3. checks important claims against the source, the complete active `vstd`, and existing
+2. runs isolated reviews for maintainability and proof engineering;
+3. runs a workflow review only when an `rlimit` changes or a `std`/`core`/`alloc`
+   external specification is newly added or materially changed;
+4. checks important claims against the source, the complete active `vstd`, and existing
    verified code throughout VOSTD;
-4. consolidates the results by severity; and
-5. writes an English Markdown report containing findings, compliant rules,
+5. consolidates the results by severity; and
+6. writes an English Markdown report containing findings, compliant rules,
    suggested fix order, and evidence-check details.
+
+The workflow pass checks only whether a changed rlimit exceeds `200` and whether a
+newly added or materially changed project-local external specification for a
+`std`/`core`/`alloc` API should be proposed upstream. It does not review CI or host
+coverage, toolchain configuration, solver stability, proof decomposition, or other
+workflow concerns.
 
 In `diff` mode, findings must be caused by the reviewed commits. In `files`
 mode, findings must be rooted in the named files or requested ranges. The wider
@@ -64,5 +72,5 @@ repository may be read as context in both modes.
   repository-wide verification.
 
 For the complete orchestration rules, evidence schema, and report format, see
-[`SKILL.md`](SKILL.md). The three aspect-specific reviewer instructions live in
-[`personas/`](personas/).
+[`SKILL.md`](SKILL.md). The aspect-specific reviewer instructions live in
+[`personas/`](personas/); the workflow persona is conditional.
