@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+#[cfg(not(feature = "irc11"))]
+use vstd::std_specs::iter::{IteratorSpec, filter_keep, filter_postcondition};
 use vstd::{
     laws_cmp::{
         obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
@@ -6,10 +8,7 @@ use vstd::{
     laws_eq::obeys_eq_spec_properties,
     prelude::*,
     set_lib::FiniteRange,
-    std_specs::{
-        cmp::PartialOrdIs,
-        iter::{IteratorSpec, filter_keep, filter_postcondition},
-    },
+    std_specs::cmp::PartialOrdIs,
 };
 use vstd_extra::{
     external::{iter::*, range::*},
@@ -52,8 +51,8 @@ use core::ops::Range;
 /// returned sequence matches [`range_difference_seq`] and satisfies the
 /// functional-correctness properties above. The contract does not claim that
 /// comparisons cannot panic.
-#[verus_verify(spinoff_prover, rlimit(50))]
-#[verus_spec(ret =>
+#[cfg_attr(not(feature = "irc11"), verus_verify(spinoff_prover, rlimit(50)))]
+#[cfg_attr(not(feature = "irc11"), verus_spec(ret =>
     requires
         obeys_cmp::<T>(),
         finite_range_matches_ord::<T>(),
@@ -69,11 +68,13 @@ use core::ops::Range;
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start)
             &&& seq_range_union(ret.remaining()) == (*a).view_set().difference((*b).view_set())
         },
-)]
+))]
 pub fn range_difference<T: Ord + Copy + FiniteRange>(
     a: &Range<T>,
     b: &Range<T>,
 ) -> impl Iterator<Item = Range<T>> {
+    // The pinned IRC11 toolchain predates Verus's `Iterator::filter` model.
+    #[cfg(not(feature = "irc11"))]
     proof! {
         reveal(obeys_cmp_partial_ord);
         reveal(obeys_cmp_ord);
@@ -85,18 +86,20 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
         [a.start..a.end.min(b.start), a.start.max(b.end)..a.end]
     };
 
+    #[cfg(not(feature = "irc11"))]
     proof! {
         reveal_with_fuel(Seq::filter, 3);
     }
     // Original execution: `r.into_iter().filter(|v| !v.is_empty())`.
     // Bind its operands so the upstream filter axiom can refer to them.
     let iter = r.into_iter();
-    let pred = #[verus_spec(keep: bool =>
+    let pred = #[cfg_attr(not(feature = "irc11"), verus_spec(keep: bool =>
         ensures
             keep == v.start.is_lt(&v.end),
-    )]
+    ))]
     |v: &Range<T>| !v.is_empty();
     let ret = iter.filter(pred);
+    #[cfg(not(feature = "irc11"))]
     proof! {
         filter_postcondition(iter, pred, ret);
         if ret.will_return_none() {
