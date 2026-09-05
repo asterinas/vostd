@@ -203,6 +203,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// - if the input range exceeds `MAX_PADDR`, the result is `Err(OutOfBound)`;
     /// - if the input is aligned and within `MAX_PADDR` and the function terminated,
     ///   then `range.start < range.end` (the runtime `assert!` would otherwise diverge).
+    #[verifier::rlimit(200)]
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,

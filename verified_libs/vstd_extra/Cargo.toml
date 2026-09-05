@@ -15,3 +15,4 @@ std = ["vstd/std"]
 
 [dependencies]
 vstd = { workspace = true }
+bitvec.workspace = true
