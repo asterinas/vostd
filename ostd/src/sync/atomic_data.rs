@@ -48,8 +48,6 @@ verus! {
 ///
 /// type Data = AtomicDataWithOwner<MyData, MyDataWithOwner>;
 /// ```
-#[repr(transparent)]
-#[allow(repr_transparent_non_zst_fields)]
 pub struct AtomicDataWithOwner<V, Own> {
     /// The underlying data.
     pub data: V,
