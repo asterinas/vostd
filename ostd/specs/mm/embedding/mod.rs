@@ -3725,6 +3725,7 @@ proof fn lemma_step_segment_split<'rcu>(
 ///   pre: `pre raw == pre cover` at every idx.
 ///   post at popped: `(pre raw - 1) == (pre cover - 1)`. ✓
 ///   post elsewhere: unchanged.
+#[verifier::spinoff_prover]
 proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     requires
         old(s).inv(),
