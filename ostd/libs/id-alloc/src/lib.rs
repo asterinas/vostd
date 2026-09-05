@@ -35,6 +35,7 @@ pub open spec fn first_zero_seq(s: Seq<bool>) -> int
 
 // Bring the bitvec bridge's broadcast axioms into scope so they fire at call sites.
 broadcast use {
+    group_bitvec_models,
     axiom_bitvec_index_usize,
     axiom_bitvec_index_req,
     axiom_bitslice_get_range,

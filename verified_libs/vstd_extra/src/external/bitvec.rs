@@ -4,19 +4,31 @@
 //! source code and documentation, and are trusted as TCB. They are centralized here
 //! (per the "Centralize trusted boundaries" guideline) rather than beside an OSTD
 //! caller. `id-alloc` is currently the only consumer; it uses the concrete type
-//! `BitVec<u8, Lsb0>`, but the methods are generic over the storage type `T` and bit
-//! order `O`, so the specs keep those generic and pin only the index type.
+//! `BitVec<u8, Lsb0>`. Contracts are enabled only for explicitly trusted primitive
+//! storage instances: `u8`, `u32`, `usize`, and `u64` on 64-bit targets, with `Lsb0`.
+//! In particular, `BitStore` alone does not justify the model: `Cell`, atomic, and
+//! alias-safe storage can permit mutation through shared references.
+//!
+//! Verus requires external specifications to match the original generic signature.
+//! As in vstd's hash-table specifications, we therefore guard contracts with an
+//! uninterpreted model predicate and assume it only for the concrete instances
+//! above. Merely implementing the external traits grants no model guarantees.
+//! The source basis is `bitvec-1.1.1/src/store.rs` (primitive `store!` impls),
+//! `order.rs` (`Lsb0`), and `vec/{api,ops}.rs` / `slice/{api,ops}.rs`.
+//! Primitive storage has `Mem = Self` and `Unalias = Self`; its internal `Access`
+//! and `Alias` types are not primitives and are not admitted as storage here.
 //!
 //! The abstract model of a bitmap is a `Seq<bool>`. The `BitVec`/`BitSlice` views
 //! below expose that model; every executed `bitvec` operation `id-alloc` performs is
 //! equated to a `Seq` operation here, so all reasoning in `id-alloc` stays at the
-//! `Seq<bool>` level. The storage type and bit order do not affect the model.
+//! `Seq<bool>` level for the admitted storage and order instances.
 //!
-//! The deref, index, and `get` operations are specified with
+//! The index and `get` operations are specified with
 //! `external_fn_specification` wrappers rather than `assume_specification`, because
 //! `BitVec`/`BitSlice` (foreign types) deref/index through associated trait types
 //! (`Deref::Target`, `Index::Output`, `BitSliceIndex::Immut`) whose reduction is
-//! only matched when the wrapper pins the concrete index type and return type.
+//! matched through the original generic signature. Their contracts additionally
+//! require an admitted index type (`usize` for indexing, `Range<usize>` for `get`).
 use bitvec::{
     order::{BitOrder, Lsb0},
     slice::{BitSlice, BitSliceIndex},
@@ -33,13 +45,13 @@ verus! {
 #[verifier::external_body]
 pub struct ExLsb0(Lsb0);
 
-/// Verus declaration for bitvec's `BitStore` marker trait.
+/// Type-level declaration only; this does not assume any `BitStore` semantics.
 #[verifier::external_trait_specification]
 pub trait ExBitStore: 'static + core::fmt::Debug {
     type ExternalTraitSpecificationFor: bitvec::store::BitStore;
 }
 
-/// Verus declaration for bitvec's `BitOrder` marker trait.
+/// Type-level declaration only; this does not assume any `BitOrder` semantics.
 #[verifier::external_trait_specification]
 pub trait ExBitOrder: 'static {
     type ExternalTraitSpecificationFor: bitvec::order::BitOrder;
@@ -77,6 +89,57 @@ pub uninterp spec fn bitvec_view<T: BitStore, O: BitOrder>(b: &BitVec<T, O>) -> 
 /// The content of a borrowed bit-slice, modelled as a sequence of booleans.
 pub uninterp spec fn bitslice_view<T: BitStore, O: BitOrder>(b: &BitSlice<T, O>) -> Seq<bool>;
 
+/// Whether storage and order support the immutable sequence model. Only the
+/// concrete instances in `group_bitvec_models` are trusted below.
+pub uninterp spec fn obeys_bitvec_model<T: BitStore, O: BitOrder>() -> bool;
+
+/// The only index and `get` specializations covered by this bridge.
+pub uninterp spec fn obeys_bitvec_index_model<Idx>() -> bool;
+
+pub uninterp spec fn obeys_bitslice_get_model<I>() -> bool;
+
+// Keep instances separate so pruning an unused type does not remove the others.
+pub broadcast axiom fn axiom_u8_bitvec_model()
+    ensures
+        #[trigger] obeys_bitvec_model::<u8, Lsb0>(),
+;
+
+pub broadcast axiom fn axiom_u32_bitvec_model()
+    ensures
+        #[trigger] obeys_bitvec_model::<u32, Lsb0>(),
+;
+
+pub broadcast axiom fn axiom_usize_bitvec_model()
+    ensures
+        #[trigger] obeys_bitvec_model::<usize, Lsb0>(),
+;
+
+pub broadcast axiom fn axiom_usize_bitvec_index_model()
+    ensures
+        #[trigger] obeys_bitvec_index_model::<usize>(),
+;
+
+pub broadcast axiom fn axiom_range_bitslice_get_model()
+    ensures
+        #[trigger] obeys_bitslice_get_model::<Range<usize>>(),
+;
+
+#[cfg(target_pointer_width = "64")]
+pub broadcast axiom fn axiom_u64_bitvec_model()
+    ensures
+        #[trigger] obeys_bitvec_model::<u64, Lsb0>(),
+;
+
+pub broadcast group group_bitvec_models {
+    axiom_u8_bitvec_model,
+    axiom_u32_bitvec_model,
+    axiom_usize_bitvec_model,
+    axiom_usize_bitvec_index_model,
+    axiom_range_bitslice_get_model,
+    #[cfg(target_pointer_width = "64")]
+    axiom_u64_bitvec_model,
+}
+
 /// A `BitVec` derefs to a `BitSlice` over exactly its own bits. Specified with
 /// `assume_specification` (per-impl) so it overrides vstd's generic `Deref` trait
 /// spec, which otherwise loses the `bitslice_view` connection at auto-deref call
@@ -85,7 +148,7 @@ pub assume_specification<'a, T: BitStore, O: BitOrder>[ <BitVec<T, O> as Deref>:
     bv: &'a BitVec<T, O>,
 ) -> (ret: &'a <BitVec<T, O> as Deref>::Target)
     ensures
-        bitslice_view(ret) == bitvec_view(bv),
+        obeys_bitvec_model::<T, O>() ==> bitslice_view(ret) == bitvec_view(bv),
 ;
 
 /// A `BitVec` derefs mutably to a `BitSlice` over exactly its own bits; a mutation
@@ -94,14 +157,18 @@ pub assume_specification<'a, T: BitStore, O: BitOrder>[ <BitVec<T, O> as DerefMu
     bv: &'a mut BitVec<T, O>,
 ) -> (ret: &'a mut <BitVec<T, O> as Deref>::Target)
     ensures
-        bitslice_view(ret) == bitvec_view(old(bv)),
-        bitvec_view(final(bv)) == bitslice_view(final(ret)),
+        obeys_bitvec_model::<T, O>() ==> {
+            &&& bitslice_view(ret) == bitvec_view(old(bv))
+            &&& bitvec_view(final(bv)) == bitslice_view(final(ret))
+        },
 ;
 
 /// Constructs an empty `BitVec` (length 0). The capacity hint is not modelled.
 pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::with_capacity ](
     capacity: usize,
 ) -> (ret: BitVec<T, O>)
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
         bitvec_view(&ret).len() == 0,
 ;
@@ -113,6 +180,8 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::resize ](
     new_len: usize,
     value: bool,
 ) -> (ret: ())
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
         bitvec_view(final(bv)).len() == new_len,
         forall|i: int|
@@ -128,6 +197,8 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::resize ](
 pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::len ](
     bv: &BitVec<T, O>,
 ) -> (ret: usize)
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
         ret == bitvec_view(bv).len(),
 ;
@@ -144,7 +215,8 @@ pub uninterp spec fn bitvec_index_value<'a, T: BitStore, O: BitOrder, Idx>(
 pub fn bitvec_index<'a, T: BitStore, O: BitOrder, Idx>(bv: &'a BitVec<T, O>, idx: Idx) -> (ret:
     &'a <BitVec<T, O> as Index<Idx>>::Output) where BitSlice<T, O>: Index<Idx>
     ensures
-        ret == bitvec_index_value(bv, idx),
+        obeys_bitvec_model::<T, O>() && obeys_bitvec_index_model::<Idx>() ==> ret
+            == bitvec_index_value(bv, idx),
 {
     <BitVec<T, O> as Index<Idx>>::index(bv, idx)
 }
@@ -155,6 +227,7 @@ pub broadcast axiom fn axiom_bitvec_index_usize<T: BitStore, O: BitOrder>(
     idx: usize,
 )
     requires
+        obeys_bitvec_model::<T, O>(),
         idx < bitvec_view(bv).len(),
     ensures
         #![trigger bitvec_index_value(bv, idx)]
@@ -167,6 +240,8 @@ pub broadcast axiom fn axiom_bitvec_index_usize<T: BitStore, O: BitOrder>(
 /// rule forbids adding one), so this TCB axiom supplies the intended meaning —
 /// exactly the condition under which `BitVec::index` does not panic.
 pub broadcast axiom fn axiom_bitvec_index_req<T: BitStore, O: BitOrder>(bv: &BitVec<T, O>, i: usize)
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
         #![trigger <BitVec<T, O> as IndexSpec<usize>>::index_req(bv, &i)]
         <BitVec<T, O> as IndexSpec<usize>>::index_req(bv, &i) == (i < bitvec_view(bv).len()),
@@ -177,6 +252,8 @@ pub broadcast axiom fn axiom_bitvec_index_req<T: BitStore, O: BitOrder>(bv: &Bit
 /// `bitvec_view(bv).len()` is unconstrained away from call sites (breaking overflow
 /// checks like `start + offset`).
 pub broadcast axiom fn axiom_bitvec_len_bound<T: BitStore, O: BitOrder>(bv: &BitVec<T, O>)
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
         #![trigger bitvec_view(bv)]
         bitvec_view(bv).len() <= usize::MAX as int,
@@ -189,6 +266,7 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::set ](
     value: bool,
 ) -> (ret: ())
     requires
+        obeys_bitvec_model::<T, O>(),
         index < bitslice_view(bv).len(),
     ensures
         bitslice_view(final(bv)) == bitslice_view(old(bv)).update(index as int, value),
@@ -207,6 +285,9 @@ pub fn bitslice_get<'a, T: BitStore, O: BitOrder, I: BitSliceIndex<'a, T, O>>(
     bv: &'a BitSlice<T, O>,
     idx: I,
 ) -> (ret: Option<<I as BitSliceIndex<'a, T, O>>::Immut>)
+    requires
+        obeys_bitvec_model::<T, O>(),
+        obeys_bitslice_get_model::<I>(),
     ensures
         ret == bitslice_get_value(bv, idx),
 {
@@ -220,6 +301,7 @@ pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
     range: Range<usize>,
 )
     requires
+        obeys_bitvec_model::<T, O>(),
         0 <= range.start <= range.end <= bitslice_view(bv).len(),
     ensures
         #![trigger bitslice_get_value(bv, range)]
@@ -236,6 +318,8 @@ pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
 pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::first_zero ](
     bv: &BitSlice<T, O>,
 ) -> (ret: Option<usize>)
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
         match ret {
             Some(j) => {
