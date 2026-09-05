@@ -15,9 +15,9 @@ use vstd::vpanic;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
 use crate::error::Error;
-use crate::mm::frame::MetaSlot;
 use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::frame::untyped::UFrame;
+use crate::mm::frame::{Frame, MetaSlot};
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
 use crate::mm::{
@@ -26,7 +26,10 @@ use crate::mm::{
 };
 use crate::specs::arch::*;
 
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    meta_owners::{FracMetadataPerm, MetaSlotStorage},
+    meta_region_owners::MetaRegionOwners,
+};
 
 use crate::specs::mm::page_table::{cursor::owners::CursorOwner, *};
 use crate::specs::mm::tlb::TlbModel;
@@ -152,7 +155,7 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(regions).inv(),
     )]
@@ -176,7 +179,7 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(regions).inv(),
         ensures
@@ -222,7 +225,7 @@ impl<'a> VmSpace<'a> {
             Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Ghost(root_guard): Ghost<PageTableGuard<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>,
+            Tracked(guards): Tracked<&mut Guards>,
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             self.pt.relates_owner(owner, *old(regions)),
@@ -283,7 +286,7 @@ impl<'a> VmSpace<'a> {
             Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Ghost(root_guard): Ghost<PageTableGuard<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>
+            Tracked(guards): Tracked<&mut Guards>
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             self.pt.relates_owner(owner, *old(regions)),
@@ -488,7 +491,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // Out-of-range is a graceful `Err`; the sole panic is cloning
@@ -544,7 +547,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
@@ -592,7 +595,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
@@ -663,7 +666,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // Out-of-range → graceful `Err`; the sole panic is cloning the
@@ -714,7 +717,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
@@ -764,7 +767,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>
+            Tracked(guards): Tracked<&mut Guards>
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
@@ -832,7 +835,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>,
+            Tracked(guards): Tracked<&mut Guards>,
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             old(tlb_model).inv(),
@@ -876,7 +879,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             },
             PageTableFrag::StrayPageTable { .. } => {
                 assert(false) by {
-                    assert(UserPtConfig::item_into_raw(item).1 == 1);
+                    assert(UserPtConfig::item_into_raw_spec(item).1 == 1);
                 };
                 #[cfg(feature = "allow_panic")]
                 vpanic!("`UFrame` is base page sized but re-mapping out a child PT");
@@ -922,7 +925,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>,
+            Tracked(guards): Tracked<&mut Guards>,
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
@@ -1525,7 +1528,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a>>,
+            Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
@@ -1533,8 +1536,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // this is trivially true (tracked is constant). See `Entry::protect`.
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) ==>
-                    UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_out))
-                    == UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_in)),
+                    UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(
+                        pa, level, p_out, None, None,
+                    ))
+                    == UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(
+                        pa,
+                        level,
+                        p_in,
+                        None,
+                        None,
+                    )),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out)
                     && <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_in) ==>
@@ -1597,7 +1608,8 @@ impl RCClone for MappedItem {
         new_perm: MetaRegionOwners,
         res: Self,
     ) -> bool {
-        self.frame.clone_ensures(old_perm, new_perm, res.frame)
+        &&& self.prop == res.prop
+        &&& self.frame.clone_ensures(old_perm, new_perm, res.frame)
     }
 
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
@@ -1634,18 +1646,38 @@ unsafe impl PageTableConfig for UserPtConfig {
         (item.frame.start_paddr_spec(), 1, item.prop)
     }
 
+    open spec fn item_permission(item: Self::Item) -> Option<FracMetadataPerm> {
+        item.frame.tracked_metadata_perm@
+    }
+
+    open spec fn item_slot_perm(item: Self::Item) -> Option<
+        &'static vstd::simple_pptr::PointsTo<crate::mm::frame::MetaSlot>,
+    > {
+        Some(item.frame.tracked_slot_perm@)
+    }
+
     #[verifier::external_body]
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+    fn item_into_raw(item: Self::Item, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> (res: (
+        (Paddr, PagingLevel, PageProperty),
+        Tracked<Option<FracMetadataPerm>>,
+    )) {
+        proof_decl! {
+            let tracked frame_permission: FracMetadataPerm;
+        }
         let MappedItem { frame, prop } = item;
         let level = frame.map_level();
+        proof_with!(Tracked(regions));
         let paddr = frame.into_raw();
-        (paddr, level, prop)
+        proof_with!(=> Tracked(frame_permission));
+        ((paddr, level, prop), Tracked(Some(frame_permission)))
     }
 
     open spec fn item_from_raw_spec(
         paddr: Paddr,
         _level: PagingLevel,
         prop: PageProperty,
+        slot_perm: Option<&'static vstd::simple_pptr::PointsTo<crate::mm::frame::MetaSlot>>,
+        permission: Option<FracMetadataPerm>,
     ) -> Self::Item {
         MappedItem {
             frame: UFrame {
@@ -1654,21 +1686,43 @@ unsafe impl PageTableConfig for UserPtConfig {
                     PhantomData,
                 ),
                 _marker: PhantomData,
+                #[cfg(verus_keep_ghost_body)]
+                tracked_slot_perm: Tracked(slot_perm->0),
+                #[cfg(verus_keep_ghost_body)]
+                tracked_metadata_perm: Tracked(permission),
             },
             prop,
         }
     }
 
     #[verifier::external_body]
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+    unsafe fn item_from_raw(
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(permission): Tracked<Option<FracMetadataPerm>>,
+    ) -> Self::Item {
+        let tracked slot_perm = regions.tracked_borrow_slot(paddr);
+        let tracked frame_permission = permission.tracked_unwrap();
+        proof_with!(Tracked(slot_perm), Tracked(frame_permission));
         let frame = unsafe { UFrame::from_raw(paddr) };
         MappedItem { frame, prop }
     }
 
-    proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+    proof fn lemma_item_into_raw_roundtrip(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        slot_perm: Option<&'static vstd::simple_pptr::PointsTo<crate::mm::frame::MetaSlot>>,
+        permission: Option<FracMetadataPerm>,
+    ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        let item = Self::item_from_raw_spec(pa, level, prop);
+        assert(Self::tracked(Self::item_from_raw_spec(pa, level, prop, None, None)));
+        assert(permission is Some);
+        assert(slot_perm is Some);
+        let item = Self::item_from_raw_spec(pa, level, prop, slot_perm, permission);
         assert(Self::raw_item_well_formed(pa, level, prop));
         assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
         crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
@@ -1679,6 +1733,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         paddr: Paddr,
         level: PagingLevel,
         prop: PageProperty,
+        slot_perm: Option<&'static vstd::simple_pptr::PointsTo<crate::mm::frame::MetaSlot>>,
+        permission: Option<FracMetadataPerm>,
     ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
@@ -1716,10 +1772,19 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) {
     }
 
-    proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+    proof fn lemma_huge_raw_item_untracked(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+    }
+
+    proof fn lemma_item_from_raw_well_formed(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        slot_perm: Option<&'static vstd::simple_pptr::PointsTo<crate::mm::frame::MetaSlot>>,
+        permission: Option<FracMetadataPerm>,
+    ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        let item = Self::item_from_raw_spec(pa, level, prop);
+        let item = Self::item_from_raw_spec(pa, level, prop, slot_perm, permission);
         crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
     }
 
@@ -1747,9 +1812,22 @@ unsafe impl PageTableConfig for UserPtConfig {
         use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        Self::lemma_item_from_raw_well_formed(pa, level, prop);
+        assert(Self::item_slot_perm(item) is Some);
+        assert(Self::item_permission(item) is Some);
+
+        Self::lemma_item_from_raw_well_formed(
+            pa,
+            level,
+            prop,
+            Self::item_slot_perm(item),
+            Self::item_permission(item),
+        );
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
         assert(meta_to_index(item.frame.ptr.addr()) == frame_to_index(pa));
+        let idx = frame_to_index(pa);
+        regions.lemma_contains_valid_frame_paddr(pa);
+        assert(item.frame.tracked_slot_perm@ == regions.slots[idx]);
+        assert(item.frame.wf_with_region(regions));
     }
 
     proof fn lemma_page_table_config_constant_requirements() {

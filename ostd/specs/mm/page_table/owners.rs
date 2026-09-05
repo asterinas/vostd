@@ -156,6 +156,7 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
 /// The VA of any path is within the `2^39`-sized cell of its top-level index:
 /// `path[0] * 2^39 <= vaddr(path)` and `vaddr(path) + page_size <= (path[0]+1) * 2^39`.
 /// Pure VA arithmetic (x86 4-level paging). Used by `view_rec_top_index_va_bound`.
+#[verifier::spinoff_prover]
 pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     requires
         path.inv(),
@@ -516,7 +517,7 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
 /// # Verification Design
 /// `PageTableOwner` is a wrapper around [`OwnerSubtree`], which is a [`TreeNode`].
 /// in a tree of [`EntryOwner`]s. In turn, `EntryOwner` carries a enum that may be a
-/// [`FrameEntryState`] if the entry is a leaf node that maps a frame, or a [`NodeOwner`] if
+/// [`FrameEntryOwner`] if the entry is a leaf node that maps a frame, or a [`NodeOwner`] if
 /// the entry is a sub-table. The root of the top-level page table owner should always be
 /// a `NodeOwner`.
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
@@ -783,6 +784,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// Closed-form for `vaddr(path.push_tail(i))` by case-split on `path.len() ∈ {0,1,2,3}`.
+    #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     pub proof fn lemma_vaddr_push_tail_eq(path: TreePath<NR_ENTRIES>, i: int)
         requires
@@ -1169,6 +1171,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     ///
     /// Proved by case analysis on `path.len() ∈ {0, 1, 2, 3, 4}`, unrolling
     /// `rec_vaddr` and using concrete `pow2` values.
+    #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     proof fn lemma_vaddr_path_alignment_and_bound(path: TreePath<NR_ENTRIES>)
         requires

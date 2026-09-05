@@ -83,6 +83,7 @@ pub proof fn tracked_vm_space_reader_embedded<'a>(
             is_fallible: true,
             is_kernel: false,
             mem_view: None,
+            raw_frame_permissions: Map::tracked_empty(),
         };
         Some(owner)
     } else {
@@ -110,6 +111,7 @@ pub proof fn tracked_vm_space_writer_embedded<'a>(
             is_fallible: true,
             is_kernel: false,
             mem_view: None,
+            raw_frame_permissions: Map::tracked_empty(),
         };
         Some(owner)
     } else {
@@ -141,6 +143,7 @@ pub proof fn tracked_vm_reader_from_kernel_space_embedded(vaddr: Vaddr, len: usi
         is_fallible: false,
         is_kernel: true,
         mem_view: Some(VmIoMemView::ReadView(mem_view)),
+        raw_frame_permissions: Map::tracked_empty(),
     }
 }
 
@@ -167,6 +170,7 @@ pub proof fn tracked_vm_writer_from_kernel_space_embedded(vaddr: Vaddr, len: usi
         is_fallible: false,
         is_kernel: true,
         mem_view: Some(VmIoMemView::WriteView(mem_view)),
+        raw_frame_permissions: Map::tracked_empty(),
     }
 }
 

@@ -21,13 +21,12 @@ use crate::mm::{
 
 verus! {
 
-pub tracked struct Guards<'rcu> {
+pub tracked struct Guards {
     /// The set of node addresses that are currently guarded (locked).
     pub ghost guards: Set<usize>,
-    pub _phantom: PhantomData<&'rcu ()>,
 }
 
-impl<'rcu> Guards<'rcu> {
+impl Guards {
     pub open spec fn unlocked(self, addr: usize) -> bool {
         !self.guards.contains(addr)
     }
@@ -38,7 +37,7 @@ impl<'rcu> Guards<'rcu> {
 }
 
 impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
-    type State = Guards<'rcu>;
+    type State = Guards;
 
     /// The node address whose lock this guard holds. The token
     /// thus identifies *which* guard it tracks; `drop_requires`'s key

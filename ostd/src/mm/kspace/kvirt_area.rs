@@ -52,7 +52,14 @@ verus! {
 pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     frame: Frame<T>,
 ) -> DynFrame {
-    DynFrame { ptr: frame.ptr, _marker: PhantomData }
+    DynFrame {
+        ptr: frame.ptr,
+        _marker: PhantomData,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_slot_perm: frame.tracked_slot_perm,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_metadata_perm: frame.tracked_metadata_perm,
+    }
 }
 
 /// Converts `Frame<T>` to `DynFrame`, with a spec postcondition connecting the result
@@ -62,7 +69,14 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
         res == frame_as_dynframe(frame),
 {
     /* frame.into() */
-    DynFrame { ptr: frame.ptr, _marker: PhantomData }
+    DynFrame {
+        ptr: frame.ptr,
+        _marker: PhantomData,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_slot_perm: frame.tracked_slot_perm,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_metadata_perm: frame.tracked_metadata_perm,
+    }
 }
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
@@ -72,7 +86,14 @@ pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     prop: PageProperty,
     entry_owner: EntryOwner<KernelPtConfig>,
 ) -> bool {
-    let frame_mss = DynFrame { ptr: frame.ptr, _marker: PhantomData };
+    let frame_mss = DynFrame {
+        ptr: frame.ptr,
+        _marker: PhantomData,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_slot_perm: frame.tracked_slot_perm,
+        #[cfg(verus_keep_ghost_body)]
+        tracked_metadata_perm: frame.tracked_metadata_perm,
+    };
     let item = MappedItem::Tracked(frame_mss, prop);
     let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
     Child::Frame(pa, level, prop_from_item).wf(entry_owner)
@@ -195,7 +216,7 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
     with
         Tracked(kernel_owner): Tracked<&mut Option<&PageTableOwner<KernelPtConfig>>>,
         Tracked(regions): Tracked<&MetaRegionOwners>,
-        Tracked(guards): Tracked<&Guards<'rcu>>,
+        Tracked(guards): Tracked<&Guards>,
     requires
         regions.inv(),
         old(kernel_owner)@ is Some ==> old(kernel_owner)@->0.inv(),
@@ -434,7 +455,7 @@ impl KVirtArea {
              Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
              Tracked(entry_owners): Tracked<&mut Map<Paddr, EntryOwner<KernelPtConfig>>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
-             Tracked(guards): Tracked<&mut Guards<'a>>,
+             Tracked(guards): Tracked<&mut Guards>,
         requires
             Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())
                 ==> may_panic(),
@@ -682,6 +703,7 @@ impl KVirtArea {
                     cur_path,
                     cur_parent_level,
                     prop,
+                    None,
                 );
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
             }
@@ -757,7 +779,7 @@ impl KVirtArea {
         with Tracked(owner): Tracked<KVirtAreaOwner>,
              Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
-             Tracked(guards): Tracked<&mut Guards<'a>>,
+             Tracked(guards): Tracked<&mut Guards>,
         requires
     // **Precise form** (post Phases A/B/C). Bounds are caller-
     // provable; OOM uses the implication form.

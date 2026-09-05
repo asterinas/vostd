@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
+
 use vstd::prelude::*;
+use vstd::simple_pptr::PPtr;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
@@ -14,7 +18,6 @@ use crate::specs::mm::frame::{
 };
 
 use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use crate::specs::*;
@@ -66,9 +69,6 @@ impl<C: PageTableConfig> Child<C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             self.invariants(*old(owner), *old(regions)),
-            self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                meta_to_index(node.ptr.addr()),
-            ) > 0,
         ensures
             final(owner).pte_invariants(res, *final(regions)),
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
@@ -85,20 +85,9 @@ impl<C: PageTableConfig> Child<C> {
         match self {
             Child::PageTable(node) => {
                 let ghost node_owner = owner.node();
-                let ghost node_index = meta_to_index(node.ptr.addr());
 
-                let tracked node_slot_perm = regions.slots.tracked_borrow(node_index);
-                #[verus_spec(with Tracked(node_slot_perm))]
                 let paddr = node.start_paddr();
 
-                let ghost fo0 = regions.frame_obligations;
-
-                proof_decl! {
-                    let tracked redeem_obl = DropObligation::tracked_mint(node_index);
-                    regions.tracked_redeem_frame_obligation(redeem_obl);
-                    let tracked md_obl = DropObligation::tracked_mint(node_index);
-                }
-                proof_with!(Tracked(md_obl));
                 let _ = ManuallyDrop::new(node);
 
                 proof {
@@ -152,28 +141,16 @@ impl<C: PageTableConfig> Child<C> {
 
                 regions.lemma_contains_valid_frame_paddr(paddr);
             }
+            let tracked slot_perm = regions.tracked_borrow_slot(paddr);
 
-            proof_decl! {
-                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
-            }
-
-            let node = unsafe {
-                proof_with!(
-                    Tracked(regions) => Tracked(from_raw_obl)
-                );
-                PageTableNode::from_raw(paddr)
+            let node = PageTableNode::<C> {
+                ptr: PPtr::from_addr(frame_to_meta(paddr)),
+                _marker: PhantomData,
+                #[cfg(verus_keep_ghost_body)]
+                tracked_slot_perm: Tracked(slot_perm),
+                #[cfg(verus_keep_ghost_body)]
+                tracked_metadata_perm: Tracked(None),
             };
-
-            proof {
-                // `from_raw_obl` is the freshly minted obligation token
-                // for this slot. It is silently dropped here; the
-                // corresponding `frame_obligations` entry persists and
-                // is consumed by `on_drop`'s teardown path (which mints
-                // its own token via the paired axiom when it calls
-                // `frame.drop`). Net effect over `from_pte` is +1 on
-                // the ledger, balancing the prior `-1` from
-                // `into_pte`'s `MD::new` consume.
-            }
 
             return Child::PageTable(node);
         }
@@ -239,21 +216,14 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             proof {
                 broadcast use group_page_meta;
 
-                regions.lemma_contains_valid_frame_paddr(paddr);
             }
 
+            let tracked node_owner = entry_owner.tracked_borrow_node();
+            let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
             let node = unsafe {
-                #[verus_spec(with Tracked(regions))]
+                #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
-
-            proof {
-                // `borrow_paddr` preserves the region maps, so every old slot key keeps
-                // the same permission value.
-                assert forall|k: int| old(regions).slots.contains_key(k) implies old(
-                    regions,
-                ).slots[k] == #[trigger] regions.slots[k] by {};
-            }
 
             return ChildRef::PageTable(node);
         }
