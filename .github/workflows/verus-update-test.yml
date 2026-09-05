@@ -6,7 +6,15 @@ on:
 
 jobs:
   run-tests:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+
+    runs-on: ${{ matrix.os }}
+
     env:
       CARGO_TERM_COLOR: always
 
@@ -17,30 +25,40 @@ jobs:
           ref: ${{ github.event.client_payload.branch }}
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt update -qq
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
       - name: Run tests on main branch
+        shell: bash
         run: |
-          echo "=== Running tests on main branch ==="
+          echo "=== Running tests on main branch (${{ runner.os }}) ==="
+
           git fetch origin main
           git checkout main
           git submodule update --init --recursive
+
           git config --global user.name "Verus CI Bot"
           git config --global user.email "ci@asterinas.verus"
+
           cargo dv bootstrap --branch update-test
+
           set -o pipefail
           if ! make 2>&1; then
-            echo "❌ Verification failed"
+            echo "❌ Verification failed on ${{ runner.os }}"
             exit 1
           else
-            echo "✅ Main branch verification passed!"
+            echo "✅ Verification passed on ${{ runner.os }}"
           fi
 
+  dispatch-promotion:
+    needs: run-tests
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Dispatch back to fork for promotion
-        if: success()
         uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.VERUS_TEST_TOKEN }}
