@@ -362,6 +362,8 @@ proof fn lemma_first_zero_seq_set_after_first_zero(s: Seq<bool>, i: int)
 impl IdAlloc {
     /// Constructs a new id allocator with a maximum capacity.
     #[verus_spec(ret =>
+        requires
+            capacity <= usize::MAX / 8,
         ensures
             ret@ == Seq::new(capacity as nat, |i: int| false),
             ret.inv(),
