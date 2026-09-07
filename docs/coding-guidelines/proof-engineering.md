@@ -117,18 +117,26 @@ capture the required semantics directly.
 Make type-level properties independent of irrelevant value arguments, and make
 predicates methods when they describe the well-formedness of one model.
 
-Prefer standard sequence predicates when they express the property directly:
-for example, `bits.all(|b| b)` for a boolean sequence whose elements are all true.
-Use a subrange predicate when it improves readability; retain an explicit
-quantifier when it better supports the proof's indexing or triggers. A style
-simplification does not justify adding an axiom for a fact derivable from the
-sequence definition.
-
 See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763971349),
 [#704](https://github.com/asterinas/vostd/pull/704#issuecomment-5265438143),
-[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573),
-[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3767737737),
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947111297), and
+[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573), and
+[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3767737737).
+
+### Quantifiers and triggers
+
+<!-- guideline: quantifiers-and-triggers -->
+
+Prefer standard predicates such as `Seq::all` when they express the property
+directly. Their predicate-based triggers can reduce unnecessary instantiations
+compared with broad index triggers such as `s[i]`. Check the predicate's
+definition and verify the effect in the actual proof context.
+
+Use a subrange predicate when it improves readability; retain an explicit
+quantifier when it better supports indexing or triggers. Do not add an axiom
+for a fact derivable from the sequence definition merely to support this change.
+
+See also: [Verus trigger annotations](https://verus-lang.github.io/verus/guide/trigger-annotations.html),
+PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947111297), and
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947117794).
 
 ### Implement Inv for models

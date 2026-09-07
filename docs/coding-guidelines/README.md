@@ -17,6 +17,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`distinguish-spec-and-exec-indexing`](proof-engineering.md#distinguish-spec-and-exec-indexing) — use total spec indexing without dropping executable bounds checks or failure semantics.
 - [`reuse-existing-specifications`](proof-engineering.md#reuse-existing-specifications) — check `vstd` and existing project models before introducing a new abstraction.
 - [`canonical-spec-models`](proof-engineering.md#canonical-spec-models) — use the simplest standard mathematical model that preserves the API semantics.
+- [`quantifiers-and-triggers`](proof-engineering.md#quantifiers-and-triggers) — use standard predicates and selective triggers to control quantifier instantiation.
 - [`implement-inv-for-models`](proof-engineering.md#implement-inv-for-models) — implement `Inv` for intrinsic model invariants that Verus cannot enforce as type invariants.
 
 ### Maintainability
