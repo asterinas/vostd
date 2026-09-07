@@ -79,7 +79,9 @@ pub uninterp spec fn bitslice_view<T: BitStore, O: BitOrder>(b: &BitSlice<T, O>)
 pub uninterp spec fn obeys_bitvec_model<T: BitStore, O: BitOrder>() -> bool;
 
 /// The only index and `get` specializations covered by this bridge.
-pub uninterp spec fn obeys_bitvec_index_model<Idx>() -> bool;
+pub uninterp spec fn obeys_bitslice_index_model<T: BitStore, O: BitOrder, Idx>() -> bool where
+    BitSlice<T, O>: Index<Idx>,
+;
 
 pub uninterp spec fn obeys_bitslice_get_model<I>() -> bool;
 
@@ -99,9 +101,11 @@ pub broadcast axiom fn axiom_usize_bitvec_model()
         #[trigger] obeys_bitvec_model::<usize, Lsb0>(),
 ;
 
-pub broadcast axiom fn axiom_usize_bitvec_index_model()
+pub broadcast axiom fn axiom_usize_bitslice_index_model<T: BitStore, O: BitOrder>()
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
-        #[trigger] obeys_bitvec_index_model::<usize>(),
+        #[trigger] obeys_bitslice_index_model::<T, O, usize>(),
 ;
 
 pub broadcast axiom fn axiom_range_bitslice_get_model()
@@ -119,7 +123,7 @@ pub broadcast group group_bitvec_models {
     axiom_u8_bitvec_model,
     axiom_u32_bitvec_model,
     axiom_usize_bitvec_model,
-    axiom_usize_bitvec_index_model,
+    axiom_usize_bitslice_index_model,
     axiom_range_bitslice_get_model,
     #[cfg(target_pointer_width = "64")]
     axiom_u64_bitvec_model,
@@ -164,7 +168,7 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::resize ](
     bv: &mut BitVec<T, O>,
     new_len: usize,
     value: bool,
-) -> (ret: ())
+)
     requires
         obeys_bitvec_model::<T, O>(),
     ensures
@@ -181,7 +185,7 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::resize ](
 /// The number of bits.
 pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::len ](
     bv: &BitVec<T, O>,
-) -> (ret: usize)
+) -> usize
     requires
         obeys_bitvec_model::<T, O>(),
     returns
@@ -200,20 +204,19 @@ pub assume_specification<'a, T: BitStore, O: BitOrder, Idx>[ <BitVec<T, O> as In
     idx: Idx,
 ) -> (ret: &'a <BitVec<T, O> as Index<Idx>>::Output) where BitSlice<T, O>: Index<Idx>
     ensures
-        obeys_bitvec_model::<T, O>() && obeys_bitvec_index_model::<Idx>() ==> ret
+        obeys_bitvec_model::<T, O>() && obeys_bitslice_index_model::<T, O, Idx>() ==> ret
             == bitvec_index_value(bv, idx),
 ;
 
-/// For an in-bounds `usize` index, the indexed bit equals the model value.
+/// The indexed `usize` bit equals the model value; `spec_index` is total, so no bounds
+/// guard is needed.
 pub broadcast axiom fn axiom_bitvec_index_usize<T: BitStore, O: BitOrder>(
     bv: &BitVec<T, O>,
     idx: usize,
 )
     requires
         obeys_bitvec_model::<T, O>(),
-        idx < bitvec_view(bv).len(),
     ensures
-        #![trigger bitvec_index_value(bv, idx)]
         *bitvec_index_value(bv, idx) == bitvec_view(bv)[idx as int],
 ;
 
@@ -230,16 +233,15 @@ pub broadcast axiom fn axiom_bitvec_index_req<T: BitStore, O: BitOrder>(bv: &Bit
         <BitVec<T, O> as IndexSpec<usize>>::index_req(bv, &i) == (i < bitvec_view(bv).len()),
 ;
 
-/// A `BitVec`'s length is a `usize`, hence at most `usize::MAX`. The `len`
-/// `assume_specification` only fires at exec `.len()` calls, so without this axiom
-/// `bitvec_view(bv).len()` is unconstrained away from call sites (breaking overflow
-/// checks like `start + offset`).
+/// Bit length is bounded by `BitSlice::<T, O>::MAX_BITS` (= `usize::MAX >> 3`). The
+/// `len` `assume_specification` only fires at exec `.len()` calls, so this axiom
+/// constrains `bitvec_view(bv).len()` away from call sites (e.g. for overflow checks).
 pub broadcast axiom fn axiom_bitvec_len_bound<T: BitStore, O: BitOrder>(bv: &BitVec<T, O>)
     requires
         obeys_bitvec_model::<T, O>(),
     ensures
         #![trigger bitvec_view(bv)]
-        bitvec_view(bv).len() <= usize::MAX as int,
+        bitvec_view(bv).len() <= (usize::MAX as int) / 8,
 ;
 
 /// Writes a single bit. Panics if `index` is out of bounds.
