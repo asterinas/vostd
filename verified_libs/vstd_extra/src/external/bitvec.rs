@@ -1,5 +1,5 @@
 //! Verus specifications for the third-party `bitvec` crate, trusted as TCB from
-//! inspection of the `bitvec-1.1.1` source (`store.rs`, `order.rs`,
+//! inspection of the `bitvec-1.0.1` source (`store.rs`, `order.rs`,
 //! `vec/{api,ops}.rs`, `slice/{api,ops}.rs`) and centralized here rather than beside
 //! an OSTD caller. `id-alloc` is currently the only consumer (`BitVec<u8, Lsb0>`).
 //!
@@ -83,7 +83,9 @@ pub uninterp spec fn obeys_bitslice_index_model<T: BitStore, O: BitOrder, Idx>()
     BitSlice<T, O>: Index<Idx>,
 ;
 
-pub uninterp spec fn obeys_bitslice_get_model<I>() -> bool;
+pub uninterp spec fn obeys_bitslice_get_model<'a, T: BitStore, O: BitOrder, I>() -> bool where
+    I: BitSliceIndex<'a, T, O>,
+;
 
 // Keep instances separate so pruning an unused type does not remove the others.
 pub broadcast axiom fn axiom_u8_bitvec_model()
@@ -108,9 +110,11 @@ pub broadcast axiom fn axiom_usize_bitslice_index_model<T: BitStore, O: BitOrder
         #[trigger] obeys_bitslice_index_model::<T, O, usize>(),
 ;
 
-pub broadcast axiom fn axiom_range_bitslice_get_model()
+pub broadcast axiom fn axiom_range_bitslice_get_model<'a, T: BitStore, O: BitOrder>()
+    requires
+        obeys_bitvec_model::<T, O>(),
     ensures
-        #[trigger] obeys_bitslice_get_model::<Range<usize>>(),
+        #[trigger] obeys_bitslice_get_model::<'a, T, O, Range<usize>>(),
 ;
 
 #[cfg(target_pointer_width = "64")]
@@ -163,7 +167,8 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::with_capacit
 ;
 
 /// Resizes the `BitVec` to `new_len`, filling new positions with `value` and
-/// preserving existing bits up to the shorter length.
+/// preserving existing bits up to the shorter length. Panics if `new_len` exceeds
+/// `BitSlice::<T, O>::MAX_BITS` (= `usize::MAX >> 3`).
 pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::resize ](
     bv: &mut BitVec<T, O>,
     new_len: usize,
@@ -171,6 +176,7 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitVec::<T, O>::resize ](
 )
     requires
         obeys_bitvec_model::<T, O>(),
+        new_len <= usize::MAX / 8,
     ensures
         bitvec_view(final(bv)).len() == new_len,
         forall|i: int|
@@ -217,6 +223,7 @@ pub broadcast axiom fn axiom_bitvec_index_usize<T: BitStore, O: BitOrder>(
     requires
         obeys_bitvec_model::<T, O>(),
     ensures
+        #![trigger bitvec_index_value(bv, idx)]
         *bitvec_index_value(bv, idx) == bitvec_view(bv)[idx as int],
 ;
 
@@ -249,7 +256,7 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::set ](
     bv: &mut BitSlice<T, O>,
     index: usize,
     value: bool,
-) -> (ret: ())
+)
     requires
         obeys_bitvec_model::<T, O>(),
         index < bitslice_view(bv).len(),
@@ -270,7 +277,7 @@ pub assume_specification<'a, T: BitStore, O: BitOrder, I: BitSliceIndex<'a, T, O
 >::get ](bv: &'a BitSlice<T, O>, idx: I) -> (ret: Option<<I as BitSliceIndex<'a, T, O>>::Immut>)
     requires
         obeys_bitvec_model::<T, O>(),
-        obeys_bitslice_get_model::<I>(),
+        obeys_bitslice_get_model::<'a, T, O, I>(),
     ensures
         ret == bitslice_get_value(bv, idx),
 ;
