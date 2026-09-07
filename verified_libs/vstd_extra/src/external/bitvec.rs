@@ -129,6 +129,7 @@ pub broadcast group group_bitvec_models {
     axiom_usize_bitvec_model,
     axiom_usize_bitslice_index_model,
     axiom_range_bitslice_get_model,
+    axiom_bitslice_all_true,
     #[cfg(target_pointer_width = "64")]
     axiom_u64_bitvec_model,
 }
@@ -274,12 +275,12 @@ pub uninterp spec fn bitslice_get_value<'a, T: BitStore, O: BitOrder, I: BitSlic
 pub assume_specification<'a, T: BitStore, O: BitOrder, I: BitSliceIndex<'a, T, O>>[ BitSlice::<
     T,
     O,
->::get ](bv: &'a BitSlice<T, O>, idx: I) -> (ret: Option<<I as BitSliceIndex<'a, T, O>>::Immut>)
+>::get ](bv: &'a BitSlice<T, O>, idx: I) -> Option<<I as BitSliceIndex<'a, T, O>>::Immut>
     requires
         obeys_bitvec_model::<T, O>(),
         obeys_bitslice_get_model::<'a, T, O, I>(),
-    ensures
-        ret == bitslice_get_value(bv, idx),
+    returns
+        bitslice_get_value(bv, idx),
 ;
 
 /// For a valid `Range<usize>`, `get` succeeds with a bit-slice equal to the
@@ -290,16 +291,32 @@ pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
 )
     requires
         obeys_bitvec_model::<T, O>(),
-        0 <= range.start <= range.end <= bitslice_view(bv).len(),
     ensures
         #![trigger bitslice_get_value(bv, range)]
-        match bitslice_get_value(bv, range) {
+        0 <= range.start <= range.end <= bitslice_view(bv).len() ==> match bitslice_get_value(
+            bv,
+            range,
+        ) {
             Some(s) => bitslice_view(s) == bitslice_view(bv).subrange(
                 range.start as int,
                 range.end as int,
             ),
             None => false,
         },
+;
+
+/// Unfold `bitslice_view(bv).all(|b| b)` to the element-wise `forall` (trigger
+/// `bitslice_view(bv)[i]`) so the `first_zero` `None` arm connects to element-wise
+/// proofs. A broadcast axiom: `Seq::all`'s closure trigger doesn't beta-reduce, and a
+/// `broadcast proof fn` would self-reveal-cycle.
+pub broadcast axiom fn axiom_bitslice_all_true<T: BitStore, O: BitOrder>(bv: &BitSlice<T, O>)
+    requires
+        obeys_bitvec_model::<T, O>(),
+    ensures
+        #![trigger bitslice_view(bv)]
+        bitslice_view(bv).all(|b| b) ==> forall|i: int|
+            #![trigger bitslice_view(bv)[i]]
+            0 <= i < bitslice_view(bv).len() ==> bitslice_view(bv)[i],
 ;
 
 /// The first index holding a `0` bit, counted from the start of the slice.
@@ -317,9 +334,7 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::first_zero
                     #![trigger bitslice_view(bv)[i]]
                     0 <= i < j ==> bitslice_view(bv)[i]
             },
-            None => forall|i: int|
-                #![trigger bitslice_view(bv)[i]]
-                0 <= i < bitslice_view(bv).len() ==> bitslice_view(bv)[i],
+            None => bitslice_view(bv).all(|b| b),
         },
 ;
 
