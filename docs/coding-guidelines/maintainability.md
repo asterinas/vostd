@@ -64,8 +64,15 @@ reveal(obeys_eq_spec_properties);
 Keep new `vstd` and Verus-only imports visibly separate from imports inherited
 from executable Rust when the formatter permits it.
 
-See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528)
-and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502).
+Keep `reveal` and `reveal_with_fuel` minimal. A `reveal` of an `open spec fn`
+still adds unfolding fuel and can be load-bearing, so delete a `reveal` only
+when verification stays green without it; where a non-obvious `reveal` of an
+`open` function must remain, leave a one-line note so reviewers do not strip it.
+
+See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528),
+[#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3840368904),
+and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3955173853).
 
 ### Group imports by crate
 
@@ -214,10 +221,17 @@ For public executable APIs, append a `Verified Properties` section containing:
 - `Preconditions`: State caller obligations.
 - `Postconditions`: State return guarantees, including absence of panic if proved.
 
-For proof functions, summarize the proved fact in one sentence, then add
-`Preconditions` and `Postconditions` sections. For verified modules, add a
-`Verified Properties` section covering verification design, critical invariants,
-safety, and any verified functional correctness.
+The `Preconditions` and `Postconditions` fields apply to executable APIs only.
+Spec and proof functions are erased at runtime; their `requires` and `ensures`
+clauses already state obligations and results formally, so do not add
+`Preconditions` or `Postconditions` sections that merely restate them (see
+[`document-real-proof-debt`](#document-real-proof-debt)). Document a `spec fn`
+with the mathematical meaning of the value it denotes, and a `proof fn` with one
+sentence summarizing the proved fact; add further prose only when an obligation
+or guarantee is non-obvious and not apparent from the signature.
+
+For verified modules, add a `Verified Properties` section covering verification
+design, critical invariants, safety, and any verified functional correctness.
 
 See also:
 [`SpinLock`](../../ostd/src/sync/spin.rs#L18),
