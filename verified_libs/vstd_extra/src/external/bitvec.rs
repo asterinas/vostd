@@ -129,7 +129,6 @@ pub broadcast group group_bitvec_models {
     axiom_usize_bitvec_model,
     axiom_usize_bitslice_index_model,
     axiom_range_bitslice_get_model,
-    axiom_bitslice_all_true,
     #[cfg(target_pointer_width = "64")]
     axiom_u64_bitvec_model,
 }
@@ -215,8 +214,7 @@ pub assume_specification<'a, T: BitStore, O: BitOrder, Idx>[ <BitVec<T, O> as In
             == bitvec_index_value(bv, idx),
 ;
 
-/// The indexed `usize` bit equals the model value; `spec_index` is total, so no bounds
-/// guard is needed.
+/// The indexed `usize` bit equals the model value.
 pub broadcast axiom fn axiom_bitvec_index_usize<T: BitStore, O: BitOrder>(
     bv: &BitVec<T, O>,
     idx: usize,
@@ -228,11 +226,8 @@ pub broadcast axiom fn axiom_bitvec_index_usize<T: BitStore, O: BitOrder>(
         *bitvec_index_value(bv, idx) == bitvec_view(bv)[idx as int],
 ;
 
-/// `BitVec`'s `Index` precondition (`index_req`) is ordinary bounds checking: the
-/// index must be in `[0, len)`. vstd's generic `IndexSpec` leaves `index_req`
-/// uninterpreted for the foreign `BitVec` (no `IndexSpecImpl` exists, and the orphan
-/// rule forbids adding one), so this TCB axiom supplies the intended meaning —
-/// exactly the condition under which `BitVec::index` does not panic.
+/// `BitVec`'s `Index` precondition (`index_req`): the index must be in `[0, len)`,
+/// the condition under which `BitVec::index` does not panic.
 pub broadcast axiom fn axiom_bitvec_index_req<T: BitStore, O: BitOrder>(bv: &BitVec<T, O>, i: usize)
     requires
         obeys_bitvec_model::<T, O>(),
@@ -241,9 +236,7 @@ pub broadcast axiom fn axiom_bitvec_index_req<T: BitStore, O: BitOrder>(bv: &Bit
         <BitVec<T, O> as IndexSpec<usize>>::index_req(bv, &i) == (i < bitvec_view(bv).len()),
 ;
 
-/// Bit length is bounded by `BitSlice::<T, O>::MAX_BITS` (= `usize::MAX >> 3`). The
-/// `len` `assume_specification` only fires at exec `.len()` calls, so this axiom
-/// constrains `bitvec_view(bv).len()` away from call sites (e.g. for overflow checks).
+/// Bit length is bounded by `BitSlice::<T, O>::MAX_BITS` (= `usize::MAX >> 3`).
 pub broadcast axiom fn axiom_bitvec_len_bound<T: BitStore, O: BitOrder>(bv: &BitVec<T, O>)
     requires
         obeys_bitvec_model::<T, O>(),
@@ -283,8 +276,9 @@ pub assume_specification<'a, T: BitStore, O: BitOrder, I: BitSliceIndex<'a, T, O
         bitslice_get_value(bv, idx),
 ;
 
-/// For a valid `Range<usize>`, `get` succeeds with a bit-slice equal to the
-/// corresponding sub-range of the original.
+/// For a `Range<usize>`, `get` returns `Some` of a bit-slice equal to the
+/// sub-range `bitslice_view(bv).subrange(start, end)` when
+/// `0 <= start <= end <= bitslice_view(bv).len()`, and `None` otherwise.
 pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
     bv: &BitSlice<T, O>,
     range: Range<usize>,
@@ -293,30 +287,16 @@ pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
         obeys_bitvec_model::<T, O>(),
     ensures
         #![trigger bitslice_get_value(bv, range)]
-        0 <= range.start <= range.end <= bitslice_view(bv).len() ==> match bitslice_get_value(
-            bv,
-            range,
-        ) {
-            Some(s) => bitslice_view(s) == bitslice_view(bv).subrange(
-                range.start as int,
-                range.end as int,
-            ),
-            None => false,
+        match bitslice_get_value(bv, range) {
+            Some(s) => {
+                &&& 0 <= range.start <= range.end <= bitslice_view(bv).len()
+                &&& bitslice_view(s) == bitslice_view(bv).subrange(
+                    range.start as int,
+                    range.end as int,
+                )
+            },
+            None => !(0 <= range.start <= range.end <= bitslice_view(bv).len()),
         },
-;
-
-/// Unfold `bitslice_view(bv).all(|b| b)` to the element-wise `forall` (trigger
-/// `bitslice_view(bv)[i]`) so the `first_zero` `None` arm connects to element-wise
-/// proofs. A broadcast axiom: `Seq::all`'s closure trigger doesn't beta-reduce, and a
-/// `broadcast proof fn` would self-reveal-cycle.
-pub broadcast axiom fn axiom_bitslice_all_true<T: BitStore, O: BitOrder>(bv: &BitSlice<T, O>)
-    requires
-        obeys_bitvec_model::<T, O>(),
-    ensures
-        #![trigger bitslice_view(bv)]
-        bitslice_view(bv).all(|b| b) ==> forall|i: int|
-            #![trigger bitslice_view(bv)[i]]
-            0 <= i < bitslice_view(bv).len() ==> bitslice_view(bv)[i],
 ;
 
 /// The first index holding a `0` bit, counted from the start of the slice.
@@ -334,7 +314,9 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::first_zero
                     #![trigger bitslice_view(bv)[i]]
                     0 <= i < j ==> bitslice_view(bv)[i]
             },
-            None => bitslice_view(bv).all(|b| b),
+            None => forall|i: int|
+                #![trigger bitslice_view(bv)[i]]
+                0 <= i < bitslice_view(bv).len() ==> bitslice_view(bv)[i],
         },
 ;
 
