@@ -1,16 +1,11 @@
 # VOSTD Verus Coding Guidelines
 
-These guidelines combine established repository policy and recurring VOSTD
-review feedback into a shared standard for writing and reviewing Verus
-specifications and proofs. They complement, rather than replace, the operational
-rules in `AGENTS.md` and the Verus documentation.
+These rules for writing and reviewing Verus specifications and proofs draw on
+repository policy and VOSTD reviews. They complement `AGENTS.md` and the Verus
+documentation.
 
-Use Rust 2021 style and run the project formatter. Formatting follows
-`rustfmt.toml`, including four-space indentation and reordered imports; these
-mechanically enforced rules are not repeated as individual guidelines.
-
-Each guideline has a stable kebab-case short name. Use that name in reviews so
-that a comment can link to the rule instead of restating it.
+Use Rust 2021 style and the project formatter configured by `rustfmt.toml`.
+Reference guidelines in reviews by their stable kebab-case names.
 
 ## Guidelines
 
@@ -18,14 +13,18 @@ that a comment can link to the rule instead of restating it.
 
 - [`complete-external-contracts`](proof-engineering.md#complete-external-contracts) — model every relevant precondition, result, frame condition, and panic behavior at an external boundary.
 - [`centralize-trusted-boundaries`](proof-engineering.md#centralize-trusted-boundaries) — keep unavoidable external specifications in `vstd_extra::external` and make their trust explicit.
+- [`restrict-generic-trusted-models`](proof-engineering.md#restrict-generic-trusted-models) — grant trusted model guarantees only to reviewed type and architecture combinations.
+- [`distinguish-spec-and-exec-indexing`](proof-engineering.md#distinguish-spec-and-exec-indexing) — use total spec indexing without dropping executable bounds checks or failure semantics.
 - [`reuse-existing-specifications`](proof-engineering.md#reuse-existing-specifications) — check `vstd` and existing project models before introducing a new abstraction.
 - [`canonical-spec-models`](proof-engineering.md#canonical-spec-models) — use the simplest standard mathematical model that preserves the API semantics.
+- [`quantifiers-and-triggers`](proof-engineering.md#quantifiers-and-triggers) — use standard predicates and selective triggers to control quantifier instantiation.
 - [`implement-inv-for-models`](proof-engineering.md#implement-inv-for-models) — implement `Inv` for intrinsic model invariants that Verus cannot enforce as type invariants.
 
 ### Maintainability
 
 - [`separate-verus-modes`](maintainability.md#separate-verus-modes) — keep executable code, specifications, and proofs visually distinct.
 - [`use-chained-comparisons`](maintainability.md#use-chained-comparisons) — express contiguous bounds as one logically equivalent chained comparison.
+- [`use-returns-for-exact-results`](maintainability.md#use-returns-for-exact-results) — express exact return values with `returns` and remove unused return binders.
 - [`organize-proof-imports`](maintainability.md#organize-proof-imports) — import proof symbols concisely while keeping proof-only dependencies visible.
 - [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — combine definitions imported from the same crate into one `use` group.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
