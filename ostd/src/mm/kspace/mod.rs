@@ -450,13 +450,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         broadcast use group_page_meta;
 
         prop.lemma_avail1_tag_encoding();
-        if prop.flags.contains(PageFlags::AVAIL1()) {
-            let item = Self::item_from_raw(pa, level, prop, perm);
-            assert(Self::item_well_formed(item));
-        } else {
-            let item = Self::item_from_raw(pa, level, prop, perm);
-            assert(Self::item_well_formed(item));
-        }
     }
 
     proof fn lemma_clone_ensures_concrete(
