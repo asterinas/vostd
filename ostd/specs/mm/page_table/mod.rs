@@ -2012,14 +2012,13 @@ impl AbstractVaddr {
         lemma_arch_specific_consts_properties::<crate::mm::PagingConsts>();
         if path.len() == 0 {
             let aligned = self.align_down(5);
+            let a4 = self.align_down(4);
             self.align_down_shape(4);
-            // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
-            assert(aligned.index[3] == 0) by {
-                assert(aligned == AbstractVaddr {
-                    index: self.align_down(4).index.insert(3, 0),
-                    ..self.align_down(4)
-                });
-            };
+            // align_down(5) is align_down(4) with index[3] zeroed; align_down(4) already zeroed index[0..3) and the offset.
+            assert(aligned == AbstractVaddr { index: a4.index.insert(3, 0), ..a4 });
+            assert(aligned.index[1] == 0);
+            assert(aligned.index[2] == 0);
+            assert(aligned.index[3] == 0);
             assert(aligned.rec_compute_vaddr(4) == 0);
             assert(aligned.rec_compute_vaddr(3) == 0) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
@@ -2033,6 +2032,7 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
+            assert(vaddr(path) == aligned.compute_vaddr() - aligned.offset);
         } else {
             let level = NR_LEVELS - path.len();
             self.to_path_inv(level);
