@@ -23,6 +23,24 @@ use bitvec::{
 use core::ops::{Deref, DerefMut, Index, Range};
 use vstd::{prelude::*, std_specs::core::IndexSpec};
 
+macro_rules! bitvec_model_axiom {
+    ($name:ident, $t:ty) => {
+        ::vstd::prelude::verus! {
+            pub broadcast axiom fn $name()
+                ensures
+                    #[trigger] obeys_bitvec_model::<$t, Lsb0>(),
+            ;
+        }
+};
+}
+
+// Keep instances separate so pruning an unused type does not remove the others.
+bitvec_model_axiom!(axiom_u8_bitvec_model, u8);
+bitvec_model_axiom!(axiom_u32_bitvec_model, u32);
+bitvec_model_axiom!(axiom_usize_bitvec_model, usize);
+#[cfg(target_pointer_width = "64")]
+bitvec_model_axiom!(axiom_u64_bitvec_model, u64);
+
 verus! {
 
 /// Verus declaration for bitvec's default `Lsb0` bit order (a zero-sized marker).
@@ -87,22 +105,6 @@ pub uninterp spec fn obeys_bitslice_get_model<'a, T: BitStore, O: BitOrder, I>()
     I: BitSliceIndex<'a, T, O>,
 ;
 
-// Keep instances separate so pruning an unused type does not remove the others.
-pub broadcast axiom fn axiom_u8_bitvec_model()
-    ensures
-        #[trigger] obeys_bitvec_model::<u8, Lsb0>(),
-;
-
-pub broadcast axiom fn axiom_u32_bitvec_model()
-    ensures
-        #[trigger] obeys_bitvec_model::<u32, Lsb0>(),
-;
-
-pub broadcast axiom fn axiom_usize_bitvec_model()
-    ensures
-        #[trigger] obeys_bitvec_model::<usize, Lsb0>(),
-;
-
 pub broadcast axiom fn axiom_usize_bitslice_index_model<T: BitStore, O: BitOrder>()
     requires
         obeys_bitvec_model::<T, O>(),
@@ -115,12 +117,6 @@ pub broadcast axiom fn axiom_range_bitslice_get_model<'a, T: BitStore, O: BitOrd
         obeys_bitvec_model::<T, O>(),
     ensures
         #[trigger] obeys_bitslice_get_model::<'a, T, O, Range<usize>>(),
-;
-
-#[cfg(target_pointer_width = "64")]
-pub broadcast axiom fn axiom_u64_bitvec_model()
-    ensures
-        #[trigger] obeys_bitvec_model::<u64, Lsb0>(),
 ;
 
 pub broadcast group group_bitvec_models {
