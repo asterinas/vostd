@@ -72,8 +72,6 @@ impl View for IdAlloc {
 
 impl Inv for IdAlloc {
     /// The well-formedness invariant: `first_available_id` is the first free bit.
-    /// `closed` so the (private-field-referencing) body is not exposed across the
-    /// crate boundary; proofs reveal it locally.
     closed spec fn inv(self) -> bool {
         &&& 0 <= self.first_available_id <= self@.len()
         &&& self.first_available_id == first_zero_seq(self@)
@@ -81,8 +79,7 @@ impl Inv for IdAlloc {
 }
 
 /// `is_first_zero` is uniquely satisfied. Broadcast so it auto-fires whenever two
-/// `is_first_zero` facts arise (e.g. connecting an exec `first_zero` result to
-/// `first_zero_seq`).
+/// `is_first_zero` facts arise.
 pub broadcast proof fn lemma_is_first_zero_unique(s: Seq<bool>, i: int, j: int)
     requires
         is_first_zero(s, i),
@@ -92,10 +89,8 @@ pub broadcast proof fn lemma_is_first_zero_unique(s: Seq<bool>, i: int, j: int)
         i == j,
 {
     if i < j {
-        assert(s.index(i));
         assert(false);
     } else if j < i {
-        assert(s.index(j));
         assert(false);
     }
 }
@@ -108,27 +103,18 @@ proof fn lemma_first_zero_seq_char(s: Seq<bool>)
 {
     if s.len() == 0 {
     } else if !s.index(0) {
-        assert(is_first_zero(s, 0));
     } else {
         let sub = s.subrange(1, s.len() as int);
         lemma_first_zero_seq_char(sub);
         let i2 = first_zero_seq(sub);
         assert(is_first_zero(s, 1 + i2)) by {
-            assert(0 < 1 + i2 <= s.len()) by {
-                assert(i2 <= sub.len());
-                assert(sub.len() == s.len() - 1);
-            }
             assert forall|j: int| 0 <= j < 1 + i2 implies s.index(j) by {
                 if j == 0 {
-                    assert(s.index(0));
                 } else {
                     assert(s.index(j) == sub.index(j - 1));
                 }
             }
             if 1 + i2 < s.len() {
-                assert(!s.index(1 + i2)) by {
-                    assert(s.index(1 + i2) == sub.index(i2));
-                }
             }
         }
     }
@@ -145,29 +131,12 @@ proof fn lemma_first_zero_seq_prefix_all_true(s: Seq<bool>, k: int)
     decreases s.len(),
 {
     if k == 0 {
-        assert(s.subrange(0, s.len() as int) =~= s) by {
-            assert forall|j: int| #![auto] 0 <= j < s.len() implies s.subrange(
-                0,
-                s.len() as int,
-            ).index(j) == s.index(j) by {
-                assert(s.subrange(0, s.len() as int).index(j) == s.index(0 + j));
-            }
-        }
+        assert(s.subrange(0, s.len() as int) =~= s) by {}
     } else if s.len() == 0 {
-        assert(k == 0);
     } else {
         let sub = s.subrange(1, s.len() as int);
         lemma_first_zero_seq_prefix_all_true(sub, k - 1);
-        assert(sub.subrange(k - 1, sub.len() as int) =~= s.subrange(k, s.len() as int)) by {
-            assert forall|j: int| 0 <= j < s.len() - k implies sub.subrange(
-                k - 1,
-                sub.len() as int,
-            ).index(j) == s.subrange(k, s.len() as int).index(j) by {
-                assert(sub.subrange(k - 1, sub.len() as int).index(j) == sub.index(k - 1 + j));
-                assert(sub.index(k - 1 + j) == s.index(k + j));
-                assert(s.subrange(k, s.len() as int).index(j) == s.index(k + j));
-            }
-        }
+        assert(sub.subrange(k - 1, sub.len() as int) =~= s.subrange(k, s.len() as int)) by {}
     }
 }
 
@@ -183,34 +152,8 @@ proof fn lemma_first_zero_seq_advance_after_set(s: Seq<bool>, k: int)
         first_zero_seq(s.update(k - 1, true)) == k + first_zero_seq(s.subrange(k, s.len() as int)),
 {
     let t = s.update(k - 1, true);
-    // The prefix [0, k) of `t` is all true (the changed bit at k-1 is set).
-    assert(forall|j: int| #![trigger t.index(j)] 0 <= j < k ==> t.index(j)) by {
-        assert forall|j: int| 0 <= j < k implies t.index(j) by {
-            if j == k - 1 {
-                assert(t.index(j));
-            } else {
-                assert(t.index(j) == s.index(j));
-            }
-        }
-    }
     lemma_first_zero_seq_prefix_all_true(t, k);
-    // The suffix [k, len) is unchanged by the update at k-1, so the subranges agree.
-    assert(t.subrange(k, s.len() as int) =~= s.subrange(k, s.len() as int)) by {
-        assert forall|j: int| 0 <= j < s.len() - k implies t.subrange(k, s.len() as int).index(j)
-            == s.subrange(k, s.len() as int).index(j) by {
-            assert(t.subrange(k, s.len() as int).index(j) == t.index(k + j));
-            assert(s.subrange(k, s.len() as int).index(j) == s.index(k + j));
-            assert(t.index(k + j) == s.index(k + j));
-        }
-    }
-    assert(first_zero_seq(t.subrange(k, s.len() as int)) == first_zero_seq(
-        s.subrange(k, s.len() as int),
-    )) by {
-        lemma_first_zero_seq_ext_equal(
-            t.subrange(k, s.len() as int),
-            s.subrange(k, s.len() as int),
-        );
-    }
+    assert(t.subrange(k, s.len() as int) =~= s.subrange(k, s.len() as int)) by {}
 }
 
 /// Element-wise-equal sequences have the same `first_zero_seq`.
@@ -251,8 +194,6 @@ proof fn lemma_first_zero_seq_clear(s: Seq<bool>, i: int)
     let t = s.update(i, false);
     lemma_first_zero_seq_char(t);
     if fz <= i {
-        // The first zero is at or before `i`; clearing bit `i` (at or after `fz`) does
-        // not move it.
         assert(is_first_zero(t, fz)) by {
             if fz < s.len() {
                 assert(!t.index(fz)) by {
@@ -270,7 +211,6 @@ proof fn lemma_first_zero_seq_clear(s: Seq<bool>, i: int)
         }
         lemma_is_first_zero_unique(t, first_zero_seq(t), fz);
     } else {
-        // `fz > i`: clearing bit `i` makes `i` the first zero (prefix [0, i) is true).
         assert(is_first_zero(t, i)) by {
             assert(!t.index(i));
             assert(forall|j: int| 0 <= j < i ==> t.index(j)) by {
@@ -281,8 +221,8 @@ proof fn lemma_first_zero_seq_clear(s: Seq<bool>, i: int)
     }
 }
 
-/// Clearing all bits in `[start, end)` moves the first zero to `min(first_zero_seq(s), start)`:
-/// clearing can only introduce a new first zero at `start` (the earliest cleared index).
+/// Clearing all bits in `[start, end)` moves the first zero to
+/// `min(first_zero_seq(s), start)`.
 proof fn lemma_first_zero_seq_clear_range(s: Seq<bool>, t: Seq<bool>, start: int, end: int)
     requires
         s.len() == t.len(),
@@ -327,8 +267,8 @@ proof fn lemma_first_zero_seq_clear_range(s: Seq<bool>, t: Seq<bool>, start: int
     }
 }
 
-/// Setting a `false` bit at `i` that is strictly past the first zero leaves the first
-/// zero unchanged.
+/// Setting a `false` bit at `i` that is strictly past the first zero leaves the
+/// first zero unchanged.
 proof fn lemma_first_zero_seq_set_after_first_zero(s: Seq<bool>, i: int)
     requires
         0 <= i < s.len(),
@@ -400,40 +340,12 @@ impl IdAlloc {
         if self.first_available_id < self.bitset.len() {
             let id = self.first_available_id;
             proof! {
-                reveal(<IdAlloc as Inv>::inv);
                 lemma_first_zero_seq_char(self@);
-                assert(id == first_zero_seq(self@));
-                assert(id < self@.len());
-                assert(!self@[id as int]);
             }
             self.bitset.set(id, true);
-            proof! {
-                assert(id < self@.len());
-                assert(self@ == old(self)@.update(id as int, true));
-                assert(id + 1 <= self@.len());
-                assert(id < usize::MAX);
-                assert(forall|i: int| 0 <= i < (id + 1) as int ==> self@[i]) by {
-                    assert forall|i: int| 0 <= i < (id + 1) as int implies self@[i] by {
-                        if i == id as int {
-                            assert(self@[id as int]);
-                        } else {
-                            assert(self@[i] == old(self)@[i]);
-                        }
-                    }
-                }
-            }
             self.update_first_available_id(id + 1);
-            proof! {
-                assert(self@ == old(self)@.update(id as int, true));
-                assert(id == first_zero_seq(old(self)@));
-                assert(first_zero_seq(old(self)@) < old(self)@.len());
-            }
             Some(id)
         } else {
-            proof! {
-                lemma_first_zero_seq_char(self@);
-                assert(first_zero_seq(old(self)@) == old(self)@.len());
-            }
             None
         }
     }
@@ -474,24 +386,10 @@ impl IdAlloc {
             return None;
         }
 
-        // Scan the bitmap from the position `first_available_id`
-        // for the first `count` number of consecutive 0's.
         let allocated_range = {
-            // Invariance: all bits within `curr_range` are 0's
             let mut curr_range = self.first_available_id..self.first_available_id + 1;
             proof! {
-                reveal(<IdAlloc as Inv>::inv);
                 lemma_first_zero_seq_char(self@);
-                assert(self.first_available_id == first_zero_seq(self@));
-                assert(end == self.first_available_id + count);
-                assert(end <= self@.len());
-                assert(self.first_available_id + count <= self@.len());
-                assert(count > 0);
-                assert(self.first_available_id < self@.len());
-                assert(self.first_available_id + 1 <= self@.len());
-                assert(!self@[self.first_available_id as int]);
-                assert(1 <= count);
-                assert(range_usize_len_spec(&curr_range) <= count);
             }
             #[verus_spec(invariant
                 count > 0,
@@ -522,13 +420,6 @@ impl IdAlloc {
             curr_range
         };
 
-        // Set every bit to 1 within the allocated range
-        proof! {
-            assert(allocated_range.start <= allocated_range.end);
-            assert(0 <= allocated_range.start);
-            assert(self@ == old(self)@);
-            assert(self@.len() == old(self)@.len());
-        }
         #[verus_spec(invariant
             self@.len() == old(self)@.len(),
             0 <= allocated_range.start,
@@ -542,61 +433,18 @@ impl IdAlloc {
          * Origin Rust: for id in allocated_range.clone()
          */
         for id in allocated_range.start..allocated_range.end {
-            proof! {
-                assert(id < self@.len());
-            }
             self.bitset.set(id, true);
-            proof! {
-                // `set` changed only bit `id` (to true); carry the invariant to `id + 1`.
-                assert(self@[id as int]);
-                assert forall|j: int| 0 <= j < self@.len() && !(allocated_range.start as int <= j < (id + 1) as int) implies self@[j] == old(self)@[j] by {
-                    assert(j != id as int);
-                }
-            }
         }
 
-        // In case we need to update first_available_id
         if self.is_allocated(self.first_available_id) {
-            proof! {
-                // The prefix `[0, allocated_range.end)` is now all `true`: `[0, start)`
-                // was true (old invariant, start == old first_available_id) and
-                // `[start, end)` was just set true by the loop.
-                reveal(<IdAlloc as Inv>::inv);
-                lemma_first_zero_seq_char(old(self)@);
-                assert forall|i: int| 0 <= i < (allocated_range.end as int) implies self@[i] by {
-                    if i < allocated_range.start as int {
-                        assert(self@[i] == old(self)@[i]);
-                    }
-                }
-                assert(0 <= allocated_range.end <= self@.len());
-            }
             self.update_first_available_id(allocated_range.end);
         }
 
         proof! {
-            reveal(<IdAlloc as Inv>::inv);
-            lemma_first_zero_seq_char(old(self)@);
             let faid = old(self).first_available_id as int;
-            // `self@` is `old(self)@` with `[allocated_range.start, allocated_range.end)` set true.
-            // Establish the postcondition facts from the while/for-loop exit invariants.
             if faid < allocated_range.start as int {
-                // The first zero was before the allocated range, so it is unchanged.
-                assert(is_first_zero(self@, faid)) by {
-                    assert forall|j: int| 0 <= j < faid implies self@[j] by {
-                        assert(self@[j] == old(self)@[j]);
-                    }
-                    if faid < self@.len() {
-                        assert(!self@[faid]) by {
-                            assert(self@[faid] == old(self)@[faid]);
-                        }
-                    }
-                }
                 lemma_first_zero_seq_char(self@);
-                lemma_is_first_zero_unique(self@, first_zero_seq(self@), faid);
-                assert(self.first_available_id as int == faid);
-                assert(self.first_available_id == first_zero_seq(self@));
             }
-            assert(0 <= self.first_available_id <= self@.len());
         }
 
         Some(allocated_range)
@@ -628,12 +476,6 @@ impl IdAlloc {
         }
 
         let range_start = range.start;
-        proof! {
-            // The early return above guarantees the range is non-empty.
-            assert(range.start < range.end);
-            assert(range.start <= range.end);
-            assert(self@.len() == old(self)@.len());
-        }
         #[verus_spec(invariant
             self@.len() == old(self)@.len(),
             0 <= range.start,
@@ -647,45 +489,19 @@ impl IdAlloc {
          * Origin Rust: for id in range.clone() { debug_assert!(self.is_allocated(id));
          */
         for id in range {
-            proof! {
-                assert(id < self@.len());
-            }
             self.bitset.set(id, false);
-            proof! {
-                // `set` changed only bit `id` (to false); carry the invariant to `id + 1`.
-                assert(!self@[id as int]);
-                assert forall|j: int| 0 <= j < self@.len() && !(range.start as int <= j < (id + 1) as int) implies self@[j] == old(self)@[j] by {
-                    assert(j != id as int);
-                }
-            }
         }
 
         if range_start < self.first_available_id {
             self.first_available_id = range_start
         }
         proof! {
-            // The for-loop cleared `[range.start, range.end)` and left the rest equal to
-            // `old(self)@`; the field update above only touched `first_available_id`.
             lemma_first_zero_seq_clear_range(
                 old(self)@,
                 self@,
                 range.start as int,
                 range.end as int,
             );
-            lemma_first_zero_seq_char(old(self)@);
-            reveal(<IdAlloc as Inv>::inv);
-            assert(self.first_available_id == first_zero_seq(self@)) by {
-                if range_start < old(self).first_available_id {
-                    assert(self.first_available_id == range_start);
-                    assert(first_zero_seq(old(self)@) > range.start as int);
-                    assert(first_zero_seq(self@) == range.start as int);
-                } else {
-                    assert(self.first_available_id == old(self).first_available_id);
-                    assert(first_zero_seq(old(self)@) <= range.start as int);
-                    assert(first_zero_seq(self@) == first_zero_seq(old(self)@));
-                }
-            }
-            assert(0 <= self.first_available_id <= self@.len());
         }
     }
 
@@ -705,36 +521,13 @@ impl IdAlloc {
     )]
     pub fn free(&mut self, id: usize) {
         debug_assert!(self.is_allocated(id));
-        proof! {
-            reveal(<IdAlloc as Inv>::inv);
-            assert(self@[id as int]);
-            assert(id < self@.len());
-        }
 
         self.bitset.set(id, false);
         proof! {
-            assert(id < self@.len());
-            assert(self@ == old(self)@.update(id as int, false));
             lemma_first_zero_seq_clear(old(self)@, id as int);
         }
         if id < self.first_available_id {
             self.first_available_id = id;
-        }
-        proof! {
-            // `first_available_id` is now `min(old first_available_id, id)`, which the
-            // clear lemma shows equals `first_zero_seq(self@)`.
-            assert(self.first_available_id == first_zero_seq(self@)) by {
-                if id < old(self).first_available_id {
-                    assert(first_zero_seq(old(self)@) > id as int);
-                    assert(self.first_available_id == id);
-                    assert(first_zero_seq(self@) == id as int);
-                } else {
-                    assert(first_zero_seq(old(self)@) <= id as int);
-                    assert(self.first_available_id == old(self).first_available_id);
-                    assert(first_zero_seq(self@) == first_zero_seq(old(self)@));
-                }
-            }
-            assert(0 <= self.first_available_id <= self@.len());
         }
     }
 
@@ -760,62 +553,20 @@ impl IdAlloc {
     )]
     pub fn alloc_specific(&mut self, id: usize) -> Option<usize> {
         if self.bitset[id] {
-            proof! {
-                assert(self@[id as int]);
-            }
             return None;
         }
-        proof! {
-            assert(!self@[id as int]);
-            assert(id < self@.len());
-        }
         self.bitset.set(id, true);
-        proof! {
-            assert(id < self@.len());
-            assert(self@ == old(self)@.update(id as int, true));
-            assert(self@.len() <= usize::MAX as int);
-            assert(id < usize::MAX);
-        }
         if id == self.first_available_id {
             proof! {
-                reveal(<IdAlloc as Inv>::inv);
-                // `id` is the current first zero; setting it advances the first zero.
                 lemma_first_zero_seq_char(old(self)@);
-                assert(old(self).first_available_id == first_zero_seq(old(self)@));
-                assert(id as int == first_zero_seq(old(self)@));
-                lemma_first_zero_seq_advance_after_set(old(self)@, (id + 1) as int);
-                assert(id + 1 <= self@.len());
-                assert(forall|i: int| 0 <= i < (id + 1) as int ==> self@[i]) by {
-                    assert forall|i: int| 0 <= i < (id + 1) as int implies self@[i] by {
-                        if i == id as int {
-                            assert(self@[id as int]);
-                        } else {
-                            assert(self@[i] == old(self)@[i]);
-                        }
-                    }
-                }
             }
             self.update_first_available_id(id + 1);
         }
         proof! {
-            assert(self@ == old(self)@.update(id as int, true));
-            // `inv(final)` either follows from `update_first_available_id` (when it ran)
-            // or holds because the first zero was unaffected by setting a bit past it.
             if id != old(self).first_available_id {
                 lemma_first_zero_seq_char(old(self)@);
-                assert(first_zero_seq(old(self)@) == old(self).first_available_id);
-                assert(!old(self)@[id as int]);
-                // `id` is a zero that is not the first zero, so it is past the first zero.
-                assert(first_zero_seq(old(self)@) < id as int) by {
-                    assert(first_zero_seq(old(self)@) != id as int);
-                    assert forall|j: int| 0 <= j < first_zero_seq(old(self)@) implies old(self)@[j] by {}
-                }
                 lemma_first_zero_seq_set_after_first_zero(old(self)@, id as int);
-                assert(first_zero_seq(self@) == first_zero_seq(old(self)@));
-                assert(self.first_available_id == old(self).first_available_id);
-                assert(self.first_available_id == first_zero_seq(self@));
             }
-            assert(0 <= self.first_available_id <= self@.len());
         }
         Some(id)
     }
@@ -836,16 +587,10 @@ impl IdAlloc {
     }
 
     /// Updates the `first_available_id` field to the first zero index at or after `start`.
-    ///
-    /// The invariant's `first_available_id == first_zero_seq(self@)` equation need NOT
-    /// hold on entry: callers invoke this right after a `set` that has advanced the
-    /// first zero, so only the prefix-all-`true` fact (which lets the tail scan agree
-    /// with the global first zero) and the field bounds are required.
     #[verus_spec(
         requires
             0 <= self.first_available_id <= self@.len(),
             0 <= start <= self@.len(),
-            // The caller has just made the prefix [0, start) all `true`.
             forall|i: int| #![trigger self@[i]] 0 <= i < start ==> self@[i],
         ensures
             final(self)@ == old(self)@,
@@ -853,49 +598,22 @@ impl IdAlloc {
             final(self).inv(),
     )]
     fn update_first_available_id(&mut self, start: usize) {
-        let len = self.bitset.len();
-        proof! {
-            assert(bitvec_view(&self.bitset) == self@);
-            assert(len == self@.len());
-            assert(0 <= start <= len);
-        }
         let bit_slice = self
             .bitset
-            .get(start..len)
+            .get(start..self.bitset.len())
             .expect("start is guaranteed to be valid by the caller");
-        proof! {
-            // The deref ties the tail slice's view to `self@`; the `get` axiom ties
-            // it to the sub-range.
-            assert(0 <= start as int <= self@.len());
-            assert(bitslice_view(bit_slice) == self@.subrange(start as int, self@.len() as int));
-            // The tail's length is `len - start`, bounding a `first_zero` offset so
-            // that `start + offset` cannot overflow.
-            assert(bitslice_view(bit_slice).len() == self@.len() - start as int);
-            assert(start as int + bitslice_view(bit_slice).len() <= self@.len());
-        }
         /* Bind the bounded `first_zero` result (avoid closure overflow + enable proof).
          * Origin Rust: self.first_available_id = bit_slice.first_zero().map(|offset| start + offset).unwrap_or(len);
          */
         self.first_available_id = match bit_slice.first_zero() {
             Some(offset) => start + offset,
-            None => len,
+            None => self.bitset.len(),
         };
         proof! {
-            // `first_zero` on the tail gives the offset of the first zero in the tail
-            // (or `None` when the tail is all `true`). Translate to the global first
-            // zero using the all-`true` prefix [0, start). The exec `first_zero` spec
-            // plus the broadcast `is_first_zero` uniqueness connect the anonymous
-            // `Some(j)` to `first_zero_seq(tail)` automatically.
             lemma_first_zero_seq_prefix_all_true(self@, start as int);
             let tail = self@.subrange(start as int, self@.len() as int);
-            assert(tail == bitslice_view(bit_slice));
-            lemma_first_zero_seq_char(tail);
             lemma_first_zero_seq_char(self@);
-            assert(first_zero_seq(self@) == start as int + first_zero_seq(tail));
             assert(is_first_zero(bitslice_view(bit_slice), first_zero_seq(tail)));
-            assert(self.first_available_id == first_zero_seq(self@));
-            assert(0 <= self.first_available_id <= self@.len());
-            reveal(<IdAlloc as Inv>::inv);
         }
     }
 }
