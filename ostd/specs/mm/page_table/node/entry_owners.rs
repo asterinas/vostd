@@ -350,7 +350,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             1 <= parent_level < NR_LEVELS,
             paddr % page_size(parent_level) == 0,
             paddr + page_size(parent_level) <= MAX_PADDR,
-            C::raw_item_well_formed((paddr, parent_level, prop, Tracked(None))),
+            C::raw_item_well_formed(paddr, parent_level, prop, Tracked(None)),
             C::E::new_page_req(paddr, parent_level, prop),
         ensures
             res.is_frame(),
@@ -1043,12 +1043,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
             &&& C::raw_item_well_formed(
-                (
-                    self.frame().mapped_pa,
-                    self.parent_level,
-                    self.frame().prop,
-                    Tracked(self.frame_permission()),
-                ),
+                self.frame().mapped_pa,
+                self.parent_level,
+                self.frame().prop,
+                Tracked(self.frame_permission()),
             )
             &&& C::E::new_page_req(self.frame().mapped_pa, self.parent_level, self.frame().prop)
         }

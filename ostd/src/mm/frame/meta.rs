@@ -626,6 +626,7 @@ impl MetaSlot {
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != REF_COUNT_UNUSED,
+            0 < old(rc_perm).value(),
             old(rc_perm).value() >= REF_COUNT_MAX ==> may_panic(),
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,

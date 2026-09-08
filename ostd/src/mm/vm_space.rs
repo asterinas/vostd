@@ -1734,9 +1734,8 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        assert(perm@ is Some);
         let item = Self::item_from_raw(pa, level, prop, perm);
-        assert(Self::raw_item_well_formed((pa, level, prop, perm)));
+        assert(Self::raw_item_well_formed(pa, level, prop, perm));
         assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
         crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
     }
@@ -1759,9 +1758,11 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     open spec fn raw_item_well_formed(
-        item: (Paddr, PagingLevel, PageProperty, Tracked<Option<Self::Perm>>),
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        perm: Tracked<Option<Self::Perm>>,
     ) -> bool {
-        let (pa, level, _prop, perm) = item;
         &&& level == 1
         &&& perm@ is Some
         &&& (perm@->0).0.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
