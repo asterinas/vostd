@@ -28,16 +28,8 @@ pub open spec fn finite_range_matches_ord<T: FiniteRange + Ord>() -> bool {
     forall|x: T, lo: T, hi: T| T::in_range(x, lo, hi) <==> lo.is_le(&x) && x.is_lt(&hi)
 }
 
-/// Relates membership in a union of ranges to membership in one of its ranges.
-///
-/// # Preconditions
-///
-/// No additional preconditions are required.
-///
-/// # Postconditions
-///
-/// An element belongs to the union if and only if it belongs to at least one
-/// range in the sequence.
+/// An element belongs to the union of a sequence of ranges if and only if it
+/// belongs to at least one of those ranges.
 pub proof fn lemma_seq_range_union_contains<T: FiniteRange>(s: Seq<Range<T>>, x: T)
     ensures
         seq_range_union(s).contains(x) <==> s.any(|r: Range<T>| r.view_set().contains(x)),

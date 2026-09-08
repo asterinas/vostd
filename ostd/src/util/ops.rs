@@ -68,7 +68,6 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
     broadcast use range_set_properties;
 
     reveal(obeys_partial_cmp_spec_properties);
-    reveal(obeys_cmp_partial_ord);
     reveal(obeys_cmp_ord);
     reveal(obeys_eq_spec_properties);
     let s = range_difference_spec(a, b);
@@ -193,9 +192,6 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
                 0 <= i < ret.remaining().len() - 1 implies (
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start) by {
                 reveal(obeys_partial_cmp_spec_properties);
-                reveal(obeys_cmp_partial_ord);
-                reveal(obeys_cmp_ord);
-                reveal(obeys_eq_spec_properties);
             }
             assert(seq_range_union(ret.remaining()) ==
                 (*a).view_set().difference((*b).view_set())) by {
