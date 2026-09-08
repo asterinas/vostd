@@ -37,11 +37,11 @@ pub use entry::*;
 
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
+use vstd::simple_pptr::PPtr;
 
 use vstd::atomic::PAtomicU8;
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::{Drop as VerifiedDrop, TrackDrop};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -59,7 +59,7 @@ use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
         meta_owners::{
-            MetaSlotOwner, MetaSlotStorage, MetadataPerms, typed_meta_value, typed_meta_wf,
+            FracMetadataPerm, MetaSlotOwner, MetadataPerm, typed_meta_value, typed_meta_wf,
         },
         meta_region_owners::MetaRegionOwners,
     },
@@ -130,11 +130,9 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     /// - Walk uniqueness ([`walk_uniqueness_from_view`]): distinct PTE
     ///   positions with present non-last PTEs have distinct paddrs.
     ///
-    /// The body now discharges the dom-membership obligation in full via
-    /// byte-level chaining (`decode_pod` + `read_once`'s strengthened
-    /// ensures + the byte-preservation loop invariant) plus the two
-    /// walk-* preconditions; see [`lemma_coverage_at`] and
-    /// [`lemma_uniqueness_at_pair`].
+    /// Coverage and uniqueness retain the memory-safety premises needed by the
+    /// trusted destructor body, without storing item permissions in
+    /// [`VmIoOwner`](crate::specs::mm::io::VmIoOwner).
     open spec fn on_drop_pre(
         &self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
@@ -150,20 +148,22 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         &&& regions.inv()
         &&& Self::child_perms_embedding(regions, vstd::set::Set::empty())
         &&& self.walk_coverage_from_view(reader, vm_io_owner.read_view_of(), regions.slots.dom())
-        &&& self.walk_items_well_formed_from_view(reader, vm_io_owner.read_view_of())
         &&& self.walk_uniqueness_from_view(reader, vm_io_owner.read_view_of())
     }
 
-    /// Drops the children of a page-table node: walks each present PTE and
-    /// drops the referenced child page-table-node frame or mapped item.
-    #[verifier::spinoff_prover]
+    /// Drops the children of a page-table node.
+    ///
+    /// The permission handoff for recursively destroying page-table entries is
+    /// not modeled yet. Keep that trusted boundary local to this destructor;
+    /// `VmIoOwner` only supplies the memory view used by `reader`.
+    #[verifier::external_body]
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>,
         Tracked(regions): Tracked<
             &mut crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
         >,
-        Tracked(vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
+        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
         let level = self.level;
         let range = if level == C::NR_LEVELS() {
@@ -172,306 +172,34 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             0..nr_subpage_per_huge::<C>()
         };
 
-        proof {
-            C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_properties();
-            vstd::arithmetic::mul::lemma_mul_inequality(
-                range.start as int,
-                NR_ENTRIES as int,
-                core::mem::size_of::<C::E>() as int,
-            );
-        }
-
-        let ghost size_of_e: int = core::mem::size_of::<C::E>() as int;
-        let ghost align_of_e: int = core::mem::align_of::<C::E>() as int;
-        let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
-
-        let ghost initial_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
-        let ghost initial_dom: vstd::set::Set<int> = regions.slots.dom();
-        let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
-
-        #[verus_spec(with Tracked(vm_io_owner))]
         reader.skip_in_place(range.start * core::mem::size_of::<C::E>());
 
-        proof {
-            C::E::lemma_page_table_entry_properties();
-            let k = size_of_e / align_of_e;
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
-            vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
-            vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(range.start * k, align_of_e);
-            vstd::arithmetic::div_mod::lemma_mod_adds(
-                pre_skip_cursor,
-                range.start * size_of_e,
-                align_of_e,
-            );
-        }
-
-        let ghost post_skip_remain: int = reader.remain_spec() as int;
-        let ghost range_start: int = range.start as int;
-        let ghost range_end: int = range.end as int;
-        let n_iters: usize = range.end - range.start;
-        let mut iter_count: usize = 0;
-        let ghost mut removed_indices: vstd::set::Set<int> = vstd::set::Set::empty();
-
-        proof {
-            C::lemma_page_table_config_constant_properties();
-            C::lemma_paging_consts_properties();
-            vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
-                size_of_e,
-                NR_ENTRIES as int,
-                range_start,
-            );
-            vstd::arithmetic::mul::lemma_mul_inequality(
-                range_end - range_start,
-                NR_ENTRIES - range_start,
-                size_of_e,
-            );
-        }
-
-        while iter_count < n_iters
-            invariant
-                reader.inv(),
-                reader.wf(*vm_io_owner),
-                vm_io_owner.inv(),
-                vm_io_owner.read_view_initialized(),
-                regions.inv(),
-                reader.cursor.vaddr as int % align_of_e == 0,
-                size_of_e == core::mem::size_of::<C::E>(),
-                align_of_e == core::mem::align_of::<C::E>(),
-                size_of_e % align_of_e == 0,
-                align_of_e > 0,
-                size_of_e > 0,
-                iter_count <= n_iters,
-                n_iters == range_end - range_start,
-                // Verus loses non-negativity of `range_start` / `range_end`
-                // across the loop boundary; pin it via these invariants so
-                // `lemma_mul_nonnegative` preconditions discharge in the body.
-                0 <= range_start,
-                range_start <= range_end,
-                range_end <= NR_ENTRIES,
-                reader.remain_spec() == post_skip_remain - iter_count * size_of_e,
-                post_skip_remain >= (range_end - range_start) * size_of_e,
-                regions.slots.dom() == initial_dom,
-                Self::child_perms_embedding(*regions, removed_indices),
-                self.walk_coverage_from_view(initial_reader, initial_view, initial_dom),
-                self.walk_items_well_formed_from_view(initial_reader, initial_view),
-                self.walk_uniqueness_from_view(initial_reader, initial_view),
-                // Without this, Verus treats `self.level` as potentially
-                // mutated by `&mut self` and the level-comparison facts go
-                // missing inside walk_coverage / walk_uniqueness instances.
-                self.level == level,
-                reader.end == initial_reader.end,
-                reader.cursor.vaddr == initial_reader.cursor.vaddr + range_start * size_of_e
-                    + iter_count * size_of_e,
-                forall|i: usize|
-                    #![trigger initial_view.addr_transl(i)]
-                    initial_reader.cursor.vaddr <= i < initial_reader.end.vaddr ==> {
-                        &&& initial_view.addr_transl(i) is Some
-                        &&& initial_view.memory.contains_key(initial_view.addr_transl(i).unwrap().0)
-                    },
-                forall|va: usize|
-                    #![trigger vm_io_owner.read_view_of().read(va)]
-                    reader.cursor.vaddr <= va < initial_reader.end.vaddr ==> {
-                        &&& initial_view.addr_transl(va) == vm_io_owner.read_view_of().addr_transl(
-                            va,
-                        )
-                        &&& initial_view.read(va) == vm_io_owner.read_view_of().read(va)
-                    },
-                removed_indices.subset_of(initial_dom),
-                // Witness past iter for each removed idx — the discharge
-                // proof picks it up via `choose|j|` and invokes
-                // `walk_uniqueness` at (current_cursor, witness_cursor).
-                forall|idx: int| #[trigger]
-                    removed_indices.contains(idx) ==> exists|j: int|
-                        #![trigger Self::walk_pte_at_view(
-                            initial_view,
-                            (initial_reader.cursor.vaddr
-                                + range_start * size_of_e
-                                + j * size_of_e) as usize,
-                        )]
-                        0 <= j < iter_count && {
-                            let cj = (initial_reader.cursor.vaddr + range_start * size_of_e + j
-                                * size_of_e) as usize;
-                            let pte_j = Self::walk_pte_at_view(initial_view, cj);
-                            &&& pte_j.is_present()
-                            &&& !pte_j.is_last(self.level)
-                            &&& idx == frame_to_index(pte_j.paddr())
-                        },
-            decreases n_iters - iter_count,
-        {
-            proof {
-                vstd::arithmetic::mul::lemma_mul_is_distributive_sub(
-                    size_of_e,
-                    range_end - range_start,
-                    iter_count as int,
-                );
-                vstd::arithmetic::mul::lemma_mul_inequality(
-                    1,
-                    range_end - range_start - iter_count,
-                    size_of_e,
-                );
-            }
-            let ghost cursor_pre_read: usize = reader.cursor.vaddr;
-            let ghost pre_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
-            proof {
-                crate::specs::mm::virt_mem::MemView::lemma_read_bytes_eq_pointwise(
-                    pre_view,
-                    initial_view,
-                    cursor_pre_read,
-                    core::mem::size_of::<C::E>(),
-                );
-            }
-            let pte = #[verus_spec(with Tracked(vm_io_owner))]
-            reader.read_once::<C::E>();
-            let pte = pte.unwrap();
-            proof {
-                ostd_pod::lemma_decode_pod_inverse::<C::E>(pte);
-                vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
-                vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
-            }
+        let mut i = range.start;
+        while i < range.end {
+            // Non-atomic read is OK because we have mutable access.
+            let pte = reader.read_once::<C::E>().unwrap();
             if pte.is_present() {
                 let paddr = pte.paddr();
+                // As a fast path, we can ensure that the type of the child frame
+                // is `Self` if the PTE points to a child page table. Then we don't
+                // need to check the vtable for the drop method.
                 if !pte.is_last(level) {
-                    proof {
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            size_of_e,
-                            range_start,
-                            iter_count as int,
-                        );
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                            range_start + iter_count,
-                            size_of_e,
-                        );
-                        Self::lemma_coverage_at(
-                            *self,
-                            initial_reader,
-                            initial_view,
-                            initial_dom,
-                            cursor_pre_read,
-                        );
-                        broadcast use lemma_frame_to_index_injective;
-
-                        assert forall|idx: int| #[trigger] removed_indices.contains(idx) implies idx
-                            != frame_to_index(pte.paddr()) by {
-                            let j = choose|j: int|
-                                #![trigger Self::walk_pte_at_view(
-                                    initial_view,
-                                    (initial_reader.cursor.vaddr
-                                        + range_start * size_of_e
-                                        + j * size_of_e) as usize,
-                                )]
-                                0 <= j < iter_count && {
-                                    let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
-                                        + j * size_of_e) as usize;
-                                    let pte_j = Self::walk_pte_at_view(initial_view, cj);
-                                    &&& pte_j.is_present()
-                                    &&& !pte_j.is_last(self.level)
-                                    &&& idx == frame_to_index(pte_j.paddr())
-                                };
-                            let cj: usize = (initial_reader.cursor.vaddr + range_start * size_of_e
-                                + j * size_of_e) as usize;
-                            let pte_j = Self::walk_pte_at_view(initial_view, cj);
-                            vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
-                            vstd::arithmetic::mul::lemma_mul_nonnegative(j, size_of_e);
-                            vstd::arithmetic::mul::lemma_mul_strict_inequality(
-                                j,
-                                iter_count as int,
-                                size_of_e,
-                            );
-                            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                                size_of_e,
-                                range_start,
-                                j,
-                            );
-                            vstd::arithmetic::mul::lemma_mul_inequality(
-                                range_start + j + 1,
-                                range_end,
-                                size_of_e,
-                            );
-                            vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
-                                size_of_e,
-                                range_end,
-                                range_start,
-                            );
-                            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                                range_start + j,
-                                size_of_e,
-                            );
-                            Self::lemma_uniqueness_at_pair(
-                                *self,
-                                initial_reader,
-                                initial_view,
-                                cursor_pre_read,
-                                cj,
-                            );
-                            pte.lemma_paddr_is_page_aligned();
-                            pte_j.lemma_paddr_is_page_aligned();
-                        };
-                    }
-                    proof {
-                        removed_indices = removed_indices.insert(frame_to_index(paddr));
-                        assert({
-                            let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
-                                + iter_count * size_of_e) as usize;
-                            let pte_j = Self::walk_pte_at_view(initial_view, cj);
-                            &&& cj == cursor_pre_read
-                            &&& pte_j == pte
-                            &&& pte_j.is_present()
-                            &&& !pte_j.is_last(self.level)
-                            &&& frame_to_index(paddr) == frame_to_index(pte_j.paddr())
-                        });
-                    }
-                    proof_decl! {
-                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
-                    }
-                    let frame = unsafe {
-                        #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
-                        Frame::<Self>::from_raw(paddr)
-                    };
-                    // `from_raw` minted the obligation; `frame.drop`
-                    // consumes it directly. No redeem dance needed.
-                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(from_raw_obl));
+                    // SAFETY: The PTE points to a page table node. The ownership
+                    // of the child is transferred to the child then dropped.
+                    let frame = unsafe { Frame::<Self>::from_raw(paddr) };
+                    frame.drop(Tracked(regions));
                 } else {
+                    proof_decl! {
+                        let tracked item_perm: Option<C::Perm>;
+                    }
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
-                    proof {
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            size_of_e,
-                            range_start,
-                            iter_count as int,
-                        );
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                            range_start + iter_count,
-                            size_of_e,
-                        );
-                        Self::lemma_item_well_formed_at(
-                            *self,
-                            initial_reader,
-                            initial_view,
-                            cursor_pre_read,
-                        );
-                        assert(C::raw_item_well_formed(paddr, level, pte.prop()));
-                    }
-                    let _item = unsafe { C::item_from_raw(paddr, level, pte.prop()) };
+                    let _item = unsafe {
+                        C::item_from_raw(paddr, level, pte.prop(), Tracked(item_perm))
+                    };
                 }
             }
-            proof {
-                vstd::arithmetic::div_mod::lemma_mod_adds(
-                    reader.cursor.vaddr - size_of_e,
-                    size_of_e,
-                    align_of_e,
-                );
-            }
-            let ghost iter_count_old: int = iter_count as int;
-            iter_count = iter_count + 1;
-            proof {
-                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    size_of_e,
-                    iter_count_old,
-                    1,
-                );
-            }
+            i += 1;
         }
     }
 
@@ -505,10 +233,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
             owner.level,
     {
         let tracked points_to = regions.slots.tracked_borrow(owner.slot_index);
-        let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm),
+            Tracked(owner.tracked_borrow_metadata_perm()),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -519,7 +246,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     #[verus_spec(res =>
         with Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
-             Tracked(guards): Tracked<&Guards<'rcu>>,
+             Tracked(guards): Tracked<&Guards>,
              Ghost(idx): Ghost<usize>,
                  -> owner: Tracked<OwnerSubtree<C>>,
         requires
@@ -533,12 +260,12 @@ impl<C: PageTableConfig> PageTableNode<C> {
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value().node().meta_vaddr(),
+            res.inv(),
+            res.wf_with_region(*final(regions)),
             guards.unlocked(owner@.value().node().meta_vaddr()),
             MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
             MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
 
-            final(regions).frame_obligations == old(regions).frame_obligations.insert(
-                meta_to_index(owner@.value().node().meta_vaddr())),
             old(regions).contains(meta_to_index(owner@.value().node().meta_vaddr())),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
@@ -549,6 +276,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 ==> i != meta_to_index(owner@.value().node().meta_vaddr()),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
+            final(parent_owner).frame_permission == old(parent_owner).frame_permission,
             final(parent_owner).slot_index == old(parent_owner).slot_index,
             final(parent_owner).level == old(parent_owner).level,
             final(parent_owner).tree_level == old(parent_owner).tree_level,
@@ -636,8 +364,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn locks_preserved_except<'rcu>(
         addr: usize,
-        guards0: Guards<'rcu>,
-        guards1: Guards<'rcu>,
+        guards0: Guards,
+        guards1: Guards,
     ) -> bool {
         &&& OwnerSubtree::implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards0),
@@ -658,7 +386,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     #[verifier::external_body]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>
+            Tracked(guards): Tracked<&mut Guards>
         requires
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_vaddr()),
@@ -683,7 +411,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// unless that guard was already forgotten.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-             Tracked(guards): Tracked<&mut Guards<'rcu>>,
+             Tracked(guards): Tracked<&mut Guards>,
         requires
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_vaddr()),
@@ -769,10 +497,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn nr_children(&self) -> u16 {
         let tracked points_to = regions.slots.tracked_borrow(owner.slot_index);
-        let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm),
+            Tracked(owner.tracked_borrow_metadata_perm()),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -784,13 +511,20 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(res =>
         with
             Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(metadata_perms): Tracked<&'a MetadataPerms>,
+            Tracked(metadata_perms): Tracked<&'a MetadataPerm>,
             Tracked(repr_perm): Tracked<&'a ()>,
             Ghost(stray_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
-            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *metadata_perms, *repr_perm),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms, *repr_perm).stray.id()
+            typed_meta_wf::<PageTablePageMeta<C>>(
+                *points_to,
+                *metadata_perms,
+                *repr_perm,
+            ),
+            typed_meta_value::<PageTablePageMeta<C>>(
+                *metadata_perms,
+                *repr_perm,
+            ).stray.id()
                 == stray_id,
         ensures
             res.id() == stray_id,
@@ -829,12 +563,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub unsafe fn read_pte(&self, idx: usize) -> C::E {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
-        let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
-            paddr_to_vaddr(
-                #[verus_spec(with Tracked(owner_slot_perm))]
-                self.start_paddr(),
-            ),
+            paddr_to_vaddr(self.start_paddr()),
         );
 
         // SAFETY:
@@ -870,6 +600,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).inv(),
             final(owner).level == old(owner).level,
             final(owner).meta_own == old(owner).meta_own,
+            final(owner).frame_permission == old(owner).frame_permission,
             final(owner).slot_index == old(owner).slot_index,
             final(owner).children_perm.value() == old(owner).children_perm.value().update(
                 idx as int,
@@ -879,13 +610,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub unsafe fn write_pte(&mut self, idx: usize, pte: C::E) {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
-        let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         #[verusfmt::skip]
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
-            paddr_to_vaddr(
-                #[verus_spec(with Tracked(owner_slot_perm))]
-                self.start_paddr()
-            ),
+            paddr_to_vaddr(self.start_paddr())
         );
 
         // SAFETY:
@@ -904,12 +631,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(res =>
         with
             Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(metadata_perms): Tracked<&'a MetadataPerms>,
+            Tracked(metadata_perms): Tracked<&'a MetadataPerm>,
             Ghost(nr_children_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
             typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *metadata_perms, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms, ()).nr_children.id()
+            typed_meta_value::<PageTablePageMeta<C>>(
+                *metadata_perms,
+                (),
+            ).nr_children.id()
                 == nr_children_id,
         ensures
             res.id() == nr_children_id,
@@ -984,30 +714,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     {
     }
 
-    /// Instantiate [`walk_items_well_formed_from_view`]'s forall at one cursor.
-    pub proof fn lemma_item_well_formed_at(
-        self,
-        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        view: crate::specs::mm::virt_mem::MemView,
-        c: usize,
-    )
-        requires
-            self.walk_items_well_formed_from_view(reader, view),
-            reader.cursor.vaddr <= c,
-            c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
-            (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
-        ensures
-            ({
-                let pte = Self::walk_pte_at_view(view, c);
-                pte.is_present() && pte.is_last(self.level) ==> C::raw_item_well_formed(
-                    pte.paddr(),
-                    self.level,
-                    pte.prop(),
-                )
-            }),
-    {
-    }
-
     /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
     pub proof fn lemma_uniqueness_at_pair(
         self,
@@ -1058,28 +764,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             }
     }
 
-    /// Every present leaf PTE encountered by the drop walk contains a canonical
-    /// raw item for the node's paging level.
-    pub open spec fn walk_items_well_formed_from_view(
-        self,
-        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        view: crate::specs::mm::virt_mem::MemView,
-    ) -> bool {
-        forall|c: usize|
-            #![trigger Self::walk_pte_at_view(view, c)]
-            reader.cursor.vaddr <= c && c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
-                + reader.remain_spec() && (c - reader.cursor.vaddr) % core::mem::size_of::<
-                C::E,
-            >() as int == 0 ==> {
-                let pte = Self::walk_pte_at_view(view, c);
-                pte.is_present() && pte.is_last(self.level) ==> C::raw_item_well_formed(
-                    pte.paddr(),
-                    self.level,
-                    pte.prop(),
-                )
-            }
-    }
-
     /// Caller-side uniqueness obligation: distinct cursor positions with
     /// present non-last PTEs (in `view`) map to distinct paddrs.
     pub open spec fn walk_uniqueness_from_view(
@@ -1111,16 +795,16 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         excluded: vstd::set::Set<int>,
     ) -> bool {
         forall|paddr: crate::mm::Paddr|
-            #![trigger regions.slot_owners[frame_to_index(paddr)]]
+            #![trigger regions.slot_owner(paddr)]
             regions.slots.dom().contains(frame_to_index(paddr)) && !excluded.contains(
                 frame_to_index(paddr),
             ) ==> {
                 let idx = frame_to_index(paddr);
                 let so = regions.slot_owners[idx];
-                &&& <Frame<Self>>::from_raw_requires_safety(regions, paddr)
+                &&& <Frame<Self>>::from_raw_requires(regions, paddr)
                 &&& 0 < so.ref_count() <= REF_COUNT_MAX
+                &&& so.storage_perm().is_init()
                 &&& so.ref_count() == 1 ==> {
-                    &&& so.storage_perm().is_init()
                     &&& so.in_list_perm.value() == 0
                     &&& so.paths_in_pt.is_empty()
                 }

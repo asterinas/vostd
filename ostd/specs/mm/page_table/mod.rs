@@ -469,16 +469,6 @@ impl AbstractVaddr {
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
-            let new = self.align_down(level);
-
-            assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
-                &&& new.index.contains_key(i)
-                &&& 0 <= new.index[i]
-                &&& new.index[i] < NR_ENTRIES
-            } by {
-                if i != level - 2 {
-                }
-            }
         }
     }
 
@@ -2014,11 +2004,16 @@ impl AbstractVaddr {
             let aligned = self.align_down(5);
             let a4 = self.align_down(4);
             self.align_down_shape(4);
-            // align_down(5) is align_down(4) with index[3] zeroed; align_down(4) already zeroed index[0..3) and the offset.
-            assert(aligned == AbstractVaddr { index: a4.index.insert(3, 0), ..a4 });
+            // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
+            assert(aligned.index[3] == 0) by {
+                assert(aligned == AbstractVaddr {
+                    index: self.align_down(4).index.insert(3, 0),
+                    ..self.align_down(4)
+                });
+            };
+            assert(aligned.index[0] == 0);
             assert(aligned.index[1] == 0);
             assert(aligned.index[2] == 0);
-            assert(aligned.index[3] == 0);
             assert(aligned.rec_compute_vaddr(4) == 0);
             assert(aligned.rec_compute_vaddr(3) == 0) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
