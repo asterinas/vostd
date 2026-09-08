@@ -594,7 +594,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             valid_frame_paddr(paddr),
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
-            C::raw_item_well_formed(paddr, self.level(), prop, Tracked(permission)),
+            C::raw_item_well_formed((paddr, self.level(), prop, Tracked(permission))),
             C::E::new_page_req(paddr, self.level(), prop),
             self.path().push_tail(self.idx as int).inv(),
         ensures
@@ -1134,7 +1134,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             C::item_from_raw(pa, level, prop, C::item_into_raw(item).3) == item,
             C::item_into_raw(item).3@ == self.cur_entry_owner().frame_permission(),
             valid_frame_paddr(pa),
-            C::raw_item_well_formed(pa, level, prop, C::item_into_raw(item).3),
+            C::raw_item_well_formed((pa, level, prop, C::item_into_raw(item).3)),
             // The recorded entry trackedness matches the item being cloned.
             (C::item_into_raw(item).3@ is Some) == self.cur_entry_owner().frame_is_tracked(),
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.

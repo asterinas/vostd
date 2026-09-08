@@ -212,7 +212,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The ownership of the item will be consumed, i.e., the item will be
     /// forgotten after this function is called.
     #[verifier::when_used_as_spec(item_into_raw_spec)]
-    fn item_into_raw(item: Self::Item) -> ((paddr, level, prop, perm): (
+    fn item_into_raw(item: Self::Item) -> (res: (
         Paddr,
         PagingLevel,
         PageProperty,
@@ -221,12 +221,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             Self::item_well_formed(item),
         ensures
-            Self::raw_item_well_formed(paddr, level, prop, perm),
-            1 <= level <= NR_LEVELS,
-            valid_frame_paddr(paddr),
-            paddr % page_size(level) == 0,
-            paddr + page_size(level) <= MAX_PADDR,
-            Self::E::new_page_req(paddr, level, prop),
+            Self::raw_item_well_formed(res),
+            1 <= res.1 <= NR_LEVELS,
+            valid_frame_paddr(res.0),
+            res.0 % page_size(res.1) == 0,
+            res.0 + page_size(res.1) <= MAX_PADDR,
+            Self::E::new_page_req(res.0, res.1, res.2),
         returns
             Self::item_into_raw(item),
     ;
@@ -270,7 +270,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     ) -> (res: Self::Item)
         requires
-            Self::raw_item_well_formed(paddr, level, prop, perm),
+            Self::raw_item_well_formed((paddr, level, prop, perm)),
         ensures
             Self::item_well_formed(res),
         returns
@@ -282,10 +282,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     /// Predicate that captures the well-formedness of raw items.
     spec fn raw_item_well_formed(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-        perm: Tracked<Option<Self::Perm>>,
+        item: (Paddr, PagingLevel, PageProperty, Tracked<Option<Self::Perm>>),
     ) -> bool;
 
     /// Relates an item's optional permission to the global metadata region.
@@ -327,11 +324,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     )
         requires
             valid_frame_paddr(pa),
-            Self::raw_item_well_formed(pa, level, old_prop, perm),
+            Self::raw_item_well_formed((pa, level, old_prop, perm)),
             (Self::item_into_raw(Self::item_from_raw(pa, level, new_prop, perm)).3@ is Some) == (
             perm@ is Some),
         ensures
-            Self::raw_item_well_formed(pa, level, new_prop, perm),
+            Self::raw_item_well_formed((pa, level, new_prop, perm)),
     ;
 
     /// Splitting a canonical huge-page raw item yields canonical child raw items.
@@ -345,13 +342,13 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     )
         requires
             valid_frame_paddr(pa),
-            Self::raw_item_well_formed(pa, level, prop, perm),
+            Self::raw_item_well_formed((pa, level, prop, perm)),
             Self::E::new_page_req(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
             child_pa == pa + child_idx * page_size((level - 1) as PagingLevel),
         ensures
-            Self::raw_item_well_formed(child_pa, (level - 1) as PagingLevel, prop, perm),
+            Self::raw_item_well_formed((child_pa, (level - 1) as PagingLevel, prop, perm)),
             Self::E::new_page_req(child_pa, (level - 1) as PagingLevel, prop),
     ;
 
@@ -364,7 +361,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     )
         requires
-            Self::raw_item_well_formed(pa, level, prop, perm),
+            Self::raw_item_well_formed((pa, level, prop, perm)),
             level > 1,
         ensures
             perm@ is None,
@@ -379,7 +376,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     )
         requires
             valid_frame_paddr(pa),
-            Self::raw_item_well_formed(pa, level, prop, perm),
+            Self::raw_item_well_formed((pa, level, prop, perm)),
         ensures
             Self::item_well_formed(Self::item_from_raw(pa, level, prop, perm)),
     ;
@@ -393,7 +390,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     )
         requires
             valid_frame_paddr(pa),
-            Self::raw_item_well_formed(pa, level, prop, perm),
+            Self::raw_item_well_formed((pa, level, prop, perm)),
         ensures
             Self::item_into_raw(Self::item_from_raw(pa, level, prop, perm)) == (
                 pa,
@@ -455,15 +452,19 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             regions.inv(),
             Self::item_from_raw(pa, level, prop, Self::item_into_raw(item).3) == item,
-            Self::raw_item_well_formed(pa, level, prop, Self::item_into_raw(item).3),
+            Self::raw_item_well_formed((pa, level, prop, Self::item_into_raw(item).3)),
             Self::perm_well_formed_with_region(pa, Self::item_into_raw(item).3, regions),
             valid_frame_paddr(pa),
             regions.contains(frame_to_index(pa)),
-            Self::item_into_raw(item).3@ is Some ==> {
-                &&& 0 < regions.slot_owner(pa).ref_count()
-                &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
-                &&& regions.slot_owner(pa).ref_count() >= REF_COUNT_MAX ==> may_panic()
-            },
+            Self::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count() > 0,
+            Self::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count()
+                <= REF_COUNT_MAX,
+            // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
+            Self::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count()
+                != REF_COUNT_UNUSED,
+            // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
+            Self::item_into_raw(item).3@ is Some ==> (regions.slot_owner(pa).ref_count()
+                < REF_COUNT_MAX || may_panic()),
         ensures
             item.clone_requires(regions),
     ;

@@ -340,10 +340,14 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) {
         broadcast use group_page_meta;
 
-        assert(Self::raw_item_well_formed(pa, level, prop, perm));
+        assert(Self::raw_item_well_formed((pa, level, prop, perm)));
         prop.lemma_avail1_tag_encoding();
         if prop.flags.contains(PageFlags::AVAIL1()) {
+            assert(Self::item_from_raw(pa, level, prop, perm) is Tracked);
+            assert(perm@ is Some);
         } else {
+            assert(Self::item_from_raw(pa, level, prop, perm) is Untracked);
+            assert(perm@ is None);
         }
     }
 
@@ -379,15 +383,13 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     open spec fn raw_item_well_formed(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-        perm: Tracked<Option<Self::Perm>>,
+        item: (Paddr, PagingLevel, PageProperty, Tracked<Option<Self::Perm>>),
     ) -> bool {
+        let (pa, level, prop, perm) = item;
         &&& (prop.flags.contains(PageFlags::AVAIL1()) <==> perm@ is Some)
         &&& prop.flags.contains(PageFlags::AVAIL1()) ==> {
             &&& level == 1
-            &&& (perm@->0).0.addr() == mapping::frame_to_meta(paddr)
+            &&& (perm@->0).0.addr() == mapping::frame_to_meta(pa)
             &&& (perm@->0).0.is_init()
             &&& (perm@->0).1.frac() == 1
             &&& MetaSlot::perms_related(*(perm@->0).0, (perm@->0).1.resource())
