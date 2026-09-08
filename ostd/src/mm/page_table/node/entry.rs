@@ -12,7 +12,7 @@ use crate::mm::frame::{
     meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
 };
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{CurrentPagingConstsTrait, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta, meta_to_index},
@@ -983,6 +983,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
+            C::lemma_current_paging_consts_requirements();
             assert(nr_subpage_per_huge_spec::<C>() == NR_ENTRIES);
         }
 
@@ -1074,6 +1075,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 C::lemma_page_table_config_constant_properties();
                 C::lemma_paging_consts_properties();
+                C::lemma_current_paging_consts_requirements();
                 let ghost the_node = new_owner.value().node();
 
                 assert(0 <= i < NR_ENTRIES);

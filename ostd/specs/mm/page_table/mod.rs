@@ -2013,6 +2013,12 @@ impl AbstractVaddr {
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
+            self.align_down(4).lemma_insert_zero_preserves_inv(3);
+            assert forall|i: int| 0 <= i < NR_LEVELS implies #[trigger] aligned.index[i] == 0 by {
+                if i < NR_LEVELS - 1 {
+                    assert(self.align_down(4).index[i] == 0);
+                }
+            };
             // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
             assert(aligned.index[3] == 0) by {
                 assert(aligned == AbstractVaddr {

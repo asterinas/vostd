@@ -2491,7 +2491,6 @@ proof fn lemma_step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len:
         assert(old_regions.slot_owners[u_idx].paths_in_pt.is_empty());
         assert(old_regions.slot_owners[u_idx].in_list_perm.value() == 0);
         // `u_idx` is a managed slot.
-        assert(valid_frame_paddr(s.unique_frames[u].paddr));
         s.regions.lemma_contains_valid_frame_paddr(s.unique_frames[u].paddr);
         assert(s.regions.contains(u_idx));
         // usage / in_list preserved universally by the unmap axiom.
@@ -2829,7 +2828,6 @@ proof fn lemma_step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId
     // embedding-level `Frame::wf(state)`).
     lemma_frame_drop_pre_derivable(*s, fid);
     let ghost p = s.frames[fid].paddr;
-    assert(valid_frame_paddr(p));
     s.regions.lemma_contains_valid_frame_paddr(p);
     let ghost idx_p = frame_to_index(p);
     // `fid ∈ s.frames` ⟹ `handle_count(s.frames, idx_p) ≥ 1`. Used
@@ -3496,7 +3494,6 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.dom().contains(u));
-        assert(valid_frame_paddr(u_paddr));
         s.regions.lemma_contains_valid_frame_paddr(u_paddr);
         // Old UNIQUE validity at `u`.
         assert(old_regions.slot_owners[u_idx].ref_count() == REF_COUNT_UNIQUE);
@@ -3725,6 +3722,7 @@ proof fn lemma_step_segment_split<'rcu>(
 ///   pre: `pre raw == pre cover` at every idx.
 ///   post at popped: `(pre raw - 1) == (pre cover - 1)`. ✓
 ///   post elsewhere: unchanged.
+#[verifier::spinoff_prover]
 proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     requires
         old(s).inv(),
@@ -3756,7 +3754,6 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
     assert(pre_rc != REF_COUNT_UNUSED);
     assert(pre_rc != REF_COUNT_UNIQUE);
     assert(old_regions.contains(target_idx));
-    assert(valid_frame_paddr(paddr));
     s.regions.lemma_contains_valid_frame_paddr(paddr);
     assert(s.regions.contains(target_idx));
     // page-alignment + bound for shrink_front lemma.
@@ -3957,7 +3954,6 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.dom().contains(u));
-        assert(valid_frame_paddr(u_paddr));
         s.regions.lemma_contains_valid_frame_paddr(u_paddr);
         assert(old_regions.slot_owners[u_idx].ref_count() == REF_COUNT_UNIQUE);
         assert(old_regions.slot_owners[u_idx].usage is Frame);
@@ -4126,7 +4122,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         // (`slot_owners.contains_key`) + `MetaRegionOwners::inv`'s
         // biimplication. Then the universal usage-preservation above
         // gives `s.regions` usage == old usage == Frame at cov_idx.
-        assert(valid_frame_paddr(paddr_c));
         s.regions.lemma_contains_valid_frame_paddr(paddr_c);
         assert(s.regions.contains(cov_idx));
     };
@@ -4140,7 +4135,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
         assert(old_frames.dom().contains(fid_other));
         assert(old_regions.slot_owners[other_idx].usage is Frame);
-        assert(valid_frame_paddr(s.frames[fid_other].paddr));
         s.regions.lemma_contains_valid_frame_paddr(s.frames[fid_other].paddr);
         assert(s.regions.contains(other_idx));
         // `other_0 <= idx < max_meta_slots()` (biimplication) ⟹ universal
@@ -4236,7 +4230,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.dom().contains(u));
-        assert(valid_frame_paddr(u_paddr));
         s.regions.lemma_contains_valid_frame_paddr(u_paddr);
         assert(old_regions.slot_owners[u_idx].ref_count() == REF_COUNT_UNIQUE);
         assert(old_regions.slot_owners[u_idx].usage is Frame);
@@ -4525,7 +4518,6 @@ proof fn lemma_step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
 
     // Slot facts from the structural unique-entry clause + the UNIQUE
     // branch of `MetaSlotOwner::inv`.
-    assert(valid_frame_paddr(paddr));
     s.regions.lemma_contains_valid_frame_paddr(paddr);
     assert(s.regions.contains(idx));
     assert(index_to_frame(idx) == paddr);
@@ -4715,7 +4707,6 @@ proof fn lemma_step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
     let ghost idx = frame_to_index(paddr);
 
     // Slot facts from the structural unique-entry clause + UNIQUE branch.
-    assert(valid_frame_paddr(paddr));
     s.regions.lemma_contains_valid_frame_paddr(paddr);
     assert(s.regions.contains(idx));
     assert(index_to_frame(idx) == paddr);
@@ -4907,7 +4898,6 @@ proof fn lemma_step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: Fr
     let ghost idx = frame_to_index(paddr);
     // `fid` registered ⟹ in-bound, `usage == Frame`, and it contributes
     // to `handle_count` (so the slot is an active head).
-    assert(valid_frame_paddr(paddr));
     s.regions.lemma_contains_valid_frame_paddr(paddr);
     assert(s.regions.contains(idx));
     assert(index_to_frame(idx) == paddr);

@@ -34,7 +34,7 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    CurrentPagingConstsTrait, MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
@@ -1922,6 +1922,34 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         cont.inv_children_unroll(cont.idx as int)
     }
 
+    /// Constructs an absent subtree that fits the cursor's current slot.
+    pub proof fn tracked_new_absent_subtree(self) -> (tracked res: OwnerSubtree<C>)
+        requires
+            self.inv(),
+        ensures
+            res.inv(),
+            res.value().is_absent(),
+            res.level() == self.continuations[self.level - 1].tree_level + 1,
+            res.value().path.len() <= INC_LEVELS - 1,
+            res.value().parent_level == self.continuations[self.level
+                - 1].child().value().parent_level,
+            res.value().path == self.continuations[self.level - 1].path().push_tail(
+                self.continuations[self.level - 1].idx as int,
+            ),
+            res == OwnerSubtree::new_val(res.value(), res.level() as nat),
+    {
+        let cont = self.continuations[self.level - 1];
+        self.inv_continuation(self.level - 1);
+
+        cont.inv_children_unroll(cont.idx as int);
+        cont.inv_children_rel_unroll(cont.idx as int);
+
+        let tracked entry = EntryOwner::tracked_new_absent(self.cur_entry_owner().path, self.level);
+
+        let tracked subtree = OwnerSubtree::tracked_new_val(entry, cont.tree_level + 1);
+        subtree
+    }
+
     /// If the current entry is absent, `!self@.present()`.
     pub proof fn cur_entry_absent_not_present(self)
         requires
@@ -2369,6 +2397,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 {
     C::lemma_paging_consts_properties();
+    C::lemma_current_paging_consts_requirements();
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
 
