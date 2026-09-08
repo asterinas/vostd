@@ -1,25 +1,99 @@
 // SPDX-License-Identifier: MPL-2.0
-#[cfg(not(feature = "irc11"))]
-use vstd::std_specs::iter::{IteratorSpec, filter_keep, filter_postcondition};
 use vstd::{
     laws_cmp::{
         obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
     },
     laws_eq::obeys_eq_spec_properties,
     prelude::*,
-    set_lib::FiniteRange,
-    std_specs::cmp::PartialOrdIs,
+    set_lib::{FiniteRange, range_set_properties},
+    std_specs::{
+        cmp::PartialOrdIs,
+        iter::{IteratorSpec, filter_keep, filter_postcondition},
+    },
 };
 use vstd_extra::{
-    external::{iter::*, range::*},
+    external::{cmp::*, iter::*, range::*},
     range::{
-        RangeExtraFns, finite_range_matches_ord, lemma_range_difference_set, range_difference_seq,
-        seq_range_union, spec_ord_max, spec_ord_min,
+        RangeExtraFns, finite_range_matches_ord, lemma_seq_range_union_contains, seq_range_union,
     },
 };
 
 use core::ops::Range;
 
+verus! {
+
+/// Operational spec of `range_difference`: the two candidate ranges,
+/// dropping any empty ones, matching the executable control flow.
+pub open spec fn range_difference_spec<T: Ord>(a: Range<T>, b: Range<T>) -> Seq<Range<T>> {
+    let left = if !b.start.is_lt(&b.end) {
+        a
+    } else {
+        Range { start: a.start, end: spec_ord_min(a.end, b.start) }
+    };
+    let right = if !b.start.is_lt(&b.end) {
+        b
+    } else {
+        Range { start: spec_ord_max(a.start, b.end), end: a.end }
+    };
+    if left.start.is_lt(&left.end) {
+        if right.start.is_lt(&right.end) {
+            seq![left, right]
+        } else {
+            seq![left]
+        }
+    } else if right.start.is_lt(&right.end) {
+        seq![right]
+    } else {
+        Seq::empty()
+    }
+}
+
+/// Proves that [`range_difference_spec`] denotes the finite set difference `a - b`.
+///
+/// # Preconditions
+///
+/// The element comparison obeys its specification, and the finite-range model
+/// agrees with that ordering.
+///
+/// # Postconditions
+///
+/// The union of the output ranges equals the elements in `a` that are not in `b`.
+pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Range<T>)
+    requires
+        obeys_cmp::<T>(),
+        finite_range_matches_ord::<T>(),
+    ensures
+        seq_range_union(range_difference_spec(a, b)) == a.view_set().difference(b.view_set()),
+{
+    broadcast use range_set_properties;
+
+    reveal(obeys_partial_cmp_spec_properties);
+    reveal(obeys_cmp_partial_ord);
+    reveal(obeys_cmp_ord);
+    reveal(obeys_eq_spec_properties);
+    let s = range_difference_spec(a, b);
+    assert forall|x: T| #[trigger]
+        seq_range_union(s).contains(x) <==> ((s.len() >= 1 && s[0].view_set().contains(x)) || (
+        s.len() == 2 && s[1].view_set().contains(x))) by {
+        lemma_seq_range_union_contains(s, x);
+        let pred = |r: Range<T>| r.view_set().contains(x);
+        if s.any(pred) {
+            let i = choose|i: int| #![auto] 0 <= i < s.len() && pred(s[i]);
+            assert(i == 0 || i == 1);
+        }
+        if s.len() >= 1 && s[0].view_set().contains(x) {
+            assert(pred(s[0]));
+        }
+        if s.len() == 2 && s[1].view_set().contains(x) {
+            assert(pred(s[1]));
+        }
+    }
+    assert forall|x: T|
+        #![trigger a.view_set().contains(x)]
+        seq_range_union(s).contains(x) <==> a.view_set().difference(b.view_set()).contains(x) by {}
+}
+
+} // verus!
 /// Calculates the [difference] of two [`Range`]s, i.e., `a - b`.
 ///
 /// This method will return 0, 1, or 2 ranges. All returned ranges are
@@ -33,7 +107,8 @@ use core::ops::Range;
 /// ## Safety
 ///
 /// This function contains no unsafe code. Its proof relies on the trusted
-/// `vstd_extra` specifications for owned-array iteration and [`Range::is_empty`].
+/// `vstd_extra` specifications for owned-array iteration, [`Range::is_empty`],
+/// and `core::cmp::{min, max}`.
 ///
 /// ## Functional Correctness
 ///
@@ -48,17 +123,17 @@ use core::ops::Range;
 /// ## Postconditions
 ///
 /// Subject to the upstream iterator model's law and termination predicates, the
-/// returned sequence matches [`range_difference_seq`] and satisfies the
+/// returned sequence matches [`range_difference_spec`] and satisfies the
 /// functional-correctness properties above. The contract does not claim that
 /// comparisons cannot panic.
-#[cfg_attr(not(feature = "irc11"), verus_verify(spinoff_prover, rlimit(50)))]
-#[cfg_attr(not(feature = "irc11"), verus_spec(ret =>
+#[verus_verify(spinoff_prover, rlimit(50))]
+#[verus_spec(ret =>
     requires
         obeys_cmp::<T>(),
         finite_range_matches_ord::<T>(),
     ensures
         ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
-            &&& ret.remaining() == range_difference_seq(*a, *b)
+            &&& ret.remaining() == range_difference_spec(*a, *b)
             &&& ret.remaining().len() <= 2
             &&& ret.remaining().all(
                 |range: Range<T>| range.start.is_lt(&range.end),
@@ -68,13 +143,13 @@ use core::ops::Range;
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start)
             &&& seq_range_union(ret.remaining()) == (*a).view_set().difference((*b).view_set())
         },
-))]
+)]
 pub fn range_difference<T: Ord + Copy + FiniteRange>(
     a: &Range<T>,
     b: &Range<T>,
 ) -> impl Iterator<Item = Range<T>> {
-    // The pinned IRC11 toolchain predates Verus's `Iterator::filter` model.
-    #[cfg(not(feature = "irc11"))]
+    use core::cmp::{max, min};
+
     proof! {
         reveal(obeys_cmp_partial_ord);
         reveal(obeys_cmp_ord);
@@ -82,24 +157,21 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
     let r = if b.is_empty() {
         [a.clone(), b.clone()]
     } else {
-        // `Ord::{min,max}` are the specified equivalents of `core::cmp::{min,max}`.
-        [a.start..a.end.min(b.start), a.start.max(b.end)..a.end]
+        [a.start..min(a.end, b.start), max(a.start, b.end)..a.end]
     };
 
-    #[cfg(not(feature = "irc11"))]
     proof! {
         reveal_with_fuel(Seq::filter, 3);
     }
     // Original execution: `r.into_iter().filter(|v| !v.is_empty())`.
     // Bind its operands so the upstream filter axiom can refer to them.
     let iter = r.into_iter();
-    let pred = #[cfg_attr(not(feature = "irc11"), verus_spec(keep: bool =>
+    let pred = #[verus_spec(keep: bool =>
         ensures
             keep == v.start.is_lt(&v.end),
-    ))]
+    )]
     |v: &Range<T>| !v.is_empty();
     let ret = iter.filter(pred);
-    #[cfg(not(feature = "irc11"))]
     proof! {
         filter_postcondition(iter, pred, ret);
         if ret.will_return_none() {
@@ -112,8 +184,8 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
                 reveal_with_fuel(Seq::filter_index, 3);
                 reveal_with_fuel(Seq::filter, 3);
             }
-            assert(ret.remaining() == range_difference_seq(*a, *b)) by {
-                reveal(range_difference_seq);
+            assert(ret.remaining() == range_difference_spec(*a, *b)) by {
+                reveal(range_difference_spec);
                 reveal(spec_ord_min);
                 reveal(spec_ord_max);
             }

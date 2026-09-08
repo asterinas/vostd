@@ -3,6 +3,7 @@
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
 pub mod btree;
+pub mod cmp;
 pub mod convert;
 pub mod deref;
 pub mod ilog2;
@@ -16,6 +17,7 @@ pub mod smart_ptr;
 pub mod time;
 
 pub use btree::*;
+pub use cmp::*;
 pub use ilog2::*;
 pub use int_specs::*;
 pub use iter::*;
