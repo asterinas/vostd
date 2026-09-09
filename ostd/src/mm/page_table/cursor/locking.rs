@@ -31,11 +31,6 @@ verus! {
 
 broadcast use group_ghost_tree_lemmas;
 
-pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
-    ensures
-        res == *range,
-;
-
 #[verus_spec(ret =>
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
         Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,

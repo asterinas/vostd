@@ -76,7 +76,7 @@ pub broadcast proof fn lemma_is_first_zero_unique(s: Seq<bool>, i: int, j: int)
 }
 
 /// `first_zero_index(s)` itself satisfies `is_first_zero` (induction on `s.len()`).
-proof fn lemma_first_zero_index_char(s: Seq<bool>)
+proof fn lemma_first_zero_index_is_first_zero(s: Seq<bool>)
     ensures
         is_first_zero(s, first_zero_index(s)),
     decreases s.len(),
@@ -85,7 +85,7 @@ proof fn lemma_first_zero_index_char(s: Seq<bool>)
     } else if !s[0] {
     } else {
         let sub = s.subrange(1, s.len() as int);
-        lemma_first_zero_index_char(sub);
+        lemma_first_zero_index_is_first_zero(sub);
         let i2 = first_zero_index(sub);
         assert(is_first_zero(s, 1 + i2)) by {
             assert forall|j: int| 0 <= j < 1 + i2 implies s[j] by {
@@ -102,7 +102,7 @@ proof fn lemma_first_zero_index_char(s: Seq<bool>)
 
 /// If the prefix `[0, k)` of `s` is all `true`, then the first zero of `s` is
 /// `k` plus the first zero of the remainder (induction on `s.len()`).
-proof fn lemma_first_zero_index_prefix_all_true(s: Seq<bool>, k: int)
+proof fn lemma_first_zero_index_after_true_prefix(s: Seq<bool>, k: int)
     requires
         0 <= k <= s.len(),
         forall|j: int| #![trigger s[j]] 0 <= j < k ==> s[j],
@@ -115,7 +115,7 @@ proof fn lemma_first_zero_index_prefix_all_true(s: Seq<bool>, k: int)
     } else if s.len() == 0 {
     } else {
         let sub = s.subrange(1, s.len() as int);
-        lemma_first_zero_index_prefix_all_true(sub, k - 1);
+        lemma_first_zero_index_after_true_prefix(sub, k - 1);
         assert(sub.subrange(k - 1, sub.len() as int) =~= s.subrange(k, s.len() as int)) by {}
     }
 }
@@ -134,7 +134,7 @@ proof fn lemma_first_zero_index_advance_after_set(s: Seq<bool>, k: int)
         ),
 {
     let t = s.update(k - 1, true);
-    lemma_first_zero_index_prefix_all_true(t, k);
+    lemma_first_zero_index_after_true_prefix(t, k);
     assert(t.subrange(k, s.len() as int) =~= s.subrange(k, s.len() as int)) by {}
 }
 
@@ -152,9 +152,9 @@ proof fn lemma_first_zero_index_clear(s: Seq<bool>, i: int)
     decreases s.len(),
 {
     let fz = first_zero_index(s);
-    lemma_first_zero_index_char(s);
+    lemma_first_zero_index_is_first_zero(s);
     let t = s.update(i, false);
-    lemma_first_zero_index_char(t);
+    lemma_first_zero_index_is_first_zero(t);
     if fz <= i {
         assert(is_first_zero(t, fz)) by {
             if fz < s.len() {
@@ -200,8 +200,8 @@ proof fn lemma_first_zero_index_clear_range(s: Seq<bool>, t: Seq<bool>, start: i
         },
 {
     let fz = first_zero_index(s);
-    lemma_first_zero_index_char(s);
-    lemma_first_zero_index_char(t);
+    lemma_first_zero_index_is_first_zero(s);
+    lemma_first_zero_index_is_first_zero(t);
     if fz <= start {
         assert(is_first_zero(t, fz)) by {
             if fz < s.len() {
@@ -240,9 +240,9 @@ proof fn lemma_first_zero_index_set_after_first_zero(s: Seq<bool>, i: int)
         first_zero_index(s.update(i, true)) == first_zero_index(s),
 {
     let fz = first_zero_index(s);
-    lemma_first_zero_index_char(s);
+    lemma_first_zero_index_is_first_zero(s);
     let t = s.update(i, true);
-    lemma_first_zero_index_char(t);
+    lemma_first_zero_index_is_first_zero(t);
     assert(is_first_zero(t, fz)) by {
         if fz < s.len() {
             assert(!t[fz]) by {
@@ -302,7 +302,7 @@ impl IdAlloc {
         if self.first_available_id < self.bitset.len() {
             let id = self.first_available_id;
             proof! {
-                lemma_first_zero_index_char(self@);
+                lemma_first_zero_index_is_first_zero(self@);
             }
             self.bitset.set(id, true);
             self.update_first_available_id(id + 1);
@@ -348,10 +348,13 @@ impl IdAlloc {
             return None;
         }
 
+        // Scan the bitmap from the position `first_available_id`
+        // for the first `count` number of consecutive 0's.
         let allocated_range = {
+            // Invariance: all bits within `curr_range` are 0's
             let mut curr_range = self.first_available_id..self.first_available_id + 1;
             proof! {
-                lemma_first_zero_index_char(self@);
+                lemma_first_zero_index_is_first_zero(self@);
             }
             #[verus_spec(invariant
                 count > 0,
@@ -364,7 +367,7 @@ impl IdAlloc {
                 forall|j: int| #![trigger self@[j]] curr_range.start as int <= j < curr_range.end as int ==> !self@[j],
                 decreases self@.len() as int - curr_range.end as int,
             )]
-            /* `Range::len` is unspecced by vstd.
+            /* `Range::len` is trait method, cannot be `assume_specification`.
              * Origin Rust: while curr_range.len() < count && curr_range.end < self.bitset.len() {
              */
             while range_usize_len(&curr_range) < count && curr_range.end < self.bitset.len() {
@@ -391,13 +394,12 @@ impl IdAlloc {
             forall|j: int| #![trigger self@[j]] allocated_range.start as int <= j < id as int ==> self@[j],
             forall|j: int| 0 <= j < self@.len() && !(allocated_range.start as int <= j < id as int) ==> self@[j] == old(self)@[j],
         )]
-        /* `Range::clone` is unspecced; iterate `start..end` directly.
-         * Origin Rust: for id in allocated_range.clone()
-         */
-        for id in allocated_range.start..allocated_range.end {
+        // Set every bit to 1 within the allocated range
+        for id in allocated_range.clone() {
             self.bitset.set(id, true);
         }
 
+        // In case we need to update first_available_id
         if self.is_allocated(self.first_available_id) {
             self.update_first_available_id(allocated_range.end);
         }
@@ -405,7 +407,7 @@ impl IdAlloc {
         proof! {
             let faid = old(self).first_available_id as int;
             if faid < allocated_range.start as int {
-                lemma_first_zero_index_char(self@);
+                lemma_first_zero_index_is_first_zero(self@);
             }
         }
 
@@ -520,13 +522,13 @@ impl IdAlloc {
         self.bitset.set(id, true);
         if id == self.first_available_id {
             proof! {
-                lemma_first_zero_index_char(old(self)@);
+                lemma_first_zero_index_is_first_zero(old(self)@);
             }
             self.update_first_available_id(id + 1);
         }
         proof! {
             if id != old(self).first_available_id {
-                lemma_first_zero_index_char(old(self)@);
+                lemma_first_zero_index_is_first_zero(old(self)@);
                 lemma_first_zero_index_set_after_first_zero(old(self)@, id as int);
             }
         }
@@ -572,9 +574,9 @@ impl IdAlloc {
             None => self.bitset.len(),
         };
         proof! {
-            lemma_first_zero_index_prefix_all_true(self@, start as int);
+            lemma_first_zero_index_after_true_prefix(self@, start as int);
             let tail = self@.subrange(start as int, self@.len() as int);
-            lemma_first_zero_index_char(self@);
+            lemma_first_zero_index_is_first_zero(self@);
             assert(is_first_zero(bitslice_view(bit_slice), first_zero_index(tail)));
         }
     }

@@ -45,6 +45,12 @@ pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
     !(r.start < r.end)
 }
 
+/// `Range::clone` copies the range; the result equals the original value.
+pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
+    ensures
+        res == *range,
+;
+
 pub assume_specification<Idx>[ RangeInclusive::start ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
     ensures
         *ret == r@.start,
