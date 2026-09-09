@@ -354,16 +354,17 @@ impl IdAlloc {
             final(self).inv(),
     )]
     fn update_first_available_id(&mut self, start: usize) {
+        let len = self.bitset.len();
         let bit_slice = self
             .bitset
-            .get(start..self.bitset.len())
+            .get(start..len)
             .expect("start is guaranteed to be valid by the caller");
         /* Bind the bounded `first_zero` result (avoid closure overflow + enable proof).
          * Origin Rust: self.first_available_id = bit_slice.first_zero().map(|offset| start + offset).unwrap_or(len);
          */
         self.first_available_id = match bit_slice.first_zero() {
             Some(offset) => start + offset,
-            None => self.bitset.len(),
+            None => len,
         };
         proof! {
             lemma_first_zero_index_after_true_prefix(self@, start as int);
