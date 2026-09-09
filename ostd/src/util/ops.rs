@@ -99,7 +99,7 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
             &&& forall|i: int|
                 0 <= i < ret.remaining().len() - 1 ==> (
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start)
-            &&& seq_range_union(ret.remaining()) == (*a).view_set().difference((*b).view_set())
+            &&& seq_range_union(ret.remaining()) == a.view_set().difference(b.view_set())
         },
 )]
 pub fn range_difference<T: Ord + Copy + FiniteRange>(
@@ -148,7 +148,7 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
                 reveal(obeys_partial_cmp_spec_properties);
             }
             assert(seq_range_union(ret.remaining()) ==
-                (*a).view_set().difference((*b).view_set())) by {
+                a.view_set().difference(b.view_set())) by {
                 lemma_range_difference_set(*a, *b);
             }
         }
