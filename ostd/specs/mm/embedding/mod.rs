@@ -28,126 +28,6 @@
 //! `ensures` clause of one public exec function. Naming is the only
 //! mechanism keeping the axiom in sync with its exec counterpart;
 //! reviewers touching either side should grep for the partner.
-//!
-//! # Roadmap — DONE / open work
-//!
-//! All five originally-deferred items have landed. Shape B for
-//! segments is fully active: `Op::SegmentFromUnused` /
-//! `Op::SegmentDrop` are in the dispatch, [`accounting_inv`] has the
-//! generalised `rc == H + P + cover_count` equation, and
-//! [`structural_inv`] carries `raw_count == segment_cover_count` +
-//! segment-covered ⟹ Frame-usage + segment range well-formedness.
-//!
-//! 1. **Strengthen [`crate::specs::mm::frame::meta_owners::MetaSlotOwner::inv`]'s
-//!    SHARED branch** — DONE. The branch (`0 < rc <= REF_COUNT_MAX`)
-//!    now carries `storage_perm().is_init()` and
-//!    `in_list_perm.value() == 0`. The `rc == 1 ⟹ ...` guards
-//!    on `storage`/`in_list` in
-//!    [`crate::mm::frame::Frame::drop_requires`] were dropped.
-//!
-//! 2. **`Frame::wf(state)`** — DONE at both layers.
-//!    - **Embedding layer**: [`lemma_frame_drop_pre_derivable`]
-//!      derives all of [`frame::drop_pre`]'s residuals (rc not in
-//!      sentinels, `rc <= REF_COUNT_MAX`, `storage.is_init`,
-//!      `in_list == 0`, `rc == 1 ⟹ paths empty`) plus the
-//!      `rc == 1 ⟹ handle_count == 1` clause from `s.inv()` + the
-//!      `FrameEntry`'s registration + the segment-cover hypothesis.
-//!      `op_pre[FrameDrop]` and `lemma_step_frame_drop` shrink to
-//!      id-existence + segment-cover only.
-//!    - **Exec layer**: [`crate::mm::frame::Frame::wf_with_region`]
-//!      packages the per-handle cross-object validity (slot/pointer
-//!      identity + SHARED rc bounds — `> 0 ∧ ≠ UNUSED ∧ ≠ UNIQUE
-//!      ∧ ≤ MAX`). `Frame::drop_requires` is refactored to read
-//!      `self.wf_with_region(s) ∧ raw_count == 0 ∧ rc == 1 ⟹ paths empty`,
-//!      which keeps the drop-specific bits explicit while
-//!      consolidating the static "this Frame is valid against
-//!      this state" conjuncts.
-//!    - `clone_requires` not refactored: would cascade into
-//!      `PageTableConfig::lemma_clone_requires_concrete` (a trait method
-//!      with multiple implementors); left explicit to keep the
-//!      change local.
-//!    - **Preservation of `wf_with_region` (FUTURE).** `Frame::wf_with_region`'s
-//!      preservation across drops of *other* handles at the same slot
-//!      is currently informal (claimed in the docstring; no
-//!      machine-checked proof). To prove it, every `Frame<M>` needs a
-//!      tracked ghost "reference-count share" certificate that proves
-//!      "I contribute 1 to my slot's `rc`," combined with an aggregate
-//!      invariant on `MetaSlotOwner` saying `held_shares == rc.value()`.
-//!      Recommended primitive:
-//!      [`vstd_extra::resource::ghost_resource::count_ghost::Token`]
-//!      (alias for `CountGhost<(), TOTAL>`) with
-//!      `TOTAL = REF_COUNT_MAX`. The resource framework provides
-//!      `split` / `combine` / `agree` / `bounded` pre-proven; the
-//!      Frame side adds a `Tracked<Token<MAX>>` field and the
-//!      `MetaSlotOwner` side adds a
-//!      `CountGhostResource<(), MAX>` aggregate of remaining shares
-//!      with the linking invariant `rc.value() + remaining == MAX`.
-//!      Cursor map / unmap axioms gain share-juggling clauses
-//!      (`paths_in_pt += 1` ↔ split off 1 share). The math is proven
-//!      by vstd_extra; the integration is a multi-day refactor with
-//!      cascading effects on every `MetaRegionOwners` consumer.
-//!      The embedding's `handle_count` already provides the equivalent
-//!      property at the abstract level, so this is only needed if
-//!      downstream code outside the embedding's tracking needs
-//!      `Frame::wf_with_region` preservation proofs.
-//!
-//! 3a. **Op::Map consumes a `FrameId`** — DONE. `Op::Map { c, fid,
-//!     prop }` extracts the matching `FrameEntry` (so `H` at the
-//!     mapped slot decrements by 1, paired with the cursor axiom's
-//!     `paths_in_pt += 1` at the same slot). Combined with the
-//!     `cursor_mut_map_embedded` axiom's per-slot ensures (rc / usage
-//!     / storage preserved at target, changed-slots ⟹ PT-node ⟹
-//!     `usage != Frame`), [`accounting_inv`]'s Frame-scoped equation
-//!     `rc == H + P` chains.
-//!
-//! 3b. **Op::Query clone modeling** — DONE. The `cursor_query_embedded`
-//!     axiom now returns `Option<Paddr>`: `Some(paddr)` when query
-//!     resolved a tracked leaf and `clone_item` bumped `rc` at that
-//!     slot; `None` otherwise (out-of-range / no leaf / MMIO leaf).
-//!     [`lemma_step_query`] consumes the paddr to register a fresh
-//!     `FrameEntry` so `H` at the cloned slot grows in lockstep with
-//!     `rc`, keeping `accounting_inv`'s `rc == H + P` chained.
-//!
-//! 4. **Strengthen `cursor_mut_unmap_embedded`** — DONE. The axiom
-//!    now mirrors exec: universal preservation of
-//!    `raw_count`/`in_list`/`usage`/`slot_vaddr`/`vtable_ptr`;
-//!    storage preserved at slots ending non-UNUSED; rc doesn't bump
-//!    to UNIQUE; at Frame slots the "non-mapping count"
-//!    `rc - paths.len` is invariant with both monotonically non-
-//!    increasing, and post `rc != 0` (Frame teardown collapses
-//!    `rc==0` to `REF_COUNT_UNUSED` atomically); MMIO slots are
-//!    untouched (preserving the `MetaSlotOwner::inv` MMIO exception
-//!    that allows non-empty `paths_in_pt` at UNUSED).
-//!    [`lemma_step_unmap`] discharges accounting via case-splits on
-//!    Frame / non-Frame / MMIO.
-//!
-//! 5. **Shape-B segments** — base + split landed; the rest is
-//!    documented with status per op.
-//!    - **`from_unused` / `drop`** — DONE. Allocate a segment over a
-//!      contiguous range of UNUSED frames, and release the segment's
-//!      forgotten references with per-frame teardown.
-//!    - **`split`** — DONE. Partition the segment at a page-aligned
-//!      offset; `regions` is unchanged because per-paddr
-//!      `cover_count` is invariant under the partition.
-//!      [`lemma_segment_cover_split`] proves the per-paddr
-//!      invariance.
-//!    - **`clone`** — DONE. Produce a second handle covering the same
-//!      range as `sid`; per covered paddr `cover_count += 1` and
-//!      `rc += 1` (`H` unchanged), so the accounting equation chains.
-//!    - **`next`** — DONE. The conversion bridge between
-//!      segment-held forgotten references and user-held `Frame<M>`
-//!      handles. Per-paddr at the popped slot: `raw_count -= 1`,
-//!      `cover_count -= 1`, `H += 1`, `rc` unchanged. The
-//!      accounting equation `rc == H + P + cover_count` chains in
-//!      lockstep because H and cover decrement/increment together;
-//!      structural `raw_count == cover_count` chains via
-//!      [`lemma_segment_cover_shrink_front`].
-//!    - **`slice`** — DONE. Like `clone` but over a sub-range: insert a
-//!      fresh `SegmentEntry` covering `sub_range` and bump `cover_count`
-//!      / `rc` for each frame inside it. `clone` is the special case
-//!      `sub_range == sid`'s range.
-//!    - **`into_raw` / `from_raw`** — `pub(crate)` only in exec, so
-//!      the embedding can ignore them.
 pub mod cursor;
 pub mod frame;
 pub mod io;
@@ -227,12 +107,6 @@ pub tracked struct FrameEntry {
 /// Per-Segment entry in the store. Represents one outstanding
 /// `Segment<M>` covering the contiguous physical range `range`.
 ///
-/// Per exec [`Segment::relate_regions`], every frame in `range` is owned by
-/// the segment. The frame's `ref_count >= 1` is bumped by that reference
-/// (one per frame); the segment does *not* hold a separate `Frame`
-/// handle, so the embedding's `frames` map is unrelated to per-segment
-/// frame refcounting.
-///
 /// Multiple `SegmentEntry`s may overlap (e.g. after `clone`); each
 /// independently contributes `+1` to every covered slot's obligation
 /// count and ref_count`.
@@ -242,26 +116,13 @@ pub tracked struct SegmentEntry {
     pub ghost range: Range<Paddr>,
 }
 
-/// Per-`UniqueFrame` entry in the store. Represents the sole exclusive
-/// handle to the slot at `paddr` — i.e., the slot is held at the
-/// `REF_COUNT_UNIQUE` sentinel with no shared users (no `FrameEntry`,
-/// no `SegmentEntry` coverage, no live PTE). At most one `UniqueEntry`
-/// exists per slot (enforced by [`VmStore::structural_inv`]'s
-/// injectivity clause), mirroring the exec exclusivity of
-/// `UniqueFrame<M>`.
+/// Per-`UniqueFrame` entry in the store.
 pub tracked struct UniqueEntry {
     pub ghost paddr: Paddr,
 }
 
 /// Number of outstanding `Segment` handles covering the frame slot
-/// at `paddr` — i.e., `#{ sid : segments[sid].range covers paddr }`.
-/// This is the per-slot `raw_count` term contributed by segments
-/// (Design B: each segment holds one forgotten reference per frame
-/// in its range, so `raw_count == segment_cover_count(segments, ...)`).
-/// Intended to be called on page-aligned paddrs (e.g. via
-/// `index_to_frame(idx)`); segment ranges are themselves page-
-/// aligned so the resulting count is the same for any paddr within
-/// a given page.
+/// at `paddr`.
 pub open spec fn segment_cover_count(segments: Map<SegmentId, SegmentEntry>, paddr: Paddr) -> nat {
     segments.dom().filter(
         |sid: SegmentId| segments[sid].range.start <= paddr && paddr < segments[sid].range.end,
@@ -269,9 +130,7 @@ pub open spec fn segment_cover_count(segments: Map<SegmentId, SegmentEntry>, pad
 }
 
 /// A positive segment-cover count exhibits a witnessing segment id whose
-/// range covers `paddr`. Used to lift `segment_cover_count(..) > 0` into
-/// the structural `covered ⟹ usage == Frame` clause (which is keyed by a
-/// concrete `(sid, paddr)`), replacing the retired `raw_count` cache.
+/// range covers `paddr`.
 pub proof fn lemma_segment_cover_witness(
     segments: Map<SegmentId, SegmentEntry>,
     paddr: Paddr,
@@ -291,9 +150,7 @@ pub proof fn lemma_segment_cover_witness(
 }
 
 /// Number of outstanding `Frame` handles whose paddr maps to slot
-/// `idx` — i.e. the `#handles(idx)` term of the exact reference-count
-/// accounting `ref_count(idx) == #handles(idx) + paths_in_pt(idx).len()`
-/// (Stage 5 / full #4).
+/// `idx`.
 pub open spec fn handle_count(frames: Map<FrameId, FrameEntry>, idx: int) -> nat {
     frames.dom().filter(|fid: FrameId| frame_to_index(frames[fid].paddr) == idx).len()
 }
@@ -417,35 +274,6 @@ pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: Fr
     }
 }
 
-/// **Embedding-level `Frame::wf(state)`.** Derives the full
-/// [`frame::drop_pre`] residual (rc / storage / in_list / paths-empty
-/// conjuncts) plus the `rc == 1 ⟹ handle_count == 1` clause from
-/// `s.inv()`, given only:
-///   - `fid` is a registered handle,
-///   - no `SegmentEntry` covers the slot
-///     (`segment_cover_count == 0`).
-///
-/// Replaces the residual `drop_pre` baggage on `op_pre[FrameDrop]` /
-/// `lemma_step_frame_drop` with a single tracked invariant chain. Every
-/// conjunct is recovered from a specific `VmStore::inv` clause:
-///   - `slots.contains_key`: structural slot-perm coverage.
-///   - `raw_count == 0`: structural `raw_count == segment_cover_count`
-///     + the `segment_cover_count == 0` hypothesis.
-///   - `rc > 0` / `rc != UNUSED` / `rc != UNIQUE` / `rc == H + P`:
-///     accounting clause 4 (active head: H >= 1 since `fid` is
-///     registered + structural FrameId⟹Frame-usage).
-///   - `rc <= REF_COUNT_MAX`: clause 4 (`rc != UNIQUE`) +
-///     `MetaSlotOwner::inv`'s forbidden-range empty
-///     (`MAX < rc < UNIQUE ⟹ false`).
-///   - `rc == 1 ⟹ storage.is_init ∧ in_list == 0`:
-///     `MetaSlotOwner::inv`'s SHARED branch (`0 < rc <= MAX`),
-///     which is the Item 1 strengthening.
-///   - `rc == 1 ⟹ paths_in_pt.is_empty()`: clause 4 + `H >= 1`
-///     gives `1 == H + P` ⟹ `P == 0` ⟹ `paths.len == 0` ⟹
-///     `paths.is_empty()`.
-///   - `rc == 1 ⟹ handle_count == 1`: clause 4 with `rc == 1`
-///     gives `1 == H + P`; with `H >= 1` and `P >= 0`, `H == 1`
-///     and `P == 0`.
 pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId)
     requires
         s.inv(),
@@ -475,23 +303,6 @@ pub enum VmIoKind {
 }
 
 /// Per-VmIo entry in the store.
-///
-/// `vm_space` is `None` for VmIoOwners that have no parent `VmSpace` —
-/// kernel-space readers/writers from `VmReader::from_kernel_space` /
-/// `VmWriter::from_kernel_space`, and val_owners produced by
-/// `read`. `Some(vs)` for entries created by `VmSpace::reader` /
-/// `writer`.
-///
-/// View state is fully determined by `vm_space` + `kind`:
-/// - `Some(_)` (userspace, Fallible): `mem_view: None`, exactly as
-///   `VmSpace::reader`/`writer` ensure ([vm_space.rs:323/382](crate::mm::vm_space)).
-///   Fallible methods are handle-only — no owner-side activation step
-///   exists or is needed.
-/// - `None && Reader` (kernel reader): `read_view_initialized()`, per
-///   `VmReader<Infallible>::from_kernel_space` ensures.
-/// - `None && Writer` (kernel writer or `consumed_w` val_owner from
-///   `read`): `has_write_view()`, per `from_kernel_space` /
-///   [`io::read_step`] ensures.
 pub tracked struct VmIoEntry {
     pub ghost vm_space: Option<VmSpaceId>,
     pub ghost kind: VmIoKind,
@@ -513,16 +324,6 @@ impl VmIoEntry {
         }
     }
 
-    /// Operand-typing for the Infallible `read`/`write` ops. Exec
-    /// `VmReader::<Infallible>::read` / `VmWriter::<Infallible>::write`
-    /// are *typed* on kernel (`Infallible`) reader/writer handles; the
-    /// embedding proxies "kernel/Infallible" with `vm_space is None` and
-    /// reader-vs-writer with `kind`. These are not runtime preconditions
-    /// — a userspace (Fallible) handle simply cannot be passed where the
-    /// type system demands a kernel one — so they read as a
-    /// well-formedness check on the operand, not a checkable obligation.
-    /// (`inv` already gives `read_view_initialized` / `has_write_view`
-    /// for these cases, exactly what `vm_reader_read_embedded` consumes.)
     pub open spec fn is_kernel_reader(self) -> bool {
         &&& self.vm_space is None
         &&& self.kind == VmIoKind::Reader
@@ -557,13 +358,6 @@ pub tracked struct CursorEntry<'rcu> {
 }
 
 impl<'rcu> CursorEntry<'rcu> {
-    /// The portion of the exec `Cursor::invariants(owner, regions, guards)`
-    /// expressible from the entry alone (no `regions`).
-    ///
-    /// Mirrors `crate::mm::page_table::Cursor::invariants` minus
-    /// `regions.inv()`, `metaregion_sound(regions)`, and the exec-handle
-    /// pieces (`self.inv()` / `self.wf(owner)`). Those live in
-    /// [`VmStore::inv`] (regions-touching) and are MODEL GAPS (handle).
     pub open spec fn inv(self) -> bool {
         &&& self.owner.inv()
         &&& self.owner.children_not_locked(self.guards)
@@ -574,11 +368,6 @@ impl<'rcu> CursorEntry<'rcu> {
 
 /// Resource store: the abstract state visible to a caller of the
 /// VmSpace + VmReader/VmWriter API.
-///
-/// `tlb_model` is the global TLB model; mirrors the per-CPU `TlbModel`
-/// that `CursorMut::map`/`unmap` and `flusher` operate on. We keep one
-/// per store on the conservative assumption that any cursor mutation
-/// interacts with it.
 pub tracked struct VmStore<'rcu> {
     pub regions: MetaRegionOwners,
     pub tlb_model: TlbModel,
@@ -592,17 +381,8 @@ pub tracked struct VmStore<'rcu> {
 
 impl<'a, 'rcu> VmStore<'rcu> {
     /// The store's top-level invariant.
-    ///
-    /// Decomposed into [`structural_inv`] (everything generic store
-    /// helpers can preserve when they only touch one of `frames` /
-    /// `cursors` / `vm_ios` / `vm_spaces`) and [`accounting_inv`] (the
-    /// exact reference-count equation, which couples `frames` with
-    /// `regions.slot_owners` and can only be re-established by a *step*
-    /// that pairs the two changes — see [`tracked_extract_frame`] /
-    /// [`lemma_insert_frame`] for why the frame-only helpers must require /
-    /// ensure only the structural part).
     pub open spec fn inv(self) -> bool {
-        self.structural_inv() && self.accounting_inv()
+        self.structural_inv() && self.accounting_inv() && self.regions.inv()
     }
 
     /// Everything in [`inv`] **except** the accounting equation.
@@ -610,49 +390,13 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// `regions.slot_owners`, since the accounting equation is the only
     /// clause that mentions both. Frame-only helpers
     /// ([`tracked_extract_frame`] / [`lemma_insert_frame`]) require / ensure this.
+    #[verifier::opaque]
     pub open spec fn structural_inv(self) -> bool {
-        &&& self.regions.inv()
-        // Slot-perm coverage (Design B). Every in-region slot keeps its
-        // `simple_pptr::PointsTo<MetaSlot>` parked in `regions.slots`.
-        // `MetaRegionOwners::inv` only gives the *forward* direction
-        // (`slots.contains_key(i) ==> 0 <= i < max_meta_slots()`); the reverse
-        // is NOT globally true (`UniqueFrame` / `into_raw` / linked-list
-        // permanently extract a slot perm). It IS true here because the
-        // embedding's `Op` surface contains *no* perm-extracting
-        // operation: `FrameFromUnused` re-parks the perm (modeled in
-        // [`frame::frame_from_unused_embedded`]), `FrameFromInUse` /
-        // `FrameDrop` / `Segment` only shared-borrow it, and every
-        // region-mutating cursor op (`Map`/`Unmap`/`ProtectNext`) touches
-        // `slot_owners` (refcount / `paths_in_pt`) but never the `slots`
-        // map domain. This is what lets [`op_pre`] for `FrameFromUnused`
-        // / `FrameFromInUse` be literally `true` (#2 / #3b fully
-        // resolved): the `valid_frame_paddr`-guarded slot-perm precondition
-        // of the relaxed exec / axiom is recovered from this clause for
-        // the in-bound case and is vacuous out-of-bound.
-        // Slot-perm coverage exception for page-table nodes: a slot whose
-        // perm is NOT parked in `regions.slots` must be a page-table node
-        // (`usage == PageTable`). This is exactly the new user PT *root*
-        // allocated by `VmSpace::new` (`empty_with_owner` permanently
-        // extracts the root's slot perm into the page table; see
-        // [`vm_space::vm_space_new_embedded`]). Phrased in terms of
-        // `regions` alone (NOT `vm_spaces` membership), so a `VmSpace`
-        // drop — which never re-parks the root (there is no exec `Drop`)
-        // and leaves `regions` untouched — preserves it for free, and any
-        // op that preserves `usage` preserves the exception. Data-frame
-        // ops recover `slots.contains_key` from this clause: a
-        // `usage == Frame` slot fails the exception, so its perm is
-        // parked; ops on possibly-unparked slots (frame/segment
-        // `from_unused`, `from_in_use`) instead guard on
-        // `slots.contains_key` directly.
         &&& forall|idx: int|
             0 <= idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx) || (
             self.regions.slot_owners[idx].usage is PageTable
                 && self.regions.slot_owners[idx].ref_count()
                 != REF_COUNT_UNUSED)
-            // Segment-cover info is sourced directly from the `segments` map
-            // via `segment_cover_count` (see `accounting_inv`'s rc equation).
-            // The per-slot `raw_count` cache that previously mirrored it has
-            // been retired.
         &&& forall|idx: int|
             0 <= idx < max_meta_slots()
                 ==> #[trigger] self.regions.slot_owners[idx].in_list_perm.value() == 0
@@ -677,36 +421,14 @@ impl<'a, 'rcu> VmStore<'rcu> {
             self.vm_ios.dom().contains(id) ==> self.vm_ios[id].vm_space is Some ==> (
             self.vm_ios[id].vaddr as nat) + (self.vm_ios[id].len as nat)
                 <= MAX_USERSPACE_VADDR as nat
-            // `frames` is bookkeeping for outstanding `Frame` handles. Every
-            // registered handle came from a *successful* `from_unused` /
-            // `from_in_use`, which (post-relaxation) returns `None` unless
-            // `valid_frame_paddr(paddr)` — so every live `FrameEntry`'s paddr is
-            // in-bound. With the slot-perm / `raw_count` / `in_list`
-            // coverage clauses above, this discharges `drop_pre`'s
-            // `slots.contains_key` (#4-a), `raw_count == 0` (#4-b),
-            // `!= REF_COUNT_UNUSED` (#4-d, from the bound), and the
-            // `in_list == 0` half of the last-ref conjunct (#4-f).
         &&& forall|fid: FrameId| #[trigger]
             self.frames.dom().contains(fid) ==> valid_frame_paddr(
                 self.frames[fid].paddr,
             )
-        // Every registered handle's slot has `usage is Frame`.
-        // True by construction: every `Op` that adds a `FrameId`
-        // (`FrameFromUnused`, `FrameFromInUse`, `Query` on a tracked
-        // leaf) commits to a Frame-usage slot. Carrying this in
-        // `structural_inv` makes accounting_inv's Frame-scoped clauses
-        // apply automatically at registered handles' paddrs and
-        // simplifies `op_pre[Map]` / `lemma_step_query` / the Item 4 unmap
-        // axiom (no need for the caller to re-establish usage).
         &&& forall|fid: FrameId| #[trigger]
             self.frames.dom().contains(fid) ==> self.regions.slot_owner(
                 self.frames[fid].paddr,
             ).usage is Frame
-            // Every registered segment has a well-formed range
-            // (page-aligned, in-bound, non-empty). Enforced by
-            // `op_pre[SegmentFromUnused]`; carried as an invariant so
-            // `lemma_step_segment_drop` can discharge `segment::drop_step`'s
-            // alignment preconditions from `s.inv()` alone.
         &&& forall|sid: SegmentId| #[trigger]
             self.segments.dom().contains(sid) ==> {
                 let r = self.segments[sid].range;
@@ -715,13 +437,6 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 &&& r.start < r.end
                 &&& r.end <= MAX_PADDR
             }
-            // Every segment-covered slot has `usage is Frame`.
-            // True by construction: `Op::SegmentFromUnused` sets the
-            // covered slots' usage to Frame, and no op transitions a
-            // segment-covered slot back to non-Frame (frame_drop is gated
-            // on `segment_cover_count == 0` via `op_pre[FrameDrop]`).
-            // Carried here so `lemma_step_segment_drop` can derive the per-slot
-            // SHARED+Frame conditions from `s.inv()` alone.
         &&& forall|sid: SegmentId, paddr: Paddr|
             #![trigger
                     self.segments.dom().contains(sid),
@@ -731,18 +446,10 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 ==> self.regions.slot_owner(
                 paddr,
             ).usage is Frame
-            // `unique_frames.dom()` is finite (built by finitely many
-            // `lemma_insert_unique`), needed wherever the embedding reasons
-            // about the unique-handle set as a whole.
-            // Every registered `UniqueEntry`'s paddr is in-bound.
         &&& forall|uid: UniqueId| #[trigger]
             self.unique_frames.dom().contains(uid) ==> valid_frame_paddr(
                 self.unique_frames[uid].paddr,
             )
-        // Every `UniqueEntry`'s slot is held exclusively: a `Frame`-usage
-        // slot at the `REF_COUNT_UNIQUE` sentinel, off the free-list
-        // (`in_list == 0`) and with no PTE mappings. (Storage-init is
-        // recovered on demand from `MetaSlotOwner::inv`'s UNIQUE branch.)
         &&& forall|uid: UniqueId| #[trigger]
             self.unique_frames.dom().contains(uid) ==> {
                 let so = self.regions.slot_owner(self.unique_frames[uid].paddr);
@@ -751,9 +458,6 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 &&& so.in_list_perm.value() == 0
                 &&& so.paths_in_pt.is_empty()
             }
-            // At most one `UniqueEntry` per slot — the exclusivity of
-            // `UniqueFrame<M>`. Keeps `Op::UniqueDrop` well-defined: tearing
-            // down a unique slot cannot leave a second entry dangling at it.
         &&& forall|uid1: UniqueId, uid2: UniqueId|
             #![trigger
                 self.unique_frames.dom().contains(uid1),
@@ -762,74 +466,8 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 && self.unique_frames[uid1].paddr == self.unique_frames[uid2].paddr ==> uid1 == uid2
     }
 
-    /// Stage 5 / full #4 — EXACT reference-count accounting.
-    ///
-    /// Scoped to *active-head* tracked data frames: `usage == Frame`
-    /// (excludes PT nodes — different rc semantics — and MMIO), and the
-    /// slot is an active head (`#handles > 0 || #mappings > 0`). The
-    /// active-head restriction sidesteps huge-page sub-page slots
-    /// (j>0): those have `H==0`, `paths.len()==0`, yet `rc>0` via
-    /// `frame_sub_pages_valid`, so they are *not* active heads and the
-    /// equation does not apply to them (and `op_pre[FrameDrop]` never
-    /// targets a sub-page — a `FrameEntry` paddr is always a head).
-    ///
-    /// For an active head: `rc` is neither sentinel, equals
-    /// `#handles + #mappings`, and the slot's metadata storage is
-    /// initialised (it is in use).
-    ///
-    /// The exact equation is *Frame-scoped*. For non-Frame `FrameEntry`
-    /// slots, the residual `drop_pre` obligation (rc/storage/in_list/
-    /// paths) is carried directly in `op_pre[FrameDrop]` (un-doing
-    /// part of #4) until the deferred main-verification refactor
-    /// strengthens `MetaSlotOwner::inv` and adds `Frame::wf(state)`.
-    ///
-    /// **Why split from `structural_inv`:** the equation references
-    /// *both* `self.frames` (via `handle_count`) *and*
-    /// `self.regions.slot_owners` (via `rc` and `paths_in_pt`), so any
-    /// helper that mutates one without the other can break it
-    /// transiently. The frame-only store helpers [`tracked_extract_frame`] /
-    /// [`lemma_insert_frame`] therefore cannot ensure this clause alone — a
-    /// step that pairs a frame change with the matching regions change
-    /// (via a frame / cursor `_embedded` axiom) re-establishes it.
+    #[verifier::opaque]
     pub open spec fn accounting_inv(self) -> bool {
-        // Stage 5.5c absorption clauses (couple `frames` + `regions`).
-        //
-        // The earlier usage-independent **handle clause** (Stage 5 / 2b,
-        // `H > 0 ⟹ rc ∉ {UNUSED, UNIQUE} ∧ rc ≥ H ∧ storage.is_init`)
-        // was **dropped**. Two reasons:
-        //
-        // (a) It was load-bearing only via Verus SMT heuristics across
-        //     `step_cursor_method`/`lemma_step_map`/`lemma_step_unmap`: the cursor
-        //     `_embedded` axioms don't actually constrain `rc`/`storage`
-        //     at the touched slot, and accounting_inv preservation
-        //     across those steps was working by coincidence. Segments
-        //     (Shape B) perturbed the SMT context and broke the chain
-        //     — the fragility was always there.
-        //
-        // (b) The semantically right home for these conjuncts is the
-        //     *exec layer*: `MetaSlotOwner::inv`'s SHARED branch should
-        //     carry `storage.is_init() ∧ in_list.value() == 0` for any
-        //     in-use rc (they're universally true, see the lifecycle
-        //     analysis), and `Frame<M>` should have a `wf(state)`
-        //     predicate carrying "the slot I refer to is in a valid
-        //     state with `rc ≥ handles_for_this_slot`." Then the
-        //     embedding's accounting could shrink to just the
-        //     Frame-scoped equation (clauses below), and the cursor
-        //     axiom interaction goes away because there's nothing
-        //     handle-keyed to chain.
-        //
-        // Until the main-verification refactor in (b) lands,
-        // `op_pre[FrameDrop]` carries the full residual `drop_pre`
-        // directly. Frame-usage callers discharge it from the
-        // Frame-scoped equation clauses below; non-Frame callers carry
-        // their own reasoning.
-        //
-        // See the TODO in segment.rs for the full plan.
-        // **UNUSED ⟹ no users.** A live PTE bumps `rc`, so reaching
-        // `UNUSED` requires `paths_in_pt.is_empty()`. With segments
-        // (Shape B), reaching UNUSED also requires no segment covers
-        // the slot — each segment contributes 1 to rc via its
-        // forgotten Frame handle.
         &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
             0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].ref_count()
@@ -839,10 +477,6 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 index_to_frame(idx),
             )
                 == 0
-            // **Frame in valid rc range ⟹ active head.** Inverse of the
-            // active-head guard below — absorbs the pre-active-head assume
-            // in `lemma_step_frame_from_in_use`. With segments, "active" includes
-            // the segment-cover contribution.
         &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
             0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].usage is Frame
@@ -855,13 +489,6 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 index_to_frame(idx),
             )
                 > 0
-            // **Frame-slot accounting equation.** Generalised to include
-            // segment forgotten references: `rc == H + P + cover_count`.
-            // Each segment in `segments` whose range covers the frame
-            // contributes +1 to `rc` (via its `ManuallyDrop`'d Frame
-            // handle); user-held handles contribute via `H`; live PTEs
-            // contribute via `P`. With `segments` empty (pre-activation),
-            // `cover_count == 0` and the equation reduces to `rc == H + P`.
         &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
             0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].usage is Frame && (
@@ -901,9 +528,7 @@ pub enum Op {
     NewKernelWriter { vaddr: Vaddr, len: usize },
     DropReader { vio: VmIoId },
     DropWriter { vio: VmIoId },
-    /// Fallible `VmReader::read_val<T>`. The exec spec carries no
-    /// tracked owner params (handle MODEL GAP); the embedding step
-    /// is consequently a no-op on `VmStore`.
+    /// Fallible `VmReader::read_val<T>`.
     ReaderReadVal { source: VmIoId },
     /// Fallible `VmReader::collect`. Same shape as `ReaderReadVal`.
     ReaderCollect { source: VmIoId },
@@ -919,92 +544,50 @@ pub enum Op {
     /// Infallible `VmReader::read`. Produces a `consumed_w` val_owner
     /// (registered as a fresh activated Writer entry).
     Read { source: VmIoId, dest: VmIoId },
-    /// Infallible `VmWriter::write`. The exec no longer surfaces
-    /// `consumed_w`; the embedding does NOT create a fresh entry.
+    /// Infallible `VmWriter::write`.
     Write { source: VmIoId, dest: VmIoId },
     /// `Frame::from_unused`: try to allocate a fresh handle on a
-    /// previously-unused slot. Registers a [`FrameEntry`] on success.
+    /// previously-unused slot.
     FrameFromUnused { paddr: Paddr },
     /// `Frame::from_in_use`: try to acquire a new handle on an
-    /// in-use slot. Registers a [`FrameEntry`] on success
-    /// (refcount of the slot increments by one).
+    /// in-use slot.
     FrameFromInUse { paddr: Paddr },
-    /// Drop one outstanding `Frame` handle. There is exactly one drop;
-    /// the step branches internally on the live refcount (mirroring
-    /// exec `drop`): `>= 2` decrements (slot stays SHARED), `== 1`
-    /// tears down to UNUSED (requires the slot detached from the page
-    /// table — `paths_in_pt.is_empty()`). See [`frame::drop_pre`].
+    /// Drop one outstanding `Frame` handle.
     FrameDrop { fid: FrameId },
     /// `Segment::from_unused`: allocate a fresh segment over a range
-    /// of previously-unused slots. Each frame in `range` transitions
-    /// `usage == Unused` → `Frame`, `rc` 0 → 1, `raw_count` 0 → 1.
-    /// Registers a [`SegmentEntry`] on success.
+    /// of previously-unused slots.
     SegmentFromUnused { range: Range<Paddr> },
-    /// Drop a `Segment` handle. Releases the segment's forgotten
-    /// reference at each frame in the range; frames whose `rc`
-    /// reaches 1 transition to UNUSED.
+    /// Drop a `Segment` handle.
     SegmentDrop { sid: SegmentId },
     /// `Segment::split`: split a segment at a page-aligned byte
     /// `offset` from its start, producing two segments covering the
-    /// disjoint halves. `regions` is unchanged (per-paddr
-    /// `cover_count` is invariant — each covered paddr lands in
-    /// exactly one half). Removes `sid` from `s.segments`, inserts
-    /// two fresh `SegmentEntry`s.
+    /// disjoint halves.
     SegmentSplit { sid: SegmentId, offset: usize },
     /// `Segment::next`: pop the front frame off `sid`'s range,
-    /// producing a fresh `Frame<M>` handle (a new `FrameEntry`
-    /// registered in `s.frames`). The segment's range shrinks by one
-    /// page from the front; if it becomes empty, `sid` is removed
-    /// from `s.segments`. The conversion bridge between segment-held
-    /// forgotten references and user-held Frame handles: at the
-    /// popped paddr `raw_count -= 1`, `cover_count -= 1`, `H += 1`,
-    /// `rc` unchanged.
+    /// producing a fresh `Frame<M>` handle.
     SegmentNext { sid: SegmentId },
     /// `Segment::clone`: produce a second handle covering the *same*
-    /// range as `sid`. Inserts a fresh `SegmentEntry` mirroring `sid`'s
-    /// range and bumps every covered frame's `rc` by 1 (Arc-style, via
-    /// `inc_frame_ref_count`). Per covered paddr: `cover_count += 1`,
-    /// `rc += 1`, `H` unchanged — the `accounting_inv` equation chains.
+    /// range as `sid`.
     SegmentClone { sid: SegmentId },
     /// `Segment::slice`: produce a handle covering the sub-range
-    /// `sub_range` (an absolute, page-aligned physical range contained
-    /// in `sid`'s range). Inserts a fresh `SegmentEntry` covering
-    /// `sub_range` and bumps the `rc` of every frame *inside*
-    /// `sub_range` by 1. Clone is the special case `sub_range == sid`'s
-    /// range.
+    /// `sub_range`.
     SegmentSlice { sid: SegmentId, sub_range: Range<Paddr> },
     /// `UniqueFrame::from_unused`: allocate a fresh *exclusive* handle on
-    /// a previously-unused slot. The slot transitions
-    /// `usage == Unused, rc == UNUSED` → `usage == Frame, rc == UNIQUE`.
-    /// Registers a [`UniqueEntry`] on success.
+    /// a previously-unused slot.
     UniqueFromUnused { paddr: Paddr },
-    /// Drop a `UniqueFrame` handle. Tears the exclusive slot down
-    /// (`rc == UNIQUE` → `rc == UNUSED`), uninitialising its metadata
-    /// storage. Removes `uid` from `s.unique_frames`.
+    /// Drop a `UniqueFrame` handle.
     UniqueDrop { uid: UniqueId },
     /// `Frame::from_unique`: convert the exclusive handle `uid` into a
-    /// shared `Frame`. The slot's `rc` drops `UNIQUE → 1`; the
-    /// `UniqueEntry` is consumed and a fresh `FrameEntry` registered
-    /// (`H: 0 → 1`).
+    /// shared `Frame`.
     FromUnique { uid: UniqueId },
     /// `UniqueFrame::try_from_shared`: try to convert the shared handle
-    /// `fid` back into an exclusive one. Succeeds only when `fid` is the
-    /// sole reference (`rc == 1`): then `rc` rises `1 → UNIQUE`, the
-    /// `FrameEntry` is consumed and a fresh `UniqueEntry` registered.
-    /// Otherwise (`rc != 1`) the CAS fails and the store is unchanged.
+    /// `fid` back into an exclusive one.
     TryFromShared { fid: FrameId },
 }
 
 /// Per-op precondition — the conjunction of facts about the store that
-/// must hold for an `Op` to be applied. Encodes id-existence,
-/// distinctness, cross-store ref-integrity, and the *expressible*
-/// portion of the exec-method preconditions (per-op `requires` from
-/// the verus_spec annotations). MODEL GAPS (handle inv/wf,
-/// `tlb_model.inv()` is in `VmStore::inv`, closure preconditions on
-/// `protect_next`, `size_of::<T>()` range bounds on
-/// `read_val`/`write_val`/`collect`) are documented in
-/// [`super::cursor`] and [`super::io`] axiom comments.
-///
+/// must hold for an `Op` to be applied.
+/// 
 /// [`lemma_step`] requires `op_pre(*old(s), op)`. Callers must establish the
 /// precondition for the specific Op variant they're about to apply.
 ///
@@ -1026,18 +609,6 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         Op::FindNext { c, len: _ } => s.cursors.dom().contains(c),
         Op::Jump { c, va: _ } => s.cursors.dom().contains(c),
         Op::VirtAddr { c } => s.cursors.dom().contains(c),
-        // Op::Map consumes the FrameEntry for the mapped frame. The
-        // consumed handle's reference at the slot is "transferred" to
-        // the new PTE — exec map ManuallyDrops the input UFrame
-        // (raw_count++ avoided since rc stays bumped) while the PTE
-        // adds 1 to rc; net 0 at the mapped slot. This is exactly what
-        // lets `accounting_inv`'s clause 4 (`rc == H + P`) chain
-        // across map: H decrements (entry consumed), P increments (path
-        // inserted), rc unchanged.
-        //
-        // (Once required `usage == Frame` at the mapped slot; that
-        // clause now lives in `structural_inv`'s FrameId⟹Frame-usage
-        // invariant, automatically discharged from `s.frames.contains(fid)`.)
         Op::Map { c, fid, prop: _ } => s.cursors.dom().contains(c) && s.frames.dom().contains(fid),
         Op::Unmap { c, len: _ } => s.cursors.dom().contains(c),
         Op::ProtectNext { c, len: _ } => s.cursors.dom().contains(c),
@@ -1057,74 +628,30 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         Op::WriterLimit { vio, max: _ } => s.vm_ios.dom().contains(vio),
         Op::WriterSkip { vio, n: _ } => s.vm_ios.dom().contains(vio),
         Op::WriterQuery { vio } => s.vm_ios.dom().contains(vio),
-        // exec Infallible `read` is *typed* `VmReader<Infallible>` →
-        // `VmWriter<Infallible>`: `source`/`dest` must be a kernel
-        // reader/writer (operand well-formedness, not a runtime check —
-        // see `VmIoEntry::is_kernel_reader`). `source != dest` keeps the
-        // two tracked `&mut` borrows disjoint.
         Op::Read { source, dest } => s.vm_ios.dom().contains(source) && s.vm_ios.dom().contains(
             dest,
         ) && source != dest && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
-        // exec Infallible `write`: same operand typing as `read`.
         Op::Write { source, dest } => s.vm_ios.dom().contains(source) && s.vm_ios.dom().contains(
             dest,
         ) && source != dest && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
         Op::FrameFromUnused { paddr: _ } => true,
         Op::FrameFromInUse { paddr: _ } => true,
-        // `op_pre[FrameDrop]` is just id-existence + the segment-cover
-        // constraint. All other `drop_pre` conjuncts (rc not in
-        // sentinels, rc <= MAX, storage.is_init, in_list == 0,
-        // rc == 1 ⟹ paths empty / handle_count == 1) plus the
-        // handle-clause are derived inside [`lemma_step_frame_drop`] from
-        // `s.inv()` via [`lemma_frame_drop_pre_derivable`] — the
-        // embedding-level `Frame::wf(state)` (Item 2 in the module-
-        // docs roadmap). The lemma chains: structural FrameId⟹Frame
-        // + structural raw_count == segment_cover_count + accounting
-        // clause 4 + `MetaSlotOwner::inv` SHARED branch (Item 1)
-        // covers every residual.
-        //
-        // The remaining `segment_cover_count == 0` is a real per-op
-        // obligation — it's the same shape as Item 5 segment
-        // disjointness — so it stays in `op_pre` until segments are
-        // activated and we can tie it to the segment store directly.
         Op::FrameDrop { fid } => s.frames.dom().contains(fid) && segment_cover_count(
             s.segments,
             s.frames[fid].paddr,
         ) == 0,
-        // `Segment::from_unused`: no precondition. The exec returns `Err`
-        // (NotAligned/OutOfBound) or rolls back a partial allocation when
-        // a frame in `range` is not free, leaving `regions` unchanged in
-        // every failure case; `lemma_step_segment_from_unused` branches
-        // internally on success (aligned + in-bound + non-empty +
-        // every covered slot UNUSED) and is a no-op otherwise.
         Op::SegmentFromUnused { range: _ } => true,
-        // `Segment` drop: id-existence + range well-formedness is
-        // satisfied by every registered `SegmentEntry`; the per-slot
-        // SHARED+Frame conditions are derived inside `lemma_step_segment_drop`
-        // from `s.inv()` (analogue of `lemma_frame_drop_pre_derivable`
-        // for segments).
         Op::SegmentDrop { sid } => s.segments.dom().contains(sid),
-        // `Segment::split`: id-existence + offset must be page-aligned
-        // and strictly between 0 and the segment's size (mirroring
-        // exec `assert!`s). Range well-formedness comes from
-        // `structural_inv`.
         Op::SegmentSplit { sid, offset } => s.segments.dom().contains(sid) && offset % PAGE_SIZE
             == 0 && 0 < offset && offset < (s.segments[sid].range.end
             - s.segments[sid].range.start),
-        // `Segment::next`: id-existence. Range well-formedness from
-        // `structural_inv` (range.start < range.end + page-aligned).
         Op::SegmentNext { sid } => s.segments.dom().contains(sid),
         Op::SegmentClone { sid } => s.segments.dom().contains(sid) && forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (s.segments[sid].range.start <= paddr < s.segments[sid].range.end && paddr % PAGE_SIZE
                 == 0) ==> s.regions.slot_owner(paddr).ref_count() + 1 <= REF_COUNT_MAX,
-        // `Segment::slice`: id-existence + the sub-range is a
-        // page-aligned, non-empty, absolute physical range contained in
-        // `sid`'s range (mirroring exec `slice`'s `assert!`s on the
-        // offset range), plus the same per-frame saturation freedom as
-        // clone over the sub-range.
         Op::SegmentSlice { sid, sub_range } => s.segments.dom().contains(sid) && sub_range.start
             % PAGE_SIZE == 0 && sub_range.end % PAGE_SIZE == 0 && s.segments[sid].range.start
             <= sub_range.start && sub_range.start < sub_range.end && sub_range.end
@@ -1132,24 +659,9 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             #![trigger frame_to_index(paddr)]
             (sub_range.start <= paddr < sub_range.end && paddr % PAGE_SIZE == 0)
                 ==> s.regions.slot_owner(paddr).ref_count() + 1 <= REF_COUNT_MAX,
-        // `UniqueFrame::from_unused`: no precondition (mirrors
-        // `FrameFromUnused`). The exec returns `Err` and leaves the slot
-        // untouched unless the target is genuinely a free frame slot;
-        // `lemma_step_unique_from_unused` branches internally on that condition
-        // (`valid_frame_paddr` + slot managed + `usage is Unused` +
-        // `rc == REF_COUNT_UNUSED`) and both outcomes preserve `s.inv()`.
         Op::UniqueFromUnused { paddr: _ } => true,
-        // `UniqueFrame` drop: id-existence. The per-slot UNIQUE / in_list
-        // / storage / paths-empty teardown preconditions are derived
-        // inside `lemma_step_unique_drop` from `s.inv()` (the structural
-        // unique-entry clause + `MetaSlotOwner::inv`'s UNIQUE branch).
         Op::UniqueDrop { uid } => s.unique_frames.dom().contains(uid),
-        // `Frame::from_unique`: id-existence. The UNIQUE-slot facts are
-        // derived inside `lemma_step_from_unique` from `s.inv()`.
         Op::FromUnique { uid } => s.unique_frames.dom().contains(uid),
-        // `UniqueFrame::try_from_shared`: id-existence. The step branches
-        // internally on whether `fid`'s slot is the sole reference
-        // (`rc == 1`); both outcomes preserve `s.inv()`.
         Op::TryFromShared { fid } => s.frames.dom().contains(fid),
     }
 }
@@ -1282,13 +794,7 @@ impl<'rcu> VmStore<'rcu> {
         self.vm_ios.tracked_remove(vio)
     }
 
-    /// Inserts a VmIo entry at the given fresh id. Requires the id is
-    /// not already used, the entry satisfies its inv, the entry's
-    /// `vm_space` (if `Some`) refers to a live VmSpace, the range
-    /// bound holds when `vm_space` is `Some`, and (if the entry is
-    /// activated) its owner range is disjoint from every existing
-    /// activated entry's owner range (preserves the pairwise-disjoint
-    /// invariant in [`VmStore::inv`]).
+    /// Inserts a VmIo entry at the given fresh id.
     pub proof fn lemma_insert_vm_io(tracked &mut self, vio: VmIoId, tracked entry: VmIoEntry)
         requires
             old(self).inv(),
@@ -1312,13 +818,6 @@ impl<'rcu> VmStore<'rcu> {
     }
 
     /// Removes the FrameEntry at `fid` from the store.
-    ///
-    /// Requires / ensures only [`structural_inv`] — not full [`inv`].
-    /// Removing a frame handle without coordinating with the slot's
-    /// `ref_count` breaks [`accounting_inv`] transiently; the *step*
-    /// that calls this is responsible for pairing it with the matching
-    /// `frame::drop_step` (or `cursor::map_step` once Op::Map consumes
-    /// a tracked frame) and re-establishing accounting at the end.
     pub proof fn tracked_extract_frame(tracked &mut self, fid: FrameId) -> (tracked res: FrameEntry)
         requires
             old(self).structural_inv(),
@@ -2037,15 +1536,6 @@ proof fn lemma_step_map<'rcu>(
     ensures
         final(s).inv(),
 {
-    hide(VmStore::inv);
-    hide(VmStore::structural_inv);
-    hide(VmStore::accounting_inv);
-    assert(s.structural_inv()) by {
-        reveal(VmStore::inv);
-    };
-    assert(s.accounting_inv()) by {
-        reveal(VmStore::inv);
-    };
     assert(s.regions.inv() && s.tlb_model.inv() && s.cursors[c].inv()
         && s.cursors[c].owner.metaregion_sound(s.regions) && s.vm_spaces.dom().contains(
         s.cursors[c].vm_space,
@@ -2087,9 +1577,6 @@ proof fn lemma_step_map<'rcu>(
     // Consume the FrameEntry: the UFrame's handle ref-count
     // contribution moves to the new PTE; the embedding's `H` at
     // target_idx decrements by 1 in lockstep with `P` incrementing by 1.
-    assert(s.structural_inv()) by {
-        reveal(VmStore::inv);
-    };
     let tracked _frame_entry = s.tracked_extract_frame(fid);
     assert(entry.inv());
     assert(entry.owner.metaregion_sound(s.regions));
@@ -2244,9 +1731,6 @@ proof fn lemma_step_map<'rcu>(
     lemma_accounting_inv_intro(*s);
     assert(s.structural_inv()) by {
         reveal(VmStore::structural_inv);
-    };
-    assert(s.inv()) by {
-        reveal(VmStore::inv);
     };
     assert(s.vm_spaces.dom().contains(entry.vm_space));
     s.lemma_insert_cursor(c, entry);
@@ -3082,7 +2566,6 @@ proof fn lemma_step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, ran
     ensures
         final(s).inv(),
 {
-    hide(VmStore::accounting_inv);
     // Exec `Segment::from_unused` returns `Err` (NotAligned/OutOfBound)
     // or rolls back its partial allocation (when some frame in `range`
     // is not free), leaving `regions` unchanged in every failure case.
@@ -3244,20 +2727,6 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
     ensures
         final(s).inv(),
 {
-    hide(MetaSlotOwner::storage_perm);
-    hide(MetaSlotOwner::vtable_ptr_perm);
-    hide(VmStore::inv);
-    hide(VmStore::structural_inv);
-    hide(VmStore::accounting_inv);
-    assert(s.structural_inv()) by {
-        reveal(VmStore::inv);
-    };
-    assert(s.accounting_inv()) by {
-        reveal(VmStore::inv);
-    };
-    assert(s.regions.inv()) by {
-        reveal(VmStore::structural_inv);
-    };
     let ghost s_before = *s;
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
@@ -3503,9 +2972,6 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
     lemma_accounting_inv_intro(*s);
     assert(s.structural_inv()) by {
         reveal(VmStore::structural_inv);
-    };
-    assert(s.inv()) by {
-        reveal(VmStore::inv);
     };
 }
 
@@ -3870,15 +3336,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     ensures
         final(s).inv(),
 {
-    hide(VmStore::inv);
-    hide(VmStore::structural_inv);
-    hide(VmStore::accounting_inv);
-    assert(s.structural_inv()) by {
-        reveal(VmStore::inv);
-    };
-    assert(s.accounting_inv()) by {
-        reveal(VmStore::inv);
-    };
     assert(s.regions.inv()) by {
         reveal(VmStore::structural_inv);
     };
@@ -4140,9 +3597,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     lemma_accounting_inv_intro(*s);
     assert(s.structural_inv()) by {
         reveal(VmStore::structural_inv);
-    };
-    assert(s.inv()) by {
-        reveal(VmStore::inv);
     };
 }
 
