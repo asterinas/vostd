@@ -124,7 +124,6 @@ impl IdAlloc {
         ensures
             res matches Some(r) ==> {
                 &&& r.end - r.start == count
-                &&& 0 <= r.start
                 &&& r.end <= old(self)@.len()
                 &&& (forall|i: int| #![trigger old(self)@[i]] r.start <= i < r.end ==> !old(self)@[i])
                 &&& (forall|i: int| #![trigger final(self)@[i]] r.start <= i < r.end ==> final(self)@[i])
@@ -186,7 +185,6 @@ impl IdAlloc {
 
         #[verus_spec(invariant
             self@.len() == old(self)@.len(),
-            0 <= allocated_range.start,
             allocated_range.end <= self@.len(),
             allocated_range.start <= id,
             id <= allocated_range.end,
@@ -241,7 +239,6 @@ impl IdAlloc {
         let range_start = range.start;
         #[verus_spec(invariant
             self@.len() == old(self)@.len(),
-            0 <= range.start,
             range.end <= self@.len(),
             range.start <= id,
             id <= range.end,
