@@ -4,21 +4,21 @@
 //! # Verified Properties
 //!
 //! Every non-null message names a registered allocation; null messages have no
-//! allocation ID. Initialization creates a fresh registration for a non-null
-//! pointer and returns its linear base retire permission to the caller.
-//! Native timestamps are independent of allocation IDs.
+//! allocation ID. Appending a newly registered allocation preserves earlier
+//! messages, while publishing the same registration again preserves its ID.
+//! Timestamps may have gaps and are distinct from allocation IDs.
 //!
 //! This layer tracks publication identity only. Physical ownership, reader
 //! protection, and detachment evidence must be supplied by the RCU protocol.
 //! In particular, persistent block information alone does not make a load safe
 //! or authorize publishing a previously reclaimed allocation.
-use vstd::{prelude::*, resource::Loc};
+use vstd::{prelude::*, raw_ptr::ptr_null_mut, resource::Loc};
 use vstd_extra::{
     atomic_irc11::{AtomicHistory, ThreadView},
     ownership::Inv,
 };
 
-use super::{RcuDomainAuth, RcuRegistration};
+use super::{RcuBlockInfo, RcuDomainAuth, RcuRegistration};
 
 verus! {
 
@@ -201,6 +201,209 @@ impl RcuRootGhost {
             )
         }
     }
+
+    /// Appends a publication with a fresh registration, or a null message.
+    ///
+    /// # Preconditions
+    /// The previous history satisfies the invariant. The new message is appended
+    /// after its maximum timestamp; this transition does not cover stores that
+    /// insert a message earlier in modification order.
+    ///
+    /// # Postconditions
+    /// Prior messages keep their allocation identities. The returned registration
+    /// describes the new current pointer, even if its address appeared before.
+    pub proof fn tracked_push_fresh<T>(
+        tracked &mut self,
+        prev: AtomicHistory<*mut T>,
+        next: AtomicHistory<*mut T>,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: ThreadView,
+    ) -> (tracked res: Option<RcuRegistration<T>>)
+        requires
+            rcu_root_history_inv(prev, *old(self)),
+            old(self).current_timestamp() < new_timestamp,
+            next == prev.insert(new_timestamp, value, message_view),
+        ensures
+            rcu_root_history_inv(next, *final(self)),
+            final(self).domain() == old(self).domain(),
+            final(self).domain_auth().retire_registry() == old(
+                self,
+            ).domain_auth().retire_registry(),
+            final(self).current_timestamp() == new_timestamp,
+            current_registration_matches(*final(self), res),
+            (res is Some) == (value.addr() != 0),
+            res matches Some(registration) ==> {
+                &&& registration.0.ptr() == value
+                &&& !old(self).objects().contains_key(registration.0.obj())
+            },
+            final(self).publications() == old(self).publications().insert(
+                new_timestamp,
+                match res {
+                    Some(registration) => Some(registration.0.obj()),
+                    None => None,
+                },
+            ),
+            match res {
+                Some(registration) => final(self).objects() == old(self).objects().insert(
+                    registration.0.obj(),
+                    value.addr(),
+                ),
+                None => final(self).objects() == old(self).objects(),
+            },
+    {
+        let tracked res = if value.addr() == 0 {
+            self.publications = self.publications.insert(new_timestamp, None);
+            None
+        } else {
+            let tracked registration = self.domain.tracked_register(value);
+            self.publications = self.publications.insert(new_timestamp, Some(registration.0.obj()));
+            Some(registration)
+        };
+        self.current_timestamp = new_timestamp;
+
+        assert forall|ts: nat| next.contains_timestamp(ts) implies {
+            match #[trigger] self.publications()[ts] {
+                None => next.value(ts).addr() == 0,
+                Some(obj) => {
+                    &&& next.value(ts).addr() != 0
+                    &&& self.objects().contains_pair(obj, next.value(ts).addr())
+                },
+            }
+        } by {
+            if ts != new_timestamp {
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
+                assert(self.publications()[ts] == old(self).publications()[ts]);
+            }
+        };
+        res
+    }
+
+    /// Appends another message for an existing registration.
+    ///
+    /// # Preconditions
+    /// The history satisfies the invariant, the timestamp is later than every
+    /// existing message, and valid block information binds this exact pointer to
+    /// this domain. The caller must separately justify publishing the allocation.
+    ///
+    /// # Postconditions
+    /// The new message carries the same allocation ID. The domain and all earlier
+    /// messages are preserved, and no new retire permission is created.
+    pub proof fn tracked_push_registered<T>(
+        tracked &mut self,
+        prev: AtomicHistory<*mut T>,
+        next: AtomicHistory<*mut T>,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: ThreadView,
+        tracked info: &RcuBlockInfo<T>,
+    )
+        requires
+            rcu_root_history_inv(prev, *old(self)),
+            old(self).current_timestamp() < new_timestamp,
+            next == prev.insert(new_timestamp, value, message_view),
+            info.domain() == old(self).domain(),
+            info.ptr() == value,
+            info.inv(),
+        ensures
+            rcu_root_history_inv(next, *final(self)),
+            final(self).domain_auth() == old(self).domain_auth(),
+            final(self).domain() == old(self).domain(),
+            final(self).objects() == old(self).objects(),
+            final(self).current_timestamp() == new_timestamp,
+            final(self).publications() == old(self).publications().insert(
+                new_timestamp,
+                Some(info.obj()),
+            ),
+    {
+        self.domain.lemma_block_info_agree(info);
+        info.lemma_address();
+        self.publications = self.publications.insert(new_timestamp, Some(info.obj()));
+        self.current_timestamp = new_timestamp;
+
+        assert forall|ts: nat| next.contains_timestamp(ts) implies {
+            match #[trigger] self.publications()[ts] {
+                None => next.value(ts).addr() == 0,
+                Some(obj) => {
+                    &&& next.value(ts).addr() != 0
+                    &&& self.objects().contains_pair(obj, next.value(ts).addr())
+                },
+            }
+        } by {
+            if ts != new_timestamp {
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
+                assert(self.publications()[ts] == old(self).publications()[ts]);
+            }
+        };
+    }
+}
+
+/// Proves that republishing an allocation preserves its ID across timestamp gaps.
+///
+/// # Preconditions
+/// The pointer is non-null.
+///
+/// # Postconditions
+/// Messages at timestamps 3 and 8 identify the same registration.
+pub proof fn lemma_republication_preserves_allocation_id<T>(ptr: *mut T) -> (tracked res: (
+    RcuRootGhost,
+    RcuRegistration<T>,
+))
+    requires
+        ptr.addr() != 0,
+    ensures
+        res.0.publications().dom() == Set::empty().insert(3nat).insert(8nat),
+        res.0.publications()[3] == Some(res.1.0.obj()),
+        res.0.publications()[8] == Some(res.1.0.obj()),
+        current_registration_matches(res.0, Some(res.1)),
+{
+    let ghost view = ThreadView::empty();
+    let ghost initial = AtomicHistory(Map::empty().insert(3nat, (ptr, view)));
+    let tracked (mut root, registration) = RcuRootGhost::tracked_initial(ptr, initial, 3, view);
+    let tracked registration = registration.tracked_unwrap();
+    let ghost next = initial.insert(8, ptr, view);
+    root.tracked_push_registered(initial, next, 8, ptr, view, &registration.0);
+    (root, registration)
+}
+
+/// Proves that a null publication and later address reuse preserve old identities.
+///
+/// # Preconditions
+/// The pointer is non-null.
+///
+/// # Postconditions
+/// The two non-null messages have different allocation IDs at the same address;
+/// the intervening null message has no allocation ID.
+pub proof fn lemma_history_distinguishes_reused_address<T>(ptr: *mut T) -> (tracked res: (
+    RcuRootGhost,
+    RcuRegistration<T>,
+    RcuRegistration<T>,
+))
+    requires
+        ptr.addr() != 0,
+    ensures
+        res.0.publications().dom() == Set::empty().insert(3nat).insert(8nat).insert(13nat),
+        res.0.publications()[3] == Some(res.1.0.obj()),
+        res.0.publications()[8] is None,
+        res.0.publications()[13] == Some(res.2.0.obj()),
+        res.1.0.obj() != res.2.0.obj(),
+        res.1.0.addr() == res.2.0.addr() == ptr.addr(),
+        current_registration_matches(res.0, Some(res.2)),
+{
+    let ghost view = ThreadView::empty();
+    let ghost initial = AtomicHistory(Map::empty().insert(3nat, (ptr, view)));
+    let tracked (mut root, first) = RcuRootGhost::tracked_initial(ptr, initial, 3, view);
+    let tracked first = first.tracked_unwrap();
+    let ghost null = ptr_null_mut::<T>();
+    let ghost removed = initial.insert(8, null, view);
+    let tracked no_registration = root.tracked_push_fresh(initial, removed, 8, null, view);
+    assert(no_registration is None);
+    let ghost reused = removed.insert(13, ptr, view);
+    let tracked second = root.tracked_push_fresh(removed, reused, 13, ptr, view);
+    let tracked second = second.tracked_unwrap();
+    (root, first, second)
 }
 
 } // verus!
