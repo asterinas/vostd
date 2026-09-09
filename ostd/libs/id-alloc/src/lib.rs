@@ -229,10 +229,7 @@ impl IdAlloc {
             final(self).inv(),
     )]
     pub fn free_consecutive(&mut self, range: Range<usize>) {
-        /* `Range::is_empty` is unspecced by vstd.
-         * Origin Rust: if range.is_empty() {
-         */
-        if range_usize_is_empty(&range) {
+        if range.is_empty() {
             return;
         }
 
