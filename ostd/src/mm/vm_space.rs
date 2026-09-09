@@ -1734,7 +1734,6 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        assert(perm@ is Some);
         let item = Self::item_from_raw(pa, level, prop, perm);
         assert(Self::raw_item_well_formed((pa, level, prop, perm)));
         assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
