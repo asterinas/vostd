@@ -318,8 +318,7 @@ pub proof fn lemma_first_zero_index_after_true_prefix(s: Seq<bool>, k: int)
 pub proof fn lemma_first_zero_index_advance_after_set(s: Seq<bool>, k: int)
     requires
         0 < k <= s.len(),
-        forall|j: int| 0 <= j < k - 1 ==> s[j],
-        k - 1 < s.len() ==> !s[k - 1],
+        is_first_zero(s, k - 1),
     ensures
         first_zero_index(s.update(k - 1, true)) == k + first_zero_index(
             s.subrange(k, s.len() as int),
