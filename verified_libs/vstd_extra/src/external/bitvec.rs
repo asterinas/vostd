@@ -295,6 +295,27 @@ pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
         },
 ;
 
+/// The index of the first `false` bit in `s`, or `s.len()` if every bit is `true`.
+pub open spec fn is_first_zero(s: Seq<bool>, i: int) -> bool {
+    &&& 0 <= i <= s.len()
+    &&& (forall|j: int| #![trigger s[j]] 0 <= j < i ==> s[j])
+    &&& (i < s.len() ==> !s[i])
+}
+
+/// Index of the first `false` bit, or `s.len()` if every bit is `true`. Defined
+/// recursively so it is deterministic and the SMT solver can unfold it.
+pub open spec fn first_zero_index(s: Seq<bool>) -> int
+    decreases s.len(),
+{
+    if s.len() == 0 {
+        0
+    } else if !s[0] {
+        0
+    } else {
+        1 + first_zero_index(s.subrange(1, s.len() as int))
+    }
+}
+
 /// The first index holding a `0` bit, counted from the start of the slice.
 pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::first_zero ](
     bv: &BitSlice<T, O>,
@@ -304,11 +325,8 @@ pub assume_specification<T: BitStore, O: BitOrder>[ BitSlice::<T, O>::first_zero
     ensures
         match ret {
             Some(j) => {
-                &&& 0 <= j < bitslice_view(bv).len()
-                &&& !bitslice_view(bv)[j as int]
-                &&& forall|i: int|
-                    #![trigger bitslice_view(bv)[i]]
-                    0 <= i < j ==> bitslice_view(bv)[i]
+                &&& is_first_zero(bitslice_view(bv), j as int)
+                &&& j < bitslice_view(bv).len()
             },
             None => forall|i: int|
                 #![trigger bitslice_view(bv)[i]]

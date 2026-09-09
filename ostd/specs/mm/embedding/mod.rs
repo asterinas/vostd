@@ -3882,7 +3882,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     assert(s.regions.inv()) by {
         reveal(VmStore::structural_inv);
     };
-    let ghost old_store = *s;
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;

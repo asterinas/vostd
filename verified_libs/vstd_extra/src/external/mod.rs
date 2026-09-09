@@ -2,7 +2,7 @@
 //!
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
-pub mod bitvec;
+mod bitvec;
 pub mod btree;
 pub mod convert;
 pub mod deref;
