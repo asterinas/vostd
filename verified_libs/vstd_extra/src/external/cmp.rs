@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for the free comparison functions missing from `vstd`.
-//!
-//! Rust 1.98.0's `library/core/src/cmp.rs` delegates `min` and `max` to
-//! `Ord::min` and `Ord::max`. These contracts mirror their existing `vstd`
-//! guarantees, conditional on the comparison model. They do not promise
-//! `no_unwind`: user-defined comparison implementations may panic.
 use vstd::{prelude::*, std_specs::cmp::OrdSpec};
 
 use core::cmp::Ordering;

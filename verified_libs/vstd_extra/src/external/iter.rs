@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specification for owned-array iteration not yet modeled by `vstd`.
-//!
-//! The array iterator contract follows Rust 1.97.1's
-//! `library/core/src/array/iter.rs` implementation, which initializes an
-//! iterator over the array in left-to-right order.
 use vstd::{prelude::*, std_specs::iter::IteratorSpec};
 
 verus! {

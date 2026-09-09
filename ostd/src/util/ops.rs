@@ -48,16 +48,6 @@ pub open spec fn range_difference_spec<T: Ord>(a: Range<T>, b: Range<T>) -> Seq<
     }
 }
 
-/// Proves that [`range_difference_spec`] denotes the finite set difference `a - b`.
-///
-/// # Preconditions
-///
-/// The element comparison obeys its specification, and the finite-range model
-/// agrees with that ordering.
-///
-/// # Postconditions
-///
-/// The union of the output ranges equals the elements in `a` that are not in `b`.
 pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Range<T>)
     requires
         obeys_cmp::<T>(),
@@ -80,12 +70,6 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
             let i = choose|i: int| #![auto] 0 <= i < s.len() && pred(s[i]);
             assert(i == 0 || i == 1);
         }
-        if s.len() >= 1 && s[0].view_set().contains(x) {
-            assert(pred(s[0]));
-        }
-        if s.len() == 2 && s[1].view_set().contains(x) {
-            assert(pred(s[1]));
-        }
     }
     assert forall|x: T|
         #![trigger a.view_set().contains(x)]
@@ -100,31 +84,6 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
 /// will be sorted in ascending order.
 ///
 /// [difference]: https://en.wikipedia.org/wiki/Set_(mathematics)#Set_difference
-///
-/// # Verified Properties
-///
-/// ## Safety
-///
-/// This function contains no unsafe code. Its proof relies on the trusted
-/// `vstd_extra` specifications for owned-array iteration, [`Range::is_empty`],
-/// and `core::cmp::{min, max}`.
-///
-/// ## Functional Correctness
-///
-/// When the upstream filter model reports completion, the iterator's remaining
-/// sequence contains at most two non-empty, sorted ranges whose union is exactly
-/// the set difference `a - b`.
-///
-/// ## Preconditions
-///
-/// `T` must have a finite range whose model agrees with its Verus ordering model.
-///
-/// ## Postconditions
-///
-/// Subject to the upstream iterator model's law and termination predicates, the
-/// returned sequence matches [`range_difference_spec`] and satisfies the
-/// functional-correctness properties above. The contract does not claim that
-/// comparisons cannot panic.
 #[verus_verify(spinoff_prover, rlimit(50))]
 #[verus_spec(ret =>
     requires
@@ -181,13 +140,8 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
             assert(iter.remaining().take(keep.len() as int).filter_index(|j: int| keep[j]) ==
                 iter.remaining().filter(|v: Range<T>| v.start.is_lt(&v.end))) by {
                 reveal_with_fuel(Seq::filter_index, 3);
-                reveal_with_fuel(Seq::filter, 3);
             }
-            assert(ret.remaining() == range_difference_spec(*a, *b)) by {
-                reveal(range_difference_spec);
-                reveal(spec_ord_min);
-                reveal(spec_ord_max);
-            }
+            assert(ret.remaining() == range_difference_spec(*a, *b));
             assert forall|i: int|
                 0 <= i < ret.remaining().len() - 1 implies (
                 #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start) by {
