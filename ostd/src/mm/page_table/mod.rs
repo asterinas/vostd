@@ -212,7 +212,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The ownership of the item will be consumed, i.e., the item will be
     /// forgotten after this function is called.
     #[verifier::when_used_as_spec(item_into_raw_spec)]
-    fn item_into_raw(item: Self::Item) -> (res: (
+    fn item_into_raw(item: Self::Item) -> ((paddr, level, prop, perm): (
         Paddr,
         PagingLevel,
         PageProperty,
@@ -221,12 +221,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             Self::item_well_formed(item),
         ensures
-            Self::raw_item_well_formed(res),
-            1 <= res.1 <= NR_LEVELS,
-            valid_frame_paddr(res.0),
-            res.0 % page_size(res.1) == 0,
-            res.0 + page_size(res.1) <= MAX_PADDR,
-            Self::E::new_page_req(res.0, res.1, res.2),
+            Self::raw_item_well_formed((paddr, level, prop, perm)),
+            1 <= level <= NR_LEVELS,
+            valid_frame_paddr(paddr),
+            paddr % page_size(level) == 0,
+            paddr + page_size(level) <= MAX_PADDR,
+            Self::E::new_page_req(paddr, level, prop),
         returns
             Self::item_into_raw(item),
     ;
@@ -456,15 +456,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::perm_well_formed_with_region(pa, Self::item_into_raw(item).3, regions),
             valid_frame_paddr(pa),
             regions.contains(frame_to_index(pa)),
-            Self::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count() > 0,
-            Self::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count()
-                <= REF_COUNT_MAX,
-            // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
-            Self::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count()
-                != REF_COUNT_UNUSED,
-            // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-            Self::item_into_raw(item).3@ is Some ==> (regions.slot_owner(pa).ref_count()
-                < REF_COUNT_MAX || may_panic()),
+            Self::item_into_raw(item).3@ is Some ==> {
+                &&& 0 < regions.slot_owner(pa).ref_count()
+                &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
+                &&& regions.slot_owner(pa).ref_count() >= REF_COUNT_MAX ==> may_panic()
+            },
         ensures
             item.clone_requires(regions),
     ;
