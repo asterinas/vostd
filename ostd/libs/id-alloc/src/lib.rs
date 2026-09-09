@@ -2,7 +2,6 @@
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_code)]
 #![feature(proc_macro_hygiene)]
-#![expect(internal_features)]
 
 use vstd::prelude::*;
 use vstd_extra::{debug_assert, prelude::*};
@@ -158,9 +157,7 @@ impl IdAlloc {
                 count > 0,
                 self@ == old(self)@,
                 self.first_available_id == old(self).first_available_id,
-                self.first_available_id <= curr_range.start,
-                curr_range.start <= curr_range.end,
-                curr_range.end <= self@.len(),
+                self.first_available_id <= curr_range.start <= curr_range.end <= self@.len(),
                 range_usize_len_spec(&curr_range) <= count,
                 forall|j: int| #![trigger self@[j]] curr_range.start as int <= j < curr_range.end as int ==> !self@[j],
                 decreases self@.len() as int - curr_range.end as int,
@@ -186,8 +183,7 @@ impl IdAlloc {
         #[verus_spec(invariant
             self@.len() == old(self)@.len(),
             allocated_range.end <= self@.len(),
-            allocated_range.start <= id,
-            id <= allocated_range.end,
+            allocated_range.start <= id <= allocated_range.end,
             forall|j: int| #![trigger self@[j]] allocated_range.start as int <= j < id as int ==> self@[j],
             forall|j: int| 0 <= j < self@.len() && !(allocated_range.start as int <= j < id as int) ==> self@[j] == old(self)@[j],
         )]
@@ -237,15 +233,13 @@ impl IdAlloc {
         #[verus_spec(invariant
             self@.len() == old(self)@.len(),
             range.end <= self@.len(),
-            range.start <= id,
-            id <= range.end,
+            range.start <= id <= range.end,
             forall|j: int| #![trigger self@[j]] range.start as int <= j < id as int ==> !self@[j],
+            forall|j: int| #![trigger self@[j]] id as int <= j < range.end as int ==> self@[j],
             forall|j: int| 0 <= j < self@.len() && !(range.start as int <= j < id as int) ==> self@[j] == old(self)@[j],
         )]
-        /* Drop `.clone()` (range unused after) and the in-loop `debug_assert` (already required).
-         * Origin Rust: for id in range.clone() { debug_assert!(self.is_allocated(id));
-         */
         for id in range {
+            debug_assert!(self.is_allocated(id));
             self.bitset.set(id, false);
         }
 

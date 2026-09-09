@@ -232,9 +232,6 @@ pub broadcast group group_seq_extra_lemmas {
     lemma_seq_to_set_map_contains,
 }
 
-} // verus!
-verus! {
-
 /// The index of the first `false` bit in `s`, or `s.len()` if every bit is `true`.
 pub open spec fn is_first_zero(s: Seq<bool>, i: int) -> bool {
     &&& 0 <= i <= s.len()
