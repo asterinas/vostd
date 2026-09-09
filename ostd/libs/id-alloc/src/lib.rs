@@ -303,10 +303,15 @@ impl IdAlloc {
         ensures
             res is Some ==> {
                 &&& final(self)@ == old(self)@.update(id as int, true)
-                &&& res == (if old(self)@[id as int] { None } else { Some(id) })
+                &&& !old(self)@[id as int]
+                &&& res == Some(id)
                 &&& final(self).inv()
             },
-            res is None ==> final(self)@ == old(self)@ && final(self).inv(),
+            res is None ==> {
+                &&& old(self)@[id as int]
+                &&& final(self)@ == old(self)@
+                &&& final(self).inv()
+            },
     )]
     pub fn alloc_specific(&mut self, id: usize) -> Option<usize> {
         if self.bitset[id] {
@@ -333,11 +338,11 @@ impl IdAlloc {
     /// # Panics
     ///
     /// If the `id` is out of bounds, this method will panic.
-    #[verus_spec(ret =>
+    #[verus_spec(
         requires
             id < self@.len(),
-        ensures
-            ret == self@[id as int],
+        returns
+            self@[id as int],
     )]
     pub fn is_allocated(&self, id: usize) -> bool {
         self.bitset[id]
