@@ -397,24 +397,18 @@ impl<'a, 'rcu> VmStore<'rcu> {
         &&& forall|idx: int|
             0 <= idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx) || (
             self.regions.slot_owners[idx].usage is PageTable
-                && self.regions.slot_owners[idx].ref_count()
-                != REF_COUNT_UNUSED)
+                && self.regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED)
         &&& forall|idx: int|
             0 <= idx < max_meta_slots()
                 ==> #[trigger] self.regions.slot_owners[idx].in_list_perm.value() == 0
         &&& self.tlb_model.inv()
         &&& forall|id: VmSpaceId| #[trigger]
             self.vm_spaces.contains_key(id) ==> self.vm_spaces[id].inv()
+        &&& forall|id: CursorId| #[trigger] self.cursors.contains_key(id) ==> self.cursors[id].inv()
         &&& forall|id: CursorId| #[trigger]
-            self.cursors.contains_key(id) ==> self.cursors[id].inv()
+            self.cursors.contains_key(id) ==> self.cursors[id].owner.metaregion_sound(self.regions)
         &&& forall|id: CursorId| #[trigger]
-            self.cursors.contains_key(id) ==> self.cursors[id].owner.metaregion_sound(
-                self.regions,
-            )
-        &&& forall|id: CursorId| #[trigger]
-            self.cursors.contains_key(id) ==> self.vm_spaces.contains_key(
-                self.cursors[id].vm_space,
-            )
+            self.cursors.contains_key(id) ==> self.vm_spaces.contains_key(self.cursors[id].vm_space)
         &&& forall|id: VmIoId| #[trigger] self.vm_ios.contains_key(id) ==> self.vm_ios[id].inv()
         &&& forall|id: VmIoId| #[trigger]
             self.vm_ios.contains_key(id) ==> (self.vm_ios[id].vm_space matches Some(vs)
@@ -424,9 +418,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
             self.vm_ios[id].vaddr as nat) + (self.vm_ios[id].len as nat)
                 <= MAX_USERSPACE_VADDR as nat
         &&& forall|fid: FrameId| #[trigger]
-            self.frames.contains_key(fid) ==> valid_frame_paddr(
-                self.frames[fid].paddr,
-            )
+            self.frames.contains_key(fid) ==> valid_frame_paddr(self.frames[fid].paddr)
         &&& forall|fid: FrameId| #[trigger]
             self.frames.contains_key(fid) ==> self.regions.slot_owner(
                 self.frames[fid].paddr,
@@ -445,9 +437,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
                     frame_to_index(paddr)]
             self.segments.contains_key(sid) && self.segments[sid].range.start <= paddr
                 < self.segments[sid].range.end && paddr % PAGE_SIZE == 0
-                ==> self.regions.slot_owner(
-                paddr,
-            ).usage is Frame
+                ==> self.regions.slot_owner(paddr).usage is Frame
         &&& forall|uid: UniqueId| #[trigger]
             self.unique_frames.contains_key(uid) ==> valid_frame_paddr(
                 self.unique_frames[uid].paddr,
@@ -477,8 +467,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 && self.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
                 self.segments,
                 index_to_frame(idx),
-            )
-                == 0
+            ) == 0
         &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
             0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].usage is Frame
@@ -489,8 +478,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
             ) > 0 || self.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
                 self.segments,
                 index_to_frame(idx),
-            )
-                > 0
+            ) > 0
         &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
             0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].usage is Frame && (
@@ -589,7 +577,7 @@ pub enum Op {
 
 /// Per-op precondition — the conjunction of facts about the store that
 /// must hold for an `Op` to be applied.
-/// 
+///
 /// [`lemma_step`] requires `op_pre(*old(s), op)`. Callers must establish the
 /// precondition for the specific Op variant they're about to apply.
 ///
@@ -630,13 +618,11 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         Op::WriterLimit { vio, max: _ } => s.vm_ios.contains_key(vio),
         Op::WriterSkip { vio, n: _ } => s.vm_ios.contains_key(vio),
         Op::WriterQuery { vio } => s.vm_ios.contains_key(vio),
-        Op::Read { source, dest } => s.vm_ios.contains_key(source) && s.vm_ios.contains_key(
-            dest,
-        ) && source != dest && s.vm_ios[source].is_kernel_reader()
+        Op::Read { source, dest } => s.vm_ios.contains_key(source) && s.vm_ios.contains_key(dest)
+            && source != dest && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
-        Op::Write { source, dest } => s.vm_ios.contains_key(source) && s.vm_ios.contains_key(
-            dest,
-        ) && source != dest && s.vm_ios[source].is_kernel_reader()
+        Op::Write { source, dest } => s.vm_ios.contains_key(source) && s.vm_ios.contains_key(dest)
+            && source != dest && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
         Op::FrameFromUnused { paddr: _ } => true,
         Op::FrameFromInUse { paddr: _ } => true,
@@ -646,9 +632,8 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         ) == 0,
         Op::SegmentFromUnused { range: _ } => true,
         Op::SegmentDrop { sid } => s.segments.contains_key(sid),
-        Op::SegmentSplit { sid, offset } => s.segments.contains_key(sid) && offset % PAGE_SIZE
-            == 0 && 0 < offset && offset < (s.segments[sid].range.end
-            - s.segments[sid].range.start),
+        Op::SegmentSplit { sid, offset } => s.segments.contains_key(sid) && offset % PAGE_SIZE == 0
+            && 0 < offset && offset < (s.segments[sid].range.end - s.segments[sid].range.start),
         Op::SegmentNext { sid } => s.segments.contains_key(sid),
         Op::SegmentClone { sid } => s.segments.contains_key(sid) && forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
@@ -997,22 +982,15 @@ proof fn lemma_accounting_inv_at<'rcu>(s: VmStore<'rcu>, idx: int)
         s.accounting_inv(),
         0 <= idx < max_meta_slots(),
     ensures
-        s.regions.slot_owners[idx].ref_count() == REF_COUNT_UNUSED ==> handle_count(
-            s.frames,
-            idx,
-        ) == 0 && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
+        s.regions.slot_owners[idx].ref_count() == REF_COUNT_UNUSED ==> handle_count(s.frames, idx)
+            == 0 && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
             s.segments,
             index_to_frame(idx),
         ) == 0,
-        s.regions.slot_owners[idx].usage is Frame
-            && s.regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
-            && s.regions.slot_owners[idx].ref_count() != REF_COUNT_UNIQUE ==> handle_count(
-            s.frames,
-            idx,
-        ) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
-            s.segments,
-            index_to_frame(idx),
-        ) > 0,
+        s.regions.slot_owners[idx].usage is Frame && s.regions.slot_owners[idx].ref_count()
+            != REF_COUNT_UNUSED && s.regions.slot_owners[idx].ref_count() != REF_COUNT_UNIQUE
+            ==> handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
+            || segment_cover_count(s.segments, index_to_frame(idx)) > 0,
         s.regions.slot_owners[idx].usage is Frame && (handle_count(s.frames, idx) > 0
             || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
             s.segments,
@@ -1022,8 +1000,10 @@ proof fn lemma_accounting_inv_at<'rcu>(s: VmStore<'rcu>, idx: int)
             let rc = so.ref_count();
             &&& rc != REF_COUNT_UNUSED
             &&& rc != REF_COUNT_UNIQUE
-            &&& rc == handle_count(s.frames, idx) + so.paths_in_pt.len()
-                + segment_cover_count(s.segments, index_to_frame(idx))
+            &&& rc == handle_count(s.frames, idx) + so.paths_in_pt.len() + segment_cover_count(
+                s.segments,
+                index_to_frame(idx),
+            )
         },
 {
     reveal(VmStore::accounting_inv);
@@ -3373,9 +3353,7 @@ proof fn lemma_step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, padd
         };
         // --- structural: unique valid_frame_paddr ---
         assert forall|u: UniqueId| #[trigger]
-            s.unique_frames.contains_key(u) implies valid_frame_paddr(
-            s.unique_frames[u].paddr,
-        ) by {
+            s.unique_frames.contains_key(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
             if u != uid {
                 assert(old_unique.contains_key(u));
             }
@@ -3525,8 +3503,7 @@ proof fn lemma_step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
             assert(s.regions.slot_owners[i] == old_regions.slot_owners[i]);
         }
     };
-    assert forall|fid: FrameId| #[trigger]
-        s.frames.contains_key(fid) implies s.regions.slot_owner(
+    assert forall|fid: FrameId| #[trigger] s.frames.contains_key(fid) implies s.regions.slot_owner(
         s.frames[fid].paddr,
     ).usage is Frame by {
         let other_idx = frame_to_index(s.frames[fid].paddr);
@@ -3571,8 +3548,9 @@ proof fn lemma_step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
     // --- structural: unique valid_frame_paddr / injectivity (subset of old) ---
-    assert forall|u: UniqueId| #[trigger]
-        s.unique_frames.contains_key(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
+    assert forall|u: UniqueId| #[trigger] s.unique_frames.contains_key(u) implies valid_frame_paddr(
+        s.unique_frames[u].paddr,
+    ) by {
         assert(old_unique.contains_key(u));
     };
     assert forall|u1: UniqueId, u2: UniqueId|
@@ -3763,8 +3741,9 @@ proof fn lemma_step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
         }
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
-    assert forall|u: UniqueId| #[trigger]
-        s.unique_frames.contains_key(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
+    assert forall|u: UniqueId| #[trigger] s.unique_frames.contains_key(u) implies valid_frame_paddr(
+        s.unique_frames[u].paddr,
+    ) by {
         assert(old_unique.contains_key(u));
     };
     assert forall|u1: UniqueId, u2: UniqueId|
@@ -3959,9 +3938,7 @@ proof fn lemma_step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: Fr
             }
         };
         assert forall|u: UniqueId| #[trigger]
-            s.unique_frames.contains_key(u) implies valid_frame_paddr(
-            s.unique_frames[u].paddr,
-        ) by {
+            s.unique_frames.contains_key(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
             if u != uid {
                 assert(old_unique.contains_key(u));
             }
