@@ -11,6 +11,7 @@ verus! {
 pub struct ExArrayIntoIter<T, const N: usize>(core::array::IntoIter<T, N>);
 
 /// The array iterator yields the array view from left to right and terminates.
+/// See [`array::into_iter`](https://doc.rust-lang.org/std/primitive.array.html#method.into_iter).
 pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter ](
     array: [T; N],
 ) -> (iter: <[T; N] as IntoIterator>::IntoIter)

@@ -49,6 +49,7 @@ pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
     !(r.start < r.end)
 }
 
+/// See [`Range::is_empty`](https://doc.rust-lang.org/std/ops/struct.Range.html#method.is_empty).
 pub assume_specification<Idx: PartialOrd<Idx>>[ Range::<Idx>::is_empty ](r: &Range<Idx>) -> (res:
     bool) where Idx: PartialOrd<Idx>
     ensures
