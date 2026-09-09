@@ -91,6 +91,7 @@ impl<C: PageTableConfig> Child<C> {
                 PageTableNode::from_raw_spec(
                     pte.paddr(),
                     regions.slots[crate::specs::mm::frame::mapping::frame_to_index(pte.paddr())],
+                    None,
                 ),
             )
         }
@@ -105,6 +106,7 @@ impl<C: PageTableConfig> Child<C> {
             PageTableNode::from_raw_spec(
                 paddr,
                 regions.slots[crate::specs::mm::frame::mapping::frame_to_index(paddr)],
+                None,
             ),
         )
     }
