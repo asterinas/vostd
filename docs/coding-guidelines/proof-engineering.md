@@ -19,6 +19,15 @@ explicit preconditions, such as capacity or index bounds, rather than merely
 marking the operation `may_panic`. Do not claim `no_unwind` while a panic remains
 possible under the preconditions.
 
+Mirror the standard library's evaluation semantics in adapter contracts. For
+closure-driven adapters such as `Iterator::filter` and `map`, the closure runs
+lazily when the adapter is consumed, not when it is constructed, so require the
+closure's per-element preconditions only where the adapter invokes it, not at
+construction time. Do not promise that such an adapter terminates
+(`will_return_none` or a decreasing `remaining`) or `no_unwind` unless the
+contract requires the closure to terminate and not panic, because the adapter
+inherits the closure's behavior and an arbitrary `FnMut` may diverge or panic.
+
 Use the library's actual representation limits when modeling size bounds. For
 example, the `bitvec` model reviewed in PR #742 bounds bit length and capacity by
 `usize::MAX / 8`, not just `usize::MAX`. Keep constructor and mutation
@@ -27,8 +36,11 @@ preconditions consistent with the model's length bound.
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3747054386),
 [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763419050),
 [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3732701232),
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940921853), and
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946394200).
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940921853),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946394200),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3831831025),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3831836346),
+and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295).
 
 ### Centralize trusted boundaries
 
@@ -94,16 +106,25 @@ See also: PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946
 Search the active `vstd` and `vstd_extra` APIs before adding helpers, axioms, or
 external specifications. Use existing spec-enabled operations, such as
 `saturating_add`, directly. Extend incomplete support at the narrowest reusable
-layer rather than introducing overlapping models.
+layer rather than introducing overlapping models. Before modeling a
+standard-library API that `vstd` does not yet cover, also check the Verus
+upstream for accepted or in-progress models; if upstream is adding it, reuse or
+wait rather than fork a competing local spec, because a second trust source
+causes model drift.
 
 When a checked proof replaces an axiom, call it directly and remove obsolete
 wrappers and bridge lemmas. Retain compatibility lemmas only for abstraction
-boundaries that current callers need.
+boundaries that current callers need. When a verified proof covers a fact
+previously admitted with `assume`, `admit`, or `=~=`, remove the cheat instead
+of layering proof on top; a change that strengthens verification should
+net-reduce the trusted surface, never grow it.
 
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#issuecomment-5225757765),
 [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308),
-[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672), and
-[#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054).
+[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672),
+[#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054),
+[#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295),
+and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3826747008).
 
 ### Canonical spec models
 
