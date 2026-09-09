@@ -1,29 +1,44 @@
 use core::ops::{Deref, Range};
 
-use vstd::prelude::*;
-
-use vstd::{seq::*, seq_lib::*, set_lib::*};
-use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
-
-use crate::specs::{
-    arch::*,
-    mm::{
-        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
-        page_table::{
-            cursor::page_size_lemmas::{
-                lemma_nr_entries_times_sub_page_size, lemma_page_size_divides,
-                lemma_page_size_ge_page_size, lemma_page_size_spec_values,
-            },
-            *,
+use vstd::{
+    arithmetic::{
+        div_mod::{
+            lemma_fundamental_div_mod, lemma_mod_adds, lemma_mod_equivalence,
+            lemma_mod_multiples_basic, lemma_small_mod,
         },
+        mul::{lemma_mul_inequality, lemma_mul_is_associative},
+        power2::lemma2_to64_rest,
     },
+    prelude::*,
+    seq::*,
+    seq_lib::*,
+    set_lib::*,
+};
+use vstd_extra::{
+    arithmetic::lemma_mod_0_add, drop_tracking::*, ghost_tree::*, ownership::*,
+    prelude::TreeNodeValue,
 };
 
-use crate::mm::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    page_size, page_size_spec,
-    page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
+use crate::{
+    mm::{
+        Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+        frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        page_size, page_size_spec,
+        page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
+    },
+    specs::{
+        arch::*,
+        mm::{
+            frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
+            page_table::{
+                cursor::page_size_lemmas::{
+                    lemma_nr_entries_times_sub_page_size, lemma_page_size_divides,
+                    lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+                },
+                *,
+            },
+        },
+    },
 };
 
 verus! {
@@ -201,21 +216,14 @@ proof fn lemma_rec_vaddr_aligned(path: TreePath<NR_ENTRIES>, idx: int)
         let entry_size = page_size(entry_level) as int;
         lemma_page_size_divides(mapped_level, entry_level);
         assert(entry_size % mapped_page_size == 0);
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(entry_size, mapped_page_size);
+        lemma_fundamental_div_mod(entry_size, mapped_page_size);
         let entry_ratio = entry_size / mapped_page_size;
         assert(entry_size == entry_ratio * mapped_page_size);
-        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-            path[idx] * entry_ratio,
-            mapped_page_size,
-        );
-        vstd::arithmetic::mul::lemma_mul_is_associative(path[idx], entry_ratio, mapped_page_size);
+        lemma_mod_multiples_basic(path[idx] * entry_ratio, mapped_page_size);
+        lemma_mul_is_associative(path[idx], entry_ratio, mapped_page_size);
         assert(path[idx] * entry_size == (path[idx] * entry_ratio) * mapped_page_size);
         assert((path[idx] * entry_size) % mapped_page_size == 0);
-        vstd_extra::arithmetic::lemma_mod_0_add(
-            path[idx] * entry_size,
-            rec_vaddr(path, idx + 1) as int,
-            mapped_page_size,
-        );
+        lemma_mod_0_add(path[idx] * entry_size, rec_vaddr(path, idx + 1) as int, mapped_page_size);
         assert((path[idx] * entry_size + rec_vaddr(path, idx + 1)) % mapped_page_size == 0);
         assert((rec_vaddr(path, idx) as int) % mapped_page_size == 0);
         assert(rec_vaddr(path, idx) % page_size(mapped_level) == ((rec_vaddr(path, idx) as int)
@@ -338,7 +346,7 @@ pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
 
         assert(ps_a <= ps_b) by {
             if ps_b < ps_a {
-                vstd::arithmetic::div_mod::lemma_small_mod(ps_b as nat, ps_a as nat);
+                lemma_small_mod(ps_b as nat, ps_a as nat);
                 assert(false);
             }
         }
@@ -835,7 +843,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             self.view_rec(path).contains(m),
     {
-        broadcast use vstd::seq_lib::group_seq_properties;
+        broadcast use group_seq_properties;
 
         let mapped = self.view_rec_node_children(path);
         assert(mapped.to_set().contains(mapped[i]));
@@ -857,7 +865,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                         path.push_tail(i),
                     ).contains(m),
     {
-        broadcast use vstd::seq_lib::group_seq_properties;
+        broadcast use group_seq_properties;
 
     }
 
@@ -1274,41 +1282,41 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             };
 
             let ps = page_size(pt_level) as int;
-            vstd_extra::arithmetic::lemma_mod_0_add(frame.mapped_pa as int, ps, ps);
+            lemma_mod_0_add(frame.mapped_pa as int, ps, ps);
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
             lemma_vaddr_strict_bound(path);
             let lb = C::LEADING_BITS_spec() as int;
-            vstd::arithmetic::power2::lemma2_to64_rest();
+            lemma2_to64_rest();
             let limit = page_size(INC_LEVELS as PagingLevel) as int;
             lemma_page_size_divides(pt_level, INC_LEVELS as PagingLevel);
             // (A) Alignment. The mapped page size divides the full paging
             //     address-space size, so the leading-bit offset is aligned.
             //     `vaddr_of(path) % ps == 0` via `lemma_mod_adds`.
             assert(limit % ps == 0);
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(limit, ps);
+            lemma_fundamental_div_mod(limit, ps);
             let limit_ratio = limit / ps;
             assert(limit == limit_ratio * ps);
-            vstd::arithmetic::mul::lemma_mul_is_associative(lb, limit_ratio, ps);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(lb * limit_ratio, ps);
+            lemma_mul_is_associative(lb, limit_ratio, ps);
+            lemma_mod_multiples_basic(lb * limit_ratio, ps);
             assert(lb * limit == (lb * limit_ratio) * ps);
             assert((lb * limit) % ps == 0);
-            vstd::arithmetic::div_mod::lemma_mod_adds(vaddr(path) as int, lb * limit, ps);
+            lemma_mod_adds(vaddr(path) as int, lb * limit, ps);
             // (B) Overflow: `vaddr_of(path) + ps <= 2^64`.
             //     `vaddr(path) + ps <= 2^48`: from strict bound plus alignment.
             let v = vaddr(path) as int;
-            vstd::arithmetic::div_mod::lemma_mod_equivalence(limit, v, ps);
+            lemma_mod_equivalence(limit, v, ps);
             let diff = limit - v;
             let q = diff / ps;
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(diff, ps);
+            lemma_fundamental_div_mod(diff, ps);
             assert(q >= 1) by (nonlinear_arith)
                 requires
                     diff > 0,
                     ps > 0,
                     diff == ps * q,
             ;
-            vstd::arithmetic::mul::lemma_mul_inequality(1, q, ps);
-            vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, limit);
+            lemma_mul_inequality(1, q, ps);
+            lemma_mul_inequality(lb, 0xffffint, limit);
             assert(v + ps <= limit) by (nonlinear_arith)
                 requires
                     q >= 1,
@@ -1318,7 +1326,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
             assert(0xffffint * limit + limit == 0x1_0000_0000_0000_0000int);
             assert(lb * limit + v + ps <= 0x1_0000_0000_0000_0000int);
-            vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
+            lemma_mod_0_add(m.va_range.start, ps, ps);
             assert(set![4096, 2097152, 1073741824].contains(m.page_size));
             assert(m.pa_range.start <= m.pa_range.end <= MAX_PADDR);
             assert forall|m2: Mapping| #[trigger]
