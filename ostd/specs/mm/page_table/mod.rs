@@ -469,16 +469,6 @@ impl AbstractVaddr {
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
-            let new = self.align_down(level);
-
-            assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
-                &&& new.index.contains_key(i)
-                &&& 0 <= new.index[i]
-                &&& new.index[i] < NR_ENTRIES
-            } by {
-                if i != level - 2 {
-                }
-            }
         }
     }
 
@@ -1632,6 +1622,7 @@ impl AbstractVaddr {
                     + aligned.rec_compute_vaddr(4)) as Vaddr);
             };
             assert(aligned.rec_compute_vaddr(2) == self.index[3] * 0x80_0000_0000usize) by {
+                assert(aligned.index[2] == 0);
                 assert(aligned.rec_compute_vaddr(2) == (aligned.index[2] * page_size(3)
                     + aligned.rec_compute_vaddr(3)) as Vaddr);
             };
@@ -2019,6 +2010,9 @@ impl AbstractVaddr {
                     ..self.align_down(4)
                 });
             };
+            assert(aligned.index[0] == 0);
+            assert(aligned.index[1] == 0);
+            assert(aligned.index[2] == 0);
             assert(aligned.rec_compute_vaddr(4) == 0);
             assert(aligned.rec_compute_vaddr(3) == 0) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)

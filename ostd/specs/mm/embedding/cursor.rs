@@ -93,7 +93,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
     tracked vm_space: &VmSpaceOwner,
     tracked regions: &mut MetaRegionOwners,
     va: Range<Vaddr>,
-) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards<'rcu>)>)
+) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards)>)
     requires
         vm_space.inv(),
         old(regions).inv(),
@@ -138,7 +138,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
     tracked vm_space: &VmSpaceOwner,
     tracked regions: &mut MetaRegionOwners,
     va: Range<Vaddr>,
-) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards<'rcu>)>)
+) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards)>)
     requires
         vm_space.inv(),
         old(regions).inv(),
@@ -206,7 +206,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 pub axiom fn cursor_query_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu>,
+    tracked guards: &mut Guards,
 ) -> (res: Option<Paddr>)
     requires
         old(owner).inv(),
@@ -274,7 +274,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
 pub proof fn lemma_cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu>,
+    tracked guards: &mut Guards,
     va: Vaddr,
 )
     requires
@@ -308,7 +308,7 @@ pub proof fn lemma_cursor_jump_embedded<'rcu>(
 pub axiom fn cursor_mut_map_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu>,
+    tracked guards: &mut Guards,
     tracked tlb_model: &mut TlbModel,
     paddr: Paddr,
     prop: PageProperty,
@@ -382,7 +382,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
 pub axiom fn cursor_mut_unmap_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu>,
+    tracked guards: &mut Guards,
     tracked tlb_model: &mut TlbModel,
     len: usize,
 )

@@ -6,7 +6,7 @@ use vstd::{
     atomic::*,
     simple_pptr::{self, *},
 };
-use vstd_extra::{cast_ptr::Repr, drop_tracking::DropObligation, ownership::*};
+use vstd_extra::{cast_ptr::Repr, ownership::*};
 
 use crate::specs::arch::valid_frame_paddr;
 use crate::specs::{
@@ -23,10 +23,7 @@ use crate::mm::{
     kspace::FRAME_METADATA_RANGE,
 };
 
-use super::{
-    meta_owners::{MetaSlotModel, MetaSlotOwner},
-    *,
-};
+use super::{meta_owners::MetaSlotOwner, *};
 
 verus! {
 
@@ -34,34 +31,11 @@ verus! {
 /// # Verification Design
 /// ## Slot owners and permissions
 /// Every metadata slot has its owner ([`MetaSlotOwner`]) tracked by the `slot_owners` map at all times.
-/// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is
-/// in use. Likewise, every slot has an permission stored in `slots`.
-/// ## Safety
-/// The `frame_obligations` table tracks how many active (in-scope) frames exist for each slot.
-/// Each one corresponds to an active drop obligation that must be consumed when its owner leaves scope,
-/// either by dropping it with an explicit call to `drop` or forgetting it with `ManuallyDrop`.
-/// Forgetting a slot with `into_raw` or `ManuallyDrop::new` will leak the frame.
-/// Forgetting it multiple times without restoring it will likely result in a memory leak, but not double-free.
-/// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
-/// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
-/// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
+/// Likewise, every slot has an permission stored in `slots`.
 #[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
     pub slots: Map<int, &'static simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<int, MetaSlotOwner>,
-    /// Outstanding per-instance obligations for both `Frame<M>` and
-    /// `Segment<M>`, as a multiset of slot indices. `ManuallyDrop::new(frame,
-    /// ..)` adds one entry at `frame.key()` (mint paired with the `raw_count++`
-    /// bump); `Frame::drop` (via `consume_obligation`) and `ManuallyDrop::new`
-    /// redeem one. A `Segment<M>` records one entry per frame it holds (see
-    /// [`crate::specs::mm::frame::segment::tracked_mint_seg_obligations`]).
-    /// Multiset semantics — multiple outstanding obligations at the same slot
-    /// are counted individually.
-    pub frame_obligations: vstd::multiset::Multiset<int>,
-}
-
-pub ghost struct MetaRegionModel {
-    pub slots: Map<int, MetaSlotModel>,
 }
 
 impl Inv for MetaRegionOwners {
@@ -90,33 +64,6 @@ impl Inv for MetaRegionOwners {
     }
 }
 
-impl MetaRegionModel {
-    pub open spec fn contains(self, index: int) -> bool {
-        self.slots.contains_key(index)
-    }
-}
-
-impl Inv for MetaRegionModel {
-    open spec fn inv(self) -> bool {
-        &&& forall|i: int| 0 <= i < max_meta_slots() <==> #[trigger] self.slots.contains_key(i)
-        &&& forall|i: int| #[trigger] self.slots.contains_key(i) ==> self.slots[i].inv()
-    }
-}
-
-impl View for MetaRegionOwners {
-    type V = MetaRegionModel;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        let slots = self.slot_owners.map_values(|s: MetaSlotOwner| s@);
-        MetaRegionModel { slots }
-    }
-}
-
-impl InvView for MetaRegionOwners {
-    proof fn view_preserves_inv(self) {
-    }
-}
-
 impl MetaRegionOwners {
     /// Returns whether the slot permission and its corresponding owner are both present.
     pub open spec fn contains(self, index: int) -> bool {
@@ -136,14 +83,6 @@ impl MetaRegionOwners {
         self.slot_owners[i].ref_count()
     }
 
-    /// `other` agrees with `self` on every slot owner except the one at index
-    /// `idx`: a single-slot operation leaves all other slots' owners untouched.
-    pub open spec fn slot_owners_agree_except(self, other: MetaRegionOwners, idx: int) -> bool {
-        forall|i: int|
-            #![trigger other.slot_owners[i]]
-            i != idx ==> other.slot_owners[i] == self.slot_owners[i]
-    }
-
     pub open spec fn paddr_range_not_mapped(self, range: Range<Paddr>) -> bool
         recommends
             range.start < range.end < MAX_PADDR,
@@ -153,18 +92,6 @@ impl MetaRegionOwners {
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) ==> self.slot_owner(
                 paddr,
             ).paths_in_pt.is_empty()
-    }
-
-    /// Instantiates `paddr_range_not_mapped` at a specific paddr in the range.
-    pub proof fn paddr_not_mapped_at(self, range: Range<Paddr>, paddr: Paddr)
-        requires
-            self.paddr_range_not_mapped(range),
-            range.start <= paddr,
-            paddr < range.end,
-            paddr % PAGE_SIZE == 0,
-        ensures
-            self.slot_owner(paddr).paths_in_pt.is_empty(),
-    {
     }
 
     pub proof fn lemma_contains_valid_frame_paddr(self, paddr: usize)
@@ -182,8 +109,10 @@ impl MetaRegionOwners {
     }
 
     /// Borrows the metadata slot permission, indexed by frame paddr.
-    pub proof fn tracked_borrow_slot(tracked &self, paddr: Paddr) -> (tracked ret:
-        &'static simple_pptr::PointsTo<MetaSlot>)
+    pub proof fn tracked_borrow_slot(
+        tracked &self,
+        paddr: Paddr,
+    ) -> tracked &'static simple_pptr::PointsTo<MetaSlot>
         requires
             valid_frame_paddr(paddr),
             self.inv(),
@@ -195,8 +124,7 @@ impl MetaRegionOwners {
     }
 
     /// Borrows the `MetaSlotOwner`, indexed by frame paddr.
-    pub proof fn tracked_borrow_slot_owner(tracked &self, paddr: Paddr) -> (tracked ret:
-        &MetaSlotOwner)
+    pub proof fn tracked_borrow_slot_owner(tracked &self, paddr: Paddr) -> tracked &MetaSlotOwner
         requires
             valid_frame_paddr(paddr),
             self.inv(),
@@ -215,72 +143,11 @@ impl MetaRegionOwners {
             self.inv(),
         ensures
             *ret == old(self).slot_owner(paddr),
-            *final(self) == (Self {
-                slot_owners: old(self).slot_owners.insert(frame_to_index(paddr), *final(ret)),
-                ..*old(self)
-            }),
+            *final(self) == old(self).insert_slot_owner(paddr, *final(ret)),
     {
         self.lemma_contains_valid_frame_paddr(paddr);
         self.slot_owners.tracked_borrow_mut(frame_to_index(paddr))
     }
-
-    // ----------------------------------------------------------------------
-    // Per-frame linear-drop ledger machinery.
-    // ----------------------------------------------------------------------
-    /// "Clean" boundary invariant: standard invariant plus an empty per-frame
-    /// obligation multiset (every minted token has been redeemed via
-    /// `Drop::drop` or `ManuallyDrop::new`; and every `Segment` has been
-    /// dropped, draining its per-frame entries).
-    ///
-    /// Functions that should leave no outstanding `Frame`/`Segment` obligations
-    /// (e.g., top-of-call-stack entry points, or any helper that opens fresh
-    /// resources locally) should require this in their postcondition instead of
-    /// the plain `inv()`.
-    pub open spec fn clean_inv(self) -> bool {
-        &&& self.inv()
-        // Per-frame linear-drop discipline via the multiset ledger: every
-        // `ManuallyDrop::new` / segment-frame mint adds one entry, every
-        // `Drop::drop` / `ManuallyDrop::new` / segment-frame redeem removes one.
-        &&& self.frame_obligations.len() == 0
-    }
-
-    // ----------------------------------------------------------------------
-    // Frame-side per-instance ledger.
-    // ----------------------------------------------------------------------
-    pub open spec fn mint_frame_obligation(self, slot_idx: int) -> Self {
-        Self { frame_obligations: self.frame_obligations.insert(slot_idx), ..self }
-    }
-
-    pub open spec fn redeem_frame_obligation(self, slot_idx: int) -> Self
-        recommends
-            self.frame_obligations.count(slot_idx) > 0,
-    {
-        Self { frame_obligations: self.frame_obligations.remove(slot_idx), ..self }
-    }
-
-    // FIXME: use authorative monoid instead of current unsound implementations
-    /// Pairs the production of a per-Frame [`DropObligation`] with a
-    /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
-    /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
-    pub axiom fn tracked_mint_frame_obligation(tracked &mut self, slot_idx: int) -> (tracked obl:
-        DropObligation<int>)
-        ensures
-            obl.value() == slot_idx,
-            *final(self) == old(self).mint_frame_obligation(slot_idx),
-    ;
-
-    /// Redeems a per-Frame obligation, decrementing `frame_obligations`
-    /// at `obl.value()`. Called by Frame's `consume_obligation` (i.e.
-    /// by `Drop::drop` or `ManuallyDrop::new`).
-    pub axiom fn tracked_redeem_frame_obligation(
-        tracked &mut self,
-        tracked obl: DropObligation<int>,
-    )
-        requires
-            old(self).frame_obligations.count(obl.value()) > 0,
-        ensures
-            *final(self) == old(self).redeem_frame_obligation(obl.value()),
-    ;
 }
 
 } // verus!

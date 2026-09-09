@@ -20,7 +20,10 @@ if [[ ! -x "$source_dir/z3" ]]; then
     )
 fi
 
-cargo build --release --manifest-path "$vargo_manifest"
+(
+    cd "$verus_dir"
+    cargo build --release --manifest-path "$vargo_manifest"
+)
 
 # The IRC11 patch predates weak-memory in Vargo's build fingerprint, so force
 # vstd to rebuild whenever this bootstrap path is invoked.
@@ -32,8 +35,8 @@ rm -f "$source_dir/target-verus/release/.vstd-fingerprint"
     "$vargo_bin" build --release -p verusdoc
 )
 
-# This Verus revision places standalone package builds in Cargo's default
-# target directory, while the current dv searches beside the Verus binary.
+# Vargo places standalone package builds in its Cargo target directory,
+# while dv searches beside the Verus binary.
 cp "$source_dir/target/release/verusdoc" "$source_dir/target-verus/release/verusdoc"
 
 test -x "$source_dir/target-verus/release/verus"
