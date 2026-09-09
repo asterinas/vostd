@@ -20,6 +20,9 @@ use vstd::{
 };
 use vstd_extra::ownership::Inv;
 
+#[cfg(feature = "irc11")]
+pub mod root;
+
 verus! {
 
 /// Authoritative allocation registry for one RCU protection domain.
