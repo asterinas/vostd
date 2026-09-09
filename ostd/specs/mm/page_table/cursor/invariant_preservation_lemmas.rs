@@ -189,6 +189,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             f(entry, path) && guard(entry, path);
 
         self.and_map_full_tree(f, guard);
+        assert(OwnerSubtree::implies(f_strong, g)) by {
+            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && f_strong(entry, path) implies #[trigger] g(entry, path) by {
+                if entry.is_frame() {
+                    let pa = entry.frame().mapped_pa;
+                    let idx = frame_to_index(pa);
+                    assert(regions0.slots[idx] == regions1.slots[idx]);
+                    assert(regions0.slot_owners[idx].metadata_perm.id()
+                        == regions1.slot_owners[idx].metadata_perm.id());
+                    C::lemma_perm_well_formed_with_region_preserved(
+                        pa,
+                        Tracked(entry.frame_permission()),
+                        regions0,
+                        regions1,
+                    );
+                }
+            };
+        };
         self.map_children_implies(f_strong, g);
 
         assert forall|i: int|
@@ -422,6 +440,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             f(entry, path) && guard(entry, path);
 
         self.and_map_full_tree(f, guard);
+        assert(OwnerSubtree::implies(f_strong, g)) by {
+            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && f_strong(entry, path) implies #[trigger] g(entry, path) by {
+                if entry.is_frame() {
+                    let pa = entry.frame().mapped_pa;
+                    let idx = frame_to_index(pa);
+                    assert(regions0.slots[idx] == regions1.slots[idx]);
+                    assert(regions0.slot_owners[idx].metadata_perm.id()
+                        == regions1.slot_owners[idx].metadata_perm.id());
+                    C::lemma_perm_well_formed_with_region_preserved(
+                        pa,
+                        Tracked(entry.frame_permission()),
+                        regions0,
+                        regions1,
+                    );
+                }
+            };
+        };
         self.map_children_implies(f_strong, g);
 
         assert forall|i: int|
