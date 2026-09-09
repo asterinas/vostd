@@ -839,8 +839,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             };
             let tracked frame_permission = tracked_permission.get();
             proof {
-                let idx = frame_to_index(paddr);
-
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
                 slot_perms.tracked_push(slot_perm);
                 permissions.tracked_push(frame_permission);
