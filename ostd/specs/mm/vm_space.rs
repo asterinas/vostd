@@ -729,7 +729,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         regions: MetaRegionOwners,
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
-        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        let (paddr, level, prop0, _perm) = UserPtConfig::item_into_raw(item);
         &&& frame.inv()
         &&& prop == prop0
         &&& entry_owner.frame().mapped_pa == paddr
@@ -755,7 +755,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         cursor_view: CursorView<UserPtConfig>,
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
-        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        let (paddr, level, prop0, _perm) = UserPtConfig::item_into_raw(item);
         cursor_view == old_cursor_view.map_spec(paddr, page_size(level), prop)
     }
 }

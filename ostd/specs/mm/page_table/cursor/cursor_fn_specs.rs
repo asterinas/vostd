@@ -36,7 +36,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         self,
         owner: CursorOwner<'rcu, C>,
         regions: MetaRegionOwners,
-        guards: Guards<'rcu>,
+        guards: Guards,
     ) -> bool {
         &&& owner.inv()
         &&& self.inv()
@@ -152,34 +152,37 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
-        let (paddr, level, prop) = C::item_into_raw(item);
+        let (paddr, level, prop, _perm) = C::item_into_raw(item);
         &&& C::item_well_formed(item)
         &&& entry_owner.inv()
         &&& (entry_owner.is_absent() || Child::Frame(paddr, level, prop).wf(entry_owner))
     }
 
     pub open spec fn item_not_mapped(item: C::Item, regions: MetaRegionOwners) -> bool {
-        let (pa, level, prop) = C::item_into_raw(item);
+        let (pa, level, prop, perm) = C::item_into_raw(item);
         let size = page_size(level);
         let range = pa..(pa + size) as usize;
         regions.paddr_range_not_mapped(range)
     }
 
-    pub open spec fn item_slot_in_regions(item: C::Item, regions: MetaRegionOwners) -> bool {
-        let (pa, level, prop) = C::item_into_raw(item);
+    pub open spec fn item_slot_in_regions_except_perm(
+        item: C::Item,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        let (pa, level, prop, perm) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
         &&& regions.slot_owners[idx].ref_count()
             != REF_COUNT_UNUSED
         // Tracked items hold a refcount; untracked (MMIO) don't.
-        &&& C::tracked(item) ==> regions.slot_owners[idx].ref_count()
+        &&& perm@ is Some ==> regions.slot_owners[idx].ref_count()
             > 0
         // A tracked (mapped) item is a SHARED frame, never the UNIQUE sentinel:
         // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
         // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
         // inv clause vacuous.
-        &&& C::tracked(item) ==> regions.slot_owners[idx].ref_count()
+        &&& perm@ is Some ==> regions.slot_owners[idx].ref_count()
             <= REF_COUNT_MAX
         // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
@@ -188,16 +191,103 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.contains(sub_idx)
-                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& perm@ is Some ==> regions.slot_owners[sub_idx].ref_count()
                         != REF_COUNT_UNUSED
-                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& perm@ is Some ==> regions.slot_owners[sub_idx].ref_count()
                         > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
                     // into the mapped huge frame's `frame_sub_pages_valid`.
-                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
-                        <= REF_COUNT_MAX
+                    &&& perm@ is Some ==> regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
                 }
         }
+    }
+
+    pub closed spec fn item_slot_in_regions(item: C::Item, regions: MetaRegionOwners) -> bool {
+        let (pa, _level, _prop, perm) = C::item_into_raw(item);
+        &&& Self::item_slot_in_regions_except_perm(item, regions)
+        &&& C::perm_well_formed_with_region(pa, perm, regions)
+    }
+
+    pub proof fn item_slot_in_regions_facts(item: C::Item, regions: MetaRegionOwners)
+        requires
+            Self::item_slot_in_regions(item, regions),
+        ensures
+            Self::item_slot_in_regions_except_perm(item, regions),
+            C::perm_well_formed_with_region(
+                C::item_into_raw(item).0,
+                C::item_into_raw(item).3,
+                regions,
+            ),
+    {
+    }
+
+    pub proof fn item_slot_in_regions_preserved(
+        item: C::Item,
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+    )
+        requires
+            Self::item_slot_in_regions(item, regions0),
+            Self::item_slot_in_regions_except_perm(item, regions1),
+            regions0.slots[frame_to_index(C::item_into_raw(item).0)]
+                == regions1.slots[frame_to_index(C::item_into_raw(item).0)],
+            regions0.slot_owners[frame_to_index(C::item_into_raw(item).0)].metadata_perm.id()
+                == regions1.slot_owners[frame_to_index(
+                C::item_into_raw(item).0,
+            )].metadata_perm.id(),
+        ensures
+            Self::item_slot_in_regions(item, regions1),
+    {
+        C::lemma_perm_well_formed_with_region_preserved(
+            C::item_into_raw(item).0,
+            C::item_into_raw(item).3,
+            regions0,
+            regions1,
+        );
+    }
+
+    pub proof fn all_item_slots_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners)
+        requires
+            forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
+            forall|idx: int|
+                regions0.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                    ==> #[trigger] regions1.slot_owners[idx] == regions0.slot_owners[idx],
+            forall|idx: int|
+                regions0.contains(idx) && regions0.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                    ==> #[trigger] regions1.slots[idx] == regions0.slots[idx],
+        ensures
+            forall|item: C::Item|
+                #![trigger Self::item_slot_in_regions(item, regions0)]
+                Self::item_slot_in_regions(item, regions0) ==> Self::item_slot_in_regions(
+                    item,
+                    regions1,
+                ),
+    {
+        assert forall|item: C::Item|
+            Self::item_slot_in_regions(
+                item,
+                regions0,
+            ) implies #[trigger] Self::item_slot_in_regions(item, regions1) by {
+            let (pa, level, _prop, perm) = C::item_into_raw(item);
+            let idx = frame_to_index(pa);
+            assert(regions0.slot_owners[idx].ref_count() != REF_COUNT_UNUSED);
+            assert(Self::item_slot_in_regions_except_perm(item, regions1)) by {
+                if level > 1 {
+                    assert forall|j: usize|
+                        #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                        0 < j < page_size(level) / PAGE_SIZE implies {
+                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                        &&& regions1.contains(sub_idx)
+                        &&& perm@ is Some ==> regions1.slot_owners[sub_idx].ref_count()
+                            != REF_COUNT_UNUSED
+                        &&& perm@ is Some ==> regions1.slot_owners[sub_idx].ref_count() > 0
+                        &&& perm@ is Some ==> regions1.slot_owners[sub_idx].ref_count()
+                            <= REF_COUNT_MAX
+                    } by {};
+                }
+            };
+            Self::item_slot_in_regions_preserved(item, regions0, regions1);
+        };
     }
 
     pub open spec fn map_item_ensures(
@@ -206,7 +296,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         old_view: CursorView<C>,
         new_view: CursorView<C>,
     ) -> bool {
-        let (pa, level, prop) = C::item_into_raw(item);
+        let (pa, level, prop, _perm) = C::item_into_raw(item);
         new_view == old_view.map_spec(pa, page_size(level), prop)
     }
 }

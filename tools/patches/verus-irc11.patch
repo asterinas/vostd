@@ -1,8 +1,8 @@
 diff --git a/source/rust_verify_test/tests/core_special_setup.rs b/source/rust_verify_test/tests/core_special_setup.rs
-index d9f26d56..7dcb1fbf 100644
+index e38d186a..03f9d387 100644
 --- a/source/rust_verify_test/tests/core_special_setup.rs
 +++ b/source/rust_verify_test/tests/core_special_setup.rs
-@@ -28,6 +28,7 @@ test_verify_one_file_with_options! {
+@@ -32,6 +32,7 @@ test_verify_one_file_with_options! {
              verus_keep_ghost,
              feature(fn_traits),
          )]
@@ -11,7 +11,7 @@ index d9f26d56..7dcb1fbf 100644
  
          #[verifier::external]
 diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
-index bcc34e13..8bb30533 100644
+index fbf657aa..cc51b5e9 100644
 --- a/source/vstd/atomic.rs
 +++ b/source/vstd/atomic.rs
 @@ -1,56 +1,67 @@
@@ -125,7 +125,7 @@ index bcc34e13..8bb30533 100644
  
          #[verifier::external_body] /* vattr */
          pub struct $at_ident {
-@@ -92,12 +102,12 @@ macro_rules! atomic_types {
+@@ -92,12 +103,12 @@ macro_rules! atomic_types {
          }
  
          }
@@ -143,7 +143,7 @@ index bcc34e13..8bb30533 100644
  
          #[verifier::accept_recursive_types(T)]
          #[verifier::external_body] /* vattr */
-@@ -142,12 +152,12 @@ macro_rules! atomic_types_generic {
+@@ -142,12 +153,12 @@ macro_rules! atomic_types_generic {
          }
  
          }
@@ -160,7 +160,7 @@ index bcc34e13..8bb30533 100644
      ($at_ident: ty, $p_ident: ty, $p_data_ident: ty, $rust_ty: ty, $value_ty: ty, [ $($addr:tt)* ]) => {
          verus_impl!{
  
-@@ -268,7 +278,7 @@ macro_rules! atomic_common_methods {
+@@ -268,7 +279,7 @@ macro_rules! atomic_common_methods {
      };
  }
  
@@ -169,7 +169,7 @@ index bcc34e13..8bb30533 100644
      ($at_ident:ident, $p_ident:ident, $rust_ty: ty, $value_ty: ty, $modname:ident) => {
          verus_impl!{
  
-@@ -436,9 +446,9 @@ macro_rules! atomic_integer_methods {
+@@ -436,9 +447,9 @@ macro_rules! atomic_integer_methods {
      };
  }
  
@@ -182,7 +182,7 @@ index bcc34e13..8bb30533 100644
  
          #[inline(always)]
          #[verifier::external_body] /* vattr */
-@@ -505,8 +515,8 @@ macro_rules! atomic_bool_methods {
+@@ -505,8 +516,8 @@ macro_rules! atomic_bool_methods {
          }
  
          }
@@ -192,8 +192,8 @@ index bcc34e13..8bb30533 100644
 +    }
  
  macro_rules! ptr_atomic_methods {
-     ($at_ty: ty, $rust_ty: ty, $value_ty: ty) => {
-@@ -593,90 +603,163 @@ ptr_atomic_methods!(PAtomicIsize, AtomicIsize, isize);
+     ($at_ty: ty, $rust_ty: ty, $value_ty: ty, $width: literal) => {
+@@ -617,90 +628,163 @@ ptr_atomic_methods!(PAtomicIsize, AtomicIsize, isize, "ptr");
  
  make_bool_atomic!(PAtomicBool, PermissionBool, PermissionDataBool, AtomicBool, bool);
  
@@ -438,7 +438,7 @@ index bcc34e13..8bb30533 100644
  }
  
  impl<X, Y, Pred> core::fmt::Debug for AtomicUpdate<X, Y, Pred> {
-@@ -1125,65 +1208,4 @@ pub use {
+@@ -1149,65 +1233,4 @@ pub use {
      try_open_atomic_update_in_proof,
  };
  
@@ -2963,18 +2963,18 @@ index 00000000..bfb1c293
 +
 +} // verus!
 diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
-index 24ef737c..900e9a6c 100644
+index eb06f180..41016a35 100644
 --- a/source/vstd/vstd.rs
 +++ b/source/vstd/vstd.rs
-@@ -22,6 +22,7 @@
- #![cfg_attr(verus_keep_ghost, feature(slice_index_methods))]
- #![cfg_attr(all(feature = "alloc", verus_keep_ghost), feature(liballoc_internals))]
- #![cfg_attr(verus_keep_ghost, feature(nonzero_internals))]
+@@ -26,6 +26,7 @@
+ #![cfg_attr(verus_keep_ghost, feature(fmt_internals))]
+ #![cfg_attr(verus_keep_ghost, feature(fmt_arguments_from_str))]
+ #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
 +#![cfg_attr(verus_keep_ghost, feature(auto_traits))]
  
  #[cfg(feature = "alloc")]
  extern crate alloc;
-@@ -30,6 +31,7 @@ pub mod arithmetic;
+@@ -34,6 +35,7 @@ pub mod arithmetic;
  pub mod array;
  pub mod atomic;
  pub mod atomic_ghost;
@@ -2982,7 +2982,7 @@ index 24ef737c..900e9a6c 100644
  pub mod bits;
  pub mod bytes;
  pub mod calc_macro;
-@@ -81,6 +83,7 @@ pub mod state_machine_internal;
+@@ -85,6 +87,7 @@ pub mod state_machine_internal;
  pub mod string;
  #[cfg(feature = "std")]
  pub mod thread;
