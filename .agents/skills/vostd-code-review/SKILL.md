@@ -1,9 +1,9 @@
 ---
-name: vostd-guidelines-review
+name: vostd-code-review
 description: Review a Git change or selected Verus files against VOSTD's coding guidelines and write a Markdown report. Always reviews maintainability and proof engineering; conditionally checks only rlimit caps and whether changed std/core/alloc external specs should be upstreamed.
 ---
 
-# vostd-guidelines-review
+# vostd-code-review
 
 Review a Git change or selected code against VOSTD's coding guidelines
 — primarily `maintainability.md` and `proof-engineering.md`, with two narrowly

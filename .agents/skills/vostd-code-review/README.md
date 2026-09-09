@@ -1,6 +1,6 @@
-# VOSTD Guidelines Review
+# VOSTD Code Review
 
-`vostd-guidelines-review` reviews either a Git change or selected Verus source
+`vostd-code-review` reviews either a Git change or selected Verus source
 files against the VOSTD coding guidelines and writes a single, evidence-backed
 Markdown report. It covers the maintainability and proof-engineering aspects, plus
 two conditional workflow checks, in
@@ -11,17 +11,17 @@ two conditional workflow checks, in
 The skill has two modes, both anchored at the current checkout (`HEAD`):
 
 ```text
-$vostd-guidelines-review diff <base> <output> [--overwrite]
-$vostd-guidelines-review files <target[:lines] ...> <output> [--overwrite]
+$vostd-code-review diff <base> <output> [--overwrite]
+$vostd-code-review files <target[:lines] ...> <output> [--overwrite]
 ```
 
 Examples:
 
 ```text
-$vostd-guidelines-review diff main review.md
-$vostd-guidelines-review diff origin/main review.md --overwrite
-$vostd-guidelines-review files ostd/src/sync/rwlock.rs review.md
-$vostd-guidelines-review files ostd/src/sync/rwlock.rs:120-240 review.md
+$vostd-code-review diff main review.md
+$vostd-code-review diff origin/main review.md --overwrite
+$vostd-code-review files ostd/src/sync/rwlock.rs review.md
+$vostd-code-review files ostd/src/sync/rwlock.rs:120-240 review.md
 ```
 
 `diff <base>` reviews the committed series
