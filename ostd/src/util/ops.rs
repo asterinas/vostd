@@ -110,6 +110,8 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
     proof! {
         reveal(obeys_cmp_partial_ord);
         reveal(obeys_cmp_ord);
+        reveal(obeys_partial_cmp_spec_properties);
+        reveal_with_fuel(Seq::filter_index, 3);
     }
     let r = if b.is_empty() {
         [a.clone(), b.clone()]
@@ -126,17 +128,12 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
     )]
     |v: &Range<T>| !v.is_empty();
     proof! {
-        reveal_with_fuel(Seq::filter_index, 3);
-        reveal(obeys_partial_cmp_spec_properties);
         lemma_range_difference_set(*a, *b);
         assert forall|ret: core::iter::Filter<_, _>|
             #[trigger] filter_post(iter, pred, ret) &&
             ret.will_return_none() implies
             ret.remaining() == range_difference_spec(*a, *b) by {
             filter_postcondition(iter, pred, ret);
-            let keep = filter_keep(ret);
-            assert forall|j: int| #![auto] 0 <= j < keep.len() implies
-                keep[j] == r@[j].start.is_lt(&r@[j].end) by {}
         }
     }
     iter.filter(pred)
