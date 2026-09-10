@@ -163,7 +163,7 @@ impl MetaRegionOwners {
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.usage == pre_owner.usage
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
-            &&& post =~= self； .insert_slot_owner(paddr, post_owner)
+            &&& post =~= self.insert_slot_owner(paddr, post_owner)
         }
     }
 }
