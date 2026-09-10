@@ -4,10 +4,12 @@
 //! They are subject to change if `vstd` covers more cases in the future.
 mod bitvec;
 pub mod btree;
+pub mod cmp;
 pub mod convert;
 pub mod deref;
 pub mod ilog2;
 pub mod int_specs;
+pub mod iter;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;
@@ -17,8 +19,10 @@ pub mod time;
 
 pub use bitvec::*;
 pub use btree::*;
+pub use cmp::*;
 pub use ilog2::*;
 pub use int_specs::*;
+pub use iter::*;
 pub use nonnull::*;
 pub use ptr::*;
 pub use range::*;

@@ -1147,6 +1147,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
+        self.cur_subtree_inv();
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
         assert(entry.inv_base());
         C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
