@@ -2943,7 +2943,6 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
 }
 
 #[verifier::spinoff_prover]
-#[verifier::rlimit(200)]
 proof fn lemma_step_segment_clone_range<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     sid: SegmentId,
@@ -2965,11 +2964,9 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     ensures
         final(s).inv(),
 {
-    reveal(VmStore::structural_inv);
-    reveal(VmStore::accounting_inv);
-    assert(s.regions.inv()) by {
-        reveal(VmStore::structural_inv);
-    };
+    // Keep the opaque pre-state invariants pointwise throughout this proof.
+    let ghost s_before = *s;
+    assert(s.regions.inv());
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;
@@ -2989,11 +2986,13 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         &&& so.ref_count() >= 1
         &&& so.ref_count() + 1 <= REF_COUNT_MAX
     } by {
-        reveal(VmStore::structural_inv);
-        reveal(VmStore::accounting_inv);
         // `paddr` is covered by `sid` (sub_range ⊆ sid's range).
         assert(old_segments.contains_key(sid));
         assert(sid_range.start <= paddr < sid_range.end);
+        lemma_structural_inv_segment(s_before, sid, paddr);
+        s_before.regions.lemma_contains_valid_frame_paddr(paddr);
+        let idx = frame_to_index(paddr);
+        lemma_accounting_inv_at(s_before, idx);
         lemma_segment_cover_contains(old_segments, sid, paddr);
         assert(segment_cover_count(old_segments, paddr) >= 1);
         // Active head (cover > 0) ⟹ accounting equation gives rc >= cover >= 1.
@@ -3032,7 +3031,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     assert forall|idx: int|
         0 <= idx < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].usage
         == old_regions.slot_owners[idx].usage by {
-        reveal(VmStore::structural_inv);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3047,7 +3045,9 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].in_list_perm.value()
         == 0 by {
-        reveal(VmStore::structural_inv);
+        assert(old_regions.slot_owners[idx].in_list_perm.value() == 0) by {
+            reveal(VmStore::structural_inv);
+        };
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3066,18 +3066,17 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         s.segments.contains_key(sid_other) && s.segments[sid_other].range.start <= paddr_c
             < s.segments[sid_other].range.end && paddr_c % PAGE_SIZE
             == 0 implies s.regions.slot_owner(paddr_c).usage is Frame by {
-        reveal(VmStore::structural_inv);
         let cov_idx = frame_to_index(paddr_c);
         if sid_other == sid2 {
             // Covered by the new entry ⟹ in sub_range ⊆ sid's range.
             assert(s.segments[sid2].range == sub_range);
             assert(old_segments.contains_key(sid));
             assert(sid_range.start <= paddr_c < sid_range.end);
-            assert(old_regions.slot_owners[cov_idx].usage is Frame);
+            lemma_structural_inv_segment(s_before, sid, paddr_c);
         } else {
             assert(old_segments.contains_key(sid_other));
             assert(old_segments[sid_other] == s.segments[sid_other]);
-            assert(old_regions.slot_owners[cov_idx].usage is Frame);
+            lemma_structural_inv_segment(s_before, sid_other, paddr_c);
         }
         assert(valid_frame_paddr(paddr_c));
         s.regions.lemma_contains_valid_frame_paddr(paddr_c);
@@ -3089,11 +3088,8 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         s.frames.contains_key(fid_other) implies s.regions.slot_owner(
         s.frames[fid_other].paddr,
     ).usage is Frame by {
-        reveal(VmStore::structural_inv);
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
-        assert(old_frames.contains_key(fid_other));
-        assert(old_regions.slot_owners[other_idx].usage is Frame);
-        assert(valid_frame_paddr(s.frames[fid_other].paddr));
+        lemma_structural_inv_frame(s_before, fid_other);
         s.regions.lemma_contains_valid_frame_paddr(s.frames[fid_other].paddr);
         assert(s.regions.contains(other_idx));
     };
@@ -3107,7 +3103,7 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) == 0 by {
-        reveal(VmStore::accounting_inv);
+        lemma_accounting_inv_at(s_before, idx);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3130,7 +3126,7 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) > 0 by {
-        reveal(VmStore::accounting_inv);
+        lemma_accounting_inv_at(s_before, idx);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3159,7 +3155,7 @@ proof fn lemma_step_segment_clone_range<'rcu>(
             index_to_frame(idx),
         )
     } by {
-        reveal(VmStore::accounting_inv);
+        lemma_accounting_inv_at(s_before, idx);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3186,15 +3182,16 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         &&& so.in_list_perm.value() == 0
         &&& so.paths_in_pt.is_empty()
     } by {
-        reveal(VmStore::structural_inv);
-        reveal(VmStore::accounting_inv);
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
-        assert(old(s).unique_frames.contains_key(u));
-        assert(valid_frame_paddr(u_paddr));
+        assert(s_before.unique_frames.contains_key(u));
+        assert(valid_frame_paddr(u_paddr) && old_regions.slot_owners[u_idx].ref_count()
+            == REF_COUNT_UNIQUE && old_regions.slot_owners[u_idx].usage is Frame
+            && old_regions.slot_owners[u_idx].in_list_perm.value() == 0
+            && old_regions.slot_owners[u_idx].paths_in_pt.is_empty()) by {
+            reveal(VmStore::structural_inv);
+        };
         s.regions.lemma_contains_valid_frame_paddr(u_paddr);
-        assert(old_regions.slot_owners[u_idx].ref_count() == REF_COUNT_UNIQUE);
-        assert(old_regions.slot_owners[u_idx].usage is Frame);
         assert(!(sub_range.start <= u_paddr < sub_range.end)) by {
             if sub_range.start <= u_paddr < sub_range.end {
                 // u_paddr ∈ sub_range ⊆ sid_range ⟹ sid covers u_paddr.
