@@ -272,7 +272,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 meta_to_frame(owner@.value().node().meta_vaddr())),
             owner@.value().metaregion_sound(*final(regions)),
             forall|i: int|
-                #[trigger] old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                #[trigger] old(regions).ref_count(i) != REF_COUNT_UNUSED
                 ==> i != meta_to_index(owner@.value().node().meta_vaddr()),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
