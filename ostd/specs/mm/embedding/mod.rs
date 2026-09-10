@@ -3989,9 +3989,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
             == 0 implies s.regions.slot_owner(paddr_c).usage is Frame by {
         reveal(VmStore::structural_inv);
         let cov_idx = frame_to_index(paddr_c);
-        assert(valid_frame_paddr(paddr_c));
-        old_regions.lemma_contains_valid_frame_paddr(paddr_c);
-        assert(old_regions.contains(cov_idx));
         if sid_other == sid2 {
             // Covered by the new entry ⟹ in sub_range ⊆ sid's range.
             assert(s.segments[sid2].range == sub_range);
@@ -4003,9 +4000,11 @@ proof fn lemma_step_segment_clone_range<'rcu>(
             assert(old_segments[sid_other] == s.segments[sid_other]);
             assert(old_regions.slot_owners[cov_idx].usage is Frame);
         }
-        // `cov_0 <= idx < max_meta_slots()` (⟹ dict membership) proven above.
-        // Then the universal usage-preservation above gives
-        // `s.regions` usage == old usage == Frame at cov_idx.
+        // `cov_0 <= idx < max_meta_slots()` via `lemma_contains_valid_frame_paddr`
+        // (`slot_owners.contains_key`) + `MetaRegionOwners::inv`'s
+        // biimplication. Then the universal usage-preservation above
+        // gives `s.regions` usage == old usage == Frame at cov_idx.
+        assert(valid_frame_paddr(paddr_c));
         s.regions.lemma_contains_valid_frame_paddr(paddr_c);
         assert(s.regions.contains(cov_idx));
     };
@@ -4018,10 +4017,8 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         reveal(VmStore::structural_inv);
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
         assert(old_frames.dom().contains(fid_other));
-        assert(valid_frame_paddr(s.frames[fid_other].paddr));
-        old_regions.lemma_contains_valid_frame_paddr(s.frames[fid_other].paddr);
-        assert(old_regions.contains(other_idx));
         assert(old_regions.slot_owners[other_idx].usage is Frame);
+        assert(valid_frame_paddr(s.frames[fid_other].paddr));
         s.regions.lemma_contains_valid_frame_paddr(s.frames[fid_other].paddr);
         assert(s.regions.contains(other_idx));
         // `other_0 <= idx < max_meta_slots()` (biimplication) ⟹ universal
@@ -4140,11 +4137,9 @@ proof fn lemma_step_segment_clone_range<'rcu>(
         };
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
+    lemma_accounting_inv_intro(*s);
     assert(s.structural_inv()) by {
         reveal(VmStore::structural_inv);
-    };
-    assert(s.accounting_inv()) by {
-        reveal(VmStore::accounting_inv);
     };
     assert(s.inv()) by {
         reveal(VmStore::inv);
