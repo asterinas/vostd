@@ -11,24 +11,27 @@ two conditional workflow checks, in
 The skill has two modes, both anchored at the current checkout (`HEAD`):
 
 ```text
-$vostd-code-review diff <base> <output> [--overwrite]
+$vostd-code-review diff [<base>] <output> [--overwrite]
 $vostd-code-review files <target[:lines] ...> <output> [--overwrite]
 ```
 
 Examples:
 
 ```text
+$vostd-code-review diff review.md
 $vostd-code-review diff main review.md
 $vostd-code-review diff origin/main review.md --overwrite
 $vostd-code-review files ostd/src/sync/rwlock.rs review.md
 $vostd-code-review files ostd/src/sync/rwlock.rs:120-240 review.md
 ```
 
-`diff <base>` reviews the committed series
-`merge-base(<base>, HEAD)..HEAD`, oldest first. Each commit's message and diff
-are captured together so reviewers can judge the code against that commit's
-intent. Uncommitted changes are excluded. To review a historical endpoint,
-check it out first so it becomes `HEAD`.
+`diff [<base>]` reviews the committed series
+`merge-base(<base>, HEAD)..HEAD`, oldest first. When `<base>` is omitted it defaults to
+`origin/main`, the `main` branch of the upstream `origin`
+(https://github.com/asterinas/vostd); run `git fetch origin` first to review against the
+latest upstream main. Each commit's message and diff are captured together so reviewers
+can judge the code against that commit's intent. Uncommitted changes are excluded. To
+review a historical endpoint, check it out first so it becomes `HEAD`.
 
 `files` reviews the current working-tree contents of the named files, including
 staged, unstaged, and untracked target content. Targets use 1-based inclusive

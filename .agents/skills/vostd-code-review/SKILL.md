@@ -1,6 +1,6 @@
 ---
 name: vostd-code-review
-description: Review a Git change or selected Verus files against VOSTD's coding guidelines and write a Markdown report. Always reviews maintainability and proof engineering; conditionally checks only rlimit caps and whether changed std/core/alloc external specs should be upstreamed.
+description: Review a Git change or selected Verus files against VOSTD's coding guidelines and write a Markdown report. Diff mode defaults to reviewing against the upstream asterinas/vostd main branch (origin/main). Always reviews maintainability and proof engineering; conditionally checks only rlimit caps and whether changed std/core/alloc external specs should be upstreamed.
 ---
 
 # vostd-code-review
@@ -26,15 +26,23 @@ quoted evidence.
 ## Interface
 
 ```
-diff   <base>               <output> [--overwrite]
+diff   [<base>]             <output> [--overwrite]
 files  <target[:lines] ...> <output> [--overwrite]
 ```
+
+In `diff` mode, `<base>` is optional. When it is omitted the review uses the default base
+`origin/main` — the `main` branch of the upstream repository
+(https://github.com/asterinas/vostd, remote `origin`). One positional after `diff` is the
+`<output>` with `<base>` defaulted; two positionals are `<base>` then `<output>`.
 
 Wrap in double quotes any argument containing spaces.
 
 - `diff` / `files` — **required first positional**, selecting the review mode.
-- `<base>` — **required in `diff` mode**, any Git ref or SHA. Review
-  `merge-base(<base>, HEAD)..HEAD`; `HEAD` is always the endpoint.
+- `<base>` — **optional in `diff` mode**; any Git ref or SHA. When omitted, defaults to
+  `origin/main` (the upstream https://github.com/asterinas/vostd `main`, remote `origin`). Review
+  `merge-base(<base>, HEAD)..HEAD`; `HEAD` is always the endpoint. Run `git fetch origin`
+  first to review against the latest upstream main; the skill resolves `origin/main` to its
+  current local value and never fetches.
 - `<target[:lines] ...>` — **required in `files` mode**, one or more targets in the
   working tree.
   A target is a path, optionally narrowed `path:N-M,K-L` (1-based, inclusive);
@@ -56,6 +64,7 @@ Locate these once, before fanning out; the personas need the absolute paths:
 | Existing verified code | The entire vendored vstd tree located from `grep '^vstd' Cargo.toml` (typically `tools/verus/source/vstd`), all of `verified_libs/`, `ostd/specs/`, and Verus-bearing files under `ostd/src/`. |
 | Verus binary + Z3 | `tools/verus/source/target-verus/release/verus` and `tools/verus/source/z3`, present after `make verus`/`cargo dv bootstrap`; used only for the standalone vacuity-refutation experiment the proof-engineering persona may run. |
 | History rationale | `git log --follow -p -- <target>`. In `diff` mode, the captured commit series is the primary review input. |
+| Default diff base | `origin/main` — `origin` is https://github.com/asterinas/vostd (confirm with `git remote -v`). `git fetch origin` refreshes it before a review; the skill resolves it to its current local value and does not fetch. |
 
 ## Pipeline
 
@@ -65,7 +74,9 @@ Run these steps in order.
    Resolve the mode first and capture one immutable review input in a disposable
    directory outside the shared working tree:
 
-   - In `diff` mode, resolve and record `HEAD`, `<base>`, and their merge-base. Capture
+   - In `diff` mode, default `<base>` to `origin/main` (the upstream
+     https://github.com/asterinas/vostd `main` branch) when omitted, resolve it to its current
+     local SHA without fetching, then record `HEAD`, `<base>`, and their merge-base. Capture
      `git log --reverse -p --format=fuller <merge-base>..HEAD` so every commit message
      stays paired with its diff. Also record the commit IDs and changed paths. Refuse an
      empty series. Do not include staged, unstaged, or untracked edits.
