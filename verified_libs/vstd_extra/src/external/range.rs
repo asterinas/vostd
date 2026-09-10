@@ -1,5 +1,9 @@
+use vstd::{
+    prelude::*,
+    std_specs::cmp::{PartialOrdIs, PartialOrdSpec},
+};
+
 use core::ops::{Range, RangeInclusive};
-use vstd::prelude::*;
 
 verus! {
 
@@ -44,6 +48,13 @@ pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
 {
     !(r.start < r.end)
 }
+
+/// See [`Range::is_empty`](https://doc.rust-lang.org/std/ops/struct.Range.html#method.is_empty).
+pub assume_specification<Idx: PartialOrd<Idx>>[ Range::<Idx>::is_empty ](r: &Range<Idx>) -> (res:
+    bool) where Idx: PartialOrd<Idx>
+    ensures
+        <Idx as PartialOrdSpec<Idx>>::obeys_partial_cmp_spec() ==> res == !r.start.is_lt(&r.end),
+;
 
 pub assume_specification<Idx>[ RangeInclusive::start ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
     ensures
