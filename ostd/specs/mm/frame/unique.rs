@@ -171,7 +171,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     pub proof fn tracked_borrow_repr_perm(tracked &self) -> tracked &M::ReprPerm
         requires
             self.repr_perm is Some,
-        returns 
+        returns
             self.repr_perm->0,
     {
         self.repr_perm.tracked_borrow()
