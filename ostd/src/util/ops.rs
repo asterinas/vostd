@@ -8,7 +8,7 @@ use vstd::{
     set_lib::{FiniteRange, range_set_properties},
     std_specs::{
         cmp::PartialOrdIs,
-        iter::{IteratorSpec, filter_keep, filter_postcondition},
+        iter::{IteratorSpec, filter_keep, filter_post, filter_postcondition},
     },
 };
 use vstd_extra::{
@@ -117,42 +117,29 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
         [a.start..min(a.end, b.start), max(a.start, b.end)..a.end]
     };
 
-    proof! {
-        reveal_with_fuel(Seq::filter, 3);
-    }
     // Original execution: `r.into_iter().filter(|v| !v.is_empty())`.
-    // Bind its operands so the upstream filter axiom can refer to them.
+    // Name the operands to instantiate `filter_postcondition` explicitly.
     let iter = r.into_iter();
     let pred = #[verus_spec(keep: bool =>
         ensures
             keep == v.start.is_lt(&v.end),
     )]
     |v: &Range<T>| !v.is_empty();
-    let ret = iter.filter(pred);
     proof! {
-        filter_postcondition(iter, pred, ret);
-        if ret.will_return_none() {
+        reveal_with_fuel(Seq::filter_index, 3);
+        reveal(obeys_partial_cmp_spec_properties);
+        lemma_range_difference_set(*a, *b);
+        assert forall|ret: core::iter::Filter<_, _>|
+            #[trigger] filter_post(iter, pred, ret) &&
+            ret.will_return_none() implies
+            ret.remaining() == range_difference_spec(*a, *b) by {
+            filter_postcondition(iter, pred, ret);
             let keep = filter_keep(ret);
-
-            assert forall|j: int| #![auto] 0 <= j < keep.len() implies keep[j] ==
-                iter.remaining()[j].start.is_lt(&iter.remaining()[j].end) by {}
-            assert(iter.remaining().take(keep.len() as int).filter_index(|j: int| keep[j]) ==
-                iter.remaining().filter(|v: Range<T>| v.start.is_lt(&v.end))) by {
-                reveal_with_fuel(Seq::filter_index, 3);
-            }
-            assert(ret.remaining() == range_difference_spec(*a, *b));
-            assert forall|i: int|
-                0 <= i < ret.remaining().len() - 1 implies (
-                #[trigger] ret.remaining()[i]).end.is_le(&ret.remaining()[i + 1].start) by {
-                reveal(obeys_partial_cmp_spec_properties);
-            }
-            assert(seq_range_union(ret.remaining()) ==
-                a.view_set().difference(b.view_set())) by {
-                lemma_range_difference_set(*a, *b);
-            }
+            assert forall|j: int| #![auto] 0 <= j < keep.len() implies
+                keep[j] == r@[j].start.is_lt(&r@[j].end) by {}
         }
     }
-    ret
+    iter.filter(pred)
 }
 
 #[cfg(ktest)]
