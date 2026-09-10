@@ -162,10 +162,7 @@ impl IdAlloc {
                 forall|j: int| #![trigger self@[j]] curr_range.start as int <= j < curr_range.end as int ==> !self@[j],
                 decreases self@.len() as int - curr_range.end as int,
             )]
-            /* `Range::len` is trait method, cannot be `assume_specification`.
-             * Origin Rust: while curr_range.len() < count && curr_range.end < self.bitset.len() {
-             */
-            while range_usize_len(&curr_range) < count && curr_range.end < self.bitset.len() {
+            while curr_range.len() < count && curr_range.end < self.bitset.len() {
                 if !self.is_allocated(curr_range.end) {
                     curr_range.end += 1;
                 } else {
@@ -173,7 +170,7 @@ impl IdAlloc {
                 }
             }
 
-            if range_usize_len(&curr_range) < count {
+            if curr_range.len() < count {
                 return None;
             }
 
