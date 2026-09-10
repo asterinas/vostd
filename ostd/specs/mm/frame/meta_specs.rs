@@ -1,16 +1,12 @@
-use core::marker::PhantomData;
-
 use vstd::prelude::*;
 
-use vstd::{
-    atomic::*,
-    simple_pptr::{self, PPtr},
-};
+use vstd::{atomic::*, simple_pptr::PointsTo};
 use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
+        frame_specs::*,
         mapping::{frame_to_index, index_to_meta},
         meta_region_owners::MetaRegionOwners,
     },
@@ -40,7 +36,7 @@ impl MetaSlot {
     /// The relation between the [`MetaSlot`] permission and a metadata permission fraction.
     #[verifier::inline]
     pub open spec fn perms_related(
-        slot_perm: vstd::simple_pptr::PointsTo<MetaSlot>,
+        slot_perm: PointsTo<MetaSlot>,
         metadata_perm: MetadataPerm,
     ) -> bool {
         &&& metadata_perm.storage_perm.is_init()
@@ -163,7 +159,7 @@ impl MetaSlot {
         rc_perm.value() >= REF_COUNT_MAX
     }
 
-    pub open spec fn frame_paddr_safety_cond(perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
+    pub open spec fn frame_paddr_safety_cond(perm: PointsTo<MetaSlot>) -> bool {
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end
         &&& perm.addr() % META_SLOT_SIZE == 0
     }
@@ -213,22 +209,6 @@ impl MetaSlot {
         &&& owner.vtable_ptr_perm().is_init()
         &&& owner.in_list_perm.value() == 0
         &&& owner.paths_in_pt.is_empty()
-    }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
-    pub open spec fn from_raw_spec(
-        paddr: Paddr,
-        slot_perm: &'static vstd::simple_pptr::PointsTo<MetaSlot>,
-    ) -> Self {
-        Frame::<M> {
-            ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),
-            _marker: PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
-            #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(None),
-        }
     }
 }
 
