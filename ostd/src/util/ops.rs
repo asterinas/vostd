@@ -22,8 +22,7 @@ use core::ops::Range;
 
 verus! {
 
-/// Operational spec of `range_difference`: the two candidate ranges,
-/// dropping any empty ones, matching the executable control flow.
+/// Operational spec of `range_difference`.
 pub open spec fn range_difference_spec<T: Ord>(a: Range<T>, b: Range<T>) -> Seq<Range<T>> {
     let left = if !b.start.is_lt(&b.end) {
         a
