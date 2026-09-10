@@ -20,8 +20,6 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
         IteratorSpec::will_return_none(&iter),
         IteratorSpec::remaining(&iter) == array@,
         IteratorSpec::decrease(&iter) == Some(N as nat),
-    opens_invariants none
-    no_unwind
 ;
 
 } // verus!
