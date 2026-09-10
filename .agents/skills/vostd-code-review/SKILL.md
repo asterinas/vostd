@@ -52,9 +52,9 @@ Locate these once, before fanning out; the personas need the absolute paths:
 
 | Item | How to locate |
 |------|---------------|
-| Guideline pages | `docs/coding-guidelines/{README,maintainability,proof-engineering,workflow}.md`. The workflow reviewer uses only `decompose-before-raising-rlimit`'s numeric cap and `upstream-reusable-specs`. |
+| Guideline pages | `docs/coding-guidelines/{README,maintainability,proof-engineering,workflow}.md`, plus `proof-patterns.md` as supporting (non-mandatory) examples. The workflow reviewer uses only `decompose-before-raising-rlimit`'s numeric cap and `upstream-reusable-specs`. |
 | Existing verified code | The entire vendored vstd tree located from `grep '^vstd' Cargo.toml` (typically `tools/verus/source/vstd`), all of `verified_libs/`, `ostd/specs/`, and Verus-bearing files under `ostd/src/`. |
-| Verus binary + Z3 | `tools/verus/source/target-verus/release/verus` and `tools/verus/source/z3` — used for standalone contract experiments. |
+| Verus binary + Z3 | `tools/verus/source/target-verus/release/verus` and `tools/verus/source/z3`, present after `make verus`/`cargo dv bootstrap`; used only for the standalone vacuity-refutation experiment the proof-engineering persona may run. |
 | History rationale | `git log --follow -p -- <target>`. In `diff` mode, the captured commit series is the primary review input. |
 
 ## Pipeline
