@@ -164,29 +164,6 @@ impl MetaSlot {
         &&& perm.addr() % META_SLOT_SIZE == 0
     }
 
-    /// The metadata region transition of claiming a currently shared slot.
-    pub open spec fn inc_frame_reference_region_spec(
-        paddr: Paddr,
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool {
-        let idx = frame_to_index(paddr);
-        let pre_owner = pre.slot_owners[idx];
-        let post_owner = post.slot_owners[idx];
-        {
-            &&& post.ref_count(idx) == pre.ref_count(idx) + 1
-            &&& post_owner.ref_count_perm.id() == pre_owner.ref_count_perm.id()
-            &&& post_owner.metadata_perm.id() == pre_owner.metadata_perm.id()
-            &&& post_owner.metadata_perm.frac() + 1 == pre_owner.metadata_perm.frac()
-            &&& post_owner.metadata_perm@ == pre_owner.metadata_perm@
-            &&& post_owner.in_list_perm == pre_owner.in_list_perm
-            &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
-            &&& post_owner.usage == pre_owner.usage
-            &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
-            &&& post =~= pre.insert_slot_owner(paddr, post_owner)
-        }
-    }
-
     pub open spec fn get_from_in_use_success_spec(
         paddr: Paddr,
         pre: MetaRegionOwners,
@@ -195,7 +172,7 @@ impl MetaSlot {
     ) -> bool {
         let idx = frame_to_index(paddr);
         {
-            &&& Self::inc_frame_reference_region_spec(paddr, pre, post)
+            &&& pre.inc_frame_reference_region_spec(paddr, post)
             &&& metadata_perm.frac() == 1
             &&& metadata_perm.id() == post.slot_owners[idx].metadata_perm.id()
             &&& Self::perms_related(*post.slots[idx], metadata_perm.resource())

@@ -228,7 +228,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
             C::item_into_raw(*item).3@ is Some ==> {
-                MetaSlot::inc_frame_reference_region_spec(pa, *old(regions), *final(regions))
+                old(regions).inc_frame_reference_region_spec(pa, *final(regions))
             },
             C::item_into_raw(*item).3@ is None ==> *final(regions) == *old(regions),
     )]
