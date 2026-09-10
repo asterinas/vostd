@@ -88,6 +88,16 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
     requires
         obeys_cmp::<T>(),
         finite_range_matches_ord::<T>(),
+        // Only the empty-b branch clones the endpoints.
+        !b.start.is_lt(&b.end) ==> {
+            &&& T::clone.requires((&a.start,))
+            &&& T::clone.requires((&a.end,))
+            &&& T::clone.requires((&b.start,))
+            &&& T::clone.requires((&b.end,))
+            &&& forall|x: T, cloned: T|
+                (x == a.start || x == a.end || x == b.start || x == b.end)
+                    && #[trigger] T::clone.ensures((&x,), cloned) ==> cloned == x
+        },
     ensures
         ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
             &&& ret.remaining() == range_difference_spec(*a, *b)

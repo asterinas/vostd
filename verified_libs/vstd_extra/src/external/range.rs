@@ -1,8 +1,9 @@
-use core::ops::{Range, RangeInclusive};
 use vstd::{
     prelude::*,
     std_specs::cmp::{PartialOrdIs, PartialOrdSpec},
 };
+
+use core::ops::{Range, RangeInclusive};
 
 verus! {
 
