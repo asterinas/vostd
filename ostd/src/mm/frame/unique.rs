@@ -246,12 +246,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(l =>
         with
             Tracked(owner): Tracked<&'a UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&'a MetaRegionOwners>,
         requires
             owner.inv(),
-            regions.inv(),
             self.inv(),
-            self.wf_with_region(*owner, *regions),
+            self.wf(*owner),
+            self.meta_wf(*owner),
         ensures
             self.meta_value(*owner) == l,
     )]

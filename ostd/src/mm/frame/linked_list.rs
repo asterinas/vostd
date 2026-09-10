@@ -976,9 +976,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             } by {}
         }
 
-        let next_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]
+        let next_ptr = (#[verus_spec(with Tracked(&frame_own))]
         frame.meta()).next;
-        let prev_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]
+        let prev_ptr = (#[verus_spec(with Tracked(&frame_own))]
         frame.meta()).prev;
 
         if let Some(prev) = prev_ptr {

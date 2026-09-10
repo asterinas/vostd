@@ -148,6 +148,7 @@ impl MetaRegionOwners {
         self.lemma_contains_valid_frame_paddr(paddr);
         self.slot_owners.tracked_borrow_mut(frame_to_index(paddr))
     }
+
     /// The metadata region transition of claiming a currently shared slot.
     pub open spec fn inc_frame_reference_region_spec(self, paddr: Paddr, post: Self) -> bool {
         let idx = frame_to_index(paddr);
