@@ -158,7 +158,7 @@ impl IdAlloc {
                 self@ == old(self)@,
                 self.first_available_id == old(self).first_available_id,
                 self.first_available_id <= curr_range.start <= curr_range.end <= self@.len(),
-                range_usize_len_spec(&curr_range) <= count,
+                0 <= curr_range.end - curr_range.start <= count,
                 forall|j: int| #![trigger self@[j]] curr_range.start as int <= j < curr_range.end as int ==> !self@[j],
                 decreases self@.len() as int - curr_range.end as int,
             )]
