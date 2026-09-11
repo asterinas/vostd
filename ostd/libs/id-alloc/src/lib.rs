@@ -287,7 +287,7 @@ impl IdAlloc {
         requires
             old(self).inv(),
             id < self@.len(),
-            ensures
+        ensures
             final(self).inv(),
             res is Some ==> {
                 &&& final(self)@ == old(self)@.update(id as int, true)
