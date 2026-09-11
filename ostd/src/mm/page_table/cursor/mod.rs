@@ -3477,6 +3477,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         hide(CursorOwner::map_only_children);
         hide(CursorOwner::path_metaregion_sound);
         hide(CursorOwner::nodes_locked);
+        hide(TreeNode::inv);
         proof {
             assert(owner.va.inv()) by {
                 reveal(<CursorOwner as Inv>::inv);
@@ -3568,6 +3569,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost cur_st = owner_before_replace.cur_subtree();
                 owner_before_replace.cur_subtree_inv();
+                assert(cur_st.value().inv()) by {
+                    reveal(TreeNode::inv);
+                };
                 assert(cur_st.value().path
                     == owner_before_replace.continuations[owner_before_replace.level
                     - 1].path().push_tail(
