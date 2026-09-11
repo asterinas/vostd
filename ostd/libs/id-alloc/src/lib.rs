@@ -84,16 +84,15 @@ impl IdAlloc {
         requires
             old(self).inv(),
         ensures
+            final(self).inv(),
             res matches Some(id) ==> {
                 &&& id == first_zero_index(old(self)@)
                 &&& first_zero_index(old(self)@) < old(self)@.len()
                 &&& final(self)@ == old(self)@.update(first_zero_index(old(self)@), true)
-                &&& final(self).inv()
             },
             res is None ==> {
                 &&& first_zero_index(old(self)@) == old(self)@.len()
                 &&& final(self)@ == old(self)@
-                &&& final(self).inv()
             },
     )]
     pub fn alloc(&mut self) -> Option<usize> {
@@ -121,6 +120,7 @@ impl IdAlloc {
         requires
             old(self).inv(),
         ensures
+            final(self).inv(),
             res matches Some(r) ==> {
                 &&& r.end - r.start == count
                 &&& r.end <= old(self)@.len()
@@ -128,12 +128,8 @@ impl IdAlloc {
                 &&& (forall|i: int| #![trigger final(self)@[i]] r.start <= i < r.end ==> final(self)@[i])
                 &&& (forall|i: int| 0 <= i < final(self)@.len() && !(r.start <= i < r.end) ==> final(self)@[i] == old(self)@[i])
                 &&& final(self)@.len() == old(self)@.len()
-                &&& final(self).inv()
             },
-            res is None ==> {
-                &&& final(self)@ == old(self)@
-                &&& final(self).inv()
-            },
+            res is None ==> final(self)@ == old(self)@
     )]
     pub fn alloc_consecutive(&mut self, count: usize) -> Option<Range<usize>> {
         if count == 0 {
@@ -291,17 +287,16 @@ impl IdAlloc {
         requires
             old(self).inv(),
             id < self@.len(),
-        ensures
+            ensures
+            final(self).inv(),
             res is Some ==> {
                 &&& final(self)@ == old(self)@.update(id as int, true)
                 &&& !old(self)@[id as int]
                 &&& res == Some(id)
-                &&& final(self).inv()
             },
             res is None ==> {
                 &&& old(self)@[id as int]
                 &&& final(self)@ == old(self)@
-                &&& final(self).inv()
             },
     )]
     pub fn alloc_specific(&mut self, id: usize) -> Option<usize> {
@@ -356,13 +351,16 @@ impl IdAlloc {
             .bitset
             .get(start..len)
             .expect("start is guaranteed to be valid by the caller");
-        /* Bind the bounded `first_zero` result (avoid closure overflow + enable proof).
-         * Origin Rust: self.first_available_id = bit_slice.first_zero().map(|offset| start + offset).unwrap_or(len);
-         */
-        self.first_available_id = match bit_slice.first_zero() {
-            Some(offset) => start + offset,
-            None => len,
-        };
+        self.first_available_id = bit_slice
+            .first_zero()
+            .map(
+                #[verus_spec(ret: usize =>
+                requires offset + start <= usize::MAX
+                ensures ret == start + offset
+            )]
+                |offset| start + offset,
+            )
+            .unwrap_or(len);
         proof! {
             lemma_first_zero_index_after_true_prefix(self@, start as int);
             let tail = self@.subrange(start as int, self@.len() as int);
