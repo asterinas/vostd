@@ -74,7 +74,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& self.barrier_va.start <= self.va < self.barrier_va.end
         &&& owner@.present()
         &&& !is_mmio_paddr(pa)
-        &&& regions.slot_owners[idx].ref_count() >= REF_COUNT_MAX
+        &&& regions.ref_count(idx) >= REF_COUNT_MAX
     }
 
     pub open spec fn query_some_ensures(
@@ -173,16 +173,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
-        &&& regions.slot_owners[idx].ref_count()
+        &&& regions.ref_count(idx)
             != REF_COUNT_UNUSED
         // Tracked items hold a refcount; untracked (MMIO) don't.
-        &&& perm@ is Some ==> regions.slot_owners[idx].ref_count()
+        &&& perm@ is Some ==> regions.ref_count(idx)
             > 0
         // A tracked (mapped) item is a SHARED frame, never the UNIQUE sentinel:
         // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
         // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
         // inv clause vacuous.
-        &&& perm@ is Some ==> regions.slot_owners[idx].ref_count()
+        &&& perm@ is Some ==> regions.ref_count(idx)
             <= REF_COUNT_MAX
         // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
@@ -191,13 +191,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.contains(sub_idx)
-                    &&& perm@ is Some ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& perm@ is Some ==> regions.ref_count(sub_idx)
                         != REF_COUNT_UNUSED
-                    &&& perm@ is Some ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& perm@ is Some ==> regions.ref_count(sub_idx)
                         > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
                     // into the mapped huge frame's `frame_sub_pages_valid`.
-                    &&& perm@ is Some ==> regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
+                    &&& perm@ is Some ==> regions.ref_count(sub_idx) <= REF_COUNT_MAX
                 }
         }
     }
@@ -250,10 +250,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|
-                regions0.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                regions0.ref_count(idx) != REF_COUNT_UNUSED
                     ==> #[trigger] regions1.slot_owners[idx] == regions0.slot_owners[idx],
             forall|idx: int|
-                regions0.contains(idx) && regions0.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED
                     ==> #[trigger] regions1.slots[idx] == regions0.slots[idx],
         ensures
             forall|item: C::Item|
@@ -270,7 +270,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ) implies #[trigger] Self::item_slot_in_regions(item, regions1) by {
             let (pa, level, _prop, perm) = C::item_into_raw(item);
             let idx = frame_to_index(pa);
-            assert(regions0.slot_owners[idx].ref_count() != REF_COUNT_UNUSED);
+            assert(regions0.ref_count(idx) != REF_COUNT_UNUSED);
             assert(Self::item_slot_in_regions_except_perm(item, regions1)) by {
                 if level > 1 {
                     assert forall|j: usize|
@@ -278,10 +278,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         0 < j < page_size(level) / PAGE_SIZE implies {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions1.contains(sub_idx)
-                        &&& perm@ is Some ==> regions1.slot_owners[sub_idx].ref_count()
+                        &&& perm@ is Some ==> regions1.ref_count(sub_idx)
                             != REF_COUNT_UNUSED
-                        &&& perm@ is Some ==> regions1.slot_owners[sub_idx].ref_count() > 0
-                        &&& perm@ is Some ==> regions1.slot_owners[sub_idx].ref_count()
+                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) > 0
+                        &&& perm@ is Some ==> regions1.ref_count(sub_idx)
                             <= REF_COUNT_MAX
                     } by {};
                 }

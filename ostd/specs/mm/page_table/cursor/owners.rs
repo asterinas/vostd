@@ -1170,7 +1170,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old_regions.slot_owners.contains_key(idx),
             new_regions.slot_owners.contains_key(idx),
             // rc at idx is incremented by 1
-            new_regions.slot_owners[idx].ref_count() == old_regions.slot_owners[idx].ref_count()
+            new_regions.ref_count(idx) == old_regions.ref_count(idx)
                 + 1,
             // All other inner_perms fields at idx are identical (same tracked object)
             new_regions.slot_owners[idx].ref_count_perm.id()
@@ -1198,8 +1198,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // in the valid `[1, REF_COUNT_MAX]` range. The `<=` form (vs strict `<`)
             // matches what callers actually have: post-`clone_item`, the new rc is
             // bounded by the slot's `inv()` (which permits `rc == REF_COUNT_MAX`).
-            0 < old_regions.slot_owners[idx].ref_count(),
-            old_regions.slot_owners[idx].ref_count() + 1 <= REF_COUNT_MAX,
+            0 < old_regions.ref_count(idx),
+            old_regions.ref_count(idx) + 1 <= REF_COUNT_MAX,
         ensures
             new_regions.inv(),
             self.metaregion_sound(new_regions),
@@ -2158,7 +2158,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.inv(),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() == regions0.slot_owners.dom(),
-            regions1.slot_owners[idx].ref_count() == regions0.slot_owners[idx].ref_count() + 1,
+            regions1.ref_count(idx) == regions0.ref_count(idx) + 1,
             regions1.slot_owners[idx].ref_count_perm.id()
                 == regions0.slot_owners[idx].ref_count_perm.id(),
             regions1.slot_owners[idx].metadata_perm.id()
@@ -2169,9 +2169,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
             regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
-            regions1.slot_owners[idx].ref_count() != REF_COUNT_UNUSED,
+            regions1.ref_count(idx) != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
-            regions1.slot_owners[idx].ref_count() <= REF_COUNT_MAX,
+            regions1.ref_count(idx) <= REF_COUNT_MAX,
             regions1.inv(),
             forall|i: int|
                 #![trigger regions1.slot_owners[i]]
