@@ -31,16 +31,11 @@ verus! {
 
 broadcast use group_ghost_tree_lemmas;
 
-pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
-    ensures
-        res == *range,
-;
-
 #[verus_spec(ret =>
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
         Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(guards): Tracked<&mut Guards<'rcu>>
+        Tracked(guards): Tracked<&mut Guards>
     requires
         pt.relates_owner(pt_own, *old(regions)),
         pt_own.0.value().node().relate_guard(root_guard),
@@ -53,7 +48,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
         ret.0.level == ret.0.guard_level,
-        ret.0.guard_level == NR_LEVELS as PagingLevel,
+        ret.0.guard_level == NR_LEVELS,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
@@ -61,42 +56,42 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         (*ret.1).continuations[3].path() == pt_own.0.value().path,
         (forall |i: int| #![trigger old(regions).slot_owners[i]]
             old(regions).contains(i)
-            && old(regions).slot_owners[i].ref_count()
+            && old(regions).ref_count(i)
                 != REF_COUNT_UNUSED
-            ==> old(regions).slot_owners[i].ref_count() + 1
+            ==> old(regions).ref_count(i) + 1
                 < REF_COUNT_MAX)
         ==>
         (forall |i: int| #![trigger final(regions).slot_owners[i]]
             final(regions).contains(i)
-            && final(regions).slot_owners[i].ref_count()
+            && final(regions).ref_count(i)
                 != REF_COUNT_UNUSED
-            ==> final(regions).slot_owners[i].ref_count() + 1
+            ==> final(regions).ref_count(i) + 1
                 < REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
         forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-            old(regions).slot_owners[idx].ref_count()
+            old(regions).ref_count(idx)
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).contains(idx)
-            && old(regions).slot_owners[idx].ref_count()
+            && old(regions).ref_count(idx)
                 != REF_COUNT_UNUSED
-            ==> final(regions).slot_owners[idx].ref_count()
-                    == old(regions).slot_owners[idx].ref_count()
+            ==> final(regions).ref_count(idx)
+                    == old(regions).ref_count(idx)
                 && final(regions).slot_owners[idx].usage
                     == old(regions).slot_owners[idx].usage,
         forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
-            final(regions).slot_owners[idx].ref_count()
+            final(regions).ref_count(idx)
                 >= REF_COUNT_MAX
-            ==> old(regions).slot_owners[idx].ref_count()
-                    == final(regions).slot_owners[idx].ref_count(),
+            ==> old(regions).ref_count(idx)
+                    == final(regions).ref_count(idx),
         forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
-            old(regions).slot_owners[idx].ref_count()
+            old(regions).ref_count(idx)
                 >= REF_COUNT_MAX
-            ==> final(regions).slot_owners[idx].ref_count()
-                    == old(regions).slot_owners[idx].ref_count(),
+            ==> final(regions).ref_count(idx)
+                    == old(regions).ref_count(idx),
         // Frames that were item_not_mapped before remain so after locking.
         forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
@@ -208,12 +203,12 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             == pt_own.0.value().path);
         assume((forall|i: int|
             #![trigger old(regions).slot_owners[i]]
-            old(regions).contains(i) && old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].ref_count() + 1 < REF_COUNT_MAX) ==> (forall|i: int|
-
+            old(regions).contains(i) && old(regions).ref_count(i) != REF_COUNT_UNUSED ==> old(
+                regions,
+            ).ref_count(i) + 1 < REF_COUNT_MAX) ==> (forall|i: int|
             #![trigger regions.slot_owners[i]]
-            regions.contains(i) && regions.slot_owners[i].ref_count() != REF_COUNT_UNUSED
-                ==> regions.slot_owners[i].ref_count() + 1 < REF_COUNT_MAX));
+            regions.contains(i) && regions.ref_count(i) != REF_COUNT_UNUSED ==> regions.ref_count(i)
+                + 1 < REF_COUNT_MAX));
     }
     res
 }
@@ -251,7 +246,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
 #[verus_spec(r =>
     with Tracked(cursor_own): Tracked<&mut CursorOwner<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(guards): Tracked<&mut Guards<'rcu>>
+        Tracked(guards): Tracked<&mut Guards>
     requires
         old(cursor_own).level == NR_LEVELS,
         old(cursor_own).continuations.dom().contains(NR_LEVELS - 1),
@@ -289,7 +284,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // Locking only allocates fresh page-table nodes from UNUSED slots;
         // it does not mutate any slot that was already in use.
         forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-            old(regions).slot_owners[idx].ref_count()
+            old(regions).ref_count(idx)
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
@@ -298,10 +293,10 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // nodes from UNUSED slots; it never mutates a slot already in use.
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).contains(idx)
-            && old(regions).slot_owners[idx].ref_count()
+            && old(regions).ref_count(idx)
                 != REF_COUNT_UNUSED
-            ==> final(regions).slot_owners[idx].ref_count()
-                    == old(regions).slot_owners[idx].ref_count()
+            ==> final(regions).ref_count(idx)
+                    == old(regions).ref_count(idx)
                 && final(regions).slot_owners[idx].usage
                     == old(regions).slot_owners[idx].usage,
         // Saturated-slot bridge (bidirectional): a slot is at
@@ -312,17 +307,17 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // the inner `Cursor::query`'s per-specific-slot saturation
         // condition back to the caller's `*old(regions)` snapshot.
         forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
-            final(regions).slot_owners[idx].ref_count()
+            final(regions).ref_count(idx)
                 >= REF_COUNT_MAX
-            ==> old(regions).slot_owners[idx].ref_count()
-                    == final(regions).slot_owners[idx].ref_count(),
+            ==> old(regions).ref_count(idx)
+                    == final(regions).ref_count(idx),
         forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
-            old(regions).slot_owners[idx].ref_count()
+            old(regions).ref_count(idx)
                 >= REF_COUNT_MAX
-            ==> final(regions).slot_owners[idx].ref_count()
-                    == old(regions).slot_owners[idx].ref_count(),
+            ==> final(regions).ref_count(idx)
+                    == old(regions).ref_count(idx),
         // Therefore any frame that was `item_not_mapped` (its paths_in_pt was
-        // empty, hence `ref_count` might be UNUSED-or-non-UNUSED) stays so:
+        // empty, hence ref_count` might be UNUSED-or-non-UNUSED) stays so:
         // the paddr range's slots either had non-UNUSED ref_count (preserved
         // per above) or UNUSED ref_count (and freshly-allocated PT nodes go
         // into OTHER slot indices, so frame paddrs' paths_in_pt stays empty).
@@ -389,17 +384,22 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         } else {
             // SAFETY: The node must be alive for at least `'rcu` since the
             // address is read from the page table node.
-            let node_ref = unsafe { PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr) };
+            let tracked cont = cursor_own.continuations.tracked_borrow(cursor_own.level - 1);
+            let tracked node_owner = cont.entry_own.tracked_borrow_node();
+            let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
+            let node_ref = unsafe {
+                #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
+                PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr)
+            };
             node_ref.lock(guard)
         };
 
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.tracked_borrow_node();
         let tracked meta_points_to = regions.slots.tracked_borrow(node_owner.slot_index);
-        let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
         #[verus_spec(with
             Tracked(meta_points_to),
-            Tracked(&meta_slot_owner.metadata_perm),
+            Tracked(node_owner.tracked_borrow_metadata_perm()),
             Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
@@ -471,17 +471,22 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     } else {
         // SAFETY: The node must be alive for at least `'rcu` since the
         // address is read from the page table node.
-        let node_ref = unsafe { PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr) };
+        let tracked cont = cursor_own.continuations.tracked_borrow(cursor_own.level - 1);
+        let tracked node_owner = cont.entry_own.tracked_borrow_node();
+        let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
+        let node_ref = unsafe {
+            #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
+            PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr)
+        };
         node_ref.lock(guard)
     };
 
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.tracked_borrow_node();
     let tracked meta_points_to = regions.slots.tracked_borrow(node_owner.slot_index);
-    let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
     #[verus_spec(with
         Tracked(meta_points_to),
-        Tracked(&meta_slot_owner.metadata_perm),
+        Tracked(node_owner.tracked_borrow_metadata_perm()),
         Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]
@@ -506,7 +511,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 /// The function will forget all the [`PageTableGuard`] objects in the sub-tree.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guards): Tracked<&mut Guards<'rcu>>,
+        Tracked(guards): Tracked<&mut Guards>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>
     requires
         entry_own.is_node(),
@@ -570,7 +575,7 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// and all guards are forgotten.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guards): Tracked<&mut Guards<'rcu>>
+        Tracked(guards): Tracked<&mut Guards>
 )]
 #[verifier::external_body]
 unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
@@ -625,7 +630,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// top level nodes that the kernel space and user space share.
 #[verus_spec(res =>
     with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>,
-        Tracked(guards): Tracked<&mut Guards<'a>>,
+        Tracked(guards): Tracked<&mut Guards>,
         Ghost(locked_addr): Ghost<usize>,
         Ghost(subtree_mappings_count): Ghost<nat>
     requires

@@ -2,12 +2,15 @@
 //!
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
+mod bitvec;
 pub mod btree;
+pub mod cmp;
 pub mod convert;
 pub mod deref;
 pub mod id_alloc;
 pub mod ilog2;
 pub mod int_specs;
+pub mod iter;
 #[cfg(target_arch = "x86_64")]
 pub mod io_port;
 pub mod nonnull;
@@ -17,10 +20,13 @@ pub mod slice;
 pub mod smart_ptr;
 pub mod time;
 
+pub use bitvec::*;
 pub use btree::*;
+pub use cmp::*;
 pub use id_alloc::*;
 pub use ilog2::*;
 pub use int_specs::*;
+pub use iter::*;
 #[cfg(target_arch = "x86_64")]
 pub use io_port::*;
 pub use nonnull::*;

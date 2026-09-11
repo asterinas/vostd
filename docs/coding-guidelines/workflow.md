@@ -1,5 +1,19 @@
 # Verification Workflow
 
+### Inspect the owning model
+
+<!-- guideline: inspect-the-owning-model -->
+
+Start with the target and relevant sibling modules. For code under `ostd/src/`,
+inspect the corresponding `ostd/specs/` subsystem when it models the same
+concept. Follow imports and fresh verification diagnostics to decide whether a
+verified library or architecture/task model belongs in the repair.
+
+Do not inspect or modify every neighboring proof library preemptively. Search
+the active `vstd` checkout after checking the owning VOSTD model and local
+helpers, especially when the failure concerns an existing standard-library
+specification.
+
 ### Verify across supported hosts
 
 <!-- guideline: verify-across-supported-hosts -->

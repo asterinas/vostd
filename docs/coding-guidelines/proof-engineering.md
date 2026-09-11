@@ -4,56 +4,127 @@
 
 <!-- guideline: complete-external-contracts -->
 
+Before adding or changing an `assume_specification`, check each contract clause
+against the source code, API documentation, and relevant comments of the exact
+dependency version in use. Resolve discrepancies before trusting the model;
+successful verification of callers does not establish the contract's soundness.
+
 An external specification must state every caller obligation and every semantic
 fact on which a proof relies: preconditions, postconditions, well-formedness, and panic behavior.
 
 For example, a `BTreeMap::get_mut` model must preserve entries other than the
 selected key and must express the documented compatibility between the stored
-key ordering and borrowed-key ordering. A potentially panicking function must
-not be specified as `no_unwind`.
+key ordering and borrowed-key ordering. Exclude documented panic conditions with
+explicit preconditions, such as capacity or index bounds, rather than merely
+marking the operation `may_panic`. Do not claim `no_unwind` while a panic remains
+possible under the preconditions.
+
+Mirror the standard library's evaluation semantics in adapter contracts. For
+closure-driven adapters such as `Iterator::filter` and `map`, the closure runs
+lazily when the adapter is consumed, not when it is constructed, so require the
+closure's per-element preconditions only where the adapter invokes it, not at
+construction time. Do not promise that such an adapter terminates
+(`will_return_none` or a decreasing `remaining`) or `no_unwind` unless the
+contract requires the closure to terminate and not panic, because the adapter
+inherits the closure's behavior and an arbitrary `FnMut` may diverge or panic.
+
+Use the library's actual representation limits when modeling size bounds. For
+example, the `bitvec` model reviewed in PR #742 bounds bit length and capacity by
+`usize::MAX / 8`, not just `usize::MAX`. Keep constructor and mutation
+preconditions consistent with the model's length bound.
 
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3747054386),
-[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763419050), and
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3732701232).
+[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763419050),
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3732701232),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940921853),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946394200),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3831831025),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3831836346),
+and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295).
 
 ### Centralize trusted boundaries
 
 <!-- guideline: centralize-trusted-boundaries -->
 
-Put an unavoidable specification for an opaque `core`, `alloc`, or `std` API in
-the appropriate module under `verified_libs/vstd_extra/src/external/`. Do not
-hide a local assumption beside an OSTD caller, and do not treat relocation as a
-proof of soundness.
+Put unavoidable specifications for opaque standard-library or third-party APIs
+under `verified_libs/vstd_extra/src/external/`, not beside OSTD callers.
+Centralization does not establish soundness: give unsafe helpers contracts that
+justify their callers and delete unused helpers.
 
-Every unsafe external helper needs contracts strong enough to justify its
-callers. Delete an unused helper instead of retaining an unconstrained trusted
-boundary.
+Prefer `assume_specification`, matching the original generic signature, trait
+bounds, and associated types. Before adding an external function wrapper, test
+the direct form with the active toolchain and record any concrete obstacle.
 
 See also: PR [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3671555470),
-[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3687737109), and
-[#703](https://github.com/asterinas/vostd/pull/703#issuecomment-5264921275).
+[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3687737109),
+[#703](https://github.com/asterinas/vostd/pull/703#issuecomment-5264921275),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940943084),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3944088308), and
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946352295).
+
+### Restrict generic trusted models
+
+<!-- guideline: restrict-generic-trusted-models -->
+
+Trait bounds and external trait declarations alone do not establish a model's
+semantic laws. Inspect associated types, aliasing, and interior mutability; limit trusted
+contracts to reviewed type and architecture combinations.
+
+If the external signature must remain generic, guard its guarantees with a
+model-validity predicate admitted only for reviewed instances. Include relevant
+storage, ordering, and index types.
+
+For example, PR #742 limits its immutable `Seq<bool>` model to `bitvec` storage
+`u8`, `u32`, `usize`, and `u64` on 64-bit targets, with `Lsb0`. `BitStore` alone
+is insufficient because some implementations allow mutation through shared
+references.
+
+See also: PR [#742](https://github.com/asterinas/vostd/pull/742#issuecomment-5549732341)
+and [#742](https://github.com/asterinas/vostd/pull/742#issuecomment-5550882161).
+
+### Distinguish spec and exec indexing
+
+<!-- guideline: distinguish-spec-and-exec-indexing -->
+
+`Seq::spec_index` is total, with unspecified out-of-bounds values. Spec helpers
+can use this behavior; retain bounds when the claimed property needs a valid
+index, and explicit triggers when needed for reliable instantiation.
+
+Executable indexing still requires non-panicking bounds through `requires` or
+`IndexSpec::index_req`. A model of executable `get` must preserve its `Option`
+success/failure semantics; unspecified spec values do not replace that contract.
+
+See also: PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946386402),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946707985),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947097938), and
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947311108).
 
 ### Reuse existing specifications
 
 <!-- guideline: reuse-existing-specifications -->
 
-Before adding a helper, axiom, or external specification, search the active
-`vstd` and `vstd_extra` APIs. Use the existing verified operation directly when
-it already carries the required semantics.
+Search the active `vstd` and `vstd_extra` APIs before adding helpers, axioms, or
+external specifications. Use existing spec-enabled operations, such as
+`saturating_add`, directly. Extend incomplete support at the narrowest reusable
+layer rather than introducing overlapping models. Before modeling a
+standard-library API that `vstd` does not yet cover, also check the Verus
+upstream for accepted or in-progress models; if upstream is adding it, reuse or
+wait rather than fork a competing local spec, because a second trust source
+causes model drift.
 
-```rust
-// Prefer an existing spec-enabled operation.
-let result = lhs.saturating_add(rhs);
-
-// Avoid a duplicate wrapper with an equivalent contract.
-```
-
-If existing support is incomplete, extend it at the narrowest reusable layer
-instead of creating overlapping local models.
+When a checked proof replaces an axiom, call it directly and remove obsolete
+wrappers and bridge lemmas. Retain compatibility lemmas only for abstraction
+boundaries that current callers need. When a verified proof covers a fact
+previously admitted with `assume`, `admit`, or `=~=`, remove the cheat instead
+of layering proof on top; a change that strengthens verification should
+net-reduce the trusted surface, never grow it.
 
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#issuecomment-5225757765),
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308), and
-[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672).
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308),
+[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672),
+[#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054),
+[#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295),
+and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3826747008).
 
 ### Canonical spec models
 
@@ -71,6 +142,23 @@ See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763
 [#704](https://github.com/asterinas/vostd/pull/704#issuecomment-5265438143),
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573), and
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3767737737).
+
+### Quantifiers and triggers
+
+<!-- guideline: quantifiers-and-triggers -->
+
+Prefer standard predicates such as `Seq::all` when they express the property
+directly. Their predicate-based triggers can reduce unnecessary instantiations
+compared with broad index triggers such as `s[i]`. Check the predicate's
+definition and verify the effect in the actual proof context.
+
+Use a subrange predicate when it improves readability; retain an explicit
+quantifier when it better supports indexing or triggers. Do not add an axiom
+for a fact derivable from the sequence definition merely to support this change.
+
+See also: [Verus trigger annotations](https://verus-lang.github.io/verus/guide/trigger-annotations.html),
+PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947111297), and
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947117794).
 
 ### Implement Inv for models
 

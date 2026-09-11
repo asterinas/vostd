@@ -4,14 +4,9 @@
 
 <!-- guideline: separate-verus-modes -->
 
-Keep executable code, `spec` functions, proof blocks, and reusable lemmas
-visually distinct. A reviewer should be able to see which code runs, which code
-defines the mathematical model, and which code exists only to establish a
-proof.
-
-Prefer small, coherent groups over interleaving mode changes throughout an
-implementation. Keep adjacent verified items in the same `verus!` block when
-no ordinary Rust item separates them.
+Keep executable code, specifications, and proofs in visually distinct groups.
+Keep adjacent verified items in the same `verus!` block when no ordinary Rust
+item separates them.
 
 ### Use chained comparisons
 
@@ -31,44 +26,53 @@ fullrange.start <= block.start
     && block.end <= fullrange.end
 ```
 
-Likewise, combine consecutive proof assertions that state the same contiguous
-bounds when doing so preserves their proof behavior. Only form a chain when it
-is logically equivalent to the original comparisons. Do not invent a missing
-relation, combine unrelated comparisons, or strengthen a contract merely to
-make it chainable.
+Combine consecutive bound assertions only when logical meaning and proof
+behavior are preserved. Do not introduce relations or strengthen contracts to
+form a chain.
 
-### Prefer imports in proof code
+### Use returns for exact results
 
-<!-- guideline: prefer-imports-in-proof-code -->
+<!-- guideline: use-returns-for-exact-results -->
 
-Use `use` declarations as much as possible for proof-only functions, lemmas,
-broadcast groups, and other proof symbols. Import the symbols once instead of
-repeating long fully qualified paths throughout contracts and proof bodies.
-Apply this style to all proof code, including lemma calls, `reveal`, and
-`broadcast use` expressions.
+Use `returns expr` for an exact return value and `ensures` for other result or
+state properties. Omit unused named return binders and unit return declarations
+such as `-> (ret: ())`.
+
+The expression must match the return type. Keep required casts, such as
+`as usize` for a sequence's `nat` length, and justify that the value fits.
+
+See also: PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940933539),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946290469),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946316792),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946322891), and
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947067359).
+
+### Organize proof imports
+
+<!-- guideline: organize-proof-imports -->
+
+Import proof symbols explicitly instead of repeating long paths in contracts,
+lemma calls, `reveal`, and `broadcast use`. Retain qualified paths where an
+import would cause ambiguity or obscure a one-off reference.
 
 ```rust
-use vstd::{
-    laws_cmp::{obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties},
-    laws_eq::obeys_eq_spec_properties,
-};
+use vstd::laws_eq::obeys_eq_spec_properties;
 
-// Prefer this:
-reveal(obeys_partial_cmp_spec_properties);
-reveal(obeys_cmp_partial_ord);
-reveal(obeys_cmp_ord);
 reveal(obeys_eq_spec_properties);
-
-// Over repeatedly writing `reveal(vstd::laws_cmp::...)` and
-// `reveal(vstd::laws_eq::...)`.
 ```
 
-Prefer explicit imports that keep the symbol's origin understandable. Retain a
-qualified path when importing it would introduce ambiguity or make a rare,
-one-off reference less clear.
+Keep new `vstd` and Verus-only imports visibly separate from imports inherited
+from executable Rust when the formatter permits it.
 
-See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528)
-and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502).
+Keep `reveal` and `reveal_with_fuel` minimal. A `reveal` of an `open spec fn`
+still adds unfolding fuel and can be load-bearing, so delete a `reveal` only
+when verification stays green without it; where a non-obvious `reveal` of an
+`open` function must remain, leave a one-line note so reviewers do not strip it.
+
+See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473172528),
+[#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5473348502),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3840368904),
+and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3955173853).
 
 ### Group imports by crate
 
@@ -112,9 +116,8 @@ result is Some ==> result->0.start <= result->0.end,
 result is Some ==> valid(result->0),
 ```
 
-Use a descriptive binder name and refer to it throughout the block. Do not add
-conditions merely to create a grouped block, and leave a single implication
-ungrouped when binding the payload would not improve clarity.
+Use a descriptive binder and preserve the original conditions. Leave a single
+implication ungrouped unless the binding improves clarity.
 
 See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893413063).
 
@@ -122,18 +125,19 @@ See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893
 
 <!-- guideline: preserve-exec-code -->
 
-Add specifications and proofs without rewriting executable Rust or moving its
-items. If Verus requires a different executable expression, keep the change
-minimal, demonstrate that runtime behavior is unchanged, and make the original
-form visible in review.
+Add specifications and proofs without rewriting executable Rust or reordering
+constants, methods, or modules. If Verus requires an executable change, keep it
+minimal, demonstrate unchanged runtime behavior, and show the original form in
+review.
 
-This includes preserving import-independent item order: proof migration should
-not move constants, methods, or module declarations merely to make a partial
-file compile.
+Preserve upstream API shapes and round-trip conversion directions. Adapt
+ownership with local proof lemmas; do not reverse conversion lemmas, reconstruct
+values, add runtime clones, or change caller-facing APIs merely to ease a proof.
 
 See also: PR [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720382959),
-[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945), and
-[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187).
+[#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945),
+[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187), and
+[#699](https://github.com/asterinas/vostd/pull/699).
 
 ### Name proof roles
 
@@ -178,23 +182,25 @@ Do not repeat the marker on every field of a `ghost struct`.
 For a `tracked struct`, fields are `tracked` by default,
 so we need to add `ghost` marker to fields that are not linear ownerships.
 
-See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
+Within proof functions, pass and return tracked resources with tracked binders.
+Do not wrap every component of an all-tracked proof tuple in `Tracked<_>`;
+reserve `Tracked<T>` and `Ghost<T>` wrappers for executable or mixed-mode
+boundaries where erased values must cross an executable signature.
+
+See also: PR [#656](https://github.com/asterinas/vostd/pull/656#issuecomment-5019089808)
+and [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763958841).
 
 ### Prefer ghost model structs
 
 <!-- guideline: prefer-ghost-model-structs -->
 
-Determine the mode of every newly added Verus struct explicitly. Actively try
-`ghost struct` for constants, mathematical models, invariant markers, and
-other types whose values are used only in specifications or proofs. Confirm
-the choice with verification; do not assume that a zero-sized marker must be
-an executable type merely because it appears as a generic argument.
+Choose each new struct's mode explicitly and confirm it with verification:
 
-Use `tracked struct` instead when the fields represent linear permissions,
-tokens, or ownership. Keep an ordinary struct when it contains runtime state,
-must survive erasure, or participates in executable behavior. The goal is to
-erase proof-only data, not to force runtime or linear resources into ghost
-mode.
+- Try `ghost struct` first for proof-only models, constants, and invariant markers,
+  including zero-sized types used as generic arguments.
+- Use `tracked struct` for linear permissions, tokens, or ownership. An all-ghost
+  tracked type should be ghost unless an ownership protocol needs its identity.
+- Keep an ordinary struct for runtime state or other executable behavior.
 
 See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893393342).
 
@@ -202,37 +208,30 @@ See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893
 
 <!-- guideline: document-verified-apis -->
 
-Preserve the original runtime documentation. Add rustdoc for every public
-verified API and for proof functions or modules whose properties are important
-to callers or proof maintainers.
+Preserve runtime documentation. Add rustdoc for public verified APIs and proof
+functions or modules whose properties matter to callers or maintainers. Explain
+critical contracts and invariants in language kernel developers can understand,
+without restating every Verus clause.
 
-Describe preconditions, postconditions, and invariants in natural language. The
-documentation need not correspond one-to-one with every Verus clause, but it
-must cover the critical properties and be understandable to kernel developers
-without requiring Verus knowledge.
+For public executable APIs, append a `Verified Properties` section containing:
 
-For a public executable API, add a `Verified Properties` section after its
-original documentation. Include:
+- `Safety`: Identify the classes of undefined behavior ruled out and remaining
+  trusted boundaries. Claim only what verification establishes.
+- `Functional Correctness`, when applicable: Summarize the verified behavior.
+- `Preconditions`: State caller obligations.
+- `Postconditions`: State return guarantees, including absence of panic if proved.
 
-- `Safety`: State the classes of undefined behavior that have been ruled out
-  and identify any remaining trusted boundaries. Do not claim the absence of
-  all undefined behavior unless that claim is justified.
-- `Functional Correctness`, when applicable: Summarize the behavior established
-  by verification.
-- `Preconditions`: Explain the obligations that callers must satisfy.
-- `Postconditions`: Explain the properties guaranteed on return, including
-  whether the function cannot panic when this has been proved.
+The `Preconditions` and `Postconditions` fields apply to executable APIs only.
+Spec and proof functions are erased at runtime; their `requires` and `ensures`
+clauses already state obligations and results formally, so do not add
+`Preconditions` or `Postconditions` sections that merely restate them (see
+[`document-real-proof-debt`](#document-real-proof-debt)). Document a `spec fn`
+with the mathematical meaning of the value it denotes, and a `proof fn` with one
+sentence summarizing the proved fact; add further prose only when an obligation
+or guarantee is non-obvious and not apparent from the signature.
 
-For a proof function, begin with one sentence summarizing the fact being proved,
-followed by `Preconditions` and `Postconditions` sections that explain the
-important proof clauses.
-
-For a verified module, add a `Verified Properties` section describing its
-verification design, critical invariants, safety properties, and any verified
-functional-correctness properties.
-
-Do not merely restate signatures or Verus expressions. Record the information a
-caller needs to use the API without reading its implementation or proof.
+For verified modules, add a `Verified Properties` section covering verification
+design, critical invariants, safety, and any verified functional correctness.
 
 See also:
 [`SpinLock`](../../ostd/src/sync/spin.rs#L18),
@@ -257,9 +256,6 @@ Keep a small, implementation-specific model beside its verified code. Create a
 separate file under `ostd/specs/` when the model is substantial, shared, or
 expected to grow into a subsystem-level interface.
 
-File placement should reduce navigation cost; it should not mechanically split
-a short model from its only user.
-
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740708147)
 and [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740719198).
 
@@ -267,13 +263,17 @@ and [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740719198).
 
 <!-- guideline: document-real-proof-debt -->
 
-Keep comments that explain a current proof boundary, non-obvious invariant, or
-known missing model. Add a `TODO` when a temporary limitation needs follow-up.
-Do not copy explanatory comments that are absent from the executable source or
-retain comments after the condition they describe is removed.
+Keep proof comments brief and focused on non-obvious, current constraints and
+their consequences. Document shared trust boundaries once at module level.
+Avoid restating code, speculating about tool limitations, or recounting failed
+proof attempts. Update or remove comments when the constraints change.
+Add a `TODO` for temporary limitations that need follow-up.
 
-See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3820204595)
-and [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3819464685).
+See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3820204595),
+[#699](https://github.com/asterinas/vostd/pull/699#discussion_r3819464685),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940894244),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940913907), and
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3943825219).
 
 ### Qualified Verus spec calls
 
