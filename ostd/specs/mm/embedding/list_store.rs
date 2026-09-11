@@ -619,7 +619,7 @@ pub axiom fn list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger meta_to_index(owner.list[i].paddr)]
             0 <= i < owner.list.len() ==> {
                 let idx = meta_to_index(owner.list[i].paddr);
-                &&& final(regions).slot_owners[idx].ref_count() == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(idx) == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[idx].in_list_perm.value() == 0
             },
         // Every slot outside the dropped list is fully preserved.
@@ -776,7 +776,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             let _ = self.lists[id].list[i];
             self.lists[id].relate_region_at_facts(self.regions, i);
             assert(self.regions.contains(idx));
-            assert(self.regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE);
+            assert(self.regions.ref_count(idx) == REF_COUNT_UNIQUE);
             assert(self.regions.slot_owners[idx].usage is Frame);
         };
 

@@ -56,7 +56,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         old(regions).contains(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
         final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
-        final(regions).slot_owners[vm_space_root_idx(res)].ref_count() != REF_COUNT_UNUSED,
+        final(regions).ref_count(vm_space_root_idx(res)) != REF_COUNT_UNUSED,
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
@@ -68,8 +68,8 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage is PageTable
             },
         forall|c: CursorOwner<'a, UserPtConfig>|
@@ -103,7 +103,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         old(regions).contains(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
         final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
-        final(regions).slot_owners[vm_space_root_idx(res)].ref_count() != REF_COUNT_UNUSED,
+        final(regions).ref_count(vm_space_root_idx(res)) != REF_COUNT_UNUSED,
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
@@ -115,8 +115,8 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage is PageTable
             },
         forall|c: CursorOwner<'a, UserPtConfig>|
