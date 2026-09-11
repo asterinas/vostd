@@ -1170,8 +1170,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old_regions.slot_owners.contains_key(idx),
             new_regions.slot_owners.contains_key(idx),
             // rc at idx is incremented by 1
-            new_regions.ref_count(idx) == old_regions.ref_count(idx)
-                + 1,
+            new_regions.ref_count(idx) == old_regions.ref_count(idx) + 1,
             // All other inner_perms fields at idx are identical (same tracked object)
             new_regions.slot_owners[idx].ref_count_perm.id()
                 == old_regions.slot_owners[idx].ref_count_perm.id(),

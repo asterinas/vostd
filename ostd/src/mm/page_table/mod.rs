@@ -1129,9 +1129,9 @@ impl PageTable<KernelPtConfig> {
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
                                 sub_idx != new_idx || (regions.contains(sub_idx)
-                                    && regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
-                                    && regions.slot_owners[sub_idx].ref_count() > 0
-                                    && regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX)
+                                    && regions.ref_count(sub_idx) != REF_COUNT_UNUSED
+                                    && regions.ref_count(sub_idx) > 0 && regions.ref_count(sub_idx)
+                                    <= REF_COUNT_MAX)
                             }
                     },
             );
@@ -1471,16 +1471,16 @@ impl<C: PageTableConfig> PageTable<C> {
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).slot_owners[idx].ref_count()
+                old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).contains(idx)
-                && old(regions).slot_owners[idx].ref_count()
+                && old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[idx].ref_count()
-                        == old(regions).slot_owners[idx].ref_count()
+                ==> final(regions).ref_count(idx)
+                        == old(regions).ref_count(idx)
                     && final(regions).slot_owners[idx].usage
                         == old(regions).slot_owners[idx].usage,
     )]
@@ -1522,38 +1522,34 @@ impl<C: PageTableConfig> PageTable<C> {
             },
             !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).slot_owners[idx].ref_count()
+                old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             // Non-saturation preservation.
             (forall |i: int| #![trigger old(regions).slot_owners[i]]
                 old(regions).contains(i)
-                && old(regions).slot_owners[i].ref_count()
+                && old(regions).ref_count(i)
                     != REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].ref_count() + 1
+                ==> old(regions).ref_count(i) + 1
                     < REF_COUNT_MAX)
             ==>
             (forall |i: int| #![trigger final(regions).slot_owners[i]]
                 final(regions).contains(i)
-                && final(regions).slot_owners[i].ref_count()
+                && final(regions).ref_count(i)
                     != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].ref_count() + 1
+                ==> final(regions).ref_count(i) + 1
                     < REF_COUNT_MAX),
-            // Saturated-slot bridge (relayed from `Cursor::new`):
-            // a slot at `>= REF_COUNT_MAX` before iff after, with the same
-            // value. Used by `KVirtArea::query` to bridge inner-cursor
-            // saturation back to the caller's snapshot.
-            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
-                final(regions).slot_owners[idx].ref_count()
+            forall|idx: int| #![trigger final(regions).ref_count(idx)]
+                final(regions).ref_count(idx)
                     >= REF_COUNT_MAX
-                ==> old(regions).slot_owners[idx].ref_count()
-                        == final(regions).slot_owners[idx].ref_count(),
-            forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
-                old(regions).slot_owners[idx].ref_count()
+                ==> old(regions).ref_count(idx)
+                        == final(regions).ref_count(idx),
+            forall|idx: int| #![trigger old(regions).ref_count(idx)]
+                old(regions).ref_count(idx)
                     >= REF_COUNT_MAX
-                ==> final(regions).slot_owners[idx].ref_count()
-                        == old(regions).slot_owners[idx].ref_count(),
+                ==> final(regions).ref_count(idx)
+                        == old(regions).ref_count(idx),
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
         (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),

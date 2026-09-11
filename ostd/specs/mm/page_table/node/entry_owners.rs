@@ -735,9 +735,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     0 < j < nr_pages ==> {
                         let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
                         sub_idx != changed_idx || r1.slot_owners[sub_idx].usage is MMIO || (
-                        r1.slots.contains_key(sub_idx) && r1.ref_count(sub_idx)
-                            != REF_COUNT_UNUSED && r1.ref_count(sub_idx) > 0
-                            && r1.ref_count(sub_idx) <= REF_COUNT_MAX)
+                        r1.slots.contains_key(sub_idx) && r1.ref_count(sub_idx) != REF_COUNT_UNUSED
+                            && r1.ref_count(sub_idx) > 0 && r1.ref_count(sub_idx) <= REF_COUNT_MAX)
                     }
             },
         ensures

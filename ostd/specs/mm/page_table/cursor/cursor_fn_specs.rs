@@ -191,8 +191,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.contains(sub_idx)
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx)
-                        != REF_COUNT_UNUSED
+                    &&& perm@ is Some ==> regions.ref_count(sub_idx) != REF_COUNT_UNUSED
                     &&& perm@ is Some ==> regions.ref_count(sub_idx)
                         > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
@@ -250,8 +249,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|
-                regions0.ref_count(idx) != REF_COUNT_UNUSED
-                    ==> #[trigger] regions1.slot_owners[idx] == regions0.slot_owners[idx],
+                regions0.ref_count(idx) != REF_COUNT_UNUSED ==> #[trigger] regions1.slot_owners[idx]
+                    == regions0.slot_owners[idx],
             forall|idx: int|
                 regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED
                     ==> #[trigger] regions1.slots[idx] == regions0.slots[idx],
@@ -278,11 +277,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         0 < j < page_size(level) / PAGE_SIZE implies {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions1.contains(sub_idx)
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx)
-                            != REF_COUNT_UNUSED
+                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) != REF_COUNT_UNUSED
                         &&& perm@ is Some ==> regions1.ref_count(sub_idx) > 0
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx)
-                            <= REF_COUNT_MAX
+                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) <= REF_COUNT_MAX
                     } by {};
                 }
             };

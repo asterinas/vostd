@@ -901,7 +901,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let paddr = old(self).current->0.addr();
                 let idx = meta_to_index(paddr);
                 &&& final(regions).slots.dom() == old(regions).slots.dom()
-                &&& final(regions).slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
+                &&& final(regions).ref_count(idx) == REF_COUNT_UNIQUE
                 &&& final(regions).slot_owners[idx].in_list_perm.value() == 0
                 &&& (res->0).0.tracked_metadata_perm@->0.storage_perm.is_init()
                 &&& (res->0).0.tracked_metadata_perm@->0.vtable_ptr_perm.is_init()
@@ -1104,7 +1104,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& regions.contains(i)
                 &&& regions.slots[i].addr() == oldl.list[p].paddr
                 &&& regions.slots[i].pptr() == regions0.slots[i].pptr()
-                &&& regions.slot_owners[i].ref_count() == REF_COUNT_UNIQUE
+                &&& regions.ref_count(i) == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[i].metadata_perm.is_resource_vacant()
                 &&& owner.list_own.metadata_perms[np].storage_perm.id()
                     == regions.slots[i].value().storage.id()
@@ -1497,7 +1497,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> {
                 let idx = meta_to_index(s.0.list[i].paddr);
-                s.1.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
+                s.1.ref_count(idx) == REF_COUNT_UNIQUE
             }
         &&& forall|i: int|
             #![trigger s.0.list[i]]
@@ -1621,7 +1621,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         let idx = meta_to_index(original_list[j].paddr);
                         &&& original_regions.contains(idx)
                         &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
-                        &&& original_regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
+                        &&& original_regions.ref_count(idx) == REF_COUNT_UNIQUE
                     },
             ensures
                 k == n,
