@@ -3076,10 +3076,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
             assert(old_segments[sid_other] == s.segments[sid_other]);
             lemma_structural_inv_segment(s_before, sid_other, paddr_c);
         }
-        // `cov_0 <= idx < max_meta_slots()` via `lemma_contains_valid_frame_paddr`
-        // (`slot_owners.contains_key`) + `MetaRegionOwners::inv`'s
-        // biimplication. Then the universal usage-preservation above
-        // gives `s.regions` usage == old usage == Frame at cov_idx.
         assert(valid_frame_paddr(paddr_c));
         s.regions.lemma_contains_valid_frame_paddr(paddr_c);
         assert(s.regions.contains(cov_idx));
