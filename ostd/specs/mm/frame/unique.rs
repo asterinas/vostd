@@ -133,13 +133,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         )
     }
 
-    /// Borrow-model global invariant: the frame's permission is parked in
-    /// `regions.slots[slot_index]` (NOT owned by the frame), and the
-    /// concrete storage and representation permissions decode to metadata
-    /// matching `meta_own`. A `UniqueFrame` is the sole live reference to its
-    /// slot, so the slot sits at `REF_COUNT_UNIQUE` — the unique-frame analog
-    /// of the segment's `0 < ref_count <= REF_COUNT_MAX` regime in
-    /// [`Segment::relate_regions`].
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
         &&& regions.contains(self.slot_index)
         &&& self.meta_wf(regions)
@@ -175,11 +168,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         Self { meta_own, repr_perm: Some(repr_perm), slot_index }
     }
 
-    pub proof fn tracked_borrow_repr_perm(tracked &self) -> (tracked res: &M::ReprPerm)
+    pub proof fn tracked_borrow_repr_perm(tracked &self) -> tracked &M::ReprPerm
         requires
             self.repr_perm is Some,
-        ensures
-            *res == self.repr_perm->0,
+        returns
+            self.repr_perm->0,
     {
         self.repr_perm.tracked_borrow()
     }

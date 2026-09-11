@@ -324,10 +324,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     k,
                 ),
             forall|idx: int|
-                #![trigger final(regions).slot_owners[idx].ref_count()]
-                final(regions).slot_owners[idx].ref_count() == old(
+                #![trigger final(regions).ref_count(idx)]
+                final(regions).ref_count(idx) == old(
                     regions,
-                ).slot_owners[idx].ref_count(),
+                ).ref_count(idx),
             forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].ref_count_perm]
                 final(regions).slot_owners[idx].same_permissions(
@@ -990,9 +990,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     != crate::specs::mm::frame::meta_owners::PageUsage::PageTable
                 &&& regions.slot_owners[sub_idx].usage
                     != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
-                    &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[sub_idx].ref_count() > 0
-                    &&& regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
+                    &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
+                    &&& regions.ref_count(sub_idx) > 0
+                    &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                 }
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -1079,9 +1079,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage !is PageTable
                         &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
-                            &&& regions.slot_owners[sub_idx].ref_count() > 0
-                            &&& regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
+                            &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
+                            &&& regions.ref_count(sub_idx) > 0
+                            &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                         }
                     },
                 regions.slots.contains_key(frame_to_index(pa)),
@@ -1151,9 +1151,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
-                            &&& regions.slot_owners[sub_idx].ref_count() > 0
-                            &&& regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
+                            &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
+                            &&& regions.ref_count(sub_idx) > 0
+                            &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                         }
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
@@ -1568,10 +1568,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
-                #![trigger final(regions).slot_owners[slot].ref_count()]
-                final(regions).slot_owners[slot].ref_count() == old(
+                #![trigger final(regions).ref_count(slot)]
+                final(regions).ref_count(slot) == old(
                     regions,
-                ).slot_owners[slot].ref_count(),
+                ).ref_count(slot),
             forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].ref_count_perm]
                 final(regions).slot_owners[slot].same_permissions(
