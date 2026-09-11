@@ -54,41 +54,6 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     tracked_slot_perms: Tracked<Option<Seq<&'static PointsTo<MetaSlot>>>>,
 }
 
-#[verifier::reject_recursive_types(M)]
-pub closed spec fn segment_iter_frame<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    paddr: Paddr,
-    slot_perm: &'static PointsTo<MetaSlot>,
-    permission: FracMetadataPerm,
-) -> Frame<M> {
-    Frame {
-        ptr: PPtr(frame_to_meta(paddr), core::marker::PhantomData),
-        _marker: core::marker::PhantomData,
-        #[cfg(verus_keep_ghost_body)]
-        tracked_slot_perm: Tracked(slot_perm),
-        #[cfg(verus_keep_ghost_body)]
-        tracked_metadata_perm: Tracked(Some(permission)),
-    }
-}
-
-#[verifier::reject_recursive_types(M)]
-pub closed spec fn segment_iter_remaining<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    range: Range<Paddr>,
-    slot_perms: Seq<&'static PointsTo<MetaSlot>>,
-    permissions: Seq<FracMetadataPerm>,
-) -> Seq<Frame<M>> {
-    Seq::new(
-        permissions.len() as nat,
-        |i: int|
-            {
-                segment_iter_frame::<M>(
-                    (range.start + i * PAGE_SIZE) as usize,
-                    slot_perms[i],
-                    permissions[i],
-                )
-            },
-    )
-}
-
 /*
 impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -1008,7 +973,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
 
     #[verifier::prophetic]
     closed spec fn remaining(&self) -> Seq<Self::Item> {
-        segment_iter_remaining::<M>(self.range, self.slot_perms(), self.permissions())
+        Seq::new(
+            self.permissions().len() as nat,
+            |i: int|
+                {
+                    Frame::<M>::from_raw_spec(
+                        (self.range().start + i * PAGE_SIZE) as usize,
+                        self.slot_perms()[i],
+                        Some(self.permissions()[i]),
+                    )
+                },
+        )
     }
 
     #[verifier::prophetic]
@@ -1023,10 +998,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
         if 0 <= index < self.permissions().len() {
             Some(
-                segment_iter_frame::<M>(
+                Frame::<M>::from_raw_spec(
                     (self.range().start + index * PAGE_SIZE) as usize,
                     self.slot_perms()[index],
-                    self.permissions()[index],
+                    Some(self.permissions()[index]),
                 ),
             )
         } else {

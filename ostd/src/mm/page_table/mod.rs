@@ -437,7 +437,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_into_raw(res).2 == Self::item_into_raw(item).2,
             (Self::item_into_raw(res).3@ is Some) == (Self::item_into_raw(item).3@ is Some),
             Self::item_into_raw(item).3@ is Some ==> {
-                MetaSlot::inc_frame_reference_region_spec(pa, old_regions, new_regions)
+                old_regions.inc_frame_reference_region_spec(pa, new_regions)
             },
             Self::item_into_raw(item).3@ is None ==> new_regions == old_regions,
     ;

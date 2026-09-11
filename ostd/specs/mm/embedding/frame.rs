@@ -89,11 +89,7 @@ pub axiom fn frame_from_in_use_embedded(
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
-        res is Some ==> MetaSlot::inc_frame_reference_region_spec(
-            paddr,
-            *old(regions),
-            *final(regions),
-        ),
+        res is Some ==> old(regions).inc_frame_reference_region_spec(paddr, *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         res is Some ==> {
             let so = final(regions).slot_owner(paddr);
@@ -203,11 +199,7 @@ pub(super) proof fn from_in_use_step(
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
-        res is Some ==> MetaSlot::inc_frame_reference_region_spec(
-            paddr,
-            *old(regions),
-            *final(regions),
-        ),
+        res is Some ==> old(regions).inc_frame_reference_region_spec(paddr, *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         res is Some ==> {
             let so = final(regions).slot_owner(paddr);

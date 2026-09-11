@@ -117,8 +117,8 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
@@ -162,8 +162,8 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
@@ -345,14 +345,12 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(regions).slot_owners[i].ref_count()
-                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i] == old(
-                regions,
-            ).slot_owners[i],
+            i != frame_to_index(paddr) && old(regions).ref_count(i) != REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: int|
-            #![trigger final(regions).slot_owners[i].ref_count()]
-            old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED,
+            #![trigger final(regions).ref_count(i)]
+            old(regions).ref_count(i) != REF_COUNT_UNUSED ==> final(regions).ref_count(i)
+                != REF_COUNT_UNUSED,
         // **`ref_count` PRESERVED at the mapped slot.
         final(regions).slot_owner(paddr).ref_count() == old(regions).slot_owner(paddr).ref_count(),
         // **`paths_in_pt.len() += 1` at the mapped slot.**
@@ -366,12 +364,12 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         // Slots that stay UNUSED are fully preserved.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            final(regions).ref_count(i) == REF_COUNT_UNUSED ==> final(regions).slot_owners[i]
+                == old(regions).slot_owners[i],
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(regions).slot_owners[i].ref_count()
-                == REF_COUNT_UNUSED && final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+            i != frame_to_index(paddr) && old(regions).ref_count(i) == REF_COUNT_UNUSED
+                && final(regions).ref_count(i) != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].usage !is Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -417,11 +415,10 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
                     regions,
                 ).slot_owners[i].vtable_ptr_perm()
                 // `rc` doesn't bump to UNIQUE.
-                &&& old(regions).slot_owners[i].ref_count() != REF_COUNT_UNIQUE
-                    ==> final(regions).slot_owners[i].ref_count()
+                &&& old(regions).ref_count(i) != REF_COUNT_UNIQUE ==> final(regions).ref_count(i)
                     != REF_COUNT_UNIQUE
                 // Storage preserved at slots that end non-UNUSED.
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                     ==> final(regions).slot_owners[i].storage_perm() == old(
                     regions,
                 ).slot_owners[i].storage_perm()
@@ -435,17 +432,13 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             old(regions).slot_owners[i].usage is Frame ==> {
-                &&& final(regions).slot_owners[i].ref_count() + old(
-                    regions,
-                ).slot_owners[i].paths_in_pt.len() == old(regions).slot_owners[i].ref_count()
-                    + final(regions).slot_owners[i].paths_in_pt.len()
-                &&& final(regions).slot_owners[i].ref_count() <= old(
-                    regions,
-                ).slot_owners[i].ref_count()
+                &&& final(regions).ref_count(i) + old(regions).slot_owners[i].paths_in_pt.len()
+                    == old(regions).ref_count(i) + final(regions).slot_owners[i].paths_in_pt.len()
+                &&& final(regions).ref_count(i) <= old(regions).ref_count(i)
                 &&& final(regions).slot_owners[i].paths_in_pt.len() <= old(
                     regions,
                 ).slot_owners[i].paths_in_pt.len()
-                &&& final(regions).slot_owners[i].ref_count() != 0
+                &&& final(regions).ref_count(i) != 0
             },
         // MMIO slots untouched.*
         forall|i: int|
@@ -486,8 +479,8 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
@@ -534,8 +527,8 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) == REF_COUNT_UNUSED
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
@@ -741,9 +734,9 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
                 &&& final(regions).slot_owners[i].vtable_ptr_perm() == old(
                     regions,
                 ).slot_owners[i].vtable_ptr_perm()
-                &&& old(regions).slot_owners[i].ref_count() != REF_COUNT_UNIQUE
-                    ==> final(regions).slot_owners[i].ref_count() != REF_COUNT_UNIQUE
-                &&& final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+                &&& old(regions).ref_count(i) != REF_COUNT_UNIQUE ==> final(regions).ref_count(i)
+                    != REF_COUNT_UNIQUE
+                &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                     ==> final(regions).slot_owners[i].storage_perm() == old(
                     regions,
                 ).slot_owners[i].storage_perm()
@@ -758,17 +751,13 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             old(regions).slot_owners[i].usage is Frame ==> {
-                &&& final(regions).slot_owners[i].ref_count() + old(
-                    regions,
-                ).slot_owners[i].paths_in_pt.len() == old(regions).slot_owners[i].ref_count()
-                    + final(regions).slot_owners[i].paths_in_pt.len()
-                &&& final(regions).slot_owners[i].ref_count() <= old(
-                    regions,
-                ).slot_owners[i].ref_count()
+                &&& final(regions).ref_count(i) + old(regions).slot_owners[i].paths_in_pt.len()
+                    == old(regions).ref_count(i) + final(regions).slot_owners[i].paths_in_pt.len()
+                &&& final(regions).ref_count(i) <= old(regions).ref_count(i)
                 &&& final(regions).slot_owners[i].paths_in_pt.len() <= old(
                     regions,
                 ).slot_owners[i].paths_in_pt.len()
-                &&& final(regions).slot_owners[i].ref_count() != 0
+                &&& final(regions).ref_count(i) != 0
             },
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
@@ -814,14 +803,12 @@ pub(super) proof fn map_step<'rcu>(
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(regions).slot_owners[i].ref_count()
-                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i] == old(
-                regions,
-            ).slot_owners[i],
+            i != frame_to_index(paddr) && old(regions).ref_count(i) != REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: int|
-            #![trigger final(regions).slot_owners[i].ref_count()]
-            old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED,
+            #![trigger final(regions).ref_count(i)]
+            old(regions).ref_count(i) != REF_COUNT_UNUSED ==> final(regions).ref_count(i)
+                != REF_COUNT_UNUSED,
         final(regions).slot_owner(paddr).ref_count() == old(regions).slot_owner(paddr).ref_count(),
         final(regions).slot_owner(paddr).paths_in_pt.len() == old(regions).slot_owner(
             paddr,
@@ -832,12 +819,12 @@ pub(super) proof fn map_step<'rcu>(
         ).storage_perm(),
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].ref_count() == REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            final(regions).ref_count(i) == REF_COUNT_UNUSED ==> final(regions).slot_owners[i]
+                == old(regions).slot_owners[i],
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(regions).slot_owners[i].ref_count()
-                == REF_COUNT_UNUSED && final(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
+            i != frame_to_index(paddr) && old(regions).ref_count(i) == REF_COUNT_UNUSED
+                && final(regions).ref_count(i) != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].usage !is Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]

@@ -149,6 +149,25 @@ impl MetaRegionOwners {
         self.lemma_contains_valid_frame_paddr(paddr);
         self.slot_owners.tracked_borrow_mut(frame_to_index(paddr))
     }
+
+    /// The metadata region transition of claiming a currently shared slot.
+    pub open spec fn inc_frame_reference_region_spec(self, paddr: Paddr, post: Self) -> bool {
+        let idx = frame_to_index(paddr);
+        let pre_owner = self.slot_owners[idx];
+        let post_owner = post.slot_owners[idx];
+        {
+            &&& post.ref_count(idx) == self.ref_count(idx) + 1
+            &&& post_owner.ref_count_perm.id() == pre_owner.ref_count_perm.id()
+            &&& post_owner.metadata_perm.id() == pre_owner.metadata_perm.id()
+            &&& post_owner.metadata_perm.frac() + 1 == pre_owner.metadata_perm.frac()
+            &&& post_owner.metadata_perm@ == pre_owner.metadata_perm@
+            &&& post_owner.in_list_perm == pre_owner.in_list_perm
+            &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
+            &&& post_owner.usage == pre_owner.usage
+            &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
+            &&& post =~= self.insert_slot_owner(paddr, post_owner)
+        }
+    }
 }
 
 } // verus!
