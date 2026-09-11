@@ -1,6 +1,9 @@
+use core::marker::PhantomData;
+
 use vstd::cell::CellId;
 
-use vstd::{prelude::*, simple_pptr};
+use vstd::prelude::*;
+use vstd::simple_pptr::{self, PPtr, PointsTo};
 use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{
@@ -40,7 +43,7 @@ impl<M: ?Sized> Frame<M> {
     }
 
     /// Accessor for the [`MetaSlot`] permission tracked by this `Frame` handle.
-    pub open spec fn slot_perm(self) -> simple_pptr::PointsTo<MetaSlot> {
+    pub open spec fn slot_perm(self) -> PointsTo<MetaSlot> {
         *self.tracked_slot_perm@
     }
 
@@ -131,6 +134,23 @@ impl<M: ?Sized> Frame<M> {
         &&& s.contains(idx)
         &&& self.tracked_slot_perm@ == s.slots[idx]
         &&& self.frac_metadata_perm().id() == slot_own.metadata_perm.id()
+    }
+}
+
+impl<M: ?Sized> Frame<M> {
+    pub open spec fn from_raw_spec(
+        paddr: Paddr,
+        slot_perm: &'static PointsTo<MetaSlot>,
+        metadata_perm: Option<FracMetadataPerm>,
+    ) -> Self {
+        Frame::<M> {
+            ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_slot_perm: Tracked(slot_perm),
+            #[cfg(verus_keep_ghost_body)]
+            tracked_metadata_perm: Tracked(metadata_perm),
+        }
     }
 }
 

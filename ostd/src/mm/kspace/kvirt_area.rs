@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
 use vstd::prelude::*;
+use vstd::set_lib::FiniteRange;
 
 use vstd_extra::arithmetic::nat_align_down;
 use vstd_extra::assert;
@@ -696,7 +697,7 @@ impl KVirtArea {
         ||| pa_range.end % PAGE_SIZE != 0
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
-        ||| map_offset + vstd_extra::external::range::range_usize_len(pa_range) > area_size
+        ||| map_offset + usize::range_len(pa_range.start, pa_range.end) > area_size
     }
 
     /// Full panic condition for [`Self::map_untracked_frames`] = bounds OR OOM.
@@ -763,7 +764,7 @@ impl KVirtArea {
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
-            map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,
+            map_offset + usize::range_len(pa_range.start, pa_range.end) <= usize::MAX,
             forall|pa: Paddr, level: PagingLevel|
                 #[trigger]
                 <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(

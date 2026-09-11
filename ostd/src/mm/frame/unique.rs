@@ -246,12 +246,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(l =>
         with
             Tracked(owner): Tracked<&'a UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&'a MetaRegionOwners>,
         requires
             owner.inv(),
-            regions.inv(),
             self.inv(),
-            self.wf_with_region(*owner, *regions),
+            self.wf(*owner),
+            self.meta_wf(*owner),
         ensures
             self.meta_value(*owner) == l,
     )]
@@ -280,12 +279,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(res =>
         with
             Tracked(owner): Tracked<&'a mut UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&'a mut MetaRegionOwners>,
         requires
-            old(self).wf_with_region(*owner, *old(regions)),
             old(self).inv(),
+            old(self).wf(*owner),
+            old(self).meta_wf(*owner),
             owner.inv(),
-            regions.inv(),
         ensures
             *res == old(self).meta_value(*old(owner)),
             *final(res) == final(self).meta_value(*final(owner)),
@@ -297,26 +295,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(owner).inv(),
             final(self).meta_wf(*final(owner)),
             (*final(self)).wf(*final(owner)),
-            final(regions).inv(),
-            final(regions).slots == old(regions).slots,
-            final(regions).slots.dom() == old(regions).slots.dom(),
-            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-            forall|j: int|
-                #![trigger final(regions).slot_owners[j]]
-                j != old(owner).slot_index
-                    ==> final(regions).slot_owners[j] == old(regions).slot_owners[j],
-            final(regions).slot_owners[final(owner).slot_index].slot_vaddr
-                == old(regions).slot_owners[old(owner).slot_index].slot_vaddr,
-            final(regions).slot_owners[final(owner).slot_index].usage
-                == old(regions).slot_owners[old(owner).slot_index].usage,
-            final(regions).slot_owners[final(owner).slot_index].ref_count_perm
-                == old(regions).slot_owners[old(owner).slot_index].ref_count_perm,
-            final(regions).slot_owners[final(owner).slot_index].in_list_perm
-                == old(regions).slot_owners[old(owner).slot_index].in_list_perm,
-            final(regions).slot_owners[final(owner).slot_index].paths_in_pt
-                == old(regions).slot_owners[old(owner).slot_index].paths_in_pt,
-            <M as OwnerOf>::wf(final(self).meta_value(*final(owner)), final(owner).meta_own)
-                ==> final(self).wf_with_region(*final(owner), *final(regions)),
     )]
     pub fn meta_mut<'a>(&'a mut self) -> &'a mut M {
         let tracked points_to = *self.tracked_slot_perm.borrow();
