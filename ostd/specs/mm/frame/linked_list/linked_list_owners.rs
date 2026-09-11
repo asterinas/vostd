@@ -295,7 +295,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         let value = self.meta_value_at(regions, i);
         &&& regions.contains(idx)
         &&& regions.slots[idx].addr() == self.list[i].paddr
-        &&& regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
+        &&& regions.ref_count(idx) == REF_COUNT_UNIQUE
         &&& regions.slot_owners[idx].metadata_perm.is_resource_vacant()
         &&& self.metadata_perms[i].storage_perm.id() == regions.slots[idx].value().storage.id()
         &&& self.metadata_perms[i].vtable_ptr_perm.pptr() == regions.slots[idx].value().vtable_ptr
@@ -397,7 +397,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let value = self.meta_value_at(regions, i);
                 &&& regions.contains(idx)
                 &&& regions.slots[idx].addr() == self.list[i].paddr
-                &&& regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
+                &&& regions.ref_count(idx) == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].metadata_perm.is_resource_vacant()
                 &&& self.metadata_perms[i].storage_perm.id()
                     == regions.slots[idx].value().storage.id()
@@ -441,7 +441,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& self.repr_perms.len() == self.list.len()
                 &&& self.metadata_perms.len() == self.list.len()
                 &&& regions.slots[idx].addr() == self.list[i].paddr
-                &&& regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
+                &&& regions.ref_count(idx) == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].metadata_perm.is_resource_vacant()
                 &&& self.metadata_perms[i].storage_perm.id()
                     == regions.slots[idx].value().storage.id()
@@ -551,7 +551,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].paddr
                     &&& fr.slots[i].pptr() == r0.slots[i].pptr()
-                    &&& fr.slot_owners[i].ref_count() == REF_COUNT_UNIQUE
+                    &&& fr.ref_count(i) == REF_COUNT_UNIQUE
                     &&& fr.slot_owners[i].metadata_perm.is_resource_vacant()
                     &&& new.metadata_perms[np].storage_perm.id() == fr.slots[i].value().storage.id()
                     &&& new.metadata_perms[np].vtable_ptr_perm.pptr()
@@ -685,7 +685,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& fr.slots[i].is_init()
         &&& fr.slots[i].addr() == old.list[p].paddr
         &&& fr.slots[i].pptr() == r0.slots[i].pptr()
-        &&& fr.slot_owners[i].ref_count() == REF_COUNT_UNIQUE
+        &&& fr.ref_count(i) == REF_COUNT_UNIQUE
         &&& fr.slot_owners[i].metadata_perm.is_resource_vacant()
         &&& self.metadata_perms[np].storage_perm.id() == fr.slots[i].value().storage.id()
         &&& self.metadata_perms[np].vtable_ptr_perm.pptr() == fr.slots[i].value().vtable_ptr
@@ -771,7 +771,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& fr.contains(ins)
                 &&& fr.slots[ins].is_init()
                 &&& fr.slots[ins].addr() == link.paddr
-                &&& fr.slot_owners[ins].ref_count() == REF_COUNT_UNIQUE
+                &&& fr.ref_count(ins) == REF_COUNT_UNIQUE
                 &&& fr.slot_owners[ins].metadata_perm.is_resource_vacant()
                 &&& new.metadata_perms[n].storage_perm.id() == fr.slots[ins].value().storage.id()
                 &&& new.metadata_perms[n].vtable_ptr_perm.pptr() == fr.slots[ins].value().vtable_ptr
