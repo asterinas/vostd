@@ -324,7 +324,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     k,
                 ),
             forall|idx: int|
-                #![trigger final(regions).ref_count(idx)]
+                #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx) == old(
                     regions,
                 ).ref_count(idx),
@@ -1568,7 +1568,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
-                #![trigger final(regions).ref_count(slot)]
+                #![trigger final(regions).slot_owners[slot].ref_count()]
                 final(regions).ref_count(slot) == old(
                     regions,
                 ).ref_count(slot),

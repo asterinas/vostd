@@ -284,11 +284,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 ==> final(regions).ref_count(idx) == old(regions).ref_count(idx)
                     && final(regions).slot_owners[idx].usage
                         == old(regions).slot_owners[idx].usage,
-            forall|idx: int| #![trigger final(regions).ref_count(idx)]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx) >= REF_COUNT_MAX
                 ==> old(regions).ref_count(idx)
                         == final(regions).ref_count(idx),
-            forall|idx: int| #![trigger old(regions).ref_count(idx)]
+            forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
                 old(regions).ref_count(idx)
                     >= REF_COUNT_MAX
                 ==> final(regions).ref_count(idx)
@@ -3027,11 +3027,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 idx != frame_to_index(C::item_into_raw(item).0) &&
                 old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
-            forall|idx: int| #![trigger final(regions).ref_count(idx)]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 old(regions).contains(idx) &&
                 old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
                 final(regions).ref_count(idx) != REF_COUNT_UNUSED,
-            forall|idx: int| #![trigger final(regions).ref_count(idx)]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 old(regions).contains(idx) &&
                 idx != frame_to_index(C::item_into_raw(item).0) &&
                 old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
@@ -3859,7 +3859,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 #![trigger final(regions).contains(idx)]
                 old(regions).contains(idx) ==> final(regions).contains(idx),
             forall|idx: int|
-                #![trigger final(regions).ref_count(idx)]
+                #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx) == old(regions).ref_count(idx),
             res is None ==> final(regions).slots == old(regions).slots,
             res is Some && res->0 is Mapped && new_owner.value().is_absent() ==> forall|idx: int|

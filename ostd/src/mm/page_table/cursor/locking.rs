@@ -82,12 +82,12 @@ broadcast use group_ghost_tree_lemmas;
                     == old(regions).ref_count(idx)
                 && final(regions).slot_owners[idx].usage
                     == old(regions).slot_owners[idx].usage,
-        forall|idx: int| #![trigger final(regions).ref_count(idx)]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
             final(regions).ref_count(idx)
                 >= REF_COUNT_MAX
             ==> old(regions).ref_count(idx)
                     == final(regions).ref_count(idx),
-        forall|idx: int| #![trigger old(regions).ref_count(idx)]
+        forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
             old(regions).ref_count(idx)
                 >= REF_COUNT_MAX
             ==> final(regions).ref_count(idx)
@@ -306,12 +306,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // already-saturated slots. Used by `KVirtArea::query` to bridge
         // the inner `Cursor::query`'s per-specific-slot saturation
         // condition back to the caller's `*old(regions)` snapshot.
-        forall|idx: int| #![trigger final(regions).ref_count(idx)]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
             final(regions).ref_count(idx)
                 >= REF_COUNT_MAX
             ==> old(regions).ref_count(idx)
                     == final(regions).ref_count(idx),
-        forall|idx: int| #![trigger old(regions).ref_count(idx)]
+        forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
             old(regions).ref_count(idx)
                 >= REF_COUNT_MAX
             ==> final(regions).ref_count(idx)

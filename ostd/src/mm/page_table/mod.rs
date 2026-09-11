@@ -1540,12 +1540,12 @@ impl<C: PageTableConfig> PageTable<C> {
                     != REF_COUNT_UNUSED
                 ==> final(regions).ref_count(i) + 1
                     < REF_COUNT_MAX),
-            forall|idx: int| #![trigger final(regions).ref_count(idx)]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx)
                     >= REF_COUNT_MAX
                 ==> old(regions).ref_count(idx)
                         == final(regions).ref_count(idx),
-            forall|idx: int| #![trigger old(regions).ref_count(idx)]
+            forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
                 old(regions).ref_count(idx)
                     >= REF_COUNT_MAX
                 ==> final(regions).ref_count(idx)
