@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
-use crate::specs::arch::PAGE_SIZE;
 use crate::specs::{
+    arch::PAGE_SIZE,
     mm::{io::VmIoOwner, virt_mem::VirtPtr},
     task::AnyAtomicGuard,
 };
-use vstd::prelude::*;
+use vstd::{arithmetic::power2::is_pow2, prelude::*};
+use vstd_extra::panic::UnwrapOrPanic;
 
 mod allocator;
 
@@ -60,7 +61,7 @@ impl IoMem {
 } // verus!
 #[verus_verify]
 impl HasPaddr for IoMem {
-    #[verus_spec(result => ensures result == self.paddr_spec())]
+    #[verus_spec(returns self.paddr_spec())]
     fn paddr(&self) -> Paddr {
         self.pa
     }
@@ -71,34 +72,36 @@ impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
     #[verus_spec(result =>
         requires
-            vstd::arithmetic::power2::is_pow2(PAGE_SIZE as int),
+            is_pow2(PAGE_SIZE as int),
             range.start < range.end,
             range.end <= usize::MAX - (PAGE_SIZE - 1),
             allocator::io_mem_range_registered(range),
+            vstd_extra::panic::may_panic(),
         ensures
-            result is Ok ==> result->Ok_0.paddr_spec() == range.start,
-            result is Ok ==> result->Ok_0.length_spec()
-                == range.end - range.start,
+            result matches Ok(io_mem) ==> {
+                &&& io_mem.paddr_spec() == range.start
+                &&& io_mem.length_spec() == range.end - range.start
+            },
     )]
     pub fn acquire(range: Range<Paddr>) -> Result<IoMem> {
         allocator::IO_MEM_ALLOCATOR
             .get()
             /* .unwrap() */
-            .ok_or(Error::AccessDenied)?
+            .unwrap_or_panic()
             .acquire(range)
             .ok_or(Error::AccessDenied)
     }
 
     /// Returns the physical address of the I/O memory.
     #[verus_verify]
-    #[verus_spec(result => ensures result == self.paddr_spec())]
+    #[verus_spec(returns self.paddr_spec())]
     pub fn paddr(&self) -> Paddr {
         self.pa
     }
 
     /// Returns the length of the I/O memory region.
     #[verus_verify]
-    #[verus_spec(result => ensures result == self.length_spec())]
+    #[verus_spec(returns self.length_spec())]
     pub fn length(&self) -> usize {
         self.limit
     }
@@ -146,7 +149,7 @@ impl IoMem {
     #[verifier::external_body]
     #[verus_spec(result =>
         requires
-            vstd::arithmetic::power2::is_pow2(PAGE_SIZE as int),
+            is_pow2(PAGE_SIZE as int),
             range.start <= range.end,
             range.end <= usize::MAX - (PAGE_SIZE - 1),
         ensures

@@ -2,7 +2,7 @@
 //! I/O Memory allocator.
 use crate::specs::arch::PAGE_SIZE;
 use crate::sync::{OnceImpl, TrivialPred};
-use vstd::prelude::*;
+use vstd::{arithmetic::power2::is_pow2, prelude::*};
 use vstd_extra::resource::flags::OneShotSet;
 
 use alloc::vec::Vec;
@@ -30,13 +30,15 @@ impl IoMemAllocator {
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
         requires
-            vstd::arithmetic::power2::is_pow2(PAGE_SIZE as int),
+            is_pow2(PAGE_SIZE as int),
             range.start < range.end,
             range.end <= usize::MAX - (PAGE_SIZE - 1),
             io_mem_range_registered(range),
         ensures
-            result is Some ==> result->Some_0.paddr_spec() == range.start,
-            result is Some ==> result->Some_0.length_spec() == range.end - range.start,
+            result matches Some(io_mem) ==> {
+                &&& io_mem.paddr_spec() == range.start
+                &&& io_mem.length_spec() == range.end - range.start
+            },
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         /* Original Rust:

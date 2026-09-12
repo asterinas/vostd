@@ -114,12 +114,13 @@ impl<T, A> IoPort<T, A> {
             port as usize + size_of::<T>() <= u16::MAX,
             allocator::io_port_allocator_initialized(),
         ensures
-            result is Ok ==> result->Ok_0@ == port,
-            result is Ok ==> result->Ok_0.well_formed(),
             result is Ok <==> claim@ is Some,
-            result is Ok ==> claim@->Some_0.instance_id() ==
-                allocator::io_port_allocator_instance_id(),
-            result is Ok ==> result->Ok_0.claim_matches_set(claim@->Some_0.set()),
+            result matches Ok(io_port) ==> {
+                &&& io_port@ == port
+                &&& io_port.well_formed()
+                &&& io_port.claim_matches_set(claim@->Some_0.set())
+                &&& claim@->Some_0.instance_id() == allocator::io_port_allocator_instance_id()
+            },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
         proof_decl! {

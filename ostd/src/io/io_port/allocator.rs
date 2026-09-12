@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
-use vstd::prelude::*;
-use vstd::resource::set::{GhostSetAuth, GhostSubset};
-use vstd::tokens::InstanceId;
+use vstd::{
+    prelude::*,
+    resource::set::{GhostSetAuth, GhostSubset},
+    tokens::InstanceId,
+};
 use vstd_extra::ownership::Inv;
 
 use core::ops::Range;
@@ -18,13 +20,6 @@ use crate::{
 };
 
 verus! {
-
-/// Opaque specification for the third-party one-time initialization primitive.
-#[verifier::external_type_specification]
-#[verifier::external_body]
-#[verifier::reject_recursive_types(T)]
-#[verifier::reject_recursive_types(R)]
-pub struct ExOnce<T, R>(spin::once::Once<T, R>);
 
 /// Identity assigned to the single global PIO allocator during trusted boot initialization.
 pub uninterp spec fn io_port_allocator_instance_id() -> InstanceId;
@@ -339,19 +334,6 @@ struct IoPortAllocatorInner {
     tracked_allocated: Tracked<IoPortAllocation>,
 }
 
-verus! {
-
-impl IoPortAllocatorInner {
-    pub closed spec fn type_inv(self) -> bool {
-        io_port_inner_inv_values(
-            self.tracked_allocated@.instance_id(),
-            self.tracked_allocated@.value(),
-            &self.allocator.inner,
-        )
-    }
-}
-
-} // verus!
 /// I/O port allocator that allocates port I/O access to device drivers.
 #[verus_verify]
 pub struct IoPortAllocator {
@@ -374,12 +356,13 @@ impl IoPortAllocator {
             port as usize + size_of::<T>() <= u16::MAX,
             io_port_allocator_initialized(),
         ensures
-            result is Some ==> result->Some_0@ == port,
-            result is Some ==> result->Some_0.well_formed(),
             result is Some <==> claim@ is Some,
-            result is Some ==> claim@->Some_0.instance_id() ==
-                io_port_allocator_instance_id(),
-            result is Some ==> result->Some_0.claim_matches_set(claim@->Some_0.set()),
+            result matches Some(io_port) ==> {
+                &&& io_port@ == port
+                &&& io_port.well_formed()
+                &&& io_port.claim_matches_set(claim@->Some_0.set())
+                &&& claim@->Some_0.instance_id() == io_port_allocator_instance_id()
+            },
     )]
     pub fn acquire<T, A>(&self, port: u16) -> Option<IoPort<T, A>> {
         let mut allocator = self.allocator.lock();

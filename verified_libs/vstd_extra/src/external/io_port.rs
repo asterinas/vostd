@@ -17,10 +17,10 @@ pub open spec fn valid_io_port_number(port: int) -> bool {
     0 <= port <= u16::MAX as int
 }
 
-/// Whether an access of type `T` is fully contained in the x86 I/O-port address space.
+/// Whether an access of type `T` fits in the PIO byte range `0..u16::MAX`.
 pub open spec fn valid_io_port_access<T>(port: int) -> bool {
     &&& valid_io_port_number(port)
-    &&& port + size_of::<T>() <= u16::MAX as int + 1
+    &&& port + size_of::<T>() <= u16::MAX as int
 }
 
 /// Opaque specification boundary for the third-party read/write access marker.
