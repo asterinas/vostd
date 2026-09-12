@@ -550,6 +550,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Depth-indexed PT-specific per-edge invariant. `depth` is a manifest
     /// fuel counter that decreases at each recursive call, so termination
     /// doesn't depend on tree structure.
+    #[verifier::opaque]
     pub open spec fn pt_inv_at_depth(self, depth: nat) -> bool
         decreases depth,
     {
@@ -588,6 +589,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         // la_inv + is_node() gives tree_level < L-1, so depth > 0 and the
         // node branch of pt_inv_at_depth fires.
+        reveal(PageTableOwner::pt_inv_at_depth);
         let depth = (INC_LEVELS - self.0.level()) as nat;
         assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::la_inv(
             self.0.value(),
@@ -603,6 +605,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             !self.0.has_child(i),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
     }
 
     /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
@@ -616,6 +619,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.pt_inv_at_depth(depth),
         decreases depth,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
     }
 
     /// `pt_inv` for a freshly-allocated PT node after `alloc_if_none`'s rebase.
@@ -648,6 +652,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             PageTableOwner(owner).pt_inv(),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         let depth = (INC_LEVELS - owner.level()) as nat;
         // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
@@ -1851,6 +1856,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.subtree_satisfies(root_path, Self::is_at_pred(entry, dest_path)),
         decreases INC_LEVELS - root_path.len(),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         if subtree.level() < INC_LEVELS - 1 {
             if subtree.value().is_node() {
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (
@@ -1890,6 +1896,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.subtree_satisfies(root_path, Self::path_in_tree_pred(dest_path)),
         decreases INC_LEVELS - root_path.len(),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         if subtree.level() < INC_LEVELS - 1 {
             if subtree.value().is_node() {
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (
@@ -2047,6 +2054,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases INC_LEVELS - path.len(),
     {
         broadcast use PageTableOwner::group_lemmas;
+
+        reveal(PageTableOwner::pt_inv_at_depth);
 
         if self.0.value().is_frame() {
             self.0.value()

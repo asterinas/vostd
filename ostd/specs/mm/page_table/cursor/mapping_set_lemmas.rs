@@ -199,6 +199,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             PageTableOwner(self.as_subtree()).pt_inv(),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         self.as_subtree_inv();
         let st = self.as_subtree();
         let depth = (INC_LEVELS - st.level()) as nat;
