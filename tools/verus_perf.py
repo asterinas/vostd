@@ -2,8 +2,10 @@
 """Parse Verus `--time-expanded` logs and compare two runs.
 
 Usage:
-    verus_perf.py parse  <log-file>                 # emit metrics JSON to stdout
-    verus_perf.py compare <baseline.json> <new.json> # emit markdown diff to stdout
+    verus_perf.py parse  <log-file>                  # emit metrics JSON to stdout
+    verus_perf.py compare <baseline.json> <new.json>  # emit markdown diff to stdout
+    verus_perf.py to-bm <metrics.json> [-o out.json]  # emit github-action-benchmark
+                                                      # custom JSON (rlimit series)
 
 A `cargo dv verify --targets ostd -- --time-expanded` run consists of several
 sequential Verus invocations. Each prints, per invocation:
@@ -26,6 +28,10 @@ _RESULTS = re.compile(r"verification results::\s*(\d+)\s+verified,\s*(\d+)\s+err
 _TOTAL_TIME = re.compile(r"^total-time:\s+(\d+)\s+ms")
 _SMT_RUN = re.compile(r"total smt-run:\s+(\d+)\s+ms,\s*([\d,]+)\s+rlimit")
 _MODULE = re.compile(r"^\s+\d+\.\s+(\S+)\s+(\d+)\s+ms,\s*([\d,]+)\s+rlimit")
+
+# Per-module series emitted to the benchmark chart (charts get unwieldy beyond
+# this; the full per-module breakdown still lives in `compare`).
+_TOP_MODULES = 15
 
 
 def parse(log_text):
@@ -77,6 +83,31 @@ def parse(log_text):
             for n, v in sorted(modules.items(), key=lambda kv: -kv[1]["rlimit"])
         ],
     }
+
+
+def to_benchmark(metrics):
+    """Convert parsed metrics into github-action-benchmark `customSmallerIsBetter`
+    entries. rlimit (deterministic) is the charted/alerted value; wall/smt-run
+    (jittery) and counts ride in `extra` tooltips so timer jitter can't raise
+    false alerts.
+    """
+    extra_total = (
+        f"verified={metrics['verified']} errors={metrics['errors']} "
+        f"smt-run={metrics['smt_run_ms']:,}ms wall={metrics['wall_ms']:,}ms"
+    )
+    entries = [
+        {"name": "total rlimit", "unit": "rlimit", "value": metrics["rlimit"], "extra": extra_total}
+    ]
+    for m in metrics.get("modules", [])[:_TOP_MODULES]:
+        entries.append(
+            {
+                "name": f"rlimit: {m['name']}",
+                "unit": "rlimit",
+                "value": m["rlimit"],
+                "extra": f"smt-run={m['smt_run_ms']:,}ms",
+            }
+        )
+    return entries
 
 
 def _pct(new, old):
@@ -168,6 +199,30 @@ def main(argv):
         with open(argv[3]) as f:
             candidate = json.load(f)
         print(compare(baseline, candidate))
+        return 0
+    if cmd == "to-bm":
+        out_path = None
+        positional = []
+        args = argv[2:]
+        i = 0
+        while i < len(args):
+            if args[i] == "-o" and i + 1 < len(args):
+                out_path = args[i + 1]
+                i += 2
+            else:
+                positional.append(args[i])
+                i += 1
+        if len(positional) != 1:
+            print("usage: verus_perf.py to-bm <metrics.json> [-o <out>]", file=sys.stderr)
+            return 2
+        with open(positional[0]) as f:
+            metrics = json.load(f)
+        text = json.dumps(to_benchmark(metrics), indent=2)
+        if out_path:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(text + "\n")
+        else:
+            print(text)
         return 0
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2

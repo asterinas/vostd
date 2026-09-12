@@ -1,16 +1,16 @@
 name: verify-perf
 
 # Records Verus verification cost with a SINGLE verify per run:
-#  - push to main / workflow_dispatch: verify the pushed commit, store its
-#    metrics in the actions cache by SHA; on the next push compare against the
-#    previously recorded measurement (read from cache, not recomputed).
+#  - push to main / workflow_dispatch: verify the pushed commit, compare it
+#    against the cached prior run for the job summary, AND append the run's
+#    rlimit to a gh-pages benchmark history (this repo, ONE gh-pages branch) for
+#    time-series charts + regression alerts (alert-threshold 120%, comment-only;
+#    rlimit is deterministic so timer jitter never raises a false alert).
 #  - PR comment `/verify-perf`: verify the PR's merge ref ONCE and compare
-#    against the last recorded main measurement (from the same `perf-metrics-*`
-#    cache); post the diff as a PR comment. Uses a throwaway cache key so it
-#    never overwrites main's recorded baseline.
+#    against the last recorded main measurement (from the `perf-metrics-*`
+#    cache); post the diff as a PR comment. Never writes to gh-pages.
 #
-# One verify per run either way. rlimit is deterministic (reliable);
-# wall-time / smt-run have run-to-run jitter.
+# One verify per run either way. Only the gh-pages branch is ever written.
 
 on:
   push:
@@ -30,8 +30,9 @@ on:
     types: [created]
 
 permissions:
-  contents: read
-  pull-requests: write
+  contents: write      # push benchmark history to the gh-pages branch
+  pull-requests: write # post /verify-perf comparison as a PR comment
+  deployments: write   # github-action-benchmark gh-pages deployment
 
 concurrency:
   # push: per-branch. issue_comment: per-PR (github.ref is the default branch
@@ -218,6 +219,28 @@ jobs:
             cat out/perf-report.md
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Convert metrics to benchmark format
+        if: github.event_name != 'issue_comment'
+        run: |
+          mkdir -p out
+          python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
+          cat out/benchmark.json
+
+      - name: Record benchmark on gh-pages
+        if: github.event_name != 'issue_comment'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: verify-perf
+          tool: customSmallerIsBetter
+          output-file-path: out/benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          alert-threshold: '120%'
+          comment-on-alert: true
+          summary-always: true
+
       - name: Comment the report on the PR
         if: github.event_name == 'issue_comment'
         env:
@@ -232,6 +255,7 @@ jobs:
           name: verify-perf-${{ github.run_id }}
           path: |
             out/perf-report.md
+            out/benchmark.json
             perf-store/metrics.json
             perf-baseline.json
           if-no-files-found: ignore
