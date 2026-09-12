@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 use vstd::resource::set::{GhostSetAuth, GhostSubset};
 use vstd::tokens::InstanceId;
-use vstd_extra::external::{id_alloc_capacity, id_alloc_view};
+use vstd_extra::ownership::Inv;
 
 use core::ops::Range;
 
@@ -29,12 +29,162 @@ pub struct ExOnce<T, R>(spin::once::Once<T, R>);
 /// Identity assigned to the single global PIO allocator during trusted boot initialization.
 pub uninterp spec fn io_port_allocator_instance_id() -> InstanceId;
 
-closed spec fn io_port_inner_inv_values(
+/// Allocated ids of a bitmap prefix `[0, end)`: `i` is in iff `s[i]`.
+pub(crate) closed spec fn id_alloc_bits(s: Seq<bool>, end: int) -> Set<usize>
+    decreases end,
+{
+    if end <= 0 {
+        Set::empty()
+    } else {
+        let rest = id_alloc_bits(s, end - 1);
+        if s[end - 1] {
+            rest.insert((end - 1) as usize)
+        } else {
+            rest
+        }
+    }
+}
+
+/// Set of ids currently allocated by `allocator`.
+pub(crate) open spec fn id_alloc_view(allocator: &IdAlloc) -> Set<usize> {
+    id_alloc_bits(allocator@, allocator@.len() as int)
+}
+
+/// Number of ids `allocator` can hold.
+pub(crate) open spec fn id_alloc_capacity(allocator: &IdAlloc) -> usize {
+    allocator@.len() as usize
+}
+
+/// Characterizes `id_alloc_bits`: `id_alloc_bits(s, end).contains(j)` holds exactly when
+/// `0 <= j < end` and `s[j]` is `true`.
+pub(crate) proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
+    requires
+        0 <= end,
+        end <= usize::MAX as int,
+        s.len() >= end,
+        0 <= (j as int),
+    ensures
+        id_alloc_bits(s, end).contains(j) == ((j as int) < end && s[j as int]),
+    decreases end,
+{
+    reveal(id_alloc_bits);
+    if end <= 0 {
+        assert(id_alloc_bits(s, end) =~= Set::empty());
+    } else {
+        lemma_id_alloc_bits_char(s, end - 1, j);
+        if (j as int) == end - 1 {
+            assert(id_alloc_bits(s, end - 1).contains(j) == (((j as int) < end - 1)
+                && s[j as int]));
+            assert(id_alloc_bits(s, end).contains(j) == s[end - 1]);
+            assert(s[j as int] == s[end - 1]);
+        } else {
+            // j != end-1: the bit folded in at (end-1) is distinct from j.
+            assert(id_alloc_bits(s, end - 1).contains(j) == (((j as int) < end - 1)
+                && s[j as int]));
+            assert(((end - 1) as usize) as int == end - 1);
+            assert(j != (end - 1) as usize);
+            if s[end - 1] {
+                assert(id_alloc_bits(s, end - 1).insert((end - 1) as usize).contains(j)
+                    == id_alloc_bits(s, end - 1).contains(j));
+            }
+            assert(id_alloc_bits(s, end).contains(j) == id_alloc_bits(s, end - 1).contains(j));
+            assert(((j as int) < end - 1 && s[j as int]) == ((j as int) < end && s[j as int]));
+        }
+    }
+}
+
+/// For an in-bounds id, `id_alloc_view` membership coincides with the allocated bitmap bit.
+pub(crate) proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
+    requires
+        allocator.inv(),
+        (id as int) < allocator@.len(),
+        allocator@.len() <= usize::MAX as int,
+    ensures
+        id_alloc_view(allocator).contains(id) == allocator@[id as int],
+{
+    lemma_id_alloc_bits_char(allocator@, allocator@.len() as int, id);
+}
+
+/// Derives the set-level postcondition of `alloc_specific` from its bitmap postcondition.
+pub(crate) proof fn lemma_alloc_specific_view(
+    old_a: &IdAlloc,
+    final_a: &IdAlloc,
+    id: usize,
+    res: Option<usize>,
+)
+    requires
+        old_a.inv(),
+        final_a.inv(),
+        (id as int) < old_a@.len(),
+        old_a@.len() <= usize::MAX as int,
+        final_a@.len() == old_a@.len(),
+        res is None ==> old_a@[id as int] && final_a@ == old_a@,
+        res is Some ==> final_a@ == old_a@.update(id as int, true) && !old_a@[id as int],
+        res is Some ==> res == Some(id),
+    ensures
+        id_alloc_view(final_a) == id_alloc_view(old_a).insert(id),
+        id_alloc_view(old_a).subset_of(id_alloc_view(final_a)),
+        id_alloc_view(old_a).contains(id) ==> res is None,
+        !id_alloc_view(old_a).contains(id) ==> res == Some(id),
+{
+    let old_len: int = old_a@.len() as int;
+    assert forall|j: usize|
+        id_alloc_view(final_a).contains(j) == (id_alloc_view(old_a).insert(id)).contains(j) by {
+        lemma_id_alloc_bits_char(old_a@, old_len, j);
+        lemma_id_alloc_bits_char(final_a@, final_a@.len() as int, j);
+        if res is Some {
+            assert forall|jj: int|
+                #![trigger final_a@[jj]]
+                final_a@[jj] == (if jj == id as int {
+                    true
+                } else {
+                    old_a@[jj]
+                }) by {
+                assert(final_a@ == old_a@.update(id as int, true));
+            }
+        } else {
+            assert(final_a@ == old_a@);
+            assert(old_a@[id as int]);
+        }
+    }
+    assert forall|j: usize|
+        #![trigger id_alloc_view(old_a).contains(j)]
+        id_alloc_view(old_a).contains(j) implies id_alloc_view(final_a).contains(j) by {
+        lemma_id_alloc_bits_char(old_a@, old_len, j);
+        lemma_id_alloc_bits_char(final_a@, final_a@.len() as int, j);
+        if res is Some {
+            assert forall|jj: int|
+                #![trigger final_a@[jj]]
+                final_a@[jj] == (if jj == id as int {
+                    true
+                } else {
+                    old_a@[jj]
+                }) by {
+                assert(final_a@ == old_a@.update(id as int, true));
+            }
+        } else {
+            assert(final_a@ == old_a@);
+        }
+    }
+    lemma_id_alloc_bits_char(old_a@, old_len, id);
+    assert(id_alloc_view(old_a).contains(id) == old_a@[id as int]);
+    if res is Some {
+        assert(!old_a@[id as int]);
+        assert(res == Some(id));
+    } else {
+        assert(old_a@[id as int]);
+    }
+}
+
+/// Representation invariant of `IoPortAllocatorInner`.
+pub(crate) open spec fn io_port_inner_inv_values(
     allocated_instance_id: InstanceId,
     allocated: Set<usize>,
     allocator: &IdAlloc,
 ) -> bool {
     &&& allocated_instance_id == io_port_allocator_instance_id()
+    &&& allocator.inv()
+    &&& allocator@.len() == crate::arch::io::MAX_IO_PORT as int
     &&& allocated.subset_of(id_alloc_view(allocator))
     &&& id_alloc_capacity(allocator) == crate::arch::io::MAX_IO_PORT as usize
 }
@@ -57,6 +207,8 @@ impl ModeledIdAlloc {
             id < id_alloc_capacity(&old(self).inner),
             io_port_inner_inv_values(allocated_instance_id, preserved, &old(self).inner),
         ensures
+            final(self).inner.inv(),
+            final(self).inner@.len() == crate::arch::io::MAX_IO_PORT as int,
             id_alloc_capacity(&final(self).inner) == id_alloc_capacity(&old(self).inner),
             id_alloc_view(&final(self).inner) == id_alloc_view(&old(self).inner).insert(id),
             id_alloc_view(&old(self).inner).subset_of(id_alloc_view(&final(self).inner)),
@@ -68,10 +220,27 @@ impl ModeledIdAlloc {
             ),
             id_alloc_view(&old(self).inner).contains(id) ==> result is None,
             !id_alloc_view(&old(self).inner).contains(id) ==> result == Some(id),
-        no_unwind
     )]
     fn alloc_specific(&mut self, id: usize) -> Option<usize> {
-        self.inner.alloc_specific(id)
+        proof! {
+            assert(id < id_alloc_capacity(&old(self).inner));
+            assert(id_alloc_capacity(&old(self).inner)
+                == crate::arch::io::MAX_IO_PORT as usize);
+            assert(old(self).inner@.len() == crate::arch::io::MAX_IO_PORT as int);
+            assert((id as int) < old(self).inner@.len());
+        }
+        let res = self.inner.alloc_specific(id);
+        proof! {
+            assert(self.inner@.len() == old(self).inner@.len());
+            assert(self.inner@.len() == crate::arch::io::MAX_IO_PORT as int);
+            assert(self.inner.inv());
+            assert(old(self).inner@.len() <= usize::MAX as int);
+            lemma_alloc_specific_view(&old(self).inner, &self.inner, id, res);
+            assert(id_alloc_capacity(&self.inner) == id_alloc_capacity(&old(self).inner));
+            assert(preserved.subset_of(id_alloc_view(&self.inner)));
+            assert(io_port_inner_inv_values(allocated_instance_id, preserved, &self.inner));
+        }
+        res
     }
 }
 
@@ -137,6 +306,16 @@ impl IoPortAllocation {
     {
         self.auth.delete(claim.subset);
     }
+
+    /// Certifies `claim.set() <= self.value()` (the claim's ids are currently allocated).
+    pub proof fn claim_includes(tracked &self, tracked claim: &IoPortClaim)
+        requires
+            claim.instance_id() == self.instance_id(),
+        ensures
+            claim.set() <= self.value(),
+    {
+        claim.subset.agree(&self.auth);
+    }
 }
 
 impl IoPortClaim {
@@ -163,7 +342,6 @@ struct IoPortAllocatorInner {
 verus! {
 
 impl IoPortAllocatorInner {
-    #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         io_port_inner_inv_values(
             self.tracked_allocated@.instance_id(),
@@ -194,6 +372,7 @@ impl IoPortAllocator {
             vstd::layout::size_of::<T>() <= u16::MAX,
             size_of::<T>() <= u16::MAX,
             port as usize + size_of::<T>() <= u16::MAX,
+            io_port_allocator_initialized(),
         ensures
             result is Some ==> result->Some_0@ == port,
             result is Some ==> result->Some_0.well_formed(),
@@ -206,7 +385,7 @@ impl IoPortAllocator {
         let mut allocator = self.allocator.lock();
         let allocator_inner = &mut *allocator;
         proof! {
-            use_type_invariant(&*allocator_inner);
+            lemma_io_port_alloc_init(&*allocator_inner);
         }
         let mut range = port..(port + size_of::<T>() as u16);
         // `Iterator::any` with a capturing closure is not supported by Verus.
@@ -215,15 +394,29 @@ impl IoPortAllocator {
         let mut already_allocated = false;
         #[verus_spec(scan_iter =>
             invariant
-                allocator_inner.type_inv(),
+                allocator_inner.allocator.inner.inv(),
+                allocator_inner.allocator.inner@.len()
+                    == crate::arch::io::MAX_IO_PORT as int,
                 !already_allocated ==> forall|id: usize|
                     range.start as usize <= id <
                         (range.start as int + scan_iter.index()) as usize ==>
                         !id_alloc_view(&allocator_inner.allocator.inner).contains(id),
         )]
         for i in range.clone() {
+            proof! {
+                assert((i as usize) < allocator_inner.allocator.inner@.len()) by {
+                    assert((i as usize) < range.end as usize);
+                    assert((range.end as usize) <= u16::MAX as usize);
+                    assert((u16::MAX as usize) <= crate::arch::io::MAX_IO_PORT as usize);
+                    assert(allocator_inner.allocator.inner@.len()
+                        == crate::arch::io::MAX_IO_PORT as int);
+                }
+            }
             if allocator_inner.allocator.inner.is_allocated(i as usize) {
                 already_allocated = true;
+            }
+            proof! {
+                lemma_id_alloc_view_contains(&allocator_inner.allocator.inner, i as usize);
             }
         }
         proof_decl! {
@@ -272,6 +465,9 @@ impl IoPortAllocator {
         }
         #[verus_spec(allocation_iter =>
             invariant
+                allocator_inner.allocator.inner.inv(),
+                allocator_inner.allocator.inner@.len()
+                    == crate::arch::io::MAX_IO_PORT as int,
                 range.end as usize <= id_alloc_capacity(&allocator_inner.allocator.inner),
                 allocator_inner.tracked_allocated@.instance_id() ==
                     io_port_allocator_instance_id(),
@@ -357,6 +553,7 @@ impl IoPortAllocator {
             claim.instance_id() == io_port_allocator_instance_id(),
             claim.set() =~= port_id_set(range.start as usize, range.end as usize),
             range.start <= range.end,
+            io_port_allocator_initialized(),
     )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<u16>) {
         /* debug!("Recycling MMIO range: {:#x?}", range); */
@@ -369,9 +566,20 @@ impl IoPortAllocator {
         let mut allocator = self.allocator.lock();
         let allocator_inner = &mut *allocator;
         proof! {
-            use_type_invariant(&*allocator_inner);
+            lemma_io_port_alloc_init(&*allocator_inner);
             assert(range.start as usize <= range.end as usize);
             assert(claim.instance_id() == allocator_inner.tracked_allocated@.instance_id());
+            allocator_inner.tracked_allocated.borrow().claim_includes(&claim);
+            assert(port_id_set(range.start as usize, range.end as usize)
+                <= allocator_inner.tracked_allocated@.value());
+            assert(port_id_set(range.start as usize, range.end as usize)
+                <= id_alloc_view(&allocator_inner.allocator.inner));
+            assert((range.end as usize) <= allocator_inner.allocator.inner@.len()) by {
+                assert((range.end as usize) <= u16::MAX as usize);
+                assert((u16::MAX as usize) <= crate::arch::io::MAX_IO_PORT as usize);
+                assert(allocator_inner.allocator.inner@.len()
+                    == crate::arch::io::MAX_IO_PORT as int);
+            }
             allocator_inner.tracked_allocated.borrow_mut().release(claim);
             assert forall|id: usize|
                 #[trigger] allocator_inner.tracked_allocated@.value().contains(id) implies {
@@ -383,6 +591,27 @@ impl IoPortAllocator {
                     range.end as usize,
                     id,
                 );
+            }
+            assert forall|i: int|
+                range.start as usize <= i
+                    && i < allocator_inner.allocator.inner@.len()
+                    && i < range.end as usize implies
+                allocator_inner.allocator.inner@[i]
+            by {
+                assert(0 <= i);
+                assert(i < allocator_inner.allocator.inner@.len());
+                assert(allocator_inner.allocator.inner@.len() <= usize::MAX as int);
+                assert(i <= usize::MAX as int);
+                assert((i as usize) as int == i);
+                lemma_port_id_set_contains(
+                    range.start as usize,
+                    range.end as usize,
+                    i as usize,
+                );
+                assert(port_id_set(range.start as usize, range.end as usize).contains(i as usize));
+                assert(id_alloc_view(&allocator_inner.allocator.inner).contains(i as usize));
+                lemma_id_alloc_view_contains(&allocator_inner.allocator.inner, i as usize);
+                assert(allocator_inner.allocator.inner@[i]);
             }
         }
         allocator_inner
@@ -400,6 +629,20 @@ verus! {
 /// Verus cannot currently mention an `exec static` in a specification, so this predicate is the
 /// explicit specification boundary for the architecture's guarantee that [`init`] ran first.
 pub uninterp spec fn io_port_allocator_initialized() -> bool;
+
+/// Trusted: once `init` has run, the global allocator's inner satisfies its invariant.
+#[verifier::external_body]
+proof fn lemma_io_port_alloc_init(inner: &IoPortAllocatorInner)
+    requires
+        io_port_allocator_initialized(),
+    ensures
+        io_port_inner_inv_values(
+            inner.tracked_allocated@.instance_id(),
+            inner.tracked_allocated@.value(),
+            &inner.allocator.inner,
+        ),
+{
+}
 
 } // verus!
 pub(super) static IO_PORT_ALLOCATOR: Once<IoPortAllocator> = Once::new();

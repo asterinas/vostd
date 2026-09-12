@@ -36,8 +36,7 @@ impl IoMemAllocator {
             io_mem_range_registered(range),
         ensures
             result is Some ==> result->Some_0.paddr_spec() == range.start,
-            result is Some ==> result->Some_0.length_spec()
-                == vstd_extra::external::range::range_usize_len_spec(&range),
+            result is Some ==> result->Some_0.length_spec() == range.end - range.start,
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         /* Original Rust:

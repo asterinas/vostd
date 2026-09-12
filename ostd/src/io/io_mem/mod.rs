@@ -78,7 +78,7 @@ impl IoMem {
         ensures
             result is Ok ==> result->Ok_0.paddr_spec() == range.start,
             result is Ok ==> result->Ok_0.length_spec()
-                == vstd_extra::external::range::range_usize_len_spec(&range),
+                == range.end - range.start,
     )]
     pub fn acquire(range: Range<Paddr>) -> Result<IoMem> {
         allocator::IO_MEM_ALLOCATOR
@@ -131,8 +131,7 @@ impl IoMem {
         Self {
             kvirt_area: self.kvirt_area.clone(),
             offset: self.offset + range.start,
-            /* limit: range.len(), */
-            limit: vstd_extra::external::range::range_usize_len(&range),
+            limit: range.len(),
             pa: self.pa + range.start,
         }
     }
@@ -153,7 +152,7 @@ impl IoMem {
         ensures
             result.paddr_spec() == range.start,
             result.length_spec()
-                == vstd_extra::external::range::range_usize_len_spec(&range),
+                == range.end - range.start,
     )]
     pub(crate) unsafe fn new(range: Range<Paddr>, flags: PageFlags, cache: CachePolicy) -> Self {
         let first_page_start = range.start.align_down(PAGE_SIZE);
