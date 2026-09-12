@@ -20,7 +20,16 @@ jobs:
       (github.event.issue.pull_request &&
        contains(github.event.comment.body, '/ci-upstream-verus') &&
        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-14
     env:
       CARGO_TERM_COLOR: always
 
@@ -52,7 +61,7 @@ jobs:
               repo,
               sha: '${{ steps.pr.outputs.head_sha }}',
               state: 'pending',
-              context: 'ci/upstream-verus',
+              context: 'ci/upstream-verus (${{ matrix.os }})',
               description: 'Upstream Verus verification is running',
               target_url: runUrl,
             });
@@ -63,15 +72,21 @@ jobs:
           ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.ref }}
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt update -qq
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
       - name: Run dv bootstrap with upstream verus
+        # macOS stays informational until the `--upstream-verus` from-source
+        # build is validated there (z3/llvm deps may be missing on the runner).
+        continue-on-error: ${{ matrix.os == 'macos-14' }}
         run: cargo dv bootstrap --upstream-verus
 
       - name: Verify ostd with upstream verus
+        id: verify
+        continue-on-error: ${{ matrix.os == 'macos-14' }}
         run: make
 
       - name: Report upstream Verus verification status
@@ -83,8 +98,9 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const state = '${{ job.status }}' === 'success' ? 'success' : 'failure';
-            const description = state === 'success'
+            const ok = '${{ steps.verify.outcome }}' === 'success';
+            const state = ok ? 'success' : 'failure';
+            const description = ok
               ? 'Upstream Verus verification passed'
               : 'Upstream Verus verification failed';
 
@@ -93,7 +109,7 @@ jobs:
               repo,
               sha: '${{ steps.pr.outputs.head_sha }}',
               state,
-              context: 'ci/upstream-verus',
+              context: 'ci/upstream-verus (${{ matrix.os }})',
               description,
               target_url: runUrl,
             });
