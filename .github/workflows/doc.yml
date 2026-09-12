@@ -1,13 +1,19 @@
 name: Deploy Rust docs to GitHub Pages
 
+# Deploys rustdoc to GitHub Pages. To keep the verify-perf benchmark chart
+# fresh, this runs AFTER `verify-perf` completes (workflow_run), so the
+# benchmark's `dev/bench/` is already on the gh-pages branch when we embed it
+# into the artifact — no stale-chart race. PRs build only; manual deploys via
+# workflow_dispatch.
+
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
   workflow_dispatch:
+  workflow_run:
+    workflows: ["verify-perf"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -15,16 +21,22 @@ permissions:
   id-token: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
+    # Only build on PR/dispatch, or on a workflow_run triggered by a *push* to
+    # main verify-perf (skip PR-comment `/verify-perf` runs).
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          # workflow_run runs on the default branch's workflow file; build the
+          # exact commit verify-perf ran on.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           submodules: recursive
 
       - name: Install dependencies
@@ -111,8 +123,30 @@ jobs:
       - name: Build docs
         run: make doc
 
+      # Pull this run's `dev/bench/` (just pushed by verify-perf on the
+      # gh-pages branch) into the rustdoc artifact so the benchmark chart is
+      # served at <site>/dev/bench/.
+      - name: Embed verify-perf benchmark into the doc artifact
+        run: |
+          set -e
+          if ! git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            echo "no gh-pages branch yet; benchmark not embedded"
+            exit 0
+          fi
+          git checkout FETCH_HEAD -- dev/bench || { echo "no dev/bench on gh-pages; skipping"; exit 0; }
+          mkdir -p doc/dev
+          mv dev/bench doc/dev/bench
+          rmdir dev 2>/dev/null || true
+          echo "embedded dev/bench into the doc artifact:"
+          ls doc/dev/bench
+
       - name: Upload artifact
-        if: github.event_name != 'pull_request' && github.repository == 'asterinas/vostd'
+        # Deploy on dispatch, and on a workflow_run only if verify-perf
+        # *succeeded* (don't publish docs/benchmark from a failed perf run).
+        if: >
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_run' ||
+           github.event.workflow_run.conclusion == 'success')
         uses: actions/upload-pages-artifact@v5
         with:
           path: doc
@@ -122,7 +156,10 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
-    if: github.event_name != 'pull_request' && github.repository == 'asterinas/vostd'
+    if: >
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
