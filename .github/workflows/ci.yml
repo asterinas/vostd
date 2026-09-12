@@ -14,9 +14,21 @@ on:
         required: true
         default: "main"
 
+permissions:
+  contents: read
+
 jobs:
   format-and-verify:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-14
     env:
       CARGO_TERM_COLOR: always
 
@@ -26,17 +38,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt update -qq
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
       - name: Get Rust toolchain version
-        id: rust-toolchain
         run: |
           RUST_VERSION=$(grep 'channel' rust-toolchain.toml | sed -E 's/.*= *"(.*)"/\1/')
           if [ -z "$RUST_VERSION" ]; then
-            echo "Failed to extract Rust version from rust-toolchain.toml"
+            echo "Failed to extract the Rust version from rust-toolchain.toml" >&2
             exit 1
           fi
           echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
@@ -119,7 +131,7 @@ jobs:
           fi
 
       - name: Check for verification warnings
-        if: always()
+        if: always() && runner.os == 'Linux'
         run: |
           WARNINGS=(
             "note: automatically chose triggers for this expression:|auto-trigger notes"
@@ -146,11 +158,11 @@ jobs:
           fi
 
       - name: Run format
-        if: always()
+        if: always() && runner.os == 'Linux'
         run: make fmt
 
       - name: Check for formatting changes
-        if: always()
+        if: always() && runner.os == 'Linux'
         run: |
           if [[ -n $(git status --porcelain) ]]; then
             echo "Code is not properly formatted. Run 'make fmt'."
@@ -163,7 +175,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "# CI Summary"
+            echo "# CI Summary (${{ matrix.os }})"
             if [[ "${FMT_FAILED:-0}" == "1" ]]; then
               echo "- Formatting: ❌ failed"
             else
