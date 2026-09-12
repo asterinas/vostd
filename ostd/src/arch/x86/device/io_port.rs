@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port access.
+pub use vstd_extra::external::{valid_io_port_access, valid_io_port_number};
+
 pub use x86_64::{
     instructions::port::{
         PortReadAccess as IoPortReadAccess, PortWriteAccess as IoPortWriteAccess, ReadOnlyAccess,

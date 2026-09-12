@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! PCI device Information
+use vstd::prelude::*;
+
 use core::iter;
 
-use super::cfg_space::PciDeviceCommonCfgOffset;
+/*use super::cfg_space::PciDeviceCommonCfgOffset;*/
 
+/*
 /// PCI device ID
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PciDeviceId {
@@ -48,8 +51,10 @@ impl PciDeviceId {
         }
     }
 }
+*/
 
 /// PCI device Location
+#[verus_verify]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PciDeviceLocation {
     /// Bus number

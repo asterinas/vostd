@@ -9,6 +9,8 @@ pub mod convert;
 pub mod deref;
 pub mod ilog2;
 pub mod int_specs;
+#[cfg(target_arch = "x86_64")]
+pub mod io_port;
 pub mod iter;
 pub mod nonnull;
 pub mod ptr;
@@ -22,6 +24,8 @@ pub use btree::*;
 pub use cmp::*;
 pub use ilog2::*;
 pub use int_specs::*;
+#[cfg(target_arch = "x86_64")]
+pub use io_port::*;
 pub use iter::*;
 pub use nonnull::*;
 pub use ptr::*;

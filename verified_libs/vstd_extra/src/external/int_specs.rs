@@ -27,6 +27,15 @@ pub assume_specification[ u32::is_power_of_two ](self_: u32) -> (r: bool)
     no_unwind
 ;
 
+/// On a little-endian target, converting a native-endian `u32` to little endian is the identity.
+#[cfg(target_endian = "little")]
+pub assume_specification[ u32::to_le ](value: u32) -> (result: u32)
+    returns
+        value,
+    opens_invariants none
+    no_unwind
+;
+
 pub assume_specification[ u64::is_power_of_two ](self_: u64) -> (r: bool)
     returns
         is_pow2(self_ as int),
