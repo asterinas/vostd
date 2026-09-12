@@ -1,0 +1,243 @@
+name: verify-perf
+
+# Records Verus verification cost with a SINGLE verify per run:
+#  - push to main / workflow_dispatch: verify the pushed commit, store its
+#    metrics in the actions cache by SHA; on the next push compare against the
+#    previously recorded measurement (read from cache, not recomputed).
+#  - PR comment `/verify-perf`: verify the PR's merge ref ONCE and compare
+#    against the last recorded main measurement (from the same `perf-metrics-*`
+#    cache); post the diff as a PR comment. Uses a throwaway cache key so it
+#    never overwrites main's recorded baseline.
+#
+# One verify per run either way. rlimit is deterministic (reliable);
+# wall-time / smt-run have run-to-run jitter.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-perf.yml"
+      - "tools/verus_perf.py"
+      - "dv"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "ostd/**"
+      - "verified_libs/vstd_extra/**"
+      - "rust-toolchain.toml"
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # push: per-branch. issue_comment: per-PR (github.ref is the default branch
+  # for comment events, so the issue number keeps different PRs' runs from
+  # cancelling each other).
+  group: verify-perf-${{ github.workflow }}-${{ github.ref }}-${{ github.event.issue.number || 'push' }}
+  cancel-in-progress: true
+
+jobs:
+  record-and-compare:
+    if: >
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/verify-perf') &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # push: the pushed commit. issue_comment: the PR's merge ref.
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.sha }}
+          submodules: recursive
+
+      - name: Record which commit was checked out
+        run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -qq
+          sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
+
+      - name: Get Rust toolchain version
+        run: |
+          RUST_VERSION=$(grep 'channel' rust-toolchain.toml | sed -E 's/.*= *"(.*)"/\1/')
+          if [ -z "$RUST_VERSION" ]; then
+            echo "Failed to extract the Rust version from rust-toolchain.toml" >&2
+            exit 1
+          fi
+          echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/tmp
+          key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_VERSION }}
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Get Verus and dv commits
+        run: |
+          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
+          echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
+          DV_COMMIT=$(git rev-parse HEAD:dv)
+          echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
+
+      - name: Cache dv build artifacts
+        uses: actions/cache@v6
+        with:
+          path: dv/target
+          key: ${{ runner.os }}-dv-${{ env.DV_COMMIT }}
+
+      - name: Cache Verus
+        id: cache-verus
+        uses: actions/cache@v6
+        with:
+          path: tools/verus
+          key: ${{ runner.os }}-verus-${{ env.VERUS_COMMIT }}
+
+      - name: Cache verusfmt
+        id: cache-verusfmt
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/verusfmt
+          key: ${{ runner.os }}-verusfmt-${{ env.VERUS_COMMIT }}
+
+      - name: Bootstrap Verus (if needed)
+        run: |
+          if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
+            echo "Using cached Verus"
+          else
+            rm -rf tools/verus
+            cargo dv bootstrap
+          fi
+          if ! command -v verusfmt >/dev/null 2>&1; then
+            cargo dv bootstrap
+          fi
+
+      # On push, the cache key is perf-metrics-<sha> (records the measurement
+      # for the next run). On a PR comment the key is a throwaway
+      # perf-prtmp-<comment-id> so this run's PR metrics are never read back as
+      # a baseline; the `restore-keys` prefix still finds the last recorded
+      # main measurement to compare against.
+      - name: Restore prior measurement (baseline)
+        id: baseline
+        uses: actions/cache@v6
+        with:
+          path: perf-store
+          key: ${{ github.event_name == 'issue_comment' && format('perf-prtmp-{0}', github.event.comment.id) || format('perf-metrics-{0}', github.sha) }}
+          restore-keys: |
+            perf-metrics-
+
+      - name: Save aside the baseline (if any)
+        run: |
+          if [[ -f perf-store/metrics.json ]]; then
+            BASELINE_SHA=$(cat perf-store/source-sha.txt 2>/dev/null || echo unknown)
+            echo "BASELINE_SHA=$BASELINE_SHA" >> "$GITHUB_ENV"
+            mv perf-store/metrics.json perf-baseline.json
+            echo "Baseline: $BASELINE_SHA"
+          else
+            echo "No prior measurement cached; nothing to compare against yet."
+          fi
+
+      - name: Verify with --time-expanded
+        run: |
+          set +e
+          cargo dv verify --targets ostd -- --time-expanded \
+            > "$RUNNER_TEMP/verify-time-expanded.log" 2>&1
+          VERIFY_EXIT=$?
+          set -e
+          echo "::group::verification results"
+          grep -E "verification results::|^error:" "$RUNNER_TEMP/verify-time-expanded.log" | tail -20 || true
+          echo "::endgroup::"
+          if [[ "$VERIFY_EXIT" -ne 0 ]]; then
+            echo "::error::verification failed (exit $VERIFY_EXIT)"
+            exit 1
+          fi
+
+      - name: Parse cost metrics
+        run: |
+          mkdir -p perf-store
+          python3 tools/verus_perf.py parse "$RUNNER_TEMP/verify-time-expanded.log" > perf-store/metrics.json
+          echo "$CUR_SHA" > perf-store/source-sha.txt
+          cat perf-store/metrics.json
+
+      - name: Compare against the prior measurement
+        run: |
+          mkdir -p out
+          if [[ -f perf-baseline.json ]]; then
+            if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+              HEADER="PR \`/verify-perf\`: this PR's merge ref (\`$CUR_SHA\`) vs last recorded main (\`${BASELINE_SHA:-unknown}\`)."
+            else
+              HEADER="Comparing this push (\`$CUR_SHA\`) against the prior measurement (\`${BASELINE_SHA:-unknown}\`)."
+            fi
+            {
+              echo "## Verification cost"
+              echo
+              echo "$HEADER"
+              echo
+              python3 tools/verus_perf.py compare perf-baseline.json perf-store/metrics.json
+            } > out/perf-report.md
+          else
+            {
+              echo "## Verification cost: first recorded baseline"
+              echo
+              if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+                echo "No prior main measurement is cached yet (run \`verify-perf\` on main once first), so nothing to compare against. Recording this PR's cost (\`$CUR_SHA\`):"
+              else
+                echo "No prior measurement was cached. This run (\`$CUR_SHA\`) records the baseline; the next push will compare against it."
+              fi
+              echo
+              echo '```'
+              cat perf-store/metrics.json
+              echo '```'
+            } > out/perf-report.md
+          fi
+          cat out/perf-report.md
+          {
+            cat out/perf-report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the report on the PR
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ github.event.issue.number }}" --body-file out/perf-report.md
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-perf-${{ github.run_id }}
+          path: |
+            out/perf-report.md
+            perf-store/metrics.json
+            perf-baseline.json
+          if-no-files-found: ignore
+
+      # The "Restore prior measurement (baseline)" cache step's post-action
+      # saves perf-store/ (this run's metrics.json + source-sha):
+      #  - push  -> key perf-metrics-<sha>  (the next run's baseline)
+      #  - PR comment -> key perf-prtmp-<comment-id> (throwaway; restore-keys
+      #    only reads perf-metrics-*, so it never pollutes main's baseline)
