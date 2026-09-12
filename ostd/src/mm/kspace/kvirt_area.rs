@@ -388,6 +388,7 @@ impl KVirtArea {
         self.range.end
     }
 
+    #[verus_spec(returns self.range)]
     pub fn range(&self) -> Range<Vaddr> {
         self.range.start..self.range.end
     }
@@ -485,6 +486,8 @@ impl KVirtArea {
                     *old(regions),
                 ),
         ensures
+            final(regions).inv(),
+            res.inv(),
             !Self::map_frames_panic_condition(area_size, map_offset, frames.len()),
     )]
     #[verifier::spinoff_prover]
@@ -500,10 +503,10 @@ impl KVirtArea {
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         assert!(range_res.is_ok());
         let range = range_res.unwrap();
-        assume(range.end > 0);
 
         proof {
             kvirt_alloc_range_bounds(area_size, map_offset, range);
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
         }
 
         let cursor_range = range.start + map_offset..range.end;
@@ -511,7 +514,6 @@ impl KVirtArea {
         proof {
             // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
             // tightened bound still satisfies lemma_kernel_range_valid's precondition.
-            assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
             if cursor_range.start < cursor_range.end {
                 lemma_kernel_range_valid(cursor_range);
             }
@@ -533,19 +535,6 @@ impl KVirtArea {
 
         assert!(cursor_res.is_ok());
         let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
-
-        proof {
-            assert forall|i: int| 0 <= i < frames.len() implies CursorMut::<
-                'a,
-                KernelPtConfig,
-                A,
-            >::item_slot_in_regions(MappedItem::Tracked(#[trigger] frames[i], prop), *regions) by {
-                let item_i = MappedItem::Tracked(frames[i], prop);
-                let pa_i = KernelPtConfig::item_into_raw(item_i).0;
-                let idx_i = frame_to_index(pa_i);
-                assert(regions.contains(idx_i));
-            };
-        }
 
         for frame in it: frames.into_iter()
             invariant
@@ -646,23 +635,6 @@ impl KVirtArea {
             // preserved at non-mapped non-UNUSED indices, and at the mapped
             // index ref_count > 0 is preserved (covers duplicates). slots
             // keys are monotonic across map.
-            proof {
-                let cur_pa = KernelPtConfig::item_into_raw(item).0;
-                let cur_pa_idx = frame_to_index(cur_pa);
-                assert forall|i: int| (it.index() + 1) <= i < it.seq().len() implies CursorMut::<
-                    'a,
-                    KernelPtConfig,
-                    A,
-                >::item_slot_in_regions(
-                    MappedItem::Tracked(#[trigger] it.seq()[i], prop),
-                    *regions,
-                ) by {
-                    let item_i = MappedItem::Tracked(it.seq()[i], prop);
-                    let pa_i = KernelPtConfig::item_into_raw(item_i).0;
-                    let idx_i = frame_to_index(pa_i);
-                };
-            }
-
             proof {
                 let cur_idx = frame_to_index(cur_mapped_pa);
 
