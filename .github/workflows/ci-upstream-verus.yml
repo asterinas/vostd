@@ -84,6 +84,18 @@ jobs:
         continue-on-error: ${{ matrix.os == 'macos-14' }}
         run: cargo dv bootstrap --upstream-verus
 
+      - name: Merge pending upstream verus PRs and rebuild verus
+        working-directory: tools/verus
+        continue-on-error: ${{ matrix.os == 'macos-14' }}
+        run: |
+          git remote add upstream https://github.com/verus-lang/verus.git || true
+          git fetch upstream pull/2921/head:pr-2921
+          git config user.name "VOSTD CI Bot"
+          git config user.email "ci@asterinas.vostd"
+          git merge pr-2921 --no-edit
+          cd "$GITHUB_WORKSPACE"
+          cargo dv bootstrap --upstream-verus
+
       - name: Verify ostd with upstream verus
         id: verify
         continue-on-error: ${{ matrix.os == 'macos-14' }}
