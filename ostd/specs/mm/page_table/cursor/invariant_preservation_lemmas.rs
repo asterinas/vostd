@@ -181,7 +181,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
-        reveal(CursorOwner::path_metaregion_sound);
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -212,6 +211,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         self.map_children_implies(f_strong, g);
 
+        reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
@@ -434,7 +434,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
-        reveal(CursorOwner::path_metaregion_sound);
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -465,6 +464,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         self.map_children_implies(f_strong, g);
 
+        reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i

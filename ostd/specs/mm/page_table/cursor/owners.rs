@@ -147,9 +147,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.take_child().1.inv(),
     {
-        reveal(CursorContinuation::inv_children);
-        reveal(CursorContinuation::inv_children_rel);
-        reveal(CursorContinuation::pt_inv_children);
     }
 
     pub open spec fn make_cont(self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (Self, Self) {
@@ -2299,7 +2296,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
-        reveal(CursorOwner::path_metaregion_sound);
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
@@ -2355,7 +2351,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 );
             };
         };
-
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     /// Continuation entry_owns satisfy `metaregion_sound`.

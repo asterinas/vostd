@@ -4268,19 +4268,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 final_cont.map_children_lift_skip_idx(cont0, idx as int, f_sound, g_sound);
             }
 
-            assert(OwnerSubtree::implies(f_unlocked, f_unlocked));
             final_cont.map_children_lift_skip_idx(cont0, idx as int, f_unlocked, f_unlocked);
-            assert forall|i: int|
-                #![trigger owner.continuations[i]]
-                owner.level - 1 <= i < NR_LEVELS implies owner.continuations[i].map_children(
-                f_unlocked,
-            ) by {
-                if i == owner.level - 1 {
-                    assert(owner.continuations[i] == final_cont);
-                } else {
-                    assert(owner.continuations[i] == owner0.continuations[i]);
-                }
-            };
             assert(owner.children_not_locked(guards_initial));
 
             assert(owner.path_metaregion_sound(*regions)) by {
@@ -4318,7 +4306,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(eo.path.len() as nat == owner0.continuations[i].tree_level);
                         assert(old_child_pre_replace.path.len() == cont0.tree_level + 1);
                         eo.nodes_different_path_lengths_neq_slot(old_child_pre_replace, regions0);
-                        assert(g_sound(eo, owner0.continuations[i].path()));
                     }
                     assert(g_sound(eo, owner0.continuations[i].path()));
                     let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
@@ -4636,17 +4623,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         };
         assert(!owner.popped_too_high);
 
-        assert(owner.inv());
-        assert(self.0.inv());
         assert(self.0.wf(*owner)) by {
             reveal(<CursorOwner as Inv>::inv);
         };
-        assert(regions.inv());
-        assert(owner.children_not_locked(*guards));
         assert(owner.nodes_locked(*guards)) by {
             reveal(CursorOwner::nodes_locked);
         };
-        assert(owner.metaregion_sound(*regions));
 
         result
     }
