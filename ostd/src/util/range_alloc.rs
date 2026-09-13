@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{prelude::*, resource::Loc};
+use vstd::{prelude::*, resource::Loc, std_specs::btree::before_lower_bound};
 use vstd_extra::{
     debug_assert,
-    external::btree::*,
     panic::UnwrapOrPanic,
     resource::flags::{OneShotPending, OneShotSet},
     resource_invariant::ResourceInvariant,
@@ -69,7 +68,7 @@ pub struct RangeAllocError;
 
 verus! {
 
-broadcast use {group_btree_extra_axioms, vstd::std_specs::btree::group_btree_axioms};
+broadcast use vstd::std_specs::btree::group_btree_axioms;
 
 impl View for RangeAllocator {
     type V = Range<int>;

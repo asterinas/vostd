@@ -19,6 +19,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  statuses: write   # post ci/doc commit status for workflow_run runs
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha || github.ref }}
@@ -31,6 +32,29 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
+      # workflow_run runs get no native commit badge; post one manually.
+      - name: Mark doc CI as pending
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
+        uses: actions/github-script@v9
+        env:
+          STATUS_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: process.env.STATUS_SHA,
+              state: 'pending',
+              context: 'ci/doc',
+              description: 'Docs build is running',
+              target_url: runUrl,
+            });
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
@@ -165,3 +189,37 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  report:
+    # Post a `ci/doc` status for push-triggered workflow_run runs (no native badge).
+    # `if: always()` so a failed build still flips pending -> failure.
+    if: always() && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push'
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report doc status on the commit
+        continue-on-error: true
+        uses: actions/github-script@v9
+        env:
+          STATUS_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            const buildResult = '${{ needs.build.result }}';
+            const deployResult = '${{ needs.deploy.result }}';
+            // deploy is skipped when docs aren't published (e.g. failed upstream verify-perf) -- not a failure.
+            const ok = buildResult === 'success' &&
+              (deployResult === 'success' || deployResult === 'skipped');
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: process.env.STATUS_SHA,
+              state: ok ? 'success' : 'failure',
+              context: 'ci/doc',
+              description: ok ? 'Docs CI succeeded' : 'Docs CI failed',
+              target_url: runUrl,
+            });
