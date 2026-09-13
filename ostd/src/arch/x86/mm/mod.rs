@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(dead_code)]
 
-use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS};
 use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
 use vstd_extra::panic::may_panic;
@@ -15,12 +14,18 @@ use core::ops::Range;
 pub(crate) use util::{__memcpy_fallible, __memset_fallible};
 //use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
 
-use crate::specs::arch::PAGE_SIZE;
+macro_rules! x86_base_page_size {
+    () => {
+        4096usize
+    };
+}
+pub(crate) use x86_base_page_size;
+
 use crate::{
     mm::{
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
         page_table::{PageTableEntryTrait, PageTableFrag},
-        Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
+        CurrentPagingConstsTrait, Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr, MAX_PADDR,
     },
     Pod,
 };
@@ -28,6 +33,28 @@ use crate::{
 mod util;
 
 verus! {
+
+/// Size of a base page on x86-64.
+pub const PAGE_SIZE: usize = x86_base_page_size!();
+
+/// Size of an x86-64 page-table entry.
+pub const PTE_SIZE: usize = 8;
+
+/// Number of entries in an x86-64 page-table node.
+pub const NR_ENTRIES: usize = 512;
+
+/// Number of translation levels used by the current x86-64 configuration.
+pub const NR_LEVELS: usize = 4;
+
+/// Width of canonical virtual addresses used by the current configuration.
+pub const ADDRESS_WIDTH: usize = 48;
+
+/// Highest level at which a PTE may directly map a page.
+pub const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 2;
+
+/// Whether virtual addresses use sign extension.
+pub const VA_SIGN_EXT: bool = true;
+
 #[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Clone, Debug, Default)]
 pub struct PagingConsts {}
@@ -36,83 +63,96 @@ impl PagingConstsTrait for PagingConsts {
     // Expansion for BASE_PAGE_SIZE
     #[verifier::inline]
     open spec fn BASE_PAGE_SIZE_spec() -> usize {
-        4096
+        PAGE_SIZE
     }
 
     #[inline(always)]
     fn BASE_PAGE_SIZE() -> usize
     {
-        4096
+        PAGE_SIZE
     }
 
     // Expansion for NR_LEVELS
     #[verifier::inline]
     open spec fn NR_LEVELS_spec() -> PagingLevel {
-        4
+        NR_LEVELS as PagingLevel
     }
 
     #[inline(always)]
     fn NR_LEVELS() -> PagingLevel
     {
-        4
+        NR_LEVELS as PagingLevel
     }
 
     // Expansion for ADDRESS_WIDTH
     #[verifier::inline]
     open spec fn ADDRESS_WIDTH_spec() -> usize {
-        48
+        ADDRESS_WIDTH
     }
 
     #[inline(always)]
     fn ADDRESS_WIDTH() -> usize
     {
-        48
+        ADDRESS_WIDTH
     }
 
     // Expansion for HIGHEST_TRANSLATION_LEVEL
     #[verifier::inline]
     open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
-        2
+        HIGHEST_TRANSLATION_LEVEL
     }
 
     #[inline(always)]
     fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
     {
-        2
+        HIGHEST_TRANSLATION_LEVEL
     }
 
     #[verifier::inline]
     open spec fn VA_SIGN_EXT_spec() -> bool {
-        true
+        VA_SIGN_EXT
     }
 
     #[inline(always)]
     fn VA_SIGN_EXT() -> bool {
-        true
+        VA_SIGN_EXT
     }
 
     // Expansion for PTE_SIZE
     #[verifier::inline]
     open spec fn PTE_SIZE_spec() -> usize {
-        8
+        PTE_SIZE
     }
 
     #[inline(always)]
     fn PTE_SIZE() -> (res: usize)
     {
-        8
+        PTE_SIZE
     }
 
     proof fn lemma_paging_consts_requirements()
     {
+        assert(Self::BASE_PAGE_SIZE() == PAGE_SIZE) by (compute_only);
+        assert(Self::NR_LEVELS() == NR_LEVELS as PagingLevel) by (compute_only);
+        assert(Self::PTE_SIZE() == PTE_SIZE) by (compute_only);
+        assert(Self::ADDRESS_WIDTH() == ADDRESS_WIDTH) by (compute_only);
         lemma_pow2_is_pow2_to64();
         lemma2_to64();
         lemma2_to64_rest();
-        assert(usize::BITS == 64) by (compute);
+
         vstd::layout::unsigned_int_max_values();
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
+    }
+}
+
+impl CurrentPagingConstsTrait for PagingConsts {
+    proof fn lemma_current_paging_consts_requirements() {
+        Self::lemma_paging_consts_requirements();
+        assert(Self::BASE_PAGE_SIZE() == PAGE_SIZE) by (compute_only);
+        assert(Self::NR_LEVELS() == NR_LEVELS as PagingLevel) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES) by (compute_only);
     }
 }
 
@@ -392,7 +432,6 @@ impl PageTableEntryTrait for PageTableEntry {
     fn paddr(&self) -> Paddr {
         proof {
             self.lemma_paddr_is_page_aligned();
-            assume(self.0 & Self::PHYS_ADDR_MASK < MAX_PADDR);
         }
         self.0 & Self::PHYS_ADDR_MASK
     }
