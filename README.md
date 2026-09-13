@@ -5,7 +5,7 @@
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
 > [!NOTE]
-> This repository is currently in a transitional state: the components under `ostd/src/sync` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+> This repository is currently in a transitional state: the components under `ostd/src/sync` and `ostd/libs/id-alloc` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
 
 ## Overview
 

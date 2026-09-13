@@ -191,6 +191,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "id-alloc"
+version = "0.1.0"
+dependencies = [
+ "bitvec",
+ "vstd",
+ "vstd_extra",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,6 +319,7 @@ dependencies = [
  "fdt",
  "gimli 0.28.1",
  "iced-x86",
+ "id-alloc",
  "inherit-methods-macro",
  "log",
  "loongArch64",
@@ -662,6 +672,7 @@ dependencies = [
 name = "vstd_extra"
 version = "0.1.0"
 dependencies = [
+ "bitvec",
  "vstd",
 ]
 

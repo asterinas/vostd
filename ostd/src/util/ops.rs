@@ -87,6 +87,11 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
 #[verus_spec(ret =>
     requires
         obeys_cmp::<T>(),
+        T::clone.requires((&a.start,)),
+        T::clone.requires((&a.end,)),
+        T::clone.requires((&b.start,)),
+        T::clone.requires((&b.end,)),
+        forall|x: T, cloned: T| #[trigger] T::clone.ensures((&x,), cloned) ==> cloned == x,
         finite_range_matches_ord::<T>(),
     ensures
         ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {

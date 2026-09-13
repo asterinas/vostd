@@ -7,21 +7,15 @@ use core::ops::{Range, RangeInclusive};
 
 verus! {
 
-/// Whether a `Range<usize>` is empty. Malformed ranges (`start > end`) are empty.
-pub open spec fn range_usize_is_empty_spec(r: &Range<usize>) -> bool {
-    !(r.start < r.end)
-}
-
-/// Exec-mode `is_empty` for a `Range<usize>`: use in place of `r.is_empty()`
-/// which needs `Idx: PartialOrd<Idx>` bound that doesn't round-trip cleanly
-/// through `assume_specification`.
-#[verifier::when_used_as_spec(range_usize_is_empty_spec)]
-pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
+/// `Range::clone` clones each field via `Idx::clone`; each field's clone
+/// `ensures` (guarded by its `requires`) applies to `res.start`/`res.end`.
+pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
     ensures
-        ret == range_usize_is_empty_spec(r),
-{
-    !(r.start < r.end)
-}
+        Idx::clone.requires((&range.start,)) && Idx::clone.requires((&range.end,)) ==> {
+            &&& Idx::clone.ensures((&range.start,), res.start)
+            &&& Idx::clone.ensures((&range.end,), res.end)
+        },
+;
 
 /// See [`Range::is_empty`](https://doc.rust-lang.org/std/ops/struct.Range.html#method.is_empty).
 pub assume_specification<Idx: PartialOrd<Idx>>[ Range::<Idx>::is_empty ](r: &Range<Idx>) -> (res:

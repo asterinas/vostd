@@ -2,7 +2,7 @@
 //!
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
-pub mod btree;
+mod bitvec;
 pub mod cmp;
 pub mod convert;
 pub mod deref;
@@ -16,7 +16,7 @@ pub mod slice;
 pub mod smart_ptr;
 pub mod time;
 
-pub use btree::*;
+pub use bitvec::*;
 pub use cmp::*;
 pub use ilog2::*;
 pub use int_specs::*;

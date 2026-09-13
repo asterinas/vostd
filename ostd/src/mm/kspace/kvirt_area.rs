@@ -371,8 +371,7 @@ impl KVirtArea {
         let pa = v.query_mapping().pa_range.start;
         let idx = frame_to_index(pa);
         ||| !(self.range.start <= addr < self.range.end)
-        ||| (v.present() && !is_mmio_paddr(pa) && regions.slot_owners[idx].ref_count()
-            >= REF_COUNT_MAX)
+        ||| (v.present() && !is_mmio_paddr(pa) && regions.ref_count(idx) >= REF_COUNT_MAX)
     }
 
     pub fn start(&self) -> Vaddr
@@ -613,7 +612,7 @@ impl KVirtArea {
                 cursor_owner.va.reflect_prop(cursor.0.va);
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
                 lemma_va_align_page_size_level_1(cursor.0.va);
-                cursor_owner.locked_range_page_aligned();
+                cursor_owner.lemma_locked_range_page_aligned();
                 let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                     nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
@@ -726,7 +725,7 @@ impl KVirtArea {
             pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                 let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                 &&& regions.contains(idx)
-                &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                &&& regions.ref_count(idx) != REF_COUNT_UNUSED
             }
     }
 
@@ -826,7 +825,7 @@ impl KVirtArea {
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     &&& regions.contains(idx)
-                    &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                    &&& regions.ref_count(idx) != REF_COUNT_UNUSED
                 } by {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     assert(regions.contains(idx));
@@ -876,7 +875,7 @@ impl KVirtArea {
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                             &&& regions.contains(idx)
-                            &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
+                            &&& regions.ref_count(idx) != REF_COUNT_UNUSED
                         },
             {
                 let pos: Ghost<int> = Ghost(it.index() as int);
@@ -911,7 +910,7 @@ impl KVirtArea {
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
                 // Valid because the cursor is `in_locked_range` here (required by `cursor.map`).
                 proof {
-                    cursor_owner.va_plus_page_size_no_overflow(level);
+                    cursor_owner.lemma_va_plus_page_size_no_overflow(level);
                 }
 
                 // Save ghost copy of regions before map for post-map invariant maintenance.

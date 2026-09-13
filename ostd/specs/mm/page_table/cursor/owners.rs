@@ -139,6 +139,17 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert(cont.put_child(child).children == self.children);
     }
 
+    /// Taking a child preserves the continuation invariant.
+    pub proof fn take_child_preserves_inv(self)
+        requires
+            self.inv(),
+            self.idx < self.children.len(),
+            self.children[self.idx as int] is Some,
+        ensures
+            self.take_child().1.inv(),
+    {
+    }
+
     pub open spec fn make_cont(self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (Self, Self) {
         let child = Self {
             entry_own: self.children[self.idx as int]->0.value(),
@@ -237,6 +248,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         Self { entry_own, idx, tree_level, children, path: TreePath::new(Seq::empty()), guard }
     }
 
+    /// Every present child subtree satisfies `f` at its corresponding tree path.
+    #[verifier::opaque]
     pub open spec fn map_children(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -245,6 +258,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             #![trigger(self.children[i])]
             0 <= i < self.children.len() ==> self.children[i] is Some
                 ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f)
+    }
+
+    /// Extracts one child's property without exposing the sibling quantifier.
+    pub proof fn lemma_map_children_unroll(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        i: int,
+    )
+        requires
+            self.map_children(f),
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+        ensures
+            self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f),
+    {
+        reveal(CursorContinuation::map_children);
     }
 
     // map_children_lift, map_children_lift_skip_idx, as_subtree_restore
@@ -257,7 +286,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.children.all(|child: Option<OwnerSubtree<C>>| child is Some ==> child->0.inv())
     }
 
-    pub proof fn inv_children_unroll(self, i: int)
+    pub proof fn lemma_inv_children_unroll(self, i: int)
         requires
             self.inv_children(),
             0 <= i < self.children.len(),
@@ -269,7 +298,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert(pred(self.children[i]));
     }
 
-    pub proof fn inv_children_unroll_all(self)
+    pub proof fn lemma_inv_children_unroll_all(self)
         requires
             self.inv_children(),
         ensures
@@ -282,7 +311,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|i: int|
             0 <= i < self.children.len()
                 && #[trigger] self.children[i] is Some implies self.children[i].unwrap().inv() by {
-            self.inv_children_unroll(i)
+            self.lemma_inv_children_unroll(i)
         }
     }
 
@@ -314,7 +343,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         forall_seq(self.children, Self::pt_inv_children_pred())
     }
 
-    pub proof fn pt_inv_children_unroll(self, i: int)
+    pub proof fn lemma_pt_inv_children_unroll(self, i: int)
         requires
             self.pt_inv_children(),
             0 <= i < self.children.len(),
@@ -324,7 +353,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     {
     }
 
-    pub proof fn inv_children_rel_unroll(self, i: int)
+    pub proof fn lemma_inv_children_rel_unroll(self, i: int)
         requires
             self.inv_children_rel(),
             0 <= i < self.children.len(),
@@ -477,7 +506,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     /// modifying it (protect/alloc/split), and restoring `entry_own.node = Some(parent_owner)`,
     /// `rel_children` holds for any `entry_own` that has `node == Some(parent_owner)` and the
     /// correct `path`.
-    pub proof fn rel_children_from_node_matching(
+    pub proof fn lemma_rel_children_from_node_matching(
         entry: &Entry<'_, 'rcu, C>,
         child_value: EntryOwner<C>,
         parent_owner: NodeOwner<C>,
@@ -512,7 +541,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     /// Operations that take/restore (alloc_if_none, split_if_mapped_huge,
     /// protect, replace) all preserve the parent's other PTEs and the
     /// children at `j != idx`.
-    pub proof fn continuation_inv_holds_after_child_restore(
+    pub proof fn lemma_continuation_inv_holds_after_child_restore(
         self,
         cont_old: Self,
         parent_old: NodeOwner<C>,
@@ -580,7 +609,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     {
     }
 
-    pub proof fn new_child(
+    pub proof fn tracked_new_child(
         tracked &self,
         paddr: Paddr,
         prop: PageProperty,
@@ -864,13 +893,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.map_only_children(Self::node_unlocked(guards))
     }
 
+    pub proof fn lemma_children_not_locked_unroll(self, guards: Guards)
+        requires
+            self.children_not_locked(guards),
+        ensures
+            forall|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(
+                    Self::node_unlocked(guards),
+                ),
+    {
+    }
+
     pub open spec fn only_current_locked(self, guards: Guards) -> bool {
         self.map_only_children(
             Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_vaddr()),
         )
     }
 
-    pub proof fn never_drop_restores_children_not_locked(
+    pub proof fn lemma_never_drop_restores_children_not_locked(
         self,
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards,
@@ -897,7 +938,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// After dropping the guard for the popped level, `nodes_locked` is preserved
     /// for the new (higher-level) owner, because the dropped guard's address is not
     /// among those checked by `nodes_locked` (which covers levels >= self.level - 1).
-    pub proof fn never_drop_restores_nodes_locked(
+    pub proof fn lemma_never_drop_restores_nodes_locked(
         self,
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards,
@@ -1003,12 +1044,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old(self).va.index_increment_adds_page_size(old(self).level as int);
 
         if old(self).popped_too_high {
-            old(self).in_locked_range_prefix_match();
+            old(self).lemma_in_locked_range_prefix_match();
         }
         assert(self.va.inv());
     }
 
-    pub proof fn inv_continuation(self, i: int)
+    pub proof fn lemma_inv_continuation(self, i: int)
         requires
             self.inv(),
             self.level - 1 <= i <= NR_LEVELS - 1,
@@ -1117,7 +1158,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// `item_from_raw` always returns a freshly-constructed `Frame<M>` handle whose
     /// `Frame::<M>::clone_requires` unfolds to slot-address equality, initialisation, and a
     /// bounded ref-count — all delivered by `metaregion_sound` for frame entries.
-    pub proof fn cur_frame_clone_requires(
+    pub proof fn lemma_cur_frame_clone_requires(
         self,
         item: C::Item,
         pa: Paddr,
@@ -1147,15 +1188,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
-        self.cur_subtree_inv();
+        self.lemma_cur_subtree_inv();
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
         assert(entry.inv_base());
+        let cont = self.continuations[self.level - 1];
+        cont.lemma_map_children_unroll(
+            PageTableOwner::<C>::metaregion_sound_pred(regions),
+            cont.idx as int,
+        );
         C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
     }
 
     /// Incrementing the ref count of the current frame preserves `regions.inv()` and
     /// `self.metaregion_sound(new_regions)`.
-    pub proof fn clone_item_preserves_invariants(
+    pub proof fn lemma_clone_item_preserves_invariants(
         self,
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
@@ -1170,8 +1216,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old_regions.slot_owners.contains_key(idx),
             new_regions.slot_owners.contains_key(idx),
             // rc at idx is incremented by 1
-            new_regions.slot_owners[idx].ref_count() == old_regions.slot_owners[idx].ref_count()
-                + 1,
+            new_regions.ref_count(idx) == old_regions.ref_count(idx) + 1,
             // All other inner_perms fields at idx are identical (same tracked object)
             new_regions.slot_owners[idx].ref_count_perm.id()
                 == old_regions.slot_owners[idx].ref_count_perm.id(),
@@ -1198,18 +1243,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // in the valid `[1, REF_COUNT_MAX]` range. The `<=` form (vs strict `<`)
             // matches what callers actually have: post-`clone_item`, the new rc is
             // bounded by the slot's `inv()` (which permits `rc == REF_COUNT_MAX`).
-            0 < old_regions.slot_owners[idx].ref_count(),
-            old_regions.slot_owners[idx].ref_count() + 1 <= REF_COUNT_MAX,
+            0 < old_regions.ref_count(idx),
+            old_regions.ref_count(idx) + 1 <= REF_COUNT_MAX,
         ensures
             new_regions.inv(),
             self.metaregion_sound(new_regions),
     {
-        self.metaregion_slot_owners_rc_increment(old_regions, new_regions, idx);
+        self.lemma_metaregion_slot_owners_rc_increment(old_regions, new_regions, idx);
     }
 
     /// A new frame subtree at the current position has mappings equal to the singleton
     /// mapping covering the current slot range.
-    pub proof fn new_child_mappings_eq_target(
+    pub proof fn lemma_new_child_mappings_eq_target(
         self,
         new_subtree: OwnerSubtree<C>,
         pa: Paddr,
@@ -1251,7 +1296,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let va_path = self.va.to_path(self.level - 1);
             self.va.to_path_len(self.level - 1);
             self.va.to_path_inv(self.level - 1);
-            self.cur_subtree_inv();
+            self.lemma_cur_subtree_inv();
             assert forall|i: int| 0 <= i < path.len() implies path[i] == va_path[i] by {
                 self.va.to_path_index(self.level - 1, i);
             };
@@ -1295,57 +1340,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.to_vaddr() >= self.locked_range().end
     }
 
-    /// After incrementing at guard_level, the new VA >= locked_range.end.
-    pub proof fn inc_at_guard_level_above_locked_range(
-        old_va: AbstractVaddr,
-        prefix: AbstractVaddr,
-        guard_level: u8,
-        level: u8,
-        new_va_val: Vaddr,
-    )
-        requires
-            old_va.inv(),
-            prefix.inv(),
-            1 <= guard_level <= NR_LEVELS,
-            level == guard_level,
-            new_va_val == old_va.to_vaddr() + page_size(level as PagingLevel),
-            prefix.align_down(guard_level as int).to_vaddr() <= old_va.to_vaddr(),
-            old_va.to_vaddr() < prefix.align_up(guard_level as int).to_vaddr(),
-            // Overflow bound needed for `aligned_align_up_advances` on align_down(gl).
-            prefix.align_down(guard_level as int).to_vaddr() + page_size(guard_level as PagingLevel)
-                <= usize::MAX,
-        ensures
-            new_va_val >= prefix.align_up(guard_level as int).to_vaddr(),
-    {
-        let ps_gl = page_size(guard_level as PagingLevel);
-        lemma_page_size_ge_page_size(guard_level as PagingLevel);
-        let aligned = prefix.align_down(guard_level as int);
-        prefix.align_down_concrete(guard_level as int);
-        prefix.align_down_shape(guard_level as int);
-
-        // `aligned = prefix.align_down(gl)` is ps_gl-aligned (align_down_shape gives
-        // offset == 0, indices [0, gl-1) all 0 — note index[gl-1] is preserved from prefix).
-        // Wait: align_down_shape only gives indices [0, gl-2) == 0 (i.e., 0..level-1 in
-        // the 0-indexed array). For ps_gl-alignment we need offset = 0 AND index[0..gl-2] = 0.
-        // align_down_shape gives both. So aligned is ps_gl-aligned.
-        assert(aligned.to_vaddr() as nat % ps_gl as nat == 0) by {
-            vstd_extra::arithmetic::lemma_nat_align_down_sound(
-                prefix.to_vaddr() as nat,
-                ps_gl as nat,
-            );
-            prefix.to_vaddr_bounded();
-            aligned.reflect_prop(nat_align_down(prefix.to_vaddr() as nat, ps_gl as nat) as Vaddr);
-        };
-        // aligned.align_up(gl).to_vaddr() == aligned.to_vaddr() + ps_gl.
-        aligned.aligned_align_up_advances(guard_level as int);
-        // Bridge: aligned.align_up(gl) == prefix.align_up(gl), since prefix.align_up(gl)
-        // is defined as prefix.align_down(gl).next_index(gl) == aligned.next_index(gl),
-        // and aligned.align_up(gl) == aligned.align_down(gl).next_index(gl) == aligned.next_index(gl)
-        // (aligned_align_down_is_self makes aligned.align_down(gl) == aligned).
-        aligned.aligned_align_down_is_self(guard_level as int);
-    }
-
-    pub proof fn prefix_in_locked_range(self)
+    pub proof fn lemma_prefix_in_locked_range(self)
         requires
             self.inv(),
             !self.popped_too_high,
@@ -1376,15 +1371,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             lemma_page_size_ge_page_size(gl as PagingLevel);
 
             // Use sound aligned_align_up_advances via helpers instead of unsound axioms.
-            self.prefix_aligned_to_guard_level();
-            self.prefix_plus_ps_no_overflow();
+            self.lemma_prefix_aligned_to_guard_level();
+            self.lemma_prefix_plus_ps_no_overflow();
             self.prefix.aligned_align_up_advances(gl as int);
         }
     }
 
-    /// Reverse of prefix_in_locked_range: if va is in the locked range,
+    /// Reverse of lemma_prefix_in_locked_range: if va is in the locked range,
     /// then va shares upper indices with prefix.
-    pub proof fn in_locked_range_prefix_match(self)
+    pub proof fn lemma_in_locked_range_prefix_match(self)
         requires
             self.inv(),
             self.prefix.inv(),
@@ -1415,8 +1410,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
 
         // prefix.to_vaddr() is in [start, start + page_size(gl)) via aligned_align_up_advances.
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
+        self.lemma_prefix_aligned_to_guard_level();
+        self.lemma_prefix_plus_ps_no_overflow();
         self.prefix.aligned_align_up_advances(gl as int);
 
         if gl >= 2 && gl < NR_LEVELS {
@@ -1462,7 +1457,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// matches prefix.index[guard_level - 1]. This is because both va and
     /// prefix are within the same page_size(guard_level)-aligned block.
     #[verifier::rlimit(200)]
-    pub proof fn in_locked_range_guard_index_eq_prefix(self)
+    pub proof fn lemma_in_locked_range_guard_index_eq_prefix(self)
         requires
             self.inv(),
             self.prefix.inv(),
@@ -1477,8 +1472,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.align_down_concrete(gl as int);
         // Use sound aligned_align_up_advances via helpers instead of the
         // axiomatic align_up_concrete/align_diff (now removed).
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
+        self.lemma_prefix_aligned_to_guard_level();
+        self.lemma_prefix_plus_ps_no_overflow();
         self.prefix.aligned_align_up_advances(gl as int);
         lemma_page_size_ge_page_size(gl as PagingLevel);
 
@@ -1543,7 +1538,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.prefix);
     }
 
-    pub proof fn in_locked_range_level_le_nr_levels(self)
+    pub proof fn lemma_in_locked_range_level_le_nr_levels(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1556,7 +1551,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// When the cursor is in the locked range and not popped, its top-level
     /// index is strictly less than `TOP_LEVEL_INDEX_RANGE.end` (the relaxed inv
     /// only allows `<=`, but the operational state is strict).
-    pub proof fn in_locked_range_top_index_lt_top_end(self)
+    pub proof fn lemma_in_locked_range_top_index_lt_top_end(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1578,12 +1573,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // and locked_range.end = prefix.align_up(NR_LEVELS), which has
                 // index[NR_LEVELS-1] at most prefix.index[NR_LEVELS-1] + 1, any VA
                 // at the top_end sentinel overshoots.
-                self.in_locked_range_guard_index_eq_prefix();
+                self.lemma_in_locked_range_guard_index_eq_prefix();
             }
         }
     }
 
-    pub proof fn in_locked_range_level_le_guard_level(self)
+    pub proof fn lemma_in_locked_range_level_le_guard_level(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1593,42 +1588,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
     }
 
-    /// At `level == guard_level == NR_LEVELS`, the cursor's index strictly
-    /// satisfies `idx + 1 < NR_ENTRIES`. This rules out the spec corner where
-    /// `move_forward_owner_spec` falls into its third branch (returning self
-    /// unchanged) — without this fact several `move_forward_*` lemmas have
-    /// genuinely-false postconditions.
-    ///
-    /// **UserPtConfig**: `TOP_LEVEL_INDEX_RANGE.end == 256 < NR_ENTRIES`, so
-    /// `in_locked_range_top_index_lt_top_end` already gives strict < NR_ENTRIES.
-    ///
-    /// **KernelPtConfig**: `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`, but
-    /// `LOCKED_END_BOUND_spec() == FRAME_METADATA_BASE_VADDR + PAGE_SIZE ==
-    /// 0xffff_e000_0000_1000`. Combined with `leading_bits == 0xFFFF`, the
-    /// cursor inv `locked_range().end <= LOCKED_END_BOUND_spec()` forces
-    /// `prefix.index[NR_LEVELS - 1] + 1 <= 0x1c0 < NR_ENTRIES`. The full
-    /// arithmetic chain through `align_up` is encapsulated in this lemma.
-    pub proof fn cursor_top_idx_strict_lt_nr_entries(self)
-        requires
-            self.inv(),
-            self.in_locked_range(),
-            !self.popped_too_high,
-            self.level == NR_LEVELS,
-            self.guard_level == NR_LEVELS,
-        ensures
-            self.continuations[self.level - 1].idx + 1 < NR_ENTRIES,
-    {
-        self.in_locked_range_guard_index_eq_prefix();
-    }
-
     /// The locked range spans exactly one guard-level node:
     /// `end - start == page_size(guard_level)`. Surfaces the arithmetic
-    /// that `node_within_locked_range` / `in_node_holds_at_top` derive
+    /// that `lemma_node_within_locked_range` / `lemma_in_node_holds_at_top` derive
     /// internally (`locked_range().start == nat_align_down(prefix, ps_gl)`,
     /// `end == start + ps_gl`), so callers can turn `node ⊆ locked_range`
     /// (at `level == guard - 1`, where the node size equals the span) into
     /// `node == locked_range`.
-    pub proof fn locked_range_span(self)
+    pub proof fn lemma_locked_range_span(self)
         requires
             self.inv(),
         ensures
@@ -1648,88 +1615,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         lemma_page_size_ge_page_size(gl as PagingLevel);
         self.prefix.align_down_concrete(gl as int);
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
+        self.lemma_prefix_aligned_to_guard_level();
+        self.lemma_prefix_plus_ps_no_overflow();
         self.prefix.aligned_align_up_advances(gl as int);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps_gl) as Vaddr);
     }
 
-    /// The whole locked range (which contains `va`) lies in the single
-    /// guard-level-parent node (`page_size(guard_level + 1)`) that holds the
-    /// cursor's own VA — `in_node_holds_at_top` generalized from `NR_LEVELS`
-    /// to an arbitrary `guard_level`. The locked range is
-    /// `page_size(guard_level)`-aligned and -sized (`locked_range_span`) and
-    /// `page_size(guard_level)` divides `page_size(guard_level + 1)`, so it
-    /// never straddles a `page_size(guard_level + 1)` boundary.
-    pub proof fn in_node_holds_at_guard(self, self_va: Vaddr, va: Vaddr, node_size: usize)
-        requires
-            self.inv(),
-            self.in_locked_range(),
-            self.va.reflect(self_va),
-            node_size == page_size((self.guard_level + 1) as PagingLevel),
-            self.locked_range().start <= va < self.locked_range().end,
-        ensures
-            nat_align_down(self_va as nat, node_size as nat) <= va as nat,
-            (va as nat) - nat_align_down(self_va as nat, node_size as nat) < node_size as nat,
-    {
-        let gl = self.guard_level;
-        let pg = page_size(gl as PagingLevel) as nat;
-        let pg1 = node_size as nat;
-        let ls = self.locked_range().start as nat;
-
-        // Page-size positivity: `page_size(_) >= PAGE_SIZE > 0`.
-        lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
-
-        self.locked_range_span();
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(
-            gl as PagingLevel,
-            (gl + 1) as PagingLevel,
-        );
-        self.va.reflect_prop(self_va);
-        // `in_locked_range` + span: `ls <= self_va < ls + pg`, likewise `va`.
-        // (`in_locked_range`: `locked_range.start <= self.va.to_vaddr() <
-        // locked_range.end`; `reflect_prop`: `to_vaddr() == self_va`; span:
-        // `end == start + pg`.) So the locked range is the `pg`-block at `ls`.
-
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg1);
-        // `nat_align_down(self_va, pg) == ls`: `ls` is `pg`-aligned and the
-        // unique `pg`-aligned value in `[ls, ls + pg)` (which holds self_va).
-        assert(nat_align_down(self_va as nat, pg) == ls) by {
-            vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg);
-            let nad = nat_align_down(self_va as nat, pg) as int;
-            let lsi = ls as int;
-            let pgi = pg as int;
-            // `ls <= nad`: sound's `forall n <= self_va, n % pg == 0 ==> n <=
-            // nad` instantiated at `n = ls` (`ls <= self_va`, `ls % pg == 0`).
-            // `nad <= self_va < ls + pg`  ⟹  `0 <= nad - ls < pg`.
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(nad, pgi);
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(lsi, pgi);
-            let kn = nad / pgi;
-            let kl = lsi / pgi;
-            assert(nad - lsi == pgi * (kn - kl)) by (nonlinear_arith)
-                requires
-                    nad == pgi * kn,
-                    lsi == pgi * kl,
-            ;
-            assert(kn - kl == 0) by (nonlinear_arith)
-                requires
-                    0 <= pgi * (kn - kl) < pgi,
-                    pgi > 0,
-            ;
-        };
-        vstd_extra::arithmetic::lemma_nat_align_down_monotone(self_va as nat, pg, pg1);
-        vstd_extra::arithmetic::lemma_nat_align_down_within_block(self_va as nat, pg, pg1);
-        // node_start := nat_align_down(self_va, pg1).
-        //   monotone:      node_start <= nat_align_down(self_va, pg) == ls
-        //   within_block:  ls + pg == nat_align_down(self_va,pg) + pg
-        //                            <= node_start + pg1
-        // With `ls <= va < ls + pg`: node_start <= ls <= va, and
-        // va < ls + pg <= node_start + pg1.
-    }
-
     /// The node at `level+1` containing `va` fits within the locked range.
     #[verifier::rlimit(200)]
-    pub proof fn node_within_locked_range(self, level: PagingLevel)
+    pub proof fn lemma_node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1753,7 +1647,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_ge_page_size(gl as PagingLevel);
         lemma_page_size_ge_page_size((level + 1) as PagingLevel);
         lemma_page_size_divides((level + 1) as PagingLevel, gl as PagingLevel);
-        self.locked_range_span();
+        self.lemma_locked_range_span();
 
         vstd::arithmetic::div_mod::lemma_indistinguishable_quotients(
             start as int,
@@ -1771,7 +1665,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// The cursor's `prefix` is aligned to `page_size(self.guard_level)`, since the
     /// cursor invariant sets `prefix.offset == 0` and zeros all indices below
     /// `self.guard_level`.
-    pub proof fn prefix_aligned_to_guard_level(self)
+    pub proof fn lemma_prefix_aligned_to_guard_level(self)
         requires
             self.inv(),
         ensures
@@ -1809,7 +1703,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// check provably succeeds at the top — *no `in_locked_range`
     /// needed*, so a drifted cursor never reaches `pop_level` at
     /// `level == NR_LEVELS`.
-    pub proof fn in_node_holds_at_top(self, self_va: Vaddr, va: Vaddr, node_size: usize)
+    pub proof fn lemma_in_node_holds_at_top(self, self_va: Vaddr, va: Vaddr, node_size: usize)
         requires
             self.inv(),
             self.va.reflect(self_va),
@@ -1830,7 +1724,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.to_vaddr_indices_drop_zero_range(0, NR_LEVELS as int);
 
         // ---- locked_range().start == prefix.to_vaddr(); end == start + ps_nr
-        self.prefix_aligned_to_guard_level();
+        self.lemma_prefix_aligned_to_guard_level();
         self.prefix.aligned_align_up_advances(gl as int);
         // align_down(gl) == prefix (already aligned: offset 0, indices 0).
         self.prefix.align_down_shape(gl as int);
@@ -1851,7 +1745,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Follows from the cursor invariant: prefix's lower indices and offset are zero,
     /// and the top-level index + leading_bits are bounded per config. For each
     /// guard_level case (1..NR_LEVELS), the sum stays within usize::MAX.
-    pub proof fn prefix_plus_ps_no_overflow(self)
+    pub proof fn lemma_prefix_plus_ps_no_overflow(self)
         requires
             self.inv(),
         ensures
@@ -1874,10 +1768,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Derived from the cursor invariant: `in_locked_range` says
     /// `self.va < locked_range().end = prefix + page_size(guard_level)`
     /// (via `aligned_align_up_advances` applied to the aligned prefix), and
-    /// `prefix_plus_ps_no_overflow` gives enough slack
+    /// `lemma_prefix_plus_ps_no_overflow` gives enough slack
     /// (`pv + page_size(gl) <= 2^64 - 511 * page_size(gl)`) to absorb another
     /// `page_size(level)` without wrapping, since `page_size(level) <= page_size(gl)`.
-    pub proof fn va_plus_page_size_no_overflow(self, level: PagingLevel)
+    pub proof fn lemma_va_plus_page_size_no_overflow(self, level: PagingLevel)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1891,11 +1785,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         page_size_monotonic(level as PagingLevel, gl as PagingLevel);
 
         // Pin down locked_range().end == prefix.to_vaddr() + page_size(gl).
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
+        self.lemma_prefix_aligned_to_guard_level();
+        self.lemma_prefix_plus_ps_no_overflow();
         self.prefix.aligned_align_up_advances(gl as int);
 
-        // Re-derive the structural bounds on prefix (as in prefix_plus_ps_no_overflow)
+        // Re-derive the structural bounds on prefix (as in lemma_prefix_plus_ps_no_overflow)
         // so nonlinear_arith has enough slack to discharge pv + ps + psl <= usize::MAX.
         self.prefix.to_vaddr_indices_gap_bound(0);
         vstd::arithmetic::power2::lemma2_to64();
@@ -1909,7 +1803,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.to_vaddr_indices_gap_bound(gl as int);
     }
 
-    pub proof fn locked_range_page_aligned(self)
+    pub proof fn lemma_locked_range_page_aligned(self)
         requires
             self.inv(),
         ensures
@@ -1929,8 +1823,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ps as int / PAGE_SIZE as int,
         );
         self.prefix.align_down_concrete(gl as int);
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
+        self.lemma_prefix_aligned_to_guard_level();
+        self.lemma_prefix_plus_ps_no_overflow();
         self.prefix.aligned_align_up_advances(gl as int);
 
         vstd::arithmetic::power2::lemma2_to64();
@@ -1939,18 +1833,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(start_va as Vaddr);
     }
 
-    pub proof fn cur_subtree_inv(self)
+    pub proof fn lemma_cur_subtree_inv(self)
         requires
             self.inv(),
         ensures
             self.cur_subtree().inv(),
     {
         let cont = self.continuations[self.level - 1];
-        cont.inv_children_unroll(cont.idx as int)
+        cont.lemma_inv_children_unroll(cont.idx as int)
     }
 
     /// If the current entry is absent, `!self@.present()`.
-    pub proof fn cur_entry_absent_not_present(self)
+    pub proof fn lemma_cur_entry_absent_not_present(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1958,7 +1852,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             !self@.present(),
     {
-        self.cur_subtree_inv();
+        self.lemma_cur_subtree_inv();
         let cur_va = self.cur_va();
         let cur_subtree = self.cur_subtree();
         let cur_path = cur_subtree.value().path;
@@ -1977,8 +1871,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(filtered == set![]) by {};
     }
 
-    /// Generalises `cur_entry_absent_not_present` to any empty subtree.
-    pub proof fn cur_subtree_empty_not_present(self)
+    /// Generalises `lemma_cur_entry_absent_not_present` to any empty subtree.
+    pub proof fn lemma_cur_subtree_empty_not_present(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -2001,7 +1895,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(filtered == set![]) by {};
     }
 
-    pub proof fn cur_entry_frame_present(self)
+    pub proof fn lemma_cur_entry_frame_present(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -2014,7 +1908,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.cur_entry_owner().frame().prop,
             ),
     {
-        self.cur_subtree_inv();
+        self.lemma_cur_subtree_inv();
         self.cur_va_in_subtree_range();
         self.view_preserves_inv();
         let subtree = self.cur_subtree();
@@ -2051,6 +1945,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The entry_own at each continuation level satisfies `metaregion_sound`.
+    #[verifier::opaque]
     pub open spec fn path_metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
@@ -2067,7 +1962,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         &&& self.path_metaregion_sound(regions)
     }
 
-    pub proof fn metaregion_preserved(
+    pub proof fn lemma_metaregion_preserved(
         self,
         other: Self,
         regions0: MetaRegionOwners,
@@ -2091,12 +1986,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
             other.continuations[i].map_children(g)
         } by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j), g) by {
-                cont.inv_children_unroll(j);
+                cont.lemma_inv_children_unroll(j);
                 cont.children[j].unwrap().lemma_subtree_satisfies_implies(
                     cont.path().push_tail(j),
                     f,
@@ -2105,6 +2001,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
         assert(other.path_metaregion_sound(regions1)) by {
+            reveal(CursorOwner::path_metaregion_sound);
             assert forall|i: int|
                 #![trigger other.continuations[i]]
                 self.level - 1 <= i
@@ -2118,7 +2015,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Transfers `metaregion_sound` when `slot_owners` is preserved.
-    pub proof fn metaregion_slot_owners_preserved(
+    pub proof fn lemma_metaregion_slot_owners_preserved(
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
@@ -2143,10 +2040,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 entry.metaregion_sound_slot_owners_only(regions0, regions1);
             };
         };
-        self.metaregion_preserved(self, regions0, regions1);
+        self.lemma_metaregion_preserved(self, regions0, regions1);
     }
 
-    pub proof fn metaregion_slot_owners_rc_increment(
+    pub proof fn lemma_metaregion_slot_owners_rc_increment(
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
@@ -2158,7 +2055,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.inv(),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() == regions0.slot_owners.dom(),
-            regions1.slot_owners[idx].ref_count() == regions0.slot_owners[idx].ref_count() + 1,
+            regions1.ref_count(idx) == regions0.ref_count(idx) + 1,
             regions1.slot_owners[idx].ref_count_perm.id()
                 == regions0.slot_owners[idx].ref_count_perm.id(),
             regions1.slot_owners[idx].metadata_perm.id()
@@ -2169,9 +2066,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
             regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
-            regions1.slot_owners[idx].ref_count() != REF_COUNT_UNUSED,
+            regions1.ref_count(idx) != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
-            regions1.slot_owners[idx].ref_count() <= REF_COUNT_MAX,
+            regions1.ref_count(idx) <= REF_COUNT_MAX,
             regions1.inv(),
             forall|i: int|
                 #![trigger regions1.slot_owners[i]]
@@ -2208,12 +2105,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        self.metaregion_preserved(self, regions0, regions1);
+        self.lemma_metaregion_preserved(self, regions0, regions1);
     }
 
     /// Transfers `metaregion_sound` when `raw_count` changed from 0 to 1 at one index.
     /// Uses `lemma_subtree_satisfies_implies_and` with the trivial `not_in_scope_pred`.
-    pub proof fn metaregion_borrow_slot(
+    pub proof fn lemma_metaregion_borrow_slot(
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
@@ -2281,6 +2178,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies { self.continuations[i].map_children(g) } by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
@@ -2303,30 +2201,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 );
             };
         };
-
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
-    /// Continuation entry_owns satisfy `metaregion_sound`.
-    ///
-    /// ## Justification
-    /// When the cursor descends into a subtree, each continuation's `entry_own`
-    /// was previously checked by `subtree_satisfies` in the parent's child
-    /// subtree.  After descent, `map_full_tree` only covers the siblings (the
-    /// taken child is `None`), so the path entries' properties are no longer
-    /// covered by `map_full_tree`.  However, `regions` is unchanged since
-    /// descent, so the properties still hold.
-    pub proof fn cont_entries_metaregion(self, regions: MetaRegionOwners)
+    /// The continuation entry at `i` satisfies `metaregion_sound`.
+    pub proof fn lemma_cont_entry_metaregion_at(self, regions: MetaRegionOwners, i: int)
         requires
             self.inv(),
             self.metaregion_sound(regions),
+            self.level - 1 <= i < NR_LEVELS,
         ensures
-            forall|i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-                    ==> self.continuations[i].entry_own.metaregion_sound(regions),
+            self.continuations[i].entry_own.metaregion_sound(regions),
     {
-        // Follows directly from path_metaregion_sound,
-        // which is part of metaregion_sound.
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     pub open spec fn new(
@@ -2476,13 +2363,13 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let i = choose|i: int|
             owner.level - 1 <= i < NR_LEVELS && (
             #[trigger] owner.continuations[i]).view_mappings().contains(m);
-        owner.inv_continuation(i);
+        owner.lemma_inv_continuation(i);
         let cont = owner.continuations[i];
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
             ).view_rec(cont.path().push_tail(j)).contains(m);
-        cont.pt_inv_children_unroll(j);
+        cont.lemma_pt_inv_children_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
         let pidx = p[0] as int;
