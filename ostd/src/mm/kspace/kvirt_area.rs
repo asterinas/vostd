@@ -623,7 +623,7 @@ impl KVirtArea {
                 cursor_owner.va.reflect_prop(cursor.0.va);
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
                 lemma_va_align_page_size_level_1(cursor.0.va);
-                cursor_owner.locked_range_page_aligned();
+                cursor_owner.lemma_locked_range_page_aligned();
                 let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                     nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
@@ -938,7 +938,7 @@ impl KVirtArea {
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
                 // Valid because the cursor is `in_locked_range` here (required by `cursor.map`).
                 proof {
-                    cursor_owner.va_plus_page_size_no_overflow(level);
+                    cursor_owner.lemma_va_plus_page_size_no_overflow(level);
                 }
 
                 // Save ghost copy of regions before map for post-map invariant maintenance.

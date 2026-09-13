@@ -175,14 +175,14 @@ proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>
                 owner0.list[p].paddr,
             ),
 {
-    owner0.relate_region_shape(regions0);
+    owner0.lemma_relate_region_shape(regions0);
     assert forall|p: int|
         #![trigger regions0.slot_owners[meta_to_index(owner0.list[p].paddr)]]
         0 <= p < owner0.list.len() as int implies frame_idx != meta_to_index(
         owner0.list[p].paddr,
     ) by {
-        owner0.relate_region_at_index(regions0, p);
-        owner0.relate_region_at_facts(regions0, p);
+        owner0.lemma_relate_region_at_index(regions0, p);
+        owner0.lemma_relate_region_at_facts(regions0, p);
         if frame_idx == meta_to_index(owner0.list[p].paddr) {
             assert(regions0.slot_owners[meta_to_index(owner0.list[p].paddr)].in_list_perm.value()
                 == owner0.list_id);
@@ -217,7 +217,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     )]
     pub fn size(&self) -> usize {
         proof {
-            LinkedListOwner::<M>::view_preserves_len(owner.list);
+            LinkedListOwner::<M>::lemma_view_preserves_len(owner.list);
         }
         self.size
     }
@@ -319,8 +319,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             if owner.list.len() > 0 {
-                owner.relate_region_at_index(*regions, 0);
-                owner.relate_region_at_facts(*regions, 0);
+                owner.lemma_relate_region_at_index(*regions, 0);
+                owner.lemma_relate_region_at_facts(*regions, 0);
             }
         }
 
@@ -415,8 +415,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             if owner.list.len() > 0 {
-                owner.relate_region_at_index(*regions, owner.list.len() - 1);
-                owner.relate_region_at_facts(*regions, owner.list.len() - 1);
+                owner.lemma_relate_region_at_index(*regions, owner.list.len() - 1);
+                owner.lemma_relate_region_at_facts(*regions, owner.list.len() - 1);
             }
         }
 
@@ -680,14 +680,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             final(self).wf_region(owner.move_next_owner_spec(), *regions),
     {
         proof {
-            owner.list_own.relate_region_shape(*regions);
+            owner.list_own.lemma_relate_region_shape(*regions);
             if self.current is Some {
-                owner.list_own.relate_region_at_index(*regions, owner.index);
-                owner.list_own.relate_region_at_facts(*regions, owner.index);
+                owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
+                owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
             }
             if owner.index < owner.length() - 1 {
-                owner.list_own.relate_region_at_index(*regions, owner.index + 1);
-                owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
+                owner.list_own.lemma_relate_region_at_index(*regions, owner.index + 1);
+                owner.list_own.lemma_relate_region_at_facts(*regions, owner.index + 1);
             }
         }
 
@@ -716,7 +716,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         };
 
         proof {
-            LinkedListOwner::<M>::view_preserves_len(owner.list_own.list);
+            LinkedListOwner::<M>::lemma_view_preserves_len(owner.list_own.list);
             assert(owner.move_next_owner_spec()@.fore == owner@.move_next_spec().fore);
             assert(owner.move_next_owner_spec()@.rear == owner@.move_next_spec().rear);
         }
@@ -742,14 +742,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             final(self).wf_region(owner.move_prev_owner_spec(), *regions),
     {
         proof {
-            owner.list_own.relate_region_shape(*regions);
+            owner.list_own.lemma_relate_region_shape(*regions);
             if self.current is Some {
-                owner.list_own.relate_region_at_index(*regions, owner.index);
-                owner.list_own.relate_region_at_facts(*regions, owner.index);
+                owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
+                owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
             }
             if 0 < owner.index {
-                owner.list_own.relate_region_at_index(*regions, owner.index - 1);
-                owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
+                owner.list_own.lemma_relate_region_at_index(*regions, owner.index - 1);
+                owner.list_own.lemma_relate_region_at_facts(*regions, owner.index - 1);
             }
         }
 
@@ -779,19 +779,19 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         };
 
         proof {
-            LinkedListOwner::<M>::view_preserves_len(owner.list_own.list);
+            LinkedListOwner::<M>::lemma_view_preserves_len(owner.list_own.list);
 
             if owner@.list_model.list.len() > 0 {
                 if owner@.fore.len() > 0 {
                     assert(owner.move_prev_owner_spec()@.fore == owner@.move_prev_spec().fore);
                     assert(owner.move_prev_owner_spec()@.rear == owner@.move_prev_spec().rear);
                     if owner@.rear.len() > 0 {
-                        owner.list_own.relate_region_at_index(*regions, owner.index);
-                        owner.list_own.relate_region_at_facts(*regions, owner.index);
+                        owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
+                        owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
                     }
                 } else {
-                    owner.list_own.relate_region_at_index(*regions, owner.index);
-                    owner.list_own.relate_region_at_facts(*regions, owner.index);
+                    owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
+                    owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
                     assert(owner.move_prev_owner_spec()@.rear == owner@.move_prev_spec().rear);
                     assert(owner@.rear == owner@.list_model.list);
                 }
@@ -838,9 +838,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         match self.current {
             Some(current) => {
                 proof {
-                    owner.list_own.relate_region_shape(*regions);
-                    owner.list_own.relate_region_at_index(*regions, owner.index);
-                    owner.list_own.relate_region_at_facts(*regions, owner.index);
+                    owner.list_own.lemma_relate_region_shape(*regions);
+                    owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
+                    owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
                 }
                 let ghost idx = meta_to_index(current.addr());
                 proof {
@@ -954,16 +954,16 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let current = self.current?;
 
         proof {
-            owner.list_own.relate_region_shape(*regions);
-            owner.list_own.relate_region_at_index(*regions, owner.index);
-            owner.list_own.relate_region_at_facts(*regions, owner.index);
+            owner.list_own.lemma_relate_region_shape(*regions);
+            owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
+            owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
             if owner.index > 0 {
-                owner.list_own.relate_region_at_index(*regions, owner.index - 1);
-                owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
+                owner.list_own.lemma_relate_region_at_index(*regions, owner.index - 1);
+                owner.list_own.lemma_relate_region_at_facts(*regions, owner.index - 1);
             }
             if owner.index < owner.list_own.list.len() - 1 {
-                owner.list_own.relate_region_at_index(*regions, owner.index + 1);
-                owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
+                owner.list_own.lemma_relate_region_at_index(*regions, owner.index + 1);
+                owner.list_own.lemma_relate_region_at_facts(*regions, owner.index + 1);
             }
         }
 
@@ -1118,14 +1118,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     p - 1
                 };
                 let fp = owner.list_own.meta_value_at(*regions, np);
-                oldl.relate_region_at_index(regions0, p);
-                oldl.relate_region_at_index(regions0, nn);
-                oldl.relate_region_indices_distinct(regions0, p, nn);
-                oldl.relate_region_at_facts(regions0, p);
-                oldl.relate_region_at_facts(regions0, nn);
+                oldl.lemma_relate_region_at_index(regions0, p);
+                oldl.lemma_relate_region_at_index(regions0, nn);
+                oldl.lemma_relate_region_indices_distinct(regions0, p, nn);
+                oldl.lemma_relate_region_at_facts(regions0, p);
+                oldl.lemma_relate_region_at_facts(regions0, nn);
                 assert(regions.contains(i));
             }
-            LinkedListOwner::pop_preserves_relate_region(
+            LinkedListOwner::lemma_pop_preserves_relate_region(
                 oldl,
                 regions0,
                 owner.list_own,
@@ -1203,12 +1203,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 reveal(LinkedListOwner::relate_region);
             };
             lemma_meta_region_inv_at(regions0, frame_own.slot_index);
-            owner0.list_own.length_lt_usize_max(regions0);
+            owner0.list_own.lemma_length_lt_usize_max(regions0);
             if nn > 0 {
                 assert(owner0.list_own.relate_region_at(regions0, nn - 1)) by {
                     reveal(LinkedListOwner::relate_region);
                 };
-                owner.list_own.relate_region_at_facts(*regions, nn - 1);
+                owner.list_own.lemma_relate_region_at_facts(*regions, nn - 1);
                 lemma_meta_region_inv_at(
                     regions0,
                     meta_to_index(owner0.list_own.list[nn - 1].paddr),
@@ -1218,7 +1218,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(owner0.list_own.relate_region_at(regions0, nn)) by {
                     reveal(LinkedListOwner::relate_region);
                 };
-                owner.list_own.relate_region_at_facts(*regions, nn);
+                owner.list_own.lemma_relate_region_at_facts(*regions, nn);
                 lemma_meta_region_inv_at(regions0, meta_to_index(owner0.list_own.list[nn].paddr));
             }
             assert forall|p: int|
@@ -1404,7 +1404,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     assert(oldl.relate_region_at(regions0, p)) by {
                         reveal(LinkedListOwner::relate_region);
                     };
-                    oldl.relate_region_at_facts(regions0, p);
+                    oldl.lemma_relate_region_at_facts(regions0, p);
                     if nn - 1 >= 0 && nn - 1 < oldl.list.len() && p != nn - 1 {
                         assert(meta_to_index(oldl.list[p].paddr) != meta_to_index(
                             oldl.list[nn - 1].paddr,
@@ -1421,7 +1421,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     }
                 }
 
-                LinkedListOwner::insert_preserves_relate_region(
+                LinkedListOwner::lemma_insert_preserves_relate_region(
                     oldl,
                     regions0,
                     owner.list_own,
@@ -1552,10 +1552,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
 
         proof {
             if n > 0 {
-                cursor_own.list_own.relate_region_at_index(*regions, 0);
-                cursor_own.list_own.relate_region_at_index(*regions, n - 1);
-                cursor_own.list_own.relate_region_at_facts(*regions, 0);
-                cursor_own.list_own.relate_region_at_facts(*regions, n - 1);
+                cursor_own.list_own.lemma_relate_region_at_index(*regions, 0);
+                cursor_own.list_own.lemma_relate_region_at_index(*regions, n - 1);
+                cursor_own.list_own.lemma_relate_region_at_facts(*regions, 0);
+                cursor_own.list_own.lemma_relate_region_at_facts(*regions, n - 1);
             }
         }
 
@@ -1646,10 +1646,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         let ghost _trig_ik = original_list[i + k + 1];
                         assert(cursor_own.list_own.list[i] == original_list[i + k + 1]);
 
-                        cursor_own.list_own.relate_region_at_index(regions_pre_drop, i);
-                        cursor_own.list_own.relate_region_at_facts(regions_pre_drop, i);
+                        cursor_own.list_own.lemma_relate_region_at_index(regions_pre_drop, i);
+                        cursor_own.list_own.lemma_relate_region_at_facts(regions_pre_drop, i);
                     };
-                    cursor_own.list_own.relate_region_preserved_external_change(
+                    cursor_own.list_own.lemma_relate_region_preserved_external_change(
                         regions_pre_drop,
                         *regions,
                     );

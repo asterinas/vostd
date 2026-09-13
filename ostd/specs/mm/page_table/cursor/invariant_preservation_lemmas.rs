@@ -93,7 +93,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 cont.path().push_tail(j),
                 combined,
             ) by {
-                cont.inv_children_unroll(j);
+                cont.lemma_inv_children_unroll(j);
                 OwnerSubtree::lemma_subtree_satisfies_implies_and(
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j),
@@ -140,7 +140,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 e.meta_slot_paddr().unwrap(),
             ) != changed_idx
         } by {
-            self.cont_entry_metaregion_at(regions, i);
+            self.lemma_cont_entry_metaregion_at(regions, i);
             let entry = self.continuations[i].entry_own;
             if entry.is_node() && entry.meta_slot_paddr() is Some {
                 let idx = frame_to_index(entry.meta_slot_paddr().unwrap());
@@ -303,7 +303,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
             reveal(CursorContinuation::map_children);
-            self.inv_continuation(i);
+            self.lemma_inv_continuation(i);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
@@ -313,9 +313,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 cont.path().push_tail(j),
                 g,
             ) by {
-                cont.inv_children_unroll(j);
-                cont.pt_inv_children_unroll(j);
-                cont.inv_children_rel_unroll(j);
+                cont.lemma_inv_children_unroll(j);
+                cont.lemma_pt_inv_children_unroll(j);
+                cont.lemma_inv_children_rel_unroll(j);
                 let child = cont.children[j].unwrap();
                 let child_path = cont.path().push_tail(j);
                 // child.value.path == child_path (inv_children_rel) and
@@ -346,7 +346,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let e = self.continuations[i].entry_own;
             e.is_frame() ==> e.path != removed_path
         } by {
-            self.inv_continuation(i);
+            self.lemma_inv_continuation(i);
         };
     }
 

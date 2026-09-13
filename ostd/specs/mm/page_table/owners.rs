@@ -625,7 +625,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// `pt_inv` for a freshly-allocated PT node after `alloc_if_none`'s rebase.
     ///
     /// Discharges the long-standing `assume` that blocked closing
-    /// `continuation_inv_holds_after_child_restore`: combines the per-edge
+    /// `lemma_continuation_inv_holds_after_child_restore`: combines the per-edge
     /// facts threaded through `alloc_if_none`'s ensures (paths rebased,
     /// `match_pte`, `parent_level`) with `allocated_empty_node_grandchildren_none`
     /// to drive `pt_inv_at_depth` to its non-node base case at every absent

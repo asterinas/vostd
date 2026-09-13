@@ -354,7 +354,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // (the conjunct at owners.rs:481-482 requires strict level < guard_level).
         // After push_level, the new level < guard_level triggers that conjunct.
         // Derive it from in_locked_range() for all cases.
-        self.in_locked_range_guard_index_eq_prefix();
+        self.lemma_in_locked_range_guard_index_eq_prefix();
 
         let new_owner = self.push_level_owner(guard);
 
@@ -466,7 +466,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(set![cont_i.path()].contains(cur_entry_path));
 
                 assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
-                    old_cont.inv_children_rel_unroll(old_cont.idx as int);
+                    old_cont.lemma_inv_children_rel_unroll(old_cont.idx as int);
                 };
                 assert(false);
             }
@@ -681,8 +681,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 r.va.align_down_concrete(gl as int);
                 r.prefix.align_down_concrete(gl as int);
                 // Use cursor inv helpers on self (r.prefix == self.prefix).
-                self.prefix_aligned_to_guard_level();
-                self.prefix_plus_ps_no_overflow();
+                self.lemma_prefix_aligned_to_guard_level();
+                self.lemma_prefix_plus_ps_no_overflow();
                 r.prefix.aligned_align_up_advances(gl as int);
                 AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
                     nat_align_down(
@@ -742,16 +742,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else if self.level == self.guard_level {
             // level == guard_level, index + 1 >= NR_ENTRIES.
             // move_forward_owner_spec pops if level < NR_LEVELS, else returns self.
-            self.in_locked_range_guard_index_eq_prefix();
+            self.lemma_in_locked_range_guard_index_eq_prefix();
             let k = self.prefix.index[self.guard_level - 1];
 
             if self.guard_level < NR_LEVELS {
                 // Pop to parent. Parent is at guard_level + 1 with popped_too_high.
             } else {
-                // `level == guard_level == NR_LEVELS && index+1 == NR_ENTRIES`
-                // is unreachable: `cursor_top_idx_strict_lt_nr_entries` derives
-                // `self.index() + 1 < NR_ENTRIES` from cursor inv +
-                // LOCKED_END_BOUND, contradicting the outer `else` guard.
                 assert(false);
             }
         } else if self.level + 1 < self.guard_level {
