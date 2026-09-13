@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789272826341,
+  "lastUpdate": 1789302431048,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -252,6 +252,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=374ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc7200b7a8e3d65c33e072f671a2cb1c2fe9bbc8",
+          "message": "performance (#761)\n\n* performance\n\n* minor\n\n* remove some proofs\n\n* more simplify\n\n* perf\n\n* simplify\n\n* Update ci-irc11.yml\n\n* fix lemma names",
+          "timestamp": "2026-09-13T20:21:58+08:00",
+          "tree_id": "4f3c411ebd16bea51e8fe2e28f4a896ec5b78062",
+          "url": "https://github.com/asterinas/vostd/commit/bc7200b7a8e3d65c33e072f671a2cb1c2fe9bbc8"
+        },
+        "date": 1789302429964,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1038206533,
+            "unit": "rlimit",
+            "extra": "verified=4081 errors=0 smt-run=281,467ms wall=202,704ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 333202113,
+            "unit": "rlimit",
+            "extra": "smt-run=112,994ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 85126605,
+            "unit": "rlimit",
+            "extra": "smt-run=26,116ms"
+          },
+          {
+            "name": "rlimit: specs::mm::embedding",
+            "value": 51152450,
+            "unit": "rlimit",
+            "extra": "smt-run=20,053ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::div_internals",
+            "value": 13249888,
+            "unit": "rlimit",
+            "extra": "smt-run=1,314ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,089ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,309ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,020ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=701ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=496ms"
           }
         ]
       }
