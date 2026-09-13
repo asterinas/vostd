@@ -937,18 +937,6 @@ impl<'rcu> VmStore<'rcu> {
 }
 
 // Narrow elimination lemmas keep opaque store invariants out of large step contexts.
-proof fn lemma_structural_inv_at<'rcu>(s: VmStore<'rcu>, idx: int)
-    requires
-        s.structural_inv(),
-        0 <= idx < max_meta_slots(),
-    ensures
-        s.regions.slots.contains_key(idx) || (s.regions.slot_owners[idx].usage is PageTable
-            && s.regions.ref_count(idx) != REF_COUNT_UNUSED),
-        s.regions.slot_owners[idx].in_list_perm.value() == 0,
-{
-    reveal(VmStore::structural_inv);
-}
-
 proof fn lemma_structural_inv_cursor_frame<'rcu>(s: VmStore<'rcu>, c: CursorId, fid: FrameId)
     requires
         s.structural_inv(),
@@ -985,20 +973,6 @@ proof fn lemma_structural_inv_segment<'rcu>(s: VmStore<'rcu>, sid: SegmentId, pa
     ensures
         valid_frame_paddr(paddr),
         s.regions.slot_owner(paddr).usage is Frame,
-{
-    reveal(VmStore::structural_inv);
-}
-
-proof fn lemma_structural_inv_unique<'rcu>(s: VmStore<'rcu>, uid: UniqueId)
-    requires
-        s.structural_inv(),
-        s.unique_frames.contains_key(uid),
-    ensures
-        valid_frame_paddr(s.unique_frames[uid].paddr),
-        s.regions.slot_owner(s.unique_frames[uid].paddr).usage is Frame,
-        s.regions.slot_owner(s.unique_frames[uid].paddr).ref_count() == REF_COUNT_UNIQUE,
-        s.regions.slot_owner(s.unique_frames[uid].paddr).in_list_perm.value() == 0,
-        s.regions.slot_owner(s.unique_frames[uid].paddr).paths_in_pt.is_empty(),
 {
     reveal(VmStore::structural_inv);
 }
@@ -2491,7 +2465,7 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].in_list_perm.value()
         == 0 by {
-        lemma_structural_inv_at(s_before, idx);
+        reveal(VmStore::structural_inv);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -2646,7 +2620,7 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.contains_key(u));
-        lemma_structural_inv_unique(s_before, u);
+        reveal(VmStore::structural_inv);
         assert(valid_frame_paddr(u_paddr));
         s.regions.lemma_contains_valid_frame_paddr(u_paddr);
         // Old UNIQUE validity at `u`.

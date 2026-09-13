@@ -262,6 +262,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f)
     }
 
+    /// Extracts one child's property without exposing the sibling quantifier.
     pub proof fn map_children_unroll(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -273,33 +274,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.children[i] is Some,
         ensures
             self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f),
-    {
-        reveal(CursorContinuation::map_children);
-    }
-
-    pub proof fn map_children_intro(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool)
-        requires
-            forall|i: int|
-                #![trigger self.children[i]]
-                0 <= i < self.children.len() && self.children[i] is Some
-                    ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f),
-        ensures
-            self.map_children(f),
-    {
-        reveal(CursorContinuation::map_children);
-    }
-
-    pub proof fn map_children_congr(
-        self,
-        other: Self,
-        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
-    )
-        requires
-            self.children == other.children,
-            self.path() == other.path(),
-            other.map_children(f),
-        ensures
-            self.map_children(f),
     {
         reveal(CursorContinuation::map_children);
     }
@@ -930,18 +904,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(
                     Self::node_unlocked(guards),
                 ),
-    {
-    }
-
-    pub proof fn children_not_locked_intro(self, guards: Guards)
-        requires
-            forall|i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(
-                    Self::node_unlocked(guards),
-                ),
-        ensures
-            self.children_not_locked(guards),
     {
     }
 

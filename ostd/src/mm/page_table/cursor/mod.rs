@@ -3992,10 +3992,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let va = self.0.va;
         let level = self.0.level;
 
-        assert(1 <= owner0.level <= NR_LEVELS
-            && owner0.va.index[owner0.level - 1] == owner0.continuations[owner0.level - 1].idx
-            && owner0.continuations[owner0.level - 1].all_some()
-            && owner0.continuations[owner0.level - 1].level() == owner0.level
+        assert(1 <= owner0.level <= NR_LEVELS && owner0.va.index[owner0.level - 1]
+            == owner0.continuations[owner0.level - 1].idx && owner0.continuations[owner0.level
+            - 1].all_some() && owner0.continuations[owner0.level - 1].level() == owner0.level
             && self.0.path[level - 1] is Some) by {
             reveal(<CursorOwner as Inv>::inv);
         };
@@ -4224,7 +4223,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             g_sound,
                         );
                     };
-                    cont.map_children_intro(g_sound);
+                    reveal(CursorContinuation::map_children);
                 } else {
                     cont.map_children_lift(f_sound, g_sound);
                 }
@@ -4263,7 +4262,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             );
                         }
                     };
-                    final_cont.map_children_intro(g_sound);
+                    reveal(CursorContinuation::map_children);
                 };
             } else {
                 final_cont.map_children_lift_skip_idx(cont0, idx as int, f_sound, g_sound);
@@ -4282,7 +4281,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert(owner.continuations[i] == owner0.continuations[i]);
                 }
             };
-            owner.children_not_locked_intro(guards_initial);
+            assert(owner.children_not_locked(guards_initial));
 
             assert(owner.path_metaregion_sound(*regions)) by {
                 reveal(CursorOwner::path_metaregion_sound);
@@ -4455,17 +4454,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 =~= owner_before_dfs.continuations[i].children);
                             assert(owner.continuations[i].path()
                                 == owner_before_dfs.continuations[i].path());
-                            owner.continuations[i].map_children_congr(
-                                owner_before_dfs.continuations[i],
+                            assert(owner.continuations[i].map_children(
                                 CursorOwner::node_unlocked_except(guards1, locked_addr),
-                            );
+                            )) by {
+                                reveal(CursorContinuation::map_children);
+                            };
                         }
                     };
                     owner.map_children_implies(
                         CursorOwner::node_unlocked_except(guards1, locked_addr),
                         CursorOwner::node_unlocked(*guards),
                     );
-                    owner.children_not_locked_intro(*guards);
+                    assert(owner.children_not_locked(*guards));
 
                     // dfs_mark_stray_and_unlock preserves continuations[i].guard for
                     // i >= owner.level - 1 (postcondition lines 450-463 of locking.rs).
@@ -4522,10 +4522,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     - 1].children[j]);
                             assert(owner.continuations[i].children
                                 =~= owner_before_dfs.continuations[i].children);
-                            owner.continuations[i].map_children_congr(
-                                owner_before_dfs.continuations[i],
-                                f,
-                            );
+                            assert(owner.continuations[i].map_children(f)) by {
+                                reveal(CursorContinuation::map_children);
+                            };
                         }
                     };
                     assert(owner.path_metaregion_sound(*regions)) by {
