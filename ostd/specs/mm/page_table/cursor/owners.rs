@@ -139,6 +139,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert(cont.put_child(child).children == self.children);
     }
 
+    /// Taking a child preserves the continuation invariant.
     pub proof fn take_child_preserves_inv(self)
         requires
             self.inv(),

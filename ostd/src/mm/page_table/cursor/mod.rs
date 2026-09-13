@@ -4269,6 +4269,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
 
             final_cont.map_children_lift_skip_idx(cont0, idx as int, f_unlocked, f_unlocked);
+            assert forall|i: int|
+                #![trigger owner.continuations[i]]
+                owner.level - 1 <= i < NR_LEVELS implies owner.continuations[i].map_children(
+                f_unlocked,
+            ) by {
+                if i == owner.level - 1 {
+                    assert(owner.continuations[i] == final_cont);
+                } else {
+                    assert(owner.continuations[i] == owner0.continuations[i]);
+                }
+            };
             assert(owner.children_not_locked(guards_initial));
 
             assert(owner.path_metaregion_sound(*regions)) by {

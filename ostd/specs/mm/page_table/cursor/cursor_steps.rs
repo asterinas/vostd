@@ -437,7 +437,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).metaregion_sound(regions),
     {
         reveal(CursorContinuation::map_children);
-        reveal(CursorOwner::path_metaregion_sound);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
 
@@ -455,6 +454,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= i
                 < NR_LEVELS implies self.continuations[i].guard.inner.inner@.ptr.addr()
             != guard.inner.inner@.ptr.addr() by {
+            reveal(CursorOwner::path_metaregion_sound);
             let cont_i = self.continuations[i];
 
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
@@ -560,7 +560,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             };
         };
-
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     pub proof fn tracked_push_level_owner(tracked &mut self, guard: PageTableGuard<'rcu, C>)
@@ -637,8 +637,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.nodes_locked(guards),
             self.pop_level_owner().0.metaregion_sound(regions),
     {
-        reveal(CursorContinuation::map_children);
-        reveal(CursorOwner::path_metaregion_sound);
         reveal(PageTableOwner::pt_inv_at_depth);
         let child = self.continuations[self.level - 1];
         let child_addr = child.entry_own.node().meta_vaddr();
@@ -647,7 +645,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             CursorOwner::<'rcu, C>::node_unlocked(guards),
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
         );
-
+        reveal(CursorContinuation::map_children);
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     /// Update va to a new value that shares the same indices at levels >= self.level.
