@@ -39,6 +39,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.map_children(g),
     {
+        reveal(CursorContinuation::map_children);
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
@@ -83,6 +84,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.map_children(g),
     {
+        reveal(CursorContinuation::map_children);
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
@@ -139,6 +141,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
@@ -237,6 +240,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|

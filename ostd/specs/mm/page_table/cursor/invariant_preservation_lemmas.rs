@@ -83,6 +83,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(
             combined,
         ) by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
@@ -139,6 +140,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 e.meta_slot_paddr().unwrap(),
             ) != changed_idx
         } by {
+            self.cont_entry_metaregion_at(regions, i);
             let entry = self.continuations[i].entry_own;
             if entry.is_node() && entry.meta_slot_paddr() is Some {
                 let idx = frame_to_index(entry.meta_slot_paddr().unwrap());
@@ -209,6 +211,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         self.map_children_implies(f_strong, g);
 
+        reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
@@ -299,6 +302,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            reveal(CursorContinuation::map_children);
             self.inv_continuation(i);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
@@ -460,6 +464,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         self.map_children_implies(f_strong, g);
 
+        reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i

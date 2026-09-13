@@ -139,6 +139,16 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert(cont.put_child(child).children == self.children);
     }
 
+    pub proof fn take_child_preserves_inv(self)
+        requires
+            self.inv(),
+            self.idx < self.children.len(),
+            self.children[self.idx as int] is Some,
+        ensures
+            self.take_child().1.inv(),
+    {
+    }
+
     pub open spec fn make_cont(self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (Self, Self) {
         let child = Self {
             entry_own: self.children[self.idx as int]->0.value(),
@@ -237,6 +247,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         Self { entry_own, idx, tree_level, children, path: TreePath::new(Seq::empty()), guard }
     }
 
+    /// Every present child subtree satisfies `f` at its corresponding tree path.
+    #[verifier::opaque]
     pub open spec fn map_children(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -245,6 +257,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             #![trigger(self.children[i])]
             0 <= i < self.children.len() ==> self.children[i] is Some
                 ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f)
+    }
+
+    /// Extracts one child's property without exposing the sibling quantifier.
+    pub proof fn map_children_unroll(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        i: int,
+    )
+        requires
+            self.map_children(f),
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+        ensures
+            self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f),
+    {
+        reveal(CursorContinuation::map_children);
     }
 
     // map_children_lift, map_children_lift_skip_idx, as_subtree_restore
@@ -864,6 +892,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.map_only_children(Self::node_unlocked(guards))
     }
 
+    pub proof fn children_not_locked_unroll(self, guards: Guards)
+        requires
+            self.children_not_locked(guards),
+        ensures
+            forall|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(
+                    Self::node_unlocked(guards),
+                ),
+    {
+    }
+
     pub open spec fn only_current_locked(self, guards: Guards) -> bool {
         self.map_only_children(
             Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_vaddr()),
@@ -1150,6 +1190,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_subtree_inv();
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
         assert(entry.inv_base());
+        let cont = self.continuations[self.level - 1];
+        cont.map_children_unroll(
+            PageTableOwner::<C>::metaregion_sound_pred(regions),
+            cont.idx as int,
+        );
         C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
     }
 
@@ -2050,6 +2095,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The entry_own at each continuation level satisfies `metaregion_sound`.
+    #[verifier::opaque]
     pub open spec fn path_metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
@@ -2090,6 +2136,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
             other.continuations[i].map_children(g)
         } by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
@@ -2104,6 +2151,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
         assert(other.path_metaregion_sound(regions1)) by {
+            reveal(CursorOwner::path_metaregion_sound);
             assert forall|i: int|
                 #![trigger other.continuations[i]]
                 self.level - 1 <= i
@@ -2280,6 +2328,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies { self.continuations[i].map_children(g) } by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
@@ -2302,7 +2351,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 );
             };
         };
-
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     /// Continuation entry_owns satisfy `metaregion_sound`.
@@ -2326,6 +2375,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         // Follows directly from path_metaregion_sound,
         // which is part of metaregion_sound.
+        reveal(CursorOwner::path_metaregion_sound);
+    }
+
+    pub proof fn cont_entry_metaregion_at(self, regions: MetaRegionOwners, i: int)
+        requires
+            self.inv(),
+            self.metaregion_sound(regions),
+            self.level - 1 <= i < NR_LEVELS,
+        ensures
+            self.continuations[i].entry_own.metaregion_sound(regions),
+    {
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     pub open spec fn new(

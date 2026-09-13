@@ -52,7 +52,10 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
-        page_table::{cursor::owners::CursorOwner, node::Guards},
+        page_table::{
+            cursor::owners::{CursorContinuation, CursorOwner},
+            node::Guards,
+        },
         tlb::TlbModel,
     },
 };
@@ -2448,8 +2451,6 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
     ensures
         final(s).inv(),
 {
-    reveal(VmStore::structural_inv);
-    reveal(VmStore::accounting_inv);
     let ghost s_before = *s;
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
@@ -2482,7 +2483,7 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         s.segments,
         index_to_frame(idx),
     ) == 0 by {
-        reveal(VmStore::accounting_inv);
+        lemma_accounting_inv_at(s_before, idx);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -2508,7 +2509,7 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         s.segments,
         index_to_frame(idx),
     ) > 0 by {
-        reveal(VmStore::accounting_inv);
+        lemma_accounting_inv_at(s_before, idx);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -2540,7 +2541,7 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
             index_to_frame(idx),
         )
     } by {
-        reveal(VmStore::accounting_inv);
+        lemma_accounting_inv_at(s_before, idx);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -2580,10 +2581,10 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         s.frames.contains_key(fid_other) implies s.regions.slot_owner(
         s.frames[fid_other].paddr,
     ).usage is Frame by {
-        reveal(VmStore::structural_inv);
-        reveal(VmStore::accounting_inv);
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
         let other_paddr = index_to_frame(other_idx);
+        lemma_structural_inv_frame(s_before, fid_other);
+        lemma_accounting_inv_at(s_before, other_idx);
         assert(old_regions.slot_owners[other_idx].usage is Frame);
         assert(old_frames.dom().filter(
             |gid: FrameId| frame_to_index(old_frames[gid].paddr) == other_idx,
@@ -2602,11 +2603,11 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         s.segments.contains_key(sid_other) && s.segments[sid_other].range.start <= paddr_c
             < s.segments[sid_other].range.end && paddr_c % PAGE_SIZE
             == 0 implies s.regions.slot_owner(paddr_c).usage is Frame by {
-        reveal(VmStore::structural_inv);
         let cov_idx = frame_to_index(paddr_c);
         assert(sid_other != sid);
         assert(old_segments.contains_key(sid_other));
         assert(old_segments[sid_other] == s.segments[sid_other]);
+        lemma_structural_inv_segment(s_before, sid_other, paddr_c);
         assert(old_regions.slot_owners[cov_idx].usage is Frame);
     };
     assert forall|u: UniqueId| #[trigger] s.unique_frames.contains_key(u) implies {
@@ -2616,11 +2617,10 @@ proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         &&& so.in_list_perm.value() == 0
         &&& so.paths_in_pt.is_empty()
     } by {
-        reveal(VmStore::structural_inv);
-        reveal(VmStore::accounting_inv);
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.contains_key(u));
+        reveal(VmStore::structural_inv);
         assert(valid_frame_paddr(u_paddr));
         s.regions.lemma_contains_valid_frame_paddr(u_paddr);
         // Old UNIQUE validity at `u`.
@@ -2919,6 +2919,8 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
         &&& so.in_list_perm.value() == 0
         &&& so.paths_in_pt.is_empty()
     } by {};
+    reveal(CursorContinuation::map_children);
+    reveal(CursorOwner::path_metaregion_sound);
 }
 
 #[verifier::spinoff_prover]

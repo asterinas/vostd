@@ -436,6 +436,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).nodes_locked(guards),
             self.push_level_owner(guard).metaregion_sound(regions),
     {
+        reveal(CursorContinuation::map_children);
+        reveal(CursorOwner::path_metaregion_sound);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
 
@@ -635,6 +637,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.nodes_locked(guards),
             self.pop_level_owner().0.metaregion_sound(regions),
     {
+        reveal(CursorContinuation::map_children);
+        reveal(CursorOwner::path_metaregion_sound);
         reveal(PageTableOwner::pt_inv_at_depth);
         let child = self.continuations[self.level - 1];
         let child_addr = child.entry_own.node().meta_vaddr();

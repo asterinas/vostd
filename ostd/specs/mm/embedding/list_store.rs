@@ -744,7 +744,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let tracked empty = tracked_empty_list_owner::<M>();
         self.lists.tracked_insert(id, empty);
         assert(self.lists[id].list.len() == 0);
-        assert(self.lists[id].relate_region(self.regions));
+        assert(self.lists[id].relate_region(self.regions)) by {
+            reveal(LinkedListOwner::relate_region);
+        };
         assert(self.cursors == old_self.cursors);
         assert(self.lists.dom().disjoint(self.cursors.dom()));
         assert(self.lists[id].list_id == 0);
@@ -767,6 +769,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost dropped_id = self.lists[id].list_id;
         let ghost is_empty = self.lists[id].list.len() == 0;
         assert(self.lists[id].relate_region(self.regions));
+        self.lists[id].relate_region_shape(self.regions);
         assert forall|i: int|
             #![trigger meta_to_index(self.lists[id].list[i].paddr)]
             0 <= i < self.lists[id].list.len() implies self.regions.slot_owners[meta_to_index(
@@ -774,6 +777,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         )].paths_in_pt.is_empty() by {
             let idx = meta_to_index(self.lists[id].list[i].paddr);
             let _ = self.lists[id].list[i];
+            self.lists[id].relate_region_at_index(self.regions, i);
             self.lists[id].relate_region_at_facts(self.regions, i);
             assert(self.regions.contains(idx));
             assert(self.regions.ref_count(idx) == REF_COUNT_UNIQUE);
