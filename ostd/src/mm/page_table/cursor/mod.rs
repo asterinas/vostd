@@ -4436,28 +4436,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     owner_before_dfs.inv_continuation(owner_before_dfs.level - 1);
                     assert forall|i: int|
                         #![trigger owner.continuations[i]]
+                        owner.level - 1 <= i < NR_LEVELS implies {
+                        &&& owner.continuations[i].children
+                            == owner_before_dfs.continuations[i].children
+                        &&& owner.continuations[i].entry_own
+                            == owner_before_dfs.continuations[i].entry_own
+                    } by {
+                        if i == owner.level - 1 {
+                            assert(owner.continuations[i].children
+                                =~= owner_before_dfs.continuations[i].children);
+                        } else {
+                            assert(owner.continuations[i] == owner_before_dfs.continuations[i]);
+                        }
+                    };
+                    assert forall|i: int|
+                        #![trigger owner.continuations[i]]
                         owner.level - 1 <= i
                             < NR_LEVELS implies owner.continuations[i].map_children(
                         CursorOwner::node_unlocked_except(guards1, locked_addr),
                     ) by {
-                        if i >= owner.level {
-                            assert(owner.continuations[i] == owner_before_dfs.continuations[i]);
-                        } else {
-                            assert(i == owner.level - 1);
-                            assert forall|j: int|
-                                0 <= j
-                                    < NR_ENTRIES implies #[trigger] owner.continuations[i].children[j]
-                                == owner_before_dfs.continuations[i].children[j] by {};
-                            assert(owner.continuations[i].children
-                                =~= owner_before_dfs.continuations[i].children);
-                            assert(owner.continuations[i].path()
-                                == owner_before_dfs.continuations[i].path());
-                            assert(owner.continuations[i].map_children(
-                                CursorOwner::node_unlocked_except(guards1, locked_addr),
-                            )) by {
-                                reveal(CursorContinuation::map_children);
-                            };
-                        }
+                        reveal(CursorContinuation::map_children);
                     };
                     owner.map_children_implies(
                         CursorOwner::node_unlocked_except(guards1, locked_addr),
@@ -4508,22 +4506,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         &&& owner.continuations[i].map_children(f)
                     } by {
                         owner_before_dfs.cont_entry_metaregion_at(*regions, i);
-                        if i >= owner.level {
-                            assert(owner.continuations[i] == owner_before_dfs.continuations[i]);
-                        } else {
-                            assert(i == owner.level - 1);
-                            assert(owner.continuations[i].entry_own
-                                == owner_before_dfs.continuations[i].entry_own);
-                            assert(forall|j: int|
-                                0 <= j < NR_ENTRIES ==> #[trigger] owner.continuations[owner.level
-                                    - 1].children[j] == owner_before_dfs.continuations[owner.level
-                                    - 1].children[j]);
-                            assert(owner.continuations[i].children
-                                =~= owner_before_dfs.continuations[i].children);
-                            assert(owner.continuations[i].map_children(f)) by {
-                                reveal(CursorContinuation::map_children);
-                            };
-                        }
+                        reveal(CursorContinuation::map_children);
                     };
                     assert(owner.path_metaregion_sound(*regions)) by {
                         reveal(CursorOwner::path_metaregion_sound);
@@ -4536,42 +4519,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         == owner_before_dfs.continuations[i].view_mappings() by {
                         assert(owner.continuations[i].children
                             == owner_before_dfs.continuations[i].children);
-                        assert(owner.continuations[i].view_mappings()
-                            == owner_before_dfs.continuations[i].view_mappings()) by {
-                            assert forall|m: Mapping|
-                                owner.continuations[i].view_mappings().contains(
-                                    m,
-                                ) implies #[trigger] owner_before_dfs.continuations[i].view_mappings().contains(
-                            m) by {
-                                let j = choose|j: int|
-                                    #![auto]
-                                    0 <= j < owner.continuations[i].children.len()
-                                        && owner.continuations[i].children[j] is Some
-                                        && PageTableOwner(
-                                        owner.continuations[i].children[j].unwrap(),
-                                    ).view_rec(owner.continuations[i].path().push_tail(j)).contains(
-                                        m,
-                                    );
-                                assert(owner_before_dfs.continuations[i].children[j]
-                                    == owner.continuations[i].children[j]);
-                            };
-                            assert forall|m: Mapping| #[trigger]
-                                owner_before_dfs.continuations[i].view_mappings().contains(
-                                    m,
-                                ) implies owner.continuations[i].view_mappings().contains(m) by {
-                                let j = choose|j: int|
-                                    #![auto]
-                                    0 <= j < owner_before_dfs.continuations[i].children.len()
-                                        && owner_before_dfs.continuations[i].children[j] is Some
-                                        && PageTableOwner(
-                                        owner_before_dfs.continuations[i].children[j].unwrap(),
-                                    ).view_rec(
-                                        owner_before_dfs.continuations[i].path().push_tail(j),
-                                    ).contains(m);
-                                assert(owner.continuations[i].children[j]
-                                    == owner_before_dfs.continuations[i].children[j]);
-                            };
-                        };
+                        assert(owner.continuations[i].path()
+                            == owner_before_dfs.continuations[i].path());
+                        reveal(CursorContinuation::view_mappings);
                     };
 
                     assert(forall|m: Mapping|

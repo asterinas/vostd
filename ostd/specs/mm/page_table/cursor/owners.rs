@@ -2355,30 +2355,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         reveal(CursorOwner::path_metaregion_sound);
     }
 
-    /// Continuation entry_owns satisfy `metaregion_sound`.
-    ///
-    /// ## Justification
-    /// When the cursor descends into a subtree, each continuation's `entry_own`
-    /// was previously checked by `subtree_satisfies` in the parent's child
-    /// subtree.  After descent, `map_full_tree` only covers the siblings (the
-    /// taken child is `None`), so the path entries' properties are no longer
-    /// covered by `map_full_tree`.  However, `regions` is unchanged since
-    /// descent, so the properties still hold.
-    pub proof fn cont_entries_metaregion(self, regions: MetaRegionOwners)
-        requires
-            self.inv(),
-            self.metaregion_sound(regions),
-        ensures
-            forall|i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-                    ==> self.continuations[i].entry_own.metaregion_sound(regions),
-    {
-        // Follows directly from path_metaregion_sound,
-        // which is part of metaregion_sound.
-        reveal(CursorOwner::path_metaregion_sound);
-    }
-
+    /// The continuation entry at `i` satisfies `metaregion_sound`.
     pub proof fn cont_entry_metaregion_at(self, regions: MetaRegionOwners, i: int)
         requires
             self.inv(),
