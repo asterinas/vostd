@@ -484,11 +484,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// - We require the caller to provide a permission token to ensure that this function is only called on a valid page table node.
     #[verus_spec(nr =>
         with Tracked(owner) : Tracked<&NodeOwner<C>>,
-             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
+            owner.meta_own.nr_children.id() == owner.meta_value().nr_children.id(),
             self.inner.inner@.invariants(*owner),
-            regions.inv(),
-            owner.metaregion_sound_node(*regions),
             self.inner.inner@.external_meta_wf(owner.frame_permission.resource(), ()),
         returns
             owner.meta_own.nr_children.value(),

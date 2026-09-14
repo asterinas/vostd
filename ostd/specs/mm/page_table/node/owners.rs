@@ -299,7 +299,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.meta_wf(regions)
         &&& self.meta_value().wf(self.meta_own)
         &&& self.level == self.meta_value().level
-        &&& self.meta_own.nr_children.id() == self.meta_value().nr_children.id()
+        &&& self.meta_own.nr_children.id()
+            == self.meta_value().nr_children.id()
         // A page-table node's slot is tracked with `PageTable` usage (set at
         // allocation via `get_node_from_unused_spec`). This discriminates node
         // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a

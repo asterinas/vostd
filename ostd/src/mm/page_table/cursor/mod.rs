@@ -1027,7 +1027,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         pt.make_guard_unchecked(rcu_guard)
                     };
 
-                    #[verus_spec(with Tracked(&mut child_node_owner), Tracked(&*regions))]
+                    #[verus_spec(with Tracked(&mut child_node_owner))]
                     let nr_children = pt_guard.nr_children();
 
                     // `nr_children()` requires `child_node_owner.metaregion_sound_node`,
