@@ -898,7 +898,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.split_while_huge(size) == self@,
     {
         self.view_preserves_inv();
-        self.cur_entry_absent_not_present();
+        self.lemma_cur_entry_absent_not_present();
     }
 
     pub proof fn split_while_huge_at_level_noop(self)
@@ -910,7 +910,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         self.view_preserves_inv();
         if self@.present() {
-            self.cur_subtree_inv();
+            self.lemma_cur_subtree_inv();
             let subtree = self.cur_subtree();
             let path = subtree.value().path;
             let qm = self@.query_mapping();

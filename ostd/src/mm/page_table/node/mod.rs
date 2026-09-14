@@ -427,9 +427,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         let guard = PageTableGuard { inner: self };
 
         proof {
-            let ghost guards0 = *guards;
             guards.guards = guards.guards.insert(owner.meta_vaddr());
-
         }
 
         guard

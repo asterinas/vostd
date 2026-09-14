@@ -39,6 +39,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.map_children(g),
     {
+        reveal(CursorContinuation::map_children);
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
@@ -46,7 +47,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.path().push_tail(j),
             g,
         ) by {
-            self.inv_children_unroll(j);
+            self.lemma_inv_children_unroll(j);
             OwnerSubtree::lemma_subtree_satisfies_implies(
                 self.children[j].unwrap(),
                 self.path().push_tail(j),
@@ -83,6 +84,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.map_children(g),
     {
+        reveal(CursorContinuation::map_children);
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
@@ -91,7 +93,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             g,
         ) by {
             if j != idx {
-                cont0.inv_children_unroll(j);
+                cont0.lemma_inv_children_unroll(j);
                 OwnerSubtree::lemma_subtree_satisfies_implies(
                     cont0.children[j].unwrap(),
                     cont0.path().push_tail(j),
@@ -139,6 +141,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
@@ -148,7 +151,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 cont.path().push_tail(j),
                 g,
             ) by {
-                cont.inv_children_unroll(j);
+                cont.lemma_inv_children_unroll(j);
                 OwnerSubtree::lemma_subtree_satisfies_implies(
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j),
@@ -167,7 +170,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.level > 1,
     {
-        self.cur_subtree_inv();
+        self.lemma_cur_subtree_inv();
     }
 
     /// A frame entry at the cursor's current level that doesn't fit the aligned range
@@ -237,13 +240,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            reveal(CursorContinuation::map_children);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j), g) by {
-                cont.inv_children_unroll(j);
+                cont.lemma_inv_children_unroll(j);
                 PageTableOwner::tree_not_in_scope(
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j),

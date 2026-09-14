@@ -145,7 +145,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             == regions.slots[self.slot_index].value().vtable_ptr
         &&& regions.slot_owners[self.slot_index].metadata_perm.resource().vtable_ptr_perm.is_init()
         &&& regions.slot_owners[self.slot_index].slot_vaddr == index_to_meta(self.slot_index)
-        &&& regions.slot_owners[self.slot_index].ref_count() == REF_COUNT_UNIQUE
+        &&& regions.ref_count(self.slot_index) == REF_COUNT_UNIQUE
         &&& regions.slot_owners[self.slot_index].usage is Frame
     }
 

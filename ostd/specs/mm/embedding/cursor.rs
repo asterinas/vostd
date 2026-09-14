@@ -348,7 +348,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
             i != frame_to_index(paddr) && old(regions).ref_count(i) != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: int|
-            #![trigger final(regions).ref_count(i)]
+            #![trigger final(regions).slot_owners[i].ref_count()]
             old(regions).ref_count(i) != REF_COUNT_UNUSED ==> final(regions).ref_count(i)
                 != REF_COUNT_UNUSED,
         // **`ref_count` PRESERVED at the mapped slot.
@@ -806,7 +806,7 @@ pub(super) proof fn map_step<'rcu>(
             i != frame_to_index(paddr) && old(regions).ref_count(i) != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: int|
-            #![trigger final(regions).ref_count(i)]
+            #![trigger final(regions).slot_owners[i].ref_count()]
             old(regions).ref_count(i) != REF_COUNT_UNUSED ==> final(regions).ref_count(i)
                 != REF_COUNT_UNUSED,
         final(regions).slot_owner(paddr).ref_count() == old(regions).slot_owner(paddr).ref_count(),
