@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789302431048,
+  "lastUpdate": 1789356400125,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -336,6 +336,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=496ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4576a9795c4bdeeee6f48bdc1540c710053f14aa",
+          "message": "Prove simple kvirt area obligations (#739)\n\nCo-authored-by: Je5s1e <chaoccc22@gmail.com>",
+          "timestamp": "2026-09-14T11:17:10+08:00",
+          "tree_id": "6b31e604ffe8ad860eed023809a05f163823ced5",
+          "url": "https://github.com/asterinas/vostd/commit/4576a9795c4bdeeee6f48bdc1540c710053f14aa"
+        },
+        "date": 1789356399329,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1038072806,
+            "unit": "rlimit",
+            "extra": "verified=4081 errors=0 smt-run=253,229ms wall=175,344ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 333202113,
+            "unit": "rlimit",
+            "extra": "smt-run=102,619ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 85126605,
+            "unit": "rlimit",
+            "extra": "smt-run=22,188ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 63643368,
+            "unit": "rlimit",
+            "extra": "smt-run=21,163ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::div_internals",
+            "value": 13249888,
+            "unit": "rlimit",
+            "extra": "smt-run=1,102ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=1,858ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,239ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=873ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=671ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=471ms"
           }
         ]
       }
