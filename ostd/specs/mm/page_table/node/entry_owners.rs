@@ -1062,49 +1062,6 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
     }
 }
 
-impl<C: PageTableConfig> View for EntryOwner<C> {
-    type V = EntryView<C>;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        if self.is_frame() {
-            let frame = self.frame();
-            EntryView::Leaf {
-                leaf: LeafPageTableEntryView {
-                    map_va: vaddr(self.path) as int,
-                    //                    frame_pa: self.base_addr as int,
-                    //                    in_frame_index: self.index as int,
-                    map_to_pa: frame.mapped_pa as int,
-                    level: self.path.len() as u8,
-                    prop: frame.prop,
-                    phantom: PhantomData,
-                },
-            }
-        } else if self.is_node() {
-            let node = self.node();
-            EntryView::Intermediate {
-                node: IntermediatePageTableEntryView {
-                    map_va: vaddr(self.path) as int,
-                    //                    frame_pa: self.base_addr as int,
-                    //                    in_frame_index: self.index as int,
-                    map_to_pa: meta_to_frame(node.meta_vaddr()) as int,
-                    level: self.path.len() as u8,
-                    phantom: PhantomData,
-                },
-            }
-        } else {
-            EntryView::Absent
-        }
-    }
-}
-
-impl<C: PageTableConfig> InvView for EntryOwner<C> {
-    proof fn view_preserves_inv(self) {
-        // `EntryView::inv()` is trivially `true` (the view of an `EntryOwner`
-        // is never inspected outside this trait obligation), so the
-        // postcondition `self.view().inv()` discharges automatically.
-    }
-}
-
 impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     type Owner = EntryOwner<C>;
 
