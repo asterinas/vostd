@@ -223,13 +223,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
     #[verus_spec(
         with
             Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>
     )]
     pub(super) fn level(&self) -> PagingLevel
         requires
-            self.ptr.addr() == regions.slots[owner.slot_index].addr(),
-            owner.metaregion_sound_node(*regions),
             self.external_meta_wf(owner.frame_permission.resource(), ()),
+            owner.level == owner.meta_value().level,
         returns
             owner.level,
     {

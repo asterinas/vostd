@@ -133,7 +133,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     )]
     pub(in crate::mm) fn is_node(&self) -> bool {
         self.pte.is_present() && !self.pte.is_last(
-            #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+            #[verus_spec(with Tracked(&*parent_owner))]
             self.node.level(),
         )
     }
@@ -160,7 +160,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(regions).inv(),
     )]
     pub(in crate::mm) fn to_ref(&self) -> ChildRef<'rcu, C> {
-        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+        #[verus_spec(with Tracked(&*parent_owner))]
         let level = self.node.level();
 
         // SAFETY:
@@ -381,7 +381,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         // SAFETY:
         //  - The PTE is not referenced by other `ChildRef`s (since we have `&mut self`).
         //  - The level matches the current node.
-        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+        #[verus_spec(with Tracked(&*parent_owner))]
         let level = self.node.level();
 
         let old_child = unsafe {
@@ -631,7 +631,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         // For restoring `count_consistent` after adding the child below.
         let ghost cp0 = parent_owner.children_perm.value();
 
-        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+        #[verus_spec(with Tracked(&*parent_owner))]
         let level = self.node.level();
 
         if entry_is_present || level <= 1 {
@@ -888,7 +888,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
         PageTableGuard<'rcu, C>,
     > {
-        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+        #[verus_spec(with Tracked(&*parent_owner))]
         let level = self.node.level();
 
         if !(self.pte.is_last(level) && level > 1) {
@@ -1610,7 +1610,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.read_pte(idx)
         };
 
-        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+        #[verus_spec(with Tracked(&*parent_owner))]
         let level = self.level();
 
         let old_child = unsafe {
@@ -1836,7 +1836,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         idx: usize,
         guard: &'rcu A,
     ) -> PageTableGuard<'rcu, C> {
-        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
+        #[verus_spec(with Tracked(&*parent_owner))]
         let level = self.level();
 
         let ghost old_path = owner.value().path;

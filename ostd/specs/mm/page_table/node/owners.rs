@@ -285,7 +285,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
         )
     }
 
-    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C> {
+    pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
         typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
     }
 
@@ -297,11 +297,9 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& regions.contains(idx)
         &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
-        &&& self.meta_value(regions).wf(self.meta_own)
-        &&& self.level == self.meta_value(regions).level
-        &&& self.meta_own.nr_children.id() == self.meta_value(
-            regions,
-        ).nr_children.id()
+        &&& self.meta_value().wf(self.meta_own)
+        &&& self.level == self.meta_value().level
+        &&& self.meta_own.nr_children.id() == self.meta_value().nr_children.id()
         // A page-table node's slot is tracked with `PageTable` usage (set at
         // allocation via `get_node_from_unused_spec`). This discriminates node
         // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a
