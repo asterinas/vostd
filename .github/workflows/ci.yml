@@ -1,5 +1,9 @@
 name: Format and Verify VOSTD (Main)
 
+# One verification run feeds everything: a verify leg runs it with
+# --time-expanded and uploads the log; `perf` parses that log (never
+# re-verifies), `doc` builds the docs, `format` needs no Verus.
+
 on:
   push:
     branches:
@@ -7,122 +11,58 @@ on:
   pull_request:
     branches:
       - main
+  issue_comment:
+    types: [created]
   workflow_dispatch:
-    inputs:
-      branch:
-        description: "Branch to run the workflow on"
-        required: true
-        default: "main"
 
 permissions:
   contents: read
 
+concurrency:
+  # For comment events github.ref is the default branch, so the issue number
+  # keeps different PRs' runs (and a PR's own runs) from cancelling each other.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.issue.number || 'push' }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   format-and-verify:
+    if: github.event_name != 'issue_comment'
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         os:
           - ubuntu-24.04
           - macos-14
-    env:
-      CARGO_TERM_COLOR: always
-
+    timeout-minutes: 240
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          # push: the pushed commit; pull_request: the merge commit.
+          ref: ${{ github.sha }}
           submodules: recursive
 
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt update -qq
-          sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
-
-      - name: Get Rust toolchain version
-        run: |
-          RUST_VERSION=$(grep 'channel' rust-toolchain.toml | sed -E 's/.*= *"(.*)"/\1/')
-          if [ -z "$RUST_VERSION" ]; then
-            echo "Failed to extract the Rust version from rust-toolchain.toml" >&2
-            exit 1
-          fi
-          echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
-          echo "Rust version: $RUST_VERSION"
-
-      - name: Cache Rust toolchain
-        uses: actions/cache@v6
+      - name: Set up toolchain and caches
+        uses: ./.github/actions/setup-verus
         with:
-          path: |
-            ~/.rustup/toolchains
-            ~/.rustup/update-hashes
-            ~/.rustup/tmp
-          key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_VERSION }}
+          verus: 'true'
+          install-verusfmt: 'false'
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Get Verus commit
-        id: verus
-        run: |
-          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
-          echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
-          echo "Using Verus commit: $VERUS_COMMIT"
-          DV_COMMIT=$(git rev-parse HEAD:dv)
-          echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
-          echo "Using dv commit: $DV_COMMIT"
-
-      - name: Cache dv build artifacts
-        uses: actions/cache@v6
-        with:
-          path: dv/target
-          key: ${{ runner.os }}-dv-${{ env.DV_COMMIT }}
-
-      - name: Cache Verus
-        id: cache-verus
-        uses: actions/cache@v6
-        with:
-          path: tools/verus
-          key: ${{ runner.os }}-verus-${{ env.VERUS_COMMIT }}
-
-      - name: Cache verusfmt
-        id: cache-verusfmt
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/bin/verusfmt
-          key: ${{ runner.os }}-verusfmt-${{ env.VERUS_COMMIT }}
-
-      - name: Bootstrap Verus (if needed)
-        run: |
-          if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
-            echo "Using cached Verus"
-          else
-            echo "Cache miss, bootstrapping Verus..."
-            rm -rf tools/verus
-            cargo dv bootstrap
-          fi
-
-          if ! command -v verusfmt >/dev/null 2>&1; then
-            echo "verusfmt not found, installing via cargo dv bootstrap..."
-            cargo dv bootstrap
-          fi
-          verusfmt --version
-
+      # `make` plus --time-expanded for the perf job's log.
       - name: Run verification
         run: |
           set -o pipefail
-          if ! make 2>&1 | tee verify_output.txt; then
+          if ! cargo dv verify --targets ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
             echo "❌ Verification failed"
             echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
             exit 1
@@ -157,12 +97,64 @@ jobs:
             exit 1
           fi
 
+      - name: Upload verification log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-log-${{ matrix.os }}
+          path: verify_output.txt
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# CI Summary (${{ matrix.os }})"
+            if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
+              echo "- Verification: ❌ failed"
+            else
+              echo "- Verification: ✅ passed"
+            fi
+            if [[ "${VERIFY_WARNINGS_FOUND:-0}" == "1" ]]; then
+              echo "- Verification warnings: ❌ found"
+            else
+              echo "- Verification warnings: ✅ none"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  format:
+    # Needs no Verus build: only rustfmt/verusfmt and the Verus SOURCES for
+    # the vstd path dependency (fetched below).
+    if: github.event_name != 'issue_comment'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up toolchain and caches
+        uses: ./.github/actions/setup-verus
+        with:
+          verus: 'false'
+          install-verusfmt: 'true'
+
+      - name: Fetch Verus sources for the vstd path dependency
+        run: |
+          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
+          # --strip-components=1 drops the tarball's root directory name.
+          mkdir -p tools/verus
+          curl -Ls "https://github.com/asterinas/verus/archive/${VERUS_COMMIT}.tar.gz" | tar xz -C tools/verus --strip-components=1
+          test -f tools/verus/source/vstd/Cargo.toml
+
       - name: Run format
-        if: always() && runner.os == 'Linux'
         run: make fmt
 
       - name: Check for formatting changes
-        if: always() && runner.os == 'Linux'
         run: |
           if [[ -n $(git status --porcelain) ]]; then
             echo "Code is not properly formatted. Run 'make fmt'."
@@ -175,20 +167,433 @@ jobs:
         if: always()
         run: |
           {
-            echo "# CI Summary (${{ matrix.os }})"
+            echo "# Format Summary"
             if [[ "${FMT_FAILED:-0}" == "1" ]]; then
               echo "- Formatting: ❌ failed"
             else
               echo "- Formatting: ✅ passed"
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  pr-comment-verify:
+    # Linux-only /verify-perf leg: verifies the merge ref and uploads the log
+    # `perf` consumes. Separate from the matrix job because a job-level `if`
+    # cannot reference `matrix`.
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/verify-perf') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      statuses: write   # pending ci/verify-perf status on the PR head commit
+    timeout-minutes: 240
+    steps:
+      - name: Get PR head commit
+        id: pr
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.issue.number;
+            const { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            core.setOutput('head_sha', pull.head.sha);
+
+      - name: Mark verify-perf as pending
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: '${{ steps.pr.outputs.head_sha }}',
+              state: 'pending',
+              context: 'ci/verify-perf',
+              description: 'verify-perf comparison is running',
+              target_url: runUrl,
+            });
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: refs/pull/${{ github.event.issue.number }}/merge
+          submodules: recursive
+
+      - name: Set up toolchain and caches
+        uses: ./.github/actions/setup-verus
+        with:
+          verus: 'true'
+          install-verusfmt: 'false'
+
+      - name: Run verification
+        run: |
+          set -o pipefail
+          if ! cargo dv verify --targets ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
+            echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          else
+            echo "Verification passed!"
+          fi
+
+      - name: Upload verification log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-log-ubuntu-24.04
+          path: verify_output.txt
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# PR-comment verification summary (merge ref)"
             if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
               echo "- Verification: ❌ failed"
             else
               echo "- Verification: ✅ passed"
             fi
-            if [[ "${VERIFY_WARNINGS_FOUND:-0}" == "1" ]]; then
-              echo "- Verification warnings: ❌ found"
-            else
-              echo "- Verification warnings: ✅ none"
-            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  perf:
+    name: verify-perf
+    needs: [format-and-verify, pr-comment-verify]
+    # Runs on every event, parsing a verify leg's log. Push/dispatch: record
+    # to the gh-pages benchmark history and save the baseline. PRs and
+    # comment runs: compare against the last main measurement; only comment
+    # runs post the comparison as a PR comment. `always()` so a failed
+    # verification still reports the status.
+    if: >
+      always() &&
+      (github.event_name != 'issue_comment' ||
+       (github.event.issue.pull_request &&
+        contains(github.event.comment.body, '/verify-perf') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write      # push benchmark history to the gh-pages branch
+      pull-requests: write # post /verify-perf comparison as a PR comment
+      deployments: write   # github-action-benchmark gh-pages deployment
+      statuses: write      # ci/verify-perf commit status on PR head commits
+    timeout-minutes: 30
+    steps:
+      - name: Get PR head commit
+        id: pr
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.issue.number;
+            const { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            core.setOutput('head_sha', pull.head.sha);
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.sha }}
+
+      - name: Record which commit was checked out
+        run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      # Comment runs use a throwaway perf-prtmp-<id> key so PR metrics never
+      # become the baseline; restore-keys finds the last main measurement.
+      - name: Restore prior measurement (baseline)
+        id: baseline
+        uses: actions/cache/restore@v6
+        with:
+          path: perf-store
+          key: ${{ github.event_name == 'issue_comment' && format('perf-prtmp-{0}', github.event.comment.id) || format('perf-metrics-{0}', github.sha) }}
+          restore-keys: |
+            perf-metrics-
+
+      - name: Save aside the baseline (if any)
+        run: |
+          if [[ -f perf-store/metrics.json ]]; then
+            BASELINE_SHA=$(cat perf-store/source-sha.txt 2>/dev/null || echo unknown)
+            echo "BASELINE_SHA=$BASELINE_SHA" >> "$GITHUB_ENV"
+            mv perf-store/metrics.json perf-baseline.json
+            echo "Baseline: $BASELINE_SHA"
+          else
+            echo "No prior measurement cached; nothing to compare against yet."
+          fi
+
+      - name: Download verification log
+        uses: actions/download-artifact@v8
+        with:
+          name: verify-log-ubuntu-24.04
+
+      - name: Parse cost metrics
+        run: |
+          mkdir -p perf-store
+          python3 tools/verus_perf.py parse verify_output.txt > perf-store/metrics.json
+          echo "$CUR_SHA" > perf-store/source-sha.txt
+          echo "recorded run for: $CUR_SHA"
+          cat perf-store/metrics.json
+
+      - name: Compare against the prior measurement
+        run: |
+          mkdir -p out
+          if [[ -f perf-baseline.json ]]; then
+            if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+              HEADER="PR \`/verify-perf\`: this PR's merge ref (\`$CUR_SHA\`) vs last recorded main (\`${BASELINE_SHA:-unknown}\`)."
+            else
+              HEADER="Comparing this run (\`$CUR_SHA\`) against the last main measurement (\`${BASELINE_SHA:-unknown}\`)."
+            fi
+            {
+              echo "## Verification cost"
+              echo
+              echo "$HEADER"
+              echo
+              python3 tools/verus_perf.py compare perf-baseline.json perf-store/metrics.json
+            } > out/perf-report.md
+          else
+            {
+              echo "## Verification cost: first recorded baseline"
+              echo
+              if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+                echo "No prior main measurement is cached yet (run \`verify-perf\` on main once first), so nothing to compare against. Recording this PR's cost (\`$CUR_SHA\`):"
+              else
+                echo "No prior measurement was cached; nothing to compare against yet. This run's cost (\`$CUR_SHA\`):"
+              fi
+              echo
+              echo '```'
+              cat perf-store/metrics.json
+              echo '```'
+            } > out/perf-report.md
+          fi
+          cat out/perf-report.md
+          {
+            cat out/perf-report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A failed verification's log has no results and would parse as zeros.
+      - name: Convert metrics to benchmark format
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.format-and-verify.result == 'success'
+        run: |
+          mkdir -p out
+          python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
+          cat out/benchmark.json
+
+      - name: Record benchmark on gh-pages
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.format-and-verify.result == 'success'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: verify-perf
+          tool: customSmallerIsBetter
+          output-file-path: out/benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          alert-threshold: '120%'
+          comment-on-alert: true
+          summary-always: true
+
+      - name: Save measurement as the next baseline
+        # Miss-guard: re-running the same sha would collide with its entry.
+        if: >
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          needs.format-and-verify.result == 'success' &&
+          steps.baseline.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: perf-store
+          key: ${{ format('perf-metrics-{0}', github.sha) }}
+
+      - name: Comment the report on the PR
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ github.event.issue.number }}" --body-file out/perf-report.md
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-perf-${{ github.run_id }}
+          path: |
+            out/perf-report.md
+            out/benchmark.json
+            perf-store/metrics.json
+            perf-baseline.json
+          if-no-files-found: ignore
+
+      - name: Report verify-perf status
+        if: always() && github.event_name == 'issue_comment'
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const ok = '${{ job.status }}' === 'success';
+            const state = ok ? 'success' : 'failure';
+            const description = ok
+              ? 'verify-perf comparison posted'
+              : 'verify-perf run failed';
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: '${{ steps.pr.outputs.head_sha }}',
+              state,
+              context: 'ci/verify-perf',
+              description,
+              target_url: runUrl,
+            });
+
+  doc:
+    # PRs build the docs; pushes also upload them for `deploy-gh-pages`.
+    # Needs `perf`: the benchmark embedded below must be on gh-pages first.
+    needs: [format-and-verify, perf]
+    if: >
+      always() &&
+      github.event_name != 'issue_comment' &&
+      (github.event_name == 'pull_request' ||
+       needs.perf.result == 'success' ||
+       needs.perf.result == 'skipped') &&
+      (github.event_name == 'pull_request' ||
+       needs.format-and-verify.result == 'success')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write      # deploy to GitHub Pages
+      id-token: write   # deploy to GitHub Pages
+      statuses: write   # ci/doc commit status
+    timeout-minutes: 90
+    steps:
+      - name: Mark doc CI as pending
+        if: github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/github-script@v9
+        env:
+          STATUS_SHA: ${{ github.sha }}
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: process.env.STATUS_SHA,
+              state: 'pending',
+              context: 'ci/doc',
+              description: 'Docs build is running',
+              target_url: runUrl,
+            });
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up toolchain and caches
+        uses: ./.github/actions/setup-verus
+        with:
+          verus: 'true'
+          dv-cache: 'restore'
+
+      - name: Build docs
+        run: make doc
+
+      # Serve the benchmark chart at <site>/dev/bench/.
+      - name: Embed verify-perf benchmark into the doc artifact
+        run: |
+          set -e
+          if ! git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            echo "no gh-pages branch yet; benchmark not embedded"
+            exit 0
+          fi
+          git checkout FETCH_HEAD -- dev/bench || { echo "no dev/bench on gh-pages; skipping"; exit 0; }
+          mkdir -p doc/dev
+          mv dev/bench doc/dev/bench
+          rmdir dev 2>/dev/null || true
+          echo "embedded dev/bench into the doc artifact:"
+          ls doc/dev/bench
+
+      - name: Upload artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: doc
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# Doc Summary"
+            echo "- Docs build: ${{ job.status == 'success' && '✅ passed' || '❌ failed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-gh-pages:
+    needs: [doc]
+    # The status function is required: without one, the implicit success()
+    # also counts doc's skipped-by-design transitive needs.
+    if: >
+      !cancelled() &&
+      github.event_name != 'pull_request' &&
+      needs.doc.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write      # deploy to GitHub Pages
+      id-token: write   # deploy to GitHub Pages
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  report:
+    # `ci/doc` status for push runs; `always()` flips pending -> failure.
+    needs: [doc, deploy-gh-pages]
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    timeout-minutes: 10
+    steps:
+      - name: Report doc status on the commit
+        continue-on-error: true
+        uses: actions/github-script@v9
+        env:
+          STATUS_SHA: ${{ github.sha }}
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            const buildResult = '${{ needs.doc.result }}';
+            const deployResult = '${{ needs.deploy-gh-pages.result }}';
+            // deploy is skipped when docs aren't published -- not a failure.
+            const ok = buildResult === 'success' &&
+              (deployResult === 'success' || deployResult === 'skipped');
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: process.env.STATUS_SHA,
+              state: ok ? 'success' : 'failure',
+              context: 'ci/doc',
+              description: ok ? 'Docs CI succeeded' : 'Docs CI failed',
+              target_url: runUrl,
+            });
