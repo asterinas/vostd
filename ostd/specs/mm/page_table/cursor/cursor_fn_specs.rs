@@ -63,7 +63,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     ///  - that slot's refcount is already at `REF_COUNT_MAX`, so the
     ///    `inc_ref_count` in `clone_item` would overflow and abort.
     /// `owner@.query_mapping().pa_range.start` is exactly the paddr the
-    /// descent lands on (bridged by [`CursorOwner::cur_entry_frame_present`]).
+    /// descent lands on (bridged by [`CursorOwner::lemma_cur_entry_frame_present`]).
     pub open spec fn query_panic_condition(
         self,
         owner: CursorOwner<'rcu, C>,

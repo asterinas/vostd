@@ -99,6 +99,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger other.continuations[i]]
             other.level - 1 <= i < NR_LEVELS implies other.continuations[i].map_children(f) by {
+            reveal(CursorContinuation::map_children);
             if i > L - 1 {
                 assert(other.continuations[i] == self.continuations[i]);
                 assert(self.continuations[i].map_children(f));
@@ -114,19 +115,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 o_cont.path().push_tail(j), f) by {
                     if j != idx {
                         assert(o_cont.children[j] == s_cont.children[j]);
-                        s_cont.inv_children_unroll(j);
+                        s_cont.lemma_inv_children_unroll(j);
                     }
                 };
             }
         };
 
+        reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
             #![trigger other.continuations[i]]
             other.level - 1 <= i
                 < NR_LEVELS implies other.continuations[i].entry_own.metaregion_sound(regions) by {
             if i > L - 1 {
                 assert(other.continuations[i] == self.continuations[i]);
-                self.inv_continuation(i);
+                self.lemma_inv_continuation(i);
             }
         };
     }
@@ -184,7 +186,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // the map changed only the in-range slot `idx`, so every outside
             // child keeps `owner0`'s value; `idx` is in-range (top index in
             // [start, end), and `in_locked_range` rules out the sentinel).
-            owner0.in_locked_range_top_index_lt_top_end();
+            owner0.lemma_in_locked_range_top_index_lt_top_end();
             assert(self.continuations[NR_LEVELS - 1].idx == self.va.index[NR_LEVELS - 1]);
             assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
@@ -247,7 +249,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let idx = cont0.idx as int;
 
         assert(cont.view_mappings() == cont0.view_mappings()) by {
-            cont0.inv_children_unroll(idx);
+            cont0.lemma_inv_children_unroll(idx);
             PageTableOwner(cont0.children[idx].unwrap()).view_rec_absent_empty(
                 cont0.path().push_tail(idx as int),
             );
@@ -402,8 +404,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let pv = self.prefix.to_vaddr() as nat;
             let ps = page_size(self.guard_level as PagingLevel) as nat;
             self.prefix.align_down_concrete(self.guard_level as int);
-            self.prefix_aligned_to_guard_level();
-            self.prefix_plus_ps_no_overflow();
+            self.lemma_prefix_aligned_to_guard_level();
+            self.lemma_prefix_plus_ps_no_overflow();
             self.prefix.aligned_align_up_advances(self.guard_level as int);
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps) as Vaddr);
         }

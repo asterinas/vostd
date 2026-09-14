@@ -132,7 +132,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_self.va.align_down_leading_bits(old_self.level as int);
         self.va = old_self.va.align_down(old_self.level as int);
 
-        old_self.locked_range_span();
+        old_self.lemma_locked_range_span();
         lemma_page_size_ge_page_size(old_self.level as PagingLevel);
         lemma_page_size_ge_page_size(old_self.guard_level as PagingLevel);
         lemma_page_size_divides(old_self.level as PagingLevel, old_self.guard_level as PagingLevel);
@@ -256,10 +256,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         broadcast use CursorContinuation::group_lemmas;
 
-        self.cur_subtree_inv();
+        self.lemma_cur_subtree_inv();
         self.cur_va_in_subtree_range();
         self.view_preserves_inv();
-        self.cur_entry_frame_present();
+        self.lemma_cur_entry_frame_present();
         let subtree = self.cur_subtree();
         let path = subtree.value().path;
         let frame = self.cur_entry_owner().frame();
@@ -309,10 +309,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             );
         };
 
-        self.locked_range_page_aligned();
+        self.lemma_locked_range_page_aligned();
         self.va.to_vaddr_bounded();
-        self.in_locked_range_level_le_guard_level();
-        self.va_plus_page_size_no_overflow(self.level as PagingLevel);
+        self.lemma_in_locked_range_level_le_guard_level();
+        self.lemma_va_plus_page_size_no_overflow(self.level as PagingLevel);
         self.va.align_up_advances_general(self.level as int);
 
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
@@ -346,7 +346,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
 
         self.va.to_path_inv(L - 1);
-        self.cur_subtree_inv();
+        self.lemma_cur_subtree_inv();
         AbstractVaddr::rec_vaddr_eq_if_indices_eq(subtree_path, va_path, 0);
         self.va.vaddr_range_from_path(L - 1);
     }
@@ -369,9 +369,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let new_val = new_va.to_vaddr();
         let prefix_val = self.prefix.to_vaddr();
 
-        self.locked_range_span();
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
+        self.lemma_locked_range_span();
+        self.lemma_prefix_aligned_to_guard_level();
+        self.lemma_prefix_plus_ps_no_overflow();
         self.prefix.aligned_align_down_is_self(gl as int);
         self.prefix.aligned_align_up_advances(gl as int);
 
@@ -434,7 +434,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_self.lemma_locked_range_vaddr_prefix_match(new_va);
 
         if old_self.level < old_self.guard_level {
-            old_self.prefix_in_locked_range();
+            old_self.lemma_prefix_in_locked_range();
         }
     }
 }

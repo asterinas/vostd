@@ -100,6 +100,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         subtree.subtree_satisfies(path, CursorOwner::<'rcu, C>::node_unlocked(guards)),
     decreases INC_LEVELS - subtree.level(),
 {
+    reveal(PageTableOwner::pt_inv_at_depth);
     let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
     let g = CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr);
     let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
@@ -353,7 +354,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // (the conjunct at owners.rs:481-482 requires strict level < guard_level).
         // After push_level, the new level < guard_level triggers that conjunct.
         // Derive it from in_locked_range() for all cases.
-        self.in_locked_range_guard_index_eq_prefix();
+        self.lemma_in_locked_range_guard_index_eq_prefix();
 
         let new_owner = self.push_level_owner(guard);
 
@@ -435,6 +436,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).nodes_locked(guards),
             self.push_level_owner(guard).metaregion_sound(regions),
     {
+        reveal(CursorContinuation::map_children);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
 
@@ -452,6 +454,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= i
                 < NR_LEVELS implies self.continuations[i].guard.inner.inner@.ptr.addr()
             != guard.inner.inner@.ptr.addr() by {
+            reveal(CursorOwner::path_metaregion_sound);
             let cont_i = self.continuations[i];
 
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
@@ -463,7 +466,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(set![cont_i.path()].contains(cur_entry_path));
 
                 assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
-                    old_cont.inv_children_rel_unroll(old_cont.idx as int);
+                    old_cont.lemma_inv_children_rel_unroll(old_cont.idx as int);
                 };
                 assert(false);
             }
@@ -557,7 +560,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             };
         };
-
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     pub proof fn tracked_push_level_owner(tracked &mut self, guard: PageTableGuard<'rcu, C>)
@@ -617,6 +620,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.pop_level_owner().0.inv(),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
     }
 
     #[verifier::rlimit(200)]
@@ -633,6 +637,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.nodes_locked(guards),
             self.pop_level_owner().0.metaregion_sound(regions),
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         let child = self.continuations[self.level - 1];
         let child_addr = child.entry_own.node().meta_vaddr();
 
@@ -640,7 +645,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             CursorOwner::<'rcu, C>::node_unlocked(guards),
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
         );
-
+        reveal(CursorContinuation::map_children);
+        reveal(CursorOwner::path_metaregion_sound);
     }
 
     /// Update va to a new value that shares the same indices at levels >= self.level.
@@ -675,8 +681,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 r.va.align_down_concrete(gl as int);
                 r.prefix.align_down_concrete(gl as int);
                 // Use cursor inv helpers on self (r.prefix == self.prefix).
-                self.prefix_aligned_to_guard_level();
-                self.prefix_plus_ps_no_overflow();
+                self.lemma_prefix_aligned_to_guard_level();
+                self.lemma_prefix_plus_ps_no_overflow();
                 r.prefix.aligned_align_up_advances(gl as int);
                 AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
                     nat_align_down(
@@ -730,21 +736,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().va.to_vaddr() > self.va.to_vaddr(),
         decreases NR_LEVELS - self.level,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         if self.index() + 1 < NR_ENTRIES {
             self.inc_and_zero_increases_va();
         } else if self.level == self.guard_level {
             // level == guard_level, index + 1 >= NR_ENTRIES.
             // move_forward_owner_spec pops if level < NR_LEVELS, else returns self.
-            self.in_locked_range_guard_index_eq_prefix();
+            self.lemma_in_locked_range_guard_index_eq_prefix();
             let k = self.prefix.index[self.guard_level - 1];
 
             if self.guard_level < NR_LEVELS {
                 // Pop to parent. Parent is at guard_level + 1 with popped_too_high.
             } else {
-                // `level == guard_level == NR_LEVELS && index+1 == NR_ENTRIES`
-                // is unreachable: `cursor_top_idx_strict_lt_nr_entries` derives
-                // `self.index() + 1 < NR_ENTRIES` from cursor inv +
-                // LOCKED_END_BOUND, contradicting the outer `else` guard.
                 assert(false);
             }
         } else if self.level + 1 < self.guard_level {
@@ -770,6 +773,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             !self.move_forward_owner_spec().popped_too_high,
         decreases NR_LEVELS - self.level,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         if self.index() + 1 >= NR_ENTRIES && self.level < NR_LEVELS {
             self.pop_level_owner().0.move_forward_not_popped_too_high();
         }
@@ -792,6 +796,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ) <= self.max_steps(),
         decreases NR_LEVELS - self.level,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         let l = self.level as usize;
         let st_l = Self::max_steps_subtree(l) as int;
 
@@ -853,6 +858,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().max_steps() < self.max_steps(),
         decreases NR_LEVELS - self.level,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         let l = self.level as usize;
         let st_l = Self::max_steps_subtree(l) as int;
 
@@ -929,6 +935,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().va == self.va.align_up(self.level as int),
         decreases NR_LEVELS - self.level,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         if self.level == self.guard_level {
             if self.index() + 1 < NR_ENTRIES {
                 // Same as the no-carry branch below: use align_up_advances_general.
@@ -1076,6 +1083,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec()@.mappings == self@.mappings,
         decreases NR_LEVELS - self.level,
     {
+        reveal(PageTableOwner::pt_inv_at_depth);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         if self.index() + 1 < NR_ENTRIES {

@@ -365,30 +365,6 @@ impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     }
 }
 
-pub ghost struct NodeModel<C: PageTableConfig> {
-    pub level: PagingLevel,
-    pub _phantom: core::marker::PhantomData<C>,
-}
-
-impl<C: PageTableConfig> Inv for NodeModel<C> {
-    open spec fn inv(self) -> bool {
-        true
-    }
-}
-
-impl<C: PageTableConfig> View for NodeOwner<C> {
-    type V = NodeModel<C>;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        NodeModel { level: self.level, _phantom: core::marker::PhantomData }
-    }
-}
-
-impl<C: PageTableConfig> InvView for NodeOwner<C> {
-    proof fn view_preserves_inv(self) {
-    }
-}
-
 impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
@@ -402,10 +378,6 @@ impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn invariants(self, owner: NodeOwner<C>) -> bool {
         &&& owner.inv()
         &&& self.wf(owner)
-        //        &&& owner.meta_perm.wf(...)
-        //        &&& owner.meta_perm.addr() == self.ptr.addr()
-        //        &&& owner.meta_perm.addr() == self.ptr.addr()
-
     }
 }
 
