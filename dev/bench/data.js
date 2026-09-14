@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789356842339,
+  "lastUpdate": 1789371307725,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -504,6 +504,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=645ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6552fc47244d9ac3c2f851b3419a3b23cc1abd1",
+          "message": "chore: remove several redundant `InvView` implementations (#764)\n\n* chore: remove `NodeModel`\n\n* chore: remove `EntryView`",
+          "timestamp": "2026-09-14T15:23:09+08:00",
+          "tree_id": "b5886953fa438a9dba417cd59cdcbbe1eef80728",
+          "url": "https://github.com/asterinas/vostd/commit/a6552fc47244d9ac3c2f851b3419a3b23cc1abd1"
+        },
+        "date": 1789371306134,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1075909141,
+            "unit": "rlimit",
+            "extra": "verified=4079 errors=0 smt-run=266,990ms wall=181,146ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 369104275,
+            "unit": "rlimit",
+            "extra": "smt-run=111,721ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 87683492,
+            "unit": "rlimit",
+            "extra": "smt-run=23,095ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 86123454,
+            "unit": "rlimit",
+            "extra": "smt-run=20,234ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::div_internals",
+            "value": 13249888,
+            "unit": "rlimit",
+            "extra": "smt-run=1,265ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=1,801ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,308ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=857ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=595ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=458ms"
           }
         ]
       }
