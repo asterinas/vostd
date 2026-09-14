@@ -390,9 +390,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         };
 
         if old_child.is_none() && !new_child.is_none() {
-            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
             #[verus_spec(with
-                Tracked(meta_points_to),
                 Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                     &parent_owner.frame_permission,
                 )),
@@ -405,9 +403,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
-            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
             #[verus_spec(with
-                Tracked(meta_points_to),
                 Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                     &parent_owner.frame_permission,
                 )),
@@ -706,9 +702,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 self.node.write_pte(self.idx, self.pte)
             };
 
-            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
             #[verus_spec(with
-                Tracked(meta_points_to),
                 Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                     &parent_owner.frame_permission,
                 )),
@@ -1628,9 +1622,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let ghost cp0 = parent_owner.children_perm.value();
 
         if old_child.is_none() && !new_child.is_none() {
-            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
             #[verus_spec(with
-                Tracked(meta_points_to),
                 Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                     &parent_owner.frame_permission,
                 )),
@@ -1643,9 +1635,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
-            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
             #[verus_spec(with
-                Tracked(meta_points_to),
                 Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                     &parent_owner.frame_permission,
                 )),
@@ -1929,9 +1919,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // (`alloc` allocates a different slot, `write_pte` leaves regions
         // immutable).
 
-        let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
         #[verus_spec(with
-            Tracked(meta_points_to),
             Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                 &parent_owner.frame_permission,
             )),
@@ -2055,9 +2043,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ) {
         // For restoring `count_consistent` after the absent→frame install.
         let ghost cp0 = parent_owner.children_perm.value();
-        let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
         #[verus_spec(with
-            Tracked(meta_points_to),
             Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                 &parent_owner.frame_permission,
             )),

@@ -258,24 +258,40 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// - By requiring the caller to provide a typed permission, we ensure that the metadata is of type `M`.
     /// While a non-verified caller cannot be trusted to obey this interface, all functions that return a `Frame<M>` also
     /// return an appropriate permission.
-    #[verus_spec(
+    #[verus_spec(ret =>
         with
-            Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(metadata_perms): Tracked<&'a MetadataPerm>,
+            Tracked(metadata_perm): Tracked<Option<&'a MetadataPerm>>,
             Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
-            self.ptr == points_to.pptr(),
-            typed_meta_wf::<M>(*points_to, *metadata_perms, *repr_perm),
-        returns
-            typed_meta_value::<M>(*metadata_perms, *repr_perm),
+            self.ptr_inv(),
+            {
+                self.inv() && metadata_perm is None
+                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), *repr_perm) ||
+                metadata_perm is Some
+                && self.external_meta_wf(*metadata_perm->0, *repr_perm)
+            },
+        ensures
+            {
+                let metadata_perm = if metadata_perm is Some {*metadata_perm -> 0} else
+                    { self.metadata_perm() };
+                ret == typed_meta_value::<M>(metadata_perm, *repr_perm)
+            },
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
         // SAFETY: The type is tracked by the typed storage permission.
         //  unsafe { &*self.slot().as_meta_ptr::<M>() }
+        proof_decl! {
+            let tracked slot_perm = self.tracked_slot_perm.borrow();
+            let tracked metadata_perm = if metadata_perm is Some {
+                metadata_perm.tracked_borrow()
+            } else {
+                self.tracked_metadata_perm.tracked_borrow().tracked_borrow()
+            };
+        }
         borrow_meta(
             ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
-            Tracked(points_to),
-            Tracked(metadata_perms),
+            Tracked(slot_perm),
+            Tracked(metadata_perm),
             Tracked(repr_perm),
         )
     }
@@ -473,6 +489,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         ensures
             res.inner@.ptr.addr() == self.ptr.addr(),
             res.inner@.ptr_inv(),
+            res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
+            res.inner@.tracked_metadata_perm@ is None,
+            MetaSlot::perms_related(res.inner@.slot_perm(), frame_permission.resource()),
     )]
     pub(in crate::mm) fn borrow_with_permission<'a>(&self) -> FrameRef<'a, M> {
         unsafe {

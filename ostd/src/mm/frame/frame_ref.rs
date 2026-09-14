@@ -51,6 +51,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         ensures
             r.inner@.ptr.addr() == frame_to_meta(raw),
             r.inner@.ptr_inv(),
+            r.inner@.tracked_slot_perm@ == slot_perm,
+            r.inner@.tracked_metadata_perm@ is None,
+            MetaSlot::perms_related(r.inner@.slot_perm(), metadata_perm.resource()),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         let frame = Frame::<M> {
