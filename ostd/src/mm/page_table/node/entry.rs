@@ -119,15 +119,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     #[verus_spec(
         with Tracked(owner): Tracked<EntryOwner<C>>,
              Tracked(parent_owner): Tracked<&NodeOwner<C>>,
-             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             owner.inv(),
             self.wf(owner),
+            parent_owner.level == parent_owner.meta_value().level,
             parent_owner.relate_guard(*self.node),
             parent_owner.inv(),
             parent_owner.level == owner.parent_level,
-            regions.inv(),
-            parent_owner.metaregion_sound_node(*regions),
         returns
             owner.is_node(),
     )]
