@@ -1860,10 +1860,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             res == OwnerSubtree::new_val(res.value(), res.level() as nat),
     {
         let cont = self.continuations[self.level - 1];
-        self.inv_continuation(self.level - 1);
+        self.lemma_inv_continuation(self.level - 1);
 
-        cont.inv_children_unroll(cont.idx as int);
-        cont.inv_children_rel_unroll(cont.idx as int);
+        cont.lemma_inv_children_unroll(cont.idx as int);
+        cont.lemma_inv_children_rel_unroll(cont.idx as int);
 
         let tracked entry = EntryOwner::tracked_new_absent(self.cur_entry_owner().path, self.level);
 

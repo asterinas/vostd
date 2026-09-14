@@ -3178,6 +3178,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked subtree = owner.tracked_new_absent_subtree();
 
         proof {
+            assert(subtree.value().inv()) by {
+                reveal(TreeNode::inv);
+            };
             owner.absent_not_in_tree(subtree.value());
         }
 
@@ -3225,6 +3228,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(cur_st.value().inv()) by {
                     reveal(TreeNode::inv);
                 };
+                owner_before_replace.lemma_inv_continuation(owner_before_replace.level - 1);
+                let cont = owner_before_replace.continuations[owner_before_replace.level - 1];
+                assert(cont.all_some()) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
+                cont.lemma_inv_children_rel_unroll(cont.idx as int);
                 owner_before_replace.lemma_new_child_mappings_eq_target(
                     cur_st,
                     cur_st.value().frame().mapped_pa,
