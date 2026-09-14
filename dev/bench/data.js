@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789387169451,
+  "lastUpdate": 1789397925288,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -672,6 +672,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=623ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3b0444ac4ef64723fba9e21c9a41c72a3937d94",
+          "message": "ci: refactor ci workflow (#766)",
+          "timestamp": "2026-09-14T22:41:53+08:00",
+          "tree_id": "04105e59eb49d6ccffdf1cb5750d3ab4d1b22596",
+          "url": "https://github.com/asterinas/vostd/commit/e3b0444ac4ef64723fba9e21c9a41c72a3937d94"
+        },
+        "date": 1789397924088,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1070545411,
+            "unit": "rlimit",
+            "extra": "verified=4079 errors=0 smt-run=368,976ms wall=237,950ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 371411986,
+            "unit": "rlimit",
+            "extra": "smt-run=149,033ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 86512060,
+            "unit": "rlimit",
+            "extra": "smt-run=39,931ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 80760641,
+            "unit": "rlimit",
+            "extra": "smt-run=34,764ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::div_internals",
+            "value": 13249888,
+            "unit": "rlimit",
+            "extra": "smt-run=1,588ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,301ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,525ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,116ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=794ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=545ms"
           }
         ]
       }
