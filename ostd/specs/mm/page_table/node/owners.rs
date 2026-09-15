@@ -250,7 +250,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == meta_to_index(index_to_meta(self.slot_index))
     }
 }
 
