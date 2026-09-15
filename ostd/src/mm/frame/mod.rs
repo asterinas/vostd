@@ -33,8 +33,8 @@ use vstd::atomic::PermissionU64;
 use vstd::map::assert_maps_equal_internal;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
-use vstd::{assert_maps_equal, assert_sets_equal};
 use vstd::std_specs::cmp::PartialEqSpecImpl;
+use vstd::{assert_maps_equal, assert_sets_equal};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::panic::may_panic;
@@ -148,19 +148,20 @@ impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
     }
 }
 */
+
 verus!{
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEqSpecImpl for Frame<M>{
     open spec fn obeys_eq_spec() -> bool { true }
 
     open spec fn eq_spec(&self, other: &Self) -> bool {
         self.start_paddr_spec() == other.start_paddr_spec()
-    } 
+    }
 }
 
 }
 
 #[verus_verify]
-impl <M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEq for Frame<M>{
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEq for Frame<M> {
     fn eq(&self, other: &Self) -> bool {
         proof!{
             //FIXME: Add `ptr_inv` as type invariant when we fix visibility.
@@ -172,7 +173,9 @@ impl <M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEq for Frame<M>{
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Eq for Frame<M> {}
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Eq for Frame<M> {
+
+}
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
