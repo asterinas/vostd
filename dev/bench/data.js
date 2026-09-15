@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789456016724,
+  "lastUpdate": 1789459279742,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -840,6 +840,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=656ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "15e0bb714754eff837723b53e777ac61f611d4c1",
+          "message": "chore: fix `PartialSpec` for `Frame` (#768)\n\n* chore: fix `PartialSpec` for `Frame`\n\n* fmt",
+          "timestamp": "2026-09-15T15:49:51+08:00",
+          "tree_id": "7da884818571b613015f9e98bf6d9c25e52a9124",
+          "url": "https://github.com/asterinas/vostd/commit/15e0bb714754eff837723b53e777ac61f611d4c1"
+        },
+        "date": 1789459279160,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1059198343,
+            "unit": "rlimit",
+            "extra": "verified=4048 errors=0 smt-run=378,077ms wall=241,384ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 391762755,
+            "unit": "rlimit",
+            "extra": "smt-run=159,662ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 86989432,
+            "unit": "rlimit",
+            "extra": "smt-run=31,730ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 70123207,
+            "unit": "rlimit",
+            "extra": "smt-run=32,066ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,851ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 8889145,
+            "unit": "rlimit",
+            "extra": "smt-run=1,642ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,923ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,209ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=885ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=667ms"
           }
         ]
       }
