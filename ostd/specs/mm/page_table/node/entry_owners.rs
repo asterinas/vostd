@@ -131,7 +131,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         EntryOwner {
             kind: EntryOwnerKind::Node(node),
             path,
-            parent_level: (node.level + 1) as PagingLevel,
+            parent_level: (node.level() + 1) as PagingLevel,
         }
     }
 
@@ -326,7 +326,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             Self::new_node(node, path),
     {
         Self {
-            parent_level: (node.level + 1) as PagingLevel,
+            parent_level: (node.level() + 1) as PagingLevel,
             kind: EntryOwnerKind::Node(node),
             path,
         }
@@ -1030,7 +1030,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn inv_base(self) -> bool {
         &&& self.is_node() ==> {
             &&& self.node().inv()
-            &&& self.parent_level == self.node().level + 1
+            &&& self.parent_level == self.node().level() + 1
         }
         &&& self.is_frame() ==> {
             // Architectural constraint: frames only exist at PT levels that the

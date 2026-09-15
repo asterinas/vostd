@@ -178,30 +178,6 @@ impl Inv for PageMetaOwner {
     }
 }
 
-pub ghost struct PageMetaModel {
-    pub nr_children: u16,
-    pub stray: bool,
-}
-
-impl Inv for PageMetaModel {
-    open spec fn inv(self) -> bool {
-        true
-    }
-}
-
-impl View for PageMetaOwner {
-    type V = PageMetaModel;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        PageMetaModel { nr_children: self.nr_children.value(), stray: self.stray.value() }
-    }
-}
-
-impl InvView for PageMetaOwner {
-    proof fn view_preserves_inv(self) {
-    }
-}
-
 impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
     type Owner = PageMetaOwner;
 
@@ -227,7 +203,6 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub frame_permission: FracMetadataPerm,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
-    pub ghost level: PagingLevel,
     pub ghost tree_level: int,
     pub ghost slot_index: int,
 }
@@ -237,13 +212,13 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_own.inv()
         &&& self.frame_permission.frac() == 1
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
-        &&& 1 <= self.level <= NR_LEVELS
+        &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(
             meta_to_frame(index_to_meta(self.slot_index)),
         )
-        &&& self.tree_level == INC_LEVELS - self.level - 1
+        &&& self.tree_level == INC_LEVELS - self.level() - 1
         &&& 0 <= self.slot_index < max_meta_slots()
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
@@ -251,7 +226,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == meta_to_index(index_to_meta(self.slot_index))
     }
 }
 
@@ -265,9 +239,9 @@ impl<C: PageTableConfig> NodeOwner<C> {
         permission.tracked_borrow()
     }
 
-    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> (tracked res: &MetadataPerm)
-        ensures
-            *res == self.frame_permission.resource(),
+    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> tracked &MetadataPerm
+        returns
+            self.frame_permission.resource(),
     {
         self.frame_permission.tracked_borrow()
     }
@@ -289,6 +263,10 @@ impl<C: PageTableConfig> NodeOwner<C> {
         typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
     }
 
+    pub open spec fn level(self) -> PagingLevel {
+        self.meta_value().level
+    }
+
     /// Regions-tied invariants that used to live in `NodeOwner::inv()` via
     /// the now-removed `meta_perm` field. Establishes the bridge between
     /// the NodeOwner and the slot perm parked in regions.
@@ -298,7 +276,6 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
         &&& self.meta_value().wf(self.meta_own)
-        &&& self.level == self.meta_value().level
         &&& self.meta_own.nr_children.id()
             == self.meta_value().nr_children.id()
         // A page-table node's slot is tracked with `PageTable` usage (set at

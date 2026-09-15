@@ -227,9 +227,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
     pub(super) fn level(&self) -> PagingLevel
         requires
             self.external_meta_wf(owner.frame_permission.resource(), ()),
-            owner.level == owner.meta_value().level,
         returns
-            owner.level,
+            owner.level(),
     {
         #[verus_spec(with
             Tracked(Some(owner.tracked_borrow_metadata_perm())),
@@ -275,7 +274,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).meta_own == old(parent_owner).meta_own,
             final(parent_owner).frame_permission == old(parent_owner).frame_permission,
             final(parent_owner).slot_index == old(parent_owner).slot_index,
-            final(parent_owner).level == old(parent_owner).level,
+            final(parent_owner).level() == old(parent_owner).level(),
             final(parent_owner).tree_level == old(parent_owner).tree_level,
             final(parent_owner).children_perm.addr() == old(parent_owner).children_perm.addr(),
             final(parent_owner).children_perm.value() == old(parent_owner).children_perm.value().update(
@@ -585,7 +584,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             idx < NR_ENTRIES,
         ensures
             final(owner).inv(),
-            final(owner).level == old(owner).level,
+            final(owner).level() == old(owner).level(),
             final(owner).meta_own == old(owner).meta_own,
             final(owner).frame_permission == old(owner).frame_permission,
             final(owner).slot_index == old(owner).slot_index,
