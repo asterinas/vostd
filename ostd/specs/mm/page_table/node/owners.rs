@@ -178,30 +178,6 @@ impl Inv for PageMetaOwner {
     }
 }
 
-pub ghost struct PageMetaModel {
-    pub nr_children: u16,
-    pub stray: bool,
-}
-
-impl Inv for PageMetaModel {
-    open spec fn inv(self) -> bool {
-        true
-    }
-}
-
-impl View for PageMetaOwner {
-    type V = PageMetaModel;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        PageMetaModel { nr_children: self.nr_children.value(), stray: self.stray.value() }
-    }
-}
-
-impl InvView for PageMetaOwner {
-    proof fn view_preserves_inv(self) {
-    }
-}
-
 impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
     type Owner = PageMetaOwner;
 
