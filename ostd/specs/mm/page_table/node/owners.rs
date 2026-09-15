@@ -263,9 +263,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
         permission.tracked_borrow()
     }
 
-    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> (tracked res: &MetadataPerm)
-        ensures
-            *res == self.frame_permission.resource(),
+    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> tracked &MetadataPerm
+        returns self.frame_permission.resource(),
     {
         self.frame_permission.tracked_borrow()
     }
