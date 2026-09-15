@@ -14,39 +14,24 @@ verus! {
 /// Uninterpreted: `PortRead`/`PortWrite` are user-implementable, so meaning comes only from
 /// the trusted widths in [`group_io_port_models`]. ISA-level fact only — no claim about
 /// device decoding, access permission, or ownership.
-pub uninterp spec fn valid_io_port_access<T>(port: int) -> bool;
-
-/// Whether `T` is one of the trusted port widths; uninterpreted, admitted only by the axioms
-/// below.
-pub uninterp spec fn obeys_pio_model<T>() -> bool;
+pub uninterp spec fn valid_io_port_access<T>(port: u16) -> bool;
 
 /// Trusted: `u8` ports are written and read via `outb`/`inb`.
-pub broadcast axiom fn axiom_u8_pio_model()
+pub broadcast axiom fn axiom_u8_pio_model(port: u16)
     ensures
-        #[trigger] obeys_pio_model::<u8>(),
+        #[trigger] valid_io_port_access::<u8>(port) <==> port + size_of::<u8>() <= u16::MAX + 1,
 ;
 
 /// Trusted: `u16` ports are written and read via `outw`/`inw`.
-pub broadcast axiom fn axiom_u16_pio_model()
+pub broadcast axiom fn axiom_u16_pio_model(port: u16)
     ensures
-        #[trigger] obeys_pio_model::<u16>(),
+        #[trigger] valid_io_port_access::<u16>(port) <==> port + size_of::<u16>() <= u16::MAX + 1,
 ;
 
 /// Trusted: `u32` ports are written and read via `outl`/`inl`.
-pub broadcast axiom fn axiom_u32_pio_model()
+pub broadcast axiom fn axiom_u32_pio_model(port: u16)
     ensures
-        #[trigger] obeys_pio_model::<u32>(),
-;
-
-/// Under the model, a `T`-access is ISA-valid iff its `size_of::<T>()` bytes fit in
-/// `0..(u16::MAX + 1)`.
-pub broadcast axiom fn axiom_pio_model_access<T>()
-    requires
-        obeys_pio_model::<T>(),
-    ensures
-        forall|port: int| #[trigger]
-            valid_io_port_access::<T>(port) <==> (0 <= port && port + size_of::<T>() <= u16::MAX
-                + 1),
+        #[trigger] valid_io_port_access::<u32>(port) <==> port + size_of::<u32>() <= u16::MAX + 1,
 ;
 
 /// The trusted instances of the PIO model.
@@ -54,7 +39,6 @@ pub broadcast group group_io_port_models {
     axiom_u8_pio_model,
     axiom_u16_pio_model,
     axiom_u32_pio_model,
-    axiom_pio_model_access,
 }
 
 /// Opaque specification boundary for the third-party read/write access marker.
@@ -75,7 +59,7 @@ pub trait ExPortRead {
     /// A port read can produce any value supplied by the device.
     unsafe fn read_from_port(port: u16) -> Self where Self: Sized
         requires
-            valid_io_port_access::<Self>(port as int),
+            valid_io_port_access::<Self>(port),
     ;
 }
 
@@ -87,7 +71,7 @@ pub trait ExPortWrite {
     /// A port write has no modeled logical effect on kernel memory.
     unsafe fn write_to_port(port: u16, value: Self) where Self: Sized
         requires
-            valid_io_port_access::<Self>(port as int),
+            valid_io_port_access::<Self>(port),
     ;
 }
 

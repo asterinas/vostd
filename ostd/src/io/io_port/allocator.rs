@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
+use crate::arch::device::io_port::valid_io_port_access;
 use vstd::{
     prelude::*,
     resource::set::{GhostSetAuth, GhostSubset},
@@ -14,7 +15,6 @@ use log::debug;
 use spin::Once;
 
 use super::{IoPort, lemma_port_id_set_contains, lemma_port_id_set_insert, port_id_set};
-use crate::arch::device::io_port::obeys_pio_model;
 use crate::{
     io::RawIoPortRange,
     sync::{LocalIrqDisabled, SpinLock},
@@ -359,7 +359,7 @@ impl IoPortAllocator {
         requires
             size_of::<T>() <= u16::MAX,
             is_overlapping ==> port as usize + size_of::<T>() <= u16::MAX,
-            obeys_pio_model::<T>(),
+            valid_io_port_access::<T>(port),
             io_port_allocator_initialized(),
             (*old(claim_out))@ is None,
         ensures

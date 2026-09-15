@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 
 use crate::arch::device::io_port::{
-    IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite, obeys_pio_model, valid_io_port_access,
+    IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite, valid_io_port_access,
 };
 mod allocator;
 
@@ -52,7 +52,7 @@ impl<T, A> IoPort<T, A> {
     /// The complete byte range occupied by this typed port lies in the x86 PIO address space.
     #[verifier::type_invariant]
     pub open spec fn well_formed(&self) -> bool {
-        valid_io_port_access::<T>(self@ as int)
+        valid_io_port_access::<T>(self@)
     }
 
     /// Whether the port was acquired as overlapping: it occupies only its first port.
@@ -137,7 +137,7 @@ impl<T, A> IoPort<T, A> {
         requires
             size_of::<T>() <= u16::MAX,
             port as usize + size_of::<T>() <= u16::MAX,
-            obeys_pio_model::<T>(),
+            valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
             result is Ok <== claim@ is Some,
@@ -175,7 +175,7 @@ impl<T, A> IoPort<T, A> {
         requires
             size_of::<T>() <= u16::MAX,
             port as usize + size_of::<T>() <= u16::MAX,
-            obeys_pio_model::<T>(),
+            valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
             result is Ok <== claim@ is Some,
@@ -225,7 +225,7 @@ impl<T, A> IoPort<T, A> {
         requires
             size_of::<T>() <= u16::MAX,
             port as usize + size_of::<T>() <= u16::MAX,
-            obeys_pio_model::<T>(),
+            valid_io_port_access::<T>(port),
         ensures
             ret@ == port,
             !ret.is_overlapping(),
@@ -249,7 +249,7 @@ impl<T, A> IoPort<T, A> {
         requires
             size_of::<T>() <= u16::MAX,
             port as usize + size_of::<T>() <= u16::MAX,
-            obeys_pio_model::<T>(),
+            valid_io_port_access::<T>(port),
         ensures
             ret@ == port,
             ret.is_overlapping() == is_overlapping,
