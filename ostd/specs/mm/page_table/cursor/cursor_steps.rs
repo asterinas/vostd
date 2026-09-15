@@ -30,40 +30,6 @@ verus! {
 
 broadcast use group_ghost_tree_lemmas;
 
-/// Paths obtained by push_tail with different indices are different
-pub proof fn push_tail_different_indices_different_paths(path: TreePath<NR_ENTRIES>, i: int, j: int)
-    requires
-        path.inv(),
-        0 <= i < NR_ENTRIES,
-        0 <= j < NR_ENTRIES,
-        i != j,
-    ensures
-        path.push_tail(i) != path.push_tail(j),
-{
-}
-
-/// Paths with different lengths are different
-pub proof fn different_length_different_paths(
-    path1: TreePath<NR_ENTRIES>,
-    path2: TreePath<NR_ENTRIES>,
-)
-    requires
-        path1.len() != path2.len(),
-    ensures
-        path1 != path2,
-{
-}
-
-/// A path obtained by push_tail has greater length than the original
-pub proof fn push_tail_increases_length(path: TreePath<NR_ENTRIES>, i: int)
-    requires
-        path.inv(),
-        0 <= i < NR_ENTRIES,
-    ensures
-        path.push_tail(i).len() > path.len(),
-{
-}
-
 /// Upgrade `node_unlocked_except` to `node_unlocked` on a subtree where the excepted
 /// entry cannot appear. The precondition `path == subtree.value.path` ties structural
 /// positions to entry paths. `excepted_path` must differ from all descendant paths,
@@ -185,13 +151,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )) as nat
     }
 
-    pub proof fn max_steps_subtree_positive(level: usize)
-        ensures
-            Self::max_steps_subtree(level) > 0,
-        decreases level,
-    {
-    }
-
     /// Two owners with the same idx values from `start` upward have the same max_steps_partial.
     pub proof fn max_steps_partial_eq(self, other: Self, start: usize)
         requires
@@ -273,18 +232,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             Self::max_steps_subtree(lm1) as int,
         );
 
-    }
-
-    pub proof fn push_level_owner_preserves_va(self, guard: PageTableGuard<'rcu, C>)
-        requires
-            self.inv(),
-            self.level > 1,
-        ensures
-            self.push_level_owner(guard).va == self.va,
-            self.push_level_owner(guard).continuations[self.level - 2].idx
-                == self.va.index[self.level - 2],
-    {
-        assert(self.va.index.contains_key(self.level - 2));
     }
 
     pub proof fn push_level_owner_preserves_mappings(self, guard: PageTableGuard<'rcu, C>)
@@ -649,64 +596,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         reveal(CursorOwner::path_metaregion_sound);
     }
 
-    /// Update va to a new value that shares the same indices at levels >= self.level.
-    /// This preserves invariants because:
-    /// 1. The new va satisfies va.inv()
-    /// 2. The indices at levels >= level match the continuation indices
-    /// 3. in_locked_range/above_locked_range depend on va but the preconditions ensure consistency
-    pub proof fn set_va_preserves_inv(self, new_va: AbstractVaddr)
-        requires
-            self.inv(),
-            self.in_locked_range(),
-            !self.popped_too_high,
-            self.level <= self.guard_level,
-            new_va.inv(),
-            new_va.offset == 0,
-            new_va.leading_bits == self.prefix.leading_bits,
-            forall|i: int|
-                #![auto]
-                self.level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.va.index[i],
-            forall|i: int|
-                #![auto]
-                self.guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.prefix.index[i],
-        ensures
-            self.set_va(new_va).inv(),
-    {
-        let r = self.set_va(new_va);
-
-        assert(r.in_locked_range()) by {
-            let gl = self.guard_level;
-            if gl >= 1 && gl <= NR_LEVELS {
-                r.va.align_down_to_vaddr_eq_if_upper_indices_eq(r.prefix, gl as int);
-                r.va.align_down_concrete(gl as int);
-                r.prefix.align_down_concrete(gl as int);
-                // Use cursor inv helpers on self (r.prefix == self.prefix).
-                self.lemma_prefix_aligned_to_guard_level();
-                self.lemma_prefix_plus_ps_no_overflow();
-                r.prefix.aligned_align_up_advances(gl as int);
-                AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
-                    nat_align_down(
-                        r.va.to_vaddr() as nat,
-                        page_size(gl as PagingLevel) as nat,
-                    ) as Vaddr,
-                );
-                AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
-                    nat_align_down(
-                        r.prefix.to_vaddr() as nat,
-                        page_size(gl as PagingLevel) as nat,
-                    ) as Vaddr,
-                );
-
-                lemma_nat_align_down_sound(
-                    r.va.to_vaddr() as nat,
-                    page_size(gl as PagingLevel) as nat,
-                );
-
-            }
-        };
-
-    }
-
     pub open spec fn move_forward_owner_spec(self) -> Self
         decreases NR_LEVELS - self.level,
         when self.level <= NR_LEVELS
@@ -904,18 +793,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else {
             assert(false);
         }
-    }
-
-    /// Trivial: zero_below_level is defined as Self { va: self.va.align_down(level), ..self }.
-    pub proof fn zero_below_level_eq_align_down(self)
-        requires
-            self.va.inv(),
-            self.va.offset == 0,
-            1 <= self.level <= NR_LEVELS,
-        ensures
-            self.zero_below_level().va == self.va.align_down(self.level as int),
-        decreases self.level,
-    {
     }
 
     #[verifier::spinoff_prover]
