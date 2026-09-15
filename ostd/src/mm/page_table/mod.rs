@@ -958,7 +958,7 @@ impl PageTable<KernelPtConfig> {
                 < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
                 let pte = root_owner.children_perm.value()[i as int];
                 ||| !pte.is_present()
-                ||| pte.is_last(root_owner.level)
+                ||| pte.is_last(root_owner.level())
             }
     }
 
@@ -1168,10 +1168,10 @@ impl PageTable<KernelPtConfig> {
                     KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
                         < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end implies {
                     let pte = kern_node.children_perm.value()[j as int];
-                    pte.is_present() && !pte.is_last(kern_node.level)
+                    pte.is_present() && !pte.is_last(kern_node.level())
                 } by {
                     let pte = kern_node.children_perm.value()[j as int];
-                    if !pte.is_present() || pte.is_last(kern_node.level) {
+                    if !pte.is_present() || pte.is_last(kern_node.level()) {
                         assert(Self::create_user_pt_panic_condition(kern_node));
                     }
                 }
@@ -1185,7 +1185,7 @@ impl PageTable<KernelPtConfig> {
                     kern_node.children_perm.value()[i as int],
                     entry_owner.parent_level,
                 ));
-                assert(entry_owner.parent_level == kern_node.level);
+                assert(entry_owner.parent_level == kern_node.level());
                 assert(child_subtree.inv());
                 assert(entry_owner.inv());
                 assert(root_owner.relate_guard(root_node));
@@ -1212,8 +1212,8 @@ impl PageTable<KernelPtConfig> {
                 let kern_node = kernel_owner.0.value().node();
                 let pte = kern_node.children_perm.value()[i as int];
 
-                assert(pte.is_present() && !pte.is_last(kern_node.level)) by {
-                    if !pte.is_present() || pte.is_last(kern_node.level) {
+                assert(pte.is_present() && !pte.is_last(kern_node.level())) by {
+                    if !pte.is_present() || pte.is_last(kern_node.level()) {
                         assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
                             < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end);
                         assert(exists|j: usize|
@@ -1221,7 +1221,7 @@ impl PageTable<KernelPtConfig> {
                                 < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
                                 let p = #[trigger] kern_node.children_perm.value()[j as int];
                                 ||| !p.is_present()
-                                ||| p.is_last(kern_node.level)
+                                ||| p.is_last(kern_node.level())
                             });
                         assert(Self::create_user_pt_panic_condition(kern_node));
                     }

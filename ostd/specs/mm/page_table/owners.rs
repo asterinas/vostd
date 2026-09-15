@@ -356,7 +356,7 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& owner.value().is_node()
     &&& owner.value().path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value().parent_level == (level + 1) as PagingLevel
-    &&& owner.value().node().level
+    &&& owner.value().node().level()
         == level
     // The fresh subtree's ghost-tree depth. Lets `alloc_if_none` discharge
     // `final(owner).inv()`'s `child.level == self.level + 1`: the grafted
@@ -381,7 +381,7 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& forall|i: int|
         #![auto]
         0 <= i < NR_ENTRIES ==> owner.child(i).value().parent_level
-            == owner.value().node().level
+            == owner.value().node().level()
     // The freshly-allocated PT node is zero-filled, so every PTE in
     // `children_perm` is the absent PTE. (Stronger than the existing
     // "not all are present" clause; needed by `split_if_mapped_huge`'s
@@ -537,14 +537,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // `match_pte`, so borrowing never appears below the root.
         &&& (parent.child(i).value().match_pte(
             parent.value().node().children_perm.value()[i],
-            parent.value().node().level,
-        ) || (parent.value().node().level == NR_LEVELS && C::LEADING_BITS_spec() == 0
+            parent.value().node().level(),
+        ) || (parent.value().node().level() == NR_LEVELS && C::LEADING_BITS_spec() == 0
             && parent.child(i).value().borrowed_match_pte(
             parent.value().node().children_perm.value()[i],
-            parent.value().node().level,
+            parent.value().node().level(),
         )))
         &&& parent.child(i).value().path == parent.value().path.push_tail(i)
-        &&& parent.child(i).value().parent_level == parent.value().node().level
+        &&& parent.child(i).value().parent_level == parent.value().node().level()
     }
 
     /// Depth-indexed PT-specific per-edge invariant. `depth` is a manifest
@@ -643,10 +643,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     &&& owner.child(i).value().path.len() == owner.value().node().tree_level + 1
                     &&& owner.child(i).value().match_pte(
                         owner.value().node().children_perm.value()[i],
-                        owner.value().node().level,
+                        owner.value().node().level(),
                     )
                     &&& owner.child(i).value().path == owner.value().path.push_tail(i)
-                    &&& owner.child(i).value().parent_level == owner.value().node().level
+                    &&& owner.child(i).value().parent_level == owner.value().node().level()
                 },
             allocated_empty_node_grandchildren_none(owner),
         ensures

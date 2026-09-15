@@ -227,7 +227,6 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub frame_permission: FracMetadataPerm,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
-    pub ghost level: PagingLevel,
     pub ghost tree_level: int,
     pub ghost slot_index: int,
 }
@@ -237,13 +236,13 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_own.inv()
         &&& self.frame_permission.frac() == 1
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
-        &&& 1 <= self.level <= NR_LEVELS
+        &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(
             meta_to_frame(index_to_meta(self.slot_index)),
         )
-        &&& self.tree_level == INC_LEVELS - self.level - 1
+        &&& self.tree_level == INC_LEVELS - self.level() - 1
         &&& 0 <= self.slot_index < max_meta_slots()
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
@@ -289,6 +288,10 @@ impl<C: PageTableConfig> NodeOwner<C> {
         typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
     }
 
+    pub open spec fn level(self) -> PagingLevel {
+        self.meta_value().level
+    }
+
     /// Regions-tied invariants that used to live in `NodeOwner::inv()` via
     /// the now-removed `meta_perm` field. Establishes the bridge between
     /// the NodeOwner and the slot perm parked in regions.
@@ -298,7 +301,6 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
         &&& self.meta_value().wf(self.meta_own)
-        &&& self.level == self.meta_value().level
         &&& self.meta_own.nr_children.id()
             == self.meta_value().nr_children.id()
         // A page-table node's slot is tracked with `PageTable` usage (set at
