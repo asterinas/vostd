@@ -259,6 +259,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// - if the input is aligned and within `MAX_PADDR` and the function terminated,
     ///   then `range.start < range.end` (the runtime `assert!` would otherwise diverge).
     /// FIXME: this implementation does not match source code.
+    #[verifier::spinoff_prover]
     #[verifier::loop_isolation(false)]
     #[verifier::allow_complex_invariants]
     #[verus_spec(r =>
