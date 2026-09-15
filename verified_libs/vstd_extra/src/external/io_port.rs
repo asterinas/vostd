@@ -9,18 +9,52 @@ use x86_64::{
 
 verus! {
 
-/// Whether `port` is representable in the 16-bit x86 I/O-port address space.
+/// Whether a `T`-typed access at `port` fits in the PIO byte range `0..=u16::MAX`.
 ///
-/// This is only the ISA-level validity condition. It does not claim that a device decodes the
-/// port, that the current CPU context may access it, or that the caller owns it.
-pub open spec fn valid_io_port_number(port: int) -> bool {
-    0 <= port <= u16::MAX as int
-}
+/// Uninterpreted: `PortRead`/`PortWrite` are user-implementable, so meaning comes only from
+/// the trusted widths in [`group_io_port_models`]. ISA-level fact only — no claim about
+/// device decoding, access permission, or ownership.
+pub uninterp spec fn valid_io_port_access<T>(port: int) -> bool;
 
-/// Whether an access of type `T` fits in the PIO byte range `0..u16::MAX`.
-pub open spec fn valid_io_port_access<T>(port: int) -> bool {
-    &&& valid_io_port_number(port)
-    &&& port + size_of::<T>() <= u16::MAX as int
+/// Whether `T` is one of the trusted port widths; uninterpreted, admitted only by the axioms
+/// below.
+pub uninterp spec fn obeys_pio_model<T>() -> bool;
+
+/// Trusted: `u8` ports are written and read via `outb`/`inb`.
+pub broadcast axiom fn axiom_u8_pio_model()
+    ensures
+        #[trigger] obeys_pio_model::<u8>(),
+;
+
+/// Trusted: `u16` ports are written and read via `outw`/`inw`.
+pub broadcast axiom fn axiom_u16_pio_model()
+    ensures
+        #[trigger] obeys_pio_model::<u16>(),
+;
+
+/// Trusted: `u32` ports are written and read via `outl`/`inl`.
+pub broadcast axiom fn axiom_u32_pio_model()
+    ensures
+        #[trigger] obeys_pio_model::<u32>(),
+;
+
+/// Under the model, a `T`-access is ISA-valid iff its `size_of::<T>()` bytes fit in
+/// `0..(u16::MAX + 1)`.
+pub broadcast axiom fn axiom_pio_model_access<T>()
+    requires
+        obeys_pio_model::<T>(),
+    ensures
+        forall|port: int| #[trigger]
+            valid_io_port_access::<T>(port) <==> (0 <= port && port + size_of::<T>() <= u16::MAX
+                + 1),
+;
+
+/// The trusted instances of the PIO model.
+pub broadcast group group_io_port_models {
+    axiom_u8_pio_model,
+    axiom_u16_pio_model,
+    axiom_u32_pio_model,
+    axiom_pio_model_access,
 }
 
 /// Opaque specification boundary for the third-party read/write access marker.

@@ -7,7 +7,7 @@
 //!  - `IoPort` for port I/O (PIO).
 use vstd::prelude::*;
 
-mod io_mem;
+pub(crate) mod io_mem;
 
 use cfg_if::cfg_if;
 
@@ -17,7 +17,8 @@ pub(crate) use self::io_mem::IoMemAllocatorBuilder;
 cfg_if!(
     if #[cfg(target_arch = "x86_64")] {
         mod io_port;
-        pub use io_port::IoPort;
+
+        pub use self::io_port::IoPort;
         pub(crate) use self::io_port::{reserve_io_port_range, sensitive_io_port, RawIoPortRange};
     }
 );
@@ -39,11 +40,11 @@ cfg_if!(
 #[verus_verify]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
-    unsafe { self::io_mem::init(io_mem_builder) };
+    unsafe { io_mem::init(io_mem_builder) };
 
     // SAFETY: The safety is upheld by the caller.
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        self::io_port::init()
+        io_port::init()
     };
 }

@@ -14,6 +14,7 @@ use log::debug;
 use spin::Once;
 
 use super::{IoPort, lemma_port_id_set_contains, lemma_port_id_set_insert, port_id_set};
+use crate::arch::device::io_port::obeys_pio_model;
 use crate::{
     io::RawIoPortRange,
     sync::{LocalIrqDisabled, SpinLock},
@@ -124,6 +125,7 @@ pub(crate) proof fn lemma_alloc_specific_view(
 {
     let old_len: int = old_a@.len() as int;
     assert forall|j: usize|
+        #![trigger id_alloc_view(final_a).contains(j)]
         id_alloc_view(final_a).contains(j) == (id_alloc_view(old_a).insert(id)).contains(j) by {
         lemma_id_alloc_bits_char(old_a@, old_len, j);
         lemma_id_alloc_bits_char(final_a@, final_a@.len() as int, j);
@@ -336,7 +338,7 @@ struct IoPortAllocatorInner {
 
 /// I/O port allocator that allocates port I/O access to device drivers.
 #[verus_verify]
-pub struct IoPortAllocator {
+pub(super) struct IoPortAllocator {
     /// Each ID indicates whether a Port I/O (1B) is allocated.
     ///
     /// Instead of using `RangeAllocator` like `IoMemAllocator` does, it is more reasonable to use `IdAlloc`,
@@ -346,31 +348,42 @@ pub struct IoPortAllocator {
 
 #[verus_verify]
 impl IoPortAllocator {
-    /// Acquires the `IoPort`. Return None if any region in `port` cannot be allocated.
+    /// Acquires an `IoPort`. Returns `None` if the PIO range is unavailable.
+    ///
+    /// `is_overlapping` indicates whether another `IoPort` can have a PIO range that overlaps with
+    /// this one. If it is true, only the first port in the PIO range will be marked as occupied;
+    /// otherwise, all ports in the PIO range will be marked as occupied.
     #[verus_spec(result =>
         with
-            -> claim: Tracked<Option<IoPortClaim>>,
+            Tracked(claim_out): Tracked<&mut Tracked<Option<IoPortClaim>>>,
         requires
-            vstd::layout::size_of::<T>() <= u16::MAX,
             size_of::<T>() <= u16::MAX,
-            port as usize + size_of::<T>() <= u16::MAX,
+            is_overlapping ==> port as usize + size_of::<T>() <= u16::MAX,
+            obeys_pio_model::<T>(),
             io_port_allocator_initialized(),
+            (*old(claim_out))@ is None,
         ensures
-            result is Some <==> claim@ is Some,
+            result is Some <==> (*final(claim_out))@ is Some,
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
+                &&& io_port.is_overlapping() == is_overlapping
                 &&& io_port.well_formed()
-                &&& io_port.claim_matches_set(claim@->Some_0.set())
-                &&& claim@->Some_0.instance_id() == io_port_allocator_instance_id()
+                &&& io_port.claim_matches_set((*final(claim_out))@->Some_0.set())
+                &&& (*final(claim_out))@->Some_0.instance_id() == io_port_allocator_instance_id()
             },
     )]
-    pub fn acquire<T, A>(&self, port: u16) -> Option<IoPort<T, A>> {
+    pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {
+        let range = if !is_overlapping {
+            port..port.checked_add(size_of::<T>().try_into().ok()?)?
+        } else {
+            port..port.checked_add(1)?
+        };
+        /* debug!("Try to acquire PIO range: {:#x?}", range); */
         let mut allocator = self.allocator.lock();
         let allocator_inner = &mut *allocator;
         proof! {
             lemma_io_port_alloc_init(&*allocator_inner);
         }
-        let mut range = port..(port + size_of::<T>() as u16);
         // `Iterator::any` with a capturing closure is not supported by Verus.
         // Original Rust:
         // if range.any(|i| allocator.is_allocated(i as usize)) { return None; }
@@ -407,10 +420,10 @@ impl IoPortAllocator {
         }
         if already_allocated {
             allocator.drop();
-            return {
-                proof_with!(|= Tracked(None));
-                None
-            };
+            proof! {
+                *claim_out = Tracked(None);
+            }
+            return None;
         }
 
         proof_decl! {
@@ -516,11 +529,13 @@ impl IoPortAllocator {
             range_claim = allocator_inner.tracked_allocated.borrow_mut().allocate(ids);
         }
 
-        // SAFETY: The created IoPort is guaranteed not to access system device I/O
-        /* Original Rust: unsafe { Some(IoPort::new(port)) } */
-        let result = unsafe { Some(IoPort::new(port)) };
+        // SAFETY: The created `IoPort` is guaranteed not to access system device I/O.
+        /* Original Rust: unsafe { Some(IoPort::new_overlapping(port, is_overlapping)) } */
+        let result = unsafe { Some(IoPort::new_overlapping(port, is_overlapping)) };
         allocator.drop();
-        proof_with!(|= Tracked(Some(range_claim)));
+        proof! {
+            *claim_out = Tracked(Some(range_claim));
+        }
         result
     }
 
@@ -538,8 +553,8 @@ impl IoPortAllocator {
             range.start <= range.end,
             io_port_allocator_initialized(),
     )]
-    pub(in crate::io) unsafe fn recycle(&self, range: Range<u16>) {
-        /* debug!("Recycling MMIO range: {:#x?}", range); */
+    pub(super) unsafe fn recycle(&self, range: Range<u16>) {
+        /* debug!("Recycling PIO range: {:#x?}", range); */
         /* Original Rust:
         self.allocator
             .lock()
@@ -642,22 +657,23 @@ pub(super) static IO_PORT_ALLOCATOR: Once<IoPortAllocator> = Once::new();
 /// 2. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to exceed the maximum
 ///    value specified by architecture.
 #[verifier::external_body]
-pub(crate) unsafe fn init() {
+pub(in crate::io) unsafe fn init() {
     // SAFETY: `MAX_IO_PORT` is guaranteed not to exceed the maximum value specified by architecture.
     let mut allocator = IdAlloc::with_capacity(crate::arch::io::MAX_IO_PORT as usize);
 
-    extern "C" {
+    unsafe extern "C" {
         fn __sensitive_io_ports_start();
         fn __sensitive_io_ports_end();
     }
-    let start = __sensitive_io_ports_start as usize;
-    let end = __sensitive_io_ports_end as usize;
-    assert!((end - start) % size_of::<RawIoPortRange>() == 0);
+    let start = __sensitive_io_ports_start as *const () as usize;
+    let end = __sensitive_io_ports_end as *const () as usize;
+    assert!((end - start).is_multiple_of(size_of::<RawIoPortRange>()));
 
     // Iterate through the sensitive I/O port ranges and remove them from the allocator.
     let io_port_range_count = (end - start) / size_of::<RawIoPortRange>();
     for i in 0..io_port_range_count {
-        let range_base_addr = __sensitive_io_ports_start as usize + i * size_of::<RawIoPortRange>();
+        let range_base_addr =
+            __sensitive_io_ports_start as *const () as usize + i * size_of::<RawIoPortRange>();
         // SAFETY: The range is guaranteed to be valid as it is defined in the `.sensitive_io_ports` section.
         let port_range = unsafe { *(range_base_addr as *const RawIoPortRange) };
 
