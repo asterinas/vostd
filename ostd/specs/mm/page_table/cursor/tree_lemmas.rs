@@ -1,10 +1,5 @@
-/// Tree-predicate lifting, tree entry level constraints, and tree membership
-/// lemmas for `CursorContinuation` and `CursorOwner`.
-///
-/// Themes moved here from `owners.rs`:
-/// - **Theme 5**: Tree predicate lifting (`map_children_lift`, `map_children_implies`, etc.)
-/// - **Theme 11**: Tree entry level constraints (`cur_entry_node_implies_level_gt_1`, etc.)
-/// - **Theme 12**: Tree membership & tracking (`absent_not_in_tree`)
+//! Tree-predicate lifting, tree entry level constraints, and tree membership
+//! lemmas for `CursorContinuation` and `CursorOwner`.
 use core::ops::Range;
 
 use vstd::prelude::*;
@@ -221,44 +216,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.map_full_tree(
             |owner0: EntryOwner<C>, path: TreePath<NR_ENTRIES>| owner0.meta_slot_paddr_neq(owner),
         )
-    }
-
-    pub proof fn absent_not_in_tree(self, owner: EntryOwner<C>)
-        requires
-            self.inv(),
-            owner.inv(),
-            owner.is_absent(),
-        ensures
-            self.not_in_tree(owner),
-    {
-        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(owner);
-        let nsp = PageTableOwner::<C>::not_in_scope_pred();
-        assert(OwnerSubtree::implies(nsp, g)) by {
-            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && nsp(entry, path) implies #[trigger] g(entry, path) by {};
-        };
-        assert forall|i: int|
-            #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
-            reveal(CursorContinuation::map_children);
-            let cont = self.continuations[i];
-            reveal(CursorContinuation::inv_children);
-            assert forall|j: int|
-                0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-            cont.path().push_tail(j), g) by {
-                cont.lemma_inv_children_unroll(j);
-                PageTableOwner::tree_not_in_scope(
-                    cont.children[j].unwrap(),
-                    cont.path().push_tail(j),
-                );
-                cont.children[j].unwrap().lemma_subtree_satisfies_implies(
-                    cont.path().push_tail(j),
-                    nsp,
-                    g,
-                );
-            };
-        };
     }
 }
 

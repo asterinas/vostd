@@ -593,6 +593,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         let idx = frame_to_index(pa);
+                        old(regions).lemma_contains_valid_frame_paddr(pa);
+                        assert(old(regions).contains(idx));
                         if C::item_into_raw(item).3@ is Some && regions.ref_count(idx)
                             >= REF_COUNT_MAX {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
@@ -600,7 +602,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             );
                             // Relate the resolved frame to the query's initial panic condition.
                             assert(old(owner)@.query_mapping().pa_range.start == pa);
-                            old(regions).lemma_contains_valid_frame_paddr(pa);
+                            assert(regions.contains(idx));
+                            assert(old(regions).contains(idx));
                             assert(old(regions).ref_count(idx) == regions.ref_count(idx));
                         }
                         owner_before_permission_take.lemma_cur_frame_clone_requires(
@@ -614,6 +617,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     #[verus_spec(with Tracked(regions), Ghost(pa))]
                     let cloned = Self::clone_item(&item);
+
+                    proof {
+                        let idx = frame_to_index(pa);
+                        if C::item_into_raw(item).3@ is Some {
+                            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
+
+                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
+                                owner_before_permission_take.cur_entry_owner(),
+                            );
+                        }
+                    }
 
                     let (_pa, _level, _prop, Tracked(restored_permission)) = C::item_into_raw(item);
                     proof {
@@ -675,6 +689,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         );
                     }
                 };
+
             }
 
             return Ok(
@@ -1031,7 +1046,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         pt.make_guard_unchecked(rcu_guard)
                     };
 
-                    #[verus_spec(with Tracked(&mut child_node_owner), Tracked(&*regions))]
+                    #[verus_spec(with Tracked(&mut child_node_owner))]
                     let nr_children = pt_guard.nr_children();
 
                     // `nr_children()` requires `child_node_owner.metaregion_sound_node`,
@@ -1299,7 +1314,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let tracked mut child_owner = continuation.tracked_take_child();
 
                     proof {
-                        assert(continuation.entry_own.node().level > 1) by {
+                        assert(continuation.entry_own.node().level() > 1) by {
                             owner0.cur_va_range().start.reflect_prop(cur_va_range.start);
                             owner0.cur_va_range().end.reflect_prop(cur_va_range.end);
                             assert(cur_entry_fits_range == (cur_va
@@ -3185,7 +3200,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(subtree.value().inv()) by {
                 reveal(TreeNode::inv);
             };
-            owner.absent_not_in_tree(subtree.value());
+            owner.not_in_tree(subtree.value());
         }
 
         let ghost owner_before_replace = *owner;

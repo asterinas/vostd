@@ -28,10 +28,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         parent_owner: NodeOwner<C>,
         guard: PageTableGuard<'rcu, C>,
     ) -> bool {
-        &&& parent_owner.level == owner.parent_level
+        &&& parent_owner.level() == owner.parent_level
         &&& parent_owner.inv()
-        &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_vaddr()
-        &&& guard.inner.inner@.wf(parent_owner)
+        &&& parent_owner.relate_guard(guard)
         &&& owner.match_pte(parent_owner.children_perm.value()[self.idx as int], owner.parent_level)
     }
 
@@ -50,9 +49,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         new_owner: EntryOwner<C>,
     ) -> bool {
         if new_owner.is_node() {
-            parent_owner.level - 1 == new_owner.node().level
+            parent_owner.level() - 1 == new_owner.node().level()
         } else if new_owner.is_frame() {
-            parent_owner.level == new_owner.parent_level
+            parent_owner.level() == new_owner.parent_level
         } else {
             true
         }
@@ -171,7 +170,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             0 <= i < NR_ENTRIES ==> i != self.idx ==> parent_owner0.children_perm.value()[i]
                 == parent_owner1.children_perm.value()[i]
         &&& parent_owner1.slot_index == parent_owner0.slot_index
-        &&& parent_owner1.level == parent_owner0.level
+        &&& parent_owner1.level() == parent_owner0.level()
         &&& parent_owner1.tree_level == parent_owner0.tree_level
         &&& parent_owner1.meta_own.nr_children.id() == parent_owner0.meta_own.nr_children.id()
         &&& parent_owner1.meta_own.stray == parent_owner0.meta_own.stray

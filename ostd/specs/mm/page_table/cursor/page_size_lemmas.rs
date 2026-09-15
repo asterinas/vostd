@@ -218,8 +218,7 @@ pub proof fn lemma_page_size_divides(l1: PagingLevel, l2: PagingLevel)
 }
 
 /// For any valid physical address `pa < MAX_PADDR` and page level, pa + page_size(level)
-/// does not overflow usize. This holds because MAX_PADDR = 2^31 and page sizes are at
-/// most 2^39 (NR_LEVELS = 4), so pa + size < 2^40 << usize::MAX = 2^64.
+/// does not overflow usize.
 pub proof fn lemma_pa_plus_page_size_no_overflow(pa: Paddr, level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS,
@@ -232,12 +231,6 @@ pub proof fn lemma_pa_plus_page_size_no_overflow(pa: Paddr, level: PagingLevel)
 
 /// For any VA within the kernel virtual address range and any page level,
 /// va + page_size(level) does not overflow usize.
-/// KERNEL_VADDR_RANGE.end = 0xffff_ffff_ffff_0000 and max page_size (level 4) = 512GB = 0x80_0000_0000.
-/// The sum is at most 0x1_0000_7fff_ffff_0000 which overflows 64-bit usize.
-/// However, at the levels actually used (1-3), page_size <= 1GB = 0x4000_0000, and
-/// 0xffff_ffff_ffff_0000 + 0x4000_0000 = 0x1_0000_0000_3fff_0000 — still overflows.
-/// So this lemma requires va + page_size(level) <= barrier_va.end <= KERNEL_VADDR_RANGE.end,
-/// which is guaranteed by !map_panic_conditions / !find_next_panic_condition.
 pub proof fn lemma_va_plus_page_size_no_overflow(va: Vaddr, len: usize)
     requires
         va + len <= KERNEL_VADDR_RANGE.end,
@@ -245,15 +238,6 @@ pub proof fn lemma_va_plus_page_size_no_overflow(va: Vaddr, len: usize)
         va + len <= usize::MAX,
 {
     assert(KERNEL_VADDR_RANGE.end == 0xffff_ffff_ffff_0000usize) by (compute_only);
-}
-
-/// The number of base pages in the address space fits in usize.
-/// max pages = MAX_PADDR / PAGE_SIZE = 0x8000_0000 / 0x1000 = 0x8_0000 = 524288.
-pub proof fn lemma_max_mappings_fit_usize()
-    ensures
-        MAX_PADDR / PAGE_SIZE < usize::MAX,
-{
-    assert(MAX_PADDR / PAGE_SIZE < usize::MAX) by (compute_only);
 }
 
 } // verus!

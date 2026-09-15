@@ -60,48 +60,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             ) != frame_to_index((self.range().start + j * PAGE_SIZE) as usize)
     }
 
-    /// Manually instantiates the [`relate_regions`] forall at a specific index.
-    /// Use this to extract per-frame facts without fighting trigger inference.
-    pub proof fn relate_regions_at(&self, regions: MetaRegionOwners, i: int)
-        requires
-            self.relate_regions(regions),
-            0 <= i < seg_nframes(self.range()),
-        ensures
-            ({
-                let idx = frame_to_index((self.range().start + i * PAGE_SIZE) as usize);
-                &&& self.slot_perms()[i] == regions.slots[idx]
-                &&& self.permissions()[i].frac() == 1
-                &&& self.permissions()[i].id() == regions.slot_owners[idx].metadata_perm.id()
-                &&& MetaSlot::perms_related(*self.slot_perms()[i], self.permissions()[i].resource())
-                &&& regions.contains(idx)
-                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
-                &&& 0 < regions.slot_owners[idx].ref_count()
-                    <= crate::mm::frame::meta::REF_COUNT_MAX
-                &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage is Frame
-            }),
-    {
-        // Trigger the forall at index `i`.
-        let _ = frame_to_index((self.range().start + i * PAGE_SIZE) as usize);
-    }
-
-    /// Manually instantiates the [`relate_regions`] distinctness forall at a
-    /// specific index pair: distinct in-range frames map to distinct slot
-    /// indices. Reusable lever for `from_unused`/`split`/`slice` proofs.
-    pub proof fn relate_regions_distinct(&self, regions: MetaRegionOwners, i: int, j: int)
-        requires
-            self.relate_regions(regions),
-            0 <= i < j < seg_nframes(self.range()),
-        ensures
-            frame_to_index((self.range().start + i * PAGE_SIZE) as usize) != frame_to_index(
-                (self.range().start + j * PAGE_SIZE) as usize,
-            ),
-    {
-        // Trigger the distinctness forall at `(i, j)`.
-        let _ = frame_to_index((self.range().start + i * PAGE_SIZE) as usize);
-        let _ = frame_to_index((self.range().start + j * PAGE_SIZE) as usize);
-    }
-
     /// The bundled invariant for [`Segment`] operations that thread the global
     /// `regions`: the segment's own invariant, the region invariant, and the
     /// cross-object relation tying this segment's range to `regions`.

@@ -10,7 +10,7 @@ use crate::specs::{
     arch::*,
     mm::frame::{
         mapping::{frame_to_index, meta_to_index},
-        meta_owners::{FracMetadataPerm, MetadataPerm, PageUsage},
+        meta_owners::{FracMetadataPerm, MetaSlotStorage, MetadataPerm, PageUsage, typed_meta_wf},
         meta_region_owners::MetaRegionOwners,
     },
 };
@@ -77,6 +77,19 @@ impl<M: ?Sized> Frame<M> {
         &&& valid_frame_paddr(paddr)
         &&& regions.inv()
         &&& 0 < regions.slot_owner(paddr).ref_count() <= REF_COUNT_MAX
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
+    /// Relates an externally stored metadata permission to this frame's slot permission.
+    pub open spec fn external_meta_wf(
+        self,
+        metadata_perm: MetadataPerm,
+        repr_perm: M::ReprPerm,
+    ) -> bool {
+        &&& self.ptr_inv()
+        &&& self.tracked_metadata_perm@ is None
+        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm, repr_perm)
     }
 }
 
