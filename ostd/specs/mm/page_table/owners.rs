@@ -19,24 +19,23 @@ use vstd_extra::{
     prelude::TreeNodeValue,
 };
 
-use crate::{
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    page_size, page_size_spec,
+    page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
+};
+
+use crate::specs::{
+    arch::*,
     mm::{
-        Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-        frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-        page_size, page_size_spec,
-        page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
-    },
-    specs::{
-        arch::*,
-        mm::{
-            frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
-            page_table::{
-                cursor::page_size_lemmas::{
-                    lemma_nr_entries_times_sub_page_size, lemma_page_size_divides,
-                    lemma_page_size_ge_page_size, lemma_page_size_spec_values,
-                },
-                *,
+        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
+        page_table::{
+            cursor::page_size_lemmas::{
+                lemma_nr_entries_times_sub_page_size, lemma_page_size_divides,
+                lemma_page_size_ge_page_size, lemma_page_size_spec_values,
             },
+            *,
         },
     },
 };

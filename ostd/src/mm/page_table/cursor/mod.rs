@@ -598,6 +598,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner_before_permission_take.cur_entry_owner(),
                             );
+                            // Relate the resolved frame to the query's initial panic condition.
+                            assert(old(owner)@.query_mapping().pa_range.start == pa);
+                            old(regions).lemma_contains_valid_frame_paddr(pa);
+                            assert(old(regions).ref_count(idx) == regions.ref_count(idx));
                         }
                         owner_before_permission_take.lemma_cur_frame_clone_requires(
                             item,

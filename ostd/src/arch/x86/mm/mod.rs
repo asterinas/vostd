@@ -14,13 +14,6 @@ use core::ops::Range;
 pub(crate) use util::{__memcpy_fallible, __memset_fallible};
 //use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
 
-macro_rules! x86_base_page_size {
-    () => {
-        4096usize
-    };
-}
-pub(crate) use x86_base_page_size;
-
 use crate::{
     mm::{
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
@@ -35,7 +28,7 @@ mod util;
 verus! {
 
 /// Size of a base page on x86-64.
-pub const PAGE_SIZE: usize = x86_base_page_size!();
+pub const PAGE_SIZE: usize = 4096;
 
 /// Size of an x86-64 page-table entry.
 pub const PTE_SIZE: usize = 8;

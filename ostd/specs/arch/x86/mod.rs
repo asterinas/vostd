@@ -5,7 +5,7 @@ use vstd_extra::prelude::*;
 
 use super::model::{self, ArchAddressSpaceModel, ArchPagingModel};
 
-use crate::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::{
     frame::mapping::lemma_meta_to_frame_soundness,
     page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
@@ -25,9 +25,6 @@ verus! {
 global size_of usize == 8;
 
 global size_of isize == 8;
-
-/// Page size used by the current verification target.
-pub const PAGE_SIZE: usize = crate::arch::mm::x86_base_page_size!();
 
 pub open spec fn valid_frame_paddr(paddr: Paddr) -> bool {
     model::valid_frame_paddr_for::<CurrentArch>(paddr)

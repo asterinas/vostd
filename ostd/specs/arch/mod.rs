@@ -4,7 +4,7 @@ pub use model::*;
 // Compatibility re-exports for proof modules that still use `specs::arch`.
 // The authoritative values live in the executable memory/architecture modules.
 pub use crate::{
-    arch::mm::{NR_ENTRIES, NR_LEVELS},
+    arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
     mm::{MAX_NR_PAGES, MAX_PADDR},
 };
 
