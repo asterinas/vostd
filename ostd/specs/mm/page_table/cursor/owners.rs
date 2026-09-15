@@ -935,30 +935,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.map_children_implies(f, g);
     }
 
-    /// After dropping the guard for the popped level, `nodes_locked` is preserved
-    /// for the new (higher-level) owner, because the dropped guard's address is not
-    /// among those checked by `nodes_locked` (which covers levels >= self.level - 1).
-    pub proof fn lemma_never_drop_restores_nodes_locked(
-        self,
-        guard: PageTableGuard<'rcu, C>,
-        guards0: Guards,
-        guards1: Guards,
-    )
-        requires
-            self.inv(),
-            self.nodes_locked(guards0),
-            guards0.lock_held(guard.inner.inner@.ptr.addr()),
-            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
-            forall|i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-                    ==> self.continuations[i].guard.inner.inner@.ptr.addr()
-                    != guard.inner.inner@.ptr.addr(),
-        ensures
-            self.nodes_locked(guards1),
-    {
-    }
-
     /// After a `protect` operation that only modifies `frame.prop` of the current entry,
     /// `CursorOwner::inv()` and `metaregion_sound` are preserved.
     ///
