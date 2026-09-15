@@ -597,6 +597,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner_before_permission_take.cur_entry_owner(),
                             );
+                            assert(regions.contains(idx));
+                            assert(old(regions).contains(idx));
                         }
                         owner_before_permission_take.lemma_cur_frame_clone_requires(
                             item,
@@ -1025,7 +1027,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         pt.make_guard_unchecked(rcu_guard)
                     };
 
-                    #[verus_spec(with Tracked(&mut child_node_owner), Tracked(&*regions))]
+                    #[verus_spec(with Tracked(&mut child_node_owner))]
                     let nr_children = pt_guard.nr_children();
 
                     // `nr_children()` requires `child_node_owner.metaregion_sound_node`,

@@ -167,7 +167,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         assert(regions.contains(cont_slot_idx));
     }
     let tracked cont_node_owner = cont.entry_own.tracked_borrow_node();
-    #[verus_spec(with Tracked(cont_node_owner), Tracked(&*regions))]
+    #[verus_spec(with Tracked(cont_node_owner))]
     let guard_level = subtree_root.level();
     proof {
         cursor_own.guard_level = guard_level;
@@ -396,9 +396,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.tracked_borrow_node();
-        let tracked meta_points_to = regions.slots.tracked_borrow(node_owner.slot_index);
         #[verus_spec(with
-            Tracked(meta_points_to),
             Tracked(node_owner.tracked_borrow_metadata_perm()),
             Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
@@ -483,9 +481,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.tracked_borrow_node();
-    let tracked meta_points_to = regions.slots.tracked_borrow(node_owner.slot_index);
     #[verus_spec(with
-        Tracked(meta_points_to),
         Tracked(node_owner.tracked_borrow_metadata_perm()),
         Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
