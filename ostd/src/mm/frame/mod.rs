@@ -34,6 +34,7 @@ use vstd::map::assert_maps_equal_internal;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 use vstd::{assert_maps_equal, assert_sets_equal};
+use vstd::std_specs::cmp::PartialEqSpecImpl;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::panic::may_panic;
@@ -146,42 +147,32 @@ impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
         write!(f, "Frame({:#x})", self.start_paddr())
     }
 }
+*/
+verus!{
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEqSpecImpl for Frame<M>{
+    open spec fn obeys_eq_spec() -> bool { true }
 
-impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
-    fn eq(&self, other: &Self) -> bool {
-        self.start_paddr() == other.start_paddr()
-    }
+    open spec fn eq_spec(&self, other: &Self) -> bool {
+        self.start_paddr_spec() == other.start_paddr_spec()
+    } 
 }
 
-impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
-*/
+}
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
-    /// Compares two frames by their start physical address.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety Invariant**: the frames and metadata regions must satisfy the global invariants.
-    /// ## Postconditions
-    /// - **Correctness**: the function returns true if the frames have
-    /// the same physical addresses and false otherwise.
-    /// ## Safety
-    /// Everything is immutable, so the safety invariant is preserved implicitly.
-    /// ## Verification Design
-    /// This is an inherent impl equivalent to `PartialEq::eq` for `Frame<M>`: freed from the
-    /// trait signature so that this version can thread the tracked `MetaRegionOwners` via `verus_spec`.
-    #[verus_spec(
-        requires
-            self.ptr_inv(),
-            other.ptr_inv(),
-        returns
-            self.start_paddr_spec() == other.start_paddr_spec(),
-    )]
-    pub fn eq(&self, other: &Self) -> bool {
+impl <M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEq for Frame<M>{
+    fn eq(&self, other: &Self) -> bool {
+        proof!{
+            //FIXME: Add `ptr_inv` as type invariant when we fix visibility.
+            assume(self.ptr_inv());
+            assume(other.ptr_inv());
+        }
         self.start_paddr() == other.start_paddr()
     }
 }
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Eq for Frame<M> {}
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
