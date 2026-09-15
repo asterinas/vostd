@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789397925288,
+  "lastUpdate": 1789456016724,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -756,6 +756,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=545ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7e0549310263adf5622ce3f3eaade1c28037689",
+          "message": "chore: remove unused lemmas and remove `level` in `NodeOwner` (#767)\n\n* chore: remove `level` in `NodeOwner`\n\n* remove a unnecessary condition\n\n* minor\n\n* remove `PageMetaModel`\n\n* Remove unused lemmas\n\n* remove more\n\n* clean more\n\n* remove more",
+          "timestamp": "2026-09-15T14:55:35+08:00",
+          "tree_id": "8f3e1657f9fd0513901bb0a676549a22a0f1e88e",
+          "url": "https://github.com/asterinas/vostd/commit/c7e0549310263adf5622ce3f3eaade1c28037689"
+        },
+        "date": 1789456015491,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1070315358,
+            "unit": "rlimit",
+            "extra": "verified=4048 errors=0 smt-run=347,639ms wall=223,522ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 391877370,
+            "unit": "rlimit",
+            "extra": "smt-run=146,859ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 86989432,
+            "unit": "rlimit",
+            "extra": "smt-run=27,161ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 70123207,
+            "unit": "rlimit",
+            "extra": "smt-run=28,449ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::div_internals",
+            "value": 13249888,
+            "unit": "rlimit",
+            "extra": "smt-run=1,733ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,654ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,690ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,181ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=858ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=656ms"
           }
         ]
       }
