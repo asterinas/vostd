@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU-related definitions.
 use vstd::prelude::*;
-use vstd_extra::ownership::Inv;
 
 // pub mod local;
 pub mod set;
@@ -106,10 +105,10 @@ verus! {
 
 /// The underlying numeric CPU id.
 impl View for CpuId {
-    type V = u32;
+    type V = int;
 
-    closed spec fn view(&self) -> u32 {
-        self.0
+    closed spec fn view(&self) -> int {
+        self.0 as int
     }
 }
 
@@ -128,17 +127,12 @@ pub broadcast axiom fn axiom_cpu_count_bounds()
         1 <= cpu_count() <= u32::MAX as int,
 ;
 
-/// The documented `CpuId` type invariant: the id is less than the CPU count.
-impl Inv for CpuId {
-    open spec fn inv(self) -> bool {
-        let id = self@ as int;
-        0 <= id < cpu_count()
+impl CpuId {
+    /// A CPU id is always in the range of CPUs present in the system.
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        0 <= self@ < cpu_count()
     }
-}
-
-/// The CPU id as a `usize` index (the underlying `u32` value).
-pub open spec fn cpu_id_as_usize_spec(c: CpuId) -> int {
-    (c@) as int
 }
 
 /// The number of CPUs; binds the exec `num_cpus()` to the trusted `cpu_count()`.
@@ -147,10 +141,10 @@ pub assume_specification[ crate::cpu::num_cpus ]() -> (n: usize)
         (n as int) == cpu_count(),
 ;
 
-/// `CpuId::as_usize`; binds the exec `as_usize` to `cpu_id_as_usize_spec`.
-pub assume_specification[ crate::cpu::CpuId::as_usize ](c: CpuId) -> (r: usize)
-    ensures
-        (r as int) == cpu_id_as_usize_spec(c),
+/// `CpuId::as_usize`; its integer value is the abstract CPU id.
+pub assume_specification[ crate::cpu::CpuId::as_usize ](c: CpuId) -> usize
+    returns
+        c@ as usize,
 ;
 
 } // verus!

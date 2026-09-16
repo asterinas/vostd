@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
-use super::{axiom_cpu_count_bounds, cpu_count, cpu_id_as_usize_spec};
+use super::cpu_count;
 use vstd::{
     arithmetic::div_mod::lemma_fundamental_div_mod, layout::size_of, prelude::*, set::Set,
     std_specs::iter::IteratorSpec,
@@ -8,8 +8,8 @@ use vstd::{
 use vstd_extra::{
     external::{
         bits::{
-            axiom_u64_masked_bit_keep, axiom_u64_set_bits_nonzero, group_u64_bit_algebra,
-            lemma_u64_allones_bit, lemma_u64_zero_and_bit, u64_set_bits,
+            group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_masked_bit_keep,
+            lemma_u64_set_bits_nonzero, lemma_u64_zero_and_bit, u64_set_bits,
         },
         smallvec::{group_smallvec_models, smallvec_view},
     },
@@ -86,7 +86,7 @@ verus! {
 
 broadcast use {
     group_smallvec_models,
-    axiom_u64_set_bits_nonzero,
+    lemma_u64_set_bits_nonzero,
     group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
     vstd::layout::layout_of_primitives,
@@ -105,11 +105,11 @@ pub closed spec fn parts_for_cpus_spec(n: int) -> int {
 
 /// The 64-bit word holding cpu id `id`, and the bit within that word.
 pub closed spec fn part_idx_spec(cpu_id: CpuId) -> int {
-    cpu_id_as_usize_spec(cpu_id) / 64
+    cpu_id@ / 64
 }
 
 pub closed spec fn bit_idx_spec(cpu_id: CpuId) -> int {
-    cpu_id_as_usize_spec(cpu_id) % 64
+    cpu_id@ % 64
 }
 
 /// Number of set bits in the prefix `seq[..end]`.
@@ -263,7 +263,7 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
                 let mask = seq[p];
                 assert(0 < k < 64);
                 assert(mask == ((1u64 << (k as usize)) - 1) as u64);
-                axiom_u64_masked_bit_keep(!0u64, mask, k, b);
+                lemma_u64_masked_bit_keep(!0u64, mask, k, b);
                 lemma_u64_allones_bit(b);
                 assert(!0u64 & mask == mask) by (bit_vector);
                 assert((mask & (1u64 << (b as usize))) != 0);
@@ -327,19 +327,21 @@ impl CpuSet {
     /// Adds a CPU to the set.
     #[verus_spec(
         requires
-            cpu_id.inv(),
             self.inv(),
         ensures
-            final(self)@ == old(self)@.insert(cpu_id_as_usize_spec(cpu_id)),
+            final(self)@ == old(self)@.insert(cpu_id@),
             final(self).inv(),
     )]
     pub fn add(&mut self, cpu_id: CpuId) {
+        proof! {
+            use_type_invariant(&cpu_id);
+        }
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
         proof! {
-            // The growth branch is dead under `self.inv()` + `cpu_id.inv()` (kept for the
-            // original out-of-contract behavior).
-            let id = cpu_id_as_usize_spec(cpu_id);
+            // The growth branch is dead under `self.inv()` and the `CpuId` type invariant
+            // (kept for the original out-of-contract behavior).
+            let id = cpu_id@;
             let n = cpu_count();
             let p = part_idx as int;
             let b = bit_idx as int;
@@ -361,7 +363,7 @@ impl CpuSet {
         // routed via `as_mut_slice()` — SmallVec's own `IndexMut` impl has no Verus model.
         self.bits.as_mut_slice()[part_idx] |= 1 << bit_idx;
         proof! {
-            let id = cpu_id_as_usize_spec(cpu_id);
+            let id = cpu_id@;
             let n = cpu_count();
             let p = (part_idx as int) - 0;
             let b = bit_idx as int;
@@ -389,13 +391,15 @@ impl CpuSet {
     /// Removes a CPU from the set.
     #[verus_spec(
         requires
-            cpu_id.inv(),
             self.inv(),
         ensures
-            final(self)@ == old(self)@.remove(cpu_id_as_usize_spec(cpu_id)),
+            final(self)@ == old(self)@.remove(cpu_id@),
             final(self).inv(),
     )]
     pub fn remove(&mut self, cpu_id: CpuId) {
+        proof! {
+            use_type_invariant(&cpu_id);
+        }
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
         if part_idx < self.bits.len() {
@@ -403,7 +407,7 @@ impl CpuSet {
             // routed via `as_mut_slice()` — SmallVec's own `IndexMut` impl has no Verus model.
             self.bits.as_mut_slice()[part_idx] &= !(1 << bit_idx);
             proof! {
-                let id = cpu_id_as_usize_spec(cpu_id);
+                let id = cpu_id@;
                 let n = cpu_count();
                 let p = part_idx as int;
                 let b = bit_idx as int;
@@ -432,11 +436,13 @@ impl CpuSet {
     /// Returns true if the set contains the specified CPU.
     #[verus_spec(ret =>
         requires
-            cpu_id.inv(),
             self.inv(),
-        returns self@.contains(cpu_id_as_usize_spec(cpu_id)),
+        returns self@.contains(cpu_id@),
     )]
     pub fn contains(&self, cpu_id: CpuId) -> bool {
+        proof! {
+            use_type_invariant(&cpu_id);
+        }
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
         // Original exec: `self.bits[part_idx]`
@@ -658,7 +664,6 @@ impl CpuSet {
                         bit_at(smallvec_view(&self.bits), id as int),
                     ensures
                         ret == CpuId(id as u32),
-                        ret.inv(),
                 )]
                 move |id| {
                     proof! {
@@ -760,8 +765,6 @@ impl CpuSet {
 }
 
 /* impl From<CpuId> for CpuSet {
-    // TODO(trait contract): `From::from` cannot declare `requires`, but `add`
-    // requires `cpu_id.inv()`; needs a trusted `CpuId`-validity model to verify.
     fn from(cpu_id: CpuId) -> Self {
         let mut set = Self::new_empty();
         set.add(cpu_id);

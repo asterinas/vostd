@@ -1,16 +1,4 @@
-//! Trusted bit-arithmetic boundary for `u64` shifts and masks in the integer-mode
-//! encoding of the active Verus version: `vir/src/prelude.rs` declares `bit_shl`
-//! with no value axioms (the `Shl` case is commented "Nothing for shl"), and
-//! spec-mode `-` promotes `(1u64 << k) - 1` to `int`, so mask algebra can be
-//! neither derived by the solver nor expressed in standalone `bit_vector` queries
-//! (whose free variables carry no context). The axioms below state Rust's defined
-//! semantics for in-range shift amounts and the resulting low-`k`-bits mask shape;
-//! they are the only added trusted facts (TCB) and live here rather than beside an
-//! OSTD caller.
-//!
-//! Soundness: for `0 <= k < 64`, Rust defines `1u64 << k == 2^k` (nonzero, within
-//! range), so `(1u64 << k) - 1` has exactly the bits below `k` set — AND-ing a word
-//! with it clears every bit `>= k` and leaves every bit `< k` unchanged.
+//! Bit-arithmetic lemmas for `u64` shifts and masks.
 use vstd::prelude::*;
 
 verus! {
@@ -45,30 +33,46 @@ pub broadcast proof fn lemma_u64_unit_shift_pos(k: int)
 
 /// Masking with the low-`k`-bits mask `(1u64 << k) - 1` clears bit `b >= k` of any
 /// word (AND associativity folded into the statement).
-///
-/// Kept as an axiom: the hypothesis embeds the subtraction `(1u64 << k) - 1`, which
-/// spec-mode arithmetic promotes to `int` (E0308 feeding `&`), so neither the mask
-/// value nor a subtraction-shaped hypothesis can enter a `bit_vector` formula. A
-/// bit-only rewiring of the whole family (`mask == !(!0u64 << k)`) would force
-/// rewriting the caller's mask terms and re-bridging the exec-computed mask value.
-pub broadcast axiom fn axiom_u64_masked_bit_clear(word: u64, mask: u64, k: int, b: int)
+pub broadcast proof fn lemma_u64_masked_bit_clear(word: u64, mask: u64, k: int, b: int)
     ensures
         #![trigger ((word & mask) & (1u64 << (b as usize))), (1u64 << (k as usize))]
         {
             &&& 0 <= k <= 64 && k <= b < 64
             &&& mask == (1u64 << (k as usize)) - 1
         } ==> ((word & mask) & (1u64 << (b as usize))) == 0,
-;
+{
+    if 0 <= k <= 64 && k <= b < 64 && mask == (1u64 << (k as usize)) - 1 {
+        let ku: u32 = k as u32;
+        let bu: u32 = b as u32;
+        assert(((word & mask) & (1u64 << bu)) == 0u64) by (bit_vector)
+            requires
+                ku <= bu,
+                bu < 64,
+                mask == (1u64 << ku) - 1u64,
+        ;
+    }
+}
 
 /// Masking with the low-`k`-bits mask keeps bit `b < k` of any word unchanged.
-pub broadcast axiom fn axiom_u64_masked_bit_keep(word: u64, mask: u64, k: int, b: int)
+pub broadcast proof fn lemma_u64_masked_bit_keep(word: u64, mask: u64, k: int, b: int)
     ensures
         #![trigger ((word & mask) & (1u64 << (b as usize))), (1u64 << (k as usize))]
         {
             &&& 0 < k <= 64 && 0 <= b < k
             &&& mask == (1u64 << (k as usize)) - 1
         } ==> ((word & mask) & (1u64 << (b as usize))) == word & (1u64 << (b as usize)),
-;
+{
+    if 0 < k <= 64 && 0 <= b < k && mask == (1u64 << (k as usize)) - 1 {
+        let ku: u32 = k as u32;
+        let bu: u32 = b as u32;
+        assert(((word & mask) & (1u64 << bu)) == (word & (1u64 << bu))) by (bit_vector)
+            requires
+                bu < ku,
+                ku <= 64,
+                mask == (1u64 << ku) - 1u64,
+        ;
+    }
+}
 
 /// Setting bit `b` (OR-ing the unit bit at `b`) makes that bit nonzero. Proved:
 /// the OR/AND identity and the bounded symbolic shift's nonzeroness are both
@@ -157,8 +161,8 @@ pub broadcast proof fn lemma_u64_zero_and_bit(k: int)
 pub broadcast group group_u64_bit_algebra {
     lemma_u64_allones_bit,
     lemma_u64_unit_shift_pos,
-    axiom_u64_masked_bit_clear,
-    axiom_u64_masked_bit_keep,
+    lemma_u64_masked_bit_clear,
+    lemma_u64_masked_bit_keep,
     lemma_u64_setbit_bit_set,
     lemma_u64_setbit_bit_keep,
     lemma_u64_clearbit_bit_clear,
@@ -166,9 +170,21 @@ pub broadcast group group_u64_bit_algebra {
     lemma_u64_zero_and_bit,
 }
 
-/// The number of set bits in a `u64` word: the uninterpreted spec carrier for
-/// `count_ones` and the counting bridge.
-pub uninterp spec fn u64_set_bits(w: u64) -> int;
+/// The number of set bits among the lowest `n` bits of `w`.
+spec fn u64_set_bits_rec(w: u64, n: u64) -> int
+    decreases n,
+{
+    if n == 0 {
+        0
+    } else {
+        (w & 1u64) + u64_set_bits_rec(w >> 1u64, (n - 1) as u64)
+    }
+}
+
+/// The number of set bits in a `u64` word.
+pub closed spec fn u64_set_bits(w: u64) -> int {
+    u64_set_bits_rec(w, 64)
+}
 
 /// `u64::count_ones`: "Returns the number of ones in the binary representation
 /// of `self`" (core/src/num/uint_macros.rs, `intrinsics::ctpop`).
@@ -177,13 +193,61 @@ pub assume_specification[ u64::count_ones ](v: u64) -> (r: u32)
         (r as int) == u64_set_bits(v),
 ;
 
-/// A nonzero word has at least one set bit (and zero has none) — the "number of
-/// ones" characterization of the std doc.
-pub broadcast axiom fn axiom_u64_set_bits_nonzero(w: u64)
+proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)
+    requires
+        n <= 64,
+    ensures
+        0 <= u64_set_bits_rec(w, n) <= n,
+        w >> n == 0 ==> ((w != 0) == (1 <= u64_set_bits_rec(w, n))),
+    decreases n,
+{
+    reveal_with_fuel(u64_set_bits_rec, 1);
+    if n != 0 {
+        lemma_u64_set_bits_rec_bounds(w >> 1u64, (n - 1) as u64);
+        assert((w & 1u64) <= 1) by (bit_vector);
+        assert((w >> 1u64) >> ((n - 1) as u64) == w >> n) by (bit_vector)
+            requires
+                0 < n <= 64,
+        ;
+        if w >> n == 0 {
+            if w == 0 {
+                assert(w & 1u64 == 0 && w >> 1u64 == 0) by (bit_vector)
+                    requires
+                        w == 0,
+                ;
+            } else {
+                if w & 1u64 == 0 {
+                    assert(w >> 1u64 != 0) by (bit_vector)
+                        requires
+                            w != 0,
+                            w & 1u64 == 0,
+                    ;
+                } else {
+                    assert(w & 1u64 == 1) by (bit_vector)
+                        requires
+                            w & 1u64 != 0,
+                    ;
+                }
+            }
+        }
+    } else {
+        assert(w >> n == w) by (bit_vector)
+            requires
+                n == 0,
+        ;
+    }
+}
+
+/// A nonzero word has at least one set bit (and zero has none).
+pub broadcast proof fn lemma_u64_set_bits_nonzero(w: u64)
     ensures
         #![trigger u64_set_bits(w)]
         (w != 0u64) == (1 <= u64_set_bits(w)),
         0 <= u64_set_bits(w) <= 64,
-;
+{
+    reveal(u64_set_bits);
+    lemma_u64_set_bits_rec_bounds(w, 64);
+    assert(w >> 64u64 == 0) by (bit_vector);
+}
 
 } // verus!
