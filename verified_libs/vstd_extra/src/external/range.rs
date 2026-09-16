@@ -7,14 +7,11 @@ use core::ops::{Range, RangeInclusive};
 
 verus! {
 
-/// `Range::clone` clones each field via `Idx::clone`; each field's clone
-/// `ensures` (guarded by its `requires`) applies to `res.start`/`res.end`.
+/// `Range::clone` clones each field via `Idx::clone`.
 pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
     ensures
-        Idx::clone.requires((&range.start,)) && Idx::clone.requires((&range.end,)) ==> {
-            &&& Idx::clone.ensures((&range.start,), res.start)
-            &&& Idx::clone.ensures((&range.end,), res.end)
-        },
+        cloned::<Idx>(range.start, res.start),
+        cloned::<Idx>(range.end, res.end),
 ;
 
 /// See [`Range::is_empty`](https://doc.rust-lang.org/std/ops/struct.Range.html#method.is_empty).
