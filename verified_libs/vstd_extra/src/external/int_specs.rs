@@ -41,6 +41,8 @@ pub assume_specification[ usize::is_power_of_two ](self_: usize) -> (r: bool)
     no_unwind
 ;
 
+/// `usize::div_ceil` panics if `rhs` is zero. The precondition excludes that case,
+/// so every valid call satisfies `no_unwind`.
 pub assume_specification[ usize::div_ceil ](self_: usize, rhs: usize) -> (r: usize)
     requires
         rhs > 0,
