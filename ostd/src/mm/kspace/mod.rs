@@ -36,9 +36,9 @@ use core::{marker::PhantomData, ops::Range};
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
+use vstd_extra::{once::OnceImpl, resource_invariant::TrivialResourceInvariant};
 
 //use log::info;
-use crate::sync::{OnceImpl, TrivialPred};
 pub(crate) mod kvirt_area;
 #[cfg(ktest)]
 mod test;
@@ -155,9 +155,8 @@ pub fn paddr_to_vaddr(pa: Paddr) -> usize
 /// It manages the kernel mapping of all address spaces by sharing the kernel part. And it
 /// is unlikely to be activated.
 #[allow(private_interfaces)]
-pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPred> = OnceImpl::new(
-    Ghost(TrivialPred),
-);
+pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialResourceInvariant> =
+    OnceImpl::new(Ghost(TrivialResourceInvariant));
 
 #[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Clone, Debug)]

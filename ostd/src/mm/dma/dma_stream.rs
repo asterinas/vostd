@@ -1,10 +1,14 @@
 use core::{marker::PhantomData, ops::Deref, ops::Range};
 
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{predicate::Predicate, prelude::*};
+use vstd::prelude::*;
 
 use vstd_extra::external::convert::AsRefSpec;
-use vstd_extra::ownership::{Inv, OwnerOf};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    ownership::{Inv, OwnerOf},
+    resource_invariant::SimpleResourceInvariant,
+};
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::{
@@ -25,7 +29,7 @@ use crate::{
         mm::io::{VmIoMemView, VmIoOwner},
         mm::virt_mem::{MemView, VirtPtr},
     },
-    sync::{AtomicDataWithOwner, PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
+    sync::{PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
 use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
@@ -378,7 +382,9 @@ pub tracked struct DmaStreamInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
 }
 
-pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerOwner<M>>;
+pub ghost struct DmaStreamInnerInvariant;
+
+pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerInvariant>;
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
@@ -451,6 +457,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             AtomicDataWithOwner::new(
                 DmaStreamInner { segment, start_daddr, is_cache_coherent, direction },
                 Tracked(inner_owner),
+                Ghost(DmaStreamInnerInvariant),
             ),
         );
 
@@ -682,6 +689,17 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInner<M> {
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInnerOwner<M> {
     open spec fn inv(self) -> bool {
         true
+    }
+}
+
+impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
+    DmaStreamInner<M>,
+> for DmaStreamInnerInvariant {
+    type Resource = DmaStreamInnerOwner<M>;
+
+    open spec fn inv(value: DmaStreamInner<M>, resource: DmaStreamInnerOwner<M>) -> bool {
+        &&& resource.inv()
+        &&& value.inv()
     }
 }
 
@@ -999,14 +1017,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             _ => return Err(Error::InvalidArgs),
         }
         Err(Error::InvalidArgs)
-    }
-}
-
-impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaStreamInner<M>> for DmaStreamInnerOwner<M> {
-    #[verifier::inline]
-    open spec fn predicate(&self, v: DmaStreamInner<M>) -> bool {
-        &&& self.inv()
-        &&& v.inv()
     }
 }
 
