@@ -2963,18 +2963,18 @@ index 00000000..bfb1c293
 +
 +} // verus!
 diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
-index eb06f180..41016a35 100644
+index 0674e2ea..3fb12455 100644
 --- a/source/vstd/vstd.rs
 +++ b/source/vstd/vstd.rs
-@@ -26,6 +26,7 @@
- #![cfg_attr(verus_keep_ghost, feature(fmt_internals))]
+@@ -27,6 +27,7 @@
  #![cfg_attr(verus_keep_ghost, feature(fmt_arguments_from_str))]
+ #![cfg_attr(all(feature = "alloc", verus_keep_ghost), feature(btree_cursors))]
  #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
 +#![cfg_attr(verus_keep_ghost, feature(auto_traits))]
  
  #[cfg(feature = "alloc")]
  extern crate alloc;
-@@ -34,6 +35,7 @@ pub mod arithmetic;
+@@ -35,6 +36,7 @@ pub mod arithmetic;
  pub mod array;
  pub mod atomic;
  pub mod atomic_ghost;
@@ -2982,7 +2982,7 @@ index eb06f180..41016a35 100644
  pub mod bits;
  pub mod bytes;
  pub mod calc_macro;
-@@ -85,6 +87,7 @@ pub mod state_machine_internal;
+@@ -88,6 +90,7 @@ pub mod state_machine_internal;
  pub mod string;
  #[cfg(feature = "std")]
  pub mod thread;
@@ -2991,18 +2991,18 @@ index eb06f180..41016a35 100644
  pub mod utf8;
  pub mod view;
 diff --git a/source/vstd_build/src/main.rs b/source/vstd_build/src/main.rs
-index 6b849bf2..2250d553 100644
+index 5662268c..fa6cd837 100644
 --- a/source/vstd_build/src/main.rs
 +++ b/source/vstd_build/src/main.rs
-@@ -37,6 +37,7 @@ fn main() {
-     let mut no_lifetime = false;
+@@ -38,6 +38,7 @@ fn main() {
+     let mut no_trait_conflicts = false;
      let mut expand_errors = false;
      let mut no_solver_version_check = false;
 +    let mut weak_memory = false;
      for arg in args {
          if arg == "--release" {
              release = true;
-@@ -58,6 +59,8 @@ fn main() {
+@@ -61,6 +62,8 @@ fn main() {
              expand_errors = true;
          } else if arg == "--no-solver-version-check" {
              no_solver_version_check = true;
@@ -3011,7 +3011,7 @@ index 6b849bf2..2250d553 100644
          } else {
              panic!("unexpected argument: {:}", arg)
          }
-@@ -142,6 +145,10 @@ fn main() {
+@@ -149,6 +152,10 @@ fn main() {
          child_args.push("--cfg".to_string());
          child_args.push("feature=\"alloc\"".to_string());
      }
