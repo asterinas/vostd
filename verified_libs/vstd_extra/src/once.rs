@@ -7,7 +7,7 @@ use vstd::{
     prelude::*,
 };
 
-use crate::atomic_data::AtomicDataWithOwner;
+use crate::{atomic_data::AtomicDataWithOwner, resource_invariant::ValueInvariant};
 
 verus! {
 
@@ -34,22 +34,6 @@ unsafe impl<V> Objective for OnceState<V> {
 
 }
 
-/// A [`Predicate`] is something you're gonna preserve during the lifetime
-/// of any synchronization primitives like [`Once`].
-pub trait Predicate<V> {
-    spec fn inv(self, v: V) -> bool;
-}
-
-/// A trivial predicate that holds for any value.
-/// Use with [`OnceImpl`] when no invariant is needed.
-pub struct TrivialPred;
-
-impl<V> Predicate<V> for TrivialPred {
-    open spec fn inv(self, v: V) -> bool {
-        true
-    }
-}
-
 struct_with_invariants! {
 /// A synchronization primitive which can nominally be written to only once.
 ///
@@ -71,7 +55,7 @@ struct_with_invariants! {
 /// assert(value.is_some());   // unsatisfied precondition, as MY_ONCE is uninitialized.
 /// ```
 #[verifier::reject_recursive_types(V)]
-pub struct OnceImpl<V: 'static, F: Predicate<V>> {
+pub struct OnceImpl<V: 'static, F: ValueInvariant<V>> {
     cell: PCell<Option<V>>,
     state: vstd::atomic_ghost::AtomicU64<_, OnceState<V>, _>,
     f: Ghost<F>,
@@ -93,7 +77,7 @@ pub closed spec fn wf(&self) -> bool {
                 &&& v == INITED
                 &&& points_to.id() == cell.id()
                 &&& points_to.value() is Some
-                &&& f@.inv(points_to.value()->0)
+                &&& F::inv(points_to.value()->0)
             }
         }
     }
@@ -102,16 +86,16 @@ pub closed spec fn wf(&self) -> bool {
 }
 
 #[verifier::external]
-unsafe impl<V, F: Predicate<V>> Send for OnceImpl<V, F> {
+unsafe impl<V, F: ValueInvariant<V>> Send for OnceImpl<V, F> {
 
 }
 
 #[verifier::external]
-unsafe impl<V, F: Predicate<V>> Sync for OnceImpl<V, F> {
+unsafe impl<V, F: ValueInvariant<V>> Sync for OnceImpl<V, F> {
 
 }
 
-impl<V, F: Predicate<V>> OnceImpl<V, F> {
+impl<V, F: ValueInvariant<V>> OnceImpl<V, F> {
     pub closed spec fn inv(&self) -> F {
         self.f@
     }
@@ -136,7 +120,7 @@ impl<V, F: Predicate<V>> OnceImpl<V, F> {
     /// Initializes the [`Once`] with the given value `v`.
     pub fn init(&self, v: V)
         requires
-            self.inv().inv(v),
+            F::inv(v),
             self.wf(),
     {
         let cur_state =
@@ -194,7 +178,7 @@ impl<V, F: Predicate<V>> OnceImpl<V, F> {
             self.wf(),
         ensures
             self.wf(),
-            r matches Some(res) ==> self.inv().inv(*res),
+            r matches Some(res) ==> F::inv(*res),
     {
         let tracked mut points_to = None;
         let res =

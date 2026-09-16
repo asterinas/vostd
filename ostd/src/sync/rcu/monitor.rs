@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{atomic_ghost::AtomicBool, atomic_with_ghost, prelude::*};
 use vstd_extra::{
-    atomic_data::AtomicDataWithOwner, once::Predicate as OncePredicate, ownership::Inv,
-    resource_invariant::SimpleResourceInvariant,
+    atomic_data::AtomicDataWithOwner,
+    ownership::Inv,
+    resource_invariant::{SimpleResourceInvariant, ValueInvariant},
 };
 
 use crate::{
@@ -63,8 +64,8 @@ impl RcuMonitor {
 
 pub(super) struct RcuMonitorPred;
 
-impl OncePredicate<AtomicDataWithOwner<RcuMonitor, RcuMonitorInvariant>> for RcuMonitorPred {
-    closed spec fn inv(self, v: AtomicDataWithOwner<RcuMonitor, RcuMonitorInvariant>) -> bool {
+impl ValueInvariant<AtomicDataWithOwner<RcuMonitor, RcuMonitorInvariant>> for RcuMonitorPred {
+    closed spec fn inv(v: AtomicDataWithOwner<RcuMonitor, RcuMonitorInvariant>) -> bool {
         &&& v.inv()
         &&& v.data.inv()
     }
@@ -112,7 +113,9 @@ impl RcuMonitor {
         ensures
             r.inv(),
             r.data.inv(),
-            RcuMonitorPred.inv(r),
+            <RcuMonitorPred as ValueInvariant<
+                AtomicDataWithOwner<RcuMonitor, RcuMonitorInvariant>,
+            >>::inv(r),
     )]
     pub(super) fn new_data() -> AtomicDataWithOwner<RcuMonitor, RcuMonitorInvariant> {
         let data = Self::new();

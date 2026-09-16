@@ -9,8 +9,8 @@ use alloc::collections::BTreeSet;
 use vstd::prelude::*;
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
-    once::{Once, TrivialPred},
-    resource_invariant::SimpleResourceInvariant,
+    once::Once,
+    resource_invariant::{SimpleResourceInvariant, TrivialResourceInvariant},
 };
 
 use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
@@ -40,12 +40,12 @@ impl SimpleResourceInvariant<
 exec static DMA_MAPPING_SET: Once<
     SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
     DmaMappingSetInvariant,
-    TrivialPred,
+    TrivialResourceInvariant,
 >
     ensures
         DMA_MAPPING_SET.wf(),
 {
-    Once::new(Ghost(TrivialPred))
+    Once::new(Ghost(TrivialResourceInvariant))
 }
 
 #[inline(always)]
