@@ -35,8 +35,8 @@ form a chain.
 <!-- guideline: use-returns-for-exact-results -->
 
 Use `returns expr` for an exact return value and `ensures` for other result or
-state properties. Omit unused named return binders and unit return declarations
-such as `-> (ret: ())`.
+state properties. This also applies to `assume_specification`. Omit unused named
+return binders and unit return declarations such as `-> (ret: ())`.
 
 The expression must match the return type. Keep required casts, such as
 `as usize` for a sequence's `nat` length, and justify that the value fits.
@@ -44,8 +44,9 @@ The expression must match the return type. Keep required casts, such as
 See also: PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940933539),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946290469),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946316792),
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946322891), and
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947067359).
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946322891),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947067359), and
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023879416).
 
 ### Avoid redundant `as int` casts
 

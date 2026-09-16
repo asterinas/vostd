@@ -33,13 +33,15 @@ pub assume_specification[ usize::is_power_of_two ](self_: usize) -> (r: bool)
     opens_invariants none
     no_unwind;
 
-// Panics on rhs == 0: no bare `no_unwind`, even though `requires rhs > 0`
-// excludes it. Model the no-panic regime faithfully with `no_unwind when rhs > 0`.
-pub assume_specification[ usize::div_ceil ](self_: usize, rhs: usize) -> (r: usize)
-    requires rhs > 0
-    ensures r == (self_ + rhs - 1) / (rhs as int)
+/// `usize::div_ceil` panics if `rhs` is zero; the precondition excludes that case.
+pub assume_specification[ usize::div_ceil ](self_: usize, rhs: usize) -> usize
+    requires
+        rhs > 0,
+    returns
+        ((self_ + rhs - 1) / (rhs as int)) as usize,
     opens_invariants none
-    no_unwind when rhs > 0;
+    no_unwind when rhs > 0
+;
 ```
 
 Mirror the standard library's evaluation semantics in adapter contracts. For
