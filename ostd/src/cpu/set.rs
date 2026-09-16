@@ -232,6 +232,7 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
     requires
         set.inv(),
         forall|i: int|
+            #![trigger smallvec_view(&set.bits)[i]]
             0 <= i < smallvec_view(&set.bits).len() ==> smallvec_view(&set.bits)[i]
                 == full_set_word(cpu_count(), smallvec_view(&set.bits).len() as int, i),
     ensures
@@ -243,7 +244,9 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
     assert(n > 0);
     reveal(parts_for_cpus_spec);
     assert(len == (n + 63) / 64);
-    assert forall|a: int| set@.contains(a) == Set::range(0, n).contains(a) by {
+    assert forall|a: int|
+        #![trigger set@.contains(a)]
+        set@.contains(a) == Set::range(0, n).contains(a) by {
         if 0 <= a < n {
             lemma_fundamental_div_mod(a, 64);
             lemma_fundamental_div_mod(n, 64);
@@ -299,7 +302,9 @@ impl CpuSet {
         proof! {
             let seq = smallvec_view(&ret.bits);
             let n = cpu_count();
-            assert forall|a: int| ret@.contains(a) == Set::range(0, n).contains(a) by {
+            assert forall|a: int|
+                #![trigger ret@.contains(a)]
+                ret@.contains(a) == Set::range(0, n).contains(a) by {
                 assert(ret@.contains(a) == (0 <= a < n && bit_at(seq, a)));
             }
             assert(ret@ == Set::range(0, n));
@@ -364,7 +369,9 @@ impl CpuSet {
             let len = old_seq.len() as int;
             assert(new_seq.len() == old_seq.len());
             assert(new_seq == old_seq.update(p, old_seq[p] | (1u64 << (b as usize))));
-            assert forall|a: int| self@.contains(a) == old(self)@.insert(id).contains(a) by {
+            assert forall|a: int|
+                #![trigger self@.contains(a)]
+                self@.contains(a) == old(self)@.insert(id).contains(a) by {
                 assert(self@.contains(a) == (0 <= a < n && bit_at(new_seq, a)));
                 assert(old(self)@.contains(a) == (0 <= a < n && bit_at(old_seq, a)));
                 if a == id {
@@ -403,7 +410,9 @@ impl CpuSet {
                 let new_seq = smallvec_view(&self.bits);
                 assert(new_seq.len() == old_seq.len());
                 assert(new_seq == old_seq.update(p, old_seq[p] & (!(1u64 << (b as usize)))));
-                assert forall|a: int| self@.contains(a) == old(self)@.remove(id).contains(a) by {
+                assert forall|a: int|
+                    #![trigger self@.contains(a)]
+                    self@.contains(a) == old(self)@.remove(id).contains(a) by {
                     assert(self@.contains(a) == (0 <= a < n && bit_at(new_seq, a)));
                     if a == id {
                         assert(a / 64 == p);
@@ -540,6 +549,7 @@ impl CpuSet {
                 num_cpus as int == cpu_count(),
                 idx as int <= smallvec_view(&self.bits).len(),
                 forall|i: int|
+                    #![trigger smallvec_view(&self.bits)[i]]
                     0 <= i < idx ==> smallvec_view(&self.bits)[i]
                         == full_set_word(
                             cpu_count(),

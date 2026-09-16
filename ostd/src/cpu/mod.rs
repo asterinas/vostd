@@ -124,6 +124,7 @@ pub uninterp spec fn cpu_count() -> int;
 /// `SmallVec` without overflowing `isize::MAX`.
 pub broadcast axiom fn axiom_cpu_count_bounds()
     ensures
+        #![trigger cpu_count()]
         1 <= cpu_count() <= u32::MAX as int,
 ;
 

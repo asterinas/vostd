@@ -70,12 +70,12 @@ pub assume_specification<A: Array>[ SmallVec::<A>::new ]() -> (ret: SmallVec<A>)
 
 /// Constructs a new, empty `SmallVec` with the given heap capacity, which is not modelled.
 ///
-/// Panics on capacity overflow if `n * size_of::<A::Item>()` exceeds `isize::MAX`
-/// (via `reserve_exact`, which requests exactly `n` elements).
+/// Panics on capacity overflow if `n * size_of::<A::Item>()` exceeds `isize::MAX`; the bound
+/// is enforced by `Layout::from_size_align` in the private `layout_array` (called from `try_grow`).
 pub assume_specification<A: Array>[ SmallVec::<A>::with_capacity ](n: usize) -> (ret: SmallVec<A>)
     requires
         obeys_smallvec_array::<A>(),
-        (n as int) * (size_of::<A::Item>() as int) <= isize::MAX as int,
+        n * size_of::<A::Item>() <= isize::MAX,
     ensures
         smallvec_view(&ret) == Seq::<A::Item>::empty(),
 ;
@@ -85,7 +85,7 @@ pub assume_specification<A: Array>[ SmallVec::<A>::len ](v: &SmallVec<A>) -> (le
     requires
         obeys_smallvec_array::<A>(),
     ensures
-        (len as int) == smallvec_view(v).len(),
+        len == smallvec_view(v).len(),
 ;
 
 /// Appends `value` to the end.
@@ -96,8 +96,7 @@ pub assume_specification<A: Array>[ SmallVec::<A>::len ](v: &SmallVec<A>) -> (le
 pub assume_specification<A: Array>[ SmallVec::<A>::push ](v: &mut SmallVec<A>, value: A::Item)
     requires
         obeys_smallvec_array::<A>(),
-        2 * ((smallvec_view(v).len() + 1) as int) * (size_of::<A::Item>() as int)
-            <= isize::MAX as int,
+        2 * (smallvec_view(v).len() + 1) * size_of::<A::Item>() <= isize::MAX,
     ensures
         smallvec_view(final(v)) == smallvec_view(old(v)).push(value),
 ;
@@ -113,7 +112,7 @@ pub assume_specification<A: Array>[ SmallVec::<A>::resize ](
 ) where A::Item: Clone
     requires
         obeys_smallvec_array::<A>(),
-        2 * (new_len as int) * (size_of::<A::Item>() as int) <= isize::MAX as int,
+        2 * new_len * size_of::<A::Item>() <= isize::MAX,
     ensures
         new_len <= smallvec_view(old(v)).len() ==> smallvec_view(final(v)) == smallvec_view(
             old(v),
