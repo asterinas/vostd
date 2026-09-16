@@ -123,20 +123,6 @@ proof fn lemma_bit_at_uniform(seq: Seq<u64>, val: u64, j: int)
     assert(seq[j / 64] == val);
 }
 
-/// If every word of `seq` is `0`, no bit is set. (The `0 & x` simplification needs
-/// the bit_vector solver; pure integer-mode reasoning stalls on it.)
-proof fn lemma_bit_at_all_zero(seq: Seq<u64>, j: int)
-    requires
-        forall|k: int| 0 <= k < seq.len() ==> seq[k] == 0u64,
-        0 <= j < 64 * seq.len() as int,
-    ensures
-        bit_at(seq, j) == false,
-{
-    lemma_bit_at_uniform(seq, 0u64, j);
-    let bit: u64 = 1u64 << ((j % 64) as u32);
-    assert(0u64 & bit == 0u64) by (bit_vector);
-}
-
 impl View for CpuSet {
     type V = Set<int>;
 
@@ -150,12 +136,10 @@ proof fn lemma_cpucount_fits()
     ensures
         2 * parts_for_cpus_spec(cpu_count()) * (size_of::<u64>() as int) <= isize::MAX as int,
 {
-    assert(size_of::<u64>() == 8) by (nonlinear_arith);
     if cpu_count() > 0 {
         assert(parts_for_cpus_spec(cpu_count()) == (cpu_count() + 63) / 64) by {
             reveal(parts_for_cpus_spec)
         };
-        assert(2 * ((cpu_count() + 63) / 64) * 8 <= isize::MAX as int) by (nonlinear_arith);
     }
 }
 
@@ -269,12 +253,9 @@ impl CpuSet {
                 assert(old(self)@.contains(a) == (0 <= a < n && bit_at(old_seq, a)));
                 if a == id {
                     assert(a / 64 == p);
-                } else {
-                    assert(!(a / 64 == p && a % 64 == b));
                 }
             }
             assert(self@ == old(self)@.insert(id));
-            assert(smallvec_view(&self.bits).len() == parts_for_cpus_spec(n));
             assert forall|j: int| n <= j < 64 * len implies !bit_at(new_seq, j) by {
                 assert(bit_at(new_seq, j) == bit_at(old_seq, j));
             }
@@ -308,14 +289,10 @@ impl CpuSet {
                 assert(new_seq == old_seq.update(p, old_seq[p] & (!(1u64 << (b as usize)))));
                 assert forall|a: int| self@.contains(a) == old(self)@.remove(id).contains(a) by {
                     assert(self@.contains(a) == (0 <= a < n && bit_at(new_seq, a)));
-                    assert(old(self)@.contains(a) == (0 <= a < n && bit_at(old_seq, a)));
                     if a == id {
                         assert(a / 64 == p);
-                    } else {
-                        assert(!(a / 64 == p && a % 64 == b));
                     }
                 }
-                assert(self@ == old(self)@.remove(id));
                 assert forall|j: int| n <= j < 64 * old_seq.len() as int implies !bit_at(
                     new_seq,
                     j,
@@ -382,25 +359,7 @@ impl CpuSet {
     )]
     pub fn add_all(&mut self) {
         self.bits.fill(!0);
-        proof! {
-            let seq0 = smallvec_view(&self.bits);
-            assert(forall|k: int|
-                #![trigger smallvec_view(&self.bits)[k]]
-                0 <= k < smallvec_view(&self.bits).len() as int ==> smallvec_view(&self.bits)[k]
-                    == !0u64);
-            assert forall|j: int| 0 <= j < cpu_count() implies bit_at(seq0, j) by {
-                lemma_bit_at_uniform(seq0, !0u64, j);
-            }
-        }
         self.clear_nonexistent_cpu_bits();
-        proof! {
-            let seq = smallvec_view(&self.bits);
-            let n = cpu_count();
-            assert forall|a: int| self@.contains(a) == Set::range(0, n).contains(a) by {
-                assert(self@.contains(a) == (0 <= a < n && bit_at(seq, a)));
-            }
-            assert(self@ == Set::range(0, n));
-        }
     }
 
     /// Removes all CPUs from the set.
@@ -415,18 +374,7 @@ impl CpuSet {
         self.bits.fill(0);
         proof! {
             let seq = smallvec_view(&self.bits);
-            let n = cpu_count();
             assert(forall|k: int| 0 <= k < seq.len() ==> seq[k] == 0u64);
-            assert forall|j: int| self@.contains(j) == false by {
-                assert(self@.contains(j) == (0 <= j < n && bit_at(seq, j)));
-                if 0 <= j < n {
-                    lemma_bit_at_all_zero(seq, j);
-                }
-            }
-            assert(self@ == Set::empty());
-            assert forall|j: int| n <= j < 64 * seq.len() as int implies !bit_at(seq, j) by {
-                lemma_bit_at_all_zero(seq, j);
-            }
         }
     }
 
