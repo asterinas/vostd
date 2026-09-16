@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 use core::marker::PhantomData;
 
-use vstd::{predicate::Predicate, prelude::*};
+use vstd::prelude::*;
 
-use vstd_extra::ownership::{Inv, OwnerOf};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    ownership::{Inv, OwnerOf},
+    resource_invariant::SimpleResourceInvariant,
+};
 
 use crate::{
     error::Error,
@@ -22,7 +26,7 @@ use crate::{
         arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
         mm::virt_mem::VirtPtr,
     },
-    sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},
+    sync::{PreemptDisabled, RwArc, RwLockReadGuard},
 };
 
 use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
@@ -62,9 +66,11 @@ pub tracked struct DmaCoherentInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub _marker: PhantomData<M>,
 }
 
+pub ghost struct DmaCoherentInnerInvariant;
+
 pub type DmaCoherentInnerAtomic<M> = AtomicDataWithOwner<
     DmaCoherentInner<M>,
-    DmaCoherentInnerOwner<M>,
+    DmaCoherentInnerInvariant,
 >;
 
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherent<M> {
@@ -83,6 +89,17 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInner<M> {
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInnerOwner<M> {
     open spec fn inv(self) -> bool {
         true
+    }
+}
+
+impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
+    DmaCoherentInner<M>,
+> for DmaCoherentInnerInvariant {
+    type Resource = DmaCoherentInnerOwner<M>;
+
+    open spec fn inv(value: DmaCoherentInner<M>, resource: DmaCoherentInnerOwner<M>) -> bool {
+        &&& resource.inv()
+        &&& value.inv()
     }
 }
 
@@ -165,6 +182,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             AtomicDataWithOwner::new(
                 DmaCoherentInner { segment, start_daddr, is_cache_coherent },
                 Tracked(inner_owner),
+                Ghost(DmaCoherentInnerInvariant),
             ),
         );
 
@@ -447,14 +465,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             end: writer.end,
             phantom: PhantomData,
         }
-    }
-}
-
-impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaCoherentInner<M>> for DmaCoherentInnerOwner<M> {
-    #[verifier::inline]
-    open spec fn predicate(&self, v: DmaCoherentInner<M>) -> bool {
-        &&& self.inv()
-        &&& v.inv()
     }
 }
 

@@ -1,9 +1,7 @@
 use core::ops::Deref;
 
-use vstd::{predicate::Predicate, prelude::*};
-use vstd_extra::ownership::Inv;
-
-use super::{RwLockReadGuard, SpinGuardian};
+use crate::{ownership::Inv, resource_invariant::SimpleResourceInvariant};
+use vstd::prelude::*;
 
 verus! {
 
@@ -34,41 +32,30 @@ verus! {
 ///    pub quz: Seq<int>,
 /// }
 ///
-/// impl Inv for MyData {
-///     // inv...
+/// ghost struct MyDataInvariant;
+///
+/// impl SimpleResourceInvariant<MyData> for MyDataInvariant {
+///
+///     type Resource = MyDataWithOwner;
+///
+///     open spec fn inv(value: MyData, resource: MyDataWithOwner) -> bool {
+///         &&& resource.baz == value.foo
+///         &&& resource.quz.len() == value.bar
+///     }
 /// }
 ///
-/// impl Predicate<MyData> for MyDataWithOwner {
-///    #[verifier::inline]
-///    open spec fn inv_with(self, v: MyData) -> bool {
-///         &&& self.baz == v.foo as nat
-///         &&& self.quz.len() == v.bar as nat
-///    }
-/// }
-///
-/// type Data = AtomicDataWithOwner<MyData, MyDataWithOwner>;
+/// type Data = AtomicDataWithOwner<MyData, MyDataInvariant>;
 /// ```
-pub struct AtomicDataWithOwner<V, Own> {
+pub struct AtomicDataWithOwner<V, I: SimpleResourceInvariant<V>> {
     /// The underlying data.
     pub data: V,
     /// The permission to access the data.
-    pub permission: Tracked<Own>,
-}
-
-impl<'a, V, Own, G: SpinGuardian> RwLockReadGuard<'a, crate::sync::AtomicDataWithOwner<V, Own>, G> {
-    /// Borrows the tracked permission stored in an [`AtomicDataWithOwner`].
-    #[verifier::external_body]
-    pub proof fn atomic_permission(tracked &self) -> (tracked permission: &'a Own)
-        returns
-            self@.permission@,
-    {
-        unimplemented!()
-    }
+    pub permission: Tracked<I::Resource>,
 }
 
 } // verus!
 #[verus_verify]
-impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
+impl<V, I: SimpleResourceInvariant<V>> Deref for AtomicDataWithOwner<V, I> {
     type Target = V;
 
     #[inline]
@@ -80,29 +67,32 @@ impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
 
 verus! {
 
-impl<V, Own> AtomicDataWithOwner<V, Own> {
+impl<V, I: SimpleResourceInvariant<V>> AtomicDataWithOwner<V, I> {
     #[inline]
-    pub fn new(data: V, permission: Tracked<Own>) -> Self {
+    pub fn new(data: V, permission: Tracked<I::Resource>, Ghost(_pred): Ghost<I>) -> Self
+        requires
+            I::inv(data, permission@),
+    {
         Self { data, permission }
     }
 }
 
-impl<V, Own> !Copy for AtomicDataWithOwner<V, Own> {
+impl<V, I: SimpleResourceInvariant<V>> !Copy for AtomicDataWithOwner<V, I> {
 
 }
 
-impl<V, Own> !Clone for AtomicDataWithOwner<V, Own> {
+impl<V, I: SimpleResourceInvariant<V>> !Clone for AtomicDataWithOwner<V, I> {
 
 }
 
-impl<V, Own: Predicate<V>> Inv for AtomicDataWithOwner<V, Own> {
+impl<V, I: SimpleResourceInvariant<V>> Inv for AtomicDataWithOwner<V, I> {
     #[verifier::inline]
     open spec fn inv(self) -> bool {
-        &&& self.permission.predicate(self.data)
+        I::inv(self.data, self.permission@)
     }
 }
 
-impl<T, Own> View for AtomicDataWithOwner<T, Own> {
+impl<T, I: SimpleResourceInvariant<T>> View for AtomicDataWithOwner<T, I> {
     type V = T;
 
     #[verifier::inline]

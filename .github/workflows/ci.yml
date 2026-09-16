@@ -269,10 +269,14 @@ jobs:
     # Runs on every event, parsing a verify leg's log. Push/dispatch: record
     # to the gh-pages benchmark history and save the baseline. PRs and
     # comment runs: compare against the last main measurement; only comment
-    # runs post the comparison as a PR comment. `always()` so a failed
-    # verification still reports the status.
+    # runs post the comparison as a PR comment. `always()` keeps a failed
+    # verification reporting, but skips this job when the verify leg was
+    # cancelled (superseded by a newer commit that re-runs everything).
     if: >
       always() &&
+      !cancelled() &&
+      needs.format-and-verify.result != 'cancelled' &&
+      needs.pr-comment-verify.result != 'cancelled' &&
       (github.event_name != 'issue_comment' ||
        (github.event.issue.pull_request &&
         contains(github.event.comment.body, '/verify-perf') &&
@@ -461,6 +465,8 @@ jobs:
     needs: [format-and-verify, perf]
     if: >
       always() &&
+      !cancelled() &&
+      needs.format-and-verify.result != 'cancelled' &&
       github.event_name != 'issue_comment' &&
       (github.event_name == 'pull_request' ||
        needs.perf.result == 'success' ||
