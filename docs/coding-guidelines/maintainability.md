@@ -47,6 +47,46 @@ See also: PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946322891), and
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947067359).
 
+### Avoid redundant `as int` casts
+
+<!-- guideline: avoid-redundant-as-int-casts -->
+
+Drop `as int` where Verus auto-coerces integer types in ghost code, but keep it
+where a coercion is genuinely required. Rely on Verus, then keep exactly the
+casts the compiler asks for, rather than casting defensively everywhere or
+stripping blindly — both create review friction.
+
+Verus compares values of different integer types in ghost code directly, and
+the same auto-coercion reaches `*`, `+`, `-` once any operand or literal is
+`int`/`nat` (see the [Verus integer guide](../../tools/verus/source/docs/guide/src/integers.md)
+on comparisons and `as` coercion). So these casts are redundant:
+
+```rust
+// Prefer this:
+len == smallvec_view(v).len(),
+2 * new_len * size_of::<A::Item>() <= isize::MAX,
+r == (self_ + rhs - 1) / (rhs as int),
+
+// Over this:
+(len as int) == smallvec_view(v).len(),
+2 * (new_len as int) * (size_of::<A::Item>() as int) <= isize::MAX as int,
+(r as int) == ((self_ as int) + (rhs as int) - 1) / (rhs as int),
+```
+
+Keep `as int` where Verus does not auto-coerce; `E0308` names the operand that
+still needs it:
+
+- A `usize`/`nat` argument to a spec function's `int` parameter. The call site
+  inserts no coercion, so `Seq::subrange(0, new_len)` and
+  `Seq::subrange(0, seq.len())` need `new_len as int` and `seq.len() as int`
+  (`Seq::len` returns `nat`; `subrange`'s bounds are `int`).
+- A standalone `/` divisor: once the dividend is `int`, `/` expects an `int`
+  divisor, so write `(self_ + rhs - 1) / (rhs as int)`, not `/ rhs`.
+- A narrowing cast whose target may not hold the value (e.g. `as usize` from a
+  sequence's `nat` length), where the cast is the point of the expression.
+
+See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023112584).
+
 ### Organize proof imports
 
 <!-- guideline: organize-proof-imports -->
