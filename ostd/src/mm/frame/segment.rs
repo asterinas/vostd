@@ -179,7 +179,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                     },
                 forall|i: int|
                     #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
-                    permissions.len() <= i < seg_nframes(self.range) ==> perm.slot_owner(
+                    permissions.len() <= i < self.len() ==> perm.slot_owner(
                         (self.range.start + i * PAGE_SIZE) as usize,
                     ) == old(perm).slot_owner((self.range.start + i * PAGE_SIZE) as usize),
             decreases self.range.end - paddr,
@@ -480,7 +480,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             }
             assert forall|i: int|
                 #![trigger frame_to_index((segment.range.start + i * PAGE_SIZE) as usize)]
-                0 <= i < seg_nframes(segment.range) implies {
+                0 <= i < segment.len() implies {
                 let idx = frame_to_index((segment.range.start + i * PAGE_SIZE) as usize);
                 &&& segment.tracked_slot_perms@->0[i] == regions.slots[idx]
                 &&& segment.tracked_metadata_perms@->0[i].frac() == 1
@@ -592,6 +592,10 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 
     pub open spec fn range(&self) -> Range<Paddr> {
         self.start_paddr()..self.end_paddr()
+    }
+
+    pub open spec fn len(&self) -> int {
+        self.size() as int / PAGE_SIZE as int
     }
 
     pub closed spec fn permissions(&self) -> Seq<FracMetadataPerm> {
@@ -999,7 +1003,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     }
 
     closed spec fn decrease(&self) -> Option<nat> {
-        Some(seg_nframes(self.range) as nat)
+        Some(self.len() as nat)
     }
 
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
@@ -1026,7 +1030,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             self.relate_regions(*old(regions)),
             forall|i: int|
                 #![trigger frame_to_index((self.start_paddr() + i * PAGE_SIZE) as usize)]
-                0 <= i < seg_nframes(self.range()) ==> {
+                0 <= i < self.len() ==> {
                     let idx = frame_to_index((self.start_paddr() + i * PAGE_SIZE) as usize);
                     &&& old(regions).slot_owners[idx].storage_perm().is_init()
                     &&& old(regions).ref_count(idx) == 1 ==> {
@@ -1037,7 +1041,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             final(regions).inv(),
     )]
     pub fn drop(self) {
-        let ghost n = seg_nframes(self.range);
+        let ghost n = self.len();
         let mut paddr = self.range.start;
         let tracked mut slot_perms = self.tracked_slot_perms.get().tracked_unwrap();
         let tracked mut permissions = self.tracked_metadata_perms.get().tracked_unwrap();
@@ -1229,8 +1233,8 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
         &&& self.end_paddr() % PAGE_SIZE == 0
         &&& self.start_paddr() <= self.end_paddr() <= MAX_PADDR
         &&& self.inner_perm_inv()
-        &&& self.permissions().len() == seg_nframes(self.range())
-        &&& self.slot_perms().len() == seg_nframes(self.range())
+        &&& self.permissions().len() == self.len()
+        &&& self.slot_perms().len() == self.len()
         &&& forall|i: int|
             #![trigger self.permissions()[i]]
             0 <= i < self.permissions().len() ==> {

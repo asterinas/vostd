@@ -25,21 +25,15 @@ use crate::mm::{
 
 verus! {
 
-/// Number of frames in a page-aligned physical range.
-#[verifier::inline]
-pub open spec fn seg_nframes(range: Range<Paddr>) -> int {
-    (range.end - range.start) / PAGE_SIZE as int
-}
-
 impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// The cross-object relation between a [`Segment`] and the global
     /// [`MetaRegionOwners`].
     pub open spec fn relate_regions(&self, regions: MetaRegionOwners) -> bool {
-        &&& self.permissions().len() == seg_nframes(self.range())
-        &&& self.slot_perms().len() == seg_nframes(self.range())
+        &&& self.permissions().len() == self.len()
+        &&& self.slot_perms().len() == self.len()
         &&& forall|i: int|
             #![trigger frame_to_index((self.range().start + i * PAGE_SIZE) as usize)]
-            0 <= i < seg_nframes(self.range()) ==> {
+            0 <= i < self.len() ==> {
                 let idx = frame_to_index((self.range().start + i * PAGE_SIZE) as usize);
                 &&& self.slot_perms()[i] == regions.slots[idx]
                 &&& self.permissions()[i].frac() == 1
@@ -55,7 +49,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range().start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range().start + j * PAGE_SIZE) as usize)]
-            0 <= i < j < seg_nframes(self.range()) ==> frame_to_index(
+            0 <= i < j < self.len() ==> frame_to_index(
                 (self.range().start + i * PAGE_SIZE) as usize,
             ) != frame_to_index((self.range().start + j * PAGE_SIZE) as usize)
     }
