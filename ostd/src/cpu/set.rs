@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use super::{axiom_cpu_count_bounds, cpu_count, cpu_id_as_usize_spec};
-use vstd::{arithmetic::div_mod::lemma_fundamental_div_mod, layout::size_of, prelude::*, set::Set};
+use vstd::{
+    arithmetic::div_mod::lemma_fundamental_div_mod, layout::size_of, prelude::*, set::Set,
+    std_specs::iter::IteratorSpec,
+};
 use vstd_extra::{
-    external::smallvec::{group_smallvec_models, smallvec_view},
+    external::{
+        bits::u64_set_bits,
+        smallvec::{group_smallvec_models, smallvec_view},
+    },
     ownership::Inv,
 };
 
@@ -77,6 +83,7 @@ verus! {
 
 broadcast use {
     group_smallvec_models,
+    vstd_extra::external::bits::axiom_u64_set_bits_nonzero,
     vstd_extra::external::bits::group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
     vstd::layout::layout_of_primitives,
@@ -100,6 +107,33 @@ pub closed spec fn part_idx_spec(cpu_id: CpuId) -> int {
 
 pub closed spec fn bit_idx_spec(cpu_id: CpuId) -> int {
     cpu_id_as_usize_spec(cpu_id) % 64
+}
+
+/// Number of set bits in the prefix `seq[..end]`.
+pub open spec fn count_set_bits_prefix(seq: Seq<u64>, end: int) -> int
+    recommends
+        0 <= end <= seq.len(),
+    decreases end,
+{
+    if end <= 0 {
+        0
+    } else {
+        count_set_bits_prefix(seq, end - 1) + u64_set_bits(seq[end - 1])
+    }
+}
+
+/// Number of set bits in all words of `seq`.
+pub open spec fn count_set_bits(seq: Seq<u64>) -> int {
+    count_set_bits_prefix(seq, seq.len() as int)
+}
+
+/// Expected value of word `idx` in a full CPU set.
+pub open spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
+    if idx == len - 1 && num_cpus % 64 != 0 {
+        ((1u64 << ((num_cpus % 64) as usize)) - 1) as u64
+    } else {
+        !0u64
+    }
 }
 
 /// Bit `i` (`i % 64` of word `i / 64`) is set in the bit sequence `seq`.
@@ -132,9 +166,27 @@ impl View for CpuSet {
     }
 }
 
+impl CpuSet {
+    /// Number of set bits in the backing words.
+    pub closed spec fn count_spec(&self) -> int {
+        count_set_bits(smallvec_view(&self.bits))
+    }
+}
+
 proof fn lemma_cpucount_fits()
     ensures
         2 * parts_for_cpus_spec(cpu_count()) * (size_of::<u64>() as int) <= isize::MAX as int,
+{
+    if cpu_count() > 0 {
+        assert(parts_for_cpus_spec(cpu_count()) == (cpu_count() + 63) / 64) by {
+            reveal(parts_for_cpus_spec)
+        };
+    }
+}
+
+proof fn lemma_count_fits()
+    ensures
+        64 * parts_for_cpus_spec(cpu_count()) <= usize::MAX as int,
 {
     if cpu_count() > 0 {
         assert(parts_for_cpus_spec(cpu_count()) == (cpu_count() + 63) / 64) by {
@@ -155,6 +207,70 @@ impl Inv for CpuSet {
                 j,
             )
     }
+}
+
+/// A CPU set whose backing words are all zero has an empty abstract view.
+proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
+    requires
+        forall|i: int|
+            0 <= i < smallvec_view(&set.bits).len() ==> smallvec_view(&set.bits)[i] == 0u64,
+    ensures
+        set@ == Set::empty(),
+{
+    let seq = smallvec_view(&set.bits);
+    assert forall|j: int| !set@.contains(j) by {
+        if 0 <= j < cpu_count() && j < 64 * seq.len() {
+            lemma_bit_at_uniform(seq, 0u64, j);
+            assert(0u64 & (1u64 << ((j % 64) as usize)) == 0u64) by (bit_vector);
+        }
+    }
+    assert(set@ =~= Set::empty());
+}
+
+/// If every backing word has the full-set value, every existing CPU bit is set.
+proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
+    requires
+        set.inv(),
+        forall|i: int|
+            0 <= i < smallvec_view(&set.bits).len() ==> smallvec_view(&set.bits)[i]
+                == full_set_word(cpu_count(), smallvec_view(&set.bits).len() as int, i),
+    ensures
+        set@ == Set::range(0, cpu_count()),
+{
+    let seq = smallvec_view(&set.bits);
+    let n = cpu_count();
+    let len = seq.len() as int;
+    assert(n > 0);
+    reveal(parts_for_cpus_spec);
+    assert(len == (n + 63) / 64);
+    assert forall|a: int| set@.contains(a) == Set::range(0, n).contains(a) by {
+        if 0 <= a < n {
+            lemma_fundamental_div_mod(a, 64);
+            lemma_fundamental_div_mod(n, 64);
+            assert(0 <= a / 64 < len);
+            assert(seq[a / 64] == full_set_word(n, len, a / 64));
+            reveal(full_set_word);
+            reveal(bit_at);
+            let p = a / 64;
+            let b = a % 64;
+            if a / 64 == len - 1 && n % 64 != 0 {
+                assert(a % 64 < n % 64);
+                let k = n % 64;
+                let mask = seq[p];
+                assert(0 < k < 64);
+                assert(mask == ((1u64 << (k as usize)) - 1) as u64);
+                vstd_extra::external::bits::axiom_u64_masked_bit_keep(!0u64, mask, k, b);
+                vstd_extra::external::bits::lemma_u64_allones_bit(b);
+                assert(!0u64 & mask == mask) by (bit_vector);
+                assert((mask & (1u64 << (b as usize))) != 0);
+            } else {
+                assert(seq[p] == !0u64);
+                vstd_extra::external::bits::lemma_u64_allones_bit(b);
+            }
+            assert(bit_at(seq, a));
+        }
+    }
+    assert(set@ == Set::range(0, n));
 }
 
 } // verus!
@@ -318,36 +434,140 @@ impl CpuSet {
         part_idx < self.bits.len() && (self.bits.as_slice()[part_idx] & (1 << bit_idx)) != 0
     }
 
-    /* /// Returns the number of CPUs in the set.
+    /// Returns the number of CPUs in the set.
+    #[verus_spec(
+        requires
+            self.inv(),
+        returns self.count_spec() as usize,
+    )]
     pub fn count(&self) -> usize {
-        self.bits
-            .iter()
-            .map(|part| part.count_ones() as usize)
-            .sum()
-    } */
-
-    /* /// Returns true if the set is empty.
-    // TODO(route C): models ready, proofs pending. Draft:
-    //   #[verus_spec(ret => ensures ret ==> self@ == Set::empty())]
-    //   self.bits.iter().all(#[verus_spec(ret: bool => ensures ret == (*part == 0u64))]
-    //       |part| *part == 0)
-    pub fn is_empty(&self) -> bool {
-        self.bits.iter().all(|part| *part == 0)
-    } */
-
-    /* /// Returns true if the set is full.
-    // TODO(route C): same as `is_empty`; the closure needs a plain-ident parameter
-    // (the macro rejects tuple patterns), specs use `smallvec_view(...).len()`.
-    pub fn is_full(&self) -> bool {
-        let num_cpus = num_cpus();
-        self.bits.iter().enumerate().all(|(idx, part)| {
-            if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
-                *part == (1 << (num_cpus % BITS_PER_PART)) - 1
-            } else {
-                *part == !0
+        /* `Iterator::sum` has no model in the active vstd, so use an indexed loop with a
+         * prefix-sum invariant while preserving the same word order and arithmetic.
+         * Origin Rust: self.bits
+         *     .iter()
+         *     .map(|part| part.count_ones() as usize)
+         *     .sum()
+         */
+        let mut count = 0usize;
+        let mut idx = 0usize;
+        proof! {
+            lemma_count_fits();
+            reveal(CpuSet::count_spec);
+        }
+        #[verus_spec(
+            invariant
+                self.inv(),
+                idx as int <= smallvec_view(&self.bits).len(),
+                count as int
+                    == count_set_bits_prefix(smallvec_view(&self.bits), idx as int),
+                count as int <= 64 * idx as int,
+            decreases
+                smallvec_view(&self.bits).len() - idx as int,
+        )]
+        while idx < self.bits.len() {
+            let part = self.bits.as_slice()[idx];
+            let part_count = part.count_ones() as usize;
+            proof! {
+                assert(0 <= u64_set_bits(part) <= 64);
+                assert((count as int) + (part_count as int) <= usize::MAX as int);
+                reveal_with_fuel(count_set_bits_prefix, 1);
             }
-        })
-    } */
+            count += part_count;
+            idx += 1;
+        }
+        count
+    }
+
+    /// Returns true if the set is empty.
+    #[verus_spec(ret =>
+        requires
+            self.inv(),
+        ensures
+            ret ==> self@ == Set::empty(),
+    )]
+    pub fn is_empty(&self) -> bool {
+        /* `Iterator::all` on a temporary receiver does not expose its initial `remaining()`
+         * sequence to the caller's proof, so name the iterator and retain a ghost snapshot.
+         * Origin Rust: self.bits.iter().all(|part| *part == 0)
+         */
+        let mut iter = self.bits.iter();
+        proof_decl! {
+            let ghost initial_iter = iter;
+        }
+        let ret = iter.all(
+            #[verus_spec(ret: bool => ensures ret == (*part == 0u64))]
+            |part| *part == 0,
+        );
+        proof! {
+            if ret {
+                assert(IteratorSpec::remaining(&initial_iter)
+                    == smallvec_view(&self.bits).as_ref());
+                assert forall|i: int|
+                    0 <= i < smallvec_view(&self.bits).len() implies
+                        smallvec_view(&self.bits)[i] == 0u64 by {
+                    assert(*IteratorSpec::remaining(&initial_iter)[i] == 0u64);
+                }
+                lemma_empty_bits_imply_empty_set(self);
+            }
+        }
+        ret
+    }
+
+    /// Returns true if the set is full.
+    #[verus_spec(ret =>
+        requires
+            self.inv(),
+        ensures
+            ret ==> self@ == Set::range(0, cpu_count()),
+    )]
+    pub fn is_full(&self) -> bool {
+        /* `Enumerate` has no `IteratorSpecImpl` in the active vstd, so use an indexed loop
+         * with the same ascending word order and the same first-mismatch short circuit.
+         * Origin Rust: let num_cpus = num_cpus();
+         * self.bits.iter().enumerate().all(|(idx, part)| {
+         *     if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
+         *         *part == (1 << (num_cpus % BITS_PER_PART)) - 1
+         *     } else {
+         *         *part == !0
+         *     }
+         * })
+         */
+        let num_cpus = num_cpus();
+        let mut idx = 0usize;
+        #[verus_spec(
+            invariant
+                self.inv(),
+                num_cpus as int == cpu_count(),
+                idx as int <= smallvec_view(&self.bits).len(),
+                forall|i: int|
+                    0 <= i < idx ==> smallvec_view(&self.bits)[i]
+                        == full_set_word(
+                            cpu_count(),
+                            smallvec_view(&self.bits).len() as int,
+                            i,
+                        ),
+            decreases
+                smallvec_view(&self.bits).len() - idx as int,
+        )]
+        while idx < self.bits.len() {
+            let expected = if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
+                (1 << (num_cpus % BITS_PER_PART)) - 1
+            } else {
+                !0
+            };
+            if self.bits.as_slice()[idx] != expected {
+                return false;
+            }
+            proof! {
+                reveal(full_set_word);
+            }
+            idx += 1;
+        }
+        proof! {
+            lemma_full_bits_imply_full_set(self);
+        }
+        true
+    }
 
     /// Adds all CPUs to the set.
     #[verus_spec(
@@ -378,21 +598,71 @@ impl CpuSet {
         }
     }
 
-    /* /// Iterates over the CPUs in the set.
+    /// Iterates over the CPUs in the set.
     ///
     /// The order of the iteration is guaranteed to be in ascending order.
+    #[verus_spec(ret =>
+        requires
+            self.inv(),
+        ensures
+            IteratorSpec::obeys_prophetic_iter_laws(&ret),
+            IteratorSpec::decrease(&ret) is Some,
+    )]
     pub fn iter(&self) -> impl Iterator<Item = CpuId> + '_ {
-        self.bits.iter().enumerate().flat_map(|(part_idx, &part)| {
-            (0..BITS_PER_PART).filter_map(move |bit_idx| {
-                if (part & (1 << bit_idx)) != 0 {
-                    let id = part_idx * BITS_PER_PART + bit_idx;
-                    Some(CpuId(id as u32))
-                } else {
-                    None
-                }
-            })
-        })
-    } */
+        /* `Enumerate`, `FlatMap`, and `FilterMap` are not modeled by the active vstd, so scan
+         * the same bit positions with modeled `Filter` and `Map` adapters. The position order
+         * and selected CPU IDs are unchanged.
+         * Origin Rust: self.bits.iter().enumerate().flat_map(|(part_idx, &part)| {
+         *     (0..BITS_PER_PART).filter_map(move |bit_idx| {
+         *         if (part & (1 << bit_idx)) != 0 {
+         *             let id = part_idx * BITS_PER_PART + bit_idx;
+         *             Some(CpuId(id as u32))
+         *         } else {
+         *             None
+         *         }
+         *     })
+         * })
+         */
+        proof! {
+            lemma_count_fits();
+        }
+        let end = self.bits.len() * BITS_PER_PART;
+        (0..end)
+            .filter(
+                #[verus_spec(ret: bool =>
+                    requires
+                        *id < end,
+                    ensures
+                        ret == bit_at(smallvec_view(&self.bits), *id as int),
+                )]
+                move |id| {
+                    let part_idx = *id / BITS_PER_PART;
+                    let bit_idx = *id % BITS_PER_PART;
+                    proof! {
+                        reveal(bit_at);
+                        assert((*id as int) / 64 == part_idx as int);
+                        assert((*id as int) % 64 == bit_idx as int);
+                    }
+                    (self.bits.as_slice()[part_idx] & (1 << bit_idx)) != 0
+                },
+            )
+            .map(
+                #[verus_spec(ret: CpuId =>
+                    requires
+                        id < end,
+                        bit_at(smallvec_view(&self.bits), id as int),
+                    ensures
+                        ret == CpuId(id as u32),
+                        ret.inv(),
+                )]
+                move |id| {
+                    proof! {
+                        assert((id as int) < cpu_count());
+                    }
+                    CpuId(id as u32)
+                },
+            )
+    }
 
     /// Only for internal use. Build a vector of `num_cpus`-covering words, all equal to `val`.
     #[verus_spec(ret =>
