@@ -98,7 +98,9 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
-        &&& self.invariants(perm)
+        &&& self.inv()
+        &&& perm.inv()
+        &&& self.relate_regions(perm)
         &&& forall|pa: Paddr|
             #![trigger frame_to_index(pa)]
             (self.start_paddr() <= pa < self.end_paddr() && pa % PAGE_SIZE == 0) ==> {
@@ -120,7 +122,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         &&& res.range() == self.range()
         &&& res.inv()
         &&& new_perm.inv()
-        &&& res.invariants(new_perm)
+        &&& res.relate_regions(new_perm)
     }
 
     #[verifier::loop_isolation(false)]
@@ -281,10 +283,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
                 ==> r == Err::<Self, _>(GetFrameError::OutOfBound),
             r matches Ok(seg) ==> {
+                &&& seg.inv()
                 &&& seg.start_paddr() == range.start
                 &&& seg.end_paddr() == range.end
                 &&& seg.start_paddr() < seg.end_paddr()
-                &&& seg.invariants(*final(regions))
+                &&& seg.relate_regions(*final(regions))
                 &&& forall|paddr: Paddr|
                     #![trigger frame_to_index(paddr)]
                     (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
@@ -528,10 +531,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 Seq<FracMetadataPerm>,
             )>,
         requires
-            Self::from_raw_value(range, raw_perms.0, raw_perms.1).invariants(*old(regions)),
+            Self::from_raw_value(range, raw_perms.0, raw_perms.1).inv(),
+            old(regions).inv(),
+            Self::from_raw_value(range, raw_perms.0, raw_perms.1).relate_regions(*old(regions)),
         ensures
+            r.inv(),
+            r.relate_regions(*final(regions)),
             r.range() == range,
-            r.invariants(*final(regions)),
             final(regions).inv(),
             *final(regions) == *old(regions),
     )]
@@ -706,7 +712,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            self.invariants(*old(regions)),
+            self.inv(),
+            old(regions).inv(),
+            self.relate_regions(*old(regions)),
             range.start % PAGE_SIZE != 0 ==> may_panic(),
             range.end % PAGE_SIZE != 0 ==> may_panic(),
             range.start > range.end ==> may_panic(),
@@ -725,7 +733,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             final(regions).inv(),
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-            r.invariants(*final(regions)),
+            r.relate_regions(*final(regions)),
     )]
     #[verifier::spinoff_prover]
     #[verifier::loop_isolation(false)]
@@ -1013,7 +1021,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
-            self.invariants(*old(regions)),
+            old(regions).inv(),
+            self.inv(),
+            self.relate_regions(*old(regions)),
             forall|i: int|
                 #![trigger frame_to_index((self.start_paddr() + i * PAGE_SIZE) as usize)]
                 0 <= i < seg_nframes(self.range()) ==> {
@@ -1036,6 +1046,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
 
         loop
             invariant
+                old(regions).inv(),
                 regions.inv(),
                 self.inv(),
                 permissions.len() == n - k,
@@ -1070,7 +1081,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                         regions,
                     ).slot_owners[frame_idx_at(self.range.start, j)],
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
-                self.invariants(*old(regions)),
+                self.relate_regions(*old(regions)),
                 forall|i: int|
                     #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
                     0 <= i < n ==> {

@@ -60,19 +60,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             ) != frame_to_index((self.range().start + j * PAGE_SIZE) as usize)
     }
 
-    /// The bundled invariant for [`Segment`] operations that thread the global
-    /// `regions`: the segment's own invariant, the region invariant, and the
-    /// cross-object relation tying this segment's range to `regions`.
-    ///
-    /// Mirrors the `invariants` bundles used throughout the page-table / cursor
-    /// code — it collapses the clauses repeated across `split`, `slice`,
-    /// `into_raw`, `next`, and `drop` into one predicate.
-    pub open spec fn invariants(&self, regions: MetaRegionOwners) -> bool {
-        &&& self.inv()
-        &&& regions.inv()
-        &&& self.relate_regions(regions)
-    }
-
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.
     ///
     /// This predicate only describes the virtual-to-physical relation and the
