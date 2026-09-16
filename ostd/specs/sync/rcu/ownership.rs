@@ -74,7 +74,7 @@ impl<T, O> RcuOwnedObject<T, O> {
     }
 
     /// Consumes the wrapper and returns its unchanged registration and client resource.
-    pub proof fn tracked_into_parts(tracked self) -> (tracked res: (RcuRegistration<T>, O))
+    pub proof fn tracked_into_parts(tracked self) -> tracked (RcuRegistration<T>, O)
         returns
             (self.registration(), self.ownership()),
     {
