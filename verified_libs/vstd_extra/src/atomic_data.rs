@@ -35,13 +35,12 @@ verus! {
 /// ghost struct MyDataInvariant;
 ///
 /// impl SimpleResourceInvariant<MyData> for MyDataInvariant {
-///     type Constant = ();
 ///
 ///     type Resource = MyDataWithOwner;
 ///
-///     open spec fn inv(_constant: (), value: MyData, resource: MyDataWithOwner) -> bool {
-///         &&& resource.baz == value.foo as nat
-///         &&& resource.quz.len() == value.bar as nat
+///     open spec fn inv(value: MyData, resource: MyDataWithOwner) -> bool {
+///         &&& resource.baz == value.foo
+///         &&& resource.quz.len() == value.bar
 ///     }
 /// }
 ///
