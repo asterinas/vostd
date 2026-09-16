@@ -1,4 +1,5 @@
-> ⚠️ **Versioning note.** This repository is currently in a transitional state: the components under `ostd/src/sync` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+> [!NOTE]
+> This repository is currently in a transitional state: the components under `ostd/src/sync` and `ostd/libs/id-alloc` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
 
 ---
 

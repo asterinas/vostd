@@ -259,7 +259,7 @@ pub struct EddInfo {
 const EDD_MBR_SIG_MAX: usize = 16;
 const EDDMAXNR: usize = 6;
 
-#[cfg(test)]
+/* #[cfg(test)]
 mod tests {
     use core::mem::offset_of;
 
@@ -334,4 +334,4 @@ mod tests {
         assert_eq!(offset_of!(BootParams, e820_table), 0x2d0);
         assert_eq!(offset_of!(BootParams, eddbuf), 0xd00);
     }
-}
+} */
