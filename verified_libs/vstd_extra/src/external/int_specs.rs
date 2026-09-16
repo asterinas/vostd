@@ -41,4 +41,13 @@ pub assume_specification[ usize::is_power_of_two ](self_: usize) -> (r: bool)
     no_unwind
 ;
 
+pub assume_specification[ usize::div_ceil ](self_: usize, rhs: usize) -> (r: usize)
+    requires
+        rhs > 0,
+    ensures
+        (r as int) == ((self_ as int) + (rhs as int) - 1) / (rhs as int),
+    opens_invariants none
+    no_unwind
+;
+
 } // verus!

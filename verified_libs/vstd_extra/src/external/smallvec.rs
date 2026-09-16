@@ -72,9 +72,7 @@ pub assume_specification<A: Array>[ SmallVec::<A>::new ]() -> (ret: SmallVec<A>)
 ///
 /// Panics on capacity overflow if `n * size_of::<A::Item>()` exceeds `isize::MAX`
 /// (via `reserve_exact`, which requests exactly `n` elements).
-pub assume_specification<A: Array>[ SmallVec::<A>::with_capacity ](
-    n: usize,
-) -> (ret: SmallVec<A>)
+pub assume_specification<A: Array>[ SmallVec::<A>::with_capacity ](n: usize) -> (ret: SmallVec<A>)
     requires
         obeys_smallvec_array::<A>(),
         (n as int) * (size_of::<A::Item>() as int) <= isize::MAX as int,
@@ -134,9 +132,7 @@ pub assume_specification<A: Array>[ SmallVec::<A>::resize ](
 ;
 
 /// Views the elements as a borrowed slice.
-pub assume_specification<A: Array>[ SmallVec::<A>::as_slice ](
-    v: &SmallVec<A>,
-) -> (ret: &[A::Item])
+pub assume_specification<A: Array>[ SmallVec::<A>::as_slice ](v: &SmallVec<A>) -> (ret: &[A::Item])
     requires
         obeys_smallvec_array::<A>(),
     ensures
@@ -145,9 +141,8 @@ pub assume_specification<A: Array>[ SmallVec::<A>::as_slice ](
 
 /// Views the elements as a mutably borrowed slice; writes through the returned borrow are
 /// reflected in the `SmallVec`'s final view.
-pub assume_specification<A: Array>[ SmallVec::<A>::as_mut_slice ](
-    v: &mut SmallVec<A>,
-) -> (ret: &mut [A::Item])
+pub assume_specification<A: Array>[ SmallVec::<A>::as_mut_slice ](v: &mut SmallVec<A>) -> (ret:
+    &mut [A::Item])
     requires
         obeys_smallvec_array::<A>(),
     ensures
@@ -157,9 +152,8 @@ pub assume_specification<A: Array>[ SmallVec::<A>::as_mut_slice ](
 
 /// `SmallVec` derefs to a slice over exactly its own elements; the guard is an
 /// ensures-implication since `requires` is disallowed on trait-method specs.
-pub assume_specification<A: Array>[ <SmallVec<A> as Deref>::deref ](
-    v: &SmallVec<A>,
-) -> (ret: &[A::Item])
+pub assume_specification<A: Array>[ <SmallVec<A> as Deref>::deref ](v: &SmallVec<A>) -> (ret:
+    &[A::Item])
     ensures
         obeys_smallvec_array::<A>() ==> ret@ == smallvec_view(v),
 ;
