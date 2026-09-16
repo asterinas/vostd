@@ -81,11 +81,11 @@ pub assume_specification<A: Array>[ SmallVec::<A>::with_capacity ](n: usize) -> 
 ;
 
 /// The number of elements.
-pub assume_specification<A: Array>[ SmallVec::<A>::len ](v: &SmallVec<A>) -> (len: usize)
+pub assume_specification<A: Array>[ SmallVec::<A>::len ](v: &SmallVec<A>) -> usize
     requires
         obeys_smallvec_array::<A>(),
-    ensures
-        len == smallvec_view(v).len(),
+    returns
+        smallvec_view(v).len() as usize,
 ;
 
 /// Appends `value` to the end.
