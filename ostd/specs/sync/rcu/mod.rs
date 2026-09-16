@@ -20,6 +20,7 @@ use vstd::{
 };
 use vstd_extra::ownership::Inv;
 
+pub mod ownership;
 #[cfg(feature = "irc11")]
 pub mod root;
 
