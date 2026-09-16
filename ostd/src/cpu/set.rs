@@ -7,7 +7,10 @@ use vstd::{
 };
 use vstd_extra::{
     external::{
-        bits::u64_set_bits,
+        bits::{
+            axiom_u64_masked_bit_keep, axiom_u64_set_bits_nonzero, group_u64_bit_algebra,
+            lemma_u64_allones_bit, lemma_u64_zero_and_bit, u64_set_bits,
+        },
         smallvec::{group_smallvec_models, smallvec_view},
     },
     ownership::Inv,
@@ -83,8 +86,8 @@ verus! {
 
 broadcast use {
     group_smallvec_models,
-    vstd_extra::external::bits::axiom_u64_set_bits_nonzero,
-    vstd_extra::external::bits::group_u64_bit_algebra,
+    axiom_u64_set_bits_nonzero,
+    group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
     vstd::layout::layout_of_primitives,
     vstd::set::group_set_lemmas,
@@ -186,7 +189,7 @@ proof fn lemma_cpucount_fits()
 
 proof fn lemma_count_fits()
     ensures
-        64 * parts_for_cpus_spec(cpu_count()) <= usize::MAX as int,
+        64 * parts_for_cpus_spec(cpu_count()) <= usize::MAX,
 {
     if cpu_count() > 0 {
         assert(parts_for_cpus_spec(cpu_count()) == (cpu_count() + 63) / 64) by {
@@ -221,7 +224,7 @@ proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
     assert forall|j: int| !set@.contains(j) by {
         if 0 <= j < cpu_count() && j < 64 * seq.len() {
             lemma_bit_at_uniform(seq, 0u64, j);
-            assert(0u64 & (1u64 << ((j % 64) as usize)) == 0u64) by (bit_vector);
+            lemma_u64_zero_and_bit(j % 64);
         }
     }
     assert(set@ =~= Set::empty());
@@ -252,8 +255,6 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
             lemma_fundamental_div_mod(n, 64);
             assert(0 <= a / 64 < len);
             assert(seq[a / 64] == full_set_word(n, len, a / 64));
-            reveal(full_set_word);
-            reveal(bit_at);
             let p = a / 64;
             let b = a % 64;
             if a / 64 == len - 1 && n % 64 != 0 {
@@ -262,13 +263,13 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
                 let mask = seq[p];
                 assert(0 < k < 64);
                 assert(mask == ((1u64 << (k as usize)) - 1) as u64);
-                vstd_extra::external::bits::axiom_u64_masked_bit_keep(!0u64, mask, k, b);
-                vstd_extra::external::bits::lemma_u64_allones_bit(b);
+                axiom_u64_masked_bit_keep(!0u64, mask, k, b);
+                lemma_u64_allones_bit(b);
                 assert(!0u64 & mask == mask) by (bit_vector);
                 assert((mask & (1u64 << (b as usize))) != 0);
             } else {
                 assert(seq[p] == !0u64);
-                vstd_extra::external::bits::lemma_u64_allones_bit(b);
+                lemma_u64_allones_bit(b);
             }
             assert(bit_at(seq, a));
         }
@@ -466,19 +467,18 @@ impl CpuSet {
         #[verus_spec(
             invariant
                 self.inv(),
-                idx as int <= smallvec_view(&self.bits).len(),
-                count as int
-                    == count_set_bits_prefix(smallvec_view(&self.bits), idx as int),
-                count as int <= 64 * idx as int,
+                idx <= smallvec_view(&self.bits).len(),
+                count == count_set_bits_prefix(smallvec_view(&self.bits), idx as int),
+                count <= 64 * idx,
             decreases
-                smallvec_view(&self.bits).len() - idx as int,
+                smallvec_view(&self.bits).len() - idx,
         )]
         while idx < self.bits.len() {
             let part = self.bits.as_slice()[idx];
             let part_count = part.count_ones() as usize;
             proof! {
                 assert(0 <= u64_set_bits(part) <= 64);
-                assert((count as int) + (part_count as int) <= usize::MAX as int);
+                assert(count + part_count <= usize::MAX);
                 reveal_with_fuel(count_set_bits_prefix, 1);
             }
             count += part_count;
@@ -546,8 +546,8 @@ impl CpuSet {
         #[verus_spec(
             invariant
                 self.inv(),
-                num_cpus as int == cpu_count(),
-                idx as int <= smallvec_view(&self.bits).len(),
+                num_cpus == cpu_count(),
+                idx <= smallvec_view(&self.bits).len(),
                 forall|i: int|
                     #![trigger smallvec_view(&self.bits)[i]]
                     0 <= i < idx ==> smallvec_view(&self.bits)[i]
@@ -557,7 +557,7 @@ impl CpuSet {
                             i,
                         ),
             decreases
-                smallvec_view(&self.bits).len() - idx as int,
+                smallvec_view(&self.bits).len() - idx,
         )]
         while idx < self.bits.len() {
             let expected = if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
@@ -567,9 +567,6 @@ impl CpuSet {
             };
             if self.bits.as_slice()[idx] != expected {
                 return false;
-            }
-            proof! {
-                reveal(full_set_word);
             }
             idx += 1;
         }
@@ -649,7 +646,6 @@ impl CpuSet {
                     let part_idx = *id / BITS_PER_PART;
                     let bit_idx = *id % BITS_PER_PART;
                     proof! {
-                        reveal(bit_at);
                         assert((*id as int) / 64 == part_idx as int);
                         assert((*id as int) % 64 == bit_idx as int);
                     }
@@ -659,7 +655,6 @@ impl CpuSet {
             .map(
                 #[verus_spec(ret: CpuId =>
                     requires
-                        id < end,
                         bit_at(smallvec_view(&self.bits), id as int),
                     ensures
                         ret == CpuId(id as u32),
@@ -667,7 +662,7 @@ impl CpuSet {
                 )]
                 move |id| {
                     proof! {
-                        assert((id as int) < cpu_count());
+                        assert(id < cpu_count());
                     }
                     CpuId(id as u32)
                 },
