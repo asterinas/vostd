@@ -1,7 +1,7 @@
 use core::ops::Deref;
 
+use crate::{ownership::Inv, resource_invariant::SimpleResourceInvariant};
 use vstd::prelude::*;
-use vstd_extra::{ownership::Inv, resource_invariant::ResourceInvariant};
 
 verus! {
 
@@ -34,7 +34,7 @@ verus! {
 ///
 /// ghost struct MyDataInvariant;
 ///
-/// impl ResourceInvariant<MyData> for MyDataInvariant {
+/// impl SimpleResourceInvariant<MyData> for MyDataInvariant {
 ///     type Constant = ();
 ///
 ///     type Resource = MyDataWithOwner;
@@ -47,7 +47,7 @@ verus! {
 ///
 /// type Data = AtomicDataWithOwner<MyData, MyDataInvariant>;
 /// ```
-pub struct AtomicDataWithOwner<V, I: ResourceInvariant<V>> {
+pub struct AtomicDataWithOwner<V, I: SimpleResourceInvariant<V>> {
     /// The underlying data.
     pub data: V,
     /// The permission to access the data.
@@ -56,7 +56,7 @@ pub struct AtomicDataWithOwner<V, I: ResourceInvariant<V>> {
 
 } // verus!
 #[verus_verify]
-impl<V, I: ResourceInvariant<V>> Deref for AtomicDataWithOwner<V, I> {
+impl<V, I: SimpleResourceInvariant<V>> Deref for AtomicDataWithOwner<V, I> {
     type Target = V;
 
     #[inline]
@@ -68,32 +68,32 @@ impl<V, I: ResourceInvariant<V>> Deref for AtomicDataWithOwner<V, I> {
 
 verus! {
 
-impl<V, I: ResourceInvariant<V, Constant = ()>> AtomicDataWithOwner<V, I> {
+impl<V, I: SimpleResourceInvariant<V>> AtomicDataWithOwner<V, I> {
     #[inline]
     pub fn new(data: V, permission: Tracked<I::Resource>, Ghost(_pred): Ghost<I>) -> Self
         requires
-            I::inv((), data, permission@),
+            I::inv(data, permission@),
     {
         Self { data, permission }
     }
 }
 
-impl<V, I: ResourceInvariant<V>> !Copy for AtomicDataWithOwner<V, I> {
+impl<V, I: SimpleResourceInvariant<V>> !Copy for AtomicDataWithOwner<V, I> {
 
 }
 
-impl<V, I: ResourceInvariant<V>> !Clone for AtomicDataWithOwner<V, I> {
+impl<V, I: SimpleResourceInvariant<V>> !Clone for AtomicDataWithOwner<V, I> {
 
 }
 
-impl<V, I: ResourceInvariant<V, Constant = ()>> Inv for AtomicDataWithOwner<V, I> {
+impl<V, I: SimpleResourceInvariant<V>> Inv for AtomicDataWithOwner<V, I> {
     #[verifier::inline]
     open spec fn inv(self) -> bool {
-        I::inv((), self.data, self.permission@)
+        I::inv(self.data, self.permission@)
     }
 }
 
-impl<T, I: ResourceInvariant<T>> View for AtomicDataWithOwner<T, I> {
+impl<T, I: SimpleResourceInvariant<T>> View for AtomicDataWithOwner<T, I> {
     type V = T;
 
     #[verifier::inline]

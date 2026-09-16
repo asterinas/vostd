@@ -13,6 +13,7 @@ use vstd::{
 };
 
 use vstd_extra::{
+    once::Once,
     prelude::*,
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
@@ -30,7 +31,6 @@ use core::{
 
 use non_null::{NonNullPtr, NonNullPtrRef};
 // use spin::once::Once;
-use super::Once;
 
 use self::monitor::{RcuMonitor, RcuMonitorInvariant, RcuMonitorPred};
 use crate::task::{

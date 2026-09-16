@@ -7,7 +7,7 @@ use vstd::{
     prelude::*,
 };
 
-use super::AtomicDataWithOwner;
+use crate::atomic_data::AtomicDataWithOwner;
 
 verus! {
 

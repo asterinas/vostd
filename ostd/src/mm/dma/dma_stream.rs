@@ -4,7 +4,11 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 use vstd::prelude::*;
 
 use vstd_extra::external::convert::AsRefSpec;
-use vstd_extra::{ownership::{Inv, OwnerOf}, resource_invariant::ResourceInvariant};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    ownership::{Inv, OwnerOf},
+    resource_invariant::SimpleResourceInvariant,
+};
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::{
@@ -25,7 +29,7 @@ use crate::{
         mm::io::{VmIoMemView, VmIoOwner},
         mm::virt_mem::{MemView, VirtPtr},
     },
-    sync::{AtomicDataWithOwner, PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
+    sync::{PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
 use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
@@ -380,8 +384,7 @@ pub tracked struct DmaStreamInnerOwner<M: AnyUFrameMeta + ?Sized> {
 
 pub ghost struct DmaStreamInnerInvariant;
 
-pub type DmaStreanInnerAtomic<M> =
-    AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerInvariant>;
+pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerInvariant>;
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
@@ -689,18 +692,12 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInnerOwner<M> {
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized> ResourceInvariant<DmaStreamInner<M>>
-    for DmaStreamInnerInvariant
-{
-    type Constant = ();
-
+impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
+    DmaStreamInner<M>,
+> for DmaStreamInnerInvariant {
     type Resource = DmaStreamInnerOwner<M>;
 
-    open spec fn inv(
-        _constant: (),
-        value: DmaStreamInner<M>,
-        resource: DmaStreamInnerOwner<M>,
-    ) -> bool {
+    open spec fn inv(value: DmaStreamInner<M>, resource: DmaStreamInnerOwner<M>) -> bool {
         &&& resource.inv()
         &&& value.inv()
     }

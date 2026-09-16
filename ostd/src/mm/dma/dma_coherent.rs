@@ -3,7 +3,11 @@ use core::marker::PhantomData;
 
 use vstd::prelude::*;
 
-use vstd_extra::{ownership::{Inv, OwnerOf}, resource_invariant::ResourceInvariant};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    ownership::{Inv, OwnerOf},
+    resource_invariant::SimpleResourceInvariant,
+};
 
 use crate::{
     error::Error,
@@ -22,7 +26,7 @@ use crate::{
         arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
         mm::virt_mem::VirtPtr,
     },
-    sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},
+    sync::{PreemptDisabled, RwArc, RwLockReadGuard},
 };
 
 use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
@@ -88,18 +92,12 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInnerOwner<M> {
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized> ResourceInvariant<DmaCoherentInner<M>>
-    for DmaCoherentInnerInvariant
-{
-    type Constant = ();
-
+impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
+    DmaCoherentInner<M>,
+> for DmaCoherentInnerInvariant {
     type Resource = DmaCoherentInnerOwner<M>;
 
-    open spec fn inv(
-        _constant: (),
-        value: DmaCoherentInner<M>,
-        resource: DmaCoherentInnerOwner<M>,
-    ) -> bool {
+    open spec fn inv(value: DmaCoherentInner<M>, resource: DmaCoherentInnerOwner<M>) -> bool {
         &&& resource.inv()
         &&& value.inv()
     }

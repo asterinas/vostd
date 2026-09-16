@@ -18,6 +18,7 @@ extern crate alloc;
 
 pub mod arithmetic;
 pub mod array_ptr;
+pub mod atomic_data;
 #[cfg(feature = "irc11")]
 pub mod atomic_irc11;
 pub mod auxiliary;
@@ -26,6 +27,7 @@ pub mod drop_tracking;
 pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
+pub mod once;
 pub mod ownership;
 pub mod panic;
 pub mod resource;

@@ -36,9 +36,9 @@ use core::{marker::PhantomData, ops::Range};
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
+use vstd_extra::once::{OnceImpl, TrivialPred};
 
 //use log::info;
-use crate::sync::{OnceImpl, TrivialPred};
 pub(crate) mod kvirt_area;
 #[cfg(ktest)]
 mod test;

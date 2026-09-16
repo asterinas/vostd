@@ -7,11 +7,13 @@ mod test;
 
 use alloc::collections::BTreeSet;
 use vstd::prelude::*;
-use vstd_extra::resource_invariant::ResourceInvariant;
-
-use crate::sync::{
-    AtomicDataWithOwner, Once, PreemptDisabled, SpinLock, SpinLockGuard, TrivialPred,
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    once::{Once, TrivialPred},
+    resource_invariant::SimpleResourceInvariant,
 };
+
+use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 use super::Paddr;
 
@@ -21,13 +23,12 @@ pub tracked struct DmaMappingSetOwner {}
 
 pub ghost struct DmaMappingSetInvariant;
 
-impl ResourceInvariant<SpinLock<BTreeSet<Paddr>, PreemptDisabled>> for DmaMappingSetInvariant {
-    type Constant = ();
-
+impl SimpleResourceInvariant<
+    SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
+> for DmaMappingSetInvariant {
     type Resource = DmaMappingSetOwner;
 
     open spec fn inv(
-        _constant: (),
         v: SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
         _resource: DmaMappingSetOwner,
     ) -> bool {
@@ -55,12 +56,8 @@ pub fn init() {
         use_type_invariant(&lock);
     }
 
-    let tracked owner = DmaMappingSetOwner {};
-    let data = AtomicDataWithOwner::new(
-        lock,
-        Tracked(owner),
-        Ghost(DmaMappingSetInvariant),
-    );
+    let tracked owner = DmaMappingSetOwner {  };
+    let data = AtomicDataWithOwner::new(lock, Tracked(owner), Ghost(DmaMappingSetInvariant));
 
     DMA_MAPPING_SET.init(data);
 }

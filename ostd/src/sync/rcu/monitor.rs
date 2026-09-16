@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{atomic_ghost::AtomicBool, atomic_with_ghost, prelude::*};
-use vstd_extra::{ownership::Inv, resource_invariant::ResourceInvariant};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner, once::Predicate as OncePredicate, ownership::Inv,
+    resource_invariant::SimpleResourceInvariant,
+};
 
 use crate::{
     specs::mm::cpu::{AtomicCpuSet, CpuSet},
-    sync::{AtomicDataWithOwner, LocalIrqDisabled, SpinLock, once::Predicate as OncePredicate},
+    sync::{LocalIrqDisabled, SpinLock},
 };
 
 verus! {
@@ -43,12 +46,10 @@ closed spec fn wf(self) -> bool {
 }
 }
 
-impl ResourceInvariant<RcuMonitor> for RcuMonitorInvariant {
-    type Constant = ();
-
+impl SimpleResourceInvariant<RcuMonitor> for RcuMonitorInvariant {
     type Resource = RcuMonitorOwner;
 
-    closed spec fn inv(_constant: (), _value: RcuMonitor, _resource: RcuMonitorOwner) -> bool {
+    closed spec fn inv(_value: RcuMonitor, _resource: RcuMonitorOwner) -> bool {
         true
     }
 }
@@ -118,7 +119,7 @@ impl RcuMonitor {
         proof {
             use_type_invariant(&data);
         }
-        AtomicDataWithOwner { data, permission: Tracked(RcuMonitorOwner {}) }
+        AtomicDataWithOwner { data, permission: Tracked(RcuMonitorOwner {  }) }
     }
 
     fn is_monitoring(&self) -> bool {
