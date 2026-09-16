@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
 use crate::specs::arch::PAGE_SIZE;
-use crate::sync::{OnceImpl, TrivialPred};
 use vstd::{arithmetic::power2::is_pow2, prelude::*};
-use vstd_extra::resource::flags::OneShotSet;
+use vstd_extra::{
+    once::OnceImpl, resource::flags::OneShotSet, resource_invariant::TrivialResourceInvariant,
+};
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -325,11 +326,11 @@ pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
             <= range.start && range.end <= registered_io_mem_windows()[m].end
 }
 
-pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialPred>
+pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialResourceInvariant>
     ensures
         IO_MEM_ALLOCATOR.wf(),
 {
-    OnceImpl::new(Ghost(TrivialPred))
+    OnceImpl::new(Ghost(TrivialResourceInvariant))
 }
 
 } // verus!
