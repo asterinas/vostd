@@ -13,6 +13,7 @@ use vstd::{
 };
 
 use vstd_extra::{
+    once::Once,
     prelude::*,
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
@@ -30,9 +31,8 @@ use core::{
 
 use non_null::{NonNullPtr, NonNullPtrRef};
 // use spin::once::Once;
-use super::Once;
 
-use self::monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
+use self::monitor::{RcuMonitor, RcuMonitorInvariant, RcuMonitorPred};
 use crate::task::{
     DisabledPreemptGuard,
     //atomic_mode::{AsAtomicModeGuard, InAtomicMode},
@@ -1062,7 +1062,7 @@ pub unsafe fn finish_grace_period() {
 
 */
 
-exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
+exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorInvariant, RcuMonitorPred>
     ensures
         RCU_MONITOR.wf(),
         RCU_MONITOR.inv() == RcuMonitorPred,
