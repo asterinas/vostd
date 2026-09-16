@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789561618554,
+  "lastUpdate": 1789592024916,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -1260,6 +1260,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=646ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "etyyuiope@qq.com",
+            "name": "Hiroki Chen",
+            "username": "hiroki-chen"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7a57fabff88ca077f7303cdecbcab7a2639feb0",
+          "message": "Fix irc11 verus upgrade (#774)\n\n* Refresh IRC11 patches for the updated Verus toolchain\n\nPin IRC11 to Asterinas Verus fb2386ecea5a45810420577de3e312ded4f84b12,\nmatching the current default CI toolchain. Refresh the patch context for\nthe btree_cursors and no_trait_conflicts additions upstream; all added\nand removed implementation lines in the IRC11 patch remain unchanged.\n\nThis fixes bootstrap failures when applying the patch to vstd.rs and\nvstd_build/src/main.rs. The existing vstd compatibility patch still\napplies without changes, and the mainline Cargo.lock remains current.\n\nValidation: clean patch application, IRC11 bootstrap (2041 proofs),\nSC/IRC11 atomic smoke test, and vstd_extra verification (604 proofs).\n\n* Mark DMA and RCU monitor owners as objective\n\nThe ResourceInvariant refactor requires the resource of each\nSimpleResourceInvariant to implement Objective in IRC11 builds.\nAdd explicit implementations for the DMA and RCU monitor owners that\notherwise fail the Verus trait conflict checker.\n\nThe two DMA inner owners contain only PhantomData; the mapping set and\nRCU monitor owners are empty. These types carry no subjective memory\npermissions. Keep the implementations behind the irc11 feature.\n\nValidation: full IRC11 OSTD verification (1493 proofs), default make\n(1480 OSTD proofs), targeted verusfmt checks, and git diff --check.",
+          "timestamp": "2026-09-16T16:47:48-04:00",
+          "tree_id": "d3e7de3b3e6b4f838e33354438065483007a4c88",
+          "url": "https://github.com/asterinas/vostd/commit/a7a57fabff88ca077f7303cdecbcab7a2639feb0"
+        },
+        "date": 1789592023771,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1079211122,
+            "unit": "rlimit",
+            "extra": "verified=4048 errors=0 smt-run=340,524ms wall=222,697ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 391762755,
+            "unit": "rlimit",
+            "extra": "smt-run=146,456ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 86989432,
+            "unit": "rlimit",
+            "extra": "smt-run=29,752ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 70123207,
+            "unit": "rlimit",
+            "extra": "smt-run=30,570ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,233ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 8889145,
+            "unit": "rlimit",
+            "extra": "smt-run=1,361ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,606ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,094ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=866ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=573ms"
           }
         ]
       }
