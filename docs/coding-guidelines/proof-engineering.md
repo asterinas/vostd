@@ -16,8 +16,33 @@ For example, a `BTreeMap::get_mut` model must preserve entries other than the
 selected key and must express the documented compatibility between the stored
 key ordering and borrowed-key ordering. Exclude documented panic conditions with
 explicit preconditions, such as capacity or index bounds, rather than merely
-marking the operation `may_panic`. Do not claim `no_unwind` while a panic remains
-possible under the preconditions.
+marking the operation `may_panic`. `no_unwind` asserts that the modeled function
+never unwinds — an unconditional claim, not one gated by the `requires` clause
+(see the [Verus unwinding-signature reference](../../tools/verus/source/docs/guide/src/reference-unwind-sig.md)).
+A function with a real panic path, such as `usize::div_ceil` on a zero divisor,
+must not carry bare `no_unwind`, even when a `requires` clause excludes the
+panicking input: the precondition restricts callers, it does not make the external
+function panic-free. Model the no-panic regime faithfully with
+`no_unwind when <precondition>` — giving callers the guarantee exactly where
+`requires` holds — or omit `no_unwind` when no caller needs it.
+
+```rust
+// Never panics: bare `no_unwind` is faithful.
+pub assume_specification[ usize::is_power_of_two ](self_: usize) -> (r: bool)
+    returns is_pow2(self_ as int)
+    opens_invariants none
+    no_unwind;
+
+/// `usize::div_ceil` panics if `rhs` is zero; the precondition excludes that case.
+pub assume_specification[ usize::div_ceil ](self_: usize, rhs: usize) -> usize
+    requires
+        rhs > 0,
+    returns
+        ((self_ + rhs - 1) / (rhs as int)) as usize,
+    opens_invariants none
+    no_unwind when rhs > 0
+;
+```
 
 Mirror the standard library's evaluation semantics in adapter contracts. For
 closure-driven adapters such as `Iterator::filter` and `map`, the closure runs
@@ -40,7 +65,8 @@ See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3747
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946394200),
 [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3831831025),
 [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3831836346),
-and [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295).
+[#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295),
+and [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023000538).
 
 ### Centralize trusted boundaries
 
