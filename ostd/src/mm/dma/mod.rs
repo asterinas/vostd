@@ -7,6 +7,8 @@ mod test;
 
 use alloc::collections::BTreeSet;
 use vstd::prelude::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
     once::Once,
@@ -20,6 +22,12 @@ use super::Paddr;
 verus! {
 
 pub tracked struct DmaMappingSetOwner {}
+
+// This empty owner carries no subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl Objective for DmaMappingSetOwner {
+
+}
 
 pub ghost struct DmaMappingSetInvariant;
 
