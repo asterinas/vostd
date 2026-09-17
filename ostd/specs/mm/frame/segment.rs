@@ -29,16 +29,14 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// The cross-object relation between a [`Segment`] and the global
     /// [`MetaRegionOwners`].
     pub open spec fn relate_regions(&self, regions: MetaRegionOwners) -> bool {
-        &&& self.metadata_perms().len() == self.len()
-        &&& self.slot_perms().len() == self.len()
         &&& forall|i: int|
             #![trigger frame_to_index((self.range().start + i * PAGE_SIZE) as usize)]
             0 <= i < self.len() ==> {
                 let idx = frame_to_index((self.range().start + i * PAGE_SIZE) as usize);
-                &&& self.slot_perms()[i] == regions.slots[idx]
-                &&& self.metadata_perms()[i].frac() == 1
-                &&& self.metadata_perms()[i].id() == regions.slot_owners[idx].metadata_perm.id()
-                &&& MetaSlot::perms_related(*self.slot_perms()[i], self.metadata_perms()[i].resource())
+                &&& self.raw_perms()[i].slot_perm == regions.slots[idx]
+                &&& self.raw_perms()[i].inv()
+                &&& self.raw_perms()[i].metadata_perm.id()
+                    == regions.slot_owners[idx].metadata_perm.id()
                 &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& 0 < regions.slot_owners[idx].ref_count()

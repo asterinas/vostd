@@ -143,13 +143,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                     0 <= i < raw_perms.len() ==> {
                         let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                         &&& raw_perms[i].slot_perm == perm.slots[idx]
-                        &&& raw_perms[i].metadata_perm.frac() == 1
+                        &&& raw_perms[i].inv()
                         &&& raw_perms[i].metadata_perm.id()
                             == perm.slot_owners[idx].metadata_perm.id()
-                        &&& MetaSlot::perms_related(
-                            *raw_perms[i].slot_perm,
-                            raw_perms[i].metadata_perm.resource(),
-                        )
                     },
                 forall|i: int|
                     #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
@@ -342,14 +338,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& regions.contains(idx)
                         &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                         &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
+                        &&& segment.tracked_perms@->0[j].inv()
                         &&& segment.tracked_perms@->0[j].slot_perm == regions.slots[idx]
-                        &&& segment.tracked_perms@->0[j].metadata_perm.frac() == 1
                         &&& segment.tracked_perms@->0[j].metadata_perm.id()
                             == regions.slot_owners[idx].metadata_perm.id()
-                        &&& MetaSlot::perms_related(
-                            *segment.tracked_perms@->0[j].slot_perm,
-                            segment.tracked_perms@->0[j].metadata_perm.resource(),
-                        )
                         &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                         &&& regions.slot_owners[idx].usage is Frame
                         &&& addrs[j] % PAGE_SIZE == 0
@@ -394,15 +386,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                                     &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                                     &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
                                     &&& segment.tracked_perms@ is Some
+                                    &&& segment.tracked_perms@->0[j - k].inv()
                                     &&& segment.tracked_perms@->0[j - k].slot_perm
                                         == regions.slots[idx]
-                                    &&& segment.tracked_perms@->0[j - k].metadata_perm.frac() == 1
                                     &&& segment.tracked_perms@->0[j - k].metadata_perm.id()
                                         == regions.slot_owners[idx].metadata_perm.id()
-                                    &&& MetaSlot::perms_related(
-                                        *segment.tracked_perms@->0[j - k].slot_perm,
-                                        segment.tracked_perms@->0[j - k].metadata_perm.resource(),
-                                    )
                                     &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                                     &&& regions.slot_owners[idx].usage is Frame
                                     &&& addrs[j] % PAGE_SIZE == 0
@@ -467,14 +455,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 #![trigger frame_to_index((segment.range.start + i * PAGE_SIZE) as usize)]
                 0 <= i < segment.len() implies {
                 let idx = frame_to_index((segment.range.start + i * PAGE_SIZE) as usize);
+                &&& segment.tracked_perms@->0[i].inv()
                 &&& segment.tracked_perms@->0[i].slot_perm == regions.slots[idx]
-                &&& segment.tracked_perms@->0[i].metadata_perm.frac() == 1
                 &&& segment.tracked_perms@->0[i].metadata_perm.id()
                     == regions.slot_owners[idx].metadata_perm.id()
-                &&& MetaSlot::perms_related(
-                    *segment.tracked_perms@->0[i].slot_perm,
-                    segment.tracked_perms@->0[i].metadata_perm.resource(),
-                )
                 &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.ref_count(idx) > 0
@@ -747,13 +731,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     0 <= j < raw_perms.len() ==> {
                         let idx = frame_to_index((start + j * PAGE_SIZE) as usize);
                         &&& raw_perms[j].slot_perm == regions.slots[idx]
-                        &&& raw_perms[j].metadata_perm.frac() == 1
+                        &&& raw_perms[j].inv()
                         &&& raw_perms[j].metadata_perm.id()
                             == regions.slot_owners[idx].metadata_perm.id()
-                        &&& MetaSlot::perms_related(
-                            *raw_perms[j].slot_perm,
-                            raw_perms[j].metadata_perm.resource(),
-                        )
                     },
                 forall|j: int|
                     #![trigger frame_to_index((start + j * PAGE_SIZE) as usize)]
@@ -1021,14 +1001,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     #![trigger raw_perms[j]]
                     0 <= j < raw_perms.len() ==> {
                         let idx = frame_to_index((self.range.start + (k + j) * PAGE_SIZE) as usize);
+                        &&& raw_perms[j].inv()
                         &&& raw_perms[j].slot_perm == regions.slots[idx]
-                        &&& raw_perms[j].metadata_perm.frac() == 1
                         &&& raw_perms[j].metadata_perm.id()
                             == regions.slot_owners[idx].metadata_perm.id()
-                        &&& MetaSlot::perms_related(
-                            *raw_perms[j].slot_perm,
-                            raw_perms[j].metadata_perm.resource(),
-                        )
                     },
                 self.range.start <= paddr <= self.range.end,
                 paddr == (self.range.start + k * PAGE_SIZE) as usize,
