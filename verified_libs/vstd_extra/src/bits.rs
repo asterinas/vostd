@@ -128,16 +128,12 @@ pub broadcast proof fn lemma_u64_clearbit_bit_keep(word: u64, b: int, b2: int)
         by (bit_vector);
 }
 
-/// AND-ing the zero word with any in-range unit bit is zero.
-pub broadcast proof fn lemma_u64_zero_and_bit(k: int)
-    requires
-        0 <= k < 64,
+/// AND-ing the zero word with any word is zero.
+pub proof fn lemma_u64_and_zero(x: u64)
     ensures
-        #![trigger (1u64 << (k as usize))]
-        (0u64 & (1u64 << (k as usize))) == 0,
+        0u64 & x == 0u64,
 {
-    let bit: u64 = 1u64 << (k as u32);
-    assert(0u64 & bit == 0u64) by (bit_vector);
+    assert(0u64 & x == 0u64) by (bit_vector);
 }
 
 pub broadcast group group_u64_bit_algebra {
@@ -149,7 +145,6 @@ pub broadcast group group_u64_bit_algebra {
     lemma_u64_setbit_bit_keep,
     lemma_u64_clearbit_bit_clear,
     lemma_u64_clearbit_bit_keep,
-    lemma_u64_zero_and_bit,
 }
 
 } // verus!

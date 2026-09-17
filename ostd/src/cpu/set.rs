@@ -7,8 +7,7 @@ use vstd::{
 };
 use vstd_extra::{
     bits::{
-        group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_masked_bit_keep,
-        lemma_u64_zero_and_bit,
+        group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_and_zero, lemma_u64_masked_bit_keep,
     },
     external::{
         bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
@@ -291,7 +290,7 @@ proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
     assert forall|j: int| !set@.contains(j) by {
         if 0 <= j < cpu_count() && j < 64 * seq.len() {
             lemma_bit_at_uniform(seq, 0u64, j);
-            lemma_u64_zero_and_bit(j % 64);
+            lemma_u64_and_zero(1u64 << bit_idx_spec(j));
         }
     }
     assert(set@ =~= Set::empty());
@@ -389,7 +388,18 @@ impl CpuSet {
     )]
     pub fn new_empty() -> Self {
         proof! { lemma_cpucount_fits(); }
-        Self::with_capacity_val(num_cpus(), 0)
+        let ret = Self::with_capacity_val(num_cpus(), 0);
+        proof! {
+            lemma_empty_bits_imply_empty_set(&ret);
+            assert forall|j: int|
+                cpu_count() <= j < 64 * smallvec_view(&ret.bits).len() as int implies !bit_at(
+                    smallvec_view(&ret.bits),
+                    j,
+                ) by {
+                lemma_u64_and_zero(1u64 << bit_idx_spec(j));
+            }
+        }
+        ret
     }
 
     /// Adds a CPU to the set.
@@ -692,6 +702,14 @@ impl CpuSet {
         proof! {
             let seq = smallvec_view(&self.bits);
             assert(forall|k: int| 0 <= k < seq.len() ==> seq[k] == 0u64);
+            lemma_empty_bits_imply_empty_set(self);
+            assert forall|j: int|
+                cpu_count() <= j < 64 * smallvec_view(&self.bits).len() as int implies !bit_at(
+                    smallvec_view(&self.bits),
+                    j,
+                ) by {
+                lemma_u64_and_zero(1u64 << bit_idx_spec(j));
+            }
         }
     }
 
