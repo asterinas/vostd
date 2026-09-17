@@ -587,17 +587,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     /// no checking of the usage in this function.
     #[verus_spec(r =>
         with
-            Tracked(slot_perm): Tracked<&'static simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(frame_permission): Tracked<FracMetadataPerm>,
+            Tracked(perm): Tracked<FrameRawPerms>,
         requires
             valid_frame_paddr(paddr),
-            slot_perm.addr() == frame_to_meta(paddr),
-            slot_perm.is_init(),
-            frame_permission.frac() == 1,
-            MetaSlot::perms_related(*slot_perm,frame_permission.resource()),
+            perm.slot_vaddr() == frame_to_meta(paddr),
+            perm.inv(),
         ensures
-            r.tracked_slot_perm@ == slot_perm,
-            r.tracked_metadata_perm@ == Some(frame_permission),
+            r.tracked_slot_perm@ == perm.slot_perm,
+            r.tracked_metadata_perm@ == Some(perm.metadata_perm),
             r.start_paddr_spec() == paddr,
             r.inv(),
     )]
@@ -613,9 +610,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             ptr,
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
+            tracked_slot_perm: Tracked(perm.slot_perm),
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(Some(frame_permission)),
+            tracked_metadata_perm: Tracked(Some(perm.metadata_perm)),
         }
     }
 }

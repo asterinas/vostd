@@ -13,6 +13,7 @@ use crate::mm::page_table::RCClone;
 use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
+    frame_specs::FrameRawPerms,
     mapping::{frame_to_index, group_page_meta, index_to_meta},
     meta_owners::*,
     meta_region_owners::MetaRegionOwners,
@@ -435,8 +436,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             segment.tracked_slot_perms.tracked_borrow_mut().tracked_pop_front();
                         let tracked frame_permission =
                             segment.tracked_metadata_perms.tracked_borrow_mut().tracked_pop_front();
+                        proof_decl! {
+                            let tracked perm = FrameRawPerms {
+                                slot_perm,
+                                metadata_perm: frame_permission,
+                            };
+                        }
                         let frame = unsafe {
-                            #[verus_spec(with Tracked(slot_perm), Tracked(frame_permission))]
+                            #[verus_spec(with Tracked(perm))]
                             Frame::<M>::from_raw(p)
                         };
                         frame.drop(Tracked(regions));
@@ -958,10 +965,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
         if self.range.start < self.range.end {
             let tracked slot_perm = slot_perms.tracked_pop_front();
             let tracked frame_permission = permissions.tracked_pop_front();
+            proof_decl! {
+                let tracked perm = FrameRawPerms {
+                    slot_perm,
+                    metadata_perm: frame_permission,
+                };
+            }
             // SAFETY: each frame in the range would be a handle forgotten
             // when creating the `Segment` object.
             let frame = unsafe {
-                #[verus_spec(with Tracked(slot_perm), Tracked(frame_permission))]
+                #[verus_spec(with Tracked(perm))]
                 Frame::<M>::from_raw(self.range.start)
             };
             self.range.start += PAGE_SIZE;
@@ -1097,8 +1110,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             }
             let tracked slot_perm = slot_perms.tracked_pop_front();
             let tracked frame_permission = permissions.tracked_pop_front();
+            proof_decl! {
+                let tracked perm = FrameRawPerms {
+                    slot_perm,
+                    metadata_perm: frame_permission,
+                };
+            }
             let frame = unsafe {
-                #[verus_spec(with Tracked(slot_perm), Tracked(frame_permission))]
+                #[verus_spec(with Tracked(perm))]
                 Frame::<M>::from_raw(paddr)
             };
 
