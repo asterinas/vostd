@@ -594,8 +594,9 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         self.start_paddr()..self.end_paddr()
     }
 
+    /// Returns the number of pages of the contiguous frames.
     pub open spec fn len(&self) -> int {
-        self.size() as int / PAGE_SIZE as int
+        (self.size() / PAGE_SIZE) as int
     }
 
     pub closed spec fn permissions(&self) -> Seq<FracMetadataPerm> {
@@ -871,12 +872,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         proof_with!(|= Tracked((slot_perms, permissions)));
         range
-    }
-
-    /// Returns the number of pages of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn nrpage_spec(&self) -> usize {
-        self.size() / PAGE_SIZE
     }
 
     /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
