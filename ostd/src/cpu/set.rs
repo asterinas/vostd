@@ -45,27 +45,31 @@ const NR_PARTS_NO_ALLOC: usize = 2;
 
 } // verus!
 #[verus_verify]
-#[verifier::when_used_as_spec(part_idx_spec)]
 #[verus_spec(
-    returns part_idx_spec(cpu_id),
+    returns part_idx_spec(cpu_id@),
 )]
 const fn part_idx(cpu_id: CpuId) -> usize {
+    proof! {
+        reveal(part_idx_spec);
+    }
     cpu_id.as_usize() / BITS_PER_PART
 }
 
 #[verus_verify]
-#[verifier::when_used_as_spec(bit_idx_spec)]
 #[verus_spec(
-    returns bit_idx_spec(cpu_id),
+    returns bit_idx_spec(cpu_id@),
 )]
 const fn bit_idx(cpu_id: CpuId) -> usize {
+    proof! {
+        reveal(bit_idx_spec);
+    }
     cpu_id.as_usize() % BITS_PER_PART
 }
 
 #[verus_verify]
-#[verifier::when_used_as_spec(parts_for_cpus_exec_spec)]
+#[verifier::when_used_as_spec(parts_for_cpus_spec)]
 #[verus_spec(
-    returns parts_for_cpus_exec_spec(num_cpus),
+    returns parts_for_cpus_spec(num_cpus),
 )]
 const fn parts_for_cpus(num_cpus: usize) -> usize {
     proof! {
@@ -74,7 +78,7 @@ const fn parts_for_cpus(num_cpus: usize) -> usize {
             assert(parts_for_cpus_spec(0) == 0);
         } else {
             assert(num_cpus as int > 0);
-            assert(parts_for_cpus_spec(num_cpus as int) == ((num_cpus as int) + 63) / 64);
+            assert(parts_for_cpus_spec(num_cpus) as int == ((num_cpus as int) + 63) / 64);
         }
     }
     num_cpus.div_ceil(BITS_PER_PART)
@@ -93,25 +97,22 @@ broadcast use {
 };
 
 /// `div_ceil(n, BITS_PER_PART)`: the number of 64-bit words needed to hold `n` bits.
-pub closed spec fn parts_for_cpus_spec(n: int) -> int {
-    if n <= 0 {
+pub closed spec fn parts_for_cpus_spec(n: usize) -> usize {
+    if n == 0 {
         0
     } else {
-        (n + 63) / 64
+        (((n as int) + 63) / 64) as usize
     }
 }
 
-closed spec fn parts_for_cpus_exec_spec(num_cpus: usize) -> usize {
-    parts_for_cpus_spec(num_cpus as int) as usize
+/// The 64-bit word holding bit `i`.
+pub closed spec fn part_idx_spec(i: int) -> usize {
+    (i / 64) as usize
 }
 
-/// The 64-bit word holding cpu id `id`, and the bit within that word.
-pub closed spec fn part_idx_spec(cpu_id: CpuId) -> usize {
-    (cpu_id@ / 64) as usize
-}
-
-pub closed spec fn bit_idx_spec(cpu_id: CpuId) -> usize {
-    (cpu_id@ % 64) as usize
+/// The position of bit `i` within its 64-bit word.
+pub closed spec fn bit_idx_spec(i: int) -> usize {
+    (i % 64) as usize
 }
 
 /// Number of set bits in the prefix `seq[..end]`.
@@ -134,17 +135,17 @@ pub open spec fn count_set_bits(seq: Seq<u64>) -> int {
 
 /// Expected value of word `idx` in a full CPU set.
 pub open spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
-    if idx == len - 1 && num_cpus % 64 != 0 {
-        ((1u64 << ((num_cpus % 64) as usize)) - 1) as u64
+    if idx == len - 1 && bit_idx_spec(num_cpus) != 0 {
+        ((1u64 << bit_idx_spec(num_cpus)) - 1) as u64
     } else {
         !0u64
     }
 }
 
-/// Bit `i` (`i % 64` of word `i / 64`) is set in the bit sequence `seq`.
+/// Bit `i` is set in the bit sequence `seq`.
 pub open spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
     if 0 <= i < 64 * seq.len() as int {
-        (seq[i / 64] & (1u64 << ((i % 64) as usize))) != 0
+        (seq[part_idx_spec(i) as int] & (1u64 << bit_idx_spec(i))) != 0
     } else {
         false
     }
@@ -156,10 +157,60 @@ proof fn lemma_bit_at_uniform(seq: Seq<u64>, val: u64, j: int)
         forall|k: int| 0 <= k < seq.len() ==> seq[k] == val,
         0 <= j < 64 * seq.len() as int,
     ensures
-        bit_at(seq, j) == ((val & (1u64 << ((j % 64) as usize))) != 0),
+        bit_at(seq, j) == ((val & (1u64 << bit_idx_spec(j))) != 0),
 {
     reveal(bit_at);
-    assert(seq[j / 64] == val);
+    assert(seq[part_idx_spec(j) as int] == val);
+}
+
+proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
+    requires
+        word != 0,
+        n <= 64,
+        word >> n == 0,
+    ensures
+        exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0,
+    decreases n,
+{
+    if n == 0 {
+        assert(word >> n == word) by (bit_vector)
+            requires n == 0;
+    } else if word & 1u64 != 0 {
+        assert((word & (1u64 << 0u32)) != 0) by (bit_vector)
+            requires word & 1u64 != 0;
+        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
+    } else {
+        let shifted = word >> 1u32;
+        assert(shifted != 0) by (bit_vector)
+            requires shifted == word >> 1u32, word != 0, word & 1u64 == 0;
+        let prev: u32 = (n - 1) as u32;
+        assert(prev + 1 == n);
+        assert(shifted >> prev == word >> n) by (bit_vector)
+            requires shifted == word >> 1u32, n == prev + 1, n <= 64;
+        assert(shifted >> prev == 0);
+        lemma_u64_nonzero_has_set_bit_aux(shifted, prev);
+        let b = choose|b: u32| b < n - 1 && #[trigger] (shifted & (1u64 << b)) != 0;
+        assert(b < 63);
+        let next: u32 = (b + 1) as u32;
+        assert(next < n);
+        assert((word & (1u64 << next)) != 0) by (bit_vector)
+            requires
+                shifted == word >> 1u32,
+                (shifted & (1u64 << b)) != 0,
+                next == b + 1,
+                b < 63;
+        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
+    }
+}
+
+proof fn lemma_u64_nonzero_has_set_bit(word: u64)
+    requires
+        word != 0,
+    ensures
+        exists|b: u32| b < 64 && #[trigger] (word & (1u64 << b)) != 0,
+{
+    assert(word >> 64u32 == 0) by (bit_vector);
+    lemma_u64_nonzero_has_set_bit_aux(word, 64);
 }
 
 impl View for CpuSet {
@@ -180,10 +231,11 @@ impl CpuSet {
 
 proof fn lemma_cpucount_fits()
     ensures
-        2 * parts_for_cpus_spec(cpu_count()) * (size_of::<u64>() as int) <= isize::MAX as int,
+        2 * (parts_for_cpus_spec(cpu_count() as usize) as int) * (size_of::<u64>() as int)
+            <= isize::MAX as int,
 {
     if cpu_count() > 0 {
-        assert(parts_for_cpus_spec(cpu_count()) == (cpu_count() + 63) / 64) by {
+        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
             reveal(parts_for_cpus_spec)
         };
     }
@@ -191,10 +243,10 @@ proof fn lemma_cpucount_fits()
 
 proof fn lemma_count_fits()
     ensures
-        64 * parts_for_cpus_spec(cpu_count()) <= usize::MAX,
+        64 * parts_for_cpus_spec(cpu_count() as usize) <= usize::MAX,
 {
     if cpu_count() > 0 {
-        assert(parts_for_cpus_spec(cpu_count()) == (cpu_count() + 63) / 64) by {
+        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
             reveal(parts_for_cpus_spec)
         };
     }
@@ -204,7 +256,7 @@ impl Inv for CpuSet {
     /// The backing vector holds exactly `parts_for_cpus(cpu_count)` words, the view
     /// is bounded by `cpu_count`, and the unused tail bits (>= `cpu_count`) are clear.
     closed spec fn inv(self) -> bool {
-        &&& smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count())
+        &&& smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize)
         &&& forall|j: int|
             #![trigger bit_at(smallvec_view(&self.bits), j)]
             cpu_count() <= j < 64 * smallvec_view(&self.bits).len() as int ==> !bit_at(
@@ -248,6 +300,7 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
     let len = seq.len() as int;
     assert(n > 0);
     reveal(parts_for_cpus_spec);
+    assert(parts_for_cpus_spec(n as usize) as int == (n + 63) / 64);
     assert(len == (n + 63) / 64);
     assert forall|a: int|
         #![trigger set@.contains(a)]
@@ -499,8 +552,7 @@ impl CpuSet {
     #[verus_spec(ret =>
         requires
             self.inv(),
-        ensures
-            ret ==> self@ == Set::empty(),
+        returns self@ == Set::empty(),
     )]
     pub fn is_empty(&self) -> bool {
         /* `Iterator::all` on a temporary receiver does not expose its initial `remaining()`
@@ -525,6 +577,23 @@ impl CpuSet {
                     assert(*IteratorSpec::remaining(&initial_iter)[i] == 0u64);
                 }
                 lemma_empty_bits_imply_empty_set(self);
+            } else {
+                let seq = smallvec_view(&self.bits);
+                let initial = IteratorSpec::remaining(&initial_iter);
+                let idx = initial.len() - IteratorSpec::remaining(&iter).len() - 1;
+                assert(initial == seq.as_ref());
+                assert(initial[idx] != 0u64);
+                lemma_u64_nonzero_has_set_bit(*initial[idx]);
+                let b = choose|b: u32| b < 64 && #[trigger] (*initial[idx]
+                    & (1u64 << b)) != 0;
+                let j = 64 * idx + b as int;
+                assert(0 <= idx < seq.len());
+                assert(j / 64 == idx);
+                assert(j % 64 == b as int);
+                assert((j % 64) as usize == b as usize);
+                assert(bit_at(seq, j));
+                assert(j < cpu_count());
+                assert(self@.contains(j));
             }
         }
         ret
@@ -680,10 +749,10 @@ impl CpuSet {
     #[verus_spec(ret =>
         requires
             (num_cpus as int) == cpu_count(),
-            2 * parts_for_cpus_spec(num_cpus as int) * (size_of::<u64>() as int)
+            2 * (parts_for_cpus_spec(num_cpus) as int) * (size_of::<u64>() as int)
                 <= isize::MAX as int,
         ensures
-            smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus as int),
+            smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus),
         forall|i: int|
             #![trigger smallvec_view(&ret.bits)[i]]
             0 <= i < smallvec_view(&ret.bits).len() as int ==> smallvec_view(&ret.bits)[i]
@@ -698,7 +767,7 @@ impl CpuSet {
 
     #[verus_spec(
         requires
-            smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count()),
+            smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize),
             forall|j: int|
                 #![trigger bit_at(smallvec_view(&self.bits), j)]
                 0 <= j < cpu_count() ==> bit_at(smallvec_view(&self.bits), j),
@@ -722,7 +791,7 @@ impl CpuSet {
                 assert(0 <= (n + 63) % 64 < 64);
                 assert((num_parts as int) >= 1);
                 reveal(parts_for_cpus_spec);
-                assert(parts_for_cpus_spec(n) == (n + 63) / 64);
+                assert(parts_for_cpus_spec(n as usize) as int == (n + 63) / 64);
                 assert(((num_parts as int) - 1) < smallvec_view(&self.bits).len());
                 lemma_fundamental_div_mod(n - 1, 64);
                 assert(64 * ((n - 1) / 64) < n);
