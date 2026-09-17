@@ -92,6 +92,10 @@ unsafe fn init_num_cpus(num_cpus: u32) {
 }
 
 /// Returns the number of CPUs.
+#[verus_verify(external_body)]
+#[verus_spec(
+    returns cpu_count() as usize,
+)]
 pub fn num_cpus() -> usize {
     // SAFETY: As far as the safe APIs are concerned, `NUM_CPUS` is
     // read-only, so it is always valid to read.
@@ -136,12 +140,6 @@ impl CpuId {
         0 <= self@ < cpu_count()
     }
 }
-
-/// The number of CPUs; binds the exec `num_cpus()` to the trusted `cpu_count()`.
-pub assume_specification[ crate::cpu::num_cpus ]() -> usize
-    returns
-        cpu_count() as usize,
-;
 
 } // verus!
 /* cpu_local_cell! {
