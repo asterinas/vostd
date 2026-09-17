@@ -880,11 +880,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
     /// Converts a single [`Frame`] into a one-page [`Segment`] by forgetting
     /// the frame and recording its paddr range. Symmetric to vostd's
     /// `From<Frame<M>> for Segment<M>`.
-    //
-    // Trusted at the trait boundary: the `From::from` signature can't thread
-    // `Tracked` metadata to bump the frame's `raw_count` via the verified
-    // `vstd_extra::drop_tracking::ManuallyDrop`, so we use `core::mem`'s
-    // version.
     #[verifier::external_body]
     fn from(frame: Frame<M>) -> Self {
         let pa = frame.start_paddr();
@@ -1203,16 +1198,13 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
         &&& self.end_paddr() % PAGE_SIZE == 0
         &&& self.start_paddr() <= self.end_paddr() <= MAX_PADDR
         &&& self.inner_perm_inv()
-        &&& self.metadata_perms().len() == self.len()
-        &&& self.slot_perms().len() == self.len()
+        &&& self.raw_perms().len() == self.len()
         &&& forall|i: int|
-            #![trigger self.metadata_perms()[i]]
-            0 <= i < self.metadata_perms().len() ==> {
+            #![trigger self.raw_perms()[i]]
+            0 <= i < self.raw_perms().len() ==> {
                 let paddr = (self.range().start + i * PAGE_SIZE) as usize;
-                &&& self.slot_perms()[i].addr() == frame_to_meta(paddr)
-                &&& self.slot_perms()[i].is_init()
-                &&& self.metadata_perms()[i].frac() == 1
-                &&& MetaSlot::perms_related(*self.slot_perms()[i], self.metadata_perms()[i].resource())
+                &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
+                &&& self.raw_perms()[i].inv()
             }
     }
 }
