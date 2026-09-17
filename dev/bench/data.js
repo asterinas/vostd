@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789632087772,
+  "lastUpdate": 1789640491386,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -1596,6 +1596,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=688ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e951a6f7bfe048fa9ba79971b388ae012902468",
+          "message": "refactor: Add `FrameRawPerms` and refactor `Segment` perms (#781)\n\n* fix: Add `FrameRawPerms`\n\n* fix: `Frame::from_raw`\n\n* refactor: `Segment` permission\n\n* Minor\n\n* minor\n\n* Minor simplify\n\n* remove an unused spec fn\n\n* Minor",
+          "timestamp": "2026-09-17T18:16:29+08:00",
+          "tree_id": "cbeeba4ea74a78e6b3cff3de83490e3339d20a26",
+          "url": "https://github.com/asterinas/vostd/commit/6e951a6f7bfe048fa9ba79971b388ae012902468"
+        },
+        "date": 1789640490430,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1107963611,
+            "unit": "rlimit",
+            "extra": "verified=4050 errors=0 smt-run=231,399ms wall=159,791ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 331983855,
+            "unit": "rlimit",
+            "extra": "smt-run=89,614ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 107410625,
+            "unit": "rlimit",
+            "extra": "smt-run=24,393ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 76048027,
+            "unit": "rlimit",
+            "extra": "smt-run=16,936ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=1,623ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 8889145,
+            "unit": "rlimit",
+            "extra": "smt-run=943ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,122ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=826ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1990774,
+            "unit": "rlimit",
+            "extra": "smt-run=564ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=408ms"
           }
         ]
       }
