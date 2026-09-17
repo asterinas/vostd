@@ -236,6 +236,13 @@ impl<const LEN: usize> Inv for MemoryRegionArray<LEN> {
     }
 }
 
+impl<const LEN: usize> MemoryRegionArray<LEN> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.count <= LEN
+    }
+}
+
 impl<const LEN: usize> View for MemoryRegionArray<LEN> {
     type V = MemoryRegionArrayModel<LEN>;
 
@@ -261,14 +268,22 @@ impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
         Self::new()
     }
 }
-/*
+#[verus_verify]
 impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
     type Target = [MemoryRegion];
 
+    #[verus_spec(ret =>
+        ensures
+            ret@.len() == self@.regions.len(),
+            forall|i: int| 0 <= i < ret@.len() ==> (#[trigger] ret@[i])@ == self@.regions[i],
+    )]
     fn deref(&self) -> &Self::Target {
+        proof! {
+            use_type_invariant(self);
+        }
         &self.regions[..self.count]
     }
-}*/
+}
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
