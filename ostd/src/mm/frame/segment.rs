@@ -519,11 +519,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
 #[verus_verify]
 impl<M: AnyFrameMeta + ?Sized> Segment<M> {
-    /// Projects the fractional metadata permissions from raw frame permissions.
-    pub open spec fn raw_metadata_perms(raw_perms: Seq<FrameRawPerms>) -> Seq<FracMetadataPerm> {
-        raw_perms.map_values(|perm: FrameRawPerms| perm.metadata_perm)
-    }
-
     /// Gets the start physical address of the contiguous frames.
     #[verus_verify(dual_spec)]
     #[verus_spec(
