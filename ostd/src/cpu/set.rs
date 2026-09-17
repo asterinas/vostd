@@ -6,11 +6,12 @@ use vstd::{
     std_specs::iter::IteratorSpec,
 };
 use vstd_extra::{
+    bits::{
+        group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_masked_bit_keep,
+        lemma_u64_zero_and_bit,
+    },
     external::{
-        bits::{
-            group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_masked_bit_keep,
-            lemma_u64_set_bits_nonzero, lemma_u64_zero_and_bit, u64_set_bits,
-        },
+        bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
         smallvec::{group_smallvec_models, smallvec_view},
     },
     ownership::Inv,

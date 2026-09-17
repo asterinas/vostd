@@ -22,6 +22,7 @@ pub mod atomic_data;
 #[cfg(feature = "irc11")]
 pub mod atomic_irc11;
 pub mod auxiliary;
+pub mod bits;
 pub mod cast_ptr;
 pub mod drop_tracking;
 pub mod external;

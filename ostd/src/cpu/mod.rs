@@ -26,6 +26,8 @@ impl CpuId {
     }
 
     /// Converts the CPU ID to an `usize`.
+    #[verus_verify]
+    #[verus_spec(returns self@ as usize)]
     pub const fn as_usize(self) -> usize {
         self.0 as usize
     }
@@ -124,7 +126,7 @@ pub uninterp spec fn cpu_count() -> int;
 pub broadcast axiom fn axiom_cpu_count_bounds()
     ensures
         #![trigger cpu_count()]
-        1 <= cpu_count() <= u32::MAX as int,
+        1 <= cpu_count() <= u32::MAX,
 ;
 
 impl CpuId {
@@ -136,15 +138,9 @@ impl CpuId {
 }
 
 /// The number of CPUs; binds the exec `num_cpus()` to the trusted `cpu_count()`.
-pub assume_specification[ crate::cpu::num_cpus ]() -> (n: usize)
-    ensures
-        (n as int) == cpu_count(),
-;
-
-/// `CpuId::as_usize`; its integer value is the abstract CPU id.
-pub assume_specification[ crate::cpu::CpuId::as_usize ](c: CpuId) -> usize
+pub assume_specification[ crate::cpu::num_cpus ]() -> usize
     returns
-        c@ as usize,
+        cpu_count() as usize,
 ;
 
 } // verus!
