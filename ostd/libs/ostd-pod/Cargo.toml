@@ -12,7 +12,7 @@ repository = "https://github.com/asterinas/pod"
 [dependencies]
 # ostd-pod-derive = { path = "derive", optional = true, version = "0.1.1" }
 vstd = { workspace = true }
-vstd_extra = { path = "../vstd_extra" }
+vstd_extra = { path = "../../../verified_libs/vstd_extra" }
 
 [features]
 # default = ["derive"]
