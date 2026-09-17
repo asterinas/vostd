@@ -37,8 +37,8 @@ impl IoMemAllocator {
             io_mem_range_registered(range),
         ensures
             result matches Some(io_mem) ==> {
-                &&& io_mem.paddr_spec() == range.start
-                &&& io_mem.length_spec() == range.end - range.start
+                &&& io_mem.paddr() == range.start
+                &&& io_mem.length() == range.end - range.start
             },
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {

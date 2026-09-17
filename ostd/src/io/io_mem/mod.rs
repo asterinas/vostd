@@ -42,16 +42,6 @@ verus! {
 
 #[verus_verify]
 impl IoMem {
-    /// Logical physical-address projection used by verified callers.
-    pub closed spec fn paddr_spec(&self) -> Paddr {
-        self.pa
-    }
-
-    /// Logical byte length used by verified callers.
-    pub closed spec fn length_spec(&self) -> usize {
-        self.limit
-    }
-
     /// Logical offset into the page-aligned mapping.
     pub closed spec fn offset_spec(&self) -> usize {
         self.offset
@@ -61,7 +51,7 @@ impl IoMem {
 } // verus!
 #[verus_verify]
 impl HasPaddr for IoMem {
-    #[verus_spec(returns self.paddr_spec())]
+    #[verus_spec(returns IoMem::paddr(self))]
     fn paddr(&self) -> Paddr {
         self.pa
     }
@@ -79,8 +69,8 @@ impl IoMem {
             vstd_extra::panic::may_panic(),
         ensures
             result matches Ok(io_mem) ==> {
-                &&& io_mem.paddr_spec() == range.start
-                &&& io_mem.length_spec() == range.end - range.start
+                &&& io_mem.paddr() == range.start
+                &&& io_mem.length() == range.end - range.start
             },
     )]
     pub fn acquire(range: Range<Paddr>) -> Result<IoMem> {
@@ -93,15 +83,13 @@ impl IoMem {
     }
 
     /// Returns the physical address of the I/O memory.
-    #[verus_verify]
-    #[verus_spec(returns self.paddr_spec())]
+    #[verus_verify(dual_spec)]
     pub fn paddr(&self) -> Paddr {
         self.pa
     }
 
     /// Returns the length of the I/O memory region.
-    #[verus_verify]
-    #[verus_spec(returns self.length_spec())]
+    #[verus_verify(dual_spec)]
     pub fn length(&self) -> usize {
         self.limit
     }
@@ -114,13 +102,13 @@ impl IoMem {
     #[verus_verify]
     #[verus_spec(result =>
         requires
-            range.start < range.end <= self.length_spec(),
+            range.start < range.end <= self.length(),
             self.offset_spec() + range.start <= usize::MAX,
-            self.paddr_spec() + range.start <= usize::MAX,
+            self.paddr() + range.start <= usize::MAX,
         ensures
             result.offset_spec() == self.offset_spec() + range.start,
-            result.length_spec() == range.end - range.start,
-            result.paddr_spec() == self.paddr_spec() + range.start,
+            result.length() == range.end - range.start,
+            result.paddr() == self.paddr() + range.start,
     )]
     pub fn slice(&self, range: Range<usize>) -> Self {
         // This ensures `range.start < range.end` and `range.end <= limit`.
@@ -152,8 +140,8 @@ impl IoMem {
             range.start <= range.end,
             range.end <= usize::MAX - (PAGE_SIZE - 1),
         ensures
-            result.paddr_spec() == range.start,
-            result.length_spec()
+            result.paddr() == range.start,
+            result.length()
                 == range.end - range.start,
     )]
     pub(crate) unsafe fn new(range: Range<Paddr>, flags: PageFlags, cache: CachePolicy) -> Self {
