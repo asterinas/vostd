@@ -29,6 +29,34 @@ use crate::mm::{
 
 verus! {
 
+pub open spec fn valid_slot_vaddr(addr: Vaddr) -> bool {
+    &&& valid_frame_paddr(meta_to_frame(addr))
+    &&& addr % META_SLOT_SIZE == 0
+    &&& FRAME_METADATA_RANGE.start <= addr < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
+        * META_SLOT_SIZE
+}
+
+/// The permission that is given out by `Frame::into_raw`
+pub tracked struct FrameRawPerms {
+    pub slot_perm: &'static simple_pptr::PointsTo<MetaSlot>,
+    pub metadata_perm: FracMetadataPerm,
+}
+
+impl FrameRawPerms {
+    pub open spec fn slot_vaddr(self) -> Vaddr {
+        self.slot_perm.pptr().addr()
+    }
+}
+
+impl Inv for FrameRawPerms {
+    open spec fn inv(self) -> bool {
+        &&& valid_slot_vaddr(self.slot_vaddr())
+        &&& self.slot_perm.is_init()
+        &&& self.metadata_perm.frac() == 1
+        &&& MetaSlot::perms_related(*self.slot_perm, self.metadata_perm.resource())
+    }
+}
+
 impl<M: ?Sized> Frame<M> {
     /// Accessor for the fractional metadata permission tracked by this `Frame` handle.
     #[verifier::inline]
@@ -63,10 +91,7 @@ impl<M: ?Sized> Frame<M> {
     /// `ManuallyDrop<Frame>` values embedded in `FrameRef`.
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
-        &&& valid_frame_paddr(meta_to_frame(self.ptr.addr()))
-        &&& self.ptr.addr() % META_SLOT_SIZE == 0
-        &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
-            + MAX_NR_PAGES * META_SLOT_SIZE
+        &&& valid_slot_vaddr(self.ptr.addr())
         &&& self.slot_perm().pptr() == self.ptr
         &&& self.slot_perm().is_init()
     }

@@ -32,11 +32,14 @@ Formal verification has surfaced real bugs in OSTD and the upstream Asterinas ke
 vostd/
 ├── dv/               # Build system
 ├── ostd/
+│   ├── libs/         # Auxiliary libraries for OSTD
+│   │   ├── align_ext/
+│   │   ├── id-alloc/
+│   │   └── ostd-pod/
 │   ├── specs/        # Verus specifications
 │   └── src/          # OSTD implementation and proofs
 └── verified_libs/    # Auxiliary verified libraries
     ├── bitflags/
-    ├── ostd-pod/
     └── vstd_extra/
 ```
 
