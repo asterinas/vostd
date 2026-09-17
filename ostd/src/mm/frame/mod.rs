@@ -150,6 +150,7 @@ impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
 */
 
 verus!{
+
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEqSpecImpl for Frame<M>{
     open spec fn obeys_eq_spec() -> bool { true }
 
@@ -510,35 +511,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// - **Safety**: The frame must be in use (not unused).
+    /// - **Safety**: The frame's invariant must be satisfied.
     /// ## Postconditions
-    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
     /// - **Correctness**: The function returns the physical address of the frame.
-    /// - **Correctness**: The frame's raw count is incremented.
-    /// - **Safety**: Frames other than this one are not affected by the call.
     /// ## Safety
     /// - We require the slot to be in use to ensure that a fresh frame handle will not be created until the raw frame is restored.
     /// - The owner's raw count is incremented so that we can enforce the safety requirement on `Frame::from_raw`.
     #[verus_spec(r =>
         with
-            -> raw_permission: Tracked<FracMetadataPerm>,
+            -> raw_permission: Tracked<FrameRawPerms>,
         requires
             self.inv(),
         ensures
             r == self.start_paddr_spec(),
-            raw_permission@.frac() == 1,
-            raw_permission@.id() == self.frac_metadata_perm().id(),
-            MetaSlot::perms_related(self.slot_perm(), raw_permission@.resource()),
+            raw_permission@.inv(),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use group_page_meta;
 
         let mut this = self;
-        let tracked frame_permission = this.tracked_metadata_perm.tracked_take();
+        proof_decl!{
+            let tracked perm = FrameRawPerms {
+                slot_perm: &*this.tracked_slot_perm,
+                metadata_perm: this.tracked_metadata_perm.tracked_take(),
+            };
+        }
 
         let this = ManuallyDrop::new(this);
-        proof_with!(|= Tracked(frame_permission));
+        proof_with!(|= Tracked(perm));
         this.start_paddr()
     }
 }
