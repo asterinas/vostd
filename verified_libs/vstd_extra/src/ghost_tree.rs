@@ -606,22 +606,21 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
         returns
             Self::new_val(val, lv),
     {
-        let tracked children = Self::tracked_none_seq(N as nat);
-        Self::tracked_new(val, lv, children)
-    }
-
-    proof fn tracked_none_seq(n: nat) -> (tracked res: Seq<Option<Self>>)
-        ensures
-            res == Seq::new(n, |i| None),
-        decreases n,
-    {
-        if n == 0 {
-            Seq::tracked_empty()
-        } else {
-            let tracked mut res = Self::tracked_none_seq((n - 1) as nat);
-            res.tracked_push(None);
-            res
+        proof fn tracked_none_seq<A>(n: nat) -> (tracked res: Seq<Option<A>>)
+            ensures
+                res == Seq::new(n, |i| None),
+            decreases n,
+        {
+            if n == 0 {
+                Seq::tracked_empty()
+            } else {
+                let tracked mut res = tracked_none_seq((n - 1) as nat);
+                res.tracked_push(None);
+                res
+            }
         }
+        let tracked children = tracked_none_seq(N as nat);
+        Self::tracked_new(val, lv, children)
     }
 
     pub proof fn lemma_new_default_preserves_inv(lv: nat)
