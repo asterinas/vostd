@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789592024916,
+  "lastUpdate": 1789617261552,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -1344,6 +1344,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=573ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1cb1247324ac8da185f4bd9349327b4bbf1ef57",
+          "message": "remove unused ostd/specs/mm/vm_space_embedding.rs (#777)\n\nCo-authored-by: Je5s1e <chaoccc22@gmail.com>",
+          "timestamp": "2026-09-17T11:39:41+08:00",
+          "tree_id": "e615232c93922ae3d2327f9690f85a893eeaad38",
+          "url": "https://github.com/asterinas/vostd/commit/f1cb1247324ac8da185f4bd9349327b4bbf1ef57"
+        },
+        "date": 1789617260444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1160759419,
+            "unit": "rlimit",
+            "extra": "verified=4048 errors=0 smt-run=366,808ms wall=231,512ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 457151491,
+            "unit": "rlimit",
+            "extra": "smt-run=164,159ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 80175175,
+            "unit": "rlimit",
+            "extra": "smt-run=26,805ms"
+          },
+          {
+            "name": "rlimit: specs::mm::embedding",
+            "value": 53822410,
+            "unit": "rlimit",
+            "extra": "smt-run=26,053ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,513ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 8889145,
+            "unit": "rlimit",
+            "extra": "smt-run=1,412ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,775ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,197ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2004845,
+            "unit": "rlimit",
+            "extra": "smt-run=919ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=619ms"
           }
         ]
       }
