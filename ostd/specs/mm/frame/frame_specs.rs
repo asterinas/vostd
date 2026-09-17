@@ -32,7 +32,8 @@ verus! {
 pub open spec fn valid_slot_vaddr(addr: Vaddr) -> bool {
     &&& valid_frame_paddr(meta_to_frame(addr))
     &&& addr % META_SLOT_SIZE == 0
-    &&& FRAME_METADATA_RANGE.start <= addr < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
+    &&& FRAME_METADATA_RANGE.start <= addr < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
+        * META_SLOT_SIZE
 }
 
 /// The permission that is given out by `Frame::into_raw`
