@@ -174,19 +174,31 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
 {
     if n == 0 {
         assert(word >> n == word) by (bit_vector)
-            requires n == 0;
+            requires
+                n == 0,
+        ;
     } else if word & 1u64 != 0 {
         assert((word & (1u64 << 0u32)) != 0) by (bit_vector)
-            requires word & 1u64 != 0;
+            requires
+                word & 1u64 != 0,
+        ;
         assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
     } else {
         let shifted = word >> 1u32;
         assert(shifted != 0) by (bit_vector)
-            requires shifted == word >> 1u32, word != 0, word & 1u64 == 0;
+            requires
+                shifted == word >> 1u32,
+                word != 0,
+                word & 1u64 == 0,
+        ;
         let prev: u32 = (n - 1) as u32;
         assert(prev + 1 == n);
         assert(shifted >> prev == word >> n) by (bit_vector)
-            requires shifted == word >> 1u32, n == prev + 1, n <= 64;
+            requires
+                shifted == word >> 1u32,
+                n == prev + 1,
+                n <= 64,
+        ;
         assert(shifted >> prev == 0);
         lemma_u64_nonzero_has_set_bit_aux(shifted, prev);
         let b = choose|b: u32| b < n - 1 && #[trigger] (shifted & (1u64 << b)) != 0;
@@ -198,7 +210,8 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
                 shifted == word >> 1u32,
                 (shifted & (1u64 << b)) != 0,
                 next == b + 1,
-                b < 63;
+                b < 63,
+        ;
         assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
     }
 }
