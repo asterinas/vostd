@@ -2,6 +2,8 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 
 use vstd_extra::external::convert::AsRefSpec;
 use vstd_extra::{
@@ -380,6 +382,12 @@ pub struct DmaStreamInner<M: AnyUFrameMeta + ?Sized> {
 /// The owner of the inner part of a [`DmaStream`].
 pub tracked struct DmaStreamInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
+}
+
+// This owner contains only PhantomData and carries no subjective memory permissions.
+#[cfg(feature = "irc11")]
+unsafe impl<M: AnyUFrameMeta + ?Sized> Objective for DmaStreamInnerOwner<M> {
+
 }
 
 pub ghost struct DmaStreamInnerInvariant;

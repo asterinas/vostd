@@ -2,6 +2,8 @@
 use core::marker::PhantomData;
 
 use vstd::prelude::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
@@ -64,6 +66,12 @@ pub struct DmaCoherentInner<M: AnyUFrameMeta + ?Sized> {
 /// The owner of the inner part of a [`DmaCoherent`].
 pub tracked struct DmaCoherentInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub _marker: PhantomData<M>,
+}
+
+// This owner contains only PhantomData and carries no subjective memory permissions.
+#[cfg(feature = "irc11")]
+unsafe impl<M: AnyUFrameMeta + ?Sized> Objective for DmaCoherentInnerOwner<M> {
+
 }
 
 pub ghost struct DmaCoherentInnerInvariant;

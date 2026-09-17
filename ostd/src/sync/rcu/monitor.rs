@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{atomic_ghost::AtomicBool, atomic_with_ghost, prelude::*};
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
@@ -28,6 +30,12 @@ pub(super) struct State {
 
 /// Owner of this [`RcuMonitor`].
 pub(super) tracked struct RcuMonitorOwner {}
+
+// This empty owner carries no subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl Objective for RcuMonitorOwner {
+
+}
 
 pub(super) ghost struct RcuMonitorInvariant;
 

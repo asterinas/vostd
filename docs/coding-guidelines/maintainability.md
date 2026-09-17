@@ -203,6 +203,28 @@ See also: PR [#679](https://github.com/asterinas/vostd/pull/679#discussion_r3690
 [#723](https://github.com/asterinas/vostd/pull/723#issuecomment-5392419977), and
 [#672](https://github.com/asterinas/vostd/pull/672#issuecomment-5099747820).
 
+### Inline single-use proof helpers
+
+<!-- guideline: inline-single-use-proof-helpers -->
+
+Keep a proof step in its caller when it has only one call site and does not
+define an independent abstraction. Before adding a module-level or associated
+`proof fn`, search its call sites. If there is only one, put the proof body at
+that call site. When recursion or another language constraint requires a named
+function, define a local `proof fn` inside the caller so the helper does not
+expand the surrounding module's proof API.
+
+Retain a separate proof function only when it provides real reuse, states a
+fact that callers should depend on as an abstraction boundary, or demonstrably
+isolates proof context needed for reliable verification. Do not extract a
+helper merely to name a short proof block or structure generated proof code.
+Likewise, delete a trivial helper when its fact verifies directly at the call
+site.
+
+See also: PR [#775](https://github.com/asterinas/vostd/pull/775#discussion_r4032713402),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3920738708), and
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3920718897).
+
 ### Avoid redundant mode markers
 
 <!-- guideline: avoid-redundant-mode-markers -->
