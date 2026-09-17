@@ -54,11 +54,10 @@ pub(crate) fn has_pci_bus() -> bool {
 pub(crate) const MSIX_DEFAULT_MSG_ADDR: u32 = 0xFEE0_0000;
 
 #[verus_verify]
-#[verus_spec(address =>
-    ensures
-        address == MSIX_DEFAULT_MSG_ADDR | 0b1_1000
-            | ((remapping_index & 0x7FFF) << 5)
-            | ((remapping_index & 0x8000) >> 13),
+#[verus_spec(returns
+    MSIX_DEFAULT_MSG_ADDR | 0b1_1000
+        | ((remapping_index & 0x7FFF) << 5)
+        | ((remapping_index & 0x8000) >> 13),
 )]
 pub(crate) fn construct_remappable_msix_address(remapping_index: u32) -> u32 {
     // Use remappable format. The bits[4:3] should be always set to 1 according to the manual.
@@ -73,12 +72,11 @@ pub(crate) fn construct_remappable_msix_address(remapping_index: u32) -> u32 {
 
 /// Encodes the bus, device, and function into a port address for use with the PCI I/O port.
 #[verus_verify]
-#[verus_spec(port =>
-    ensures
-        port == (1u32 << 31)
-            | ((location.bus as u32) << 16)
-            | (((location.device as u32) & 0b11111) << 11)
-            | (((location.function as u32) & 0b111) << 8),
+#[verus_spec(returns
+    (1u32 << 31)
+        | ((location.bus as u32) << 16)
+        | (((location.device as u32) & 0b11111) << 11)
+        | (((location.function as u32) & 0b111) << 8),
 )]
 fn encode_as_port(location: &PciDeviceLocation) -> u32 {
     // 1 << 31: Configuration enable

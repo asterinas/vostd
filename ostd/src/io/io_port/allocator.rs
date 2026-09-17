@@ -6,8 +6,7 @@ use vstd::{
     resource::set::{GhostSetAuth, GhostSubset},
     tokens::InstanceId,
 };
-use vstd_extra::ownership::Inv;
-use vstd_extra::resource_invariant::ResourceInvariant;
+use vstd_extra::{ownership::Inv, resource_invariant::ResourceInvariant};
 
 use core::ops::Range;
 
@@ -114,9 +113,6 @@ pub(crate) open spec fn io_port_inner_inv_values(
     &&& id_alloc_capacity(allocator) == crate::arch::io::MAX_IO_PORT as usize
 }
 
-} // verus!
-verus! {
-
 /// Authority over the set of PIO ids currently allocated by the global allocator.
 ///
 /// The `Loc` of `auth` identifies the protocol instance and `auth@` is the set of allocated
@@ -200,9 +196,6 @@ impl IoPortClaim {
         self.subset@
     }
 }
-
-} // verus!
-verus! {
 
 ghost struct IoPortAllocInvariant;
 

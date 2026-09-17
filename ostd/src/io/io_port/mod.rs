@@ -140,7 +140,7 @@ impl<T, A> IoPort<T, A> {
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
-            result is Ok <== claim@ is Some,
+            result is Ok <==> claim@ is Some,
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
@@ -178,7 +178,7 @@ impl<T, A> IoPort<T, A> {
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
-            result is Ok <== claim@ is Some,
+            result is Ok <==> claim@ is Some,
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()

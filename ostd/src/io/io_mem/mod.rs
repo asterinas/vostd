@@ -114,8 +114,7 @@ impl IoMem {
     #[verus_verify]
     #[verus_spec(result =>
         requires
-            range.start < range.end,
-            range.end <= self.length_spec(),
+            range.start < range.end <= self.length_spec(),
             self.offset_spec() + range.start <= usize::MAX,
             self.paddr_spec() + range.start <= usize::MAX,
         ensures
