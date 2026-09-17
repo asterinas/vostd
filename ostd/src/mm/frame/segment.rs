@@ -535,13 +535,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
 #[verus_verify]
 impl<M: AnyFrameMeta + ?Sized> Segment<M> {
-    /// Projects the metadata-slot permissions from raw frame permissions.
-    pub open spec fn raw_slot_perms(raw_perms: Seq<FrameRawPerms>) -> Seq<
-        &'static PointsTo<MetaSlot>,
-    > {
-        raw_perms.map_values(|perm: FrameRawPerms| perm.slot_perm)
-    }
-
     /// Projects the fractional metadata permissions from raw frame permissions.
     pub open spec fn raw_metadata_perms(raw_perms: Seq<FrameRawPerms>) -> Seq<FracMetadataPerm> {
         raw_perms.map_values(|perm: FrameRawPerms| perm.metadata_perm)
@@ -594,16 +587,16 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         self.tracked_perms@->0
     }
 
-    pub closed spec fn permissions(&self) -> Seq<FracMetadataPerm> {
-        Self::raw_metadata_perms(self.raw_perms())
+    pub open spec fn metadata_perms(&self) -> Seq<FracMetadataPerm> {
+        self.raw_perms().map_values(|perm: FrameRawPerms| perm.metadata_perm)
     }
 
     pub closed spec fn inner_perm_inv(&self) -> bool {
         self.tracked_perms@ is Some
     }
 
-    pub closed spec fn slot_perms(&self) -> Seq<&'static PointsTo<MetaSlot>> {
-        Self::raw_slot_perms(self.raw_perms())
+    pub open spec fn slot_perms(&self) -> Seq<&'static PointsTo<MetaSlot>> {
+        self.raw_perms().map_values(|perm: FrameRawPerms| perm.slot_perm)
     }
 }
 
@@ -839,8 +832,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             self.inv(),
         ensures
             r == self.range(),
-            Self::raw_slot_perms(raw_perms@) == self.slot_perms(),
-            Self::raw_metadata_perms(raw_perms@) == self.permissions(),
+            raw_perms@ == self.raw_perms(),
     )]
     pub(crate) fn into_raw(self) -> Range<Paddr> {
         let mut this = self;
@@ -931,12 +923,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
 
         if self.range.start < self.range.end {
             proof {
-                assert(self.raw_perms().len() > 0);
-                assert(self.permissions()[0].frac() == 1);
                 assert(self.raw_perms()[0].slot_perm == self.slot_perms()[0]);
-                assert(self.raw_perms()[0].metadata_perm == self.permissions()[0]);
-                assert(self.raw_perms()[0].inv());
-                assert(self.raw_perms()[0].slot_vaddr() == frame_to_meta(self.range.start));
+                assert(self.raw_perms()[0].metadata_perm == self.metadata_perms()[0]);
             }
             let tracked mut raw_perms = self.tracked_perms.tracked_borrow_mut();
             let tracked perm = raw_perms.tracked_pop_front();
@@ -966,13 +954,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     #[verifier::prophetic]
     closed spec fn remaining(&self) -> Seq<Self::Item> {
         Seq::new(
-            self.permissions().len() as nat,
+            self.metadata_perms().len() as nat,
             |i: int|
                 {
                     Frame::<M>::from_raw_spec(
                         (self.range().start + i * PAGE_SIZE) as usize,
                         self.slot_perms()[i],
-                        Some(self.permissions()[i]),
+                        Some(self.metadata_perms()[i]),
                     )
                 },
         )
@@ -988,12 +976,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     }
 
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
-        if 0 <= index < self.permissions().len() {
+        if 0 <= index < self.metadata_perms().len() {
             Some(
                 Frame::<M>::from_raw_spec(
                     (self.range().start + index * PAGE_SIZE) as usize,
                     self.slot_perms()[index],
-                    Some(self.permissions()[index]),
+                    Some(self.metadata_perms()[index]),
                 ),
             )
         } else {
@@ -1215,16 +1203,16 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
         &&& self.end_paddr() % PAGE_SIZE == 0
         &&& self.start_paddr() <= self.end_paddr() <= MAX_PADDR
         &&& self.inner_perm_inv()
-        &&& self.permissions().len() == self.len()
+        &&& self.metadata_perms().len() == self.len()
         &&& self.slot_perms().len() == self.len()
         &&& forall|i: int|
-            #![trigger self.permissions()[i]]
-            0 <= i < self.permissions().len() ==> {
+            #![trigger self.metadata_perms()[i]]
+            0 <= i < self.metadata_perms().len() ==> {
                 let paddr = (self.range().start + i * PAGE_SIZE) as usize;
                 &&& self.slot_perms()[i].addr() == frame_to_meta(paddr)
                 &&& self.slot_perms()[i].is_init()
-                &&& self.permissions()[i].frac() == 1
-                &&& MetaSlot::perms_related(*self.slot_perms()[i], self.permissions()[i].resource())
+                &&& self.metadata_perms()[i].frac() == 1
+                &&& MetaSlot::perms_related(*self.slot_perms()[i], self.metadata_perms()[i].resource())
             }
     }
 }
