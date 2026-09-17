@@ -45,30 +45,27 @@ const NR_PARTS_NO_ALLOC: usize = 2;
 
 } // verus!
 #[verus_verify]
+#[verifier::when_used_as_spec(part_idx_spec)]
 #[verus_spec(
-    returns part_idx_spec(cpu_id) as usize,
+    returns part_idx_spec(cpu_id),
 )]
 const fn part_idx(cpu_id: CpuId) -> usize {
-    proof! {
-        reveal(part_idx_spec);
-    }
     cpu_id.as_usize() / BITS_PER_PART
 }
 
 #[verus_verify]
+#[verifier::when_used_as_spec(bit_idx_spec)]
 #[verus_spec(
-    returns bit_idx_spec(cpu_id) as usize,
+    returns bit_idx_spec(cpu_id),
 )]
 const fn bit_idx(cpu_id: CpuId) -> usize {
-    proof! {
-        reveal(bit_idx_spec);
-    }
     cpu_id.as_usize() % BITS_PER_PART
 }
 
 #[verus_verify]
+#[verifier::when_used_as_spec(parts_for_cpus_exec_spec)]
 #[verus_spec(
-    returns parts_for_cpus_spec(num_cpus as int) as usize,
+    returns parts_for_cpus_exec_spec(num_cpus),
 )]
 const fn parts_for_cpus(num_cpus: usize) -> usize {
     proof! {
@@ -104,13 +101,17 @@ pub closed spec fn parts_for_cpus_spec(n: int) -> int {
     }
 }
 
-/// The 64-bit word holding cpu id `id`, and the bit within that word.
-pub closed spec fn part_idx_spec(cpu_id: CpuId) -> int {
-    cpu_id@ / 64
+closed spec fn parts_for_cpus_exec_spec(num_cpus: usize) -> usize {
+    parts_for_cpus_spec(num_cpus as int) as usize
 }
 
-pub closed spec fn bit_idx_spec(cpu_id: CpuId) -> int {
-    cpu_id@ % 64
+/// The 64-bit word holding cpu id `id`, and the bit within that word.
+pub closed spec fn part_idx_spec(cpu_id: CpuId) -> usize {
+    (cpu_id@ / 64) as usize
+}
+
+pub closed spec fn bit_idx_spec(cpu_id: CpuId) -> usize {
+    (cpu_id@ % 64) as usize
 }
 
 /// Number of set bits in the prefix `seq[..end]`.
