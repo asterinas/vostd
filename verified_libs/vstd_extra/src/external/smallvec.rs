@@ -19,9 +19,10 @@
 //! Allocation-growth panics (capacity overflow past `isize::MAX`) are noted on each
 //! spec and excluded by an additional `requires`; `SmallVec::reserve` rounds the
 //! capacity up to the next power of two, so those bounds use a factor of 2.
-use core::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut, Index, IndexMut};
+use core::slice::SliceIndex;
 use smallvec::{Array, SmallVec};
-use vstd::{layout::size_of, prelude::*};
+use vstd::{layout::size_of, prelude::*, slice::SliceIndexSpec};
 
 verus! {
 
@@ -53,8 +54,19 @@ pub broadcast axiom fn axiom_smallvec_array_u64_2()
         #[trigger] obeys_smallvec_array::<[u64; 2]>(),
 ;
 
+/// `SmallVec`'s single-position indexing precondition is the slice bounds check.
+pub broadcast axiom fn axiom_smallvec_index_req<A: Array>(v: &SmallVec<A>, index: usize)
+    requires
+        obeys_smallvec_array::<A>(),
+    ensures
+        #![trigger <SmallVec<A> as vstd::std_specs::core::IndexSpec<usize>>::index_req(v, &index)]
+        <SmallVec<A> as vstd::std_specs::core::IndexSpec<usize>>::index_req(v, &index) == (index
+            < smallvec_view(v).len()),
+;
+
 pub broadcast group group_smallvec_models {
     axiom_smallvec_array_u64_2,
+    axiom_smallvec_index_req,
 }
 
 /// Constructs a new, empty `SmallVec`.
@@ -86,6 +98,32 @@ pub assume_specification<A: Array>[ SmallVec::<A>::len ](v: &SmallVec<A>) -> usi
         obeys_smallvec_array::<A>(),
     returns
         smallvec_view(v).len() as usize,
+;
+
+/// Borrows the element at `index`.
+pub assume_specification<A: Array, I: SliceIndex<[A::Item]>>[ SmallVec::<A>::index ](
+    v: &SmallVec<A>,
+    index: I,
+) -> (output: &<I as SliceIndex<[A::Item]>>::Output)
+    ensures
+        obeys_smallvec_array::<A>() ==> exists|slice: &[A::Item]| #[trigger]
+            slice@ == smallvec_view(v) && call_ensures(
+                <I as SliceIndex<[A::Item]>>::index,
+                (index, slice),
+                output,
+            ),
+;
+
+/// Mutably borrows the element at `index`; writes through the borrow are reflected
+/// in the `SmallVec`'s final view.
+pub assume_specification<A: Array, I: SliceIndex<[A::Item]>>[ SmallVec::<A>::index_mut ](
+    v: &mut SmallVec<A>,
+    index: I,
+) -> (output: &mut <I as SliceIndex<[A::Item]>>::Output)
+    ensures
+        obeys_smallvec_array::<A>() ==> exists|slice: &mut [A::Item]| #[trigger]
+            slice@ == smallvec_view(old(v)) && final(slice)@ == smallvec_view(final(v))
+                && call_ensures(<I as SliceIndex<[A::Item]>>::index_mut, (index, slice), output),
 ;
 
 /// Appends `value` to the end.

@@ -97,7 +97,7 @@ broadcast use {
 };
 
 /// `div_ceil(n, BITS_PER_PART)`: the number of 64-bit words needed to hold `n` bits.
-pub closed spec fn parts_for_cpus_spec(n: usize) -> usize {
+spec fn parts_for_cpus_spec(n: usize) -> usize {
     if n == 0 {
         0
     } else {
@@ -106,31 +106,22 @@ pub closed spec fn parts_for_cpus_spec(n: usize) -> usize {
 }
 
 /// The 64-bit word holding bit `i`.
-pub closed spec fn part_idx_spec(i: int) -> usize {
+spec fn part_idx_spec(i: int) -> usize {
     (i / 64) as usize
 }
 
 /// The position of bit `i` within its 64-bit word.
-pub closed spec fn bit_idx_spec(i: int) -> usize {
+spec fn bit_idx_spec(i: int) -> usize {
     (i % 64) as usize
 }
 
 /// Number of set bits in all words of `seq`.
-pub open spec fn count_set_bits(seq: Seq<u64>) -> int {
+spec fn count_set_bits(seq: Seq<u64>) -> int {
     seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
 }
 
-/// Expected value of word `idx` in a full CPU set.
-spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
-    if idx == len - 1 && bit_idx_spec(num_cpus) != 0 {
-        ((1u64 << bit_idx_spec(num_cpus)) - 1) as u64
-    } else {
-        !0u64
-    }
-}
-
 /// Bit `i` is set in the bit sequence `seq`.
-pub open spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
+spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
     if 0 <= i < 64 * seq.len() as int {
         (seq[part_idx_spec(i) as int] & (1u64 << bit_idx_spec(i))) != 0
     } else {
@@ -261,9 +252,7 @@ impl CpuSet {
         if part_idx >= self.bits.len() {
             self.bits.resize(part_idx + 1, 0);
         }
-        // Original exec: `self.bits[part_idx] |= 1 << bit_idx;`
-        // routed via `as_mut_slice()` — SmallVec's own `IndexMut` impl has no Verus model.
-        self.bits.as_mut_slice()[part_idx] |= 1 << bit_idx;
+        self.bits[part_idx] |= 1 << bit_idx;
         proof! {
             let id = cpu_id@;
             let n = cpu_count();
@@ -305,9 +294,7 @@ impl CpuSet {
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
         if part_idx < self.bits.len() {
-            // Original exec: `self.bits[part_idx] &= !(1 << bit_idx);`
-            // routed via `as_mut_slice()` — SmallVec's own `IndexMut` impl has no Verus model.
-            self.bits.as_mut_slice()[part_idx] &= !(1 << bit_idx);
+            self.bits[part_idx] &= !(1 << bit_idx);
             proof! {
                 let id = cpu_id@;
                 let n = cpu_count();
@@ -347,9 +334,7 @@ impl CpuSet {
         }
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
-        // Original exec: `self.bits[part_idx]`
-        // routed via `as_slice()` — SmallVec's own `Index` impl has no Verus model.
-        part_idx < self.bits.len() && (self.bits.as_slice()[part_idx] & (1 << bit_idx)) != 0
+        part_idx < self.bits.len() && (self.bits[part_idx] & (1 << bit_idx)) != 0
     }
 
     /// Returns the number of CPUs in the set.
@@ -385,7 +370,7 @@ impl CpuSet {
                 smallvec_view(&self.bits).len() - idx,
         )]
         while idx < self.bits.len() {
-            let part = self.bits.as_slice()[idx];
+            let part = self.bits[idx];
             let part_count = part.count_ones() as usize;
             proof! {
                 assert(0 <= u64_set_bits(part) <= 64);
@@ -496,7 +481,7 @@ impl CpuSet {
             } else {
                 !0
             };
-            if self.bits.as_slice()[idx] != expected {
+            if self.bits[idx] != expected {
                 proof! {
                     assert(expected
                         == full_set_word(cpu_count(), smallvec_view(&self.bits).len() as int, idx as int));
@@ -593,7 +578,7 @@ impl CpuSet {
                         assert((*id as int) / 64 == part_idx as int);
                         assert((*id as int) % 64 == bit_idx as int);
                     }
-                    (self.bits.as_slice()[part_idx] & (1 << bit_idx)) != 0
+                    (self.bits[part_idx] & (1 << bit_idx)) != 0
                 },
             )
             .map(
@@ -662,9 +647,7 @@ impl CpuSet {
                 lemma_fundamental_div_mod(n - 1, 64);
                 assert(64 * ((n - 1) / 64) < n);
             }
-            // Original exec: `self.bits[num_parts - 1] &= (1 << (num_cpus % BITS_PER_PART)) - 1;`
-            // routed via `as_mut_slice()` — SmallVec's own `IndexMut` impl has no Verus model.
-            self.bits.as_mut_slice()[num_parts - 1] &= (1 << (num_cpus % BITS_PER_PART)) - 1;
+            self.bits[num_parts - 1] &= (1 << (num_cpus % BITS_PER_PART)) - 1;
             proof! {
                 let n = cpu_count();
                 let old_seq = smallvec_view(&old(self).bits);
@@ -792,6 +775,15 @@ impl AtomicCpuSet {
 // collected at the end of the file so that the APIs and critical proofs stay in focus.
 
 verus! {
+
+/// Expected value of word `idx` in a full CPU set.
+spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
+    if idx == len - 1 && bit_idx_spec(num_cpus) != 0 {
+        ((1u64 << bit_idx_spec(num_cpus)) - 1) as u64
+    } else {
+        !0u64
+    }
+}
 
 /// If every word of `seq` equals `val`, `bit_at(seq, j)` is just `val & (1<<b) != 0`.
 proof fn lemma_bit_at_uniform(seq: Seq<u64>, val: u64, j: int)
