@@ -230,16 +230,14 @@ pub struct MemoryRegionArray<const LEN: usize = MAX_REGIONS> {
 
 verus! {
 
-impl<const LEN: usize> Inv for MemoryRegionArray<LEN> {
-    closed spec fn inv(self) -> bool {
-        self.count <= LEN
-    }
-}
-
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.count <= LEN
+    }
+
+    pub closed spec fn inv(self) -> bool {
+        self.type_inv()
     }
 }
 
@@ -248,11 +246,6 @@ impl<const LEN: usize> View for MemoryRegionArray<LEN> {
 
     closed spec fn view(&self) -> MemoryRegionArrayModel<LEN> {
         MemoryRegionArrayModel { regions: Seq::new(self.count as nat, |i: int| self.regions[i]@) }
-    }
-}
-
-impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
-    proof fn view_preserves_inv(self) {
     }
 }
 
