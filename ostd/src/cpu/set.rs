@@ -150,81 +150,6 @@ pub open spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
     }
 }
 
-/// If every word of `seq` equals `val`, `bit_at(seq, j)` is just `val & (1<<b) != 0`.
-proof fn lemma_bit_at_uniform(seq: Seq<u64>, val: u64, j: int)
-    requires
-        forall|k: int| 0 <= k < seq.len() ==> seq[k] == val,
-        0 <= j < 64 * seq.len() as int,
-    ensures
-        bit_at(seq, j) == ((val & (1u64 << bit_idx_spec(j))) != 0),
-{
-    reveal(bit_at);
-    assert(seq[part_idx_spec(j) as int] == val);
-}
-
-proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
-    requires
-        word != 0,
-        n <= 64,
-        word >> n == 0,
-    ensures
-        exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0,
-    decreases n,
-{
-    if n == 0 {
-        assert(word >> n == word) by (bit_vector)
-            requires
-                n == 0,
-        ;
-    } else if word & 1u64 != 0 {
-        assert((word & (1u64 << 0u32)) != 0) by (bit_vector)
-            requires
-                word & 1u64 != 0,
-        ;
-        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
-    } else {
-        let shifted = word >> 1u32;
-        assert(shifted != 0) by (bit_vector)
-            requires
-                shifted == word >> 1u32,
-                word != 0,
-                word & 1u64 == 0,
-        ;
-        let prev: u32 = (n - 1) as u32;
-        assert(prev + 1 == n);
-        assert(shifted >> prev == word >> n) by (bit_vector)
-            requires
-                shifted == word >> 1u32,
-                n == prev + 1,
-                n <= 64,
-        ;
-        assert(shifted >> prev == 0);
-        lemma_u64_nonzero_has_set_bit_aux(shifted, prev);
-        let b = choose|b: u32| b < n - 1 && #[trigger] (shifted & (1u64 << b)) != 0;
-        assert(b < 63);
-        let next: u32 = (b + 1) as u32;
-        assert(next < n);
-        assert((word & (1u64 << next)) != 0) by (bit_vector)
-            requires
-                shifted == word >> 1u32,
-                (shifted & (1u64 << b)) != 0,
-                next == b + 1,
-                b < 63,
-        ;
-        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
-    }
-}
-
-proof fn lemma_u64_nonzero_has_set_bit(word: u64)
-    requires
-        word != 0,
-    ensures
-        exists|b: u32| b < 64 && #[trigger] (word & (1u64 << b)) != 0,
-{
-    assert(word >> 64u32 == 0) by (bit_vector);
-    lemma_u64_nonzero_has_set_bit_aux(word, 64);
-}
-
 impl View for CpuSet {
     type V = Set<int>;
 
@@ -241,29 +166,6 @@ impl CpuSet {
     }
 }
 
-proof fn lemma_cpucount_fits()
-    ensures
-        2 * (parts_for_cpus_spec(cpu_count() as usize) as int) * (size_of::<u64>() as int)
-            <= isize::MAX as int,
-{
-    if cpu_count() > 0 {
-        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
-            reveal(parts_for_cpus_spec)
-        };
-    }
-}
-
-proof fn lemma_count_fits()
-    ensures
-        64 * parts_for_cpus_spec(cpu_count() as usize) <= usize::MAX,
-{
-    if cpu_count() > 0 {
-        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
-            reveal(parts_for_cpus_spec)
-        };
-    }
-}
-
 impl Inv for CpuSet {
     /// The backing vector holds exactly `parts_for_cpus(cpu_count)` words, the view
     /// is bounded by `cpu_count`, and the unused tail bits (>= `cpu_count`) are clear.
@@ -276,72 +178,6 @@ impl Inv for CpuSet {
                 j,
             )
     }
-}
-
-/// A CPU set whose backing words are all zero has an empty abstract view.
-proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
-    requires
-        forall|i: int|
-            0 <= i < smallvec_view(&set.bits).len() ==> smallvec_view(&set.bits)[i] == 0u64,
-    ensures
-        set@ == Set::empty(),
-{
-    let seq = smallvec_view(&set.bits);
-    assert forall|j: int| !set@.contains(j) by {
-        if 0 <= j < cpu_count() && j < 64 * seq.len() {
-            lemma_bit_at_uniform(seq, 0u64, j);
-            lemma_u64_and_zero(1u64 << bit_idx_spec(j));
-        }
-    }
-    assert(set@ =~= Set::empty());
-}
-
-/// If every backing word has the full-set value, every existing CPU bit is set.
-proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
-    requires
-        set.inv(),
-        forall|i: int|
-            #![trigger smallvec_view(&set.bits)[i]]
-            0 <= i < smallvec_view(&set.bits).len() ==> smallvec_view(&set.bits)[i]
-                == full_set_word(cpu_count(), smallvec_view(&set.bits).len() as int, i),
-    ensures
-        set@ == Set::range(0, cpu_count()),
-{
-    let seq = smallvec_view(&set.bits);
-    let n = cpu_count();
-    let len = seq.len() as int;
-    assert(n > 0);
-    reveal(parts_for_cpus_spec);
-    assert(parts_for_cpus_spec(n as usize) as int == (n + 63) / 64);
-    assert(len == (n + 63) / 64);
-    assert forall|a: int|
-        #![trigger set@.contains(a)]
-        set@.contains(a) == Set::range(0, n).contains(a) by {
-        if 0 <= a < n {
-            lemma_fundamental_div_mod(a, 64);
-            lemma_fundamental_div_mod(n, 64);
-            assert(0 <= a / 64 < len);
-            assert(seq[a / 64] == full_set_word(n, len, a / 64));
-            let p = a / 64;
-            let b = a % 64;
-            if a / 64 == len - 1 && n % 64 != 0 {
-                assert(a % 64 < n % 64);
-                let k = n % 64;
-                let mask = seq[p];
-                assert(0 < k < 64);
-                assert(mask == ((1u64 << (k as usize)) - 1) as u64);
-                lemma_u64_masked_bit_keep(!0u64, mask, k, b);
-                lemma_u64_allones_bit(b);
-                assert(!0u64 & mask == mask) by (bit_vector);
-                assert((mask & (1u64 << (b as usize))) != 0);
-            } else {
-                assert(seq[p] == !0u64);
-                lemma_u64_allones_bit(b);
-            }
-            assert(bit_at(seq, a));
-        }
-    }
-    assert(set@ == Set::range(0, n));
 }
 
 } // verus!
@@ -955,6 +791,181 @@ impl AtomicCpuSet {
     }
 }
 
+// Private auxiliary proof lemmas backing the implementations above. They are
+// collected at the end of the file so that the APIs and critical proofs stay in focus.
+
+verus! {
+
+/// If every word of `seq` equals `val`, `bit_at(seq, j)` is just `val & (1<<b) != 0`.
+proof fn lemma_bit_at_uniform(seq: Seq<u64>, val: u64, j: int)
+    requires
+        forall|k: int| 0 <= k < seq.len() ==> seq[k] == val,
+        0 <= j < 64 * seq.len() as int,
+    ensures
+        bit_at(seq, j) == ((val & (1u64 << bit_idx_spec(j))) != 0),
+{
+    reveal(bit_at);
+    assert(seq[part_idx_spec(j) as int] == val);
+}
+
+proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
+    requires
+        word != 0,
+        n <= 64,
+        word >> n == 0,
+    ensures
+        exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0,
+    decreases n,
+{
+    if n == 0 {
+        assert(word >> n == word) by (bit_vector)
+            requires
+                n == 0,
+        ;
+    } else if word & 1u64 != 0 {
+        assert((word & (1u64 << 0u32)) != 0) by (bit_vector)
+            requires
+                word & 1u64 != 0,
+        ;
+        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
+    } else {
+        let shifted = word >> 1u32;
+        assert(shifted != 0) by (bit_vector)
+            requires
+                shifted == word >> 1u32,
+                word != 0,
+                word & 1u64 == 0,
+        ;
+        let prev: u32 = (n - 1) as u32;
+        assert(prev + 1 == n);
+        assert(shifted >> prev == word >> n) by (bit_vector)
+            requires
+                shifted == word >> 1u32,
+                n == prev + 1,
+                n <= 64,
+        ;
+        assert(shifted >> prev == 0);
+        lemma_u64_nonzero_has_set_bit_aux(shifted, prev);
+        let b = choose|b: u32| b < n - 1 && #[trigger] (shifted & (1u64 << b)) != 0;
+        assert(b < 63);
+        let next: u32 = (b + 1) as u32;
+        assert(next < n);
+        assert((word & (1u64 << next)) != 0) by (bit_vector)
+            requires
+                shifted == word >> 1u32,
+                (shifted & (1u64 << b)) != 0,
+                next == b + 1,
+                b < 63,
+        ;
+        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
+    }
+}
+
+proof fn lemma_u64_nonzero_has_set_bit(word: u64)
+    requires
+        word != 0,
+    ensures
+        exists|b: u32| b < 64 && #[trigger] (word & (1u64 << b)) != 0,
+{
+    assert(word >> 64u32 == 0) by (bit_vector);
+    lemma_u64_nonzero_has_set_bit_aux(word, 64);
+}
+
+proof fn lemma_cpucount_fits()
+    ensures
+        2 * (parts_for_cpus_spec(cpu_count() as usize) as int) * (size_of::<u64>() as int)
+            <= isize::MAX as int,
+{
+    if cpu_count() > 0 {
+        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
+            reveal(parts_for_cpus_spec)
+        };
+    }
+}
+
+proof fn lemma_count_fits()
+    ensures
+        64 * parts_for_cpus_spec(cpu_count() as usize) <= usize::MAX,
+{
+    if cpu_count() > 0 {
+        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
+            reveal(parts_for_cpus_spec)
+        };
+    }
+}
+
+/// A CPU set whose backing words are all zero has an empty abstract view.
+proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
+    requires
+        smallvec_view(&set.bits).all(|w: u64| w == 0u64),
+    ensures
+        set@ == Set::empty(),
+{
+    let seq = smallvec_view(&set.bits);
+    // Unfold `Seq::all` into the elementwise form expected by `lemma_bit_at_uniform`
+    // (the quantifier in `all`'s body only triggers on the closure application `p(seq[k])`).
+    assert forall|k: int| 0 <= k < seq.len() implies seq[k] == 0u64 by {
+        let p = |w: u64| w == 0u64;
+        assert(p(seq[k]));
+    }
+    assert forall|j: int| !set@.contains(j) by {
+        if 0 <= j < cpu_count() && j < 64 * seq.len() {
+            lemma_bit_at_uniform(seq, 0u64, j);
+            lemma_u64_and_zero(1u64 << bit_idx_spec(j));
+        }
+    }
+    assert(set@ =~= Set::empty());
+}
+
+/// If every backing word has the full-set value, every existing CPU bit is set.
+proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
+    requires
+        set.inv(),
+        forall|i: int|
+            #![trigger smallvec_view(&set.bits)[i]]
+            0 <= i < smallvec_view(&set.bits).len() ==> smallvec_view(&set.bits)[i]
+                == full_set_word(cpu_count(), smallvec_view(&set.bits).len() as int, i),
+    ensures
+        set@ == Set::range(0, cpu_count()),
+{
+    let seq = smallvec_view(&set.bits);
+    let n = cpu_count();
+    let len = seq.len() as int;
+    assert(n > 0);
+    reveal(parts_for_cpus_spec);
+    assert(parts_for_cpus_spec(n as usize) as int == (n + 63) / 64);
+    assert(len == (n + 63) / 64);
+    assert forall|a: int|
+        #![trigger set@.contains(a)]
+        set@.contains(a) == Set::range(0, n).contains(a) by {
+        if 0 <= a < n {
+            lemma_fundamental_div_mod(a, 64);
+            lemma_fundamental_div_mod(n, 64);
+            assert(0 <= a / 64 < len);
+            assert(seq[a / 64] == full_set_word(n, len, a / 64));
+            let p = a / 64;
+            let b = a % 64;
+            if a / 64 == len - 1 && n % 64 != 0 {
+                assert(a % 64 < n % 64);
+                let k = n % 64;
+                let mask = seq[p];
+                assert(0 < k < 64);
+                assert(mask == ((1u64 << (k as usize)) - 1) as u64);
+                lemma_u64_masked_bit_keep(!0u64, mask, k, b);
+                lemma_u64_allones_bit(b);
+                assert(!0u64 & mask == mask) by (bit_vector);
+                assert((mask & (1u64 << (b as usize))) != 0);
+            } else {
+                assert(seq[p] == !0u64);
+                lemma_u64_allones_bit(b);
+            }
+            assert(bit_at(seq, a));
+        }
+    }
+    assert(set@ == Set::range(0, n));
+}
+
+} // verus!
 #[cfg(ktest)]
 mod test {
     use super::*;
