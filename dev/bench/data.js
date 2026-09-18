@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789716440003,
+  "lastUpdate": 1789719787732,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -1932,6 +1932,90 @@ window.BENCHMARK_DATA = {
             "value": 1499192,
             "unit": "rlimit",
             "extra": "smt-run=660ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "69f005898d5d203bc59c9e7ffd8428be608222c2",
+          "message": "prove: boot::memory_region::Deref (#782)\n\n* prove: boot::memory_region::Deref\n\n* Remove redundant MemoryRegionArray Inv implementation\n\n* Remove redundant MemoryRegionArray invariant\n\n* simplify postcondition of deref\n\n---------\n\nCo-authored-by: Je5s1e <chaoccc22@gmail.com>",
+          "timestamp": "2026-09-18T16:08:09+08:00",
+          "tree_id": "48308f006a21e225cc720434360a5275fa7860cf",
+          "url": "https://github.com/asterinas/vostd/commit/69f005898d5d203bc59c9e7ffd8428be608222c2"
+        },
+        "date": 1789719786997,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1039768479,
+            "unit": "rlimit",
+            "extra": "verified=4050 errors=0 smt-run=336,987ms wall=219,057ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 331983855,
+            "unit": "rlimit",
+            "extra": "smt-run=131,335ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 107410625,
+            "unit": "rlimit",
+            "extra": "smt-run=42,775ms"
+          },
+          {
+            "name": "rlimit: specs::mm::embedding",
+            "value": 48459213,
+            "unit": "rlimit",
+            "extra": "smt-run=22,203ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9455652,
+            "unit": "rlimit",
+            "extra": "smt-run=2,505ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 8889145,
+            "unit": "rlimit",
+            "extra": "smt-run=1,367ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5154488,
+            "unit": "rlimit",
+            "extra": "smt-run=1,748ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3716957,
+            "unit": "rlimit",
+            "extra": "smt-run=1,140ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1990774,
+            "unit": "rlimit",
+            "extra": "smt-run=939ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1499192,
+            "unit": "rlimit",
+            "extra": "smt-run=658ms"
           }
         ]
       }
