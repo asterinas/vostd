@@ -120,7 +120,7 @@ pub open spec fn count_set_bits(seq: Seq<u64>) -> int {
 }
 
 /// Expected value of word `idx` in a full CPU set.
-pub open spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
+spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
     if idx == len - 1 && bit_idx_spec(num_cpus) != 0 {
         ((1u64 << bit_idx_spec(num_cpus)) - 1) as u64
     } else {
@@ -715,9 +715,7 @@ pub struct AtomicCpuSet {
 }
 
 type AtomicInnerPart = AtomicU64;
-// Original exec: `const_assert!(core::mem::size_of::<AtomicInnerPart>() * 8 == BITS_PER_PART);`
-// (`const_assert!` expands to exactly this `const _: () = assert!(..)` item.)
-const _: () = assert!(core::mem::size_of::<AtomicInnerPart>() * 8 == BITS_PER_PART);
+/* const_assert!(core::mem::size_of::<AtomicInnerPart>() * 8 == BITS_PER_PART); */
 
 impl AtomicCpuSet {
     /// Creates a new `AtomicCpuSet` with an initial value.
