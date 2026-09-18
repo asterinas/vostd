@@ -235,10 +235,6 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     closed spec fn type_inv(self) -> bool {
         self.count <= LEN
     }
-
-    pub closed spec fn inv(self) -> bool {
-        self.type_inv()
-    }
 }
 
 impl<const LEN: usize> View for MemoryRegionArray<LEN> {
@@ -254,7 +250,6 @@ impl<const LEN: usize> View for MemoryRegionArray<LEN> {
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     #[verus_spec(ret =>
         ensures
-            ret.inv(),
             ret@ == MemoryRegionArrayModel::<LEN>::new()
     )]
     fn default() -> Self {
@@ -282,7 +277,6 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
     #[verus_spec(ret =>
         ensures
-            ret.inv(),
             ret@ == MemoryRegionArrayModel::<LEN>::new(),
     )]
     pub const fn new() -> Self {
@@ -303,15 +297,16 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// If the set is full, an error is returned.
     #[verus_spec(ret =>
         requires
-            old(self).inv(),
             region.inv(),
             !old(self)@.full(),
         ensures
-            final(self).inv(),
             final(self)@ == old(self)@.push(region@),
             ret.is_ok(),
     )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
+        proof! {
+            use_type_invariant(&*self);
+        }
         if self.count < self.regions.len() {
             self.regions[self.count] = region;
             self.count = self.count + 1;
