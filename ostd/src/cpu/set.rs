@@ -2,14 +2,10 @@
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use super::cpu_count;
 use vstd::{
-    arithmetic::div_mod::lemma_fundamental_div_mod, assert_seqs_equal, layout::size_of, prelude::*,
-    set::Set, std_specs::iter::IteratorSpec,
+    assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
 };
 use vstd_extra::{
-    bits::{
-        group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_and_zero,
-        lemma_u64_masked_bit_clear, lemma_u64_masked_bit_keep,
-    },
+    bits::{group_u64_bit_algebra, lemma_u64_and_zero},
     external::{
         bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
         smallvec::{group_smallvec_models, smallvec_view},
@@ -49,9 +45,6 @@ const NR_PARTS_NO_ALLOC: usize = 2;
     returns part_idx_spec(cpu_id@),
 )]
 const fn part_idx(cpu_id: CpuId) -> usize {
-    proof! {
-        reveal(part_idx_spec);
-    }
     cpu_id.as_usize() / BITS_PER_PART
 }
 
@@ -60,9 +53,6 @@ const fn part_idx(cpu_id: CpuId) -> usize {
     returns bit_idx_spec(cpu_id@),
 )]
 const fn bit_idx(cpu_id: CpuId) -> usize {
-    proof! {
-        reveal(bit_idx_spec);
-    }
     cpu_id.as_usize() % BITS_PER_PART
 }
 
@@ -72,15 +62,6 @@ const fn bit_idx(cpu_id: CpuId) -> usize {
     returns parts_for_cpus_spec(num_cpus),
 )]
 const fn parts_for_cpus(num_cpus: usize) -> usize {
-    proof! {
-        reveal(parts_for_cpus_spec);
-        if num_cpus == 0 {
-            assert(parts_for_cpus_spec(0) == 0);
-        } else {
-            assert(num_cpus > 0);
-            assert(parts_for_cpus_spec(num_cpus) as int == ((num_cpus as int) + 63) / 64);
-        }
-    }
     num_cpus.div_ceil(BITS_PER_PART)
 }
 
@@ -169,29 +150,8 @@ impl CpuSet {
             ret.inv(),
     )]
     pub fn new_full() -> Self {
-        proof! { lemma_cpucount_fits(); }
         let mut ret = Self::with_capacity_val(num_cpus(), !0);
-        proof! {
-            let seq0 = smallvec_view(&ret.bits);
-            assert(forall|k: int|
-                #![trigger smallvec_view(&ret.bits)[k]]
-                0 <= k < smallvec_view(&ret.bits).len() as int ==> smallvec_view(&ret.bits)[k]
-                    == !0u64);
-            assert forall|j: int| 0 <= j < cpu_count() implies bit_at(seq0, j) by {
-                lemma_bit_at_uniform(seq0, !0, j);
-            }
-        }
         ret.clear_nonexistent_cpu_bits();
-        proof! {
-            let seq = smallvec_view(&ret.bits);
-            let n = cpu_count();
-            assert forall|a: int|
-                #![trigger ret@.contains(a)]
-                ret@.contains(a) == Set::range(0, n).contains(a) by {
-                assert(ret@.contains(a) == (0 <= a < n && bit_at(seq, a)));
-            }
-            assert(ret@ == Set::range(0, n));
-        }
         ret
     }
 
@@ -202,7 +162,6 @@ impl CpuSet {
             ret.inv(),
     )]
     pub fn new_empty() -> Self {
-        proof! { lemma_cpucount_fits(); }
         let ret = Self::with_capacity_val(num_cpus(), 0);
         proof! {
             lemma_empty_bits_imply_empty_set(&ret);
@@ -231,48 +190,15 @@ impl CpuSet {
         }
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
-        proof! {
-            // The growth branch is dead under `self.inv()` and the `CpuId` type invariant
-            // (kept for the original out-of-contract behavior).
-            let id = cpu_id@;
-            let n = cpu_count();
-            let p = part_idx as int;
-            let b = bit_idx as int;
-            assert(id < n);
-            assert(p == id / 64);
-            lemma_fundamental_div_mod(id, 64);
-            lemma_fundamental_div_mod(n - 1, 64);
-            assert(id / 64 <= (n - 1) / 64);
-            assert((n + 63) / 64 >= (n - 1) / 64 + 1);
-            reveal(parts_for_cpus_spec);
-            assert(smallvec_view(&self.bits).len() == (n + 63) / 64);
-            assert(p < smallvec_view(&self.bits).len());
-            assert(0 <= b < 64);
-        }
         if part_idx >= self.bits.len() {
             self.bits.resize(part_idx + 1, 0);
         }
         self.bits[part_idx] |= 1 << bit_idx;
         proof! {
-            let id = cpu_id@;
             let n = cpu_count();
-            let p = (part_idx as int) - 0;
-            let b = bit_idx as int;
             let old_seq = smallvec_view(&old(self).bits);
             let new_seq = smallvec_view(&self.bits);
             let len = old_seq.len() as int;
-            assert(new_seq.len() == old_seq.len());
-            assert(new_seq == old_seq.update(p, old_seq[p] | (1u64 << (b as usize))));
-            assert forall|a: int|
-                #![trigger self@.contains(a)]
-                self@.contains(a) == old(self)@.insert(id).contains(a) by {
-                assert(self@.contains(a) == (0 <= a < n && bit_at(new_seq, a)));
-                assert(old(self)@.contains(a) == (0 <= a < n && bit_at(old_seq, a)));
-                if a == id {
-                    assert(a / 64 == p);
-                }
-            }
-            assert(self@ == old(self)@.insert(id));
             assert forall|j: int| n <= j < 64 * len implies !bit_at(new_seq, j) by {
                 assert(bit_at(new_seq, j) == bit_at(old_seq, j));
             }
@@ -288,30 +214,14 @@ impl CpuSet {
             final(self).inv(),
     )]
     pub fn remove(&mut self, cpu_id: CpuId) {
-        proof! {
-            use_type_invariant(&cpu_id);
-        }
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
         if part_idx < self.bits.len() {
             self.bits[part_idx] &= !(1 << bit_idx);
             proof! {
-                let id = cpu_id@;
                 let n = cpu_count();
-                let p = part_idx as int;
-                let b = bit_idx as int;
                 let old_seq = smallvec_view(&old(self).bits);
                 let new_seq = smallvec_view(&self.bits);
-                assert(new_seq.len() == old_seq.len());
-                assert(new_seq == old_seq.update(p, old_seq[p] & (!(1u64 << (b as usize)))));
-                assert forall|a: int|
-                    #![trigger self@.contains(a)]
-                    self@.contains(a) == old(self)@.remove(id).contains(a) by {
-                    assert(self@.contains(a) == (0 <= a < n && bit_at(new_seq, a)));
-                    if a == id {
-                        assert(a / 64 == p);
-                    }
-                }
                 assert forall|j: int| n <= j < 64 * old_seq.len() as int implies !bit_at(
                     new_seq,
                     j,
@@ -353,10 +263,6 @@ impl CpuSet {
          */
         let mut count = 0usize;
         let mut idx = 0usize;
-        proof! {
-            lemma_count_fits();
-            reveal(CpuSet::count_spec);
-        }
         #[verus_spec(
             invariant
                 self.inv(),
@@ -373,14 +279,10 @@ impl CpuSet {
             let part = self.bits[idx];
             let part_count = part.count_ones() as usize;
             proof! {
-                assert(0 <= u64_set_bits(part) <= 64);
-                assert(count + part_count <= usize::MAX);
                 let seq = smallvec_view(&self.bits);
                 assert_seqs_equal!(
                     seq.subrange(0, idx + 1).drop_last() == seq.subrange(0, idx as int)
                 );
-                assert(seq.subrange(0, idx + 1).last() == seq[idx as int]);
-                reveal_with_fuel(Seq::fold_left, 1);
             }
             count += part_count;
             idx += 1;
@@ -409,8 +311,6 @@ impl CpuSet {
         );
         proof! {
             if ret {
-                assert(IteratorSpec::remaining(&initial_iter)
-                    == smallvec_view(&self.bits).as_ref());
                 assert forall|i: int|
                     0 <= i < smallvec_view(&self.bits).len() implies
                         smallvec_view(&self.bits)[i] == 0u64 by {
@@ -421,18 +321,11 @@ impl CpuSet {
                 let seq = smallvec_view(&self.bits);
                 let initial = IteratorSpec::remaining(&initial_iter);
                 let idx = initial.len() - IteratorSpec::remaining(&iter).len() - 1;
-                assert(initial == seq.as_ref());
-                assert(initial[idx] != 0u64);
                 lemma_u64_nonzero_has_set_bit(*initial[idx]);
                 let b = choose|b: u32| b < 64 && #[trigger] (*initial[idx]
                     & (1u64 << b)) != 0;
                 let j = 64 * idx + b as int;
-                assert(0 <= idx < seq.len());
-                assert(j / 64 == idx);
-                assert(j % 64 == b as int);
-                assert((j % 64) as usize == b as usize);
                 assert(bit_at(seq, j));
-                assert(j < cpu_count());
                 assert(self@.contains(j));
             }
         }
@@ -483,8 +376,6 @@ impl CpuSet {
             };
             if self.bits[idx] != expected {
                 proof! {
-                    assert(expected
-                        == full_set_word(cpu_count(), smallvec_view(&self.bits).len() as int, idx as int));
                     lemma_mismatched_word_imply_not_full_set(self, idx as int);
                 }
                 return false;
@@ -521,8 +412,6 @@ impl CpuSet {
     pub fn clear(&mut self) {
         self.bits.fill(0);
         proof! {
-            let seq = smallvec_view(&self.bits);
-            assert(forall|k: int| 0 <= k < seq.len() ==> seq[k] == 0u64);
             lemma_empty_bits_imply_empty_set(self);
             assert forall|j: int|
                 cpu_count() <= j < 64 * smallvec_view(&self.bits).len() as int implies !bit_at(
@@ -559,9 +448,6 @@ impl CpuSet {
          *     })
          * })
          */
-        proof! {
-            lemma_count_fits();
-        }
         let end = self.bits.len() * BITS_PER_PART;
         (0..end)
             .filter(
@@ -574,10 +460,6 @@ impl CpuSet {
                 move |id| {
                     let part_idx = *id / BITS_PER_PART;
                     let bit_idx = *id % BITS_PER_PART;
-                    proof! {
-                        assert((*id as int) / 64 == part_idx as int);
-                        assert((*id as int) % 64 == bit_idx as int);
-                    }
                     (self.bits[part_idx] & (1 << bit_idx)) != 0
                 },
             )
@@ -588,12 +470,7 @@ impl CpuSet {
                     ensures
                         ret == CpuId(id as u32),
                 )]
-                move |id| {
-                    proof! {
-                        assert(id < cpu_count());
-                    }
-                    CpuId(id as u32)
-                },
+                move |id| CpuId(id as u32),
             )
     }
 
@@ -632,53 +509,13 @@ impl CpuSet {
         let num_cpus = num_cpus();
         if num_cpus % BITS_PER_PART != 0 {
             let num_parts = parts_for_cpus(num_cpus);
-            proof! {
-                let n = cpu_count();
-                assert(num_cpus == n);
-                assert(1 <= n);
-                assert((num_parts as int) == (n + 63) / 64);
-                lemma_fundamental_div_mod(n + 63, 64);
-                assert(n + 63 >= 64);
-                assert(0 <= (n + 63) % 64 < 64);
-                assert((num_parts as int) >= 1);
-                reveal(parts_for_cpus_spec);
-                assert(parts_for_cpus_spec(n as usize) as int == (n + 63) / 64);
-                assert(((num_parts as int) - 1) < smallvec_view(&self.bits).len());
-                lemma_fundamental_div_mod(n - 1, 64);
-                assert(64 * ((n - 1) / 64) < n);
-            }
             self.bits[num_parts - 1] &= (1 << (num_cpus % BITS_PER_PART)) - 1;
             proof! {
                 let n = cpu_count();
                 let old_seq = smallvec_view(&old(self).bits);
                 let new_seq = smallvec_view(&self.bits);
-                let len = old_seq.len() as int;
-                let idx = (num_parts as int) - 1;
-                let k = n % 64;
-                let mask: u64 = ((1u64 << (k as usize)) - 1) as u64;
-                assert(num_cpus == n);
-                assert((num_cpus % BITS_PER_PART) as int == k);
-                assert((num_parts as int) == (n + 63) / 64);
-                assert(len == (n + 63) / 64);
-                assert(idx == len - 1);
-                assert(64 * (len - 1) < n);
-                assert(0 <= k < 64);
-                assert(new_seq.len() == old_seq.len());
-                assert(new_seq == old_seq.update(idx, old_seq[idx] & mask));
-                assert(mask == (1u64 << (k as usize)) - 1);
-                assert forall|j: int| n <= j < 64 * len implies !bit_at(new_seq, j) by {
-                    assert(j / 64 == len - 1);
-                    assert(j % 64 >= k);
-                }
                 assert forall|j: int| 0 <= j < n implies
-                    bit_at(new_seq, j) == bit_at(old_seq, j) by {
-                    if j / 64 < len - 1 {
-                        assert(new_seq[j / 64] == old_seq[j / 64]);
-                    } else {
-                        assert(j / 64 == len - 1);
-                        assert(j % 64 < k);
-                    }
-                }
+                    bit_at(new_seq, j) == bit_at(old_seq, j) by {}
             }
         }
     }
@@ -785,18 +622,6 @@ spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
     }
 }
 
-/// If every word of `seq` equals `val`, `bit_at(seq, j)` is just `val & (1<<b) != 0`.
-proof fn lemma_bit_at_uniform(seq: Seq<u64>, val: u64, j: int)
-    requires
-        forall|k: int| 0 <= k < seq.len() ==> seq[k] == val,
-        0 <= j < 64 * seq.len() as int,
-    ensures
-        bit_at(seq, j) == ((val & (1u64 << bit_idx_spec(j))) != 0),
-{
-    reveal(bit_at);
-    assert(seq[part_idx_spec(j) as int] == val);
-}
-
 proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
     requires
         word != 0,
@@ -816,7 +641,6 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
             requires
                 word & 1u64 != 0,
         ;
-        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
     } else {
         let shifted = word >> 1u32;
         assert(shifted != 0) by (bit_vector)
@@ -826,19 +650,15 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
                 word & 1u64 == 0,
         ;
         let prev: u32 = (n - 1) as u32;
-        assert(prev + 1 == n);
         assert(shifted >> prev == word >> n) by (bit_vector)
             requires
                 shifted == word >> 1u32,
                 n == prev + 1,
                 n <= 64,
         ;
-        assert(shifted >> prev == 0);
         lemma_u64_nonzero_has_set_bit_aux(shifted, prev);
         let b = choose|b: u32| b < n - 1 && #[trigger] (shifted & (1u64 << b)) != 0;
-        assert(b < 63);
         let next: u32 = (b + 1) as u32;
-        assert(next < n);
         assert((word & (1u64 << next)) != 0) by (bit_vector)
             requires
                 shifted == word >> 1u32,
@@ -846,7 +666,6 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
                 next == b + 1,
                 b < 63,
         ;
-        assert(exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0);
     }
 }
 
@@ -858,28 +677,6 @@ proof fn lemma_u64_nonzero_has_set_bit(word: u64)
 {
     assert(word >> 64u32 == 0) by (bit_vector);
     lemma_u64_nonzero_has_set_bit_aux(word, 64);
-}
-
-proof fn lemma_cpucount_fits()
-    ensures
-        2 * parts_for_cpus_spec(cpu_count() as usize) * size_of::<u64>() <= isize::MAX,
-{
-    if cpu_count() > 0 {
-        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
-            reveal(parts_for_cpus_spec)
-        };
-    }
-}
-
-proof fn lemma_count_fits()
-    ensures
-        64 * parts_for_cpus_spec(cpu_count() as usize) <= usize::MAX,
-{
-    if cpu_count() > 0 {
-        assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
-            reveal(parts_for_cpus_spec)
-        };
-    }
 }
 
 /// A CPU set whose backing words are all zero has an empty abstract view.
@@ -896,11 +693,9 @@ proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
     }
     assert forall|j: int| !set@.contains(j) by {
         if 0 <= j < cpu_count() && j < 64 * seq.len() {
-            lemma_bit_at_uniform(seq, 0u64, j);
             lemma_u64_and_zero(1u64 << bit_idx_spec(j));
         }
     }
-    assert(set@ =~= Set::empty());
 }
 
 /// If every backing word has the full-set value, every existing CPU bit is set.
@@ -917,38 +712,17 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
     let seq = smallvec_view(&set.bits);
     let n = cpu_count();
     let len = seq.len() as int;
-    assert(n > 0);
-    reveal(parts_for_cpus_spec);
-    assert(parts_for_cpus_spec(n as usize) as int == (n + 63) / 64);
-    assert(len == (n + 63) / 64);
     assert forall|a: int|
         #![trigger set@.contains(a)]
         set@.contains(a) == Set::range(0, n).contains(a) by {
         if 0 <= a < n {
-            lemma_fundamental_div_mod(a, 64);
-            lemma_fundamental_div_mod(n, 64);
-            assert(0 <= a / 64 < len);
-            assert(seq[a / 64] == full_set_word(n, len, a / 64));
             let p = a / 64;
-            let b = a % 64;
             if a / 64 == len - 1 && n % 64 != 0 {
-                assert(a % 64 < n % 64);
-                let k = n % 64;
                 let mask = seq[p];
-                assert(0 < k < 64);
-                assert(mask == ((1u64 << (k as usize)) - 1) as u64);
-                lemma_u64_masked_bit_keep(!0u64, mask, k, b);
-                lemma_u64_allones_bit(b);
                 assert(!0u64 & mask == mask) by (bit_vector);
-                assert((mask & (1u64 << (b as usize))) != 0);
-            } else {
-                assert(seq[p] == !0u64);
-                lemma_u64_allones_bit(b);
             }
-            assert(bit_at(seq, a));
         }
     }
-    assert(set@ == Set::range(0, n));
 }
 
 /// Two distinct `u64` words differ at some unit bit.
@@ -971,7 +745,6 @@ proof fn lemma_u64_distinct_bits_differ(x: u64, y: u64)
             (diff & (1u64 << b)) != 0,
             diff == x ^ y,
     ;
-    assert(exists|b: u32| b < 64 && (#[trigger] (x & (1u64 << b))) != (y & (1u64 << b)));
 }
 
 /// ANDing with the unit bit at `b` yields `0` or the unit bit itself.
@@ -1002,21 +775,10 @@ proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
     let seq = smallvec_view(&set.bits);
     let n = cpu_count();
     let len = seq.len() as int;
-    assert(n > 0);
-    reveal(parts_for_cpus_spec);
-    assert(len == (n + 63) / 64);
     let k = n % 64;
-    lemma_fundamental_div_mod(n, 64);
-    lemma_fundamental_div_mod(n + 63, 64);
     if k != 0 {
-        assert(n + 63 == 64 * (n / 64) + 63 + k);
-        assert(len == n / 64 + 1);
-        assert(64 * (len - 1) + k == n);
     } else {
-        assert(len == n / 64);
-        assert(64 * len == n);
     }
-    assert(64 * (len - 1) < n);
     // A bit where the word differs from its full-set value.
     let word = seq[p];
     let expected = full_set_word(n, len, p);
@@ -1025,66 +787,27 @@ proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
     lemma_u64_unit_bit_projection(word, b);
     lemma_u64_unit_bit_projection(expected, b);
     let j = 64 * p + b as int;
-    assert(j / 64 == p);
-    assert(j % 64 == b as int);
-    assert((j % 64) as usize == b as usize);
-    assert(0 <= j < 64 * len);
     assert(set@.contains(j) == (0 <= j < n && bit_at(seq, j)));
     if p == len - 1 && k != 0 {
-        assert(expected == ((1u64 << (k as usize)) - 1) as u64);
         if (expected & (1u64 << b)) != 0 {
             // The mask only keeps bits below `k`, so `j` is a missing CPU bit.
             if b >= k {
-                lemma_u64_masked_bit_clear(!0u64, expected, k, b as int);
-                lemma_u64_allones_bit(b as int);
                 assert(!0u64 & expected == expected) by (bit_vector);
-                assert((expected & (1u64 << b)) == 0);
                 assert(false);
             }
-            assert(b < k);
-            assert(j < 64 * (len - 1) + k);
-            assert(64 * (len - 1) + k == n);
-            assert(j < n);
-            assert((word & (1u64 << b)) == 0);
-            assert(!bit_at(seq, j));
-            assert(!set@.contains(j));
-            assert(Set::range(0, n).contains(j));
-            assert(set@ != Set::range(0, n));
         } else {
             // A set bit at or above `n` would violate the clear-tail invariant.
             if b < k {
-                lemma_u64_masked_bit_keep(!0u64, expected, k, b as int);
-                lemma_u64_allones_bit(b as int);
                 assert(!0u64 & expected == expected) by (bit_vector);
-                assert((expected & (1u64 << b)) != 0);
                 assert(false);
             }
-            assert(b >= k);
-            assert(j >= 64 * (len - 1) + k);
-            assert(64 * (len - 1) + k == n);
-            assert(j >= n);
-            assert((word & (1u64 << b)) != 0);
             assert(bit_at(seq, j));
             assert(false);
         }
     } else {
-        assert(expected == !0u64);
-        lemma_u64_allones_bit(b as int);
-        assert((expected & (1u64 << b)) != 0);
-        assert((word & (1u64 << b)) == 0);
         if p < len - 1 {
-            assert(j <= 64 * (len - 2) + 63);
-            assert(j < 64 * (len - 1));
         } else {
-            assert(k == 0);
-            assert(64 * len == n);
-            assert(j < 64 * len);
         }
-        assert(j < n);
-        assert(!bit_at(seq, j));
-        assert(!set@.contains(j));
-        assert(Set::range(0, n).contains(j));
-        assert(set@ != Set::range(0, n));
     }
 }
 
