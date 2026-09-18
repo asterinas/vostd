@@ -19,8 +19,10 @@
 //! Allocation-growth panics (capacity overflow past `isize::MAX`) are noted on each
 //! spec and excluded by an additional `requires`; `SmallVec::reserve` rounds the
 //! capacity up to the next power of two, so those bounds use a factor of 2.
-use core::ops::{Deref, DerefMut, Index, IndexMut};
-use core::slice::SliceIndex;
+use core::{
+    ops::{Deref, DerefMut, Index, IndexMut},
+    slice::SliceIndex,
+};
 use smallvec::{Array, SmallVec};
 use vstd::{layout::size_of, prelude::*, slice::SliceIndexSpec};
 
