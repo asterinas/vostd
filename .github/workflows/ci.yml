@@ -1,8 +1,9 @@
 name: Format and Verify VOSTD (Main)
 
-# One verification run feeds everything: a verify leg runs it with
-# --time-expanded and uploads the log; `perf` parses that log (never
-# re-verifies), `doc` builds the docs, `format` needs no Verus.
+# One verification run feeds everything: a verify leg runs with
+# --time-expanded and uploads the log, `perf` parses it (never re-verifies),
+# `doc` builds the docs in parallel, and `doc-deploy` merges those docs with
+# the gh-pages benchmark before deploying. `format` needs no Verus.
 
 on:
   push:
@@ -124,7 +125,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   format:
-    # Needs no Verus build: only rustfmt/verusfmt and the Verus SOURCES for
+    # Needs no Verus build: only rustfmt/verusfmt and the Verus sources for
     # the vstd path dependency (fetched below).
     if: github.event_name != 'issue_comment'
     runs-on: ubuntu-24.04
@@ -146,7 +147,6 @@ jobs:
       - name: Fetch Verus sources for the vstd path dependency
         run: |
           VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
-          # --strip-components=1 drops the tarball's root directory name.
           mkdir -p tools/verus
           curl -Ls "https://github.com/asterinas/verus/archive/${VERUS_COMMIT}.tar.gz" | tar xz -C tools/verus --strip-components=1
           test -f tools/verus/source/vstd/Cargo.toml
@@ -267,11 +267,10 @@ jobs:
     name: verify-perf
     needs: [format-and-verify, pr-comment-verify]
     # Runs on every event, parsing a verify leg's log. Push/dispatch: record
-    # to the gh-pages benchmark history and save the baseline. PRs and
-    # comment runs: compare against the last main measurement; only comment
-    # runs post the comparison as a PR comment. `always()` keeps a failed
-    # verification reporting, but skips this job when the verify leg was
-    # cancelled (superseded by a newer commit that re-runs everything).
+    # to the gh-pages benchmark history. PRs and comment runs: compare
+    # against the last main measurement; comment runs also post it on the
+    # PR. `always()` keeps a failed verification reporting; `!= 'cancelled'`
+    # skips runs superseded by a newer commit.
     if: >
       always() &&
       !cancelled() &&
@@ -460,25 +459,15 @@ jobs:
             });
 
   doc:
-    # PRs build the docs; pushes also upload them for `deploy-gh-pages`.
-    # Needs `perf`: the benchmark embedded below must be on gh-pages first.
-    needs: [format-and-verify, perf]
+    # PRs build the docs; pushes also upload the artifact for `doc-deploy`,
+    # which merges in the gh-pages benchmark and deploys.
     if: >
       always() &&
       !cancelled() &&
-      needs.format-and-verify.result != 'cancelled' &&
-      github.event_name != 'issue_comment' &&
-      (github.event_name == 'pull_request' ||
-       needs.perf.result == 'success' ||
-       needs.perf.result == 'skipped') &&
-      (github.event_name == 'pull_request' ||
-       needs.format-and-verify.result == 'success')
+      github.event_name != 'issue_comment'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      pages: write      # deploy to GitHub Pages
-      id-token: write   # deploy to GitHub Pages
-      statuses: write   # ci/doc commit status
     timeout-minutes: 90
     steps:
       - name: Mark doc CI as pending
@@ -517,6 +506,52 @@ jobs:
       - name: Build docs
         run: make doc
 
+      - name: Upload doc artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: doc-site
+          path: doc
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# Doc Summary"
+            echo "- Docs build: ${{ job.status == 'success' && '✅ passed' || '❌ failed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  doc-deploy:
+    # Pushes only: merge the doc artifact with the gh-pages benchmark chart
+    # (pushed by `perf`) and deploy. Needs format-and-verify so a failed
+    # verification can't deploy docs.
+    needs: [doc, perf, format-and-verify]
+    if: >
+      always() &&
+      !cancelled() &&
+      github.event_name != 'pull_request' &&
+      needs.format-and-verify.result == 'success' &&
+      needs.doc.result == 'success' &&
+      (needs.perf.result == 'success' || needs.perf.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write      # deploy to GitHub Pages
+      id-token: write   # deploy to GitHub Pages
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        # Provides the git dir for the gh-pages fetch below.
+        uses: actions/checkout@v7
+
+      - name: Download doc artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: doc-site
+          path: doc
+
       # Serve the benchmark chart at <site>/dev/bench/.
       - name: Embed verify-perf benchmark into the doc artifact
         run: |
@@ -532,44 +567,18 @@ jobs:
           echo "embedded dev/bench into the doc artifact:"
           ls doc/dev/bench
 
-      - name: Upload artifact
-        if: github.event_name != 'pull_request'
+      - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: doc
 
-      - name: Publish summary
-        if: always()
-        run: |
-          {
-            echo "# Doc Summary"
-            echo "- Docs build: ${{ job.status == 'success' && '✅ passed' || '❌ failed' }}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  deploy-gh-pages:
-    needs: [doc]
-    # The status function is required: without one, the implicit success()
-    # also counts doc's skipped-by-design transitive needs.
-    if: >
-      !cancelled() &&
-      github.event_name != 'pull_request' &&
-      needs.doc.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write      # deploy to GitHub Pages
-      id-token: write   # deploy to GitHub Pages
-    timeout-minutes: 15
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
 
   report:
     # `ci/doc` status for push runs; `always()` flips pending -> failure.
-    needs: [doc, deploy-gh-pages]
+    needs: [doc, doc-deploy]
     if: always() && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -589,7 +598,7 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
 
             const buildResult = '${{ needs.doc.result }}';
-            const deployResult = '${{ needs.deploy-gh-pages.result }}';
+            const deployResult = '${{ needs.doc-deploy.result }}';
             // deploy is skipped when docs aren't published -- not a failure.
             const ok = buildResult === 'success' &&
               (deployResult === 'success' || deployResult === 'skipped');
