@@ -12,17 +12,13 @@ on:
   pull_request:
     branches:
       - main
-  issue_comment:
-    types: [created]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # For comment events github.ref is the default branch, so the issue number
-  # keeps different PRs' runs (and a PR's own runs) from cancelling each other.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.issue.number || 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -34,7 +30,6 @@ defaults:
 
 jobs:
   format-and-verify:
-    if: github.event_name != 'issue_comment'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -127,7 +122,6 @@ jobs:
   format:
     # Needs no Verus build: only rustfmt/verusfmt and the Verus sources for
     # the vstd path dependency (fetched below).
-    if: github.event_name != 'issue_comment'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -175,147 +169,33 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  pr-comment-verify:
-    # Linux-only /verify-perf leg: verifies the merge ref and uploads the log
-    # `perf` consumes. Separate from the matrix job because a job-level `if`
-    # cannot reference `matrix`.
-    if: >
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/verify-perf') &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      statuses: write   # pending ci/verify-perf status on the PR head commit
-    timeout-minutes: 240
-    steps:
-      - name: Get PR head commit
-        id: pr
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const pull_number = context.payload.issue.number;
-            const { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number });
-
-            core.setOutput('head_sha', pull.head.sha);
-
-      - name: Mark verify-perf as pending
-        continue-on-error: true
-        uses: actions/github-script@v9
-        with:
-          retries: 3
-          script: |
-            const { owner, repo } = context.repo;
-            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-
-            await github.rest.repos.createCommitStatus({
-              owner,
-              repo,
-              sha: '${{ steps.pr.outputs.head_sha }}',
-              state: 'pending',
-              context: 'ci/verify-perf',
-              description: 'verify-perf comparison is running',
-              target_url: runUrl,
-            });
-
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          ref: refs/pull/${{ github.event.issue.number }}/merge
-          submodules: recursive
-
-      - name: Set up toolchain and caches
-        uses: ./.github/actions/setup-verus
-        with:
-          verus: 'true'
-          install-verusfmt: 'false'
-
-      - name: Run verification
-        run: |
-          set -o pipefail
-          if ! cargo dv verify --targets ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
-            echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
-            exit 1
-          else
-            echo "Verification passed!"
-          fi
-
-      - name: Upload verification log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: verify-log-ubuntu-24.04
-          path: verify_output.txt
-          retention-days: 7
-          if-no-files-found: warn
-
-      - name: Publish summary
-        if: always()
-        run: |
-          {
-            echo "# PR-comment verification summary (merge ref)"
-            if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
-              echo "- Verification: ❌ failed"
-            else
-              echo "- Verification: ✅ passed"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
   perf:
-    name: verify-perf
-    needs: [format-and-verify, pr-comment-verify]
-    # Runs on every event, parsing a verify leg's log. Push/dispatch: record
-    # to the gh-pages benchmark history. PRs and comment runs: compare
-    # against the last main measurement; comment runs also post it on the
-    # PR. `always()` keeps a failed verification reporting; `!= 'cancelled'`
-    # skips runs superseded by a newer commit.
+    # Every event: parses the verify leg's log and computes the verification
+    # cost compared to the measurement from last main. The comparison lands
+    # in the job summary and the report artifact.
+    needs: [format-and-verify]
     if: >
       always() &&
       !cancelled() &&
-      needs.format-and-verify.result != 'cancelled' &&
-      needs.pr-comment-verify.result != 'cancelled' &&
-      (github.event_name != 'issue_comment' ||
-       (github.event.issue.pull_request &&
-        contains(github.event.comment.body, '/verify-perf') &&
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)))
+      needs.format-and-verify.result != 'cancelled'
     runs-on: ubuntu-24.04
     permissions:
-      contents: write      # push benchmark history to the gh-pages branch
-      pull-requests: write # post /verify-perf comparison as a PR comment
-      deployments: write   # github-action-benchmark gh-pages deployment
-      statuses: write      # ci/verify-perf commit status on PR head commits
+      contents: read
     timeout-minutes: 30
     steps:
-      - name: Get PR head commit
-        id: pr
-        if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const pull_number = context.payload.issue.number;
-            const { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number });
-
-            core.setOutput('head_sha', pull.head.sha);
-
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Record which commit was checked out
         run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      # Comment runs use a throwaway perf-prtmp-<id> key so PR metrics never
-      # become the baseline; restore-keys finds the last main measurement.
       - name: Restore prior measurement (baseline)
-        id: baseline
         uses: actions/cache/restore@v6
         with:
           path: perf-store
-          key: ${{ github.event_name == 'issue_comment' && format('perf-prtmp-{0}', github.event.comment.id) || format('perf-metrics-{0}', github.sha) }}
+          key: perf-metrics-${{ github.sha }}
           restore-keys: |
             perf-metrics-
 
@@ -347,15 +227,10 @@ jobs:
         run: |
           mkdir -p out
           if [[ -f perf-baseline.json ]]; then
-            if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-              HEADER="PR \`/verify-perf\`: this PR's merge ref (\`$CUR_SHA\`) vs last recorded main (\`${BASELINE_SHA:-unknown}\`)."
-            else
-              HEADER="Comparing this run (\`$CUR_SHA\`) against the last main measurement (\`${BASELINE_SHA:-unknown}\`)."
-            fi
             {
               echo "## Verification cost"
               echo
-              echo "$HEADER"
+              echo "Comparing this run (\`$CUR_SHA\`) against the last main measurement (\`${BASELINE_SHA:-unknown}\`)."
               echo
               python3 tools/verus_perf.py compare perf-baseline.json perf-store/metrics.json
             } > out/perf-report.md
@@ -363,11 +238,7 @@ jobs:
             {
               echo "## Verification cost: first recorded baseline"
               echo
-              if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-                echo "No prior main measurement is cached yet (run \`verify-perf\` on main once first), so nothing to compare against. Recording this PR's cost (\`$CUR_SHA\`):"
-              else
-                echo "No prior measurement was cached; nothing to compare against yet. This run's cost (\`$CUR_SHA\`):"
-              fi
+              echo "No prior measurement was cached; nothing to compare against yet. This run's cost (\`$CUR_SHA\`):"
               echo
               echo '```'
               cat perf-store/metrics.json
@@ -375,96 +246,25 @@ jobs:
             } > out/perf-report.md
           fi
           cat out/perf-report.md
-          {
-            cat out/perf-report.md
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # A failed verification's log has no results and would parse as zeros.
-      - name: Convert metrics to benchmark format
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.format-and-verify.result == 'success'
-        run: |
-          mkdir -p out
-          python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
-          cat out/benchmark.json
-
-      - name: Record benchmark on gh-pages
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.format-and-verify.result == 'success'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: verify-perf
-          tool: customSmallerIsBetter
-          output-file-path: out/benchmark.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: dev/bench
-          alert-threshold: '120%'
-          comment-on-alert: true
-          summary-always: true
-
-      - name: Save measurement as the next baseline
-        # Miss-guard: re-running the same sha would collide with its entry.
-        if: >
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-          needs.format-and-verify.result == 'success' &&
-          steps.baseline.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v6
-        with:
-          path: perf-store
-          key: ${{ format('perf-metrics-{0}', github.sha) }}
-
-      - name: Comment the report on the PR
-        if: github.event_name == 'issue_comment'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment "${{ github.event.issue.number }}" --body-file out/perf-report.md
+          cat out/perf-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report artifact
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: verify-perf-${{ github.run_id }}
+          name: verify-perf-report
           path: |
             out/perf-report.md
-            out/benchmark.json
             perf-store/metrics.json
             perf-baseline.json
           if-no-files-found: ignore
-
-      - name: Report verify-perf status
-        if: always() && github.event_name == 'issue_comment'
-        continue-on-error: true
-        uses: actions/github-script@v9
-        with:
-          retries: 3
-          script: |
-            const { owner, repo } = context.repo;
-            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const ok = '${{ job.status }}' === 'success';
-            const state = ok ? 'success' : 'failure';
-            const description = ok
-              ? 'verify-perf comparison posted'
-              : 'verify-perf run failed';
-
-            await github.rest.repos.createCommitStatus({
-              owner,
-              repo,
-              sha: '${{ steps.pr.outputs.head_sha }}',
-              state,
-              context: 'ci/verify-perf',
-              description,
-              target_url: runUrl,
-            });
 
   doc:
     # PRs build the docs; pushes also upload the artifact for `doc-deploy`,
     # which merges in the gh-pages benchmark and deploys.
     if: >
       always() &&
-      !cancelled() &&
-      github.event_name != 'issue_comment'
+      !cancelled()
     runs-on: ubuntu-24.04
     permissions:
       contents: read
