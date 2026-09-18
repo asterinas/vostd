@@ -209,15 +209,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
-    pub closed spec fn from_raw_value(range: Range<Paddr>, raw_perms: Seq<FrameRawPerms>) -> Self {
-        Segment {
-            range,
-            _marker: core::marker::PhantomData::<M>,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(Some(raw_perms)),
-        }
-    }
-
     /// Creates a new [`Segment`] from unused frames.
     ///
     /// The caller must provide a closure to initialize metadata for all the frames.
@@ -479,14 +470,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - the meta region must satisfy its invariant;
-    /// - the segment-to-be (with the supplied `range`) must satisfy the bundled
-    ///   [`Self::invariants`] relation against `regions`.
     ///
     /// ## Postconditions
-    /// - the returned segment satisfies its bundled invariant;
+    /// - the returned segment satisfies its invariant;
     /// - the returned segment has the same physical address range as the input;
-    /// - the meta region is unchanged.
     ///
     /// # Safety
     ///
@@ -495,18 +482,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// and that the metadata region still records the segment obligations.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(raw_perms): Tracked<Seq<FrameRawPerms>>,
         requires
-            Self::from_raw_value(range, raw_perms).inv(),
-            old(regions).inv(),
-            Self::from_raw_value(range, raw_perms).relate_regions(*old(regions)),
+            range.start % PAGE_SIZE == 0,
+            range.end % PAGE_SIZE == 0,
+            range.start <= range.end <= MAX_PADDR,
+            raw_perms.len() == (range.end - range.start) / PAGE_SIZE as int,
+            forall |i: int| #![trigger raw_perms[i]]
+                0 <= i < raw_perms.len() ==> {
+                    let paddr = (range.start + i * PAGE_SIZE) as usize;
+                    &&& raw_perms[i].slot_vaddr() == frame_to_meta(paddr)
+                    &&& raw_perms[i].inv()
+                },
         ensures
             r.inv(),
-            r.relate_regions(*final(regions)),
             r.range() == range,
-            final(regions).inv(),
-            *final(regions) == *old(regions),
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         Self {
