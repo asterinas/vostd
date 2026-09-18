@@ -225,6 +225,29 @@ See also: PR [#775](https://github.com/asterinas/vostd/pull/775#discussion_r4032
 [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3920738708), and
 [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3920718897).
 
+### Defer auxiliary proof functions
+
+<!-- guideline: defer-auxiliary-proof-functions -->
+
+Order a verification-heavy module so that a top-down read presents the APIs and
+critical proofs first: types, public `spec fn`s, `View` and `Inv`
+implementations, and the verified executable functions stay in the upper part
+of the file. Move private auxiliary `proof fn`s to a trailing `verus!` block
+at the end of the file, opened by a one-line comment naming the section.
+Auxiliary here means lemmas that discharge side obligations — such as
+bounds-fitting or representation-to-model bridge facts — which serve the
+proofs rather than state the module's contracts.
+
+Item order carries no semantics: a proof function can be called before its
+textual declaration, so deferring helpers is a layout-only change with no
+effect on name resolution or verification results. Keep public spec and proof
+functions in the API part, though — callers name them in their own contracts,
+so they belong to the module surface, not to internal scaffolding.
+
+See also: the deferred lemma block in [`cpu::set`](../../ostd/src/cpu/set.rs#L794),
+called from [`CpuSet::new_full`](../../ostd/src/cpu/set.rs#L193), and
+PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4042969977).
+
 ### Avoid redundant mode markers
 
 <!-- guideline: avoid-redundant-mode-markers -->

@@ -209,5 +209,49 @@ Use a separate `wf(...)` predicate only for well-formedness relationships that
 depend on another value. Making fields private provides representation hiding;
 it does not cause Verus to establish `inv()` automatically.
 
-See also: PR [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3801496837)
-and [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3810349440).
+Prefer a `#[verifier::type_invariant]` when the invariant is one the type
+never breaks: every construction is valid and every operation preserves it, so
+the checks Verus inserts at constructors, field assignments, and calls taking
+`&mut X` succeed without special effort. This covers thin wrappers such as
+`CpuId`'s `0 <= self@ < cpu_count()` as well as structural bounds on full
+containers such as `MemoryRegionArray`'s `count <= LEN`. Callers then obtain
+the fact for free with `use_type_invariant`, instead of threading validity
+through every contract. The type must live in the same crate with no fields
+public outside it (see the [Verus type-invariant
+reference](../../tools/verus/source/docs/guide/src/reference-type-invariants.md)).
+
+One predicate, one mechanism: once a type carries a `type_invariant`, delete
+an `impl Inv` that states the same fact and migrate its callers from
+`requires inv()` threading to `use_type_invariant`. Keeping both forks the
+fact into two proof paths whose definitions drift apart. The removal cascades:
+`vstd_extra`'s `InvView` has `Inv` as a supertrait, so the type's `impl InvView`
+leaves with it, and callers of `view_preserves_inv` must be updated in the
+same pass (PR #782, `MemoryRegionArray`).
+
+Reach for `Inv` when the invariant breaks transiently or rides on mutating
+operations that may panic:
+
+- Type invariants have no supported "temporarily broken" state. A
+  construct-then-fix sequence — `CpuSet` fills every word with `!0` and clears
+  the nonexistent tail bits only afterwards — is checked mid-sequence, where
+  the intermediate value violates the invariant; an `Inv` contract states the
+  same operation as `old(self).inv()` and `final(self).inv()` and keeps the
+  intermediate state internal. The field-borrow workaround the guide suggests
+  restructures executable code, which `preserve-exec-code` rules out.
+- A mutator that may panic cannot carry the invariant's exit obligations.
+  PR #770 found that `CpuSet::add`'s growth path (`SmallVec::resize`, which
+  panics on allocation failure) would force `no_unwind` claims no caller can
+  justify; `Inv` leaves panic behavior to each method's own contract.
+
+If a single clause of the invariant makes either case bite, weakening the
+invariant and restating that clause as method-level postconditions is a third
+lever, trading implicit strength for explicit per-method guarantees.
+
+See also: [`CpuId::type_inv`](../../ostd/src/cpu/mod.rs#L138),
+[`impl Inv for CpuSet`](../../ostd/src/cpu/set.rs#L169),
+PR [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3801496837),
+[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3810349440),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4027116647),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4034384104),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4034932801), and
+[#782](https://github.com/asterinas/vostd/pull/782#discussion_r4042941132).
