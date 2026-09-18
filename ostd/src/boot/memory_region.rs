@@ -262,8 +262,7 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
 
     #[verus_spec(ret =>
         ensures
-            ret@.len() == self@.regions.len(),
-            forall|i: int| 0 <= i < ret@.len() ==> (#[trigger] ret@[i])@ == self@.regions[i],
+            ret@.map_values(|region: MemoryRegion| region@) == self@.regions,
     )]
     fn deref(&self) -> &Self::Target {
         proof! {
