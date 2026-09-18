@@ -230,8 +230,9 @@ pub struct MemoryRegionArray<const LEN: usize = MAX_REGIONS> {
 
 verus! {
 
-impl<const LEN: usize> Inv for MemoryRegionArray<LEN> {
-    closed spec fn inv(self) -> bool {
+impl<const LEN: usize> MemoryRegionArray<LEN> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
         self.count <= LEN
     }
 }
@@ -244,37 +245,37 @@ impl<const LEN: usize> View for MemoryRegionArray<LEN> {
     }
 }
 
-impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
-    proof fn view_preserves_inv(self) {
-    }
-}
-
 } // verus!
 #[verus_verify]
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     #[verus_spec(ret =>
         ensures
-            ret.inv(),
             ret@ == MemoryRegionArrayModel::<LEN>::new()
     )]
     fn default() -> Self {
         Self::new()
     }
 }
-/*
+#[verus_verify]
 impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
     type Target = [MemoryRegion];
 
+    #[verus_spec(ret =>
+        ensures
+            ret@.map_values(|region: MemoryRegion| region@) == self@.regions,
+    )]
     fn deref(&self) -> &Self::Target {
+        proof! {
+            use_type_invariant(self);
+        }
         &self.regions[..self.count]
     }
-}*/
+}
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
     #[verus_spec(ret =>
         ensures
-            ret.inv(),
             ret@ == MemoryRegionArrayModel::<LEN>::new(),
     )]
     pub const fn new() -> Self {
@@ -295,15 +296,16 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// If the set is full, an error is returned.
     #[verus_spec(ret =>
         requires
-            old(self).inv(),
             region.inv(),
             !old(self)@.full(),
         ensures
-            final(self).inv(),
             final(self)@ == old(self)@.push(region@),
             ret.is_ok(),
     )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
+        proof! {
+            use_type_invariant(&*self);
+        }
         if self.count < self.regions.len() {
             self.regions[self.count] = region;
             self.count = self.count + 1;
