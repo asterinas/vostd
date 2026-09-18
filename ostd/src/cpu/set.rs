@@ -902,8 +902,6 @@ proof fn lemma_empty_bits_imply_empty_set(set: &CpuSet)
         set@ == Set::empty(),
 {
     let seq = smallvec_view(&set.bits);
-    // Unfold `Seq::all` into the elementwise form expected by `lemma_bit_at_uniform`
-    // (the quantifier in `all`'s body only triggers on the closure application `p(seq[k])`).
     assert forall|k: int| 0 <= k < seq.len() implies seq[k] == 0u64 by {
         let p = |w: u64| w == 0u64;
         assert(p(seq[k]));
