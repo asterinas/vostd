@@ -9,7 +9,7 @@ use crate::specs::mm::frame::memory_region_specs::{MemRegionModel, MemoryRegionA
 
 use core::ops::Deref;
 
-// use align_ext::AlignExt;
+use align_ext::AlignExt;
 
 //use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
 
@@ -163,36 +163,69 @@ impl MemoryRegion {
 
     /// The physical address of the base of the region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self@.base as usize)]
     pub fn base(&self) -> Paddr {
         self.base
     }
 
     /// The length in bytes of the region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns (self@.end - self@.base) as usize)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// The physical address of the end of the region.
     #[verus_verify(dual_spec)]
-    #[verus_spec(requires self.inv())]
+    #[verus_spec(
+        requires
+            self.inv(),
+        returns
+            self@.end as usize,
+    )]
     pub fn end(&self) -> Paddr {
         self.base + self.len
     }
 
     /// Checks whether the region is empty
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self@.is_empty())]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// The type of the region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(ret =>
+        ensures
+            ret.to_int() == self@.typ,
+    )]
     pub fn typ(&self) -> MemoryRegionType {
         self.typ
     }
-    /*
+
+    #[verus_spec(ret =>
+        requires
+            self.inv(),
+            self@.typ == MemoryRegionType::Usable.to_int()
+                ==> self@.align_inward().inv(),
+        ensures
+            ret.inv(),
+            ret@ == (if self@.typ == MemoryRegionType::Usable.to_int() {
+                self@.align_inward()
+            } else {
+                self@.align_outward()
+            }),
+            ret@.aligned(PAGE_SIZE as int),
+            self@.typ == MemoryRegionType::Usable.to_int()
+                ==> ret@.is_sub_region(self@),
+            self@.typ != MemoryRegionType::Usable.to_int()
+                ==> self@.is_sub_region(ret@),
+    )]
     fn as_aligned(&self) -> Self {
+        proof! {
+            lemma_pow2_is_pow2_to64();
+        }
         let (base, end) = match self.typ() {
             MemoryRegionType::Usable => (
                 self.base().align_up(PAGE_SIZE),
@@ -208,7 +241,7 @@ impl MemoryRegion {
             len: end - base,
             typ: self.typ,
         }
-    }*/
+    }
 }
 
 /// The maximum number of regions that can be handled.
