@@ -2,8 +2,8 @@
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use super::cpu_count;
 use vstd::{
-    arithmetic::div_mod::lemma_fundamental_div_mod, layout::size_of, prelude::*, set::Set,
-    std_specs::iter::IteratorSpec,
+    arithmetic::div_mod::lemma_fundamental_div_mod, assert_seqs_equal, layout::size_of, prelude::*,
+    set::Set, std_specs::iter::IteratorSpec,
 };
 use vstd_extra::{
     bits::{
@@ -100,7 +100,7 @@ pub closed spec fn parts_for_cpus_spec(n: usize) -> usize {
     if n == 0 {
         0
     } else {
-        (((n as int) + 63) / 64) as usize
+        ((n + 63) / 64) as usize
     }
 }
 
@@ -114,22 +114,9 @@ pub closed spec fn bit_idx_spec(i: int) -> usize {
     (i % 64) as usize
 }
 
-/// Number of set bits in the prefix `seq[..end]`.
-pub open spec fn count_set_bits_prefix(seq: Seq<u64>, end: int) -> int
-    recommends
-        0 <= end <= seq.len(),
-    decreases end,
-{
-    if end <= 0 {
-        0
-    } else {
-        count_set_bits_prefix(seq, end - 1) + u64_set_bits(seq[end - 1])
-    }
-}
-
 /// Number of set bits in all words of `seq`.
 pub open spec fn count_set_bits(seq: Seq<u64>) -> int {
-    count_set_bits_prefix(seq, seq.len() as int)
+    seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
 }
 
 /// Expected value of word `idx` in a full CPU set.
@@ -388,7 +375,10 @@ impl CpuSet {
             invariant
                 self.inv(),
                 idx <= smallvec_view(&self.bits).len(),
-                count == count_set_bits_prefix(smallvec_view(&self.bits), idx as int),
+                count == smallvec_view(&self.bits).subrange(0, idx as int).fold_left(
+                    0,
+                    |count: int, word: u64| count + u64_set_bits(word),
+                ),
                 count <= 64 * idx,
             decreases
                 smallvec_view(&self.bits).len() - idx,
@@ -399,7 +389,12 @@ impl CpuSet {
             proof! {
                 assert(0 <= u64_set_bits(part) <= 64);
                 assert(count + part_count <= usize::MAX);
-                reveal_with_fuel(count_set_bits_prefix, 1);
+                let seq = smallvec_view(&self.bits);
+                assert_seqs_equal!(
+                    seq.subrange(0, idx + 1).drop_last() == seq.subrange(0, idx as int)
+                );
+                assert(seq.subrange(0, idx + 1).last() == seq[idx as int]);
+                reveal_with_fuel(Seq::fold_left, 1);
             }
             count += part_count;
             idx += 1;
