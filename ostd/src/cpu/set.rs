@@ -7,7 +7,8 @@ use vstd::{
 };
 use vstd_extra::{
     bits::{
-        group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_and_zero, lemma_u64_masked_bit_keep,
+        group_u64_bit_algebra, lemma_u64_allones_bit, lemma_u64_and_zero,
+        lemma_u64_masked_bit_clear, lemma_u64_masked_bit_keep,
     },
     external::{
         bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
@@ -76,7 +77,7 @@ const fn parts_for_cpus(num_cpus: usize) -> usize {
         if num_cpus == 0 {
             assert(parts_for_cpus_spec(0) == 0);
         } else {
-            assert(num_cpus as int > 0);
+            assert(num_cpus > 0);
             assert(parts_for_cpus_spec(num_cpus) as int == ((num_cpus as int) + 63) / 64);
         }
     }
@@ -457,8 +458,7 @@ impl CpuSet {
     #[verus_spec(ret =>
         requires
             self.inv(),
-        ensures
-            ret ==> self@ == Set::range(0, cpu_count()),
+        returns self@ == Set::range(0, cpu_count()),
     )]
     pub fn is_full(&self) -> bool {
         /* `Enumerate` has no `IteratorSpecImpl` in the active vstd, so use an indexed loop
@@ -497,6 +497,11 @@ impl CpuSet {
                 !0
             };
             if self.bits.as_slice()[idx] != expected {
+                proof! {
+                    assert(expected
+                        == full_set_word(cpu_count(), smallvec_view(&self.bits).len() as int, idx as int));
+                    lemma_mismatched_word_imply_not_full_set(self, idx as int);
+                }
                 return false;
             }
             idx += 1;
@@ -610,9 +615,8 @@ impl CpuSet {
     /// Only for internal use. Build a vector of `num_cpus`-covering words, all equal to `val`.
     #[verus_spec(ret =>
         requires
-            (num_cpus as int) == cpu_count(),
-            2 * (parts_for_cpus_spec(num_cpus) as int) * (size_of::<u64>() as int)
-                <= isize::MAX as int,
+            num_cpus == cpu_count(),
+            2 * parts_for_cpus_spec(num_cpus) * size_of::<u64>() <= isize::MAX,
         ensures
             smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus),
         forall|i: int|
@@ -645,7 +649,7 @@ impl CpuSet {
             let num_parts = parts_for_cpus(num_cpus);
             proof! {
                 let n = cpu_count();
-                assert((num_cpus as int) == n);
+                assert(num_cpus == n);
                 assert(1 <= n);
                 assert((num_parts as int) == (n + 63) / 64);
                 lemma_fundamental_div_mod(n + 63, 64);
@@ -669,7 +673,7 @@ impl CpuSet {
                 let idx = (num_parts as int) - 1;
                 let k = n % 64;
                 let mask: u64 = ((1u64 << (k as usize)) - 1) as u64;
-                assert((num_cpus as int) == n);
+                assert(num_cpus == n);
                 assert((num_cpus % BITS_PER_PART) as int == k);
                 assert((num_parts as int) == (n + 63) / 64);
                 assert(len == (n + 63) / 64);
@@ -866,8 +870,7 @@ proof fn lemma_u64_nonzero_has_set_bit(word: u64)
 
 proof fn lemma_cpucount_fits()
     ensures
-        2 * (parts_for_cpus_spec(cpu_count() as usize) as int) * (size_of::<u64>() as int)
-            <= isize::MAX as int,
+        2 * parts_for_cpus_spec(cpu_count() as usize) * size_of::<u64>() <= isize::MAX,
 {
     if cpu_count() > 0 {
         assert(parts_for_cpus_spec(cpu_count() as usize) as int == (cpu_count() + 63) / 64) by {
@@ -954,6 +957,143 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
         }
     }
     assert(set@ == Set::range(0, n));
+}
+
+/// Two distinct `u64` words differ at some unit bit.
+proof fn lemma_u64_distinct_bits_differ(x: u64, y: u64)
+    requires
+        x != y,
+    ensures
+        exists|b: u32| b < 64 && (#[trigger] (x & (1u64 << b))) != (y & (1u64 << b)),
+{
+    let diff: u64 = x ^ y;
+    assert(diff != 0u64) by (bit_vector)
+        requires
+            diff == x ^ y,
+            x != y,
+    ;
+    lemma_u64_nonzero_has_set_bit(diff);
+    let b = choose|b: u32| b < 64 && #[trigger] (diff & (1u64 << b)) != 0;
+    assert((x & (1u64 << b)) != (y & (1u64 << b))) by (bit_vector)
+        requires
+            (diff & (1u64 << b)) != 0,
+            diff == x ^ y,
+    ;
+    assert(exists|b: u32| b < 64 && (#[trigger] (x & (1u64 << b))) != (y & (1u64 << b)));
+}
+
+/// ANDing with the unit bit at `b` yields `0` or the unit bit itself.
+proof fn lemma_u64_unit_bit_projection(x: u64, b: u32)
+    requires
+        b < 64,
+    ensures
+        (x & (1u64 << b)) == 0 || (x & (1u64 << b)) == (1u64 << b),
+{
+    assert((x & (1u64 << b)) == 0 || (x & (1u64 << b)) == (1u64 << b)) by (bit_vector);
+}
+
+/// If some backing word differs from its full-set value, the abstract view is not
+/// the full CPU range: the differing bit is either a missing CPU bit (below
+/// `cpu_count`), or a set nonexistent bit, which `inv` rules out.
+proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
+    requires
+        set.inv(),
+        0 <= p < smallvec_view(&set.bits).len() as int,
+        smallvec_view(&set.bits)[p] != full_set_word(
+            cpu_count(),
+            smallvec_view(&set.bits).len() as int,
+            p,
+        ),
+    ensures
+        set@ != Set::range(0, cpu_count()),
+{
+    let seq = smallvec_view(&set.bits);
+    let n = cpu_count();
+    let len = seq.len() as int;
+    assert(n > 0);
+    reveal(parts_for_cpus_spec);
+    assert(len == (n + 63) / 64);
+    let k = n % 64;
+    lemma_fundamental_div_mod(n, 64);
+    lemma_fundamental_div_mod(n + 63, 64);
+    if k != 0 {
+        assert(n + 63 == 64 * (n / 64) + 63 + k);
+        assert(len == n / 64 + 1);
+        assert(64 * (len - 1) + k == n);
+    } else {
+        assert(len == n / 64);
+        assert(64 * len == n);
+    }
+    assert(64 * (len - 1) < n);
+    // A bit where the word differs from its full-set value.
+    let word = seq[p];
+    let expected = full_set_word(n, len, p);
+    lemma_u64_distinct_bits_differ(word, expected);
+    let b = choose|b: u32| b < 64 && (#[trigger] (word & (1u64 << b))) != (expected & (1u64 << b));
+    lemma_u64_unit_bit_projection(word, b);
+    lemma_u64_unit_bit_projection(expected, b);
+    let j = 64 * p + b as int;
+    assert(j / 64 == p);
+    assert(j % 64 == b as int);
+    assert((j % 64) as usize == b as usize);
+    assert(0 <= j < 64 * len);
+    assert(set@.contains(j) == (0 <= j < n && bit_at(seq, j)));
+    if p == len - 1 && k != 0 {
+        assert(expected == ((1u64 << (k as usize)) - 1) as u64);
+        if (expected & (1u64 << b)) != 0 {
+            // The mask only keeps bits below `k`, so `j` is a missing CPU bit.
+            if b >= k {
+                lemma_u64_masked_bit_clear(!0u64, expected, k, b as int);
+                lemma_u64_allones_bit(b as int);
+                assert(!0u64 & expected == expected) by (bit_vector);
+                assert((expected & (1u64 << b)) == 0);
+                assert(false);
+            }
+            assert(b < k);
+            assert(j < 64 * (len - 1) + k);
+            assert(64 * (len - 1) + k == n);
+            assert(j < n);
+            assert((word & (1u64 << b)) == 0);
+            assert(!bit_at(seq, j));
+            assert(!set@.contains(j));
+            assert(Set::range(0, n).contains(j));
+            assert(set@ != Set::range(0, n));
+        } else {
+            // A set bit at or above `n` would violate the clear-tail invariant.
+            if b < k {
+                lemma_u64_masked_bit_keep(!0u64, expected, k, b as int);
+                lemma_u64_allones_bit(b as int);
+                assert(!0u64 & expected == expected) by (bit_vector);
+                assert((expected & (1u64 << b)) != 0);
+                assert(false);
+            }
+            assert(b >= k);
+            assert(j >= 64 * (len - 1) + k);
+            assert(64 * (len - 1) + k == n);
+            assert(j >= n);
+            assert((word & (1u64 << b)) != 0);
+            assert(bit_at(seq, j));
+            assert(false);
+        }
+    } else {
+        assert(expected == !0u64);
+        lemma_u64_allones_bit(b as int);
+        assert((expected & (1u64 << b)) != 0);
+        assert((word & (1u64 << b)) == 0);
+        if p < len - 1 {
+            assert(j <= 64 * (len - 2) + 63);
+            assert(j < 64 * (len - 1));
+        } else {
+            assert(k == 0);
+            assert(64 * len == n);
+            assert(j < 64 * len);
+        }
+        assert(j < n);
+        assert(!bit_at(seq, j));
+        assert(!set@.contains(j));
+        assert(Set::range(0, n).contains(j));
+        assert(set@ != Set::range(0, n));
+    }
 }
 
 } // verus!
