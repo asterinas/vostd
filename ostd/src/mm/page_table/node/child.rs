@@ -133,13 +133,10 @@ impl<C: PageTableConfig> Child<C> {
             }
             let tracked slot_perm = regions.tracked_borrow_slot(paddr);
 
+            proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None) }
             let node = PageTableNode::<C> {
                 ptr: PPtr::from_addr(frame_to_meta(paddr)),
                 _marker: PhantomData,
-                #[cfg(verus_keep_ghost_body)]
-                tracked_slot_perm: Tracked(slot_perm),
-                #[cfg(verus_keep_ghost_body)]
-                tracked_metadata_perm: Tracked(None),
             };
 
             return Child::PageTable(node);

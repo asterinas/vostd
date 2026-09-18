@@ -294,11 +294,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         // Construct a segment early to recycle previously forgotten frames if
         // the subsequent operations fails in the middle.
 
+        proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
         let mut segment = Self {
             range: range.start..range.start,
             _marker: core::marker::PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(Some(raw_perms)),
         };
 
         let mut i = 0;
@@ -499,12 +498,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r.range() == range,
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
-        Self {
-            range,
-            _marker: core::marker::PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(Some(raw_perms)),
-        }
+        proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
+        Self { range, _marker: core::marker::PhantomData }
     }
 }
 
@@ -776,12 +771,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             }
         }
 
-        Self {
-            range: start..end,
-            _marker: core::marker::PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(Some(raw_perms)),
-        }
+        proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
+        Self { range: start..end, _marker: core::marker::PhantomData }
     }
 
     /// Forgets the [`Segment`] and gets a raw range of physical addresses.

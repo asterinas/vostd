@@ -606,14 +606,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         // let ptr = vaddr as *const MetaSlot;
         let ptr = PPtr(vaddr, PhantomData);
 
-        Self {
-            ptr,
-            _marker: PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(perm.slot_perm),
-            #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(Some(perm.metadata_perm)),
-        }
+        proof_with!{ tracked_slot_perm: Tracked(perm.slot_perm), tracked_metadata_perm: Tracked(Some(perm.metadata_perm)) }
+        Self { ptr, _marker: PhantomData }
     }
 }
 
