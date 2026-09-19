@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU-related definitions.
-pub mod local;
+use vstd::prelude::*;
+
+// pub mod local;
 pub mod set;
 
 pub use set::{AtomicCpuSet, CpuSet};
 
-pub use crate::arch::cpu::*;
-use crate::{cpu_local_cell, task::atomic_mode::InAtomicMode};
+// pub use crate::arch::cpu::*;
+// use crate::{cpu_local_cell, task::atomic_mode::InAtomicMode};
 
 /// The ID of a CPU in the system.
 ///
 /// If converting from/to an integer, the integer must start from 0 and be less
 /// than the number of CPUs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[verifier::allow(autoderive_clone_without_spec)]
+#[verus_verify]
 pub struct CpuId(u32);
 
 impl CpuId {
@@ -22,11 +26,13 @@ impl CpuId {
     }
 
     /// Converts the CPU ID to an `usize`.
+    #[verus_verify]
+    #[verus_spec(returns self@ as usize)]
     pub const fn as_usize(self) -> usize {
         self.0 as usize
     }
 
-    /// Returns the ID of the current CPU.
+    /* /// Returns the ID of the current CPU.
     ///
     /// This function is safe to call, but is vulnerable to races. The returned CPU
     /// ID may be outdated if the task migrates to another CPU.
@@ -38,7 +44,7 @@ impl CpuId {
         assert!(IS_CURRENT_CPU_INITED.load());
 
         Self(CURRENT_CPU.load())
-    }
+    } */
 }
 
 /// The error type returned when converting an out-of-range integer to [`CpuId`].
@@ -86,6 +92,10 @@ unsafe fn init_num_cpus(num_cpus: u32) {
 }
 
 /// Returns the number of CPUs.
+#[verus_verify(external_body)]
+#[verus_spec(
+    returns cpu_count() as usize,
+)]
 pub fn num_cpus() -> usize {
     // SAFETY: As far as the safe APIs are concerned, `NUM_CPUS` is
     // read-only, so it is always valid to read.
@@ -97,7 +107,42 @@ pub fn all_cpus() -> impl Iterator<Item = CpuId> {
     (0..num_cpus()).map(|id| CpuId(id as u32))
 }
 
-cpu_local_cell! {
+verus! {
+
+/// The underlying numeric CPU id.
+impl View for CpuId {
+    type V = int;
+
+    closed spec fn view(&self) -> int {
+        self.0 as int
+    }
+}
+
+/// The trusted value of the system CPU count. The exec reads `NUM_CPUS`, a `u32`
+/// initialized to 1 and set once at boot (never decreased, no hot-plug), so it is a
+/// stable constant; Verus cannot mention an `exec static` in a spec, so this uninterp
+/// is the explicit specification boundary (mirrors io_port's num_cpus-style pattern).
+pub uninterp spec fn cpu_count() -> int;
+
+/// The count is a positive value that fits a `u32` (the exec reads `static NUM_CPUS: u32`),
+/// hence also a `usize`; the `u32` bound is what lets a `CpuSet` bitset fit in its backing
+/// `SmallVec` without overflowing `isize::MAX`.
+pub broadcast axiom fn axiom_cpu_count_bounds()
+    ensures
+        #![trigger cpu_count()]
+        1 <= cpu_count() <= u32::MAX,
+;
+
+impl CpuId {
+    /// A CPU id is always in the range of CPUs present in the system.
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        0 <= self@ < cpu_count()
+    }
+}
+
+} // verus!
+/* cpu_local_cell! {
     /// The current CPU ID.
     static CURRENT_CPU: u32 = 0;
     /// The initialization state of the current CPU ID.
@@ -182,4 +227,4 @@ pub(crate) unsafe fn init_on_bsp() {
 pub(crate) unsafe fn init_on_ap(cpu_id: u32) {
     // SAFETY: The safety is upheld by the caller.
     unsafe { set_this_cpu_id(cpu_id) };
-}
+} */
