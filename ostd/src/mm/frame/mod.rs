@@ -42,6 +42,12 @@ use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
 use vstd::std_specs::convert::TryFromSpecImpl;
 #[cfg(feature = "type_id")]
 use core::any::TypeId;
+use vstd::{assert_maps_equal, assert_sets_equal};
+use vstd_extra::cast_ptr::*;
+use vstd_extra::ownership::*;
+use vstd_extra::panic::may_panic;
+use vstd_extra::transmute::{can_transmute, transmuted};
+use vstd::std_specs::convert::FromSpecImpl;
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::{Any, is_};
 
@@ -362,7 +368,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
+impl<M: AnyFrameMeta + ?Sized> Frame<M> {
     /// Gets the physical address of the start of the frame.
     /// # Verified Properties
     /// ## Preconditions
@@ -570,7 +576,7 @@ impl<M: ?Sized> Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
+impl<M: AnyFrameMeta + ?Sized> Frame<M> {
     /// Restores a forgotten [`Frame`] from a physical address.
     ///
     /// # Safety
@@ -610,7 +616,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
+impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
     open spec fn clone_requires(self, regions: MetaRegionOwners) -> bool {
         let paddr = self.start_paddr_spec();
         let ref_count = regions.slot_owner(paddr).ref_count();
@@ -735,20 +741,28 @@ impl<M: ?Sized> Frame<M> {
 
 verus! {
 
+#[cfg(feature = "type_id")]
+impl<M: ?Sized> Frame<M> {
+    /// The identity of the metadata this frame's slot holds.
+    ///
+    /// Reads the id recorded in the metadata permission by
+    /// [`MetaSlot::write_meta`]. Defined for every `M`, not just the erased
+    /// form: a `Frame<MetaSlotStorage>` is already an erased handle whose slot
+    /// was written at some concrete type, so the recorded id is that concrete
+    /// type's -- not `type_id::<M>()`. Which is why [`Frame::into_dyn`]
+    /// *preserves* this rather than claiming it equals `type_id::<M>()`.
+    pub open spec fn meta_type_id(&self) -> TypeId {
+        self.metadata_perm().meta_type_id
+    }
+}
+
+#[cfg(feature = "type_id")]
 /// Identity of an erased frame's metadata.
 ///
 /// A separate impl block because the surrounding one is bounded by
 /// `Repr<MetaSlotStorage>`, which `dyn AnyFrameMeta` does not satisfy -- and it is
 /// exactly the erased case these two are for.
 impl Frame<dyn AnyFrameMeta> {
-    /// The identity of the metadata this frame's slot holds.
-    ///
-    /// Uninterpreted, and a property of the *slot's contents* rather than of the
-    /// handle: the frame is a pointer, and which metadata type lives behind it is
-    /// not recoverable from the pointer alone. It is pinned at the point of
-    /// erasure, by [`Frame::into_dyn`], and read back by [`Self::dyn_meta`].
-    pub uninterp spec fn meta_type_id(&self) -> TypeIdSpec;
-
     /// Gets the dynamically-typed metadata of this frame.
     ///
     /// If the type is known at compile time, use [`Frame::meta`] instead.
@@ -763,8 +777,45 @@ impl Frame<dyn AnyFrameMeta> {
     }
 }
 
-/// The transmute half of the downcast.
+/// Reparameterizing a frame handle's metadata type is always a valid transmute.
+///
+/// The layout claim is about the *compiled* struct. `Frame<M>` is a
+/// `PPtr<MetaSlot>` beside a `PhantomData<M>` and two `Tracked` fields, and
+/// ghost and tracked fields are erased at compile time -- so what actually
+/// exists at runtime is one pointer, identically for every `M`. `PhantomData`
+/// and `Tracked` are zero-sized at every parameter, including unsized ones,
+/// because the `dyn` never reaches the pointer.
+///
+/// This is deliberately *opinionated*: `Frame` cannot carry
+/// `#[repr(transparent)]`, because rustc refuses to count `Ghost`/`Tracked`
+/// fields as trivially zero-sized -- they have private fields, so it will not
+/// promise they stay that way. That is an attribute-level refusal, not a layout
+/// fact, and the layout fact is what this axiom asserts. If `Frame` ever gains a
+/// second *exec* field, this becomes false.
+///
+/// The tracked fields carry across unchanged, which is well-typed precisely
+/// because neither `FracMetadataPerm` nor `PointsTo<MetaSlot>` mentions `M`.
+///
+/// Representation only. That the slot really holds a `B` is an identity claim,
+/// which this does not make -- the `is_::<M>` guard in [`TryFrom`] establishes
+/// that separately.
+/// TODO: update `tracked_metadata_perm` to reflect the new value.
 #[verifier::external_body]
+pub proof fn axiom_frame_reparam<A: ?Sized, B: ?Sized>(f: Frame<A>)
+    ensures
+        can_transmute::<Frame<A>, Frame<B>>(f),
+        transmuted::<Frame<A>, Frame<B>>(f) == (Frame::<B> {
+            ptr: f.ptr,
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_slot_perm: f.tracked_slot_perm,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_metadata_perm: f.tracked_metadata_perm,
+        }),
+{
+}
+
+/// The transmute half of the downcast.
 pub fn transmute_frame_to_typed<M: AnyFrameMeta>(dyn_frame: Frame<dyn AnyFrameMeta>)
 -> (r: Frame<M>)
     ensures
@@ -772,6 +823,9 @@ pub fn transmute_frame_to_typed<M: AnyFrameMeta>(dyn_frame: Frame<dyn AnyFrameMe
         r.tracked_slot_perm == dyn_frame.tracked_slot_perm,
         r.tracked_metadata_perm == dyn_frame.tracked_metadata_perm,
 {
+    proof {
+        axiom_frame_reparam::<dyn AnyFrameMeta, M>(dyn_frame);
+    }
     // SAFETY: The metadata is coerceable and the struct is transmutable.
     unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) }
 }
@@ -848,13 +902,45 @@ impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
     }
 }
 
-/*
-impl From<UFrame> for Frame<dyn AnyFrameMeta> {
-    fn from(frame: UFrame) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(frame) }
+verus! {
+
+impl FromSpecImpl<UFrame> for Frame<dyn AnyFrameMeta> {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    open spec fn from_spec(v: UFrame) -> Self {
+        Frame {
+            ptr: v.ptr,
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_slot_perm: v.tracked_slot_perm,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_metadata_perm: v.tracked_metadata_perm,
+        }
     }
 }
+
+/// Widens an already-erased handle from `UFrame` to `Frame<dyn AnyFrameMeta>`.
+///
+/// This is the conversion upstream writes as `old_frame.into()`. It is *not*
+/// [`Frame::into_dyn`]: a `UFrame` is `Frame<MetaSlotStorage>`, which is already
+/// an erased stand-in, so there is no static type here to pin. The recorded
+/// identity is preserved, not asserted -- the slot was written at whatever
+/// concrete type it actually holds.
+impl From<UFrame> for Frame<dyn AnyFrameMeta> {
+    fn from(frame: UFrame) -> (r: Self) {
+        proof {
+            axiom_frame_reparam::<MetaSlotStorage, dyn AnyFrameMeta>(frame);
+        }
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        unsafe { core::mem::transmute::<UFrame, Frame<dyn AnyFrameMeta>>(frame) }
+    }
+}
+
+} // verus!
+
+/*
 
 impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
     type Error = Frame<dyn AnyFrameMeta>;
@@ -939,18 +1025,38 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> Frame<M> {
     /// ambiguity at call sites that previously relied on the blanket
     /// `From<T> for T` (e.g. `frame.into()` for `Frame<UFrame>`).
     ///
-    /// Axiomatized (`external_body`) because the body is `transmute`, which
-    /// Verus has no built-in spec for.
-    #[verifier::external_body]
+    ///
+    /// Two versions, differing only in strength. `type_id` adds the clause that
+    /// pins the erased frame's identity, which is what makes the downcast in
+    /// [`TryFrom`] able to conclude anything; without the feature the frame still
+    /// erases, it just carries no recoverable identity. The runtime behaviour is
+    /// identical -- one `transmute` either way.
+    #[cfg(feature = "type_id")]
     pub fn into_dyn(self) -> (r: Frame<dyn AnyFrameMeta>)
         ensures
             r.ptr == self.ptr,
-            r.meta_type_id() == type_id::<M>(),
+            r.meta_type_id() == self.meta_type_id(),
     {
-        // SAFETY: `Frame<M>` is `#[repr(transparent)]` over `PPtr<MetaSlot>`
-        // plus a zero-size `PhantomData<M>`. `Frame<dyn AnyFrameMeta>` has
-        // the same runtime layout (thin pointer + ZST phantom).
-        unsafe { core::mem::transmute(self) }
+        proof {
+            axiom_frame_reparam::<M, dyn AnyFrameMeta>(self);
+        }
+        // SAFETY: see [`axiom_frame_reparam`] -- one pointer either way, once
+        // the ghost and tracked fields are erased.
+        // The permission fraction rides across unchanged (see the axiom), and it
+        // is what carries the recorded identity -- so the clause below is proved.
+        unsafe { core::mem::transmute::<Frame<M>, Frame<dyn AnyFrameMeta>>(self) }
+    }
+
+    #[cfg(not(feature = "type_id"))]
+    pub fn into_dyn(self) -> (r: Frame<dyn AnyFrameMeta>)
+        ensures
+            r.ptr == self.ptr,
+    {
+        proof {
+            axiom_frame_reparam::<M, dyn AnyFrameMeta>(self);
+        }
+        // SAFETY: as above.
+        unsafe { core::mem::transmute::<Frame<M>, Frame<dyn AnyFrameMeta>>(self) }
     }
 }
 

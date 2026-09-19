@@ -866,7 +866,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.issue_tlb_flush_with(
                     TlbFlushOp::Address(start_va),
-                    old_frame.into_dyn(),
+                    old_frame.into(),
                 );
                 #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.dispatch_tlb_flush();
@@ -1100,7 +1100,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     }
                     num_unmapped += 1;
                     #[verus_spec(with Tracked(tlb_model))]
-                    self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into_dyn());
+                    self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
                     proof {

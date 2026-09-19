@@ -293,7 +293,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) -> Self::Item {
         if prop.flags.contains(PageFlags::AVAIL1()) {
             MappedItem::Tracked(
-                Frame::<MetaSlotStorage> {
+                DynFrame {
                     ptr: vstd::simple_pptr::PPtr(mapping::frame_to_meta(paddr), PhantomData),
                     _marker: PhantomData,
                     #[cfg(verus_keep_ghost_body)]
@@ -323,7 +323,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
             // SAFETY: The caller ensures safety.
             let tracked (slot_perm, frame_permission) = perm.tracked_unwrap();
             proof_with!(Tracked(slot_perm), Tracked(frame_permission));
-            let frame = unsafe { Frame::<MetaSlotStorage>::from_raw(paddr) };
+            let frame = unsafe { DynFrame::from_raw(paddr) };
             MappedItem::Tracked(frame, item_prop)
         } else {
             MappedItem::Untracked(paddr, level, prop)

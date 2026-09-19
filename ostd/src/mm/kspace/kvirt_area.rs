@@ -54,7 +54,7 @@ use core::ops::Range;
 verus! {
 
 /// Spec representation of Frame<T> as DynFrame (used when the actual conversion is opaque).
-pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub open spec fn frame_as_dynframe<T: AnyFrameMeta + ?Sized>(
     frame: Frame<T>,
 ) -> DynFrame {
     DynFrame {
@@ -69,7 +69,8 @@ pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
 
 /// Converts `Frame<T>` to `DynFrame`, with a spec postcondition connecting the result
 /// to the spec function `frame_as_dynframe`.
-fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
+fn frame_into_dynframe<T: AnyUFrameMeta + Repr<MetaSlotStorage>>(frame: Frame<T>) -> (res:
+    DynFrame)
     ensures
         res == frame_as_dynframe(frame),
 {
@@ -86,7 +87,7 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
 #[allow(private_interfaces)]
-pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub open spec fn frame_entry_wf<T: AnyFrameMeta + ?Sized>(
     frame: Frame<T>,
     prop: PageProperty,
     entry_owner: EntryOwner<KernelPtConfig>,

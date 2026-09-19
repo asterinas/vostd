@@ -275,7 +275,25 @@ Send + Sync {
     /// Upstream gets this from `AnyFrameMeta: Any`. We cannot: Verus propagates an
     /// unsized-blanket-impl rejection from supertrait to subtrait
     /// (`vir/src/traits.rs`) -- `dyn AnyFrameMeta` would stop being a legal type.
-    spec fn meta_id(&self) -> TypeIdSpec;
+    spec fn meta_id(&self) -> TypeId;
+
+    /// [`Self::meta_id`] really is `Self`'s identity.
+    ///
+    /// An obligation rather than a free lemma, for the reason the `erase` module
+    /// of the `typeid-example` repo gives: over a parameter `M: AnyFrameMeta`
+    /// nothing is known about `meta_id`, because `M` could be any impl. Moving it
+    /// to a trait method relocates the proof to where `Self` *is* concrete, and
+    /// there every impl discharges it with an empty body -- `meta_id` is `open`
+    /// and defined as `type_id::<Self>()`, so the statement is true by unfolding.
+    ///
+    /// It cannot be discharged falsely: an impl that defined `meta_id` as
+    /// anything else would fail to prove this. Same shape as
+    /// [`vstd_extra::typing::types::Any::type_id_correct`].
+    #[cfg(feature = "type_id")]
+    proof fn meta_id_correct(&self) where Self: Sized
+        ensures
+            self.meta_id() == type_id::<Self>(),
+    ;
 
     /// Mimics the upcast `self as &dyn core::any::Any`.
     ///
@@ -770,6 +788,7 @@ impl MetaSlot {
                 final(metadata_perm).storage_perm.value(),
                 *final(repr_perm),
             ) == metadata,
+            final(metadata_perm).meta_type_id == recorded_meta_id::<M>(),
     )]
     pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
@@ -792,6 +811,14 @@ impl MetaSlot {
             Tracked(repr_perm),
             metadata,
         );
+
+        // Record which type went in. After the storage write, not before:
+        // `write_metadata_into_storage` takes the permission `&mut` and its
+        // postcondition says nothing about this field, so an earlier assignment
+        // would be forgotten. This is the only place that knows `M`.
+        proof {
+            metadata_perm.meta_type_id = recorded_meta_id::<M>();
+        }
     }
 
     /// Drops the metadata and deallocates the frame.

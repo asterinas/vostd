@@ -357,7 +357,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
 ///
 /// The caller must hold the invariant of the inner part to call any
 /// method that can read or write data from the DMA stream.
-pub struct DmaStreamVmIoOwner<M>(pub core::marker::PhantomData<M>);
+pub struct DmaStreamVmIoOwner<M: ?Sized>(pub core::marker::PhantomData<M>);
 
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStream<M> {
     open spec fn inv(self) -> bool {

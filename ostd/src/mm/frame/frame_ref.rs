@@ -27,13 +27,13 @@ verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
 // FIXME: field visibility
-pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
+pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized> {
     pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
+impl<M: AnyFrameMeta + ?Sized> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Safety
@@ -68,7 +68,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     }
 }
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
+impl<M: AnyFrameMeta + ?Sized> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
     #[verus_spec(r => ensures *r == self.inner@)]

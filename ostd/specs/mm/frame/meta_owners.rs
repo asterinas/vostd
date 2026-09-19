@@ -108,10 +108,15 @@ pub enum MetaSlotStorage {
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
 
-    open spec fn meta_id(&self) -> TypeIdSpec {
+    open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()
     }
 
+    #[cfg(feature = "type_id")]
+    proof fn meta_id_correct(&self) {
+    }
+
+    #[cfg(feature = "type_id")]
     fn to_any(&self) -> (r: &dyn Any) {
         let d: &dyn Any = self;
         assert(d.type_id_spec() == self.type_id_spec());
@@ -163,10 +168,21 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
     }
 }
 
+/// The identity recorded for a slot holding metadata of type `M`.
+/// Only defined if we have type id support.
+#[cfg(feature = "type_id")]
+pub open spec fn recorded_meta_id<M: ?Sized>() -> TypeId {
+    type_id::<M>()
+}
+
+#[cfg(not(feature = "type_id"))]
+pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> TypeId;
+
 /// Permissions to access metadata.
 pub tracked struct MetadataPerm {
     pub storage_perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
+    pub ghost meta_type_id: TypeId,
 }
 
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;

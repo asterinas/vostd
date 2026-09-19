@@ -51,5 +51,6 @@ pub mod spec_operators;
 pub mod state_machine;
 pub mod sum;
 pub mod temporal_logic;
+pub mod transmute;
 #[cfg(feature = "type_id")]
 pub mod typing;

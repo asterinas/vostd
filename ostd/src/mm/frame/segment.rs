@@ -27,6 +27,7 @@ use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 use crate::mm::page_table::RCClone;
 use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
+use vstd::std_specs::convert::FromSpecImpl;
 
 verus! {
 
@@ -49,6 +50,66 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     /// One raw permission bundle for each frame in `range`, in address order.
     #[cfg(verus_keep_ghost_body)]
     tracked_perms: Tracked<Option<Seq<FrameRawPerms>>>,
+}
+
+/// Reparameterizing a segment's metadata type is always a valid transmute.
+///
+/// The [`Frame`] argument for a struct that is not a pointer. `Segment<M>` has
+/// exactly one non-zero-sized *exec* field, `range: Range<Paddr>`; `_marker` is
+/// `PhantomData` and `tracked_perms` is `Tracked`, both erased at compile time.
+/// The compiled struct is one address range, identically for every `M`, and
+/// nothing about it is reinterpreted -- `range`'s type is the same on both
+/// sides. The permission sequence carries across unchanged, which is well-typed
+/// because `FrameRawPerms` does not mention `M`.
+///
+/// Module-private, deliberately. `Segment`'s fields are private, and a publicly
+/// visible spec signature may not construct a datatype whose fields are not
+/// equally visible -- but stating the result as a struct literal is what lets
+/// `From`'s postcondition close, so the axiom stays inside the module instead of
+/// being weakened to accessor equalities.
+///
+/// Representation only. Segments are homogeneous by invariant, but that their
+/// frames really carry `B`'s metadata is an identity claim this does not make.
+#[verifier::external_body]
+proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Sized>(s: Segment<A>)
+    ensures
+        vstd_extra::transmute::can_transmute::<Segment<A>, Segment<B>>(s),
+        vstd_extra::transmute::transmuted::<Segment<A>, Segment<B>>(s) == (Segment::<B> {
+            range: s.range,
+            _marker: core::marker::PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perms: s.tracked_perms,
+        }),
+{
+}
+
+impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    closed spec fn from_spec(v: Segment<M>) -> Self {
+        Segment {
+            range: v.range,
+            _marker: core::marker::PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perms: v.tracked_perms,
+        }
+    }
+}
+
+/// Erases a typed untyped-segment handle to [`USegment`].
+///
+/// The segment counterpart of `From<Frame<M>> for Frame<dyn AnyFrameMeta>`, and
+/// the conversion upstream writes as `.into()`.
+impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
+    fn from(seg: Segment<M>) -> (r: Self) {
+        proof {
+            axiom_segment_reparam::<M, dyn AnyUFrameMeta>(seg);
+        }
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        unsafe { core::mem::transmute::<Segment<M>, USegment>(seg) }
+    }
 }
 
 /*
@@ -76,6 +137,30 @@ impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
 /// [`USegment`] as a parameter accepts any untyped segments.
 ///
 /// The usage of this frame will not be changed while this object is alive.
+/// Not yet instantiable, and the obstacle is in Verus rather than here.
+///
+/// `AnyUFrameMeta` is dyn-compatible as of the `Repr` supertrait being moved to
+/// its use sites, so `dyn AnyUFrameMeta` is a legal Rust type. But `Segment` is
+/// declared `Segment<M: AnyFrameMeta + ?Sized>`, and discharging that bound needs
+/// `dyn AnyUFrameMeta: AnyFrameMeta` -- a *supertrait* impl, which Verus does not
+/// derive for `dyn` types. Minimal reproduction, no `ostd` involved:
+///
+/// ```text
+/// pub trait A { spec fn a(&self) -> int; }
+/// pub trait B: A {}
+/// pub struct Holder<T: A + ?Sized> { .. }
+/// pub fn make() -> Holder<dyn B> { .. }
+///
+/// error: the trait bound `Dyn<0, ()>: T4_A` is not satisfied
+/// note: This error was found in Verus's Trait-Conflict-Checker
+/// ```
+///
+/// Verus supplies `dyn B: B` but not `dyn B: A`. This is why `Frame<dyn ..>`
+/// works and `Segment<dyn ..>` does not: `Frame<M: ?Sized>` carries no trait
+/// bound at all, so there is nothing to discharge.
+///
+/// Fixing it means emitting supertrait impls for `Dyn` types in `vir`, or
+/// relaxing `Segment`'s parameter to `M: ?Sized` as `Frame`'s is.
 pub type USegment = Segment<dyn AnyUFrameMeta>;
 
 /* impl<M: AnyFrameMeta + ?Sized> Clone for Segment<M> {
