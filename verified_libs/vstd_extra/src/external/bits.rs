@@ -1,4 +1,5 @@
 //! Specifications for bit-related standard-library functions.
+use crate::bits::u64_bit_is_set;
 use vstd::prelude::*;
 
 verus! {
@@ -10,7 +11,7 @@ spec fn u64_set_bits_rec(w: u64, n: u64) -> int
     if n == 0 {
         0
     } else {
-        (w & 1u64) + u64_set_bits_rec(w >> 1u64, (n - 1) as u64)
+        u64_bit_is_set(w, 0) as int + u64_set_bits_rec(w >> 1u64, (n - 1) as u64)
     }
 }
 
@@ -37,28 +38,31 @@ proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)
     reveal_with_fuel(u64_set_bits_rec, 1);
     if n != 0 {
         lemma_u64_set_bits_rec_bounds(w >> 1u64, (n - 1) as u64);
-        assert((w & 1u64) <= 1) by (bit_vector);
         assert((w >> 1u64) >> ((n - 1) as u64) == w >> n) by (bit_vector)
             requires
                 0 < n <= 64,
         ;
         if w >> n == 0 {
             if w == 0 {
-                assert(w & 1u64 == 0 && w >> 1u64 == 0) by (bit_vector)
+                assert(u64_bit_is_set(w, 0) == false) by {
+                    assert((w & (1u64 << 0usize)) == 0u64) by (bit_vector)
+                        requires
+                            w == 0,
+                    ;
+                }
+                assert(w >> 1u64 == 0) by (bit_vector)
                     requires
                         w == 0,
                 ;
             } else {
-                if w & 1u64 == 0 {
+                if u64_bit_is_set(w, 0) {
+                    assert(1 <= u64_bit_is_set(w, 0) as int);
+                } else {
+                    assert((w & (1u64 << 0usize)) == 0u64);
                     assert(w >> 1u64 != 0) by (bit_vector)
                         requires
                             w != 0,
-                            w & 1u64 == 0,
-                    ;
-                } else {
-                    assert(w & 1u64 == 1) by (bit_vector)
-                        requires
-                            w & 1u64 != 0,
+                            (w & (1u64 << 0usize)) == 0u64,
                     ;
                 }
             }

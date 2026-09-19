@@ -1,6 +1,28 @@
 //! Bit-arithmetic lemmas for `u64` shifts and masks.
 use vstd::prelude::*;
 
+/// Define the bit-test predicate `|$name|` for the unsigned word type `$uN`:
+/// whether bit `b` of the word `w` is set, i.e. `w & (1 << b) != 0`.
+macro_rules! define_bit_is_set {
+    ($name:ident, $uN:ty, $one:expr) => {
+        verus! {
+            /// Bit `b` of the
+            #[doc = stringify!($uN)]
+            /// word `w` is set, i.e. `w & (1 << b) != 0`.
+            pub open spec fn $name(w: $uN, b: int) -> bool {
+                (w & ($one << (b as usize))) != 0
+            }
+        }
+    };
+}
+
+define_bit_is_set!(u8_bit_is_set, u8, 1u8);
+define_bit_is_set!(u16_bit_is_set, u16, 1u16);
+define_bit_is_set!(u32_bit_is_set, u32, 1u32);
+define_bit_is_set!(u64_bit_is_set, u64, 1u64);
+define_bit_is_set!(u128_bit_is_set, u128, 1u128);
+define_bit_is_set!(usize_bit_is_set, usize, 1usize);
+
 verus! {
 
 /// Every bit of the all-ones word is set.

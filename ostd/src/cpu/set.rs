@@ -5,7 +5,7 @@ use vstd::{
     assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
 };
 use vstd_extra::{
-    bits::{group_u64_bit_algebra, lemma_u64_and_zero},
+    bits::{group_u64_bit_algebra, lemma_u64_and_zero, u64_bit_is_set},
     external::{
         bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
         smallvec::{group_smallvec_models, smallvec_view},
@@ -104,7 +104,7 @@ spec fn count_set_bits(seq: Seq<u64>) -> int {
 /// Bit `i` is set in the bit sequence `seq`.
 spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
     if 0 <= i < 64 * seq.len() as int {
-        (seq[part_idx_spec(i) as int] & (1u64 << bit_idx_spec(i))) != 0
+        u64_bit_is_set(seq[part_idx_spec(i) as int], i % 64)
     } else {
         false
     }
@@ -322,9 +322,8 @@ impl CpuSet {
                 let initial = IteratorSpec::remaining(&initial_iter);
                 let idx = initial.len() - IteratorSpec::remaining(&iter).len() - 1;
                 lemma_u64_nonzero_has_set_bit(*initial[idx]);
-                let b = choose|b: u32| b < 64 && #[trigger] (*initial[idx]
-                    & (1u64 << b)) != 0;
-                let j = 64 * idx + b as int;
+                let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(*initial[idx], b);
+                let j = 64 * idx + b;
                 assert(bit_at(seq, j));
                 assert(self@.contains(j));
             }
@@ -622,50 +621,51 @@ spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {
     }
 }
 
-proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: u32)
+proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: int)
     requires
         word != 0,
-        n <= 64,
-        word >> n == 0,
+        0 <= n <= 64,
+        word >> (n as u32) == 0,
     ensures
-        exists|b: u32| b < n && #[trigger] (word & (1u64 << b)) != 0,
+        exists|b: int| 0 <= b < n && #[trigger] u64_bit_is_set(word, b),
     decreases n,
 {
     if n == 0 {
-        assert(word >> n == word) by (bit_vector)
-            requires
-                n == 0,
-        ;
-    } else if word & 1u64 != 0 {
-        assert((word & (1u64 << 0u32)) != 0) by (bit_vector)
-            requires
-                word & 1u64 != 0,
-        ;
+        assert(word >> (0u32) == word) by (bit_vector);
+    } else if u64_bit_is_set(word, 0) {
+        assert(u64_bit_is_set(word, 0));
     } else {
         let shifted = word >> 1u32;
+        assert((word & (1u64 << 0usize)) == 0u64);
         assert(shifted != 0) by (bit_vector)
             requires
                 shifted == word >> 1u32,
                 word != 0,
-                word & 1u64 == 0,
+                (word & (1u64 << 0usize)) == 0u64,
         ;
-        let prev: u32 = (n - 1) as u32;
-        assert(shifted >> prev == word >> n) by (bit_vector)
+        let prev: int = n - 1;
+        let nu: u32 = n as u32;
+        let prevu: u32 = (n - 1) as u32;
+        assert(shifted >> prevu == word >> nu) by (bit_vector)
             requires
                 shifted == word >> 1u32,
-                n == prev + 1,
-                n <= 64,
+                nu == prevu + 1,
+                nu <= 64,
         ;
         lemma_u64_nonzero_has_set_bit_aux(shifted, prev);
-        let b = choose|b: u32| b < n - 1 && #[trigger] (shifted & (1u64 << b)) != 0;
+        let b = choose|b: int| 0 <= b < n - 1 && #[trigger] u64_bit_is_set(shifted, b);
+        let bu: u32 = b as u32;
         let next: u32 = (b + 1) as u32;
-        assert((word & (1u64 << next)) != 0) by (bit_vector)
-            requires
-                shifted == word >> 1u32,
-                (shifted & (1u64 << b)) != 0,
-                next == b + 1,
-                b < 63,
-        ;
+        assert(u64_bit_is_set(word, b + 1)) by {
+            assert((word & (1u64 << next)) != 0) by (bit_vector)
+                requires
+                    shifted == word >> 1u32,
+                    (shifted & (1u64 << bu)) != 0,
+                    next == bu + 1,
+                    bu < 63,
+            ;
+        };
+        assert(0 <= b + 1 < n && u64_bit_is_set(word, b + 1));
     }
 }
 
@@ -673,7 +673,7 @@ proof fn lemma_u64_nonzero_has_set_bit(word: u64)
     requires
         word != 0,
     ensures
-        exists|b: u32| b < 64 && #[trigger] (word & (1u64 << b)) != 0,
+        exists|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(word, b),
 {
     assert(word >> 64u32 == 0) by (bit_vector);
     lemma_u64_nonzero_has_set_bit_aux(word, 64);
@@ -719,6 +719,9 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
             let p = a / 64;
             if a / 64 == len - 1 && n % 64 != 0 {
                 let mask = seq[p];
+                // Materialize the `!0u64 & mask` term: the broadcast masked-bit lemmas
+                // then chain (with `!0u64` as the word) to show that every in-range bit
+                // of the partial last word is set.
                 assert(!0u64 & mask == mask) by (bit_vector);
             }
         }
@@ -730,7 +733,9 @@ proof fn lemma_u64_distinct_bits_differ(x: u64, y: u64)
     requires
         x != y,
     ensures
-        exists|b: u32| b < 64 && (#[trigger] (x & (1u64 << b))) != (y & (1u64 << b)),
+        exists|b: int|
+            0 <= b < 64 && (#[trigger] (x & (1u64 << (b as usize)))) != (y & (1u64 << (
+            b as usize))),
 {
     let diff: u64 = x ^ y;
     assert(diff != 0u64) by (bit_vector)
@@ -739,22 +744,24 @@ proof fn lemma_u64_distinct_bits_differ(x: u64, y: u64)
             x != y,
     ;
     lemma_u64_nonzero_has_set_bit(diff);
-    let b = choose|b: u32| b < 64 && #[trigger] (diff & (1u64 << b)) != 0;
-    assert((x & (1u64 << b)) != (y & (1u64 << b))) by (bit_vector)
+    let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(diff, b);
+    let bu: u32 = b as u32;
+    assert((x & (1u64 << bu)) != (y & (1u64 << bu))) by (bit_vector)
         requires
-            (diff & (1u64 << b)) != 0,
+            (diff & (1u64 << bu)) != 0,
             diff == x ^ y,
     ;
 }
 
 /// ANDing with the unit bit at `b` yields `0` or the unit bit itself.
-proof fn lemma_u64_unit_bit_projection(x: u64, b: u32)
+proof fn lemma_u64_unit_bit_projection(x: u64, b: int)
     requires
-        b < 64,
+        0 <= b < 64,
     ensures
-        (x & (1u64 << b)) == 0 || (x & (1u64 << b)) == (1u64 << b),
+        !u64_bit_is_set(x, b) || ((x & (1u64 << (b as usize))) == (1u64 << (b as usize))),
 {
-    assert((x & (1u64 << b)) == 0 || (x & (1u64 << b)) == (1u64 << b)) by (bit_vector);
+    let bu: u32 = b as u32;
+    assert((x & (1u64 << bu)) == 0u64 || (x & (1u64 << bu)) == (1u64 << bu)) by (bit_vector);
 }
 
 /// If some backing word differs from its full-set value, the abstract view is not
@@ -783,13 +790,15 @@ proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
     let word = seq[p];
     let expected = full_set_word(n, len, p);
     lemma_u64_distinct_bits_differ(word, expected);
-    let b = choose|b: u32| b < 64 && (#[trigger] (word & (1u64 << b))) != (expected & (1u64 << b));
+    let b = choose|b: int|
+        0 <= b < 64 && (#[trigger] (word & (1u64 << (b as usize)))) != (expected & (1u64 << (
+        b as usize)));
     lemma_u64_unit_bit_projection(word, b);
     lemma_u64_unit_bit_projection(expected, b);
-    let j = 64 * p + b as int;
+    let j = 64 * p + b;
     assert(set@.contains(j) == (0 <= j < n && bit_at(seq, j)));
     if p == len - 1 && k != 0 {
-        if (expected & (1u64 << b)) != 0 {
+        if u64_bit_is_set(expected, b) {
             // The mask only keeps bits below `k`, so `j` is a missing CPU bit.
             if b >= k {
                 assert(!0u64 & expected == expected) by (bit_vector);
