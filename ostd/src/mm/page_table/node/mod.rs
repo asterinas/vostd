@@ -660,7 +660,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// The PTE value that `read_once::<C::E>` would produce at cursor `c`
     /// against the given memory view. Linked to `read_once` via
     /// `pod_bytes(v) == read_view.read_bytes(...)` (strengthened ensures)
-    /// + [`lemma_decode_pod_inverse`].
+    /// and the checked byte-decoding model.
     pub open spec fn walk_pte_at_view(view: crate::specs::mm::virt_mem::MemView, c: usize) -> C::E {
         ostd_pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
     }
