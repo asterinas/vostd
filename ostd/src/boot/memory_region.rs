@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::{arch::*, mm::frame::memory_region_specs::MemoryRegionArrayModel};
+use crate::specs::arch::*;
 
 use core::ops::Deref;
 
@@ -254,10 +254,10 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
 }
 
 impl<const LEN: usize> View for MemoryRegionArray<LEN> {
-    type V = MemoryRegionArrayModel<LEN>;
+    type V = Seq<MemoryRegion>;
 
-    closed spec fn view(&self) -> MemoryRegionArrayModel<LEN> {
-        MemoryRegionArrayModel { regions: Seq::new(self.count as nat, |i: int| self.regions[i]) }
+    closed spec fn view(&self) -> Seq<MemoryRegion> {
+        Seq::new(self.count as nat, |i: int| self.regions[i])
     }
 }
 
@@ -266,7 +266,7 @@ impl<const LEN: usize> View for MemoryRegionArray<LEN> {
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     #[verus_spec(ret =>
         ensures
-            ret@ == MemoryRegionArrayModel::<LEN>::new()
+            ret@ == Seq::<MemoryRegion>::empty()
     )]
     fn default() -> Self {
         Self::new()
@@ -278,7 +278,7 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
 
     #[verus_spec(ret =>
         ensures
-            ret@ == self@.regions,
+            ret@ == self@,
     )]
     fn deref(&self) -> &Self::Target {
         proof! {
@@ -292,7 +292,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
     #[verus_spec(ret =>
         ensures
-            ret@ == MemoryRegionArrayModel::<LEN>::new(),
+            ret@ == Seq::<MemoryRegion>::empty(),
     )]
     pub const fn new() -> Self {
         let ret = Self {
@@ -301,7 +301,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
         };
 
         proof! {
-            assert(ret@.regions == Seq::<MemoryRegion>::empty());
+            assert(ret@ == Seq::<MemoryRegion>::empty());
         };
 
         ret
@@ -312,11 +312,11 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// If the set is full, an error is returned.
     #[verus_spec(ret =>
         ensures
-            !old(self)@.full() ==> {
+            old(self)@.len() < LEN ==> {
                 &&& final(self)@ == old(self)@.push(region)
                 &&& ret.is_ok()
             },
-            old(self)@.full() ==> {
+            old(self)@.len() == LEN ==> {
                 &&& final(self)@ == old(self)@
                 &&& ret.is_err()
             },
@@ -329,8 +329,8 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             self.regions[self.count] = region;
             self.count = self.count + 1;
             proof! {
-                assert(self@.regions == old(self)@.regions.push(region)) by {
-                    assert (forall |i: int| 0 <= i < self@.regions.len() ==> #[trigger] self@.regions[i] == old(self)@.regions.push(region)[i]);
+                assert(self@ == old(self)@.push(region)) by {
+                    assert (forall |i: int| 0 <= i < self@.len() ==> #[trigger] self@[i] == old(self)@.push(region)[i]);
                 };
             };
             Ok(())
