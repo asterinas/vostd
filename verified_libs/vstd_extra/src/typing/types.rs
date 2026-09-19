@@ -15,7 +15,7 @@ verus! {
 /// does. The other half -- that a tag *determines* the type -- now holds too,
 /// since identity became decoration-sensitive; it rests on the collision
 /// assumption documented in `vstd::std_specs::any`. See
-/// [`crate::typing::soundness`] for the full argument.
+/// `type-identity-prelude.md` in the Verus checkout for the full argument.
 pub trait Any {
     /// The identity of this value's concrete type.
     spec fn type_id_spec(&self) -> TypeId;
@@ -74,7 +74,7 @@ impl<T: Sized + 'static> AnyCast for T {
 /// Identity is decoration-sensitive, so this is false for `&T`, `Box<T>`,
 /// `Rc<T>` and `Arc<T>` -- each has its own tag, at every level of nesting.
 /// Rejecting is unconditionally sound; accepting rests on the collision
-/// assumption in `vstd::std_specs::any`. See [`crate::typing::soundness`].
+/// assumption in `vstd::std_specs::any`.
 pub open spec fn is_type<T>(x: &dyn Any) -> bool {
     x.type_id_spec() == type_id::<T>()
 }
