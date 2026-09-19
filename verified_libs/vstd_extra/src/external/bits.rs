@@ -11,7 +11,7 @@ spec fn u64_set_bits_rec(w: u64, n: u64) -> int
     if n == 0 {
         0
     } else {
-        u64_bit_is_set(w, 0) as int + u64_set_bits_rec(w >> 1u64, (n - 1) as u64)
+        u64_bit_is_set(w, (n - 1) as int) as int + u64_set_bits_rec(w, (n - 1) as u64)
     }
 }
 
@@ -37,32 +37,31 @@ proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)
 {
     reveal_with_fuel(u64_set_bits_rec, 1);
     if n != 0 {
-        lemma_u64_set_bits_rec_bounds(w >> 1u64, (n - 1) as u64);
-        assert((w >> 1u64) >> ((n - 1) as u64) == w >> n) by (bit_vector)
-            requires
-                0 < n <= 64,
-        ;
+        let prev = (n - 1) as u64;
+        lemma_u64_set_bits_rec_bounds(w, prev);
         if w >> n == 0 {
             if w == 0 {
-                assert(u64_bit_is_set(w, 0) == false) by {
-                    assert((w & (1u64 << 0usize)) == 0u64) by (bit_vector)
+                assert(u64_bit_is_set(w, prev as int) == false) by {
+                    assert((w & (1u64 << (prev as usize))) == 0u64) by (bit_vector)
                         requires
                             w == 0,
                     ;
                 }
-                assert(w >> 1u64 == 0) by (bit_vector)
+                assert(w >> prev == 0) by (bit_vector)
                     requires
                         w == 0,
                 ;
             } else {
-                if u64_bit_is_set(w, 0) {
-                    assert(1 <= u64_bit_is_set(w, 0) as int);
+                if u64_bit_is_set(w, prev as int) {
+                    assert(1 <= u64_bit_is_set(w, prev as int) as int);
                 } else {
-                    assert((w & (1u64 << 0usize)) == 0u64);
-                    assert(w >> 1u64 != 0) by (bit_vector)
+                    assert((w & (1u64 << (prev as usize))) == 0u64);
+                    assert(w >> prev == 0) by (bit_vector)
                         requires
-                            w != 0,
-                            (w & (1u64 << 0usize)) == 0u64,
+                            0 < n <= 64,
+                            prev == n - 1,
+                            w >> n == 0,
+                            (w & (1u64 << (prev as usize))) == 0u64,
                     ;
                 }
             }
