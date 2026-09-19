@@ -4,8 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::memory_region_specs::MemoryRegionArrayModel;
+use crate::specs::{arch::*, mm::frame::memory_region_specs::MemoryRegionArrayModel};
 
 use core::ops::Deref;
 
@@ -168,6 +167,7 @@ impl MemoryRegion {
 
     /// Checks whether the region is empty
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.is_empty())]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -311,11 +311,15 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     ///
     /// If the set is full, an error is returned.
     #[verus_spec(ret =>
-        requires
-            !old(self)@.full(),
         ensures
-            final(self)@ == old(self)@.push(region),
-            ret.is_ok(),
+            !old(self)@.full() ==> {
+                &&& final(self)@ == old(self)@.push(region)
+                &&& ret.is_ok()
+            },
+            old(self)@.full() ==> {
+                &&& final(self)@ == old(self)@
+                &&& ret.is_err()
+            },
     )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
         proof! {
