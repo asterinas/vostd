@@ -64,8 +64,9 @@ use crate::{
 };
 
 use super::{
-    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
+    Child, ChildRef, CurrentPagingConstsTrait, Entry, EntryOwner, FrameView, PageTable,
+    PageTableConfig, PageTableError, PageTableGuard, PageTablePageMeta, PagingConstsTrait,
+    PagingLevel, pte_index,
 };
 
 verus! {
@@ -599,8 +600,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner_before_permission_take.cur_entry_owner(),
                             );
+                            // Relate the resolved frame to the query's initial panic condition.
+                            assert(old(owner)@.query_mapping().pa_range.start == pa);
                             assert(regions.contains(idx));
                             assert(old(regions).contains(idx));
+                            assert(old(regions).ref_count(idx) == regions.ref_count(idx));
                         }
                         owner_before_permission_take.lemma_cur_frame_clone_requires(
                             item,
@@ -1011,6 +1015,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
+                                C::lemma_current_paging_consts_requirements();
                                 assert(self.level < NR_LEVELS);
                             }
                         }
@@ -3189,30 +3194,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
             return None;
         }
-        let tracked mut absent_entry_owner = EntryOwner::tracked_new_absent(
-            owner.cur_entry_owner().path,
-            owner.level,
-        );
-        let ghost subtree_level = (owner.continuations[owner.level - 1].tree_level + 1) as nat;
-        assert(absent_entry_owner.inv()) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree_level < INC_LEVELS) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        let tracked subtree = OwnerSubtree::tracked_new_val(absent_entry_owner, subtree_level);
-        assert(subtree.value().path.len() <= INC_LEVELS - 1) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree.value().parent_level == owner.continuations[owner.level
-            - 1].child().value().parent_level) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree.value().path == owner.continuations[owner.level - 1].path().push_tail(
-            owner.continuations[owner.level - 1].idx as int,
-        )) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
+        let tracked subtree = owner.tracked_new_absent_subtree();
+
+        proof {
+            assert(subtree.value().inv()) by {
+                reveal(TreeNode::inv);
+            };
+            owner.not_in_tree(subtree.value());
+        }
 
         let ghost owner_before_replace = *owner;
         let ghost regions_before_replace = *regions;
@@ -3258,6 +3247,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(cur_st.value().inv()) by {
                     reveal(TreeNode::inv);
                 };
+                owner_before_replace.lemma_inv_continuation(owner_before_replace.level - 1);
+                let cont = owner_before_replace.continuations[owner_before_replace.level - 1];
+                assert(cont.all_some()) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
+                cont.lemma_inv_children_rel_unroll(cont.idx as int);
                 owner_before_replace.lemma_new_child_mappings_eq_target(
                     cur_st,
                     cur_st.value().frame().mapped_pa,
