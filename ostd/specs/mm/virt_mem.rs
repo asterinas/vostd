@@ -13,7 +13,7 @@
 //! [`VmSpace`]: crate::mm::vm_space::VmSpace
 use core::{marker::PhantomData, ops::Range};
 
-use ostd_pod::{decode_pod, lemma_decode_pod_inverse, pod_bytes};
+use ostd_pod::{decode_pod, pod_bytes};
 
 use vstd::prelude::*;
 
