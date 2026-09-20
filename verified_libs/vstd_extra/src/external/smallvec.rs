@@ -156,10 +156,10 @@ pub assume_specification<A: Array>[ SmallVec::<A>::resize ](
     ensures
         new_len <= smallvec_view(old(v)).len() ==> smallvec_view(final(v)) == smallvec_view(
             old(v),
-        ).subrange(0, new_len as int),
+        )[..new_len],
         new_len > smallvec_view(old(v)).len() ==> {
             &&& smallvec_view(final(v)).len() == new_len
-            &&& smallvec_view(final(v)).subrange(0, smallvec_view(old(v)).len() as int)
+            &&& smallvec_view(final(v))[..smallvec_view(old(v)).len()]
                 == smallvec_view(old(v))
             &&& forall|i: int|
                 #![trigger smallvec_view(final(v))[i]]

@@ -267,7 +267,7 @@ impl CpuSet {
             invariant
                 self.inv(),
                 idx <= smallvec_view(&self.bits).len(),
-                count == smallvec_view(&self.bits).subrange(0, idx as int).fold_left(
+                count == smallvec_view(&self.bits)[..idx].fold_left(
                     0,
                     |count: int, word: u64| count + u64_set_bits(word),
                 ),
@@ -281,7 +281,7 @@ impl CpuSet {
             proof! {
                 let seq = smallvec_view(&self.bits);
                 assert_seqs_equal!(
-                    seq.subrange(0, idx + 1).drop_last() == seq.subrange(0, idx as int)
+                    seq[..idx + 1].drop_last() == seq[..idx]
                 );
             }
             count += part_count;

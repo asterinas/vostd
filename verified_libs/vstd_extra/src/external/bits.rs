@@ -11,7 +11,7 @@ spec fn u64_set_bits_rec(w: u64, n: u64) -> int
     if n == 0 {
         0
     } else {
-        u64_bit_is_set(w, (n - 1) as int) as int + u64_set_bits_rec(w, (n - 1) as u64)
+        (if u64_bit_is_set(w, n - 1) {1int} else {0int}) + u64_set_bits_rec(w, (n - 1) as u64)
     }
 }
 
@@ -24,7 +24,7 @@ pub closed spec fn u64_set_bits(w: u64) -> int {
 /// of `self`" (core/src/num/uint_macros.rs, `intrinsics::ctpop`).
 pub assume_specification[ u64::count_ones ](v: u64) -> (r: u32)
     ensures
-        (r as int) == u64_set_bits(v),
+        r == u64_set_bits(v),
 ;
 
 proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)

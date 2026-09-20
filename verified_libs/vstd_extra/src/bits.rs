@@ -25,21 +25,21 @@ macro_rules! define_unsigned_bit_lemmas {
     (
         $uN:ty, $zero:expr, $one:expr, $width:expr, $width_u32:expr,
         $bit_is_set:ident,
-        $allones_bit:ident,
-        $unit_shift_pos:ident,
+        $allones_bit_it_set:ident,
+        $unit_le_shl:ident,
         $masked_bit_clear:ident,
         $masked_bit_keep:ident,
-        $setbit_bit_set:ident,
-        $setbit_bit_keep:ident,
-        $clearbit_bit_clear:ident,
-        $clearbit_bit_keep:ident,
+        $setbit_bit_is_set:ident,
+        $setbit_bit_unchanged:ident,
+        $clearbit_not_bit_is_set:ident,
+        $clearbit_bit_unchanged:ident,
         $and_zero:ident,
         $group:ident
     ) => {
         verus! {
 
         /// Every bit of the all-ones word is set.
-        pub broadcast proof fn $allones_bit(k: int)
+        pub broadcast proof fn $allones_bit_it_set(k: int)
             requires
                 0 <= k < $width,
             ensures
@@ -52,7 +52,7 @@ macro_rules! define_unsigned_bit_lemmas {
         }
 
         /// An in-range unit shift is at least `1`, so `(1 << k) - 1` cannot underflow.
-        pub broadcast proof fn $unit_shift_pos(k: int)
+        pub broadcast proof fn $unit_le_shl(k: int)
             requires
                 0 <= k < $width,
             ensures
@@ -104,7 +104,7 @@ macro_rules! define_unsigned_bit_lemmas {
         }
 
         /// Setting bit `b` makes that bit set.
-        pub broadcast proof fn $setbit_bit_set(word: $uN, b: int)
+        pub broadcast proof fn $setbit_bit_is_set(word: $uN, b: int)
             requires
                 0 <= b < $width,
             ensures
@@ -117,7 +117,7 @@ macro_rules! define_unsigned_bit_lemmas {
         }
 
         /// Setting bit `b` leaves a different in-range bit `b2` unchanged.
-        pub broadcast proof fn $setbit_bit_keep(word: $uN, b: int, b2: int)
+        pub broadcast proof fn $setbit_bit_unchanged(word: $uN, b: int, b2: int)
             requires
                 0 <= b < $width,
                 0 <= b2 < $width,
@@ -133,7 +133,7 @@ macro_rules! define_unsigned_bit_lemmas {
         }
 
         /// Clearing bit `b` makes that bit clear.
-        pub broadcast proof fn $clearbit_bit_clear(word: $uN, b: int)
+        pub broadcast proof fn $clearbit_not_bit_is_set(word: $uN, b: int)
             requires
                 0 <= b < $width,
             ensures
@@ -145,7 +145,7 @@ macro_rules! define_unsigned_bit_lemmas {
         }
 
         /// Clearing bit `b` leaves a different in-range bit `b2` unchanged.
-        pub broadcast proof fn $clearbit_bit_keep(word: $uN, b: int, b2: int)
+        pub broadcast proof fn $clearbit_bit_unchanged(word: $uN, b: int, b2: int)
             requires
                 0 <= b < $width,
                 0 <= b2 < $width,
@@ -169,14 +169,14 @@ macro_rules! define_unsigned_bit_lemmas {
         }
 
         pub broadcast group $group {
-            $allones_bit,
-            $unit_shift_pos,
+            $allones_bit_it_set,
+            $unit_le_shl,
             $masked_bit_clear,
             $masked_bit_keep,
-            $setbit_bit_set,
-            $setbit_bit_keep,
-            $clearbit_bit_clear,
-            $clearbit_bit_keep,
+            $setbit_bit_is_set,
+            $setbit_bit_unchanged,
+            $clearbit_not_bit_is_set,
+            $clearbit_bit_unchanged,
         }
 
         } // verus!
@@ -190,14 +190,14 @@ define_unsigned_bit_lemmas!(
     8,
     8u32,
     u8_bit_is_set,
-    lemma_u8_allones_bit,
-    lemma_u8_unit_shift_pos,
+    lemma_u8_allones_bit_it_set,
+    lemma_u8_unit_le_shl,
     lemma_u8_masked_bit_clear,
     lemma_u8_masked_bit_keep,
-    lemma_u8_setbit_bit_set,
-    lemma_u8_setbit_bit_keep,
-    lemma_u8_clearbit_bit_clear,
-    lemma_u8_clearbit_bit_keep,
+    lemma_u8_setbit_bit_is_set,
+    lemma_u8_setbit_bit_unchanged,
+    lemma_u8_clearbit_not_bit_is_set,
+    lemma_u8_clearbit_bit_unchanged,
     lemma_u8_and_zero,
     group_u8_bit_algebra
 );
@@ -208,14 +208,14 @@ define_unsigned_bit_lemmas!(
     16,
     16u32,
     u16_bit_is_set,
-    lemma_u16_allones_bit,
-    lemma_u16_unit_shift_pos,
+    lemma_u16_allones_bit_it_set,
+    lemma_u16_unit_le_shl,
     lemma_u16_masked_bit_clear,
     lemma_u16_masked_bit_keep,
-    lemma_u16_setbit_bit_set,
-    lemma_u16_setbit_bit_keep,
-    lemma_u16_clearbit_bit_clear,
-    lemma_u16_clearbit_bit_keep,
+    lemma_u16_setbit_bit_is_set,
+    lemma_u16_setbit_bit_unchanged,
+    lemma_u16_clearbit_not_bit_is_set,
+    lemma_u16_clearbit_bit_unchanged,
     lemma_u16_and_zero,
     group_u16_bit_algebra
 );
@@ -226,14 +226,14 @@ define_unsigned_bit_lemmas!(
     32,
     32u32,
     u32_bit_is_set,
-    lemma_u32_allones_bit,
-    lemma_u32_unit_shift_pos,
+    lemma_u32_allones_bit_it_set,
+    lemma_u32_unit_le_shl,
     lemma_u32_masked_bit_clear,
     lemma_u32_masked_bit_keep,
-    lemma_u32_setbit_bit_set,
-    lemma_u32_setbit_bit_keep,
-    lemma_u32_clearbit_bit_clear,
-    lemma_u32_clearbit_bit_keep,
+    lemma_u32_setbit_bit_is_set,
+    lemma_u32_setbit_bit_unchanged,
+    lemma_u32_clearbit_not_bit_is_set,
+    lemma_u32_clearbit_bit_unchanged,
     lemma_u32_and_zero,
     group_u32_bit_algebra
 );
@@ -244,14 +244,14 @@ define_unsigned_bit_lemmas!(
     64,
     64u32,
     u64_bit_is_set,
-    lemma_u64_allones_bit,
-    lemma_u64_unit_shift_pos,
+    lemma_u64_allones_bit_it_set,
+    lemma_u64_unit_le_shl,
     lemma_u64_masked_bit_clear,
     lemma_u64_masked_bit_keep,
-    lemma_u64_setbit_bit_set,
-    lemma_u64_setbit_bit_keep,
-    lemma_u64_clearbit_bit_clear,
-    lemma_u64_clearbit_bit_keep,
+    lemma_u64_setbit_bit_is_set,
+    lemma_u64_setbit_bit_unchanged,
+    lemma_u64_clearbit_not_bit_is_set,
+    lemma_u64_clearbit_bit_unchanged,
     lemma_u64_and_zero,
     group_u64_bit_algebra
 );
@@ -262,14 +262,14 @@ define_unsigned_bit_lemmas!(
     128,
     128u32,
     u128_bit_is_set,
-    lemma_u128_allones_bit,
-    lemma_u128_unit_shift_pos,
+    lemma_u128_allones_bit_it_set,
+    lemma_u128_unit_le_shl,
     lemma_u128_masked_bit_clear,
     lemma_u128_masked_bit_keep,
-    lemma_u128_setbit_bit_set,
-    lemma_u128_setbit_bit_keep,
-    lemma_u128_clearbit_bit_clear,
-    lemma_u128_clearbit_bit_keep,
+    lemma_u128_setbit_bit_is_set,
+    lemma_u128_setbit_bit_unchanged,
+    lemma_u128_clearbit_not_bit_is_set,
+    lemma_u128_clearbit_bit_unchanged,
     lemma_u128_and_zero,
     group_u128_bit_algebra
 );
@@ -280,14 +280,14 @@ define_unsigned_bit_lemmas!(
     usize::BITS as int,
     usize::BITS,
     usize_bit_is_set,
-    lemma_usize_allones_bit,
-    lemma_usize_unit_shift_pos,
+    lemma_usize_allones_bit_it_set,
+    lemma_usize_unit_le_shl,
     lemma_usize_masked_bit_clear,
     lemma_usize_masked_bit_keep,
-    lemma_usize_setbit_bit_set,
-    lemma_usize_setbit_bit_keep,
-    lemma_usize_clearbit_bit_clear,
-    lemma_usize_clearbit_bit_keep,
+    lemma_usize_setbit_bit_is_set,
+    lemma_usize_setbit_bit_unchanged,
+    lemma_usize_clearbit_not_bit_is_set,
+    lemma_usize_clearbit_bit_unchanged,
     lemma_usize_and_zero,
     group_usize_bit_algebra
 );
