@@ -154,8 +154,8 @@ impl IdAlloc {
                 self.first_available_id == old(self).first_available_id,
                 self.first_available_id <= curr_range.start <= curr_range.end <= self@.len(),
                 0 <= curr_range.end - curr_range.start <= count,
-                forall|j: int| #![trigger self@[j]] curr_range.start as int <= j < curr_range.end as int ==> !self@[j],
-                decreases self@.len() as int - curr_range.end as int,
+                forall|j: int| #![trigger self@[j]] curr_range.start <= j < curr_range.end ==> !self@[j],
+                decreases self@.len() - curr_range.end,
             )]
             while curr_range.len() < count && curr_range.end < self.bitset.len() {
                 if !self.is_allocated(curr_range.end) {
@@ -176,8 +176,8 @@ impl IdAlloc {
             self@.len() == old(self)@.len(),
             allocated_range.end <= self@.len(),
             allocated_range.start <= id <= allocated_range.end,
-            forall|j: int| #![trigger self@[j]] allocated_range.start as int <= j < id as int ==> self@[j],
-            forall|j: int| 0 <= j < self@.len() && !(allocated_range.start as int <= j < id as int) ==> self@[j] == old(self)@[j],
+            forall|j: int| #![trigger self@[j]] allocated_range.start <= j < id ==> self@[j],
+            forall|j: int| 0 <= j < self@.len() && !(allocated_range.start <= j < id) ==> self@[j] == old(self)@[j],
         )]
         // Set every bit to 1 within the allocated range
         for id in allocated_range.clone() {
@@ -191,7 +191,7 @@ impl IdAlloc {
 
         proof! {
             let faid = old(self).first_available_id as int;
-            if faid < allocated_range.start as int {
+            if faid < allocated_range.start {
                 lemma_first_zero_index_is_first_zero(self@);
             }
         }
@@ -226,9 +226,9 @@ impl IdAlloc {
             self@.len() == old(self)@.len(),
             range.end <= self@.len(),
             range.start <= id <= range.end,
-            forall|j: int| #![trigger self@[j]] range.start as int <= j < id as int ==> !self@[j],
-            forall|j: int| #![trigger self@[j]] id as int <= j < range.end as int ==> self@[j],
-            forall|j: int| 0 <= j < self@.len() && !(range.start as int <= j < id as int) ==> self@[j] == old(self)@[j],
+            forall|j: int| #![trigger self@[j]] range.start <= j < id ==> !self@[j],
+            forall|j: int| #![trigger self@[j]] id <= j < range.end ==> self@[j],
+            forall|j: int| 0 <= j < self@.len() && !(range.start <= j < id) ==> self@[j] == old(self)@[j],
         )]
         for id in range {
             debug_assert!(self.is_allocated(id));

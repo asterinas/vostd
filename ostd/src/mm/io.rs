@@ -75,7 +75,7 @@ proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usi
     vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
     assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
     assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
-    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
+    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i * q_len, a);
 }
 
 /// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a

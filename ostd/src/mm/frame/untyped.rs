@@ -16,10 +16,7 @@ use crate::specs::{
 use super::*;
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
-    kspace::{
-        KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
-        paddr_to_vaddr_spec,
-    },
+    kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
 };
 
@@ -112,7 +109,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.inv(),
             owner@.inv(),
             r.wf(owner@),
-            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
+            r.cursor.vaddr == paddr_to_vaddr(self.start_paddr()),
             r.remain_spec() == self.size(),
             owner@.is_kernel,
     )]
@@ -154,7 +151,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.inv(),
             owner@.inv(),
             r.wf(owner@),
-            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
+            r.cursor.vaddr == paddr_to_vaddr(self.start_paddr()),
             r.avail_spec() == self.size(),
             owner@.is_kernel,
             !owner@.is_fallible,

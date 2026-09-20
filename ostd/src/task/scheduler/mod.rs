@@ -78,7 +78,7 @@ use super::Task;
 //     task::disable_preempt,
 //     timer,
 // };
-use crate::specs::mm::cpu::CpuId;
+use crate::cpu::CpuId;
 
 #[cfg(feature = "irc11")]
 pub use self::thread_view::SchedulerIrc11State;

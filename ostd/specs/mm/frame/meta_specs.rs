@@ -61,7 +61,7 @@ impl MetaSlot {
         &&& owner.metadata_perm.frac() == (if as_unique {
             0int
         } else {
-            (REF_COUNT_MAX - 1) as int
+            REF_COUNT_MAX - 1
         })
         &&& as_unique ==> owner.metadata_perm.is_resource_vacant()
         &&& !as_unique ==> {

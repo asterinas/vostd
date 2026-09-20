@@ -3,7 +3,7 @@
 use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
-    std_specs::iter::IteratorSpecImpl,
+    std_specs::{convert::FromSpecImpl, iter::IteratorSpecImpl},
 };
 use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
 
@@ -831,32 +831,48 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 }
 
-#[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
-    /// Converts a single [`Frame`] into a one-page [`Segment`] by forgetting
-    /// the frame and recording its paddr range. Symmetric to vostd's
-    /// `From<Frame<M>> for Segment<M>`.
-    #[verifier::external_body]
-    fn from(frame: Frame<M>) -> Self {
-        let pa = frame.start_paddr();
-        let tracked slot_perm = frame.tracked_slot_perm.get();
-        let tracked frame_permission = frame.tracked_metadata_perm.get().tracked_unwrap();
-        let raw_frame = Frame::<M> {
-            ptr: frame.ptr,
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment<M>
+{
+    open spec fn obeys_from_spec() -> bool { true }
+
+    closed spec fn from_spec(frame: Frame<M>) -> Self {
+        let paddr = frame.start_paddr_spec();
+        let slot_perm = frame.slot_perm();
+        let metadata_perm = frame.frac_metadata_perm();
+        let perm = seq!{
+            FrameRawPerms { slot_perm: &slot_perm, metadata_perm}
+        };
+        Self {
+            range: paddr..(paddr + PAGE_SIZE) as usize,
             _marker: core::marker::PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
-            #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(None),
-        };
-        let _ = core::mem::ManuallyDrop::new(raw_frame);
+            tracked_perms: Tracked(Some(perm))
+        }
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
+    fn from(frame: Frame<M>) -> Self {
+        assume(frame.inv());
+
+        let mut frame = frame;
+        let pa = frame.start_paddr();
+        proof_decl!{
+            let tracked frame_perm =
+                FrameRawPerms{
+                    slot_perm: *frame.tracked_slot_perm.borrow(),
+                    metadata_perm: frame.tracked_metadata_perm.tracked_take()
+                };
+            let tracked perms = Seq::tracked_empty();
+            perms.tracked_push(frame_perm);
+        }
+        let _ = ManuallyDrop::new(frame);
         Self {
             range: pa..(pa + PAGE_SIZE),
             _marker: core::marker::PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(
-                Some(seq![FrameRawPerms { slot_perm, metadata_perm: frame_permission }]),
-            ),
+            tracked_perms: Tracked(Some(perms))
         }
     }
 }

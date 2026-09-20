@@ -136,17 +136,14 @@ pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..
 */
 
 /// Convert physical address to virtual address using offset, only available inside `ostd`
-pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize {
-    (pa + LINEAR_MAPPING_BASE_VADDR) as usize
-}
-
-#[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
-pub fn paddr_to_vaddr(pa: Paddr) -> usize
+#[verus_verify(dual_spec, open)]
+#[verus_spec(
     requires
         pa + LINEAR_MAPPING_BASE_VADDR < usize::MAX,
     returns
-        paddr_to_vaddr_spec(pa),
-{
+        paddr_to_vaddr(pa),
+)]
+pub fn paddr_to_vaddr(pa: Paddr) -> usize {
     //debug_assert!(pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR);
     pa + LINEAR_MAPPING_BASE_VADDR
 }
