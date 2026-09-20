@@ -9,21 +9,13 @@
 #![allow(rustdoc::broken_intra_doc_links)]
 
 use vstd::{
-    arithmetic::{
-        div_mod::*,
-        mul::*,
-        power::pow,
-        power2::*,
-    },
+    arithmetic::{div_mod::*, mul::*, power::pow, power2::*},
     bits::*,
     pervasive::trigger,
     prelude::*,
 };
 
-use vstd_extra::{
-    panic::*,
-    prelude::*,
-};
+use vstd_extra::{panic::*, prelude::*};
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a

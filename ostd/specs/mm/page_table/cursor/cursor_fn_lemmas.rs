@@ -1,33 +1,23 @@
 //! Cursor function-specific lemmas for `CursorOwner`.
-use vstd::{
-    prelude::*,
-    arithmetic::power2::pow2,
-};
+use vstd::{arithmetic::power2::pow2, prelude::*};
 
-use vstd_extra::{
-    ghost_tree::*,
-    ownership::*,
-};
+use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
         page_table::{
-            AbstractVaddr,
-            Mapping,
-            cursor::owners::{
-                CursorContinuation,
-                CursorOwner,
-            },
+            AbstractVaddr, Mapping,
+            cursor::owners::{CursorContinuation, CursorOwner},
             nat_align_down,
             owners::*,
         },
     },
 };
 
-use core::ops::Range;
 use crate::mm::{PagingLevel, Vaddr, page_size, page_table::*};
+use core::ops::Range;
 
 verus! {
 

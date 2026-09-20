@@ -2,34 +2,20 @@ use vstd::prelude::*;
 
 use vstd_extra::{
     arithmetic::{
-        lemma_nat_align_down_monotone,
-        lemma_nat_align_down_within_block,
-        nat_align_down,
+        lemma_nat_align_down_monotone, lemma_nat_align_down_within_block, nat_align_down,
     },
     ghost_tree::*,
     ownership::*,
 };
 
 use crate::specs::{
-    arch::{
-        NR_ENTRIES,
-        NR_LEVELS,
-    },
+    arch::{NR_ENTRIES, NR_LEVELS},
     mm::page_table::{
-        AbstractVaddr,
-        Mapping,
-        cursor::{
-            owners::*,
-            page_size_lemmas::lemma_page_size_divides,
-        },
+        AbstractVaddr, Mapping,
+        cursor::{owners::*, page_size_lemmas::lemma_page_size_divides},
         owners::{
-            INC_LEVELS,
-            OwnerSubtree,
-            PageTableOwner,
-            lemma_vaddr_of_eq_int,
-            sibling_paths_disjoint,
-            vaddr,
-            vaddr_of,
+            INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int,
+            sibling_paths_disjoint, vaddr, vaddr_of,
         },
     },
 };

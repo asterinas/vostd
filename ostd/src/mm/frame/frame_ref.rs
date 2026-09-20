@@ -1,36 +1,27 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{
     prelude::*,
-    simple_pptr::{
-        PPtr,
-        PointsTo,
-    },
+    simple_pptr::{PPtr, PointsTo},
 };
 
-use vstd_extra::{
-    cast_ptr::Repr,
-    prelude::*,
-};
+use vstd_extra::{cast_ptr::Repr, prelude::*};
 
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
         mapping::meta_to_index,
-        meta_owners::{
-            FracMetadataPerm,
-            MetaSlotStorage,
-        },
+        meta_owners::{FracMetadataPerm, MetaSlotStorage},
         meta_region_owners::MetaRegionOwners,
     },
 };
 
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
-use crate::mm::frame::meta::mapping::frame_to_meta;
 use super::{
     Frame,
     meta::{AnyFrameMeta, MetaSlot},
 };
 use crate::mm::Paddr;
+use crate::mm::frame::meta::mapping::frame_to_meta;
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 verus! {
 

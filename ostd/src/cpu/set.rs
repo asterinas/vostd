@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
-use super::cpu_count;
 use vstd::{
     assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
 };
@@ -13,6 +12,7 @@ use vstd_extra::{
     ownership::Inv,
 };
 
+use super::cpu_count;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use smallvec::SmallVec;

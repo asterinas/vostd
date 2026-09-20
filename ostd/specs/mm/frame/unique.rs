@@ -1,30 +1,19 @@
 use vstd::prelude::*;
 
-use vstd_extra::{
-    cast_ptr::*,
-    ownership::*,
-    prelude::*,
-};
+use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 
 use crate::specs::{
-    arch::{
-        MAX_NR_PAGES,
-        valid_frame_paddr,
-    },
+    arch::{MAX_NR_PAGES, valid_frame_paddr},
     mm::{
         Paddr,
         frame::{
-            mapping::{
-                frame_to_index,
-                index_to_meta,
-                max_meta_slots,
-                meta_to_index,
-            },
+            mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
     },
 };
 
+use super::meta_owners::*;
 use crate::mm::{
     frame::{
         meta::{
@@ -35,7 +24,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-use super::meta_owners::*;
 
 verus! {
 

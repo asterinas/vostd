@@ -17,18 +17,11 @@ use vstd::{
     prelude::*,
     resource::{
         Loc,
-        map::{
-            GhostMapAuth,
-            GhostPointsTo,
-            GhostSubmap,
-        },
+        map::{GhostMapAuth, GhostPointsTo, GhostSubmap},
     },
 };
 
-use crate::specs::{
-    mm::cpu::CpuId,
-    task::cpu_core::CpuCoreLocalState,
-};
+use crate::specs::{mm::cpu::CpuId, task::cpu_core::CpuCoreLocalState};
 
 verus! {
 

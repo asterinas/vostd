@@ -30,23 +30,15 @@
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 use vstd::{
+    assert_maps_equal, assert_sets_equal,
     atomic::PermissionU64,
     map::assert_maps_equal_internal,
     prelude::*,
-    simple_pptr::{
-        self,
-        PPtr,
-    },
+    simple_pptr::{self, PPtr},
     std_specs::cmp::PartialEqSpecImpl,
-    assert_maps_equal,
-    assert_sets_equal,
 };
 
-use vstd_extra::{
-    cast_ptr::*,
-    ownership::*,
-    panic::may_panic,
-};
+use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
 
 pub mod allocator;
 pub mod linked_list;
@@ -72,27 +64,16 @@ use crate::specs::{
     arch::*,
     mm::frame::{
         frame_specs::*,
-        mapping::{
-            frame_to_index,
-            group_page_meta,
-            index_to_meta,
-            max_meta_slots,
-        },
+        mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
         meta_owners::*,
         meta_region_owners::MetaRegionOwners,
     },
 };
 
-use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
-pub use segment::Segment;
-pub use untyped::{AnyUFrameMeta, UFrame};
 use super::PagingLevel;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
-pub use unique::UniqueFrame;
-use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::page_table::RCClone;
+use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::{
     MAX_PADDR, Paddr, Vaddr,
     frame::meta::{
@@ -101,6 +82,12 @@ use crate::mm::{
     },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
+pub use linked_list::{CursorMut, Link, LinkedList};
+pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
+use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
+pub use segment::Segment;
+pub use unique::UniqueFrame;
+pub use untyped::{AnyUFrameMeta, UFrame};
 
 verus! {
 

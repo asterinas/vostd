@@ -1,20 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
-use vstd::{
-    prelude::*,
-    set_lib::FiniteRange,
-};
+use vstd::{prelude::*, set_lib::FiniteRange};
 
 use vstd_extra::{
     arithmetic::nat_align_down,
     assert,
-    ownership::{
-        InvView,
-        OwnerOf,
-    },
+    cast_ptr::Repr,
+    ownership::{InvView, OwnerOf},
     panic::may_panic,
     prelude::Inv,
-    cast_ptr::Repr,
 };
 
 use crate::specs::{
@@ -22,31 +16,27 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::frame_to_index,
-            meta_owners::{
-                MetaSlotStorage,
-                PageUsage,
-                is_mmio_paddr,
-            },
+            meta_owners::{MetaSlotStorage, PageUsage, is_mmio_paddr},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            *,
-            cursor::{
-                CursorOwner,
-                CursorView,
-            },
-            is_valid_range_spec,
+            cursor::{CursorOwner, CursorView},
+            is_valid_range_spec, *,
         },
     },
     task::InAtomicMode,
 };
 
-use core::marker::PhantomData;
-use core::ops::Range;
 use super::{
     FRAME_METADATA_BASE_VADDR, KERNEL_BASE_VADDR, KERNEL_END_VADDR, KERNEL_PAGE_TABLE,
     VMALLOC_VADDR_RANGE,
 };
+use crate::arch::mm::PagingConsts;
+use crate::mm::frame::DynFrame;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::mm::kspace::AnyFrameMeta;
+use crate::mm::nr_subpage_per_huge;
+use crate::mm::page_table::PageTableGuard;
 use crate::mm::{
     PAGE_SIZE, Paddr, Vaddr,
     frame::{Frame, Segment, untyped::AnyUFrameMeta},
@@ -56,13 +46,9 @@ use crate::mm::{
     page_size,
     page_table::{Child, CursorMut, PageTable, PageTableConfig},
 };
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::DynFrame;
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
-use crate::mm::kspace::AnyFrameMeta;
-use crate::mm::nr_subpage_per_huge;
-use crate::mm::page_table::PageTableGuard;
 use crate::mm::{PagingConstsTrait, PagingLevel};
+use core::marker::PhantomData;
+use core::ops::Range;
 
 //static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
 

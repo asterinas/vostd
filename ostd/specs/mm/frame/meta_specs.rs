@@ -1,27 +1,19 @@
-use vstd::{
-    prelude::*,
-    atomic::*,
-    simple_pptr::PointsTo,
-};
+use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
 
-use vstd_extra::{
-    cast_ptr::*,
-    ownership::*,
-    sum::Sum,
-};
+use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
         frame_specs::*,
-        mapping::{
-            frame_to_index,
-            index_to_meta,
-        },
+        mapping::{frame_to_index, index_to_meta},
         meta_region_owners::MetaRegionOwners,
     },
 };
 
+use super::meta_owners::{
+    FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
+};
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
@@ -32,9 +24,6 @@ use crate::mm::{
         *,
     },
     kspace::FRAME_METADATA_RANGE,
-};
-use super::meta_owners::{
-    FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
 };
 
 verus! {

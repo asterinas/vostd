@@ -1,34 +1,19 @@
-use vstd::{
-    prelude::*,
-    modes::tracked_swap,
-    simple_pptr::PointsTo,
-};
+use vstd::{modes::tracked_swap, prelude::*, simple_pptr::PointsTo};
 
-use vstd_extra::{
-    ghost_tree::*,
-    ownership::*,
-};
+use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{
-                frame_to_index,
-                index_to_meta,
-                meta_to_index,
-            },
+            mapping::{frame_to_index, index_to_meta, meta_to_index},
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{
-            node::entry_view::*,
-            *,
-        },
+        page_table::{node::entry_view::*, *},
     },
 };
 
-use core::marker::PhantomData;
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
@@ -38,6 +23,7 @@ use crate::mm::{
     page_prop::PageProperty,
     page_table::*,
 };
+use core::marker::PhantomData;
 
 verus! {
 

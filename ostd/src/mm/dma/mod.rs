@@ -12,10 +12,7 @@ use vstd::thread_view::Objective;
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
     once::Once,
-    resource_invariant::{
-        SimpleResourceInvariant,
-        TrivialResourceInvariant,
-    },
+    resource_invariant::{SimpleResourceInvariant, TrivialResourceInvariant},
 };
 
 use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};

@@ -32,14 +32,13 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::frame_to_index,
-            meta_owners::PageUsage,
-            meta_region_owners::MetaRegionOwners,
+            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
         },
         page_table::cursor::owners::CursorOwner,
     },
 };
 
+use super::{FrameEntry, tracked_frame_entry_new};
 use crate::mm::{
     Paddr,
     frame::{
@@ -48,7 +47,6 @@ use crate::mm::{
     },
     vm_space::UserPtConfig,
 };
-use super::{FrameEntry, tracked_frame_entry_new};
 
 verus! {
 

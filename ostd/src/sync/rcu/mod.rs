@@ -8,21 +8,14 @@
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
-    atomic_ghost::AtomicPtr,
-    atomic_with_ghost,
-    map::Map,
-    modes::tracked_static_ref,
-    prelude::*,
+    atomic_ghost::AtomicPtr, atomic_with_ghost, map::Map, modes::tracked_static_ref, prelude::*,
     resource::Loc,
 };
 
 use vstd_extra::{
     once::Once,
     prelude::*,
-    resource::ghost_resource::count_auth::{
-        Count,
-        CountResource,
-    },
+    resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
 use core::{

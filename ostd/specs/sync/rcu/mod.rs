@@ -15,11 +15,7 @@ use vstd::{
     prelude::*,
     resource::{
         Loc,
-        map::{
-            GhostMapAuth,
-            GhostPersistentPointsTo,
-            GhostPointsTo,
-        },
+        map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo},
     },
 };
 

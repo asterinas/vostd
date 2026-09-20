@@ -38,17 +38,9 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
-use vstd::{
-    arithmetic::power2::is_pow2,
-    prelude::*,
-    simple_pptr::*,
-};
+use vstd::{arithmetic::power2::is_pow2, prelude::*, simple_pptr::*};
 
-use vstd_extra::{
-    assert,
-    ownership::Inv,
-    panic::may_panic,
-};
+use vstd_extra::{assert, ownership::Inv, panic::may_panic};
 
 pub use crate::specs::mm::io::{
     VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
@@ -56,8 +48,6 @@ pub use crate::specs::mm::io::{
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
-use core::marker::PhantomData;
-use core::ops::Range;
 use crate::error::*;
 use crate::{
     Pod,
@@ -66,6 +56,8 @@ use crate::{
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
     },
 };
+use core::marker::PhantomData;
+use core::ops::Range;
 
 verus! {
 

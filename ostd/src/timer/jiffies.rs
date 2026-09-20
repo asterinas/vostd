@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{
-    prelude::*,
-    std_specs::convert::FromSpecImpl,
-};
+use vstd::{prelude::*, std_specs::convert::FromSpecImpl};
 
+use crate::arch::timer::TIMER_FREQ;
 use core::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-use crate::arch::timer::TIMER_FREQ;
 verus! {
 
 pub(crate) exec static ELAPSED: AtomicU64 = AtomicU64::new(0);

@@ -6,22 +6,19 @@
 //! memory model, and the `wf`/`inv` impls relating exec reader/writer
 //! handles to their ghost owners.
 use vstd::{
+    pervasive::{arbitrary, proof_from_false},
     prelude::*,
-    pervasive::{
-        arbitrary,
-        proof_from_false,
-    },
 };
 
 use vstd_extra::ownership::Inv;
 
 use crate::specs::mm::virt_mem::MemView;
 
-use core::ops::Range;
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
     kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
 };
+use core::ops::Range;
 
 verus! {
 

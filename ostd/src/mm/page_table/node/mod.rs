@@ -31,19 +31,9 @@ mod child_specs;
 #[path = "../../../../specs/mm/page_table/node/entry.rs"]
 mod entry_specs;
 
-use vstd::{
-    cell::pcell_maybe_uninit,
-    prelude::*,
-    simple_pptr::PPtr,
-    atomic::PAtomicU8,
-};
+use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*, simple_pptr::PPtr};
 
-use vstd_extra::{
-    array_ptr,
-    cast_ptr::*,
-    ghost_tree::*,
-    ownership::*,
-};
+use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
@@ -57,8 +47,7 @@ use crate::specs::mm::{
     page_table::node::owners::*,
 };
 
-pub use child::*;
-pub use entry::*;
+use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::mm::frame::{
     allocator::FrameAllocOptions,
     meta::{
@@ -68,8 +57,6 @@ use crate::mm::frame::{
 };
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr};
-use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
-use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::{
     mm::{
         PagingConstsTrait,
@@ -82,6 +69,9 @@ use crate::{
     },
     specs::task::InAtomicMode,
 };
+pub use child::*;
+use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
+pub use entry::*;
 
 verus! {
 

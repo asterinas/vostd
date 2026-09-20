@@ -8,22 +8,19 @@ use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
         frame::{
-            mapping::{
-                frame_to_index,
-                index_to_meta,
-            },
+            mapping::{frame_to_index, index_to_meta},
             meta_region_owners::MetaRegionOwners,
         },
         virt_mem::MemView,
     },
 };
 
-use core::ops::Range;
 use crate::mm::{
     Paddr, Vaddr,
     frame::{AnyFrameMeta, Segment, meta::MetaSlot},
     paddr_to_vaddr,
 };
+use core::ops::Range;
 
 verus! {
 

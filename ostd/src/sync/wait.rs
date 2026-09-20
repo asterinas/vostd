@@ -4,20 +4,17 @@ use vstd::{
     prelude::*,
     resource::{
         Loc,
-        ghost_var::{
-            GhostVar,
-            GhostVarAuth,
-        },
+        ghost_var::{GhostVar, GhostVarAuth},
     },
 };
 
 use vstd_extra::resource_invariant::ResourceInvariant;
 
+use super::{LocalIrqDisabled, SpinLock};
+use crate::task::{Task, scheduler};
 use alloc::{collections::VecDeque, sync::Arc};
 use core::intrinsics::atomic_cxchg;
 use core::sync::atomic::{/*AtomicBool,*/ Ordering};
-use super::{LocalIrqDisabled, SpinLock};
-use crate::task::{Task, scheduler};
 
 // # Explanation on the memory orders
 //

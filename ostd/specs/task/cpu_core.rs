@@ -6,17 +6,11 @@
 //! transfers those resources to the task. Runtime CPU-local access temporarily
 //! opens the owner into a linear [`CpuCoreOwnerHandle`] and its typed local
 //! state, then restores that state before returning the owner to the scheduler.
-use vstd::{
-    prelude::*,
-    resource::Loc,
-};
+use vstd::{prelude::*, resource::Loc};
 
 use vstd_extra::resource::ghost_resource::excl::ExclusiveGhost;
 
-use crate::specs::{
-    mm::cpu::CpuId,
-    task::cpu_local::CpuLocalAuth,
-};
+use crate::specs::{mm::cpu::CpuId, task::cpu_local::CpuLocalAuth};
 
 use core::marker::PhantomData;
 

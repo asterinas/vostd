@@ -4,20 +4,11 @@
 //! in order to initialize the running phase page tables.
 use vstd::prelude::*;
 
-use crate::specs::{
-    arch::{
-        paging_consts::PagingConsts,
-        NR_LEVELS,
-        PAGE_SIZE,
-    },
-};
+use crate::specs::arch::{NR_LEVELS, PAGE_SIZE, paging_consts::PagingConsts};
 
-use core::{
-    alloc::Layout,
-    result::Result,
-    sync::atomic::{AtomicU32, Ordering},
-};
 use super::{PageTableEntryTrait, pte_index};
+use crate::mm::frame::Frame;
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::{
     //    cpu::num_cpus,
     //    cpu_local_cell,
@@ -32,8 +23,11 @@ use crate::{
     },
     //    sync::SpinLock,
 };
-use crate::mm::frame::Frame;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use core::{
+    alloc::Layout,
+    result::Result,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 verus! {
 

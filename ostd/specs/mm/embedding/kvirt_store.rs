@@ -39,14 +39,10 @@ use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
-        page_table::{
-            node::Guards,
-            *,
-        },
+        page_table::{node::Guards, *},
     },
 };
 
-use core::ops::Range;
 use crate::mm::{
     Vaddr,
     kspace::{
@@ -55,6 +51,7 @@ use crate::mm::{
     },
     page_table::PageTableGuard,
 };
+use core::ops::Range;
 
 verus! {
 

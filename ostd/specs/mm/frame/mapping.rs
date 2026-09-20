@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use crate::specs::arch::*;
 
-use core::{mem::size_of, ops::Range};
+use super::*;
 use crate::mm::{
     Paddr, Vaddr,
     frame::meta::{
@@ -11,7 +11,7 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-use super::*;
+use core::{mem::size_of, ops::Range};
 
 verus! {
 

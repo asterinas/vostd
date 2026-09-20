@@ -4,25 +4,19 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::specs::{
-    mm::{
-        cpu::{
-            AtomicCpuSet,
-            CpuSet,
-            PinCurrentCpu,
-        },
-        tlb::TlbModel,
-    },
+use crate::specs::mm::{
+    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    tlb::TlbModel,
 };
 
+use super::{
+    PAGE_SIZE, Vaddr,
+    frame::{Frame, meta::AnyFrameMeta},
+};
 use alloc::vec::Vec;
 use core::{
     ops::Range,
     sync::atomic::{AtomicBool, Ordering},
-};
-use super::{
-    PAGE_SIZE, Vaddr,
-    frame::{Frame, meta::AnyFrameMeta},
 };
 
 /*use crate::{

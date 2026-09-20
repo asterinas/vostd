@@ -27,60 +27,38 @@
 //! acquisition.
 mod locking;
 
-use vstd::{
-    arithmetic::power2::pow2,
-    math::abs,
-    prelude::*,
-    simple_pptr::*,
-};
+use vstd::{arithmetic::power2::pow2, math::abs, prelude::*, simple_pptr::*};
 
 use vstd_extra::{
-    arithmetic::*,
-    drop_tracking::TrackDrop,
-    ghost_tree::*,
-    ownership::*,
+    arithmetic::*, assert, assert_eq, drop_tracking::TrackDrop, ghost_tree::*, ownership::*,
     panic::*,
-    assert,
-    assert_eq,
 };
 
-use crate::specs::{
-    mm::{
-        frame::{
-            mapping::{
-                frame_to_index,
-                index_to_meta,
-                max_meta_slots,
-                meta_to_index,
-            },
-            meta_owners::{
-                FracMetadataPerm,
-                MetaSlotOwner,
-                PageUsage,
-                is_mmio_paddr,
-            },
-            meta_region_owners::MetaRegionOwners,
-        },
-        page_table::cursor::page_size_lemmas::*,
+use crate::specs::mm::{
+    frame::{
+        mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
+        meta_owners::{FracMetadataPerm, MetaSlotOwner, PageUsage, is_mmio_paddr},
+        meta_region_owners::MetaRegionOwners,
     },
+    page_table::cursor::page_size_lemmas::*,
 };
 
+use super::{
+    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
+    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
+};
 use crate::mm::frame::meta::{
     META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
 };
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
-use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
-use align_ext::AlignExt;
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
     specs::task::InAtomicMode,
 };
-use super::{
-    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
-};
+use align_ext::AlignExt;
+use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 
 verus! {
 

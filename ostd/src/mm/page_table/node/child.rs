@@ -1,29 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
-use vstd::{
-    prelude::*,
-    simple_pptr::PPtr,
-};
+use vstd::{prelude::*, simple_pptr::PPtr};
 
-use vstd_extra::{
-    cast_ptr::*,
-    ownership::*,
-};
+use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::{
-            group_page_meta,
-            meta_to_index,
-        },
+        mapping::{group_page_meta, meta_to_index},
         meta_region_owners::MetaRegionOwners,
     },
     *,
 };
 
-use core::marker::PhantomData;
-use core::mem::ManuallyDrop;
+use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
@@ -33,7 +23,8 @@ use crate::{
     mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty},
     //    sync::RcuDrop,
 };
-use super::*;
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 
 verus! {
 

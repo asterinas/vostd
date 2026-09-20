@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
 use vstd::{
-    arithmetic::{
-        div_mod::group_div_basics,
-        power2::*,
-    },
+    arithmetic::{div_mod::group_div_basics, power2::*},
     prelude::*,
 };
 

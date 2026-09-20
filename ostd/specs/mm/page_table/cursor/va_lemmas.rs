@@ -10,38 +10,24 @@
 /// - Axiom functions for updating the cursor VA (`set_va`, `set_va_in_node`).
 use vstd::prelude::*;
 
-use vstd_extra::{
-    arithmetic::nat_align_down,
-    ghost_tree::*,
-    ownership::*,
-};
+use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
 
 use crate::specs::{
-    arch::{
-        NR_ENTRIES,
-        NR_LEVELS,
-        PAGE_SIZE,
-    },
+    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
     mm::page_table::{
-        AbstractVaddr,
-        Mapping,
+        AbstractVaddr, Mapping,
         cursor::{
-            owners::{
-                CursorContinuation,
-                CursorOwner,
-            },
+            owners::{CursorContinuation, CursorOwner},
             page_size_lemmas::{
-                lemma_page_size_divides,
-                lemma_page_size_ge_page_size,
-                lemma_page_size_spec_values,
+                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
             },
         },
         owners::*,
     },
 };
 
-use core::ops::Range;
 use crate::mm::{Paddr, PagingLevel, Vaddr, page_size, page_table::*};
+use core::ops::Range;
 
 verus! {
 

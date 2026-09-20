@@ -1,43 +1,27 @@
-use vstd::{
-    prelude::*,
-    arithmetic::power2::pow2,
-    seq::*,
-    seq_lib::*,
-    set_lib::*,
-};
+use vstd::{arithmetic::power2::pow2, prelude::*, seq::*, seq_lib::*, set_lib::*};
 
-use vstd_extra::{
-    drop_tracking::*,
-    ghost_tree::*,
-    ownership::*,
-    prelude::TreeNodeValue,
-};
+use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
 
 use crate::specs::{
     arch::*,
     mm::{
-        frame::{
-            mapping::frame_to_index,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::page_size_lemmas::{
-                lemma_page_size_divides,
-                lemma_page_size_ge_page_size,
-                lemma_page_size_spec_values,
+                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
             },
             *,
         },
     },
 };
 
-use core::ops::{Deref, Range};
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     page_size,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
 };
+use core::ops::{Deref, Range};
 
 verus! {
 

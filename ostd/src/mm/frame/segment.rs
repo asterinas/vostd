@@ -2,45 +2,32 @@
 //! A contiguous range of frames.
 use vstd::{
     prelude::*,
-    simple_pptr::{
-        PPtr,
-        PointsTo,
-    },
+    simple_pptr::{PPtr, PointsTo},
     std_specs::iter::IteratorSpecImpl,
 };
 
-use vstd_extra::{
-    assert,
-    cast_ptr::*,
-    ownership::*,
-    panic::may_panic,
-    prelude::*,
-};
+use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
         frame_specs::FrameRawPerms,
-        mapping::{
-            frame_to_index,
-            group_page_meta,
-            index_to_meta,
-        },
+        mapping::{frame_to_index, group_page_meta, index_to_meta},
         meta_owners::*,
         meta_region_owners::MetaRegionOwners,
         segment::*,
     },
 };
 
-use crate::mm::page_table::RCClone;
-use crate::mm::{frame::MetaSlot, paddr_to_vaddr, PagingLevel, Vaddr};
-use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 use super::{
     meta::mapping::frame_to_meta,
     meta::{AnyFrameMeta, GetFrameError},
     Frame, Paddr,
 };
 use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
+use crate::mm::page_table::RCClone;
+use crate::mm::{frame::MetaSlot, paddr_to_vaddr, PagingLevel, Vaddr};
+use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 verus! {
 

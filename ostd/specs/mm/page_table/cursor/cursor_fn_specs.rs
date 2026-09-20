@@ -1,34 +1,24 @@
 use vstd::prelude::*;
 
 use crate::specs::{
-    arch::{
-        NR_LEVELS,
-        PAGE_SIZE,
-    },
+    arch::{NR_LEVELS, PAGE_SIZE},
     mm::{
         frame::{
             mapping::frame_to_index,
-            meta_owners::{
-                PageUsage,
-                is_mmio_paddr,
-            },
+            meta_owners::{PageUsage, is_mmio_paddr},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{
-            cursor::owners::*,
-            is_valid_range_spec,
-            *,
-        },
+        page_table::{cursor::owners::*, is_valid_range_spec, *},
     },
     task::InAtomicMode,
 };
 
-use core::ops::Range;
 use crate::mm::{
     PagingConstsTrait, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
     page_table::*,
 };
+use core::ops::Range;
 
 verus! {
 

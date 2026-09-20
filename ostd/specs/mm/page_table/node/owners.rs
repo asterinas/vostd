@@ -1,30 +1,16 @@
 use vstd::{
+    cell::{self, pcell_maybe_uninit},
     prelude::*,
-    cell::{
-        self,
-        pcell_maybe_uninit,
-    },
     simple_pptr::*,
 };
 
-use vstd_extra::{
-    array_ptr,
-    ownership::*,
-};
+use vstd_extra::{array_ptr, ownership::*};
 
 use crate::specs::{
-    arch::{
-        MAX_PADDR,
-        NR_ENTRIES,
-        NR_LEVELS,
-    },
+    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
     mm::{
         frame::{
-            mapping::{
-                index_to_meta,
-                max_meta_slots,
-                meta_to_index,
-            },
+            mapping::{index_to_meta, max_meta_slots, meta_to_index},
             meta_owners::*,
             meta_region_owners::MetaRegionOwners,
         },

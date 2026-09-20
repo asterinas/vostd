@@ -2,35 +2,28 @@
 //! Implementation of the locking protocol.
 use vstd::prelude::*;
 
-use vstd_extra::{
-    ghost_tree::*,
-    ownership::*,
-    array_ptr::*,
-};
+use vstd_extra::{array_ptr::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
-        page_table::node::{
-            Guards,
-            entry_owners::EntryOwner,
-        },
+        page_table::node::{Guards, entry_owners::EntryOwner},
     },
     task::InAtomicMode,
 };
 
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ordering};
 use crate::mm::frame::{
     MetaSlot,
     meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
+use crate::mm::page_table::*;
 use crate::mm::{
     NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
     nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
 };
-use crate::mm::page_table::*;
 use align_ext::AlignExt;
 use core::ops::IndexMut;
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ordering};
 
 verus! {
 

@@ -10,15 +10,8 @@ use vstd::prelude::*;
 use vstd_extra::ownership::OwnerOf;
 
 use crate::specs::{
-    arch::{
-        lemma_max_paddr_range,
-        lemma_paddr_to_vaddr_properties,
-    },
-    mm::{
-        frame::meta_owners::MetaSlotStorage,
-        io::VmIoOwner,
-        virt_mem::VirtPtr,
-    },
+    arch::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
+    mm::{frame::meta_owners::MetaSlotStorage, io::VmIoOwner, virt_mem::VirtPtr},
 };
 
 use super::*;

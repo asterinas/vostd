@@ -1,39 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{
     laws_cmp::{
-        obeys_cmp,
-        obeys_cmp_ord,
-        obeys_cmp_partial_ord,
-        obeys_partial_cmp_spec_properties,
+        obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
     },
     laws_eq::obeys_eq_spec_properties,
     prelude::*,
-    set_lib::{
-        FiniteRange,
-        range_set_properties,
-    },
+    set_lib::{FiniteRange, range_set_properties},
     std_specs::{
         cmp::PartialOrdIs,
-        iter::{
-            IteratorSpec,
-            filter_keep,
-            filter_post,
-            filter_postcondition,
-        },
+        iter::{IteratorSpec, filter_keep, filter_post, filter_postcondition},
     },
 };
 
 use vstd_extra::{
-    external::{
-        cmp::*,
-        iter::*,
-        range::*,
-    },
+    external::{cmp::*, iter::*, range::*},
     range::{
-        RangeExtraFns,
-        finite_range_matches_ord,
-        lemma_seq_range_union_contains,
-        seq_range_union,
+        RangeExtraFns, finite_range_matches_ord, lemma_seq_range_union_contains, seq_range_union,
     },
 };
 

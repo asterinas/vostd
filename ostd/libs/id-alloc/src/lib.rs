@@ -5,13 +5,10 @@
 
 use vstd::prelude::*;
 
-use vstd_extra::{
-    debug_assert,
-    prelude::*,
-};
+use vstd_extra::{debug_assert, prelude::*};
 
-use core::{fmt::Debug, ops::Range};
 use bitvec::prelude::BitVec;
+use core::{fmt::Debug, ops::Range};
 
 verus! {
 

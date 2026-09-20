@@ -1,37 +1,20 @@
 use vstd::{
     cell::CellId,
     prelude::*,
-    simple_pptr::{
-        self,
-        PPtr,
-        PointsTo,
-    },
+    simple_pptr::{self, PPtr, PointsTo},
 };
 
-use vstd_extra::{
-    cast_ptr::*,
-    ownership::*,
-};
+use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::{
-            frame_to_index,
-            meta_to_index,
-        },
-        meta_owners::{
-            FracMetadataPerm,
-            MetaSlotStorage,
-            MetadataPerm,
-            PageUsage,
-            typed_meta_wf,
-        },
+        mapping::{frame_to_index, meta_to_index},
+        meta_owners::{FracMetadataPerm, MetaSlotStorage, MetadataPerm, PageUsage, typed_meta_wf},
         meta_region_owners::MetaRegionOwners,
     },
 };
 
-use core::marker::PhantomData;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
@@ -43,6 +26,7 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
+use core::marker::PhantomData;
 
 verus! {
 

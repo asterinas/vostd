@@ -1,17 +1,11 @@
 use vstd::prelude::*;
 
-use vstd_extra::{
-    ghost_tree::*,
-    ownership::*,
-};
+use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::NR_ENTRIES,
     mm::{
-        frame::{
-            mapping::frame_to_index,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::*,
     },
 };

@@ -1,24 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{
-    prelude::*,
-    resource::Loc,
-    std_specs::btree::before_lower_bound,
-};
+use vstd::{prelude::*, resource::Loc, std_specs::btree::before_lower_bound};
 
 use vstd_extra::{
     debug_assert,
     panic::UnwrapOrPanic,
-    resource::flags::{
-        OneShotPending,
-        OneShotSet,
-    },
+    resource::flags::{OneShotPending, OneShotSet},
     resource_invariant::ResourceInvariant,
     sum::Sum,
 };
 
+use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
-use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 verus! {
 

@@ -36,11 +36,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{
-                frame_to_index,
-                index_to_frame,
-                max_meta_slots,
-            },
+            mapping::{frame_to_index, index_to_frame, max_meta_slots},
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
@@ -48,13 +44,13 @@ use crate::specs::{
     },
 };
 
-use core::ops::Range;
+use super::{frame::frame_drop_embedded, tracked_segment_entry_new, SegmentEntry};
 use crate::mm::{
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     vm_space::UserPtConfig,
     Paddr,
 };
-use super::{frame::frame_drop_embedded, tracked_segment_entry_new, SegmentEntry};
+use core::ops::Range;
 
 verus! {
 

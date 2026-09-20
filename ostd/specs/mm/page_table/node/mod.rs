@@ -4,21 +4,18 @@ pub mod owners;
 
 use vstd::prelude::*;
 
-use vstd_extra::{
-    cast_ptr::Repr,
-    drop_tracking::*,
-};
+use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
 
 use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
 
-pub use entry_owners::*;
-pub use entry_view::*;
-pub use owners::*;
-use core::marker::PhantomData;
 use crate::mm::{
     frame::Frame,
     page_table::{PageTableConfig, PageTableGuard, PageTablePageMeta},
 };
+use core::marker::PhantomData;
+pub use entry_owners::*;
+pub use entry_view::*;
+pub use owners::*;
 
 verus! {
 

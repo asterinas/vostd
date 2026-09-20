@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
-use vstd::{
-    atomic_ghost::AtomicBool,
-    atomic_with_ghost,
-    prelude::*,
-};
+use vstd::{atomic_ghost::AtomicBool, atomic_with_ghost, prelude::*};
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
     ownership::Inv,
-    resource_invariant::{
-        SimpleResourceInvariant,
-        ValueInvariant,
-    },
+    resource_invariant::{SimpleResourceInvariant, ValueInvariant},
 };
 
 use crate::{

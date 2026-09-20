@@ -6,71 +6,49 @@
 //! concurrently. The VM space cursor [`self::Cursor`] is just a wrapper over
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
-use vstd::{
-    pervasive::arbitrary,
-    prelude::*,
-    vpanic,
-};
+use vstd::{pervasive::arbitrary, prelude::*, vpanic};
 
-use vstd_extra::{
-    ghost_tree::*,
-    panic::may_panic,
-    prelude::*,
-    assert,
-    assert_eq,
-};
+use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::may_panic, prelude::*};
 
 use crate::specs::{
     arch::*,
     mm::{
+        cpu::{AtomicCpuSet, CpuSet},
         frame::{
-            meta_owners::{
-                FracMetadataPerm,
-                MetaSlotStorage,
-            },
+            meta_owners::{FracMetadataPerm, MetaSlotStorage},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{
-            cursor::owners::CursorOwner,
-            *,
-        },
-        tlb::TlbModel,
-        virt_mem::{
-            MemView,
-            VirtPtr,
-        },
-        cpu::{
-            AtomicCpuSet,
-            CpuSet,
-        },
         io::VmIoOwner,
+        page_table::{cursor::owners::CursorOwner, *},
+        tlb::TlbModel,
+        virt_mem::{MemView, VirtPtr},
     },
     task::InAtomicMode,
 };
 
-use alloc::vec::Vec;
 use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
 use crate::error::Error;
 use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::frame::{Frame, MetaSlot};
+use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
+use crate::mm::tlb::*;
 use crate::mm::{
     KERNEL_VADDR_RANGE,
     page_table::{EntryOwner, PageTableFrag, PageTableGuard},
 };
-use crate::sync::RoArc;
-use core::marker::PhantomData;
-use core::{ops::Range, sync::atomic::Ordering};
-use crate::mm::kspace::KERNEL_PAGE_TABLE;
-use crate::mm::tlb::*;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     io::{Fallible, VmReader, VmWriter},
     page_prop::PageProperty,
 };
+use crate::sync::RoArc;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::marker::PhantomData;
+use core::{ops::Range, sync::atomic::Ordering};
 
 #[path = "../../specs/mm/vm_space.rs"]
 pub mod vm_space_specs;
