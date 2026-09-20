@@ -16,9 +16,7 @@ use crate::specs::{
 use super::*;
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
-    kspace::{
-        KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
-    },
+    kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
 };
 

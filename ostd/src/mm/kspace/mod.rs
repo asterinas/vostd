@@ -143,8 +143,7 @@ pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..
     returns
         paddr_to_vaddr(pa),
 )]
-pub fn paddr_to_vaddr(pa: Paddr) -> usize
-{
+pub fn paddr_to_vaddr(pa: Paddr) -> usize {
     //debug_assert!(pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR);
     pa + LINEAR_MAPPING_BASE_VADDR
 }
