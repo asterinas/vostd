@@ -16,3 +16,4 @@ std = ["vstd/std"]
 [dependencies]
 vstd = { workspace = true }
 bitvec.workspace = true
+smallvec = "1.13.2"
