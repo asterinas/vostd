@@ -134,7 +134,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if level > NR_LEVELS {
             0
         } else {
-            let cont = self.continuations[(level - 1) as int];
+            let cont = self.continuations[level - 1];
             let count: nat = (NR_ENTRIES - cont.idx - 1) as nat;
             let steps = Self::max_steps_subtree(level) * count;
             let remaining_steps = self.max_steps_partial((level + 1) as usize);
@@ -221,7 +221,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
             Self::max_steps_subtree(lm1) as int,
-            (NR_ENTRIES - new_child.idx - 1) as int,
+            NR_ENTRIES - new_child.idx - 1,
             1,
         );
         vstd::arithmetic::mul::lemma_mul_is_commutative(
@@ -470,7 +470,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             } else {
                 let cont_i = self.continuations[i];
 
-                assert(cur_entry_path[cont_i.tree_level as int] == cont_i.idx as int);
+                assert(cur_entry_path[cont_i.tree_level as int] == cont_i.idx);
 
                 assert forall|j: int|
                     #![trigger cont_i.children[j]]

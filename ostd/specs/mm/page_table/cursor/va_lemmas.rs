@@ -271,7 +271,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
 
         assert(PageTableOwner(subtree).view_rec(path).contains(m));
-        self.lemma_view_mappings_intro(m, (self.level - 1) as int);
+        self.lemma_view_mappings_intro(m, self.level - 1);
         assert(m.inv());
 
         self.cur_va_in_subtree_range();

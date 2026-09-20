@@ -568,12 +568,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.entry_own.node().tree_level == parent_old.tree_level,
             // Other PTEs preserved (operation only touched the entry at idx)
             forall|j: int|
-                0 <= j < NR_ENTRIES && j != self.idx as int
+                0 <= j < NR_ENTRIES && j != self.idx
                     ==> #[trigger] self.entry_own.node().children_perm.value()[j]
                     == parent_old.children_perm.value()[j],
             // Children at j != idx untouched
             forall|j: int|
-                0 <= j < NR_ENTRIES && j != self.idx as int ==> #[trigger] self.children[j]
+                0 <= j < NR_ENTRIES && j != self.idx ==> #[trigger] self.children[j]
                     == cont_old.children[j],
             // Standard size/index facts (also implied by cont_old.inv()
             // + frozen fields, but stated directly to avoid extra unrolls).
