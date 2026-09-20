@@ -274,7 +274,7 @@ pub assume_specification<'a, T: BitStore, O: BitOrder, I: BitSliceIndex<'a, T, O
 ;
 
 /// For a `Range<usize>`, `get` returns `Some` of a bit-slice equal to the
-/// sub-range `bitslice_view(bv).subrange(start, end)` when
+/// sub-range `bitslice_view(bv)[start..end]` when
 /// `0 <= start <= end <= bitslice_view(bv).len()`, and `None` otherwise.
 pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
     bv: &BitSlice<T, O>,
@@ -287,10 +287,7 @@ pub broadcast axiom fn axiom_bitslice_get_range<'a, T: BitStore, O: BitOrder>(
         match bitslice_get_value(bv, range) {
             Some(s) => {
                 &&& 0 <= range.start <= range.end <= bitslice_view(bv).len()
-                &&& bitslice_view(s) == bitslice_view(bv).subrange(
-                    range.start as int,
-                    range.end as int,
-                )
+                &&& bitslice_view(s) == bitslice_view(bv)[range.start..range.end]
             },
             None => !(0 <= range.start <= range.end <= bitslice_view(bv).len()),
         },
