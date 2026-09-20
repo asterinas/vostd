@@ -242,7 +242,6 @@ impl IoPortAllocator {
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
-                &&& io_port.well_formed()
                 &&& io_port.claim_matches_set((*final(claim_out))@->Some_0.set())
                 &&& (*final(claim_out))@->Some_0.instance_id() == io_port_allocator_instance_id()
             },

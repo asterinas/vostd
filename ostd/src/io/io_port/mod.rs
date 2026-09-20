@@ -51,7 +51,7 @@ impl<T, A> View for IoPort<T, A> {
 impl<T, A> IoPort<T, A> {
     /// The complete byte range occupied by this typed port lies in the x86 PIO address space.
     #[verifier::type_invariant]
-    pub open spec fn well_formed(&self) -> bool {
+    pub open spec fn type_inv(&self) -> bool {
         valid_io_port_access::<T>(self@)
     }
 
@@ -144,7 +144,6 @@ impl<T, A> IoPort<T, A> {
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
-                &&& io_port.well_formed()
                 &&& io_port.claim_matches_set(claim@->Some_0.set())
                 &&& claim@->Some_0.instance_id() == allocator::io_port_allocator_instance_id()
             },
@@ -182,7 +181,6 @@ impl<T, A> IoPort<T, A> {
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
-                &&& io_port.well_formed()
                 &&& io_port.claim_matches_set(claim@->Some_0.set())
                 &&& claim@->Some_0.instance_id() == allocator::io_port_allocator_instance_id()
             },
@@ -229,7 +227,6 @@ impl<T, A> IoPort<T, A> {
         ensures
             ret@ == port,
             !ret.is_overlapping(),
-            ret.well_formed(),
     )]
     pub(crate) const unsafe fn new(port: u16) -> Self {
         // SAFETY: The safety is upheld by the caller.
@@ -253,7 +250,6 @@ impl<T, A> IoPort<T, A> {
         ensures
             ret@ == port,
             ret.is_overlapping() == is_overlapping,
-            ret.well_formed(),
     )]
     const unsafe fn new_overlapping(port: u16, is_overlapping: bool) -> Self {
         Self {
@@ -295,8 +291,8 @@ impl<T, A> IoPort<T, A> {
 #[verifier::allow(undeclared_external_trait)]
 impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
     /// Reads from the I/O port
-    #[verus_spec(requires self.well_formed())]
     pub fn read(&self) -> T {
+        proof! { use_type_invariant(self); }
         unsafe { PortRead::read_from_port(self.port) }
     }
 }
@@ -305,8 +301,8 @@ impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
 #[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
-    #[verus_spec(requires self.well_formed())]
     pub fn write(&self, value: T) {
+        proof! { use_type_invariant(self); }
         unsafe { PortWrite::write_to_port(self.port, value) }
     }
 }

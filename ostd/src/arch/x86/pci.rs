@@ -10,20 +10,10 @@ verus! {
 broadcast use super::device::io_port::group_io_port_models;
 // Original Rust: static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
 
-exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess>
-    ensures
-        PCI_ADDRESS_PORT.well_formed(),
-{
-    unsafe { IoPort::new(0x0CF8) }
-}
+exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
 
 // Original Rust: static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
-exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess>
-    ensures
-        PCI_DATA_PORT.well_formed(),
-{
-    unsafe { IoPort::new(0x0CFC) }
-}
+exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
 
 } // verus!
 #[verus_verify]
@@ -71,13 +61,8 @@ pub(crate) fn construct_remappable_msix_address(remapping_index: u32) -> u32 {
 }
 
 /// Encodes the bus, device, and function into a port address for use with the PCI I/O port.
-#[verus_verify]
-#[verus_spec(returns
-    (1u32 << 31)
-        | ((location.bus as u32) << 16)
-        | (((location.device as u32) & 0b11111) << 11)
-        | (((location.function as u32) & 0b111) << 8),
-)]
+#[verus_verify(dual_spec)]
+#[verus_spec(returns encode_as_port(location))]
 fn encode_as_port(location: &PciDeviceLocation) -> u32 {
     // 1 << 31: Configuration enable
     (1 << 31)
