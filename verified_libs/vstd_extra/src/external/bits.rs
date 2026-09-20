@@ -11,7 +11,11 @@ spec fn u64_set_bits_rec(w: u64, n: u64) -> int
     if n == 0 {
         0
     } else {
-        (if u64_bit_is_set(w, n - 1) {1int} else {0int}) + u64_set_bits_rec(w, (n - 1) as u64)
+        (if u64_bit_is_set(w, n - 1) {
+            1int
+        } else {
+            0int
+        }) + u64_set_bits_rec(w, (n - 1) as u64)
     }
 }
 

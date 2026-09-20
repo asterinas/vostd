@@ -31,16 +31,14 @@ pub struct CpuSet {
 
 type InnerPart = u64;
 
-verus! {
-
 // Original exec: `const BITS_PER_PART: usize = core::mem::size_of::<InnerPart>() * 8;`
 // literalized to `64` inside `verus!` so Verus sees a known value (exec `% BITS_PER_PART` ↔ spec `% 64`).
+#[verus_verify]
 const BITS_PER_PART: usize = 64;
 
+#[verus_verify]
 const NR_PARTS_NO_ALLOC: usize = 2;
 
-} // verus!
-#[verus_verify]
 #[verus_spec(
     returns part_idx_spec(cpu_id@),
 )]
@@ -76,30 +74,6 @@ broadcast use {
     vstd::set::group_set_lemmas,
     vstd::set_lib::range_set_properties,
 };
-
-/// `div_ceil(n, BITS_PER_PART)`: the number of 64-bit words needed to hold `n` bits.
-spec fn parts_for_cpus_spec(n: usize) -> usize {
-    if n == 0 {
-        0
-    } else {
-        ((n + 63) / 64) as usize
-    }
-}
-
-/// The 64-bit word holding bit `i`.
-spec fn part_idx_spec(i: int) -> usize {
-    (i / 64) as usize
-}
-
-/// The position of bit `i` within its 64-bit word.
-spec fn bit_idx_spec(i: int) -> usize {
-    (i % 64) as usize
-}
-
-/// Number of set bits in all words of `seq`.
-spec fn count_set_bits(seq: Seq<u64>) -> int {
-    seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
-}
 
 /// Bit `i` is set in the bit sequence `seq`.
 spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
@@ -195,11 +169,10 @@ impl CpuSet {
         }
         self.bits[part_idx] |= 1 << bit_idx;
         proof! {
-            let n = cpu_count();
             let old_seq = smallvec_view(&old(self).bits);
             let new_seq = smallvec_view(&self.bits);
             let len = old_seq.len() as int;
-            assert forall|j: int| n <= j < 64 * len implies !bit_at(new_seq, j) by {
+            assert forall|j: int| cpu_count() <= j < 64 * len implies !bit_at(new_seq, j) by {
                 assert(bit_at(new_seq, j) == bit_at(old_seq, j));
             }
         }
@@ -219,10 +192,9 @@ impl CpuSet {
         if part_idx < self.bits.len() {
             self.bits[part_idx] &= !(1 << bit_idx);
             proof! {
-                let n = cpu_count();
                 let old_seq = smallvec_view(&old(self).bits);
                 let new_seq = smallvec_view(&self.bits);
-                assert forall|j: int| n <= j < 64 * old_seq.len() as int implies !bit_at(
+                assert forall|j: int| cpu_count() <= j < 64 * old_seq.len() as int implies !bit_at(
                     new_seq,
                     j,
                 ) by {
@@ -473,7 +445,7 @@ impl CpuSet {
             )
     }
 
-    /// Only for internal use. Build a vector of `num_cpus`-covering words, all equal to `val`.
+    /// Only for internal use. The set cannot contain non-existent CPUs.
     #[verus_spec(ret =>
         requires
             num_cpus == cpu_count(),
@@ -607,10 +579,34 @@ impl AtomicCpuSet {
     }
 }
 
-// Private auxiliary proof lemmas backing the implementations above. They are
+// Private auxiliary specifications and proof lemmas backing the implementations above. They are
 // collected at the end of the file so that the APIs and critical proofs stay in focus.
 
 verus! {
+
+/// `div_ceil(n, BITS_PER_PART)`: the number of 64-bit words needed to hold `n` bits.
+spec fn parts_for_cpus_spec(n: usize) -> usize {
+    if n == 0 {
+        0
+    } else {
+        ((n + 63) / 64) as usize
+    }
+}
+
+/// The 64-bit word holding bit `i`.
+spec fn part_idx_spec(i: int) -> usize {
+    (i / 64) as usize
+}
+
+/// The position of bit `i` within its 64-bit word.
+spec fn bit_idx_spec(i: int) -> usize {
+    (i % 64) as usize
+}
+
+/// Number of set bits in all words of `seq`.
+spec fn count_set_bits(seq: Seq<u64>) -> int {
+    seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
+}
 
 /// Expected value of word `idx` in a full CPU set.
 spec fn full_set_word(num_cpus: int, len: int, idx: int) -> u64 {

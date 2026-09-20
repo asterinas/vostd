@@ -26,7 +26,7 @@ impl CpuId {
     }
 
     /// Converts the CPU ID to an `usize`.
-    #[verus_verify(dual_spec,closed)]
+    #[verus_verify(dual_spec, closed)]
     #[verus_spec(r => ensures r == self@, returns self.as_usize())]
     pub const fn as_usize(self) -> usize {
         self.0 as usize
