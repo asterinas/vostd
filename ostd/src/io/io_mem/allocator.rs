@@ -32,9 +32,7 @@ impl IoMemAllocator {
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
         requires
-            is_pow2(PAGE_SIZE as int),
-            range.start < range.end,
-            range.end <= usize::MAX - (PAGE_SIZE - 1),
+            range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             io_mem_range_registered(range),
         ensures
             result matches Some(io_mem) ==> {
@@ -61,6 +59,12 @@ impl IoMemAllocator {
         result.ok()?;
 
         /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
+
+        proof! {
+            // PAGE_SIZE = 4096 = 2^12: 13 unfoldings of the opaque `is_pow2`.
+            reveal_with_fuel(is_pow2, 13);
+            assert(is_pow2(PAGE_SIZE as int));
+        }
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
         /* Original Rust: PageFlags::RW */

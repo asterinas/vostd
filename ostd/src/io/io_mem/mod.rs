@@ -63,9 +63,7 @@ impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
     #[verus_spec(result =>
         requires
-            is_pow2(PAGE_SIZE as int),
-            range.start < range.end,
-            range.end <= usize::MAX - (PAGE_SIZE - 1),
+            range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             allocator::io_mem_range_registered(range),
             vstd_extra::panic::may_panic(),
         ensures
@@ -138,8 +136,7 @@ impl IoMem {
     #[verus_spec(result =>
         requires
             is_pow2(PAGE_SIZE as int),
-            range.start <= range.end,
-            range.end <= usize::MAX - (PAGE_SIZE - 1),
+            range.start <= range.end <= usize::MAX - (PAGE_SIZE - 1),
         ensures
             result.paddr() == range.start,
             result.length()

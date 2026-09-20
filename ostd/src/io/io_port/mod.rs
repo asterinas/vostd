@@ -2,9 +2,9 @@
 //! I/O port and its allocator that allocates port I/O (PIO) to device drivers.
 use vstd::prelude::*;
 
-use crate::arch::device::io_port::{
-    IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite, valid_io_port_access,
-};
+use crate::arch::device::io_port::valid_io_port_access;
+
+use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
 mod allocator;
 
 use core::{marker::PhantomData, mem::size_of};
@@ -67,7 +67,7 @@ impl<T, A> IoPort<T, A> {
     /// the complete typed range, or only the first port if the port was acquired as
     /// overlapping.
     pub open spec fn claim_matches_set(&self, claim: Set<usize>) -> bool {
-        claim == port_id_set(
+        claim == Set::<usize>::range(
             self@ as usize,
             if self.is_overlapping() {
                 (self@ as usize + 1) as usize
@@ -75,40 +75,6 @@ impl<T, A> IoPort<T, A> {
                 (self@ as usize + size_of::<T>()) as usize
             },
         )
-    }
-}
-
-/// Set of byte-sized PIO numbers in the half-open interval `[start, end)`.
-pub open spec fn port_id_set(start: usize, end: usize) -> Set<usize>
-    decreases end - start,
-{
-    if start < end {
-        port_id_set(start, (end - 1) as usize).insert((end - 1) as usize)
-    } else {
-        Set::empty()
-    }
-}
-
-/// Extending a PIO interval by one byte is equivalent to inserting its old endpoint.
-pub proof fn lemma_port_id_set_insert(start: usize, end: usize)
-    requires
-        start <= end,
-        end < usize::MAX,
-    ensures
-        port_id_set(start, end).insert(end) == port_id_set(start, (end + 1) as usize),
-{
-}
-
-/// Membership characterization for [`port_id_set`].
-pub proof fn lemma_port_id_set_contains(start: usize, end: usize, id: usize)
-    requires
-        start <= end,
-    ensures
-        port_id_set(start, end).contains(id) <==> start <= id < end,
-    decreases end - start,
-{
-    if start < end {
-        lemma_port_id_set_contains(start, (end - 1) as usize, id);
     }
 }
 
