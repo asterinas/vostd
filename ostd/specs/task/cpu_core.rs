@@ -9,9 +9,11 @@
 use vstd::{prelude::*, resource::Loc};
 use vstd_extra::resource::ghost_resource::excl::ExclusiveGhost;
 
-use crate::specs::{mm::cpu::CpuId, task::cpu_local::CpuLocalAuth};
+use crate::specs::task::cpu_local::CpuLocalAuth;
 
 use core::marker::PhantomData;
+
+use crate::cpu::CpuId;
 
 verus! {
 

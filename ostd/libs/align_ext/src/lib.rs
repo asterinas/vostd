@@ -126,10 +126,10 @@ macro_rules! impl_align_ext {
                     vstd_extra::assert!(align.is_power_of_two() && align >= 2);
                     proof!{
                         is_pow2_equiv(align as int);
-                        let x_int = self as int + align as int - 1;
+                        let x_int = self + align - 1;
                         let x = x_int as Self;
                         if self as int % align as int == 0 {
-                            assert((align as int - 1) % align as int == align - 1) by {
+                            assert((align - 1) % align as int == align - 1) by {
                                 lemma_small_mod((align - 1) as nat, align as nat);
                             }
                             assert(x_int % align as int == align - 1) by {

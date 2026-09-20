@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::{
-    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    cpu::{AtomicCpuSet, PinCurrentCpu},
     tlb::TlbModel,
 };
 
@@ -18,12 +18,12 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-/*use crate::{
-    arch::irq,
-    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    cpu_local,
-    sync::{LocalIrqDisabled, SpinLock},
-};*/
+use crate::{
+    //arch::irq,
+    cpu::{/*AtomicCpuSet,*/ CpuSet /*, PinCurrentCpu*/},
+    //cpu_local,
+    //sync::{LocalIrqDisabled, SpinLock},
+};
 
 #[verus_verify]
 verus! {
