@@ -5,11 +5,10 @@
 //! trust-boundary axioms that bridge native Rust slices to the tracked
 //! memory model, and the `wf`/`inv` impls relating exec reader/writer
 //! handles to their ghost owners.
-use core::ops::Range;
-
-use vstd::prelude::*;
-
-use vstd::pervasive::{arbitrary, proof_from_false};
+use vstd::{
+    pervasive::{arbitrary, proof_from_false},
+    prelude::*,
+};
 use vstd_extra::ownership::Inv;
 
 use crate::specs::mm::virt_mem::MemView;
@@ -18,6 +17,7 @@ use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
     kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
 };
+use core::ops::Range;
 
 verus! {
 

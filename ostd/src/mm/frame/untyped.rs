@@ -8,6 +8,11 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::OwnerOf;
 
+use crate::specs::{
+    arch::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
+    mm::{frame::meta_owners::MetaSlotStorage, io::VmIoOwner, virt_mem::VirtPtr},
+};
+
 use super::*;
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
@@ -17,10 +22,6 @@ use crate::mm::{
     },
     paddr_to_vaddr,
 };
-use crate::specs::arch::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::io::VmIoOwner;
-use crate::specs::mm::virt_mem::VirtPtr;
 
 verus! {
 

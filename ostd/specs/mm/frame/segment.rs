@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
-use core::ops::Range;
-
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{
@@ -22,29 +19,22 @@ use crate::mm::{
     frame::{AnyFrameMeta, Segment, meta::MetaSlot},
     paddr_to_vaddr,
 };
+use core::ops::Range;
 
 verus! {
-
-/// Number of frames in a page-aligned physical range.
-#[verifier::inline]
-pub open spec fn seg_nframes(range: Range<Paddr>) -> int {
-    (range.end - range.start) / PAGE_SIZE as int
-}
 
 impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// The cross-object relation between a [`Segment`] and the global
     /// [`MetaRegionOwners`].
     pub open spec fn relate_regions(&self, regions: MetaRegionOwners) -> bool {
-        &&& self.permissions().len() == seg_nframes(self.range())
-        &&& self.slot_perms().len() == seg_nframes(self.range())
         &&& forall|i: int|
             #![trigger frame_to_index((self.range().start + i * PAGE_SIZE) as usize)]
-            0 <= i < seg_nframes(self.range()) ==> {
+            0 <= i < self.len() ==> {
                 let idx = frame_to_index((self.range().start + i * PAGE_SIZE) as usize);
-                &&& self.slot_perms()[i] == regions.slots[idx]
-                &&& self.permissions()[i].frac() == 1
-                &&& self.permissions()[i].id() == regions.slot_owners[idx].metadata_perm.id()
-                &&& MetaSlot::perms_related(*self.slot_perms()[i], self.permissions()[i].resource())
+                &&& self.raw_perms()[i].slot_perm == regions.slots[idx]
+                &&& self.raw_perms()[i].inv()
+                &&& self.raw_perms()[i].metadata_perm.id()
+                    == regions.slot_owners[idx].metadata_perm.id()
                 &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& 0 < regions.slot_owners[idx].ref_count()
@@ -55,22 +45,9 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range().start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range().start + j * PAGE_SIZE) as usize)]
-            0 <= i < j < seg_nframes(self.range()) ==> frame_to_index(
+            0 <= i < j < self.len() ==> frame_to_index(
                 (self.range().start + i * PAGE_SIZE) as usize,
             ) != frame_to_index((self.range().start + j * PAGE_SIZE) as usize)
-    }
-
-    /// The bundled invariant for [`Segment`] operations that thread the global
-    /// `regions`: the segment's own invariant, the region invariant, and the
-    /// cross-object relation tying this segment's range to `regions`.
-    ///
-    /// Mirrors the `invariants` bundles used throughout the page-table / cursor
-    /// code — it collapses the clauses repeated across `split`, `slice`,
-    /// `into_raw`, `next`, and `drop` into one predicate.
-    pub open spec fn invariants(&self, regions: MetaRegionOwners) -> bool {
-        &&& self.inv()
-        &&& regions.inv()
-        &&& self.relate_regions(regions)
     }
 
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.

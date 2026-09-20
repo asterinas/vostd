@@ -1,8 +1,4 @@
-use core::ops::Range;
-
-use vstd::prelude::*;
-
-use vstd::pervasive::proof_from_false;
+use vstd::{pervasive::proof_from_false, prelude::*};
 use vstd_extra::ownership::*;
 
 use crate::specs::{
@@ -30,6 +26,7 @@ use crate::mm::{
     page_table::*,
     vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace},
 };
+use core::ops::Range;
 
 verus! {
 

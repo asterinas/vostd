@@ -1,8 +1,4 @@
-use core::marker::PhantomData;
-
-use vstd::prelude::*;
-
-use vstd::{modes::tracked_swap, simple_pptr::PointsTo};
+use vstd::{modes::tracked_swap, prelude::*, simple_pptr::PointsTo};
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -26,6 +22,7 @@ use crate::mm::{
     page_prop::PageProperty,
     page_table::*,
 };
+use core::marker::PhantomData;
 
 verus! {
 

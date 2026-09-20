@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The unique frame pointer that is not shared with others.
-use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
-
-use vstd_extra::auxiliary::OptionExtraFns;
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
-    meta_owners::{MetaSlotStorage, MetadataPerm, borrow_meta, borrow_meta_mut},
-    meta_region_owners::MetaRegionOwners,
-    unique::*,
+use vstd::{
+    prelude::*,
+    simple_pptr::{self, PPtr},
 };
+use vstd_extra::{auxiliary::OptionExtraFns, cast_ptr::*, ownership::*};
 
-use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
+        meta_owners::{MetaSlotStorage, MetadataPerm, borrow_meta, borrow_meta_mut},
+        meta_region_owners::MetaRegionOwners,
+        unique::*,
+    },
+};
 
 use super::{
     AnyFrameMeta, Frame, MetaSlot,
@@ -23,6 +22,7 @@ use super::{
     meta::{GetFrameError, META_SLOT_SIZE, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
+use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
 verus! {
 

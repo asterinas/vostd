@@ -1,9 +1,5 @@
 //! Cursor function-specific lemmas for `CursorOwner`.
-use core::ops::Range;
-
-use vstd::prelude::*;
-
-use vstd::arithmetic::power2::pow2;
+use vstd::{arithmetic::power2::pow2, prelude::*};
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -20,6 +16,7 @@ use crate::specs::{
 };
 
 use crate::mm::{PagingLevel, Vaddr, page_size, page_table::*};
+use core::ops::Range;
 
 verus! {
 

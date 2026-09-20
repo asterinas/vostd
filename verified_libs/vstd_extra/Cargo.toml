@@ -16,6 +16,7 @@ std = ["vstd/std"]
 [dependencies]
 vstd = { workspace = true }
 bitvec.workspace = true
+smallvec = "1.13.2"
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = "0.14.13"

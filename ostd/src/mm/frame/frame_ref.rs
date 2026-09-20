@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
-
-use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
-use vstd_extra::cast_ptr::Repr;
-use vstd_extra::prelude::*;
-
-use crate::mm::frame::meta::mapping::frame_to_meta;
+use vstd::{
+    prelude::*,
+    simple_pptr::{PPtr, PointsTo},
+};
+use vstd_extra::{cast_ptr::Repr, prelude::*};
 
 use crate::specs::{
     arch::valid_frame_paddr,
@@ -22,6 +19,8 @@ use super::{
     meta::{AnyFrameMeta, MetaSlot},
 };
 use crate::mm::Paddr;
+use crate::mm::frame::meta::mapping::frame_to_meta;
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 verus! {
 
@@ -56,13 +55,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             MetaSlot::perms_related(r.inner@.slot_perm(), metadata_perm.resource()),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
+        proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None)}
         let frame = Frame::<M> {
             ptr: PPtr::<MetaSlot>::from_addr(frame_to_meta(raw)),
             _marker: PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
-            #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(None),
         };
 
         let inner = ManuallyDrop::new(frame);

@@ -1,8 +1,4 @@
-use core::ops::Range;
-
-use vstd::prelude::*;
-
-use vstd::set_lib::*;
+use vstd::{prelude::*, set_lib::*};
 use vstd_extra::{arithmetic::*, ownership::*};
 
 use crate::specs::{
@@ -14,6 +10,7 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_table::*,
 };
+use core::ops::Range;
 
 verus! {
 

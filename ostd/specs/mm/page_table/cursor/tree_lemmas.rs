@@ -1,9 +1,6 @@
 //! Tree-predicate lifting, tree entry level constraints, and tree membership
 //! lemmas for `CursorContinuation` and `CursorOwner`.
-use core::ops::Range;
-
 use vstd::prelude::*;
-
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -16,6 +13,7 @@ use crate::specs::{
 };
 
 use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
+use core::ops::Range;
 
 verus! {
 

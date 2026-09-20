@@ -1,33 +1,29 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
-use core::marker::PhantomData;
-use core::mem::ManuallyDrop;
+use vstd::{prelude::*, simple_pptr::PPtr};
+use vstd_extra::{cast_ptr::*, ownership::*};
 
-use vstd::prelude::*;
-use vstd::simple_pptr::PPtr;
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        mapping::{group_page_meta, meta_to_index},
+        meta_region_owners::MetaRegionOwners,
+    },
+    *,
+};
 
+use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::page_table::*;
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    mapping::{group_page_meta, meta_to_index},
-    meta_region_owners::MetaRegionOwners,
-};
-
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-
-use crate::specs::*;
-
 use crate::{
     mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty},
     //    sync::RcuDrop,
 };
-
-use super::*;
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 
 verus! {
 
@@ -133,13 +129,10 @@ impl<C: PageTableConfig> Child<C> {
             }
             let tracked slot_perm = regions.tracked_borrow_slot(paddr);
 
+            proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None) }
             let node = PageTableNode::<C> {
                 ptr: PPtr::from_addr(frame_to_meta(paddr)),
                 _marker: PhantomData,
-                #[cfg(verus_keep_ghost_body)]
-                tracked_slot_perm: Tracked(slot_perm),
-                #[cfg(verus_keep_ghost_body)]
-                tracked_metadata_perm: Tracked(None),
             };
 
             return Child::PageTable(node);

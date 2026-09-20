@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 //! TLB flush operations.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
-use alloc::vec::Vec;
-use core::{
-    ops::Range,
-    sync::atomic::{AtomicBool, Ordering},
+use crate::specs::mm::{
+    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    tlb::TlbModel,
 };
 
 use super::{
     PAGE_SIZE, Vaddr,
     frame::{Frame, meta::AnyFrameMeta},
 };
-
-use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};
-
-use crate::specs::mm::tlb::TlbModel;
+use alloc::vec::Vec;
+use core::{
+    ops::Range,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /*use crate::{
     arch::irq,

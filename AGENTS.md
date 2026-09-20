@@ -8,6 +8,7 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 - `ostd`:
   - `ostd/src/`: Core OSTD implementation and proofs.
   - `ostd/specs/`: Verus specifications for OSTD.
+  - `ostd/libs/`: Auxiliary libraries for OSTD (e.g., `align_ext`, `id-alloc`, and `ostd-pod`).
 - `dv`: The main build system (you can think this as `xtask`-equivalent).
 
 ## Build, Test, and Development Commands

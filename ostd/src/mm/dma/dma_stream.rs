@@ -4,7 +4,6 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
-
 use vstd_extra::external::convert::AsRefSpec;
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,

@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides accessors to the page table entries in a node.
 use vstd::prelude::*;
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use crate::specs::{
+    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    mm::{
+        frame::{
+            mapping::{frame_to_index, group_page_meta, meta_to_index},
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{INC_LEVELS, PageTableOwner},
+    },
+    task::InAtomicMode,
+};
 
+use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::frame::{
@@ -13,24 +24,13 @@ use crate::mm::frame::{
 };
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, meta_to_index},
-    meta_region_owners::MetaRegionOwners,
-};
-use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
-use crate::specs::task::InAtomicMode;
-
-use core::marker::PhantomData;
-use core::ops::Deref;
-
 use crate::{
     mm::{nr_subpage_per_huge, nr_subpage_per_huge_spec, page_prop::PageProperty},
     //    sync::RcuDrop,
     //    task::atomic_mode::InAtomicMode,
 };
-
-use super::*;
+use core::marker::PhantomData;
+use core::ops::Deref;
 
 verus! {
 

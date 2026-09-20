@@ -1,7 +1,4 @@
-use core::ops::Range;
-
 use vstd::prelude::*;
-
 use vstd_extra::{
     arithmetic::{lemma_nat_align_down_sound, nat_align_down},
     ghost_tree::*,
@@ -22,9 +19,9 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
-
 use crate::arch::mm::PagingConsts;
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use core::ops::Range;
 
 verus! {
 

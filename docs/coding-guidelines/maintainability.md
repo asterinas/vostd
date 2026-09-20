@@ -136,6 +136,22 @@ use vstd::laws_cmp::{
 use vstd::laws_eq::obeys_eq_spec_properties;
 ```
 
+Exception for verification-added spec imports: a newly added `use` that introduces
+spec or proof symbols (spec functions, models, lemmas) stays in the Verus-actor
+import group and is not merged with a pre-existing `use` of the same crate that
+imports executable items; the separation that
+[`organize-proof-imports`](#organize-proof-imports) requires between new proof
+imports and inherited executable imports takes precedence over this rule's merging
+for such pairs.
+
+```rust
+// Added with the proof, spec models of a crate that also has an exec import:
+use ostd_pod::{decode_pod, from_bytes_spec};
+
+// Pre-existing executable import, inherited with the executable Rust — not merged:
+use ostd_pod::Pod;
+```
+
 See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076).
 
 ### Bind Option payloads
@@ -202,6 +218,64 @@ See also: PR [#679](https://github.com/asterinas/vostd/pull/679#discussion_r3690
 [#723](https://github.com/asterinas/vostd/pull/723#discussion_r3849117460),
 [#723](https://github.com/asterinas/vostd/pull/723#issuecomment-5392419977), and
 [#672](https://github.com/asterinas/vostd/pull/672#issuecomment-5099747820).
+
+### Avoid unused spec helpers
+
+<!-- guideline: avoid-unused-spec-helpers -->
+
+Add a `spec fn`, `proof fn`, or proof-only model operation only when it has a
+current caller or defines an intentional abstraction boundary with a documented
+external consumer. Search for call sites before adding the helper and again
+before review. Do not expand the specification API merely for symmetry,
+convenience, or anticipated future proofs; add the operation with the proof
+that needs it. Remove newly introduced helpers that remain unused.
+
+See also: PR [#778](https://github.com/asterinas/vostd/pull/778#discussion_r4045503423).
+
+### Inline single-use proof helpers
+
+<!-- guideline: inline-single-use-proof-helpers -->
+
+Keep a proof step in its caller when it has only one call site and does not
+define an independent abstraction. Before adding a module-level or associated
+`proof fn`, search its call sites. If there is only one, put the proof body at
+that call site. When recursion or another language constraint requires a named
+function, define a local `proof fn` inside the caller so the helper does not
+expand the surrounding module's proof API.
+
+Retain a separate proof function only when it provides real reuse, states a
+fact that callers should depend on as an abstraction boundary, or demonstrably
+isolates proof context needed for reliable verification. Do not extract a
+helper merely to name a short proof block or structure generated proof code.
+Likewise, delete a trivial helper when its fact verifies directly at the call
+site.
+
+See also: PR [#775](https://github.com/asterinas/vostd/pull/775#discussion_r4032713402),
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3920738708), and
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3920718897).
+
+### Defer auxiliary proof functions
+
+<!-- guideline: defer-auxiliary-proof-functions -->
+
+Order a verification-heavy module so that a top-down read presents the APIs and
+critical proofs first: types, public `spec fn`s, `View` and `Inv`
+implementations, and the verified executable functions stay in the upper part
+of the file. Move private auxiliary `proof fn`s to a trailing `verus!` block
+at the end of the file, opened by a one-line comment naming the section.
+Auxiliary here means lemmas that discharge side obligations — such as
+bounds-fitting or representation-to-model bridge facts — which serve the
+proofs rather than state the module's contracts.
+
+Item order carries no semantics: a proof function can be called before its
+textual declaration, so deferring helpers is a layout-only change with no
+effect on name resolution or verification results. Keep public spec and proof
+functions in the API part, though — callers name them in their own contracts,
+so they belong to the module surface, not to internal scaffolding.
+
+See also: the deferred lemma block in [`cpu::set`](../../ostd/src/cpu/set.rs#L794),
+called from [`CpuSet::new_full`](../../ostd/src/cpu/set.rs#L193), and
+PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4042969977).
 
 ### Avoid redundant mode markers
 

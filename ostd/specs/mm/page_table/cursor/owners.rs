@@ -1,8 +1,4 @@
-use core::{marker::PhantomData, ops::Range};
-
-use vstd::prelude::*;
-
-use vstd::{arithmetic::power2::pow2, seq_lib::*, set::lemma_set_contains_len};
+use vstd::{arithmetic::power2::pow2, prelude::*, seq_lib::*, set::lemma_set_contains_len};
 use vstd_extra::{
     drop_tracking::*,
     ghost_tree::*,
@@ -46,6 +42,7 @@ use crate::mm::{
     page_size,
     page_table::*,
 };
+use core::{marker::PhantomData, ops::Range};
 
 verus! {
 

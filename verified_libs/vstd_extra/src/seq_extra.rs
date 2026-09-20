@@ -11,8 +11,8 @@ pub proof fn seq_tracked_split_at<T>(tracked s: &mut Seq<T>, n: int) -> (tracked
     requires
         0 <= n <= old(s).len(),
     ensures
-        *final(s) == old(s).subrange(0, n),
-        result == old(s).subrange(n, old(s).len() as int),
+        *final(s) == old(s)[..n],
+        result == old(s)[n..],
     decreases old(s).len() - n,
 {
     if n == s.len() {
@@ -249,7 +249,7 @@ pub open spec fn first_zero_index(s: Seq<bool>) -> int
     } else if !s[0] {
         0
     } else {
-        1 + first_zero_index(s.subrange(1, s.len() as int))
+        1 + first_zero_index(s[1..])
     }
 }
 
@@ -273,7 +273,7 @@ pub proof fn lemma_first_zero_index_is_first_zero(s: Seq<bool>)
     if s.len() == 0 {
     } else if !s[0] {
     } else {
-        let sub = s.subrange(1, s.len() as int);
+        let sub = s[1..];
         lemma_first_zero_index_is_first_zero(sub);
         let i2 = first_zero_index(sub);
         assert(is_first_zero(s, 1 + i2)) by {
@@ -296,34 +296,32 @@ pub proof fn lemma_first_zero_index_after_true_prefix(s: Seq<bool>, k: int)
         0 <= k <= s.len(),
         forall|j: int| #![trigger s[j]] 0 <= j < k ==> s[j],
     ensures
-        first_zero_index(s) == k + first_zero_index(s.subrange(k, s.len() as int)),
+        first_zero_index(s) == k + first_zero_index(s[k..]),
     decreases s.len(),
 {
     if k == 0 {
-        assert(s.subrange(0, s.len() as int) =~= s) by {}
+        assert(s[k..] =~= s) by {}
     } else if s.len() == 0 {
     } else {
-        let sub = s.subrange(1, s.len() as int);
+        let sub = s[1..];
         lemma_first_zero_index_after_true_prefix(sub, k - 1);
-        assert(sub.subrange(k - 1, sub.len() as int) =~= s.subrange(k, s.len() as int)) by {}
+        assert(sub[k - 1..] =~= s[k..]) by {}
     }
 }
 
 /// Setting the bit at `k - 1` (the current first zero) to `true`, when the prefix
 /// `[0, k - 1)` is all `true`, advances the first zero to
-/// `k + first_zero_index(s.subrange(k, len))`.
+/// `k + first_zero_index(s[k..])`.
 pub proof fn lemma_first_zero_index_advance_after_set(s: Seq<bool>, k: int)
     requires
         0 < k <= s.len(),
         is_first_zero(s, k - 1),
     ensures
-        first_zero_index(s.update(k - 1, true)) == k + first_zero_index(
-            s.subrange(k, s.len() as int),
-        ),
+        first_zero_index(s.update(k - 1, true)) == k + first_zero_index(s[k..]),
 {
     let t = s.update(k - 1, true);
     lemma_first_zero_index_after_true_prefix(t, k);
-    assert(t.subrange(k, s.len() as int) =~= s.subrange(k, s.len() as int)) by {}
+    assert(t[k..] =~= s[k..]) by {}
 }
 
 /// Clearing a `true` bit at `i` moves the first zero to `min(first_zero_index(s), i)`.

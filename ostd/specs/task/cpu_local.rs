@@ -21,8 +21,7 @@ use vstd::{
     },
 };
 
-use crate::specs::mm::cpu::CpuId;
-use crate::specs::task::cpu_core::CpuCoreLocalState;
+use crate::specs::{mm::cpu::CpuId, task::cpu_core::CpuCoreLocalState};
 
 verus! {
 

@@ -31,8 +31,6 @@
 //! first). Accounting (the `rc == H + P + cover_count` equation
 //! [`super::VmStore`] carries) is deferred — `KVirtArea` is
 //! mapping-focused, not reference-count-focused.
-use core::ops::Range;
-
 use vstd::prelude::*;
 use vstd_extra::prelude::Inv;
 
@@ -52,6 +50,7 @@ use crate::mm::{
     },
     page_table::PageTableGuard,
 };
+use core::ops::Range;
 
 verus! {
 

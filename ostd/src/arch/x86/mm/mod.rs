@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(dead_code)]
 
-use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS};
-use vstd::arithmetic::power2::*;
-use vstd::prelude::*;
-use vstd_extra::panic::may_panic;
-use vstd_extra::panic::panic_diverge;
-use vstd_extra::prelude::*;
+use vstd::{arithmetic::power2::*, prelude::*};
+use vstd_extra::{
+    panic::{may_panic, panic_diverge},
+    prelude::*,
+};
+
+use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 
 use alloc::fmt;
 use core::ops::Range;
@@ -15,7 +16,6 @@ use core::ops::Range;
 pub(crate) use util::{__memcpy_fallible, __memset_fallible};
 //use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
 
-use crate::specs::arch::PAGE_SIZE;
 use crate::{
     mm::{
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},

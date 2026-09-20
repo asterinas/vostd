@@ -8,10 +8,7 @@
 ///   (`cur_va`, `cur_va_range`).
 /// - Lemmas relating the abstract VA to the page table view range.
 /// - Axiom functions for updating the cursor VA (`set_va`, `set_va_in_node`).
-use core::ops::Range;
-
 use vstd::prelude::*;
-
 use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -29,6 +26,7 @@ use crate::specs::{
 };
 
 use crate::mm::{Paddr, PagingLevel, Vaddr, page_size, page_table::*};
+use core::ops::Range;
 
 verus! {
 

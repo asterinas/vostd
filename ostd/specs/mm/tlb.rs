@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::{cpu::*, page_table::*};

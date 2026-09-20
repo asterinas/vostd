@@ -29,15 +29,15 @@
 //! module. The reference count and usage of a frame are stored in the metadata
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
-use vstd::atomic::PermissionU64;
-use vstd::map::assert_maps_equal_internal;
-use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
-use vstd::std_specs::cmp::PartialEqSpecImpl;
-use vstd::{assert_maps_equal, assert_sets_equal};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::may_panic;
+use vstd::{
+    assert_maps_equal, assert_sets_equal,
+    atomic::PermissionU64,
+    map::assert_maps_equal_internal,
+    prelude::*,
+    simple_pptr::{self, PPtr},
+    std_specs::cmp::PartialEqSpecImpl,
+};
+use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
 
 pub mod allocator;
 pub mod linked_list;
@@ -59,20 +59,20 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
-use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
-pub use segment::Segment;
-pub use untyped::{AnyUFrameMeta, UFrame};
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        frame_specs::*,
+        mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
+        meta_owners::*,
+        meta_region_owners::MetaRegionOwners,
+    },
+};
 
 use super::PagingLevel;
-
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
-pub use unique::UniqueFrame;
-
-use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
-
 use crate::mm::page_table::RCClone;
+use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::{
     MAX_PADDR, Paddr, Vaddr,
     frame::meta::{
@@ -81,13 +81,12 @@ use crate::mm::{
     },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    frame_specs::*,
-    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
-    meta_owners::*,
-    meta_region_owners::MetaRegionOwners,
-};
+pub use linked_list::{CursorMut, Link, LinkedList};
+pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
+use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
+pub use segment::Segment;
+pub use unique::UniqueFrame;
+pub use untyped::{AnyUFrameMeta, UFrame};
 
 verus! {
 
@@ -150,6 +149,7 @@ impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
 */
 
 verus!{
+
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEqSpecImpl for Frame<M>{
     open spec fn obeys_eq_spec() -> bool { true }
 
@@ -510,35 +510,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// - **Safety**: The frame must be in use (not unused).
+    /// - **Safety**: The frame's invariant must be satisfied.
     /// ## Postconditions
-    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
     /// - **Correctness**: The function returns the physical address of the frame.
-    /// - **Correctness**: The frame's raw count is incremented.
-    /// - **Safety**: Frames other than this one are not affected by the call.
     /// ## Safety
     /// - We require the slot to be in use to ensure that a fresh frame handle will not be created until the raw frame is restored.
     /// - The owner's raw count is incremented so that we can enforce the safety requirement on `Frame::from_raw`.
     #[verus_spec(r =>
         with
-            -> raw_permission: Tracked<FracMetadataPerm>,
+            -> raw_permission: Tracked<FrameRawPerms>,
         requires
             self.inv(),
         ensures
             r == self.start_paddr_spec(),
-            raw_permission@.frac() == 1,
-            raw_permission@.id() == self.frac_metadata_perm().id(),
-            MetaSlot::perms_related(self.slot_perm(), raw_permission@.resource()),
+            raw_permission@.inv(),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use group_page_meta;
 
         let mut this = self;
-        let tracked frame_permission = this.tracked_metadata_perm.tracked_take();
+        proof_decl!{
+            let tracked perm = FrameRawPerms {
+                slot_perm: &*this.tracked_slot_perm,
+                metadata_perm: this.tracked_metadata_perm.tracked_take(),
+            };
+        }
 
         let this = ManuallyDrop::new(this);
-        proof_with!(|= Tracked(frame_permission));
+        proof_with!(|= Tracked(perm));
         this.start_paddr()
     }
 }
@@ -587,17 +586,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     /// no checking of the usage in this function.
     #[verus_spec(r =>
         with
-            Tracked(slot_perm): Tracked<&'static simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(frame_permission): Tracked<FracMetadataPerm>,
+            Tracked(perm): Tracked<FrameRawPerms>,
         requires
             valid_frame_paddr(paddr),
-            slot_perm.addr() == frame_to_meta(paddr),
-            slot_perm.is_init(),
-            frame_permission.frac() == 1,
-            MetaSlot::perms_related(*slot_perm,frame_permission.resource()),
+            perm.slot_vaddr() == frame_to_meta(paddr),
+            perm.inv(),
         ensures
-            r.tracked_slot_perm@ == slot_perm,
-            r.tracked_metadata_perm@ == Some(frame_permission),
+            r.tracked_slot_perm@ == perm.slot_perm,
+            r.tracked_metadata_perm@ == Some(perm.metadata_perm),
             r.start_paddr_spec() == paddr,
             r.inv(),
     )]
@@ -609,14 +605,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         // let ptr = vaddr as *const MetaSlot;
         let ptr = PPtr(vaddr, PhantomData);
 
-        Self {
-            ptr,
-            _marker: PhantomData,
-            #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
-            #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(Some(frame_permission)),
-        }
+        proof_with!{ tracked_slot_perm: Tracked(perm.slot_perm), tracked_metadata_perm: Tracked(Some(perm.metadata_perm)) }
+        Self { ptr, _marker: PhantomData }
     }
 }
 
@@ -649,23 +639,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& res.ptr == self.ptr
     }
 
-    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
-        proof {
-            perm.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
+    fn clone(&self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> Self {
+        proof_decl! {
+            regions.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
+            let ghost paddr = self.start_paddr_spec();
+            let tracked slot_perm = regions.tracked_borrow_slot(paddr);
+            let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
         }
 
-        let paddr = meta_to_frame(self.ptr.addr());
-        let ghost idx = self.index();
+        // SAFETY: We have already held a reference to the frame.
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own.ref_count_perm))]
+            self.slot().inc_ref_count();
+        }
 
-        let tracked_permission = unsafe {
-            #[verus_spec(with Tracked(perm))]
-            inc_frame_ref_count(paddr)
+        proof_decl!{
+            let tracked metadata_perm = slot_own.metadata_perm.split_one();
         };
-        proof {
-            assert_sets_equal!(perm.slot_owners.dom(), old(perm).slot_owners.dom());
-        }
-        let tracked frame_permission = tracked_permission.get();
-        let tracked slot_perm = perm.tracked_borrow_slot(paddr);
 
         Self {
             ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
@@ -673,7 +663,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(slot_perm),
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(Some(frame_permission)),
+            tracked_metadata_perm: Tracked(Some(metadata_perm)),
         }
     }
 }

@@ -38,8 +38,6 @@ pub mod trace;
 pub mod unique;
 pub mod vm_space;
 
-use core::ops::Range;
-
 use vstd::prelude::*;
 use vstd_extra::{ownership::*, set_extra::*};
 
@@ -69,6 +67,7 @@ use crate::mm::{
     page_prop::PageProperty,
     vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
 };
+use core::ops::Range;
 
 verus! {
 

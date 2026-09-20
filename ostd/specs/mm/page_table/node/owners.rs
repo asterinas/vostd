@@ -1,7 +1,6 @@
-use vstd::prelude::*;
-
 use vstd::{
     cell::{self, pcell_maybe_uninit},
+    prelude::*,
     simple_pptr::*,
 };
 use vstd_extra::{array_ptr, ownership::*};

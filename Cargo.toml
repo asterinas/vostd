@@ -3,10 +3,10 @@ resolver = "2"
 members = [
     "verified_libs/bitflags",
     "verified_libs/vstd_extra",
-    "verified_libs/ostd-pod",
     "ostd",
     "ostd/libs/align_ext",
     "ostd/libs/id-alloc",
+    "ostd/libs/ostd-pod",
     # "ostd/libs/ostd-macros",
     # "ostd/libs/ostd-test",
     # "kernel/libs/int-to-c-enum",

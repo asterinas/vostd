@@ -1,9 +1,4 @@
-use core::marker::PhantomData;
-
-use vstd::modes::tracked_swap;
-use vstd::prelude::*;
-
-use vstd::{atomic::*, seq_lib::*, set_lib::*, simple_pptr::*};
+use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, simple_pptr::*};
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
@@ -19,6 +14,7 @@ use crate::specs::{
     },
 };
 
+use super::*;
 use crate::mm::{
     Paddr,
     frame::{
@@ -27,8 +23,7 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-
-use super::*;
+use core::marker::PhantomData;
 
 verus! {
 

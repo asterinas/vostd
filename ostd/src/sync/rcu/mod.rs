@@ -11,7 +11,6 @@ use vstd::{
     atomic_ghost::AtomicPtr, atomic_with_ghost, map::Map, modes::tracked_static_ref, prelude::*,
     resource::Loc,
 };
-
 use vstd_extra::{
     once::Once,
     prelude::*,

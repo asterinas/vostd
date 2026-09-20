@@ -32,16 +32,29 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-use core::{marker::PhantomData, ops::Range};
-use vstd::atomic::PermissionU64;
-use vstd::prelude::*;
-use vstd::simple_pptr::PointsTo;
+use vstd::{atomic::PermissionU64, prelude::*, simple_pptr::PointsTo};
 use vstd_extra::{once::OnceImpl, resource_invariant::TrivialResourceInvariant};
+
+use core::{marker::PhantomData, ops::Range};
 
 //use log::info;
 pub(crate) mod kvirt_area;
 #[cfg(ktest)]
 mod test;
+
+use vstd_extra::{ownership::*, prelude::*};
+
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::group_page_meta,
+            meta_owners::{FracMetadataPerm, MetaSlotStorage},
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
+    },
+};
 
 use super::{
     Paddr, PagingConstsTrait, Vaddr,
@@ -54,24 +67,12 @@ use super::{
 };
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
-use crate::specs::arch::*;
-use crate::specs::mm::{
-    frame::{
-        mapping::group_page_meta,
-        meta_owners::{FracMetadataPerm, MetaSlotStorage},
-        meta_region_owners::MetaRegionOwners,
-    },
-    page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
-};
 use crate::{
     arch::mm::{PageTableEntry, PagingConsts},
     boot::memory_region::MemoryRegionType,
     mm::{PagingLevel, largest_pages},
     //task::disable_preempt,
 };
-
-use vstd_extra::ownership::*;
-use vstd_extra::prelude::*;
 
 verus! {
 
@@ -174,8 +175,9 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     proof fn lemma_page_table_config_constant_requirements() {
-        use crate::mm::nr_subpage_per_huge;
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
+
+        use crate::mm::nr_subpage_per_huge;
         Self::C::lemma_paging_consts_properties();
         PageTableEntry::lemma_layout();
         lemma2_to64();
@@ -477,9 +479,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
+        use crate::specs::mm::frame::mapping::frame_to_index;
+
         use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
         use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
-        use crate::specs::mm::frame::mapping::frame_to_index;
         broadcast use group_page_meta;
 
         let perm = Self::item_into_raw(item).3;

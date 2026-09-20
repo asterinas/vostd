@@ -43,8 +43,6 @@
 //!   closure `op: impl FnOnce(PageProperty) -> PageProperty` with
 //!   `forall |p| op.requires((p,))` plus a trackedness-preservation
 //!   constraint. Our `Op::ProtectNext` doesn't carry the closure.
-use core::ops::Range;
-
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
@@ -59,6 +57,7 @@ use crate::specs::{
     },
 };
 
+use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
 use crate::mm::{
     Paddr, Vaddr,
     frame::{
@@ -68,8 +67,7 @@ use crate::mm::{
     page_prop::PageProperty,
     vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
 };
-
-use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
+use core::ops::Range;
 
 verus! {
 

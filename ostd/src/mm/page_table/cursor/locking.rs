@@ -1,31 +1,28 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Implementation of the locking protocol.
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ordering};
-
 use vstd::prelude::*;
+use vstd_extra::{array_ptr::*, ghost_tree::*, ownership::*};
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use crate::specs::{
+    mm::{
+        frame::meta_region_owners::MetaRegionOwners,
+        page_table::node::{Guards, entry_owners::EntryOwner},
+    },
+    task::InAtomicMode,
+};
 
 use crate::mm::frame::{
     MetaSlot,
     meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
+use crate::mm::page_table::*;
 use crate::mm::{
     NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
     nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
 };
-
-use vstd_extra::array_ptr::*;
-
-use crate::mm::page_table::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::node::Guards;
-use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::task::InAtomicMode;
-
 use align_ext::AlignExt;
 use core::ops::IndexMut;
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ordering};
 
 verus! {
 
@@ -753,8 +750,9 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
     let diff = va_range.end - cur_node_va;
 
     proof {
-        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
         use vstd::arithmetic::div_mod::*;
+
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
         lemma_page_size_ge_page_size(cur_node_level);
         lemma_page_size_spec_values();
         lemma_nr_entries_times_sub_page_size((cur_node_level + 1) as PagingLevel);
@@ -766,8 +764,9 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
     let end_idx = (diff + ps - 1) / ps;
 
     proof {
-        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
         use vstd::arithmetic::div_mod::*;
+
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
 
         let ai = ps as int;
         let xi = diff as int;

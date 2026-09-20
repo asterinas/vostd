@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::{marker::PhantomData, ptr::NonNull};
-
-use core::num::NonZeroUsize;
-use vstd::raw_ptr::group_raw_ptr_axioms;
 use vstd::{
     bits,
     prelude::*,
+    raw_ptr::group_raw_ptr_axioms,
     std_specs::{nonzero::*, ops::BitOrSpec},
 };
 use vstd_extra::{prelude::*, sum::Sum};
 
 use super::{NonNullPtr, NonNullPtrRef};
 use crate::util::Either;
+use core::num::NonZeroUsize;
+use core::{marker::PhantomData, ptr::NonNull};
 
 verus! {
 

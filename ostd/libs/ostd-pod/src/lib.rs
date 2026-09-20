@@ -2,7 +2,7 @@
 #![no_std]
 
 use vstd::prelude::*;
-use vstd_extra::array_ptr::{self, ArrayPtr, PointsToArray};
+use vstd_extra::array_ptr::{self, ArrayPtr};
 
 use core::mem::MaybeUninit;
 
@@ -35,50 +35,61 @@ pub unsafe trait Pod: Copy + Sized {
     fn new_uninit() -> Self {
         // SAFETY. A value of `T: Pod` can have arbitrary bits.
         #[allow(clippy::uninit_assumed_init)]
-        unsafe { MaybeUninit::uninit().assume_init() }
+        unsafe {
+            MaybeUninit::uninit().assume_init()
+        }
     }
 
-    /// As an immutable slice of bytes.
+    /// Creates a new instance from the given bytes.
+    #[verus_spec(
+        requires
+            bytes@.len() >= core::mem::size_of::<Self>(),
+        returns
+            from_bytes_spec::<Self>(bytes@),
+    )]
+    fn from_bytes(bytes: &[u8]) -> Self {
+        let mut new_self = Self::new_uninit();
+        let copy_len = new_self.as_bytes().len();
+        new_self.as_bytes_mut().copy_from_slice(&bytes[..copy_len]);
+        proof {
+            assert(new_self == decode_pod::<Self>(
+                bytes@[0..core::mem::size_of::<Self>()],
+            ));
+        }
+        new_self
+    }
+
+    /// As a slice of bytes.
     #[verifier::external_body]
-    fn as_bytes(&self) -> (r: &[u8])
+    #[verus_spec(r =>
         ensures
             r.len() == core::mem::size_of::<Self>(),
-    {
+            r@ == pod_bytes(*self),
+    )]
+    fn as_bytes(&self) -> &[u8] {
         let ptr = self as *const Self as *const u8;
         let len = core::mem::size_of::<Self>();
-
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 
     /// As a mutable slice of bytes.
     #[verifier::external_body]
-    fn as_bytes_mut(&mut self) -> (r: &mut [u8])
+    #[verus_spec(r =>
         ensures
             r.len() == core::mem::size_of::<Self>(),
-    {
+            final(r)@ == pod_bytes(*final(self)),
+            *final(self) == decode_pod::<Self>(final(r)@),
+    )]
+    fn as_bytes_mut(&mut self) -> &mut [u8] {
         let ptr = self as *mut Self as *mut u8;
         let len = core::mem::size_of::<Self>();
-
         unsafe { core::slice::from_raw_parts_mut(ptr, len) }
     }
+}
 
-    /// As a slice of bytes via an [`ArrayPtr`] (with a tracked permission).
-    ///
-    /// This is the verus-flavored variant; the raw `&[u8]` view is [`Self::as_bytes`].
-    #[verifier::external_body]
-    fn as_array_ptr_bytes<const N: usize>(&self) -> (slice: (
-        ArrayPtr<u8, N>,
-        Tracked<&array_ptr::PointsTo<u8, N>>,
-    ))
-        ensures
-            slice.1@.value().len() == core::mem::size_of::<Self>(),
-            slice.1@.wf(),
-            slice.0.addr() == slice.1@.addr(),
-    {
-        let ptr = self as *const Self as *const u8;
-
-        (ArrayPtr::from_addr(ptr as usize), Tracked::assume_new())
-    }
+/// The value decoded from the first `size_of::<T>()` input bytes.
+pub open spec fn from_bytes_spec<T>(bytes: Seq<u8>) -> T {
+    decode_pod::<T>(bytes[0..core::mem::size_of::<T>()])
 }
 
 /// Spec function: the byte representation of a [`Pod`] value.
@@ -86,42 +97,15 @@ pub unsafe trait Pod: Copy + Sized {
 /// This is uninterpreted — the actual byte mapping depends on `T`'s layout
 /// (endianness, padding, etc.) which we don't model. Callers use this to
 /// relate writes and reads of the same value through memory.
-pub uninterp spec fn pod_bytes<T: Pod>(val: T) -> Seq<u8>;
-
-/// Axiom: the byte representation of a `T: Pod` value has length `size_of::<T>()`.
-pub broadcast axiom fn axiom_pod_bytes_len<T: Pod>(val: T)
-    ensures
-        #[trigger] pod_bytes(val).len() == core::mem::size_of::<T>(),
-;
-
-/// Axiom: [`pod_bytes`] is injective — equal byte sequences come from equal values.
-///
-/// `T: Pod` has a well-defined byte layout (no padding for `repr(C)` primitives),
-/// so the byte sequence uniquely determines the value.
-pub broadcast axiom fn axiom_pod_bytes_injective<T: Pod>(v1: T, v2: T)
-    ensures
-        #[trigger] pod_bytes(v1) == #[trigger] pod_bytes(v2) ==> v1 == v2,
-;
+pub uninterp spec fn pod_bytes<T>(val: T) -> Seq<u8>;
 
 /// The Pod value whose byte representation equals `bytes` (when one exists).
 ///
-/// Defined via `choose` over the injective [`pod_bytes`]; if no Pod value
-/// maps to `bytes`, the result is arbitrary. Callers should establish
-/// existence before relying on the returned value.
-pub open spec fn decode_pod<T: Pod>(bytes: Seq<u8>) -> T {
-    choose|v: T| pod_bytes::<T>(v) == bytes
-}
-
-/// Round-trip: `decode_pod(pod_bytes(v)) == v` by injectivity.
-pub broadcast proof fn lemma_decode_pod_inverse<T: Pod>(v: T)
-    ensures
-        #[trigger] decode_pod::<T>(pod_bytes::<T>(v)) == v,
-{
-    let bytes = pod_bytes::<T>(v);
-    let chosen: T = choose|w: T| pod_bytes::<T>(w) == bytes;
-    assert(pod_bytes::<T>(chosen) == bytes);
-    broadcast use axiom_pod_bytes_injective;
-
+/// Defined via `choose`; if no Pod value maps to `bytes`, the result is
+/// arbitrary. Callers should obtain the relevant existence fact from a checked
+/// byte conversion before relying on the returned value.
+pub open spec fn decode_pod<T>(bytes: Seq<u8>) -> T {
+    choose|val: T| pod_bytes::<T>(val) == bytes
 }
 
 macro_rules! impl_pod_for {
@@ -129,13 +113,12 @@ macro_rules! impl_pod_for {
         $(unsafe impl Pod for $pod_ty {})*
     };
 }
-
 // impl Pod for primitive types
 impl_pod_for!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, isize, usize);
-
 // impl Pod for array
-unsafe impl<T: Pod, const N: usize> Pod for [T; N] {
-
-}
+unsafe impl<T: Pod, const N: usize> Pod for [T; N] {}
 
 } // verus!
+
+#[cfg(feature = "derive")]
+pub use ostd_pod_derive::*;

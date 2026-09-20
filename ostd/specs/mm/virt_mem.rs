@@ -11,19 +11,15 @@
 //! as correctness of low-level virtual memory operations that are used by them.
 //!
 //! [`VmSpace`]: crate::mm::vm_space::VmSpace
-use core::{marker::PhantomData, ops::Range};
-
-use ostd_pod::{decode_pod, lemma_decode_pod_inverse, pod_bytes};
-
-use vstd::prelude::*;
-
-use vstd::{pervasive::arbitrary, raw_ptr, set};
+use vstd::{pervasive::arbitrary, prelude::*, raw_ptr, set};
 use vstd_extra::prelude::*;
 
 use crate::specs::{arch::MAX_PADDR, mm::page_table::Mapping};
 
 use crate::Pod;
 use crate::mm::{Paddr, PodOnce, Vaddr};
+use core::{marker::PhantomData, ops::Range};
+use ostd_pod::{decode_pod, pod_bytes};
 
 verus! {
 

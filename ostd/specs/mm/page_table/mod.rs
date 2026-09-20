@@ -7,19 +7,11 @@ mod owners;
 pub mod vaddr_range_proofs;
 mod view;
 
-pub use cursor::*;
-pub use node::*;
-pub use owners::*;
-pub use view::*;
-
-use core::ops::Range;
-
-use align_ext::AlignExt;
-
-use vstd::prelude::*;
-use vstd::std_specs::range::RangeInclusiveView;
-
-use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
+use vstd::{
+    arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2},
+    prelude::*,
+    std_specs::range::RangeInclusiveView,
+};
 use vstd_extra::{arithmetic::*, ghost_tree::TreePath, ownership::*, prelude::*};
 
 use crate::specs::arch::*;
@@ -28,6 +20,12 @@ use crate::mm::{
     PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
     nr_subpage_per_huge, page_size, page_table::PageTableConfig, vm_space::UserPtConfig,
 };
+use align_ext::AlignExt;
+use core::ops::Range;
+pub use cursor::*;
+pub use node::*;
+pub use owners::*;
+pub use view::*;
 
 verus! {
 

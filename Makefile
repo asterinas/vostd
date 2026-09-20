@@ -3,7 +3,7 @@
 VERIFICATION_TARGETS := \
 	ostd \
 
-.PHONY: all verify $(VERIFICATION_TARGETS) fmt clean verus verus-upgrade
+.PHONY: all verify $(VERIFICATION_TARGETS) fmt build doc clean verus verus-upgrade
 
 $(VERIFICATION_TARGETS):
 	cargo dv verify --targets $@
@@ -19,7 +19,8 @@ fmt:
 build:
 	cargo dv build
 
-doc: build
+doc:
+	cargo dv build -- --no-verify
 	cargo dv doc --target ostd
 
 verus:

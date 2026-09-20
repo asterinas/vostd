@@ -1,5 +1,3 @@
-use core::ops::Range;
-
 use vstd::prelude::*;
 
 use crate::specs::{
@@ -20,6 +18,7 @@ use crate::mm::{
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
     page_table::*,
 };
+use core::ops::Range;
 
 verus! {
 

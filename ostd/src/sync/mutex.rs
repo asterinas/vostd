@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{
-    self,
-    pcell::{self, *},
+use vstd::{
+    atomic_ghost::*,
+    cell::{
+        self,
+        pcell::{self, *},
+    },
+    prelude::*,
 };
-use vstd::prelude::*;
-use vstd_extra::prelude::*;
-use vstd_extra::resource::ghost_resource::excl::*;
+use vstd_extra::{prelude::*, resource::ghost_resource::excl::*};
 
+use super::WaitQueue;
 use alloc::sync::Arc;
 use core::{
     cell::UnsafeCell,
@@ -15,8 +17,6 @@ use core::{
     ops::{Deref, DerefMut},
     sync::atomic::Ordering,
 };
-
-use super::WaitQueue;
 
 verus! {
 

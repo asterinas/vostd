@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::frame::{mapping::meta_to_index, meta_region_owners::MetaRegionOwners};

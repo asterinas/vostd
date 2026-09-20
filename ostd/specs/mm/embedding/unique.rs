@@ -42,7 +42,6 @@
 //!   (`meta` / `meta_mut` / `repurpose` / `transmute` /
 //!   `start_paddr`): no embedding state change / not surfaced.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{

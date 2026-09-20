@@ -37,6 +37,7 @@ use crate::specs::{
     },
 };
 
+use super::{FrameEntry, tracked_frame_entry_new};
 use crate::mm::{
     Paddr,
     frame::{
@@ -45,8 +46,6 @@ use crate::mm::{
     },
     vm_space::UserPtConfig,
 };
-
-use super::{FrameEntry, tracked_frame_entry_new};
 
 verus! {
 

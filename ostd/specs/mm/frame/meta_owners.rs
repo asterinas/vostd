@@ -1,6 +1,4 @@
-use vstd::prelude::*;
-
-use vstd::{atomic::*, cell::pcell_maybe_uninit, simple_pptr::*};
+use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
 use vstd_extra::{
     cast_ptr::{self, Repr},
     ghost_tree::TreePath,
@@ -10,6 +8,7 @@ use vstd_extra::{
 
 use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners::StoredLink};
 
+use super::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
@@ -21,8 +20,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-
-use super::*;
 
 verus! {
 

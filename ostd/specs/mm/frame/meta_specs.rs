@@ -1,6 +1,4 @@
-use vstd::prelude::*;
-
-use vstd::{atomic::*, simple_pptr::PointsTo};
+use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
 use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
 
 use crate::specs::{
@@ -12,6 +10,9 @@ use crate::specs::{
     },
 };
 
+use super::meta_owners::{
+    FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
+};
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
@@ -22,10 +23,6 @@ use crate::mm::{
         *,
     },
     kspace::FRAME_METADATA_RANGE,
-};
-
-use super::meta_owners::{
-    FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
 };
 
 verus! {

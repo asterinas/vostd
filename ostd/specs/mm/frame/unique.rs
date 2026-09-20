@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-
 use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 
 use crate::specs::{
@@ -13,6 +12,7 @@ use crate::specs::{
     },
 };
 
+use super::meta_owners::*;
 use crate::mm::{
     frame::{
         meta::{
@@ -23,8 +23,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-
-use super::meta_owners::*;
 
 verus! {
 

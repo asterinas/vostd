@@ -1,8 +1,4 @@
-use core::ops::{Deref, Range};
-
-use vstd::prelude::*;
-
-use vstd::{arithmetic::power2::pow2, seq::*, seq_lib::*, set_lib::*};
+use vstd::{arithmetic::power2::pow2, prelude::*, seq::*, seq_lib::*, set_lib::*};
 use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
 
 use crate::specs::{
@@ -24,6 +20,7 @@ use crate::mm::{
     page_size,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
 };
+use core::ops::{Deref, Range};
 
 verus! {
 

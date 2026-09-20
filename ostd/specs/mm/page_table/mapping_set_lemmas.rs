@@ -1,12 +1,9 @@
-use vstd::prelude::*;
-
-use vstd::set_lib::*;
+use vstd::{prelude::*, set_lib::*};
 
 use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 
-use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
-
 use super::view::Mapping;
+use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
 
 verus! {
 

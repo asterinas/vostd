@@ -8,10 +8,9 @@ use vstd_extra::{
     sum::Sum,
 };
 
+use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
-
-use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 verus! {
 
