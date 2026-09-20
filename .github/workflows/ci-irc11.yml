@@ -49,7 +49,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       VERUS_REPOSITORY: https://github.com/asterinas/verus.git
-      VERUS_BASE_COMMIT: fb2386ecea5a45810420577de3e312ded4f84b12
+      VERUS_BASE_COMMIT: 5f0930a0b820425aa857269070362ddcf7c29672
       VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
       VERUS_COMPAT_PATCH: tools/patches/verus-irc11-vstd.patch
 
