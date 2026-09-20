@@ -31,6 +31,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
+- [`avoid-unused-spec-helpers`](maintainability.md#avoid-unused-spec-helpers) — add spec and proof helpers only for a current caller or a documented abstraction boundary.
 - [`inline-single-use-proof-helpers`](maintainability.md#inline-single-use-proof-helpers) — keep one-off proof steps in their caller instead of adding module-level or associated helpers with a single call site.
 - [`defer-auxiliary-proof-functions`](maintainability.md#defer-auxiliary-proof-functions) — keep APIs and critical proofs first; move private auxiliary proof functions to a trailing block at the end of the file.
 - [`avoid-redundant-mode-markers`](maintainability.md#avoid-redundant-mode-markers) — do not add `ghost` or `tracked` markers where the enclosing mode already determines the value's role.

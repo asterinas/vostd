@@ -219,6 +219,19 @@ See also: PR [#679](https://github.com/asterinas/vostd/pull/679#discussion_r3690
 [#723](https://github.com/asterinas/vostd/pull/723#issuecomment-5392419977), and
 [#672](https://github.com/asterinas/vostd/pull/672#issuecomment-5099747820).
 
+### Avoid unused spec helpers
+
+<!-- guideline: avoid-unused-spec-helpers -->
+
+Add a `spec fn`, `proof fn`, or proof-only model operation only when it has a
+current caller or defines an intentional abstraction boundary with a documented
+external consumer. Search for call sites before adding the helper and again
+before review. Do not expand the specification API merely for symmetry,
+convenience, or anticipated future proofs; add the operation with the proof
+that needs it. Remove newly introduced helpers that remain unused.
+
+See also: PR [#778](https://github.com/asterinas/vostd/pull/778#discussion_r4045503423).
+
 ### Inline single-use proof helpers
 
 <!-- guideline: inline-single-use-proof-helpers -->
