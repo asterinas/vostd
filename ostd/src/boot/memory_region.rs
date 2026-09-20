@@ -5,11 +5,10 @@ use vstd_extra::prelude::*;
 
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::memory_region_specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;
 
-// use align_ext::AlignExt;
+use align_ext::AlignExt;
 
 //use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
 
@@ -50,38 +49,26 @@ pub struct MemoryRegion {
 
 verus! {
 
-impl MemoryRegionType {
-    pub open spec fn to_int(self) -> int {
-        match self {
-            MemoryRegionType::BadMemory => 0,
-            MemoryRegionType::Unknown => 1,
-            MemoryRegionType::NonVolatileSleep => 2,
-            MemoryRegionType::Reserved => 3,
-            MemoryRegionType::Kernel => 4,
-            MemoryRegionType::Module => 5,
-            MemoryRegionType::Framebuffer => 6,
-            MemoryRegionType::Reclaimable => 7,
-            MemoryRegionType::Usable => 8,
-        }
-    }
-}
-
-impl Inv for MemoryRegion {
-    closed spec fn inv(self) -> bool {
+impl MemoryRegion {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
         self.base + self.len <= MAX_PADDR
     }
-}
 
-impl View for MemoryRegion {
-    type V = MemRegionModel;
-
-    closed spec fn view(&self) -> Self::V {
-        MemRegionModel { base: self.base as int, end: self.base + self.len, typ: self.typ.to_int() }
+    /// Whether `self` is contained in `old_region`, with the same type.
+    pub closed spec fn is_sub_region(self, old_region: Self) -> bool {
+        self.typ == old_region.typ && old_region.base <= self.base && self.base + self.len
+            <= old_region.base + old_region.len
     }
-}
 
-impl InvView for MemoryRegion {
-    proof fn view_preserves_inv(self) {
+    /// Whether the region shares no address with `region`.
+    pub closed spec fn is_separate(self, region: Self) -> bool {
+        self.base + self.len <= region.base || region.base + region.len <= self.base
+    }
+
+    /// Whether both boundaries of the region are multiples of `align`.
+    pub closed spec fn aligned(self, align: int) -> bool {
+        self.base as int % align == 0 && (self.base + self.len) % align == 0
     }
 }
 
@@ -89,27 +76,20 @@ impl InvView for MemoryRegion {
 #[verus_verify]
 impl MemoryRegion {
     /// Constructs a valid memory region.
-    #[verus_spec(ret =>
+    #[verus_verify(dual_spec)]
+    #[verus_spec(
         requires
             base + len <= MAX_PADDR,
-        ensures
-            ret.inv(),
-            ret@ == (MemRegionModel {
-                base: base as int,
-                end: base + len,
-                typ: typ.to_int(),
-            }),
+        returns
+            Self::new(base, len, typ),
     )]
     pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self {
         MemoryRegion { base, len, typ }
     }
 
     /// Constructs a bad memory region.
-    #[verus_spec(ret =>
-        ensures
-            ret.inv(),
-            ret@ == MemRegionModel::bad(),
-    )]
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::bad())]
     pub const fn bad() -> Self {
         MemoryRegion {
             base: 0,
@@ -163,36 +143,72 @@ impl MemoryRegion {
 
     /// The physical address of the base of the region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.base())]
     pub fn base(&self) -> Paddr {
         self.base
     }
 
     /// The length in bytes of the region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.len())]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// The physical address of the end of the region.
     #[verus_verify(dual_spec)]
-    #[verus_spec(requires self.inv())]
+    #[verus_spec(returns self.end())]
     pub fn end(&self) -> Paddr {
+        proof! {
+            use_type_invariant(self);
+        }
         self.base + self.len
     }
 
     /// Checks whether the region is empty
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.is_empty())]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// The type of the region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.typ())]
     pub fn typ(&self) -> MemoryRegionType {
         self.typ
     }
-    /*
+
+    /// Returns the region with boundaries rounded to `PAGE_SIZE` boundaries:
+    /// inward for `Usable` regions, outward for the others.
+    #[verus_spec(ret =>
+        requires
+            self.typ == MemoryRegionType::Usable
+                ==> nat_align_up(self.base as nat, PAGE_SIZE as nat)
+                    <= nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat),
+        ensures
+            ret.typ == self.typ,
+            ret.aligned(PAGE_SIZE as int),
+            self.typ == MemoryRegionType::Usable
+                ==> ret.base == nat_align_up(self.base as nat, PAGE_SIZE as nat),
+            self.typ == MemoryRegionType::Usable
+                ==> ret.base + ret.len
+                    == nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat),
+            self.typ != MemoryRegionType::Usable
+                ==> ret.base == nat_align_down(self.base as nat, PAGE_SIZE as nat),
+            self.typ != MemoryRegionType::Usable
+                ==> ret.base + ret.len
+                    == nat_align_up((self.base + self.len) as nat, PAGE_SIZE as nat),
+            self.typ == MemoryRegionType::Usable
+                ==> ret.is_sub_region(*self),
+            self.typ != MemoryRegionType::Usable
+                ==> self.is_sub_region(ret),
+    )]
     fn as_aligned(&self) -> Self {
+        proof! {
+            use_type_invariant(self);
+            lemma_pow2_is_pow2_to64();
+        }
         let (base, end) = match self.typ() {
             MemoryRegionType::Usable => (
                 self.base().align_up(PAGE_SIZE),
@@ -208,7 +224,7 @@ impl MemoryRegion {
             len: end - base,
             typ: self.typ,
         }
-    }*/
+    }
 }
 
 /// The maximum number of regions that can be handled.
@@ -238,10 +254,10 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
 }
 
 impl<const LEN: usize> View for MemoryRegionArray<LEN> {
-    type V = MemoryRegionArrayModel<LEN>;
+    type V = Seq<MemoryRegion>;
 
-    closed spec fn view(&self) -> MemoryRegionArrayModel<LEN> {
-        MemoryRegionArrayModel { regions: Seq::new(self.count as nat, |i: int| self.regions[i]@) }
+    closed spec fn view(&self) -> Seq<MemoryRegion> {
+        Seq::new(self.count as nat, |i: int| self.regions[i])
     }
 }
 
@@ -250,7 +266,7 @@ impl<const LEN: usize> View for MemoryRegionArray<LEN> {
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     #[verus_spec(ret =>
         ensures
-            ret@ == MemoryRegionArrayModel::<LEN>::new()
+            ret@ == Seq::<MemoryRegion>::empty()
     )]
     fn default() -> Self {
         Self::new()
@@ -262,7 +278,7 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
 
     #[verus_spec(ret =>
         ensures
-            ret@.map_values(|region: MemoryRegion| region@) == self@.regions,
+            ret@ == self@,
     )]
     fn deref(&self) -> &Self::Target {
         proof! {
@@ -276,7 +292,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
     #[verus_spec(ret =>
         ensures
-            ret@ == MemoryRegionArrayModel::<LEN>::new(),
+            ret@ == Seq::<MemoryRegion>::empty(),
     )]
     pub const fn new() -> Self {
         let ret = Self {
@@ -285,7 +301,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
         };
 
         proof! {
-            assert(ret@.regions == Seq::<MemRegionModel>::empty());
+            assert(ret@ == Seq::<MemoryRegion>::empty());
         };
 
         ret
@@ -295,12 +311,15 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     ///
     /// If the set is full, an error is returned.
     #[verus_spec(ret =>
-        requires
-            region.inv(),
-            !old(self)@.full(),
         ensures
-            final(self)@ == old(self)@.push(region@),
-            ret.is_ok(),
+            old(self)@.len() < LEN ==> {
+                &&& final(self)@ == old(self)@.push(region)
+                &&& ret.is_ok()
+            },
+            old(self)@.len() == LEN ==> {
+                &&& final(self)@ == old(self)@
+                &&& ret.is_err()
+            },
     )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
         proof! {
@@ -310,8 +329,8 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             self.regions[self.count] = region;
             self.count = self.count + 1;
             proof! {
-                assert(self@.regions == old(self)@.regions.push(region@)) by {
-                    assert (forall |i: int| 0 <= i && i < self@.regions.len() ==> #[trigger] self@.regions[i] == old(self)@.regions.push(region@)[i]);
+                assert(self@ == old(self)@.push(region)) by {
+                    assert (forall |i: int| 0 <= i < self@.len() ==> #[trigger] self@[i] == old(self)@.push(region)[i]);
                 };
             };
             Ok(())

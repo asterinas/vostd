@@ -640,23 +640,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& res.ptr == self.ptr
     }
 
-    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
-        proof {
-            perm.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
+    fn clone(&self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> Self {
+        proof_decl! {
+            regions.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
+            let ghost paddr = self.start_paddr_spec();
+            let tracked slot_perm = regions.tracked_borrow_slot(paddr);
+            let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
         }
 
-        let paddr = meta_to_frame(self.ptr.addr());
-        let ghost idx = self.index();
+        // SAFETY: We have already held a reference to the frame.
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own.ref_count_perm))]
+            self.slot().inc_ref_count();
+        }
 
-        let tracked_permission = unsafe {
-            #[verus_spec(with Tracked(perm))]
-            inc_frame_ref_count(paddr)
+        proof_decl!{
+            let tracked metadata_perm = slot_own.metadata_perm.split_one();
         };
-        proof {
-            assert_sets_equal!(perm.slot_owners.dom(), old(perm).slot_owners.dom());
-        }
-        let tracked frame_permission = tracked_permission.get();
-        let tracked slot_perm = perm.tracked_borrow_slot(paddr);
 
         Self {
             ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
@@ -664,7 +664,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(slot_perm),
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(Some(frame_permission)),
+            tracked_metadata_perm: Tracked(Some(metadata_perm)),
         }
     }
 }
