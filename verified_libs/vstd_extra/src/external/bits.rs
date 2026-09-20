@@ -27,6 +27,18 @@ pub assume_specification[ u64::count_ones ](v: u64) -> (r: u32)
         r == u64_set_bits(v),
 ;
 
+/// A nonzero word has at least one set bit (and zero has none).
+pub broadcast proof fn lemma_u64_set_bits_nonzero(w: u64)
+    ensures
+        #![trigger u64_set_bits(w)]
+        (w != 0u64) == (1 <= u64_set_bits(w)),
+        0 <= u64_set_bits(w) <= 64,
+{
+    reveal(u64_set_bits);
+    lemma_u64_set_bits_rec_bounds(w, 64);
+    assert(w >> 64u64 == 0) by (bit_vector);
+}
+
 proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)
     requires
         n <= 64,
@@ -72,18 +84,6 @@ proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)
                 n == 0,
         ;
     }
-}
-
-/// A nonzero word has at least one set bit (and zero has none).
-pub broadcast proof fn lemma_u64_set_bits_nonzero(w: u64)
-    ensures
-        #![trigger u64_set_bits(w)]
-        (w != 0u64) == (1 <= u64_set_bits(w)),
-        0 <= u64_set_bits(w) <= 64,
-{
-    reveal(u64_set_bits);
-    lemma_u64_set_bits_rec_bounds(w, 64);
-    assert(w >> 64u64 == 0) by (bit_vector);
 }
 
 } // verus!
