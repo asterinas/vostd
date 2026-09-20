@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
-use crate::specs::arch::PAGE_SIZE;
 use vstd::{arithmetic::power2::is_pow2, prelude::*};
 use vstd_extra::{
     once::OnceImpl, resource::flags::OneShotSet, resource_invariant::TrivialResourceInvariant,
 };
+
+use crate::specs::arch::PAGE_SIZE;
 
 use alloc::vec::Vec;
 use core::ops::Range;

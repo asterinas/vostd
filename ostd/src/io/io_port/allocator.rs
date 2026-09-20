@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
-use crate::arch::device::io_port::valid_io_port_access;
 use vstd::{
     prelude::*,
     resource::set::{GhostSetAuth, GhostSubset},
     tokens::InstanceId,
 };
 use vstd_extra::{ownership::Inv, resource_invariant::ResourceInvariant};
+
+use crate::arch::device::io_port::valid_io_port_access;
 
 use core::ops::Range;
 

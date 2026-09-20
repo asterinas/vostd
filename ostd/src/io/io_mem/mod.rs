@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
+use vstd::{arithmetic::power2::is_pow2, prelude::*};
+use vstd_extra::panic::UnwrapOrPanic;
+
 use crate::specs::{
     arch::PAGE_SIZE,
     mm::{io::VmIoOwner, virt_mem::VirtPtr},
     task::AnyAtomicGuard,
 };
-use vstd::{arithmetic::power2::is_pow2, prelude::*};
-use vstd_extra::panic::UnwrapOrPanic;
 
 mod allocator;
 
