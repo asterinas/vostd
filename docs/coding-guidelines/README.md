@@ -27,7 +27,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`use-returns-for-exact-results`](maintainability.md#use-returns-for-exact-results) — express exact return values with `returns` and remove unused return binders.
 - [`avoid-redundant-as-int-casts`](maintainability.md#avoid-redundant-as-int-casts) — drop `as int` where Verus auto-coerces comparisons and arithmetic, but keep it at spec `int` parameters and standalone `/` divisors.
 - [`organize-proof-imports`](maintainability.md#organize-proof-imports) — import proof symbols concisely while keeping proof-only dependencies visible and `reveal` calls minimal.
-- [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — combine definitions imported from the same crate into one `use` group.
+- [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — combine definitions imported from the same crate into one `use` group, except verification-added spec imports, which stay separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.

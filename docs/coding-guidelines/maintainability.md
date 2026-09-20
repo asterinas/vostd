@@ -136,6 +136,22 @@ use vstd::laws_cmp::{
 use vstd::laws_eq::obeys_eq_spec_properties;
 ```
 
+Exception for verification-added spec imports: a newly added `use` that introduces
+spec or proof symbols (spec functions, models, lemmas) stays in the Verus-actor
+import group and is not merged with a pre-existing `use` of the same crate that
+imports executable items; the separation that
+[`organize-proof-imports`](#organize-proof-imports) requires between new proof
+imports and inherited executable imports takes precedence over this rule's merging
+for such pairs.
+
+```rust
+// Added with the proof, spec models of a crate that also has an exec import:
+use ostd_pod::{decode_pod, from_bytes_spec};
+
+// Pre-existing executable import, inherited with the executable Rust — not merged:
+use ostd_pod::Pod;
+```
+
 See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076).
 
 ### Bind Option payloads
