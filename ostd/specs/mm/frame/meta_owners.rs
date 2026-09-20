@@ -1,5 +1,4 @@
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
-
 use vstd_extra::{
     cast_ptr::{self, Repr},
     ghost_tree::TreePath,

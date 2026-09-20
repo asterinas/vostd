@@ -7,7 +7,6 @@ use vstd::{
     },
     prelude::*,
 };
-
 use vstd_extra::{prelude::*, resource::ghost_resource::excl::*};
 
 use super::WaitQueue;

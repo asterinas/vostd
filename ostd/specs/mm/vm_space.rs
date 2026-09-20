@@ -1,5 +1,4 @@
 use vstd::{pervasive::proof_from_false, prelude::*};
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{

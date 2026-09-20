@@ -7,7 +7,6 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use vstd::{pervasive::arbitrary, prelude::*, vpanic};
-
 use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::may_panic, prelude::*};
 
 use crate::specs::{
@@ -1850,7 +1849,6 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     proof fn lemma_page_table_config_constant_requirements() {
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-
         use vstd_extra::prelude::lemma_usize_pow2_ilog2;
 
         lemma2_to64();

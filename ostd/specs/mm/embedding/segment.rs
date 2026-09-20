@@ -29,7 +29,6 @@
 //!   exercise the Shape-B `raw_count == segment_cover_count`
 //!   invariant.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{

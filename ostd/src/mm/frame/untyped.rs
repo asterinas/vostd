@@ -6,7 +6,6 @@
 //! the declaration of untyped frames and segments, and the implementation of
 //! extra functionalities (such as [`VmIo`]) for them.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::OwnerOf;
 
 use crate::specs::{

@@ -4,7 +4,6 @@ use vstd::{
     prelude::*,
     simple_pptr::{self, PPtr},
 };
-
 use vstd_extra::{auxiliary::OptionExtraFns, cast_ptr::*, ownership::*};
 
 use crate::specs::{

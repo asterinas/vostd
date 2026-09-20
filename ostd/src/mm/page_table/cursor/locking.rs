@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Implementation of the locking protocol.
 use vstd::prelude::*;
-
 use vstd_extra::{array_ptr::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{

@@ -12,7 +12,6 @@ use vstd::{
     prelude::*,
     std_specs::range::RangeInclusiveView,
 };
-
 use vstd_extra::{arithmetic::*, ghost_tree::TreePath, ownership::*, prelude::*};
 
 use crate::specs::arch::*;

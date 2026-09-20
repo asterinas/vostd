@@ -9,7 +9,6 @@
 /// - Lemmas relating the abstract VA to the page table view range.
 /// - Axiom functions for updating the cursor VA (`set_va`, `set_va_in_node`).
 use vstd::prelude::*;
-
 use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
 
 use crate::specs::{

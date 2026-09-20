@@ -1,6 +1,5 @@
 //! Cursor function-specific lemmas for `CursorOwner`.
 use vstd::{arithmetic::power2::pow2, prelude::*};
-
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{

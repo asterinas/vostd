@@ -37,7 +37,6 @@ use vstd::{
     simple_pptr::{self, PPtr},
     std_specs::cmp::PartialEqSpecImpl,
 };
-
 use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
 
 pub mod allocator;

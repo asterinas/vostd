@@ -1,5 +1,4 @@
 use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
-
 use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
 
 use crate::specs::{

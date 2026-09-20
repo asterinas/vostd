@@ -13,7 +13,6 @@
 /// Each lemma here lifts [`EntryOwner`]-level preservation facts (from
 /// `entry_owners.rs`) over the full cursor tree.
 use vstd::prelude::*;
-
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{

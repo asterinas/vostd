@@ -32,7 +32,6 @@
 //! [`super::VmStore`] carries) is deferred — `KVirtArea` is
 //! mapping-focused, not reference-count-focused.
 use vstd::prelude::*;
-
 use vstd_extra::prelude::Inv;
 
 use crate::specs::{

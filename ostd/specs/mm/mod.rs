@@ -7,7 +7,6 @@ pub mod tlb;
 pub mod virt_mem;
 
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::{

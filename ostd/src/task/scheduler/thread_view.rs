@@ -6,7 +6,6 @@
 //! a [`RunningTaskContext`]; schedule-out consumes that context and stores the
 //! updated view back in the registry.
 use vstd::{prelude::*, resource::Loc};
-
 use vstd_extra::{atomic_irc11::ThreadView, scheduler_thread_view::SchedulerThreadViewRegistry};
 
 use crate::{specs::mm::cpu::CpuId, task::RunningTaskContext};

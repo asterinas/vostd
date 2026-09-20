@@ -1,5 +1,4 @@
 use vstd::{arithmetic::power2::pow2, prelude::*};
-
 use vstd_extra::ownership::*;
 
 use crate::specs::arch::MAX_PADDR;

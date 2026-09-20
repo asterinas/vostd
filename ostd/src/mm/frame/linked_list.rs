@@ -4,7 +4,6 @@
 //! This module leverages the customizability of the metadata system (see
 //! [super::meta]) to allow any type of frame to be used in a linked list.
 use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
-
 use vstd_extra::{
     cast_ptr::*,
     drop_tracking::{Drop, DropObligation, TrackDrop},

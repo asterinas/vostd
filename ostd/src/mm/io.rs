@@ -39,7 +39,6 @@
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
 use vstd::{arithmetic::power2::is_pow2, prelude::*, simple_pptr::*};
-
 use vstd_extra::{assert, ownership::Inv, panic::may_panic};
 
 pub use crate::specs::mm::io::{

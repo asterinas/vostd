@@ -13,7 +13,6 @@
 //! In particular, persistent block information alone does not make a load safe
 //! or authorize publishing a previously reclaimed allocation.
 use vstd::{prelude::*, raw_ptr::ptr_null_mut, resource::Loc};
-
 use vstd_extra::{
     atomic_irc11::{AtomicHistory, ThreadView},
     ownership::Inv,

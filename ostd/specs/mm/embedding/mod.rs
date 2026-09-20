@@ -39,7 +39,6 @@ pub mod unique;
 pub mod vm_space;
 
 use vstd::prelude::*;
-
 use vstd_extra::{ownership::*, set_extra::*};
 
 use crate::specs::{

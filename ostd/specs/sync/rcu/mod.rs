@@ -18,7 +18,6 @@ use vstd::{
         map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo},
     },
 };
-
 use vstd_extra::ownership::Inv;
 
 #[cfg(feature = "irc11")]

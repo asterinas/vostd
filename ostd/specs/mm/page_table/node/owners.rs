@@ -3,7 +3,6 @@ use vstd::{
     prelude::*,
     simple_pptr::*,
 };
-
 use vstd_extra::{array_ptr, ownership::*};
 
 use crate::specs::{

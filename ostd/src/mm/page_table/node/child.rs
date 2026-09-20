@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
 use vstd::{prelude::*, simple_pptr::PPtr};
-
 use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{

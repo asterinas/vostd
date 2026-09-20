@@ -5,7 +5,6 @@
 //! extract / insert and id-management lives in
 //! [`super::VmStore`]'s methods and the [`super::lemma_step`] dispatcher.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::{

@@ -3,7 +3,6 @@ use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
 };
-
 use vstd_extra::{cast_ptr::Repr, prelude::*};
 
 use crate::specs::{

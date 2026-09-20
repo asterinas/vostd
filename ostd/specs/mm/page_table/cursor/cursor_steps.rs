@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-
 use vstd_extra::{
     arithmetic::{lemma_nat_align_down_sound, nat_align_down},
     ghost_tree::*,

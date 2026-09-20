@@ -2,7 +2,6 @@
 #![no_std]
 
 use vstd::prelude::*;
-
 use vstd_extra::array_ptr::{self, ArrayPtr};
 
 use core::mem::MaybeUninit;

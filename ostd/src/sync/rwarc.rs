@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{atomic_ghost::*, prelude::*};
-
 use vstd_extra::prelude::*;
 
 use alloc::sync::Arc;

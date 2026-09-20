@@ -44,7 +44,6 @@
 //!   `forall |p| op.requires((p,))` plus a trackedness-preservation
 //!   constraint. Our `Op::ProtectNext` doesn't carry the closure.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{

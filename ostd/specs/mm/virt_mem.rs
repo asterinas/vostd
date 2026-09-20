@@ -12,7 +12,6 @@
 //!
 //! [`VmSpace`]: crate::mm::vm_space::VmSpace
 use vstd::{pervasive::arbitrary, prelude::*, raw_ptr, set};
-
 use vstd_extra::prelude::*;
 
 use crate::specs::{arch::MAX_PADDR, mm::page_table::Mapping};

@@ -5,7 +5,6 @@ use vstd::{
     simple_pptr::{PPtr, PointsTo},
     std_specs::iter::IteratorSpecImpl,
 };
-
 use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
 
 use crate::specs::{

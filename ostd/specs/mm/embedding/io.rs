@@ -46,7 +46,6 @@
 //!   `read_view_initialized()` / `has_write_view()` unconditionally) —
 //!   formally a slight strengthening pending kernel-VA modeling.
 use vstd::{pervasive::arbitrary, prelude::*};
-
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::io::{VmIoMemView, VmIoOwner, axiom_kernel_mem_view};

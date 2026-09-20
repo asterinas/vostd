@@ -7,7 +7,6 @@ use vstd::{
         ghost_var::{GhostVar, GhostVarAuth},
     },
 };
-
 use vstd_extra::resource_invariant::ResourceInvariant;
 
 use super::{LocalIrqDisabled, SpinLock};

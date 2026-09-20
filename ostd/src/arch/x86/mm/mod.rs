@@ -2,7 +2,6 @@
 #![expect(dead_code)]
 
 use vstd::{arithmetic::power2::*, prelude::*};
-
 use vstd_extra::{
     panic::{may_panic, panic_diverge},
     prelude::*,

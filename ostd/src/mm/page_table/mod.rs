@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{arithmetic::power2::*, prelude::*, std_specs::clone::*};
-
 use vstd_extra::{assert, panic::may_panic, prelude::*};
 
 use crate::specs::{

@@ -11,7 +11,6 @@ use vstd::{
         iter::{IteratorSpec, filter_keep, filter_post, filter_postcondition},
     },
 };
-
 use vstd_extra::{
     external::{cmp::*, iter::*, range::*},
     range::{

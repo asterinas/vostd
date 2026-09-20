@@ -3,7 +3,6 @@ use vstd::{
     prelude::*,
     simple_pptr::{self, *},
 };
-
 use vstd_extra::{cast_ptr::Repr, ownership::*};
 
 use crate::specs::{

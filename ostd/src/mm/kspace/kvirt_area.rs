@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
 use vstd::{prelude::*, set_lib::FiniteRange};
-
 use vstd_extra::{
     arithmetic::nat_align_down,
     assert,

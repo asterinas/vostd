@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{prelude::*, resource::Loc, std_specs::btree::before_lower_bound};
-
 use vstd_extra::{
     debug_assert,
     panic::UnwrapOrPanic,

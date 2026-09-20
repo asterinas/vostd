@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! TLB flush operations.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::{

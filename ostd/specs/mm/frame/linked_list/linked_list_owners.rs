@@ -1,5 +1,4 @@
 use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, simple_pptr::*};
-
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,

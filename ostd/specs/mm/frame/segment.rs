@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{

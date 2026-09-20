@@ -25,7 +25,6 @@
 //!   carrying the relevant precondition into the drop axiom but
 //!   leaving the post-state uncommitted on those fields.
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::{

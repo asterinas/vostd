@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, *};

@@ -3,7 +3,6 @@ pub mod entry_view;
 pub mod owners;
 
 use vstd::prelude::*;
-
 use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
 
 use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};

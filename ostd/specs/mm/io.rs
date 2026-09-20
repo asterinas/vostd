@@ -9,7 +9,6 @@ use vstd::{
     pervasive::{arbitrary, proof_from_false},
     prelude::*,
 };
-
 use vstd_extra::ownership::Inv;
 
 use crate::specs::mm::virt_mem::MemView;

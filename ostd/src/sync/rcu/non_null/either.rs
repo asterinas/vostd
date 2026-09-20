@@ -5,7 +5,6 @@ use vstd::{
     raw_ptr::group_raw_ptr_axioms,
     std_specs::{nonzero::*, ops::BitOrSpec},
 };
-
 use vstd_extra::{prelude::*, sum::Sum};
 
 use super::{NonNullPtr, NonNullPtrRef};

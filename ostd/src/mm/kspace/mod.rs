@@ -33,7 +33,6 @@
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
 use vstd::{atomic::PermissionU64, prelude::*, simple_pptr::PointsTo};
-
 use vstd_extra::{once::OnceImpl, resource_invariant::TrivialResourceInvariant};
 
 use core::{marker::PhantomData, ops::Range};

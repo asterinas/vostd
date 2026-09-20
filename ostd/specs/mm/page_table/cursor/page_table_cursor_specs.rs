@@ -1,5 +1,4 @@
 use vstd::{prelude::*, set_lib::*};
-
 use vstd_extra::{arithmetic::*, ownership::*};
 
 use crate::specs::{

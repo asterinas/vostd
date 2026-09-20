@@ -2,7 +2,6 @@ use vstd::{
     arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2},
     prelude::*,
 };
-
 use vstd_extra::prelude::*;
 
 use crate::specs::mm::{

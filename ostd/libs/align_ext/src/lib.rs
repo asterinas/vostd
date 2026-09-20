@@ -14,7 +14,6 @@ use vstd::{
     pervasive::trigger,
     prelude::*,
 };
-
 use vstd_extra::{panic::*, prelude::*};
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,

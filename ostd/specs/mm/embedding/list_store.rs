@@ -43,7 +43,6 @@
 //! through it (`step_cursor_insert_before` / `step_cursor_take_current`),
 //! and checks it back in on drop ([`ListStore::step_cursor_drop`]).
 use vstd::prelude::*;
-
 use vstd_extra::{cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_has_unused};
 
 use crate::specs::{

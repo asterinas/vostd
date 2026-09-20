@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides accessors to the page table entries in a node.
 use vstd::prelude::*;
-
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{

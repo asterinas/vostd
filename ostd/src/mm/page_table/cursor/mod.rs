@@ -28,7 +28,6 @@
 mod locking;
 
 use vstd::{arithmetic::power2::pow2, math::abs, prelude::*, simple_pptr::*};
-
 use vstd_extra::{
     arithmetic::*, assert, assert_eq, drop_tracking::TrackDrop, ghost_tree::*, ownership::*,
     panic::*,

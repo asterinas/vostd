@@ -1,5 +1,4 @@
 use vstd::{arithmetic::power2::pow2, prelude::*, seq::*, seq_lib::*, set_lib::*};
-
 use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
 
 use crate::specs::{

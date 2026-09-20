@@ -1,5 +1,4 @@
 use vstd::{prelude::*, set::lemma_set_choose_len, set_lib::*};
-
 use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
