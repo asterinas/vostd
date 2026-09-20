@@ -80,7 +80,7 @@ closed spec fn wf(self) -> bool {
     // ID links it to the mirror protected by `wakers`.
     invariant on num_wakers with (wakers) is (v: u32, g: GhostVarAuth<int>) {
         &&& g.id() == wakers.constant()
-        &&& g@ == v as int
+        &&& g@ == v
     }
 }
 }

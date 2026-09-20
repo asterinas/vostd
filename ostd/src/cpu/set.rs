@@ -77,7 +77,7 @@ broadcast use {
 
 /// Bit `i` is set in the bit sequence `seq`.
 spec fn bit_at(seq: Seq<u64>, i: int) -> bool {
-    if 0 <= i < 64 * seq.len() as int {
+    if 0 <= i < 64 * seq.len() {
         u64_bit_is_set(seq[part_idx_spec(i) as int], i % 64)
     } else {
         false
@@ -107,7 +107,7 @@ impl Inv for CpuSet {
         &&& smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize)
         &&& forall|j: int|
             #![trigger bit_at(smallvec_view(&self.bits), j)]
-            cpu_count() <= j < 64 * smallvec_view(&self.bits).len() as int ==> !bit_at(
+            cpu_count() <= j < 64 * smallvec_view(&self.bits).len() ==> !bit_at(
                 smallvec_view(&self.bits),
                 j,
             )
@@ -140,7 +140,7 @@ impl CpuSet {
         proof! {
             lemma_empty_bits_imply_empty_set(&ret);
             assert forall|j: int|
-                cpu_count() <= j < 64 * smallvec_view(&ret.bits).len() as int implies !bit_at(
+                cpu_count() <= j < 64 * smallvec_view(&ret.bits).len() implies !bit_at(
                     smallvec_view(&ret.bits),
                     j,
                 ) by {
@@ -194,7 +194,7 @@ impl CpuSet {
             proof! {
                 let old_seq = smallvec_view(&old(self).bits);
                 let new_seq = smallvec_view(&self.bits);
-                assert forall|j: int| cpu_count() <= j < 64 * old_seq.len() as int implies !bit_at(
+                assert forall|j: int| cpu_count() <= j < 64 * old_seq.len() implies !bit_at(
                     new_seq,
                     j,
                 ) by {
@@ -385,7 +385,7 @@ impl CpuSet {
         proof! {
             lemma_empty_bits_imply_empty_set(self);
             assert forall|j: int|
-                cpu_count() <= j < 64 * smallvec_view(&self.bits).len() as int implies !bit_at(
+                cpu_count() <= j < 64 * smallvec_view(&self.bits).len() implies !bit_at(
                     smallvec_view(&self.bits),
                     j,
                 ) by {
@@ -454,7 +454,7 @@ impl CpuSet {
             smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus),
         forall|i: int|
             #![trigger smallvec_view(&ret.bits)[i]]
-            0 <= i < smallvec_view(&ret.bits).len() as int ==> smallvec_view(&ret.bits)[i]
+            0 <= i < smallvec_view(&ret.bits).len() ==> smallvec_view(&ret.bits)[i]
                 == val,
     )]
     fn with_capacity_val(num_cpus: usize, val: InnerPart) -> Self {
@@ -766,7 +766,7 @@ proof fn lemma_u64_unit_bit_projection(x: u64, b: int)
 proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
     requires
         set.inv(),
-        0 <= p < smallvec_view(&set.bits).len() as int,
+        0 <= p < smallvec_view(&set.bits).len(),
         smallvec_view(&set.bits)[p] != full_set_word(
             cpu_count(),
             smallvec_view(&set.bits).len() as int,
