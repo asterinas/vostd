@@ -13,6 +13,7 @@
 //! function: validity is established at the moment of choice rather
 //! than as a precondition over a pre-built trace.
 use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
 
 use super::{Op, VmStore, lemma_step, op_pre};

@@ -1,18 +1,25 @@
-use core::ops::Range;
+use vstd::{
+    prelude::*,
+    pervasive::proof_from_false,
+};
 
-use vstd::prelude::*;
-
-use vstd::pervasive::proof_from_false;
 use vstd_extra::ownership::*;
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
-        io::{VmIoMemView, VmIoOwner},
+        io::{
+            VmIoMemView,
+            VmIoOwner,
+        },
         page_table::{
-            Mapping, OwnerSubtree,
-            cursor::{CursorView, owners::CursorOwner},
+            Mapping,
+            OwnerSubtree,
+            cursor::{
+                CursorView,
+                owners::CursorOwner,
+            },
             node::entry_owners::EntryOwner,
         },
         virt_mem::MemView,
@@ -20,6 +27,7 @@ use crate::specs::{
     task::InAtomicMode,
 };
 
+use core::ops::Range;
 use crate::arch::mm::current_page_table_paddr;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,

@@ -7,7 +7,10 @@ use vstd::resource::Loc;
 use vstd::thread_view::Objective;
 use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
 use vstd_extra::sum::*;
-use vstd_extra::{prelude::*, resource};
+use vstd_extra::{
+    prelude::*,
+    resource,
+};
 
 use alloc::sync::Arc;
 use core::char::MAX;

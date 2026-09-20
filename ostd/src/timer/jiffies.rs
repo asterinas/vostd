@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::prelude::*;
-use vstd::std_specs::convert::FromSpecImpl;
+use vstd::{
+    prelude::*,
+    std_specs::convert::FromSpecImpl,
+};
 
 use core::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-
 use crate::arch::timer::TIMER_FREQ;
 verus! {
 

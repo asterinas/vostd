@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
 use vstd::prelude::*;
-use vstd_extra::prelude::*;
+
+use vstd_extra::{
+    prelude::*,
+    cast_ptr::Repr,
+};
+
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 
 use core::{alloc::Layout, ops::Range};
-
 use align_ext::AlignExt;
-
 use super::{Frame, meta::AnyFrameMeta, segment::Segment};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::{
     boot::memory_region::MemoryRegionType,
     error::Error,
@@ -16,7 +19,6 @@ use crate::{
     mm::{PAGE_SIZE, Paddr, paddr_to_vaddr},
     //    util::ops::range_difference,
 };
-use vstd_extra::cast_ptr::Repr;
 
 verus! {
 

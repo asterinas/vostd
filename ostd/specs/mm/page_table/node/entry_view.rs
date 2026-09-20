@@ -1,11 +1,10 @@
-use core::marker::PhantomData;
-
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, *};
 
+use core::marker::PhantomData;
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,

@@ -31,30 +31,21 @@ mod child_specs;
 #[path = "../../../../specs/mm/page_table/node/entry.rs"]
 mod entry_specs;
 
-pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
-pub use child::*;
-pub use entry::*;
-
-use vstd::cell::pcell_maybe_uninit;
-use vstd::prelude::*;
-use vstd::simple_pptr::PPtr;
-
-use vstd::atomic::PAtomicU8;
-use vstd_extra::array_ptr;
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
-
-use crate::mm::frame::{
-    allocator::FrameAllocOptions,
-    meta::{
-        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED,
-        mapping::{frame_to_meta, meta_to_frame},
-    },
+use vstd::{
+    cell::pcell_maybe_uninit,
+    prelude::*,
+    simple_pptr::PPtr,
+    atomic::PAtomicU8,
 };
 
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr};
+use vstd_extra::{
+    array_ptr,
+    cast_ptr::*,
+    ghost_tree::*,
+    ownership::*,
+};
+
+pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
@@ -66,10 +57,19 @@ use crate::specs::mm::{
     page_table::node::owners::*,
 };
 
+pub use child::*;
+pub use entry::*;
+use crate::mm::frame::{
+    allocator::FrameAllocOptions,
+    meta::{
+        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
+};
+use crate::mm::page_table::*;
+use crate::mm::{Paddr, Vaddr};
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
-
 use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
-
 use crate::{
     mm::{
         PagingConstsTrait,

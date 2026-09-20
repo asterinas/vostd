@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Information of memory regions in the boot phase.
 use vstd::prelude::*;
+
 use vstd_extra::prelude::*;
 
-use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::*;
 
+use crate::mm::{Paddr, Vaddr};
 use core::ops::Deref;
-
 use align_ext::AlignExt;
 
 //use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};

@@ -38,28 +38,42 @@ pub mod trace;
 pub mod unique;
 pub mod vm_space;
 
-use core::ops::Range;
-
 use vstd::prelude::*;
-use vstd_extra::{ownership::*, set_extra::*};
+
+use vstd_extra::{
+    ownership::*,
+    set_extra::*,
+};
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_frame, index_to_meta, max_meta_slots},
-            meta_owners::{MetaSlotOwner, PageUsage},
+            mapping::{
+                frame_to_index,
+                index_to_frame,
+                index_to_meta,
+                max_meta_slots,
+            },
+            meta_owners::{
+                MetaSlotOwner,
+                PageUsage,
+            },
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
         page_table::{
-            cursor::owners::{CursorContinuation, CursorOwner},
+            cursor::owners::{
+                CursorContinuation,
+                CursorOwner,
+            },
             node::Guards,
         },
         tlb::TlbModel,
     },
 };
 
+use core::ops::Range;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, Vaddr,
     frame::{

@@ -1,14 +1,27 @@
-use vstd::prelude::*;
-
-use vstd::{atomic::*, cell::pcell_maybe_uninit, simple_pptr::*};
-use vstd_extra::{
-    cast_ptr::{self, Repr},
-    ghost_tree::TreePath,
-    ownership::*,
-    resource::ghost_resource::count_auth::{Count, CountResource},
+use vstd::{
+    prelude::*,
+    atomic::*,
+    cell::pcell_maybe_uninit,
+    simple_pptr::*,
 };
 
-use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners::StoredLink};
+use vstd_extra::{
+    cast_ptr::{
+        self,
+        Repr,
+    },
+    ghost_tree::TreePath,
+    ownership::*,
+    resource::ghost_resource::count_auth::{
+        Count,
+        CountResource,
+    },
+};
+
+use crate::specs::{
+    arch::NR_ENTRIES,
+    mm::frame::linked_list::linked_list_owners::StoredLink,
+};
 
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
@@ -21,7 +34,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-
 use super::*;
 
 verus! {

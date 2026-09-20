@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Definitions of page mapping properties.
 use vstd::prelude::*;
+
 use vstd_extra::prelude::*;
 
 use core::fmt::Debug;
-
 use bitflags::bitflags;
 
 /// The property of a mapped virtual memory page.

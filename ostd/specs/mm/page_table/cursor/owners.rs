@@ -1,38 +1,53 @@
-use core::{marker::PhantomData, ops::Range};
+use vstd::{
+    prelude::*,
+    arithmetic::power2::pow2,
+    seq_lib::*,
+    set::lemma_set_contains_len,
+};
 
-use vstd::prelude::*;
-
-use vstd::{arithmetic::power2::pow2, seq_lib::*, set::lemma_set_contains_len};
 use vstd_extra::{
     drop_tracking::*,
     ghost_tree::*,
     ownership::*,
     panic::may_panic,
     prelude::*,
-    seq_extra::{forall_seq, lemma_forall_seq_index},
+    seq_extra::{
+        forall_seq,
+        lemma_forall_seq_index,
+    },
 };
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_meta},
+            mapping::{
+                frame_to_index,
+                index_to_meta,
+            },
             meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            AbstractVaddr, Guards, Mapping,
+            AbstractVaddr,
+            Guards,
+            Mapping,
             cursor::page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
+                lemma_page_size_divides,
+                lemma_page_size_ge_page_size,
+                lemma_page_size_spec_level1,
             },
-            lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
+            lemma_vaddr_range_spec_kernel,
+            lemma_vaddr_range_spec_user,
             owners::*,
-            pte_index_bit_offset_spec, vaddr_range_spec,
+            pte_index_bit_offset_spec,
+            vaddr_range_spec,
         },
     },
     task::InAtomicMode,
 };
 
+use core::{marker::PhantomData, ops::Range};
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,

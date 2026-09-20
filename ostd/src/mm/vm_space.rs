@@ -6,13 +6,49 @@
 //! concurrently. The VM space cursor [`self::Cursor`] is just a wrapper over
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
+use vstd::{
+    pervasive::arbitrary,
+    prelude::*,
+    vpanic,
+};
+
+use vstd_extra::{
+    ghost_tree::*,
+    panic::may_panic,
+    prelude::*,
+    assert,
+    assert_eq,
+};
+
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            meta_owners::{
+                FracMetadataPerm,
+                MetaSlotStorage,
+            },
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{
+            cursor::owners::CursorOwner,
+            *,
+        },
+        tlb::TlbModel,
+        virt_mem::{
+            MemView,
+            VirtPtr,
+        },
+        cpu::{
+            AtomicCpuSet,
+            CpuSet,
+        },
+        io::VmIoOwner,
+    },
+    task::InAtomicMode,
+};
+
 use alloc::vec::Vec;
-
-use vstd::pervasive::arbitrary;
-use vstd::prelude::*;
-
-use vstd::vpanic;
-
 use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
 use crate::error::Error;
 use crate::mm::frame::meta::mapping::meta_to_frame;
@@ -24,36 +60,16 @@ use crate::mm::{
     KERNEL_VADDR_RANGE,
     page_table::{EntryOwner, PageTableFrag, PageTableGuard},
 };
-use crate::specs::arch::*;
-
-use crate::specs::mm::frame::{
-    meta_owners::{FracMetadataPerm, MetaSlotStorage},
-    meta_region_owners::MetaRegionOwners,
-};
-
-use crate::specs::mm::page_table::{cursor::owners::CursorOwner, *};
-use crate::specs::mm::tlb::TlbModel;
-use crate::specs::mm::virt_mem::{MemView, VirtPtr};
-use crate::specs::task::InAtomicMode;
 use crate::sync::RoArc;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
-use vstd_extra::ghost_tree::*;
-use vstd_extra::panic::may_panic;
-use vstd_extra::prelude::*;
-use vstd_extra::{assert, assert_eq};
-
 use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
-use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
-
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     io::{Fallible, VmReader, VmWriter},
     page_prop::PageProperty,
 };
-use crate::specs::mm::io::VmIoOwner;
-
 use alloc::sync::Arc;
 
 #[path = "../../specs/mm/vm_space.rs"]
@@ -1856,6 +1872,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     proof fn lemma_page_table_config_constant_requirements() {
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+
         use vstd_extra::prelude::lemma_usize_pow2_ilog2;
 
         lemma2_to64();

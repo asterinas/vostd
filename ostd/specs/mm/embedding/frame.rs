@@ -25,13 +25,16 @@
 //!   carrying the relevant precondition into the drop axiom but
 //!   leaving the post-state uncommitted on those fields.
 use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+            mapping::frame_to_index,
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
         },
         page_table::cursor::owners::CursorOwner,
     },
@@ -45,7 +48,6 @@ use crate::mm::{
     },
     vm_space::UserPtConfig,
 };
-
 use super::{FrameEntry, tracked_frame_entry_new};
 
 verus! {

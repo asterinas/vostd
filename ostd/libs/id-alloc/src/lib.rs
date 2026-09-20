@@ -4,10 +4,13 @@
 #![feature(proc_macro_hygiene)]
 
 use vstd::prelude::*;
-use vstd_extra::{debug_assert, prelude::*};
+
+use vstd_extra::{
+    debug_assert,
+    prelude::*,
+};
 
 use core::{fmt::Debug, ops::Range};
-
 use bitvec::prelude::BitVec;
 
 verus! {

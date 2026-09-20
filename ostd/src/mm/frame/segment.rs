@@ -1,27 +1,40 @@
 // SPDX-License-Identifier: MPL-2.0
 //! A contiguous range of frames.
-use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
-use vstd::std_specs::iter::IteratorSpecImpl;
-use vstd_extra::assert;
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::may_panic;
-use vstd_extra::prelude::*;
+use vstd::{
+    prelude::*,
+    simple_pptr::{
+        PPtr,
+        PointsTo,
+    },
+    std_specs::iter::IteratorSpecImpl,
+};
+
+use vstd_extra::{
+    assert,
+    cast_ptr::*,
+    ownership::*,
+    panic::may_panic,
+    prelude::*,
+};
+
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        frame_specs::FrameRawPerms,
+        mapping::{
+            frame_to_index,
+            group_page_meta,
+            index_to_meta,
+        },
+        meta_owners::*,
+        meta_region_owners::MetaRegionOwners,
+        segment::*,
+    },
+};
 
 use crate::mm::page_table::RCClone;
 use crate::mm::{frame::MetaSlot, paddr_to_vaddr, PagingLevel, Vaddr};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    frame_specs::FrameRawPerms,
-    mapping::{frame_to_index, group_page_meta, index_to_meta},
-    meta_owners::*,
-    meta_region_owners::MetaRegionOwners,
-    segment::*,
-};
-
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
-
 use super::{
     meta::mapping::frame_to_meta,
     meta::{AnyFrameMeta, GetFrameError},

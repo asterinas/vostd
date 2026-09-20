@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
-use core::ops::Range;
-
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
@@ -10,13 +8,17 @@ use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_meta},
+            mapping::{
+                frame_to_index,
+                index_to_meta,
+            },
             meta_region_owners::MetaRegionOwners,
         },
         virt_mem::MemView,
     },
 };
 
+use core::ops::Range;
 use crate::mm::{
     Paddr, Vaddr,
     frame::{AnyFrameMeta, Segment, meta::MetaSlot},

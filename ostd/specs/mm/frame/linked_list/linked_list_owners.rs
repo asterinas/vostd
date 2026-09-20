@@ -1,24 +1,34 @@
-use core::marker::PhantomData;
+use vstd::{
+    modes::tracked_swap,
+    prelude::*,
+    atomic::*,
+    seq_lib::*,
+    set_lib::*,
+    simple_pptr::*,
+};
 
-use vstd::modes::tracked_swap;
-use vstd::prelude::*;
-
-use vstd::{atomic::*, seq_lib::*, set_lib::*, simple_pptr::*};
 use vstd_extra::{
-    cast_ptr::{Repr, ReprPtr},
+    cast_ptr::{
+        Repr,
+        ReprPtr,
+    },
     ownership::*,
 };
 
 use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::frame::{
-        mapping::{max_meta_slots, meta_to_index},
+        mapping::{
+            max_meta_slots,
+            meta_to_index,
+        },
         meta_owners::*,
         meta_region_owners::MetaRegionOwners,
         unique::UniqueFrameOwner,
     },
 };
 
+use core::marker::PhantomData;
 use crate::mm::{
     Paddr,
     frame::{
@@ -27,7 +37,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-
 use super::*;
 
 verus! {

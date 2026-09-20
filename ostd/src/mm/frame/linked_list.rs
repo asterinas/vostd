@@ -3,32 +3,50 @@
 //!
 //! This module leverages the customizability of the metadata system (see
 //! [super::meta]) to allow any type of frame to be used in a linked list.
-use vstd::prelude::*;
+use vstd::{
+    prelude::*,
+    seq_lib::*,
+    simple_pptr::*,
+};
 
-use vstd::seq_lib::*;
-use vstd::simple_pptr::*;
+use vstd_extra::{
+    cast_ptr::*,
+    drop_tracking::{
+        Drop,
+        DropObligation,
+        TrackDrop,
+    },
+    ownership::*,
+};
 
-use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
-use vstd_extra::ownership::*;
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        linked_list::linked_list_owners::*,
+        mapping::{
+            frame_to_index,
+            group_page_meta,
+            index_to_meta,
+            meta_to_index,
+        },
+        meta_owners::{
+            MetaSlotOwner,
+            MetaSlotStorage,
+            borrow_meta,
+            borrow_meta_mut,
+            typed_meta_value,
+            typed_meta_wf,
+        },
+        meta_region_owners::MetaRegionOwners,
+        unique::UniqueFrameOwner,
+    },
+};
 
 use crate::mm::frame::meta::{
     META_SLOT_SIZE, REF_COUNT_UNIQUE,
     mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    linked_list::linked_list_owners::*,
-    mapping::{frame_to_index, group_page_meta, index_to_meta, meta_to_index},
-    meta_owners::{
-        MetaSlotOwner, MetaSlotStorage, borrow_meta, borrow_meta_mut, typed_meta_value,
-        typed_meta_wf,
-    },
-    meta_region_owners::MetaRegionOwners,
-    unique::UniqueFrameOwner,
-};
-
 use super::{
     MetaSlot, mapping,
     meta::{AnyFrameMeta, get_slot},

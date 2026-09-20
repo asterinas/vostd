@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
+use vstd::{
+    arithmetic::{
+        div_mod::group_div_basics,
+        power2::*,
+    },
+    prelude::*,
+};
+
 use crate::specs::arch::*;
-use vstd::arithmetic::div_mod::group_div_basics;
-use vstd::arithmetic::power2::*;
-use vstd::prelude::*;
 
 /// Virtual addresses.
 pub type Vaddr = usize;

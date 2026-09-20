@@ -20,12 +20,14 @@ verus! {
 pub(crate) mod mapping {
     //! The metadata of each physical page is linear mapped to fixed virtual addresses
     //! in [`FRAME_METADATA_RANGE`].
+    use vstd::prelude::*;
+
+    use crate::specs::arch::*;
+
     use core::mem::size_of;
     use super::MetaSlot;
     use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
     use super::META_SLOT_SIZE;
-    use crate::specs::arch::*;
-    use vstd::prelude::*;
 
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
         (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE) as usize
@@ -76,15 +78,32 @@ pub(crate) mod mapping {
 }
 
 } // verus!
-use vstd::atomic::{PAtomicU64, PermissionU64};
-use vstd::cell::pcell_maybe_uninit;
-use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
-use vstd_extra::cast_ptr::{Repr, ReprPtr};
-use vstd_extra::ownership::*;
-use vstd_extra::panic::{may_panic, panic_diverge};
-use vstd_extra::prelude::*;
-use vstd_extra::sum::Sum;
+use vstd::{
+    atomic::{
+        PAtomicU64,
+        PermissionU64,
+    },
+    cell::pcell_maybe_uninit,
+    prelude::*,
+    simple_pptr::{
+        PPtr,
+        PointsTo,
+    },
+};
+
+use vstd_extra::{
+    cast_ptr::{
+        Repr,
+        ReprPtr,
+    },
+    ownership::*,
+    panic::{
+        may_panic,
+        panic_diverge,
+    },
+    prelude::*,
+    sum::Sum,
+};
 
 use core::{
     alloc::Layout,
@@ -96,17 +115,20 @@ use core::{
     result::Result,
     sync::atomic::{AtomicU64, Ordering},
 };
-
 use align_ext::AlignExt;
 //use log::info;
 
-use self::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    mapping::frame_to_index, meta_owners::*, meta_region_owners::MetaRegionOwners,
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        mapping::frame_to_index,
+        meta_owners::*,
+        meta_region_owners::MetaRegionOwners,
+    },
 };
 
+use self::mapping::{frame_to_meta, meta_to_frame};
+use crate::mm::io::{Infallible, VmReader};
 use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,

@@ -1,19 +1,31 @@
-use core::ops::Range;
-
-use vstd::prelude::*;
-
 use vstd::{
+    prelude::*,
     atomic::*,
-    simple_pptr::{self, *},
+    simple_pptr::{
+        self,
+        *,
+    },
 };
-use vstd_extra::{cast_ptr::Repr, ownership::*};
 
-use crate::specs::arch::valid_frame_paddr;
+use vstd_extra::{
+    cast_ptr::Repr,
+    ownership::*,
+};
+
 use crate::specs::{
-    arch::{MAX_PADDR, PAGE_SIZE},
-    mm::frame::mapping::{frame_to_index, index_to_meta, max_meta_slots},
+    arch::{
+        valid_frame_paddr,
+        MAX_PADDR,
+        PAGE_SIZE,
+    },
+    mm::frame::mapping::{
+        frame_to_index,
+        index_to_meta,
+        max_meta_slots,
+    },
 };
 
+use core::ops::Range;
 use crate::mm::{
     Paddr,
     frame::{
@@ -22,7 +34,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-
 use super::{meta_owners::MetaSlotOwner, *};
 
 verus! {

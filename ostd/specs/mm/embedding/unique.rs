@@ -49,7 +49,9 @@ use crate::specs::{
     arch::valid_frame_paddr,
     mm::{
         frame::{
-            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+            mapping::frame_to_index,
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
         },
         page_table::cursor::owners::CursorOwner,
     },

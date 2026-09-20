@@ -29,15 +29,24 @@
 //! module. The reference count and usage of a frame are stored in the metadata
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
-use vstd::atomic::PermissionU64;
-use vstd::map::assert_maps_equal_internal;
-use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
-use vstd::std_specs::cmp::PartialEqSpecImpl;
-use vstd::{assert_maps_equal, assert_sets_equal};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::may_panic;
+use vstd::{
+    atomic::PermissionU64,
+    map::assert_maps_equal_internal,
+    prelude::*,
+    simple_pptr::{
+        self,
+        PPtr,
+    },
+    std_specs::cmp::PartialEqSpecImpl,
+    assert_maps_equal,
+    assert_sets_equal,
+};
+
+use vstd_extra::{
+    cast_ptr::*,
+    ownership::*,
+    panic::may_panic,
+};
 
 pub mod allocator;
 pub mod linked_list;
@@ -59,19 +68,30 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        frame_specs::*,
+        mapping::{
+            frame_to_index,
+            group_page_meta,
+            index_to_meta,
+            max_meta_slots,
+        },
+        meta_owners::*,
+        meta_region_owners::MetaRegionOwners,
+    },
+};
+
 use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
 pub use segment::Segment;
 pub use untyped::{AnyUFrameMeta, UFrame};
-
 use super::PagingLevel;
-
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
-
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
-
 use crate::mm::page_table::RCClone;
 use crate::mm::{
     MAX_PADDR, Paddr, Vaddr,
@@ -80,13 +100,6 @@ use crate::mm::{
         mapping::{frame_to_meta, meta_to_frame},
     },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
-};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    frame_specs::*,
-    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
-    meta_owners::*,
-    meta_region_owners::MetaRegionOwners,
 };
 
 verus! {

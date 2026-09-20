@@ -1,14 +1,14 @@
-use core::{marker::PhantomData, ops::Range};
+use vstd::{
+    prelude::*,
+    arithmetic::power2::pow2,
+};
 
-use vstd::prelude::*;
-
-use vstd::arithmetic::power2::pow2;
 use vstd_extra::ownership::*;
 
 use crate::specs::arch::MAX_PADDR;
 
+use core::{marker::PhantomData, ops::Range};
 use crate::mm::{Paddr, Vaddr, page_prop::PageProperty};
-
 use super::*;
 
 verus! {

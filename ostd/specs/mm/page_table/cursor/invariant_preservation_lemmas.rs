@@ -14,19 +14,31 @@
 /// `entry_owners.rs`) over the full cursor tree.
 use vstd::prelude::*;
 
-use vstd_extra::{ghost_tree::*, ownership::*};
+use vstd_extra::{
+    ghost_tree::*,
+    ownership::*,
+};
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+            mapping::frame_to_index,
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
         },
         page_table::{
             Mapping,
-            cursor::owners::{CursorContinuation, CursorOwner},
+            cursor::owners::{
+                CursorContinuation,
+                CursorOwner,
+            },
             node::entry_owners::EntryOwner,
-            owners::{OwnerSubtree, PageTableOwner, vaddr_of},
+            owners::{
+                OwnerSubtree,
+                PageTableOwner,
+                vaddr_of,
+            },
         },
     },
 };

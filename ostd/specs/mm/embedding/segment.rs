@@ -28,16 +28,19 @@
 //!   to follow-up; the base `from_unused` + drop pair is enough to
 //!   exercise the Shape-B `raw_count == segment_cover_count`
 //!   invariant.
-use core::ops::Range;
-
 use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
 
 use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_frame, max_meta_slots},
+            mapping::{
+                frame_to_index,
+                index_to_frame,
+                max_meta_slots,
+            },
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
@@ -45,12 +48,12 @@ use crate::specs::{
     },
 };
 
+use core::ops::Range;
 use crate::mm::{
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     vm_space::UserPtConfig,
     Paddr,
 };
-
 use super::{frame::frame_drop_embedded, tracked_segment_entry_new, SegmentEntry};
 
 verus! {

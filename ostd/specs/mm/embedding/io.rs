@@ -45,15 +45,16 @@
 //!   We assume that branch (i.e., the embedding proofs commit to
 //!   `read_view_initialized()` / `has_write_view()` unconditionally) —
 //!   formally a slight strengthening pending kernel-VA modeling.
-use vstd::pervasive::arbitrary;
-use vstd::prelude::*;
+use vstd::{
+    pervasive::arbitrary,
+    prelude::*,
+};
 
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::io::{VmIoMemView, VmIoOwner, axiom_kernel_mem_view};
 
 use crate::mm::{MAX_USERSPACE_VADDR, Vaddr, vm_space::vm_space_specs::VmSpaceOwner};
-
 use super::{VmIoEntry, VmIoKind, VmSpaceId, tracked_vm_io_entry_new};
 
 verus! {

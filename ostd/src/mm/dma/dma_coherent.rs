@@ -7,7 +7,10 @@ use vstd::thread_view::Objective;
 
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
-    ownership::{Inv, OwnerOf},
+    ownership::{
+        Inv,
+        OwnerOf,
+    },
     resource_invariant::SimpleResourceInvariant,
 };
 

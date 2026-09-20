@@ -1,20 +1,29 @@
 //! Tree-predicate lifting, tree entry level constraints, and tree membership
 //! lemmas for `CursorContinuation` and `CursorOwner`.
-use core::ops::Range;
-
 use vstd::prelude::*;
 
-use vstd_extra::{ghost_tree::*, ownership::*};
+use vstd_extra::{
+    ghost_tree::*,
+    ownership::*,
+};
 
 use crate::specs::{
-    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    arch::{
+        NR_ENTRIES,
+        NR_LEVELS,
+        PAGE_SIZE,
+    },
     mm::page_table::{
-        cursor::owners::{CursorContinuation, CursorOwner},
+        cursor::owners::{
+            CursorContinuation,
+            CursorOwner,
+        },
         node::entry_owners::EntryOwner,
         owners::*,
     },
 };
 
+use core::ops::Range;
 use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
 
 verus! {

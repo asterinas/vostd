@@ -1,29 +1,42 @@
-use core::ops::Range;
-
 use vstd::prelude::*;
 
 use vstd_extra::{
-    arithmetic::{lemma_nat_align_down_sound, nat_align_down},
+    arithmetic::{
+        lemma_nat_align_down_sound,
+        nat_align_down,
+    },
     ghost_tree::*,
     ownership::*,
 };
 
 use crate::specs::{
-    arch::{NR_ENTRIES, NR_LEVELS},
+    arch::{
+        NR_ENTRIES,
+        NR_LEVELS,
+    },
     mm::{
-        Guards, Mapping, MetaRegionOwners,
+        Guards,
+        Mapping,
+        MetaRegionOwners,
         frame::mapping::meta_to_index,
         page_table::{
             AbstractVaddr,
-            cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
+            cursor::{
+                owners::*,
+                page_size_lemmas::lemma_page_size_ge_page_size,
+            },
             node::EntryOwner,
-            owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
+            owners::{
+                INC_LEVELS,
+                OwnerSubtree,
+                PageTableOwner,
+            },
         },
     },
 };
 
+use core::ops::Range;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
-
 use crate::arch::mm::PagingConsts;
 
 verus! {

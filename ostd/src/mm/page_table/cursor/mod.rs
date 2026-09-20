@@ -27,17 +27,43 @@
 //! acquisition.
 mod locking;
 
-use vstd::arithmetic::power2::pow2;
-use vstd::math::abs;
-use vstd::prelude::*;
-use vstd::simple_pptr::*;
+use vstd::{
+    arithmetic::power2::pow2,
+    math::abs,
+    prelude::*,
+    simple_pptr::*,
+};
 
-use vstd_extra::arithmetic::*;
-use vstd_extra::drop_tracking::TrackDrop;
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::*;
-use vstd_extra::{assert, assert_eq};
+use vstd_extra::{
+    arithmetic::*,
+    drop_tracking::TrackDrop,
+    ghost_tree::*,
+    ownership::*,
+    panic::*,
+    assert,
+    assert_eq,
+};
+
+use crate::specs::{
+    mm::{
+        frame::{
+            mapping::{
+                frame_to_index,
+                index_to_meta,
+                max_meta_slots,
+                meta_to_index,
+            },
+            meta_owners::{
+                FracMetadataPerm,
+                MetaSlotOwner,
+                PageUsage,
+                is_mmio_paddr,
+            },
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::cursor::page_size_lemmas::*,
+    },
+};
 
 use crate::mm::frame::meta::{
     META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
@@ -45,24 +71,12 @@ use crate::mm::frame::meta::{
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
-use crate::specs::mm::frame::mapping::{
-    frame_to_index, index_to_meta, max_meta_slots, meta_to_index,
-};
-use crate::specs::mm::frame::meta_owners::{
-    FracMetadataPerm, MetaSlotOwner, PageUsage, is_mmio_paddr,
-};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
-
 use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
-
 use align_ext::AlignExt;
-
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
     specs::task::InAtomicMode,
 };
-
 use super::{
     Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
     PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
