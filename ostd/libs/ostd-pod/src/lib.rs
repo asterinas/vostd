@@ -53,7 +53,7 @@ pub unsafe trait Pod: Copy + Sized {
         new_self.as_bytes_mut().copy_from_slice(&bytes[..copy_len]);
         proof {
             assert(new_self == decode_pod::<Self>(
-                bytes@.subrange(0, core::mem::size_of::<Self>() as int),
+                bytes@[0..core::mem::size_of::<Self>()],
             ));
         }
         new_self
@@ -89,7 +89,7 @@ pub unsafe trait Pod: Copy + Sized {
 
 /// The value decoded from the first `size_of::<T>()` input bytes.
 pub open spec fn from_bytes_spec<T>(bytes: Seq<u8>) -> T {
-    decode_pod::<T>(bytes.subrange(0, core::mem::size_of::<T>() as int))
+    decode_pod::<T>(bytes[0..core::mem::size_of::<T>()])
 }
 
 /// Spec function: the byte representation of a [`Pod`] value.

@@ -363,7 +363,7 @@ impl IdAlloc {
             .unwrap_or(len);
         proof! {
             lemma_first_zero_index_after_true_prefix(self@, start as int);
-            let tail = self@.subrange(start as int, self@.len() as int);
+            let tail = self@[start..];
             lemma_first_zero_index_is_first_zero(self@);
             assert(is_first_zero(bitslice_view(bit_slice), first_zero_index(tail)));
         }

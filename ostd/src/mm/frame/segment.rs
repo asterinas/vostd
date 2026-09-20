@@ -10,7 +10,7 @@ use vstd_extra::panic::may_panic;
 use vstd_extra::prelude::*;
 
 use crate::mm::page_table::RCClone;
-use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
+use crate::mm::{frame::MetaSlot, paddr_to_vaddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     frame_specs::FrameRawPerms,
@@ -23,9 +23,9 @@ use crate::specs::mm::frame::{
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 use super::{
-    Frame, Paddr,
     meta::mapping::frame_to_meta,
     meta::{AnyFrameMeta, GetFrameError},
+    Frame, Paddr,
 };
 use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 
@@ -818,14 +818,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 range: self.start_paddr()..at,
                 _marker: core::marker::PhantomData,
                 #[cfg(verus_keep_ghost_body)]
-                tracked_perms: Tracked(Some(self.raw_perms().subrange(0, idx as int))),
+                tracked_perms: Tracked(Some(self.raw_perms()[..idx])),
             },
             Self {
                 range: at..self.end_paddr(),
                 _marker: core::marker::PhantomData,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(
-                    Some(self.raw_perms().subrange(idx as int, self.raw_perms().len() as int)),
+                    Some(self.raw_perms()[idx..]),
                 ),
             },
         )
