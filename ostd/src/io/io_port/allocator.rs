@@ -72,19 +72,10 @@ pub(crate) open spec fn io_port_inner_inv_values(
 /// Authority over the set of PIO ids currently allocated by the global allocator.
 ///
 /// The `Loc` of `auth` identifies the protocol instance and `auth@` is the set of allocated
-/// ids. [`IoPortClaim`] fragments minted by [`IoPortAllocation::allocate`] transfer the
+/// ids. [`GhostSubset`] fragments minted by [`IoPortAllocation::tracked_allocate`] transfer the
 /// ownership of an acquired PIO range to the caller.
 pub(super) tracked struct IoPortAllocation {
     auth: GhostSetAuth<usize>,
-}
-
-/// Fragment claiming ownership of a PIO id range handed out by [`IoPortAllocator::acquire`].
-///
-/// A claim asserts that its ids are allocated by the [`IoPortAllocation`] with the same
-/// instance identity, and is consumed when the ids are released by
-/// [`IoPortAllocator::recycle`].
-pub(super) tracked struct IoPortClaim {
-    subset: GhostSubset<usize>,
 }
 
 impl IoPortAllocation {
@@ -99,57 +90,45 @@ impl IoPortAllocation {
     }
 
     /// Creates a fresh protocol instance with an empty allocated set.
-    pub proof fn initialize() -> (tracked result: Self) {
+    pub proof fn tracked_initialize() -> (tracked result: Self) {
         let tracked (auth, _empty_claims) = GhostSetAuth::new(Set::empty());
         Self { auth }
     }
 
     /// Allocates `ids`, requiring them to be currently free, and mints the matching claim
     /// fragment.
-    pub proof fn allocate(tracked &mut self, ids: Set<usize>) -> (tracked claim: IoPortClaim)
+    pub proof fn tracked_allocate(tracked &mut self, ids: Set<usize>) -> (tracked claim:
+        GhostSubset<usize>)
         requires
             old(self).value().disjoint(ids),
         ensures
             final(self).instance_id() == old(self).instance_id(),
             final(self).value() == old(self).value().union(ids),
-            claim.instance_id() == final(self).instance_id(),
-            claim.set() == ids,
+            claim.id() == final(self).instance_id(),
+            claim@ == ids,
     {
-        let tracked subset = self.auth.insert_set(ids);
-        IoPortClaim { subset }
+        self.auth.insert_set(ids)
     }
 
     /// Consumes `claim`, removing its ids from the allocated set.
-    pub proof fn release(tracked &mut self, tracked claim: IoPortClaim)
+    pub proof fn tracked_release(tracked &mut self, tracked claim: GhostSubset<usize>)
         requires
-            claim.instance_id() == old(self).instance_id(),
+            claim.id() == old(self).instance_id(),
         ensures
             final(self).instance_id() == old(self).instance_id(),
-            final(self).value() == old(self).value().difference(claim.set()),
+            final(self).value() == old(self).value().difference(claim@),
     {
-        self.auth.delete(claim.subset);
+        self.auth.delete(claim);
     }
 
-    /// Certifies `claim.set() <= self.value()` (the claim's ids are currently allocated).
-    pub proof fn claim_includes(tracked &self, tracked claim: &IoPortClaim)
+    /// Certifies `claim@ <= self.value()` (the claim's ids are currently allocated).
+    pub proof fn lemma_claim_includes(tracked &self, tracked claim: &GhostSubset<usize>)
         requires
-            claim.instance_id() == self.instance_id(),
+            claim.id() == self.instance_id(),
         ensures
-            claim.set() <= self.value(),
+            claim@ <= self.value(),
     {
-        claim.subset.agree(&self.auth);
-    }
-}
-
-impl IoPortClaim {
-    /// Instance identity of the protocol that issued this claim.
-    pub closed spec fn instance_id(self) -> InstanceId {
-        self.subset.id()
-    }
-
-    /// Ids claimed by this fragment.
-    pub closed spec fn set(self) -> Set<usize> {
-        self.subset@
+        claim.agree(&self.auth);
     }
 }
 
@@ -183,10 +162,10 @@ impl IoPortAllocator {
     /// otherwise, all ports in the PIO range will be marked as occupied.
     #[verus_spec(result =>
         with
-            Tracked(claim_out): Tracked<&mut Tracked<Option<IoPortClaim>>>,
+            Tracked(claim_out): Tracked<&mut Tracked<Option<GhostSubset<usize>>>>,
         requires
             size_of::<T>() <= u16::MAX,
-            is_overlapping ==> port as usize + size_of::<T>() <= u16::MAX,
+            is_overlapping ==> port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             io_port_allocator_initialized(),
             (*old(claim_out))@ is None,
@@ -196,8 +175,8 @@ impl IoPortAllocator {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
                 &&& (*final(claim_out))@ matches Some(claim_tok)
-                    && io_port.claim_matches_set(claim_tok.set())
-                    && claim_tok.instance_id() == io_port_allocator_instance_id()
+                    && io_port.claim_matches_set(claim_tok@)
+                    && claim_tok.id() == io_port_allocator_instance_id()
             },
     )]
     pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {
@@ -248,7 +227,7 @@ impl IoPortAllocator {
             }
         }
         proof_decl! {
-            let tracked range_claim: IoPortClaim;
+            let tracked range_claim: GhostSubset<usize>;
         }
         if already_allocated {
             allocator.drop();
@@ -376,7 +355,7 @@ impl IoPortAllocator {
                 }
             }
             assert(preserved.disjoint(ids));
-            range_claim = allocator.tracked_borrow_mut_resource().allocate(ids);
+            range_claim = allocator.tracked_borrow_mut_resource().tracked_allocate(ids);
         }
 
         // SAFETY: The created `IoPort` is guaranteed not to access system device I/O.
@@ -406,10 +385,10 @@ impl IoPortAllocator {
     /// The caller must have ownership of the PIO region through the `IoPortAllocator::acquire` interface.
     #[verus_spec(
         with
-            Tracked(claim): Tracked<IoPortClaim>,
+            Tracked(claim): Tracked<GhostSubset<usize>>,
         requires
-            claim.instance_id() == io_port_allocator_instance_id(),
-            claim.set() =~= Set::<usize>::range(range.start as usize, range.end as usize),
+            claim.id() == io_port_allocator_instance_id(),
+            claim@ =~= Set::<usize>::range(range.start as usize, range.end as usize),
             range.start <= range.end,
             io_port_allocator_initialized(),
     )]
@@ -443,7 +422,7 @@ impl IoPortAllocator {
             assert(pre_len == crate::arch::io::MAX_IO_PORT);
             assert(crate::arch::io::MAX_IO_PORT <= usize::MAX);
             assert(pre_len <= usize::MAX);
-            assert(claim.instance_id() == instance_id);
+            assert(claim.id() == instance_id);
             assert((range.end as usize) <= allocator.value()@.len()) by {
                 assert((range.end as usize) <= u16::MAX as usize);
                 assert((u16::MAX as usize) <= crate::arch::io::MAX_IO_PORT as usize);
@@ -453,11 +432,11 @@ impl IoPortAllocator {
         }
         proof! {
             let tracked r = allocator.tracked_borrow_mut_resource();
-            r.claim_includes(&claim);
+            r.lemma_claim_includes(&claim);
             assert(Set::<usize>::range(range.start as usize, range.end as usize) <= r.value());
             assert(r.value() == preserved);
             assert(Set::<usize>::range(range.start as usize, range.end as usize) <= preserved);
-            r.release(claim);
+            r.tracked_release(claim);
             token_released = r.value();
             assert(token_released
                 == preserved.difference(Set::<usize>::range(
@@ -600,7 +579,7 @@ pub(in crate::io) unsafe fn init() {
         allocator: SpinLock::new(
             allocator,
             Ghost::new(()),
-            Tracked::new(IoPortAllocation::initialize()),
+            Tracked::new(IoPortAllocation::tracked_initialize()),
         ),
     });
 }

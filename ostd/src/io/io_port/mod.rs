@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port and its allocator that allocates port I/O (PIO) to device drivers.
-use vstd::prelude::*;
+use vstd::{prelude::*, resource::set::GhostSubset};
 
 use crate::arch::device::io_port::valid_io_port_access;
 
@@ -99,10 +99,10 @@ impl<T, A> IoPort<T, A> {
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
         with
-            -> claim: Tracked<Option<allocator::IoPortClaim>>,
+            -> claim: Tracked<Option<GhostSubset<usize>>>,
         requires
             size_of::<T>() <= u16::MAX,
-            port as usize + size_of::<T>() <= u16::MAX,
+            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
@@ -111,13 +111,13 @@ impl<T, A> IoPort<T, A> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
                 &&& claim@ matches Some(claim_tok)
-                    && io_port.claim_matches_set(claim_tok.set())
-                    && claim_tok.instance_id() == allocator::io_port_allocator_instance_id()
+                    && io_port.claim_matches_set(claim_tok@)
+                    && claim_tok.id() == allocator::io_port_allocator_instance_id()
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
         proof_decl! {
-            let tracked mut claim: Tracked<Option<allocator::IoPortClaim>> = Tracked(None);
+            let tracked mut claim: Tracked<Option<GhostSubset<usize>>> = Tracked(None);
         }
         let port = {
             /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
@@ -126,7 +126,7 @@ impl<T, A> IoPort<T, A> {
         };
         let result = port.ok_or(Error::AccessDenied);
         proof_decl! {
-            let tracked claim_val: Option<allocator::IoPortClaim> = claim.get();
+            let tracked claim_val: Option<GhostSubset<usize>> = claim.get();
         }
         proof_with!(|= Tracked(claim_val));
         result
@@ -137,10 +137,10 @@ impl<T, A> IoPort<T, A> {
     /// This method will only mark the first port in the PIO range as occupied.
     #[verus_spec(result =>
         with
-            -> claim: Tracked<Option<allocator::IoPortClaim>>,
+            -> claim: Tracked<Option<GhostSubset<usize>>>,
         requires
             size_of::<T>() <= u16::MAX,
-            port as usize + size_of::<T>() <= u16::MAX,
+            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
@@ -149,13 +149,13 @@ impl<T, A> IoPort<T, A> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
                 &&& claim@ matches Some(claim_tok)
-                    && io_port.claim_matches_set(claim_tok.set())
-                    && claim_tok.instance_id() == allocator::io_port_allocator_instance_id()
+                    && io_port.claim_matches_set(claim_tok@)
+                    && claim_tok.id() == allocator::io_port_allocator_instance_id()
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {
         proof_decl! {
-            let tracked mut claim: Tracked<Option<allocator::IoPortClaim>> = Tracked(None);
+            let tracked mut claim: Tracked<Option<GhostSubset<usize>>> = Tracked(None);
         }
         let port = {
             /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
@@ -164,7 +164,7 @@ impl<T, A> IoPort<T, A> {
         };
         let result = port.ok_or(Error::AccessDenied);
         proof_decl! {
-            let tracked claim_val: Option<allocator::IoPortClaim> = claim.get();
+            let tracked claim_val: Option<GhostSubset<usize>> = claim.get();
         }
         proof_with!(|= Tracked(claim_val));
         result
@@ -190,7 +190,7 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(ret =>
         requires
             size_of::<T>() <= u16::MAX,
-            port as usize + size_of::<T>() <= u16::MAX,
+            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
         ensures
             ret@ == port,
@@ -213,7 +213,7 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(ret =>
         requires
             size_of::<T>() <= u16::MAX,
-            port as usize + size_of::<T>() <= u16::MAX,
+            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
         ensures
             ret@ == port,
@@ -234,12 +234,12 @@ impl<T, A> IoPort<T, A> {
     /// the standard `Drop` implementation below.
     #[verus_spec(
         with
-            Tracked(claim): Tracked<allocator::IoPortClaim>,
+            Tracked(claim): Tracked<GhostSubset<usize>>,
         requires
             allocator::io_port_allocator_initialized(),
-            claim.instance_id() == allocator::io_port_allocator_instance_id(),
-            self.claim_matches_set(claim.set()),
-            self@ as usize
+            claim.id() == allocator::io_port_allocator_instance_id(),
+            self.claim_matches_set(claim@),
+            self@
                 + (if self.is_overlapping() { 1 } else { size_of::<T>() }) <= u16::MAX,
     )]
     pub fn drop(self) {
