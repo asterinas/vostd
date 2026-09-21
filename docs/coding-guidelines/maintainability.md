@@ -484,18 +484,28 @@ and [#673](https://github.com/asterinas/vostd/pull/673#discussion_r3662532282).
 <!-- guideline: pair-exec-helpers-with-spec-models -->
 
 Keep an executable helper and its model attached instead of duplicating the
-formula independently in each mode. Pair them with a spec twin that carries the
-faithful definition and a `#[verus_spec(returns twin(...))]` on the exec
-function binding its result to that twin, so ordinary exec callers still get
-the model facts. Add `#[verifier::when_used_as_spec(twin)]` when the twin's
-signature matches, and spec mode can call the helper by its exec name
-(`parts_for_cpus`, `sub_ptr::to_repr`).
+formula independently in each mode. Prefer the lightest mechanism that keeps
+both modes honest:
+
+- `#[verus_verify(dual_spec)]` when the body is already a spec-compatible
+  expression — one definition serves both modes (`paddr_to_vaddr`,
+  `MemoryRegion::new`). Write its `#[verus_spec]` self-referentially
+  (`returns f(args)`), or exec call sites get no model facts; `dual_spec,
+  open` requires the function to be `pub` (bare `dual_spec` stays
+  module-visible like `closed`).
+- Otherwise pair the exec function with a spec twin that carries the faithful
+  definition, bound by `#[verus_spec(returns twin(...))]`: `part_idx`'s body
+  calls `CpuId::as_usize()`, which spec mode cannot, so `part_idx_spec(i: int)`
+  holds the formula.
+- Add `#[verifier::when_used_as_spec(twin)]` when the twin's signature
+  matches, and spec mode can call the helper by its exec name
+  (`parts_for_cpus`, `sub_ptr::to_repr`).
 
 Keep a spec fn with different argument types when the truthful model requires
 a shape the exec helper cannot offer:
 
-- plain integer views, such as `bit_idx_spec(cpu_id@)` taking the `View`'s
-  `int` so proofs can also address padding bits outside the valid CPU range;
+- plain integer views, such as `bit_idx_spec` taking an `int` so proofs can
+  also address padding bits outside the valid CPU range;
 - total arithmetic replacing panicking executable operations, such as a
   ceiling-division `parts_for_cpus_spec` instead of calling `usize::div_ceil`,
   whose contract carries preconditions and panic behavior.

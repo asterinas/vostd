@@ -43,7 +43,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`right-size-spec-placement`](maintainability.md#right-size-spec-placement) — keep small local models near their implementation unless they form a reusable subsystem.
 - [`document-real-proof-debt`](maintainability.md#document-real-proof-debt) — keep proof comments tied to real source constraints and mark unresolved boundaries explicitly.
 - [`qualified-verus-spec-calls`](maintainability.md#qualified-verus-spec-calls) — use qualified paths where `#[verus_spec]` attaches a specification to a call.
-- [`pair-exec-helpers-with-spec-models`](maintainability.md#pair-exec-helpers-with-spec-models) — bind an exec helper to one spec twin via `#[verus_spec(returns ...)]` and, when the signature matches, `when_used_as_spec`; keep differently-shaped spec fns where the faithful model needs `int` views or total arithmetic.
+- [`pair-exec-helpers-with-spec-models`](maintainability.md#pair-exec-helpers-with-spec-models) — prefer `dual_spec` when one definition serves both modes; otherwise bind an exec helper to a spec twin via `#[verus_spec(returns ...)]` and, when the signature matches, `when_used_as_spec`; keep differently-shaped spec fns where the faithful model needs `int` views or total arithmetic.
 
 ### Workflow
 
