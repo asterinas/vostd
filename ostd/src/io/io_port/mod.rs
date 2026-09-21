@@ -110,8 +110,9 @@ impl<T, A> IoPort<T, A> {
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
-                &&& io_port.claim_matches_set(claim@->Some_0.set())
-                &&& claim@->Some_0.instance_id() == allocator::io_port_allocator_instance_id()
+                &&& claim@ matches Some(claim_tok)
+                    && io_port.claim_matches_set(claim_tok.set())
+                    && claim_tok.instance_id() == allocator::io_port_allocator_instance_id()
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
@@ -147,8 +148,9 @@ impl<T, A> IoPort<T, A> {
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
-                &&& io_port.claim_matches_set(claim@->Some_0.set())
-                &&& claim@->Some_0.instance_id() == allocator::io_port_allocator_instance_id()
+                &&& claim@ matches Some(claim_tok)
+                    && io_port.claim_matches_set(claim_tok.set())
+                    && claim_tok.instance_id() == allocator::io_port_allocator_instance_id()
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {

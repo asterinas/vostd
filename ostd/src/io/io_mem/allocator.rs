@@ -269,26 +269,6 @@ impl IoMemAllocator {
     }
 }
 
-/// The trusted boot fact [`io_mem_range_registered`], made concrete: the index of the
-/// registered window containing `range`.
-pub proof fn lemma_registered_window(windows: &Vec<RangeAllocator>, range: Range<usize>) -> (idx:
-    int)
-    requires
-        windows_ordered(windows@),
-        windows_match_registered(windows@),
-        io_mem_range_registered(range),
-    ensures
-        0 <= idx < windows@.len(),
-        windows@[idx]@.start <= range.start && range.end <= windows@[idx]@.end,
-{
-    let idx = choose|m: int|
-        #![trigger registered_io_mem_windows()[m]]
-        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
-            <= range.start && range.end <= registered_io_mem_windows()[m].end;
-    assert(windows@[idx]@ == registered_io_mem_windows()[idx]);
-    idx
-}
-
 /// The window overlapping `range` found by [`find_allocator`] is exactly the registered
 /// window containing it: ordered windows cannot partially cover a range contained in
 /// another window.
@@ -306,7 +286,14 @@ pub proof fn lemma_found_window_contains(
     ensures
         found@.start <= range.start && range.end <= found@.end,
 {
-    let container_idx = lemma_registered_window(windows, *range);
+    // The trusted [`io_mem_range_registered`] existential, made concrete as the index of
+    // the registered window containing `range`.
+    let container_idx = choose|m: int|
+        #![trigger registered_io_mem_windows()[m]]
+        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
+            <= range.start && range.end <= registered_io_mem_windows()[m].end;
+    assert(windows@[container_idx]@ == registered_io_mem_windows()[container_idx]);
+    assert(0 <= container_idx < windows@.len());
     let found_idx = choose|k: int|
         #![trigger windows@[k]]
         0 <= k < windows@.len() && windows@[k]@ == found@;

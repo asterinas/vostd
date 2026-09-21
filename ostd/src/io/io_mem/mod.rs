@@ -141,6 +141,7 @@ impl IoMem {
             result.paddr() == range.start,
             result.length()
                 == range.end - range.start,
+            result.offset_spec() < PAGE_SIZE,
     )]
     pub(crate) unsafe fn new(range: Range<Paddr>, flags: PageFlags, cache: CachePolicy) -> Self {
         let first_page_start = range.start.align_down(PAGE_SIZE);

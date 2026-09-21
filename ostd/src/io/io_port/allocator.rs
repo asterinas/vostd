@@ -192,8 +192,9 @@ impl IoPortAllocator {
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
-                &&& io_port.claim_matches_set((*final(claim_out))@->Some_0.set())
-                &&& (*final(claim_out))@->Some_0.instance_id() == io_port_allocator_instance_id()
+                &&& (*final(claim_out))@ matches Some(claim_tok)
+                    && io_port.claim_matches_set(claim_tok.set())
+                    && claim_tok.instance_id() == io_port_allocator_instance_id()
             },
     )]
     pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {
@@ -608,8 +609,7 @@ verus! {
 /// `0 <= j < end` and `s[j]` is `true`.
 pub(crate) proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
     requires
-        0 <= end,
-        end <= usize::MAX,
+        0 <= end <= usize::MAX,
         s.len() >= end,
         0 <= j,
     ensures
@@ -644,8 +644,7 @@ pub(crate) proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
 pub(crate) proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
     requires
         allocator.inv(),
-        id < allocator@.len(),
-        allocator@.len() <= usize::MAX,
+        id < allocator@.len() <= usize::MAX,
     ensures
         id_alloc_view(allocator).contains(id) == allocator@[id as int],
 {
