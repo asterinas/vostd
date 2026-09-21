@@ -33,16 +33,9 @@
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
 use vstd::{atomic::PermissionU64, prelude::*, simple_pptr::PointsTo};
-use vstd_extra::{once::OnceImpl, resource_invariant::TrivialResourceInvariant};
-
-use core::{marker::PhantomData, ops::Range};
-
-//use log::info;
-pub(crate) mod kvirt_area;
-#[cfg(ktest)]
-mod test;
-
-use vstd_extra::{ownership::*, prelude::*};
+use vstd_extra::{
+    once::OnceImpl, ownership::*, prelude::*, resource_invariant::TrivialResourceInvariant,
+};
 
 use crate::specs::{
     arch::*,
@@ -55,6 +48,13 @@ use crate::specs::{
         page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
     },
 };
+
+use core::{marker::PhantomData, ops::Range};
+
+//use log::info;
+pub(crate) mod kvirt_area;
+#[cfg(ktest)]
+mod test;
 
 use super::{
     Paddr, PagingConstsTrait, Vaddr,

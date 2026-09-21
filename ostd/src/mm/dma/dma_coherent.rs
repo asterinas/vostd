@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::marker::PhantomData;
-
 use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
@@ -9,6 +7,8 @@ use vstd_extra::{
     ownership::{Inv, OwnerOf},
     resource_invariant::SimpleResourceInvariant,
 };
+
+use core::marker::PhantomData;
 
 use crate::{
     error::Error,
