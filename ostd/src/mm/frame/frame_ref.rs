@@ -8,6 +8,7 @@ use vstd_extra::{cast_ptr::Repr, prelude::*};
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
+        frame_specs::FrameRawPerms,
         mapping::meta_to_index,
         meta_owners::{FracMetadataPerm, MetaSlotStorage},
         meta_region_owners::MetaRegionOwners,
@@ -76,8 +77,7 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M>
     }
 }
 
-// TODO: I moved this here to avoid having to pull the rest of `sync` into the verification.
-// Once it is pulled in, we should delete this one.
+// TODO: Use NonNullPtr in `sync`.
 /// A trait that abstracts non-null pointers.
 ///
 /// All common smart pointer types such as `Box<T>`,  `Arc<T>`, and `Weak<T>`
@@ -96,6 +96,12 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     // TODO: Support `Target: ?Sized`.
     type Target;
 
+    #[cfg(not(feature = "irc11"))]
+    type Permission: Inv;
+
+    #[cfg(feature = "irc11")]
+    type Permission: Inv + Objective;
+
     /// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>;
 
@@ -110,7 +116,13 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     /// The lower [`Self::ALIGN_BITS`] of the raw pointer is guaranteed to
     /// be zero. In other words, the pointer is guaranteed to be aligned to
     /// `1 << Self::ALIGN_BITS`.
-    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target>;
+    fn into_raw(self) -> ((res_ptr, perm): (PPtr<Self::Target>, Tracked<Self::Permission>))
+        ensures
+            Self::ptr_perm_match(res_ptr, perm@),
+            self.rel_perm(perm@),
+            perm@.inv(),
+            res_ptr.addr() % (1usize << Self::ALIGN_BITS) == 0,
+    ;
 
     /// Converts back from a raw pointer.
     ///
@@ -124,13 +136,12 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     /// resulting value has not (yet) been dropped, the pointer cannot be
     /// used because it may break Rust aliasing rules (e.g., `Box<T>`
     /// requires the pointer to be unique and thus _never_ aliased).
-    unsafe fn from_raw(
-        ptr: PPtr<Self::Target>,
-        Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    ) -> Self
+    unsafe fn from_raw(ptr: PPtr<Self::Target>, perm: Tracked<Self::Permission>) -> (ret: Self)
         requires
-            old(regions).inv(),
-            old(regions).contains(meta_to_index(ptr.addr())),
+            Self::ptr_perm_match(ptr, perm@),
+            perm@.inv(),
+        ensures
+            ret.rel_perm(perm@),
     ;
 
     /// Obtains a shared reference to the original pointer.
@@ -139,17 +150,17 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     ///
     /// The original pointer must outlive the lifetime parameter `'a`, and during `'a`
     /// no mutable references to the pointer will exist.
-    unsafe fn raw_as_ref<'a>(
-        raw: PPtr<Self::Target>,
-        Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    ) -> Self::Ref<'a>
-        requires
-            old(regions).inv(),
-            old(regions).contains(meta_to_index(raw.addr())),
-    ;
+    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>) -> Self::Ref<'a>;
 
     /// Converts a shared reference to a raw pointer.
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target>;
+
+    /// A specification function that constraints the nonnull pointer and the permission returned by `into_raw`.
+    /// This design is to support the tagged pointer trick used in `Either`.
+    spec fn ptr_perm_match(ptr: PPtr<Self::Target>, perm: Self::Permission) -> bool;
+
+    /// A specification function that relates the original smart pointer and the permission.
+    spec fn rel_perm(self, perm: Self::Permission) -> bool;
 }
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
@@ -157,42 +168,46 @@ pub unsafe trait NonNullPtr: 'static + Sized {
 unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Frame<M> {
     type Target = PhantomData<Self>;
 
+    type Permission = FrameRawPerms;
+
     type Ref<'a> = FrameRef<'a, M>;
 
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<MetaSlot>().trailing_zeros();
 
-    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
-        let ptr = self.ptr;
-        let _ = ManuallyDrop::new(self);
-        PPtr::<Self::Target>::from_addr(ptr.addr())
+    fn into_raw(self) -> (PPtr<Self::Target>, Tracked<Self::Permission>) {
+        assume(self.inv());
+        let mut this = self;
+        proof_decl! {
+            let tracked perm = FrameRawPerms {
+                slot_perm: *this.tracked_slot_perm.borrow(),
+                metadata_perm: this.tracked_metadata_perm.tracked_take(),
+            };
+        }
+        let ptr = this.ptr;
+        let _ = ManuallyDrop::new(this);
+        assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
+        (PPtr::<Self::Target>::from_addr(ptr.addr()), Tracked(perm))
     }
 
-    unsafe fn from_raw(
-        raw: PPtr<Self::Target>,
-        Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    ) -> Self {
-        let tracked slot_perm = regions.slots.tracked_borrow(meta_to_index(raw.addr()));
+    unsafe fn from_raw(raw: PPtr<Self::Target>, Tracked(perm): Tracked<Self::Permission>) -> Self {
         Self {
             ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
+            tracked_slot_perm: Tracked(perm.slot_perm),
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: Tracked(None),
+            tracked_metadata_perm: Tracked(Some(perm.metadata_perm)),
         }
     }
 
-    unsafe fn raw_as_ref<'a>(
-        raw: PPtr<Self::Target>,
-        Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    ) -> Self::Ref<'a> {
-        let tracked slot_perm = regions.slots.tracked_borrow(meta_to_index(raw.addr()));
+    #[verifier::external_body]
+    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>) -> Self::Ref<'a> {
         let frame = Frame::<M> {
             ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked(slot_perm),
+            tracked_slot_perm: Tracked::assume_new(),
             #[cfg(verus_keep_ghost_body)]
             tracked_metadata_perm: Tracked(None),
         };
@@ -202,6 +217,15 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target> {
         PPtr::from_addr(ptr_ref.inner.ptr.addr())
+    }
+
+    open spec fn ptr_perm_match(ptr: PPtr<Self::Target>, perm: Self::Permission) -> bool {
+        ptr.addr() == perm.slot_perm.addr()
+    }
+
+    open spec fn rel_perm(self, perm: Self::Permission) -> bool {
+        &&& perm.slot_perm == self.slot_perm()
+        &&& perm.metadata_perm == self.frac_metadata_perm()
     }
 }
 
