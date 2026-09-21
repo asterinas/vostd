@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
 use vstd::{
+    assert_seqs_equal,
     prelude::*,
     resource::set::{GhostSetAuth, GhostSubset},
     tokens::InstanceId,
 };
-use vstd_extra::{ownership::Inv, resource_invariant::ResourceInvariant};
+use vstd_extra::{ownership::Inv, resource_invariant::SimpleResourceInvariant};
 
 use crate::arch::device::io_port::valid_io_port_access;
 
@@ -27,19 +28,23 @@ verus! {
 pub uninterp spec fn io_port_allocator_instance_id() -> InstanceId;
 
 /// Allocated ids of a bitmap prefix `[0, end)`: `i` is in iff `s[i]`.
-pub(crate) closed spec fn id_alloc_bits(s: Seq<bool>, end: int) -> Set<usize>
-    decreases end,
-{
-    if end <= 0 {
-        Set::empty()
-    } else {
-        let rest = id_alloc_bits(s, end - 1);
-        if s[end - 1] {
-            rest.insert((end - 1) as usize)
+pub(crate) closed spec fn id_alloc_bits(s: Seq<bool>, end: int) -> Set<usize> {
+    Seq::new(
+        if 0 <= end {
+            end as nat
         } else {
-            rest
-        }
-    }
+            0
+        },
+        |i: int| i as usize,
+    ).fold_left(
+        Set::empty(),
+        |acc: Set<usize>, i: usize|
+            if s[i as int] {
+                acc.insert(i)
+            } else {
+                acc
+            },
+    )
 }
 
 /// Set of ids currently allocated by `allocator`.
@@ -150,12 +155,10 @@ impl IoPortClaim {
 
 ghost struct IoPortAllocInvariant;
 
-impl ResourceInvariant<IdAlloc> for IoPortAllocInvariant {
-    type Constant = ();
-
+impl SimpleResourceInvariant<IdAlloc> for IoPortAllocInvariant {
     type Resource = IoPortAllocation;
 
-    closed spec fn inv(_constant: (), alloc: IdAlloc, r: IoPortAllocation) -> bool {
+    closed spec fn inv(alloc: IdAlloc, r: IoPortAllocation) -> bool {
         io_port_inner_inv_values(r.instance_id(), r.value(), &alloc)
     }
 }
@@ -618,24 +621,25 @@ pub(crate) proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
 {
     reveal(id_alloc_bits);
     if end <= 0 {
+        assert(Seq::new(end as nat, |i: int| i as usize).len() == 0);
         assert(id_alloc_bits(s, end) =~= Set::empty());
     } else {
         lemma_id_alloc_bits_char(s, end - 1, j);
-        if j == end - 1 {
-            assert(id_alloc_bits(s, end - 1).contains(j) == (j < end - 1 && s[j as int]));
-            assert(id_alloc_bits(s, end).contains(j) == s[end - 1]);
-            assert(s[j as int] == s[end - 1]);
-        } else {
-            // j != end-1: the bit folded in at (end-1) is distinct from j.
-            assert(id_alloc_bits(s, end - 1).contains(j) == (j < end - 1 && s[j as int]));
-            assert(((end - 1) as usize) == end - 1);
-            assert(j != (end - 1) as usize);
-            if s[end - 1] {
-                assert(id_alloc_bits(s, end - 1).insert((end - 1) as usize).contains(j)
-                    == id_alloc_bits(s, end - 1).contains(j));
+        assert_seqs_equal!(
+            Seq::new(end as nat, |i: int| i as usize).drop_last()
+                == Seq::new((end - 1) as nat, |i: int| i as usize)
+        );
+        assert(Seq::new(end as nat, |i: int| i as usize).last() == (end - 1) as usize);
+        assert(((end - 1) as usize) == end - 1);
+        if s[end - 1] {
+            if j == (end - 1) as usize {
+                assert(id_alloc_bits(s, end).contains(j));
+            } else {
+                assert(j != (end - 1) as usize);
+                assert(id_alloc_bits(s, end).contains(j) == id_alloc_bits(s, end - 1).contains(j));
             }
+        } else {
             assert(id_alloc_bits(s, end).contains(j) == id_alloc_bits(s, end - 1).contains(j));
-            assert((j < end - 1 && s[j as int]) == (j < end && s[j as int]));
         }
     }
 }
