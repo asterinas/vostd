@@ -112,9 +112,9 @@ See also: PR [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-547
 [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3840368904),
 and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3955173853).
 
-### Lay out the import section
+### Group imports by crate
 
-<!-- guideline: lay-out-the-import-section -->
+<!-- guideline: group-imports-by-crate -->
 
 Lay out the import section as verification-added groups above the imports
 inherited from the executable Rust, separated by blank lines:
@@ -130,9 +130,8 @@ use ...;
 ```
 
 The first group collects the new `vstd` and `vstd_extra` imports (together
-with spec uses of other crates, per the exception in
-[`group-imports-by-crate`](#group-imports-by-crate)); the second holds this
-file's `crate::specs` model imports (see
+with spec uses of other crates, per the exception below); the second holds
+this file's `crate::specs` model imports (see
 [`right-size-spec-placement`](#right-size-spec-placement)); and the last
 block is the original import list, left unchanged. The blank lines are
 load-bearing: on the pinned stable toolchain the formatter ignores the
@@ -141,14 +140,9 @@ reorders `use`s only within a contiguous run, never across a blank line. Drop
 the blank lines and the whole run is alphabetized, sinking `crate::specs`
 among the original imports and pushing `vstd`/`vstd_extra` to the bottom.
 
-See also: PR [#792](https://github.com/asterinas/vostd/pull/792#issuecomment-5748471711).
-
-### Group imports by crate
-
-<!-- guideline: group-imports-by-crate -->
-
-Import definitions from the same crate within one `use` group, including when
-the definitions come from different modules in that crate.
+Within each group, import definitions from the same crate in one `use`
+statement, including when the definitions come from different modules in
+that crate.
 
 ```rust
 // Prefer this:
@@ -164,13 +158,12 @@ use vstd::laws_cmp::{
 use vstd::laws_eq::obeys_eq_spec_properties;
 ```
 
-Exception for verification-added spec imports: a newly added `use` that introduces
-spec or proof symbols (spec functions, models, lemmas) stays in the Verus-actor
-import group and is not merged with a pre-existing `use` of the same crate that
-imports executable items; the separation that
-[`lay-out-the-import-section`](#lay-out-the-import-section) requires between new
-proof imports and inherited executable imports takes precedence over this rule's
-merging for such pairs.
+Exception for verification-added spec imports: a newly added `use` that
+introduces spec or proof symbols (spec functions, models, lemmas) stays in
+the Verus-actor import group and is not merged with a pre-existing `use` of
+the same crate that imports executable items; the blank-line separation
+between the verification-added groups and the original import list takes
+precedence over this rule's merging for such pairs.
 
 ```rust
 // Added with the proof, spec models of a crate that also has an exec import:
@@ -180,7 +173,8 @@ use ostd_pod::{decode_pod, from_bytes_spec};
 use ostd_pod::Pod;
 ```
 
-See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076).
+See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076)
+and [#792](https://github.com/asterinas/vostd/pull/792#issuecomment-5748471711).
 
 ### Bind Option payloads
 
