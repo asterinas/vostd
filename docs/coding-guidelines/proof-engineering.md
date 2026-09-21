@@ -77,16 +77,25 @@ under `verified_libs/vstd_extra/src/external/`, not beside OSTD callers.
 Centralization does not establish soundness: give unsafe helpers contracts that
 justify their callers and delete unused helpers.
 
-Prefer `assume_specification`, matching the original generic signature, trait
-bounds, and associated types. Before adding an external function wrapper, test
-the direct form with the active toolchain and record any concrete obstacle.
+Split by where the code lives. A function in this crate that verification
+must skip keeps its executable body compiled and type-checked under
+`#[verifier::external_body]` paired with a `#[verus_spec]` front door — do
+not re-derive it as an assume_specification: PR #770 replaced `num_cpus`'s
+assume_specification with an external_body whose `returns` reads the trusted
+`cpu_count` model. Reserve `assume_specification` for code outside this
+crate — standard-library or third-party signatures — matching the original
+generic signature, trait bounds, and associated types. Before adding an
+external function wrapper, test the direct form with the active toolchain
+and record any concrete obstacle.
 
 See also: PR [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3671555470),
 [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3687737109),
 [#703](https://github.com/asterinas/vostd/pull/703#issuecomment-5264921275),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940943084),
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3944088308), and
-[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946352295).
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3944088308),
+[#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946352295),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032586635), and
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032735266).
 
 ### Restrict generic trusted models
 
