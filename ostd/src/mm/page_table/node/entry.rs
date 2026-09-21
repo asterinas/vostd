@@ -554,18 +554,18 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(owner).value().is_node()
                 &&& final(owner).level() == old(owner).level()
                 &&& final(owner).value().parent_level == old(owner).value().parent_level
-                &&& final(guards).lock_held(final(owner).value().node().meta_vaddr())
+                &&& final(guards).lock_held(final(owner).value().node().slot_vaddr())
                 &&& final(owner).value().node().relate_guard(res->0)
                 &&& final(owner).value().path == old(owner).value().path
                 &&& final(owner).value().metaregion_sound(*final(regions))
                 &&& OwnerSubtree::implies(
                     CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
-                    CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().meta_vaddr()))
+                    CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().slot_vaddr()))
                 &&& Self::metaregion_sound_neq_preserved(old(owner).value(), final(owner).value(), *old(regions), *final(regions))
                 &&& Self::path_tracked_pred_preserved(*old(regions), *final(regions))
                 &&& old(regions).slots.contains_key(frame_to_index(final(owner).value().meta_slot_paddr()->0))
                 &&& final(owner).subtree_satisfies(final(owner).value().path,
-                    CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().meta_vaddr()))
+                    CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().slot_vaddr()))
                 &&& final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
                 &&& final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions)))
                 &&& PageTableOwner(*final(owner)).view_rec(final(owner).value().path) == set![]
@@ -618,7 +618,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& *final(owner) == *old(owner)
             },
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
-            forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().meta_vaddr() ==> final(guards).unlocked(i),
+            forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
     )]
     #[verifier::spinoff_prover]
     pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
@@ -661,7 +661,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             proof {
                 let pte = C::E::new_pt_spec(
-                    meta_to_frame(new_node_owner.value().node().meta_vaddr()),
+                    meta_to_frame(new_node_owner.value().node().slot_vaddr()),
                 );
                 C::E::lemma_page_table_entry_properties();
             }
@@ -752,7 +752,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // (which have `None` grandchildren), via
                 // `fresh_node_subtree_satisfies`.
 
-                let ghost new_node_addr = owner.value().node().meta_vaddr();
+                let ghost new_node_addr = owner.value().node().slot_vaddr();
                 let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
                 let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
                 let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
@@ -823,7 +823,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(owner).level() == old(owner).level()
                 &&& final(parent_owner).relate_guard(*final(self).node)
                 &&& final(owner).value().node().relate_guard(res->0)
-                &&& final(owner).value().node().meta_vaddr() == res->0.inner.inner@.ptr.addr()
+                &&& final(owner).value().node().slot_vaddr() == res->0.inner.inner@.ptr.addr()
                 &&& final(guards).lock_held(res->0.inner.inner@.ptr.addr())
                 // All children of the new node subtree are frames with the same prop (from the split loop).
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
@@ -861,16 +861,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).unlocked(i) ==> final(guards).unlocked(i),
             // slot_owners unchanged for all indices except the new PT node's index.
             old(owner).value().is_frame() && old(parent_owner).level() > 1 ==> {
-                &&& forall|i: int| i != meta_to_index(final(owner).value().node().meta_vaddr()) ==>
+                &&& forall|i: int| i != meta_to_index(final(owner).value().node().slot_vaddr()) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
                 // slots keys preserved (alloc removes then borrow re-inserts).
                 &&& forall|i: int| old(regions).slots.contains_key(i)
                     ==> (#[trigger] final(regions).slots.contains_key(i))
                 // The new PT node's ref_count is not UNUSED.
-                &&& final(regions).slot_owners[meta_to_index(final(owner).value().node().meta_vaddr())]
+                &&& final(regions).slot_owners[meta_to_index(final(owner).value().node().slot_vaddr())]
                     .ref_count() != REF_COUNT_UNUSED
                 // The allocated slot had ref_count == UNUSED before allocation.
-                &&& old(regions).slot_owners[meta_to_index(final(owner).value().node().meta_vaddr())]
+                &&& old(regions).slot_owners[meta_to_index(final(owner).value().node().slot_vaddr())]
                     .ref_count() == REF_COUNT_UNUSED
             },
             // Parent's other PTEs are preserved: only the entry at self.idx
@@ -947,7 +947,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let ghost children_perm = new_owner.value().node().children_perm;
         let ghost new_owner_path = new_owner.value().path;
-        let ghost new_owner_meta_addr = new_owner.value().node().meta_vaddr();
+        let ghost new_owner_meta_addr = new_owner.value().node().slot_vaddr();
 
         proof {
             broadcast use crate::specs::mm::frame::mapping::lemma_frame_to_index_injective;
@@ -1028,7 +1028,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value().is_node(),
                 new_owner.inv(),
                 new_owner.value().path == new_owner_path,
-                new_owner.value().node().meta_vaddr() == new_owner_meta_addr,
+                new_owner.value().node().slot_vaddr() == new_owner_meta_addr,
                 new_owner.value().node().relate_guard(pt_lock_guard),
                 guards.lock_held(new_owner_meta_addr),
                 new_owner.value().node().level() == (level - 1) as PagingLevel,
@@ -1767,15 +1767,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).value().path == old(owner).value().path,
             final(owner).value().metaregion_sound(*final(regions)),
             final(owner).value().node().relate_guard(res),
-            final(owner).value().node().meta_vaddr() == res.inner.inner@.ptr.addr(),
+            final(owner).value().node().slot_vaddr() == res.inner.inner@.ptr.addr(),
             final(owner).value().match_pte(
                 final(parent_owner).children_perm.value()[idx as int],
                 final(parent_owner).level(),
             ),
-            final(guards).lock_held(final(owner).value().node().meta_vaddr()),
+            final(guards).lock_held(final(owner).value().node().slot_vaddr()),
             OwnerSubtree::implies(
                 CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
-                CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().meta_vaddr())),
+                CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().slot_vaddr())),
             Entry::<C>::metaregion_sound_neq_preserved(
                 old(owner).value(),
                 final(owner).value(),
@@ -1785,7 +1785,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Entry::<C>::path_tracked_pred_preserved(*old(regions), *final(regions)),
             old(regions).slots.contains_key(frame_to_index(final(owner).value().meta_slot_paddr()->0)),
             final(owner).subtree_satisfies(final(owner).value().path,
-                CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().meta_vaddr())),
+                CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().slot_vaddr())),
             final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions))),
             final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions))),
             PageTableOwner(*final(owner)).view_rec(final(owner).value().path) == set![],
@@ -1826,7 +1826,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     == old(parent_owner).children_perm.value()[j],
             *final(self) == *old(self),
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
-            forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().meta_vaddr() ==> final(guards).unlocked(i),
+            forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
     )]
     pub(in crate::mm) fn alloc_absent_child<A: InAtomicMode>(
         &mut self,
@@ -1873,7 +1873,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         }
 
         proof {
-            let pte = C::E::new_pt_spec(meta_to_frame(new_node_owner.value().node().meta_vaddr()));
+            let pte = C::E::new_pt_spec(meta_to_frame(new_node_owner.value().node().slot_vaddr()));
             C::E::lemma_page_table_entry_properties();
         }
 
@@ -1958,7 +1958,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         proof {
             broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
-            let ghost new_node_addr = owner.value().node().meta_vaddr();
+            let ghost new_node_addr = owner.value().node().slot_vaddr();
             let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
             let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
             let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);

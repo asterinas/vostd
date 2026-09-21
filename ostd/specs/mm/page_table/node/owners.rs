@@ -246,7 +246,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     /// The meta address of this node's slot, computed from `slot_index`.
-    pub open spec fn meta_vaddr(self) -> Vaddr {
+    pub open spec fn slot_vaddr(self) -> Vaddr {
         index_to_meta(self.slot_index)
     }
 
@@ -335,7 +335,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_vaddr()
+        &&& guard.inner.inner@.ptr.addr() == self.slot_vaddr()
         &&& guard.inner.inner@.wf(self)
         &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
     }
@@ -345,7 +345,7 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.meta_vaddr()
+        &&& self.ptr.addr() == owner.slot_vaddr()
         &&& self.ptr_inv()
     }
 }

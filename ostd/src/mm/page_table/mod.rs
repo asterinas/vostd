@@ -970,7 +970,7 @@ impl PageTable<KernelPtConfig> {
             kernel_owner.0.value().is_node(),
             !Self::create_user_pt_panic_condition(kernel_owner.0.value().node()),
             // The kernel page table's root frame matches the tracked owner.
-            self.root.ptr.addr() == kernel_owner.0.value().node().meta_vaddr(),
+            self.root.ptr.addr() == kernel_owner.0.value().node().slot_vaddr(),
             // The kernel root entry is sound with respect to the meta regions.
             kernel_owner.0.value().metaregion_sound(*old(regions)),
             // The whole kernel page-table tree is sound: every entry's metaregion
@@ -978,7 +978,7 @@ impl PageTable<KernelPtConfig> {
             // soundness inside the loop body.
             kernel_owner.metaregion_sound(*old(regions)),
             // The kernel root is not currently locked.
-            old(guards).unlocked(kernel_owner.0.value().node().meta_vaddr()),
+            old(guards).unlocked(kernel_owner.0.value().node().slot_vaddr()),
         ensures
             final(regions).inv(),
     )]
@@ -1291,7 +1291,7 @@ impl<C: PageTableConfig> PageTable<C> {
         regions: MetaRegionOwners,
     ) -> bool {
         &&& owner.inv()
-        &&& self.root.ptr.addr() == owner.0.value().node().meta_vaddr()
+        &&& self.root.ptr.addr() == owner.0.value().node().slot_vaddr()
         &&& owner.metaregion_sound(regions)
     }
 
@@ -1316,10 +1316,10 @@ impl<C: PageTableConfig> PageTable<C> {
             final(owner)@->0.inv(),
             (final(owner)@->0).0.value().is_node(),
             (final(owner)@->0).0.value().is_node(),
-            r.root.ptr.addr() == (final(owner)@->0).0.value().node().meta_vaddr(),
+            r.root.ptr.addr() == (final(owner)@->0).0.value().node().slot_vaddr(),
             (final(owner)@->0).0.value().metaregion_sound(*final(regions)),
             final(regions).inv(),
-            final(guards).unlocked((final(owner)@->0).0.value().node().meta_vaddr()),
+            final(guards).unlocked((final(owner)@->0).0.value().node().slot_vaddr()),
             // Allocating a fresh node does not change the lock set, so any node
             // that was (un)locked before remains so.
             final(guards).guards == old(guards).guards,

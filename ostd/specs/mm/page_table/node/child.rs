@@ -17,7 +17,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.ptr.addr() == owner.node().meta_vaddr()
+                &&& node.ptr.addr() == owner.node().slot_vaddr()
                 &&& node.index() == meta_to_index(node.ptr.addr())
                 &&& node.ptr_inv()
             },
@@ -39,7 +39,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.inner@.ptr.addr() == owner.node().meta_vaddr()
+                &&& node.inner@.ptr.addr() == owner.node().slot_vaddr()
                 &&& node.inner@.ptr_inv()
                 &&& node.inner@.external_meta_wf(owner.node().frame_permission.resource(), ())
             },

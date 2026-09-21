@@ -142,7 +142,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 )
                 &&& guards.lock_held(
                     cursor_own.continuations[cursor_own.level - 1]
-                        .entry_own.node().meta_vaddr(),
+                        .entry_own.node().slot_vaddr(),
                 )
             },
     )]
@@ -275,7 +275,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // The subtree root is lock_held in guards.
         r is Some ==> final(guards).lock_held(
             final(cursor_own).continuations[final(cursor_own).level - 1]
-                .entry_own.node().meta_vaddr()),
+                .entry_own.node().slot_vaddr()),
         // regions invariant preserved
         final(regions).inv(),
         // Locking only allocates fresh page-table nodes from UNUSED slots;
@@ -510,16 +510,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         entry_own.is_node(),
         entry_own.inv(),
         entry_own.node().relate_guard(*cur_node),
-        old(guards).lock_held(entry_own.node().meta_vaddr()),
+        old(guards).lock_held(entry_own.node().slot_vaddr()),
         cur_node_va <= va_range.start,
         va_range.start < va_range.end,
         old(regions).inv(),
     ensures
         // The root node is still lock_held (not ManuallyDrop'd by this fn).
-        final(guards).lock_held(entry_own.node().meta_vaddr()),
+        final(guards).lock_held(entry_own.node().slot_vaddr()),
         // All other locks are preserved: addresses not in this subtree are unchanged.
         forall |addr: usize|
-            addr != entry_own.node().meta_vaddr()
+            addr != entry_own.node().slot_vaddr()
             && old(guards).guards.contains(addr) ==>
             #[trigger] final(guards).guards.contains(addr),
         // Addresses not in old guards don't appear in final guards
