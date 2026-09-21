@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Information of memory regions in the boot phase.
-use vstd::prelude::*;
+use vstd::{array::array_len_matches_n, prelude::*};
 use vstd_extra::prelude::*;
 
 use crate::specs::arch::*;
@@ -50,24 +50,26 @@ verus! {
 
 impl MemoryRegion {
     /// Whether inward alignment leaves a nonnegative length.
-    pub closed spec fn can_align(self) -> bool {
-        self.typ == MemoryRegionType::Usable ==> nat_align_up(self.base as nat, PAGE_SIZE as nat)
-            <= nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat)
+    pub open spec fn can_align(self) -> bool {
+        self.typ() == MemoryRegionType::Usable ==> nat_align_up(
+            self.base() as nat,
+            PAGE_SIZE as nat,
+        ) <= nat_align_down((self.base() + self.len()) as nat, PAGE_SIZE as nat)
     }
 
     /// The region with its boundaries rounded according to its usability.
-    pub closed spec fn aligned_region(self) -> Self {
-        let base = if self.typ == MemoryRegionType::Usable {
-            nat_align_up(self.base as nat, PAGE_SIZE as nat)
+    pub open spec fn aligned_region(self) -> Self {
+        let base = if self.typ() == MemoryRegionType::Usable {
+            nat_align_up(self.base() as nat, PAGE_SIZE as nat)
         } else {
-            nat_align_down(self.base as nat, PAGE_SIZE as nat)
+            nat_align_down(self.base() as nat, PAGE_SIZE as nat)
         };
-        let end = if self.typ == MemoryRegionType::Usable {
-            nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat)
+        let end = if self.typ() == MemoryRegionType::Usable {
+            nat_align_down((self.base() + self.len()) as nat, PAGE_SIZE as nat)
         } else {
-            nat_align_up((self.base + self.len) as nat, PAGE_SIZE as nat)
+            nat_align_up((self.base() + self.len()) as nat, PAGE_SIZE as nat)
         };
-        Self { base: base as usize, len: (end - base) as usize, typ: self.typ }
+        Self::new(base as usize, (end - base) as usize, self.typ())
     }
 
     #[verifier::type_invariant]
@@ -97,9 +99,13 @@ impl MemoryRegion {
 impl MemoryRegion {
     /// Constructs a valid memory region.
     #[verus_verify(dual_spec)]
-    #[verus_spec(
+    #[verus_spec(ret =>
         requires
             base + len <= MAX_PADDR,
+        ensures
+            ret.can_align() == (typ != MemoryRegionType::Usable
+                || nat_align_up(base as nat, PAGE_SIZE as nat)
+                    <= nat_align_down((base + len) as nat, PAGE_SIZE as nat)),
         returns
             Self::new(base, len, typ),
     )]
@@ -109,7 +115,10 @@ impl MemoryRegion {
 
     /// Constructs a bad memory region.
     #[verus_verify(dual_spec)]
-    #[verus_spec(returns Self::bad())]
+    #[verus_spec(ret =>
+        ensures ret.can_align(),
+        returns Self::bad(),
+    )]
     pub const fn bad() -> Self {
         MemoryRegion {
             base: 0,
@@ -145,11 +154,12 @@ impl MemoryRegion {
     ///   framebuffer's physical end is at most `MAX_PADDR`.
     /// - Postconditions: the base is preserved, the bit size is rounded up to
     ///   bytes, and the type is `Framebuffer`.
-    #[verus_spec(
+    #[verus_spec(ret =>
         requires
             fb.width * fb.height <= usize::MAX,
             fb.width * fb.height * fb.bpp <= usize::MAX,
             fb.address + (fb.width * fb.height * fb.bpp + 7) / 8 <= MAX_PADDR,
+        ensures ret.can_align(),
         returns
             Self::new(fb.address, ((fb.width * fb.height * fb.bpp + 7) / 8) as usize,
                 MemoryRegionType::Framebuffer),
@@ -175,12 +185,13 @@ impl MemoryRegion {
     ///   physical end is at most `MAX_PADDR`.
     /// - Postconditions: preserves the slice length, translates its base into a
     ///   physical address, and retains the original `Reclaimable` type.
-    #[verus_spec(
+    #[verus_spec(ret =>
         requires
             crate::mm::kspace::LINEAR_MAPPING_BASE_VADDR
                 <= (bytes.as_ptr() as usize) < crate::mm::kspace::VMALLOC_BASE_VADDR,
             (bytes.as_ptr() as usize) - crate::mm::kspace::LINEAR_MAPPING_BASE_VADDR
                 + bytes.len() <= MAX_PADDR,
+        ensures ret.can_align(),
         returns
             Self::new((bytes.as_ptr() as usize
                 - crate::mm::kspace::LINEAR_MAPPING_BASE_VADDR) as usize,
@@ -239,26 +250,14 @@ impl MemoryRegion {
     /// inward for `Usable` regions, outward for the others.
     #[verus_spec(ret =>
         requires
-            self.typ == MemoryRegionType::Usable
-                ==> nat_align_up(self.base as nat, PAGE_SIZE as nat)
-                    <= nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat),
+            self.can_align(),
         ensures
-            ret.typ == self.typ,
             ret.aligned(PAGE_SIZE as int),
-            self.typ == MemoryRegionType::Usable
-                ==> ret.base == nat_align_up(self.base as nat, PAGE_SIZE as nat),
-            self.typ == MemoryRegionType::Usable
-                ==> ret.base + ret.len
-                    == nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat),
-            self.typ != MemoryRegionType::Usable
-                ==> ret.base == nat_align_down(self.base as nat, PAGE_SIZE as nat),
-            self.typ != MemoryRegionType::Usable
-                ==> ret.base + ret.len
-                    == nat_align_up((self.base + self.len) as nat, PAGE_SIZE as nat),
             self.typ == MemoryRegionType::Usable
                 ==> ret.is_sub_region(*self),
             self.typ != MemoryRegionType::Usable
                 ==> self.is_sub_region(ret),
+        returns self.aligned_region(),
     )]
     fn as_aligned(&self) -> Self {
         proof! {
@@ -381,7 +380,8 @@ impl<const LEN: usize> View for MemoryRegionArray<LEN> {
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     #[verus_spec(ret =>
         ensures
-            ret@ == Seq::<MemoryRegion>::empty()
+            ret@ == Seq::<MemoryRegion>::empty(),
+            ret.can_align(),
     )]
     fn default() -> Self {
         Self::new()
@@ -409,6 +409,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     #[verus_spec(ret =>
         ensures
             ret@ == Seq::<MemoryRegion>::empty(),
+            ret.can_align(),
         returns Self::new(),
     )]
     pub const fn new() -> Self {
@@ -483,9 +484,8 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     ///   The original no-interval behavior, one empty `BadMemory` entry, is preserved.
     #[verus_spec(ret =>
         requires
-            LEN > 0,
+            0 < LEN >= 2 * self@.len(),
             self.can_align(),
-            2 * self@.len() <= LEN,
         ensures
             ret@.len() > 0,
             ret@ == seq![MemoryRegion::bad()]
@@ -567,8 +567,9 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             decreases LEN - i,
         )]
         while i < LEN {
+            proof_decl! { let ghost previous = regions.regions@; }
             proof! {
-                vstd::array::array_len_matches_n(&self.regions);
+                array_len_matches_n(&self.regions);
                 assert(self.regions[i as int].can_align());
                 lemma_pow2_is_pow2_to64();
             }
@@ -585,7 +586,9 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
                     &&& regions.regions[j] == self.regions[j].aligned_region()
                     &&& regions.regions[j].end() >= nat_align_down(self.regions[j].end() as nat, PAGE_SIZE as nat)
                 } by {
-                    if j < i {}
+                    if j < i {
+                        assert(previous[j].aligned(PAGE_SIZE as int));
+                    }
                 }
             }
             i += 1;
@@ -883,7 +886,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             }
             proof! {
                 let prefix = result.regions@.subrange(0, merged_count as int);
-                vstd::array::array_len_matches_n(&result.regions);
+                array_len_matches_n(&result.regions);
                 lemma_coalesced_update(previous.subrange(0, old_count as int), prefix);
                 assert(prefix.last().base + prefix.last().len == split[i as int].end());
                 assert forall|j: int| 0 <= j < prefix.len() implies
