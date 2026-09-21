@@ -1,5 +1,3 @@
-use core::{marker::PhantomData, ops::Deref, ops::Range};
-
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 #[cfg(feature = "irc11")]
@@ -12,6 +10,9 @@ use vstd_extra::{
 };
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
+
+use core::{marker::PhantomData, ops::Deref, ops::Range};
+
 use crate::{
     error::Error,
     mm::{

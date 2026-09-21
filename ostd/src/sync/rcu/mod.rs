@@ -17,6 +17,8 @@ use vstd_extra::{
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
+use crate::specs::task::InAtomicMode;
+
 use core::{
     marker::PhantomData, mem::ManuallyDrop, ops::Deref,
     ptr::NonNull,
@@ -40,8 +42,6 @@ use crate::task::{
 
 mod monitor;
 pub mod non_null;
-
-use crate::specs::task::InAtomicMode;
 
 verus! {
 

@@ -102,9 +102,6 @@ use vstd::laws_eq::obeys_eq_spec_properties;
 reveal(obeys_eq_spec_properties);
 ```
 
-Keep new `vstd` and Verus-only imports visibly separate from imports inherited
-from executable Rust when the formatter permits it.
-
 Keep `reveal` and `reveal_with_fuel` minimal. A `reveal` of an `open spec fn`
 still adds unfolding fuel and can be load-bearing, so delete a `reveal` only
 when verification stays green without it; where a non-obvious `reveal` of an
@@ -119,8 +116,33 @@ and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3955173853).
 
 <!-- guideline: group-imports-by-crate -->
 
-Import definitions from the same crate within one `use` group, including when
-the definitions come from different modules in that crate.
+Lay out the import section as verification-added groups above the imports
+inherited from the executable Rust, separated by blank lines:
+
+```rust
+use vstd::{...};
+use vstd_extra::{...};
+
+use crate::specs::{...};
+
+// Imports inherited from the original source, unchanged:
+use ...;
+```
+
+The first group collects the new `vstd` and `vstd_extra` imports (together
+with spec uses of other crates, per the exception below); the second holds
+this file's `crate::specs` model imports (see
+[`right-size-spec-placement`](#right-size-spec-placement)); and the last
+block is the original import list, left unchanged. The blank lines are
+load-bearing: on the pinned stable toolchain the formatter ignores the
+unstable `imports_granularity`/`group_imports` options in `rustfmt.toml` and
+reorders `use`s only within a contiguous run, never across a blank line. Drop
+the blank lines and the whole run is alphabetized, sinking `crate::specs`
+among the original imports and pushing `vstd`/`vstd_extra` to the bottom.
+
+Within each group, import definitions from the same crate in one `use`
+statement, including when the definitions come from different modules in
+that crate.
 
 ```rust
 // Prefer this:
@@ -136,13 +158,12 @@ use vstd::laws_cmp::{
 use vstd::laws_eq::obeys_eq_spec_properties;
 ```
 
-Exception for verification-added spec imports: a newly added `use` that introduces
-spec or proof symbols (spec functions, models, lemmas) stays in the Verus-actor
-import group and is not merged with a pre-existing `use` of the same crate that
-imports executable items; the separation that
-[`organize-proof-imports`](#organize-proof-imports) requires between new proof
-imports and inherited executable imports takes precedence over this rule's merging
-for such pairs.
+Exception for verification-added spec imports: a newly added `use` that
+introduces spec or proof symbols (spec functions, models, lemmas) stays in
+the Verus-actor import group and is not merged with a pre-existing `use` of
+the same crate that imports executable items; the blank-line separation
+between the verification-added groups and the original import list takes
+precedence over this rule's merging for such pairs.
 
 ```rust
 // Added with the proof, spec models of a crate that also has an exec import:
@@ -152,7 +173,8 @@ use ostd_pod::{decode_pod, from_bytes_spec};
 use ostd_pod::Pod;
 ```
 
-See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076).
+See also: PR [#729](https://github.com/asterinas/vostd/pull/729#discussion_r3900385076)
+and [#792](https://github.com/asterinas/vostd/pull/792#issuecomment-5748471711).
 
 ### Bind Option payloads
 
@@ -191,9 +213,16 @@ Preserve upstream API shapes and round-trip conversion directions. Adapt
 ownership with local proof lemmas; do not reverse conversion lemmas, reconstruct
 values, add runtime clones, or change caller-facing APIs merely to ease a proof.
 
+When a constant the specs must mention derives from constructs specs cannot
+see, literalize it and keep the original definition as a comment beside the
+replacement, including the equivalence the literal enables: `const
+BITS_PER_PART: usize = 64;` carries `// Original exec: ... size_of::<InnerPart>() * 8;`
+with the `exec % BITS_PER_PART ↔ spec % 64` note, so the value stays reviewable.
+
 See also: PR [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720382959),
 [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945),
-[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187), and
+[#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4042957946), and
 [#699](https://github.com/asterinas/vostd/pull/699).
 
 ### Name proof roles
@@ -319,6 +348,23 @@ Choose each new struct's mode explicitly and confirm it with verification:
 
 See also: PR [#728](https://github.com/asterinas/vostd/pull/728#discussion_r3893393342).
 
+### Keep internal spec helpers closed
+
+<!-- guideline: keep-internal-spec-helpers-closed -->
+
+Distinguish the API's reasoning surface from helpers that reflect the concrete
+representation. A spec fn consulted only by its own module's proofs — one
+describing a bitset's backing words, say — should remain a `closed spec fn`
+with private visibility; widening it to `pub open` binds callers to the
+representation and invites unfolding outside the module.
+
+Reserve `pub open spec fn` for the model callers reason about in contracts.
+When an outer module genuinely needs a representation fact, export a lemma
+that carries the fact instead of exposing the helper.
+
+See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4044364876)
+and [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4044824466).
+
 ### Document verified APIs
 
 <!-- guideline: document-verified-apis -->
@@ -336,6 +382,23 @@ For public executable APIs, append a `Verified Properties` section containing:
 - `Preconditions`: State caller obligations.
 - `Postconditions`: State return guarantees, including absence of panic if proved.
 
+Omit the section when the verified contract adds nothing beyond the signature
+and the type's own invariant. Two common cases:
+
+- **Field getters** — the spec only fixes the return value to a field or a spec
+  function of it (`returns` / `ret == self.field`); the one-line rustdoc
+  summary ("Gets the end physical address of the contiguous frames.") already
+  says everything the section would.
+- **Invariant-only mutators** — the only `requires`/`ensures` clauses are
+  `inv()` being required and re-established, with no verified functional
+  relationship between `old(self)` and `final(self)`.
+
+In both cases keep the ordinary rustdoc summary — the exemption is from the
+`Verified Properties` block, not from documenting the item. Write the block
+once any clause goes further: a functional postcondition relating `old(self)`
+and `final(self)`, a `Safety` claim, or a guarantee not evident from the
+accessor's body.
+
 The `Preconditions` and `Postconditions` fields apply to executable APIs only.
 Spec and proof functions are erased at runtime; their `requires` and `ensures`
 clauses already state obligations and results formally, so do not add
@@ -352,6 +415,8 @@ See also:
 [`SpinLock`](../../ostd/src/sync/spin.rs#L18),
 [`AlignExt`](../../ostd/libs/align_ext/src/lib.rs#L98), and
 [`entails_and_temp_reverse`](../../verified_libs/vstd_extra/src/temporal_logic/rules.rs#L793).
+An omitted block for a field getter:
+[`Segment::start_paddr`](../../ostd/src/mm/frame/segment.rs#L507).
 
 ### Narrow lint suppressions
 
@@ -407,3 +472,43 @@ how the attribute resolves the callee.
 
 See also: PR [#673](https://github.com/asterinas/vostd/pull/673#discussion_r3662337926)
 and [#673](https://github.com/asterinas/vostd/pull/673#discussion_r3662532282).
+
+### Pair exec helpers with their spec models
+
+<!-- guideline: pair-exec-helpers-with-spec-models -->
+
+Keep an executable helper and its model attached instead of duplicating the
+formula independently in each mode. Prefer the lightest mechanism that keeps
+both modes honest:
+
+- `#[verus_verify(dual_spec)]` when the body is already a spec-compatible
+  expression — one definition serves both modes (`paddr_to_vaddr`,
+  `MemoryRegion::new`). Write its `#[verus_spec]` self-referentially
+  (`returns f(args)`), or exec call sites get no model facts; `dual_spec,
+  open` requires the function to be `pub` (bare `dual_spec` stays
+  module-visible like `closed`).
+- Otherwise pair the exec function with a spec twin that carries the faithful
+  definition, bound by `#[verus_spec(returns twin(...))]`: `part_idx`'s body
+  calls `CpuId::as_usize()`, which spec mode cannot, so `part_idx_spec(i: int)`
+  holds the formula.
+- Add `#[verifier::when_used_as_spec(twin)]` when the twin's signature
+  matches, and spec mode can call the helper by its exec name
+  (`parts_for_cpus`, `sub_ptr::to_repr`).
+
+Keep a spec fn with different argument types when the truthful model requires
+a shape the exec helper cannot offer:
+
+- plain integer views, such as `bit_idx_spec` taking an `int` so proofs can
+  also address padding bits outside the valid CPU range;
+- total arithmetic replacing panicking executable operations, such as a
+  ceiling-division `parts_for_cpus_spec` instead of calling `usize::div_ceil`,
+  whose contract carries preconditions and panic behavior.
+
+Forcing such a helper into spec mode through `when_used_as_spec` would import
+the panicking operation's obligations into every spec call, or require
+re-signing the executable function, which
+[`preserve-exec-code`](#preserve-exec-code) rules out.
+
+See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032758336),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035293382),
+and [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035681677).

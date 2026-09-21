@@ -27,7 +27,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`use-returns-for-exact-results`](maintainability.md#use-returns-for-exact-results) — express exact return values with `returns` and remove unused return binders.
 - [`avoid-redundant-as-int-casts`](maintainability.md#avoid-redundant-as-int-casts) — drop `as int` where Verus auto-coerces comparisons and arithmetic, but keep it at spec `int` parameters and standalone `/` divisors.
 - [`organize-proof-imports`](maintainability.md#organize-proof-imports) — import proof symbols concisely while keeping proof-only dependencies visible and `reveal` calls minimal.
-- [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — combine definitions imported from the same crate into one `use` group, except verification-added spec imports, which stay separate from inherited exec imports of that crate.
+- [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — stack verification-added imports (`vstd`/`vstd_extra`, then `crate::specs`) above the original import list in blank-line-separated groups the formatter cannot cross, combine same-crate definitions into one `use`, and keep verification-added spec imports separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
@@ -36,11 +36,13 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`defer-auxiliary-proof-functions`](maintainability.md#defer-auxiliary-proof-functions) — keep APIs and critical proofs first; move private auxiliary proof functions to a trailing block at the end of the file.
 - [`avoid-redundant-mode-markers`](maintainability.md#avoid-redundant-mode-markers) — do not add `ghost` or `tracked` markers where the enclosing mode already determines the value's role.
 - [`prefer-ghost-model-structs`](maintainability.md#prefer-ghost-model-structs) — actively use `ghost struct` for newly added specification- and proof-only types.
-- [`document-verified-apis`](maintainability.md#document-verified-apis) — document public verified APIs: a `Verified Properties` block for executable code; one-sentence summaries for spec and proof functions.
+- [`keep-internal-spec-helpers-closed`](maintainability.md#keep-internal-spec-helpers-closed) — keep representation-reflecting spec helpers closed and private; reserve `pub open` for the model callers reason about.
+- [`document-verified-apis`](maintainability.md#document-verified-apis) — document public verified APIs: a `Verified Properties` block for executable code and one-sentence summaries for spec and proof functions, omitting the block for trivial contracts (field getters, invariant-only mutators).
 - [`narrow-lint-suppressions`](maintainability.md#narrow-lint-suppressions) — suppress a lint only at the smallest scope that requires it.
 - [`right-size-spec-placement`](maintainability.md#right-size-spec-placement) — keep small local models near their implementation unless they form a reusable subsystem.
 - [`document-real-proof-debt`](maintainability.md#document-real-proof-debt) — keep proof comments tied to real source constraints and mark unresolved boundaries explicitly.
 - [`qualified-verus-spec-calls`](maintainability.md#qualified-verus-spec-calls) — use qualified paths where `#[verus_spec]` attaches a specification to a call.
+- [`pair-exec-helpers-with-spec-models`](maintainability.md#pair-exec-helpers-with-spec-models) — prefer `dual_spec` when one definition serves both modes; otherwise bind an exec helper to a spec twin via `#[verus_spec(returns ...)]` and, when the signature matches, `when_used_as_spec`; keep differently-shaped spec fns where the faithful model needs `int` views or total arithmetic.
 
 ### Workflow
 

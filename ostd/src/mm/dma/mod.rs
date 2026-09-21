@@ -1,11 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-mod dma_coherent;
-pub use dma_coherent::DmaCoherent;
-mod dma_stream;
-#[cfg(ktest)]
-mod test;
-
-use alloc::collections::BTreeSet;
 use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
@@ -15,7 +8,14 @@ use vstd_extra::{
     resource_invariant::{SimpleResourceInvariant, TrivialResourceInvariant},
 };
 
+mod dma_coherent;
+pub use dma_coherent::DmaCoherent;
+mod dma_stream;
+#[cfg(ktest)]
+mod test;
+
 use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
+use alloc::collections::BTreeSet;
 
 use super::Paddr;
 

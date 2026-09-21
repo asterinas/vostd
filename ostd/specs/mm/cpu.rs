@@ -1,5 +1,6 @@
-use crate::cpu::CpuSet;
 use vstd::prelude::*;
+
+use crate::cpu::CpuSet;
 
 verus! {
 

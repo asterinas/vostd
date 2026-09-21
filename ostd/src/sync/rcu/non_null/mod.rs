@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides a trait and some auxiliary types to help abstract and
 //! work with non-null pointers.
-use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd_extra::prelude::*;
+
+use alloc::{boxed::Box, sync::Arc};
 
 mod either;
 

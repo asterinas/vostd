@@ -52,13 +52,6 @@ pub use frame_ref::FrameRef;
 #[cfg(ktest)]
 mod test;
 
-use core::{
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-
-//pub use allocator::GlobalFrameAllocator;
 use crate::specs::{
     arch::*,
     mm::frame::{
@@ -69,6 +62,13 @@ use crate::specs::{
     },
 };
 
+use core::{
+    marker::PhantomData,
+    mem::ManuallyDrop,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+//pub use allocator::GlobalFrameAllocator;
 use super::PagingLevel;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::page_table::RCClone;
