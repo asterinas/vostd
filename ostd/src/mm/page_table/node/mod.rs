@@ -244,22 +244,22 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
-            res.ptr.addr() == owner@.value().node().meta_vaddr(),
+            res.ptr.addr() == owner@.value().node().slot_vaddr(),
             res.inv(),
             res.wf_with_region(*final(regions)),
-            guards.unlocked(owner@.value().node().meta_vaddr()),
-            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
-            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
+            guards.unlocked(owner@.value().node().slot_vaddr()),
+            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().slot_vaddr()), *old(regions), *final(regions)),
+            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().slot_vaddr()), *old(regions), *final(regions)),
 
-            old(regions).contains(meta_to_index(owner@.value().node().meta_vaddr())),
+            old(regions).contains(meta_to_index(owner@.value().node().slot_vaddr())),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value().node().meta_vaddr())),
+                meta_to_frame(owner@.value().node().slot_vaddr())),
             owner@.value().metaregion_sound(*final(regions)),
             forall|i: int|
                 #[trigger] old(regions).ref_count(i) != REF_COUNT_UNUSED
-                ==> i != meta_to_index(owner@.value().node().meta_vaddr()),
-            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
+                ==> i != meta_to_index(owner@.value().node().slot_vaddr()),
+            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
             final(parent_owner).frame_permission == old(parent_owner).frame_permission,
             final(parent_owner).slot_index == old(parent_owner).slot_index,
@@ -268,7 +268,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).children_perm.addr() == old(parent_owner).children_perm.addr(),
             final(parent_owner).children_perm.value() == old(parent_owner).children_perm.value().update(
                 idx as int,
-                C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())),
+                C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())),
             ),
             final(regions).contains(owner@.value().node().slot_index),
             owner@.value().node().metaregion_sound_node(*final(regions)),
@@ -375,10 +375,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         requires
             self.inner@.invariants(*owner),
             self.inner@.external_meta_wf(owner.frame_permission.resource(), ()),
-            old(guards).unlocked(owner.meta_vaddr()),
+            old(guards).unlocked(owner.slot_vaddr()),
         ensures
-            final(guards).lock_held(owner.meta_vaddr()),
-            Self::locks_preserved_except(owner.meta_vaddr(), *old(guards), *final(guards)),
+            final(guards).lock_held(owner.slot_vaddr()),
+            Self::locks_preserved_except(owner.slot_vaddr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
     pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
@@ -401,10 +401,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         requires
             self.inner@.invariants(*owner),
             self.inner@.external_meta_wf(owner.frame_permission.resource(), ()),
-            old(guards).unlocked(owner.meta_vaddr()),
+            old(guards).unlocked(owner.slot_vaddr()),
         ensures
-            final(guards).lock_held(owner.meta_vaddr()),
-            Self::locks_preserved_except(owner.meta_vaddr(), *old(guards), *final(guards)),
+            final(guards).lock_held(owner.slot_vaddr()),
+            Self::locks_preserved_except(owner.slot_vaddr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
     pub unsafe fn make_guard_unchecked<'rcu, A: InAtomicMode>(
@@ -414,7 +414,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         let guard = PageTableGuard { inner: self };
 
         proof {
-            guards.guards = guards.guards.insert(owner.meta_vaddr());
+            guards.guards = guards.guards.insert(owner.slot_vaddr());
         }
 
         guard

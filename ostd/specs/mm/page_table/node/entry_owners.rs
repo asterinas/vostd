@@ -376,7 +376,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
         &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
-            &&& meta_to_frame(self.node().meta_vaddr()) == pte.paddr()
+            &&& meta_to_frame(self.node().slot_vaddr()) == pte.paddr()
         }
         &&& pte.is_present() && pte.is_last(parent_level) ==> {
             &&& self.is_frame()
@@ -575,7 +575,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.ref_count(idx) != REF_COUNT_UNUSED
             &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
-            &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_vaddr()
+            &&& regions.slot_owners[idx].slot_vaddr == self.node().slot_vaddr()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
@@ -631,7 +631,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {
-            Some(meta_to_frame(self.node().meta_vaddr()))
+            Some(meta_to_frame(self.node().slot_vaddr()))
         } else if self.is_frame() {
             Some(self.frame().mapped_pa)
         } else {
@@ -983,10 +983,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             ).paths_in_pt == set![other.path],
             self.path != other.path,
         ensures
-            self.node().meta_vaddr() != other.node().meta_vaddr(),
+            self.node().slot_vaddr() != other.node().slot_vaddr(),
     {
-        let slot_vaddr = self.node().meta_vaddr();
-        let other_addr = other.node().meta_vaddr();
+        let slot_vaddr = self.node().slot_vaddr();
+        let other_addr = other.node().slot_vaddr();
         let self_idx = meta_to_index(slot_vaddr);
         let other_idx = meta_to_index(other_addr);
 

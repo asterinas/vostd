@@ -17,7 +17,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.ptr.addr() == owner.node().meta_vaddr()
+                &&& node.ptr.addr() == owner.node().slot_vaddr()
                 &&& node.index() == meta_to_index(node.ptr.addr())
                 &&& node.ptr_inv()
             },
@@ -39,7 +39,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.inner@.ptr.addr() == owner.node().meta_vaddr()
+                &&& node.inner@.ptr.addr() == owner.node().slot_vaddr()
                 &&& node.inner@.ptr_inv()
                 &&& node.inner@.external_meta_wf(owner.node().frame_permission.resource(), ())
             },
@@ -54,29 +54,6 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
 }
 
 impl<C: PageTableConfig> Child<C> {
-    pub open spec fn get_node(self) -> Option<PageTableNode<C>> {
-        match self {
-            Self::PageTable(node) => Some(node),
-            _ => None,
-        }
-    }
-
-    pub open spec fn get_frame_tuple(self) -> Option<(Paddr, PagingLevel, PageProperty)> {
-        match self {
-            Self::Frame(paddr, level, prop) => Some((paddr, level, prop)),
-            _ => None,
-        }
-    }
-
-    pub open spec fn into_pte_frame_spec(self, tuple: (Paddr, PagingLevel, PageProperty)) -> C::E {
-        let (paddr, level, prop) = tuple;
-        C::E::new_page_spec(paddr, level, prop)
-    }
-
-    pub open spec fn into_pte_none_spec(self) -> C::E {
-        C::E::new_absent_spec()
-    }
-
     pub open spec fn from_pte_spec(
         pte: C::E,
         level: PagingLevel,
@@ -95,20 +72,6 @@ impl<C: PageTableConfig> Child<C> {
                 ),
             )
         }
-    }
-
-    pub open spec fn from_pte_frame_spec(pte: C::E, level: PagingLevel) -> Self {
-        Self::Frame(pte.paddr(), level, pte.prop())
-    }
-
-    pub open spec fn from_pte_pt_spec(paddr: Paddr, regions: MetaRegionOwners) -> Self {
-        Self::PageTable(
-            PageTableNode::from_raw_spec(
-                paddr,
-                regions.slots[crate::specs::mm::frame::mapping::frame_to_index(paddr)],
-                None,
-            ),
-        )
     }
 
     pub open spec fn invariants(self, owner: EntryOwner<C>, regions: MetaRegionOwners) -> bool {
