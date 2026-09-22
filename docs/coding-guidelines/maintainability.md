@@ -128,10 +128,12 @@ The formatter lags the language: `verusfmt` parses the forms with an explicit
 start index (`s[i..j]`, `s[i..=j]`, `s[i..]`), but fails on the start-open
 forms `s[..j]`, `s[..=j]`, and `s[..]` (verified on 0.7.3, the binary
 `cargo dv fmt` runs), and a parse failure skips the whole file — the reason
-vstd shields its own `seq.rs` with `verus_skip_verusfmt!`. Prefer the
-explicit-zero forms `s[0..j]` and `s[0..=j]` when they read equally well, write
-`s` instead of `s[..]`, and keep the faithful expression rather than rewriting
-a spec to appease the formatter.
+vstd shields its own `seq.rs` with `verus_skip_verusfmt!`; a minimal
+reproduction is
+[`verusfmt-start-open-parse.rs`](../../docs/poc/verusfmt-start-open-parse.rs).
+Do not consider `verusfmt` when choosing among the forms: write the direct
+equivalent (`s[..n]` for `take(n)`, `s[n..]` for `skip(n)`, and `s` instead of
+`s[..]`), and do not rewrite a spec to appease the formatter.
 
 See also: the range index operators in
 [`vstd::seq`](../../tools/verus/source/vstd/seq.rs#L986).
