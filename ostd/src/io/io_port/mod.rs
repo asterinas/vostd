@@ -34,6 +34,7 @@ broadcast use crate::arch::device::io_port::group_io_port_models;
 pub struct IoPort<T, A> {
     port: u16,
     is_overlapping: bool,
+    tracked_claim: Option<Tracked<GhostSubset<usize>>>,
     value_marker: PhantomData<T>,
     access_marker: PhantomData<A>,
 }
@@ -52,7 +53,24 @@ impl<T, A> IoPort<T, A> {
     /// The complete byte range occupied by this typed port lies in the x86 PIO address space.
     #[verifier::type_invariant]
     pub open spec fn type_inv(&self) -> bool {
-        valid_io_port_access::<T>(self@)
+        &&& valid_io_port_access::<T>(self@)
+        &&& self@ + size_of::<T>() <= u16::MAX
+        &&& self.is_overlapping() ==> self@ + 1 <= u16::MAX
+        &&& self.allocator_claim_inv()
+    }
+
+    /// Whether this port owns a claim minted by the allocator.
+    pub closed spec fn is_allocated(&self) -> bool {
+        self.tracked_claim is Some
+    }
+
+    /// The invariant relating the runtime allocation marker to its tracked claim.
+    pub closed spec fn allocator_claim_inv(&self) -> bool {
+        self.tracked_claim matches Some(claim) ==> {
+            &&& allocator::io_port_allocator_initialized()
+            &&& self.claim_matches_set(claim@@)
+            &&& claim@.id() == allocator::io_port_allocator_instance_id()
+        }
     }
 
     /// Whether the port was acquired as overlapping: it occupies only its first port.
@@ -98,76 +116,48 @@ impl<T, A> IoPort<T, A> {
     ///
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
-        with
-            -> claim: Tracked<Option<GhostSubset<usize>>>,
         requires
             size_of::<T>() <= u16::MAX,
             port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
-            result is Ok <==> claim@ is Some,
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
-                &&& claim@ matches Some(claim_tok)
-                    && io_port.claim_matches_set(claim_tok@)
-                    && claim_tok.id() == allocator::io_port_allocator_instance_id()
+                &&& io_port.is_allocated()
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
-        proof_decl! {
-            let tracked mut claim: Tracked<Option<GhostSubset<usize>>> = Tracked(None);
-        }
         let port = {
             /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
-            #[verus_spec(with Tracked(&mut claim))]
             initialized_allocator().acquire(port, false)
         };
-        let result = port.ok_or(Error::AccessDenied);
-        proof_decl! {
-            let tracked claim_val: Option<GhostSubset<usize>> = claim.get();
-        }
-        proof_with!(|= Tracked(claim_val));
-        result
+        port.ok_or(Error::AccessDenied)
     }
 
     /// Acquires an `IoPort` instance that may overlap with other `IoPort`s.
     ///
     /// This method will only mark the first port in the PIO range as occupied.
     #[verus_spec(result =>
-        with
-            -> claim: Tracked<Option<GhostSubset<usize>>>,
         requires
             size_of::<T>() <= u16::MAX,
             port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
-            result is Ok <==> claim@ is Some,
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
-                &&& claim@ matches Some(claim_tok)
-                    && io_port.claim_matches_set(claim_tok@)
-                    && claim_tok.id() == allocator::io_port_allocator_instance_id()
+                &&& io_port.is_allocated()
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {
-        proof_decl! {
-            let tracked mut claim: Tracked<Option<GhostSubset<usize>>> = Tracked(None);
-        }
         let port = {
             /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
-            #[verus_spec(with Tracked(&mut claim))]
             initialized_allocator().acquire(port, true)
         };
-        let result = port.ok_or(Error::AccessDenied);
-        proof_decl! {
-            let tracked claim_val: Option<GhostSubset<usize>> = claim.get();
-        }
-        proof_with!(|= Tracked(claim_val));
-        result
+        port.ok_or(Error::AccessDenied)
     }
 
     /// Returns the port number.
@@ -198,7 +188,10 @@ impl<T, A> IoPort<T, A> {
     )]
     pub(crate) const unsafe fn new(port: u16) -> Self {
         // SAFETY: The safety is upheld by the caller.
-        unsafe { Self::new_overlapping(port, false) }
+        /* The optional claim distinguishes statically reserved ports from allocator-owned ports.
+         * Origin Rust: unsafe { Self::new_overlapping(port, false) }
+         */
+        unsafe { Self::new_overlapping(port, false, None) }
     }
 
     /// Creates an I/O port.
@@ -214,40 +207,70 @@ impl<T, A> IoPort<T, A> {
         requires
             size_of::<T>() <= u16::MAX,
             port + size_of::<T>() <= u16::MAX,
+            is_overlapping ==> port + 1 <= u16::MAX,
             valid_io_port_access::<T>(port),
+            tracked_claim matches Some(claim) ==> {
+                &&& allocator::io_port_allocator_initialized()
+                &&& claim@.id() == allocator::io_port_allocator_instance_id()
+                &&& claim@@ == Set::<usize>::range(
+                    port as usize,
+                    if is_overlapping {
+                        (port as usize + 1) as usize
+                    } else {
+                        (port as usize + size_of::<T>()) as usize
+                    },
+                )
+            },
         ensures
             ret@ == port,
             ret.is_overlapping() == is_overlapping,
+            ret.is_allocated() == (tracked_claim is Some),
     )]
-    const unsafe fn new_overlapping(port: u16, is_overlapping: bool) -> Self {
+    const unsafe fn new_overlapping(
+        port: u16,
+        is_overlapping: bool,
+        tracked_claim: Option<Tracked<GhostSubset<usize>>>,
+    ) -> Self {
         Self {
             port,
             is_overlapping,
+            tracked_claim,
             value_marker: PhantomData,
             access_marker: PhantomData,
         }
     }
 
-    /// Releases the allocator claim for this port.
-    ///
-    /// VERUS LIMITATION: this is called explicitly because Verus does not yet support proving
-    /// the standard `Drop` implementation below.
-    #[verus_spec(
-        with
-            Tracked(claim): Tracked<GhostSubset<usize>>,
-        requires
-            allocator::io_port_allocator_initialized(),
-            claim.id() == allocator::io_port_allocator_instance_id(),
-            self.claim_matches_set(claim@),
-            self@
-                + (if self.is_overlapping() { 1 } else { size_of::<T>() }) <= u16::MAX,
-    )]
+    /// Releases this port's allocator claim, if it was dynamically acquired.
+    /* VERUS LIMITATION: Verus cannot verify a lock-taking `Drop` implementation under
+     * `opens_invariants none`.
+     * Origin Rust:
+     * impl<T, A> Drop for IoPort<T, A> {
+     *     fn drop(&mut self) {
+     *         let range = if !self.is_overlapping {
+     *             self.port..(self.port + size_of::<T>() as u16)
+     *         } else {
+     *             self.port..(self.port + 1)
+     *         };
+     *
+     *         // SAFETY: We have ownership of the PIO region.
+     *         unsafe { allocator::IO_PORT_ALLOCATOR.get().unwrap().recycle(range) };
+     *     }
+    * }
+     */
     pub fn drop(self) {
+        proof! { use_type_invariant(&self); }
+        let Some(claim) = self.tracked_claim else {
+            return;
+        };
         let range = if self.is_overlapping {
             self.port..(self.port + 1)
         } else {
             self.port..(self.port + size_of::<T>() as u16)
         };
+
+        proof_decl! {
+            let tracked claim = claim.get();
+        }
         unsafe {
             #[verus_spec(with Tracked(claim))]
             initialized_allocator().recycle(range);
@@ -274,19 +297,6 @@ impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
         unsafe { PortWrite::write_to_port(self.port, value) }
     }
 }
-
-/* impl<T, A> Drop for IoPort<T, A> {
-    fn drop(&mut self) {
-        let range = if !self.is_overlapping {
-            self.port..(self.port + size_of::<T>() as u16)
-        } else {
-            self.port..(self.port + 1)
-        };
-
-        // SAFETY: We have ownership of the PIO region.
-        unsafe { allocator::IO_PORT_ALLOCATOR.get().unwrap().recycle(range) };
-    }
-} */
 
 /// Reserves an I/O port range which may refer to the port I/O range used by the
 /// system device driver.
