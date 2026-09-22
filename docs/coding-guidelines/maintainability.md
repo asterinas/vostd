@@ -80,13 +80,61 @@ still needs it:
 - A `usize`/`nat` argument to a spec function's `int` parameter. The call site
   inserts no coercion, so `Seq::subrange(0, new_len)` and
   `Seq::subrange(0, seq.len())` need `new_len as int` and `seq.len() as int`
-  (`Seq::len` returns `nat`; `subrange`'s bounds are `int`).
+  (`Seq::len` returns `nat`; `subrange`'s bounds are `int`). The
+  [`seq-range-slicing`](#seq-range-slicing) sugar takes these endpoint types
+  directly and avoids the cast.
 - A standalone `/` divisor: once the dividend is `int`, `/` expects an `int`
   divisor, so write `(self_ + rhs - 1) / (rhs as int)`, not `/ rhs`.
 - A narrowing cast whose target may not hold the value (e.g. `as usize` from a
   sequence's `nat` length), where the cast is the point of the expression.
 
 See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023112584).
+
+### Seq range slicing
+
+<!-- guideline: seq-range-slicing -->
+
+Spec expressions over a `Seq` (or a view, e.g. `bytes@`) support Rust
+range-slicing sugar instead of the `subrange`/`take`/`skip` method calls. The
+desugaring functions are `#[verifier::inline]` and defined in
+`source/vstd/seq.rs`:
+
+| Sugar      | Meaning                               |
+| ---------- | ------------------------------------- |
+| `s[i..j]`  | `s.subrange(i, j)`                    |
+| `s[..j]`   | `s.subrange(0, j)` (via `take`)       |
+| `s[i..]`   | `s.subrange(i, s.len())` (via `skip`) |
+| `s[i..=j]` | `s.subrange(i, j + 1)`                |
+| `s[..=j]`  | `s.subrange(0, j + 1)` (via `take`)   |
+| `s[..]`    | `s`                                   |
+
+The endpoints accept any type implementing Verus's `Integer` trait (`int`,
+`nat`, `usize`, `u64`, ...), so no `as int` cast is needed, unlike the
+method-call forms whose parameters are `int`:
+
+```rust
+requires
+    valid_utf8(bytes@[size_of::<AnddHeader>()..]),
+ensures
+    ret.header_spec() == decode_pod::<Header>(bytes@[..size_of::<Header>()]),
+```
+
+Prefer the sugar over `.subrange(a, b)`, `.take(n)`, and `.skip(n)` in specs,
+contracts, invariants, and assertions. Converting an existing call to the
+equivalent sugar is proof-neutral: the desugaring is inlined and definitionally
+equal to the call, so the SMT-level expression is unchanged.
+
+The formatter lags the language: `verusfmt` parses the forms with an explicit
+start index (`s[i..j]`, `s[i..=j]`, `s[i..]`), but fails on the start-open
+forms `s[..j]`, `s[..=j]`, and `s[..]` (verified on 0.7.3, the binary
+`cargo dv fmt` runs), and a parse failure skips the whole file — the reason
+vstd shields its own `seq.rs` with `verus_skip_verusfmt!`. Prefer the
+explicit-zero forms `s[0..j]` and `s[0..=j]` when they read equally well, write
+`s` instead of `s[..]`, and keep the faithful expression rather than rewriting
+a spec to appease the formatter.
+
+See also: the range index operators in
+[`vstd::seq`](../../tools/verus/source/vstd/seq.rs#L986).
 
 ### Organize proof imports
 
