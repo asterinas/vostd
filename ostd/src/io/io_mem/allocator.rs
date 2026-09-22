@@ -178,35 +178,20 @@ impl IoMemAllocatorBuilder {
             io_mem_range_registered(range),
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
-        /* Formatting machinery used by the original panic is not modeled by Verus.
-        Original Rust:
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
-            panic!(
+            vstd_extra::panic!(
                 "Allocator for the system device's MMIO was not found. Range: {:x?}",
                 range
             );
         };
 
         if let Err(err) = allocator.alloc_specific(&range) {
-            panic!(
+            vstd_extra::panic!(
                 "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
-                range, err
+                range,
+                err
             );
         }
-        */
-        let allocator = find_allocator(&self.allocators, &range);
-        vstd_extra::assert!(allocator.is_some());
-        let allocator = allocator.unwrap();
-        proof! {
-            use_type_invariant(self);
-            lemma_found_window_contains(&self.allocators, &range, allocator);
-        }
-        proof_decl! {
-            let tracked initialized: OneShotSet;
-        }
-        let result = #[verus_spec(with => Tracked(initialized))]
-        allocator.alloc_specific(&range);
-        vstd_extra::assert!(result.is_ok());
     }
 }
 
@@ -318,6 +303,9 @@ pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
             <= range.start && range.end <= registered_io_mem_windows()[m].end
 }
 
+/// Whether the global I/O memory allocator has been initialized.
+pub uninterp spec fn io_mem_allocator_initialized() -> bool;
+
 pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialResourceInvariant>
     ensures
         IO_MEM_ALLOCATOR.wf(),
@@ -332,7 +320,11 @@ pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialResourceInvari
 ///
 /// User must ensure all the memory I/O regions that belong to the system device have been removed by calling the
 /// `remove` function.
-#[verus_verify]
+#[verifier::external_body]
+#[verus_spec(
+    ensures
+        io_mem_allocator_initialized(),
+)]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     proof! {
         use_type_invariant(&io_mem_builder);

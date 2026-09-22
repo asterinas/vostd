@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
 use vstd::{arithmetic::power2::is_pow2, prelude::*};
-use vstd_extra::panic::UnwrapOrPanic;
 
 use crate::specs::{
     arch::PAGE_SIZE,
@@ -16,7 +15,7 @@ use core::ops::{Deref, Range};
 use align_ext::AlignExt;
 
 pub(crate) use self::allocator::IoMemAllocatorBuilder;
-pub(super) use self::allocator::init;
+pub(super) use self::allocator::{init, io_mem_allocator_initialized};
 use crate::{
     Error,
     mm::{
@@ -61,11 +60,12 @@ impl HasPaddr for IoMem {
 #[verus_verify]
 impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
+    #[verifier::external_body]
     #[verus_spec(result =>
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             allocator::io_mem_range_registered(range),
-            vstd_extra::panic::may_panic(),
+            allocator::io_mem_allocator_initialized(),
         ensures
             result matches Ok(io_mem) ==> {
                 &&& io_mem.paddr() == range.start
@@ -75,8 +75,7 @@ impl IoMem {
     pub fn acquire(range: Range<Paddr>) -> Result<IoMem> {
         allocator::IO_MEM_ALLOCATOR
             .get()
-            /* .unwrap() */
-            .unwrap_or_panic()
+            .unwrap()
             .acquire(range)
             .ok_or(Error::AccessDenied)
     }

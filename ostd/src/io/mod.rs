@@ -37,7 +37,10 @@ cfg_if!(
 ///
 /// 3. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to
 ///    exceed the maximum value specified by architecture.
-#[verus_verify]
+#[verus_spec(
+    ensures
+        io_mem::io_mem_allocator_initialized(),
+)]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
     unsafe { io_mem::init(io_mem_builder) };

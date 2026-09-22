@@ -20,7 +20,7 @@ exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0
 const BIT32_ALIGN_MASK: u32 = 0xFFFC;
 
 #[verus_verify]
-#[verus_spec(result => ensures result is Ok)]
+#[verus_spec(returns Ok::<(), crate::Error>(()))]
 pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> Result<()> {
     PCI_ADDRESS_PORT.write(encode_as_port(location) | (offset & BIT32_ALIGN_MASK));
     PCI_DATA_PORT.write(value.to_le());
