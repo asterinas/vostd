@@ -16,12 +16,12 @@ use crate::specs::{
 
 use super::*;
 use crate::mm::{
-    Paddr,
     frame::{
-        AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrame,
         meta::{META_SLOT_SIZE, REF_COUNT_UNIQUE},
+        AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrame,
     },
     kspace::FRAME_METADATA_RANGE,
+    Paddr,
 };
 use core::marker::PhantomData;
 

@@ -3,7 +3,7 @@ use vstd_extra::ownership::*;
 
 use crate::specs::mm::{cpu::*, page_table::*};
 
-use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
+use crate::mm::{tlb::TlbFlushOp, Paddr, Vaddr};
 
 verus! {
 

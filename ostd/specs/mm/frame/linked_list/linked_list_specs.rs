@@ -3,8 +3,8 @@ use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 
 use super::linked_list_owners::*;
 use crate::mm::{
-    Paddr, PagingLevel, Vaddr,
     frame::{linked_list::Link, *},
+    Paddr, PagingLevel, Vaddr,
 };
 
 verus! {
