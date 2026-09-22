@@ -257,6 +257,40 @@ constants, methods, or modules. If Verus requires an executable change, keep it
 minimal, demonstrate unchanged runtime behavior, and show the original form in
 review.
 
+When verification does add, remove, or rewrite executable Rust relative to the
+original source, mark the modification with one block comment immediately
+before the modified code — at the original location for a pure removal with no
+replacement. The comment contains, in this order: a brief, concrete reason the
+executable code must differ, naming the Verus or vstd limitation when there is
+one instead of a vague "needed for verification"; and the original code,
+introduced by the exact label `Origin Rust:`, preserved accurately enough to
+compare control flow, calls, arguments, operators, and side effects:
+
+```rust
+/* `Iterator::sum` has no model in the active vstd, so use an indexed loop with a
+ * prefix-sum invariant while preserving the same word order and arithmetic.
+ * Origin Rust: self.bits
+ *     .iter()
+ *     .map(|part| part.count_ones() as usize)
+ *     .sum()
+ */
+```
+
+Continue a multi-line original on the following `*` lines; a one-line original
+stays on the label line. One comment covers one contiguous modified block, and
+neither a distant comment nor Git history substitutes for it. For executable
+code with no corresponding original statement, write `Origin Rust: <none; new
+executable code>`. Changes confined to `spec`, `proof`, ghost/tracked state,
+Verus attributes, or comments carry no marker. (The literalized constant below
+keeps its original on adjacent line comments — the single-line form of the same
+practice.)
+
+In review, treat a modification as noncompliant when its comment is missing,
+not immediately adjacent, not a block comment, omits the reason or the `Origin
+Rust:` label, puts the original before the reason, or does not faithfully
+represent the original. A compliant comment records why the executable code
+must differ; whether runtime behavior is preserved is reviewed separately.
+
 Preserve upstream API shapes and round-trip conversion directions. Adapt
 ownership with local proof lemmas; do not reverse conversion lemmas, reconstruct
 values, add runtime clones, or change caller-facing APIs merely to ease a proof.
@@ -270,8 +304,12 @@ with the `exec % BITS_PER_PART ↔ spec % 64` note, so the value stays reviewabl
 See also: PR [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720382959),
 [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3720371945),
 [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3664166187),
-[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4042957946), and
-[#699](https://github.com/asterinas/vostd/pull/699).
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4042957946),
+[#699](https://github.com/asterinas/vostd/pull/699), and the live `Origin Rust:`
+markers in [`CpuSet::count`](../../ostd/src/cpu/set.rs#L229),
+[`is_empty`](../../ostd/src/cpu/set.rs#L272),
+[`is_full`](../../ostd/src/cpu/set.rs#L313), and
+[`iter`](../../ostd/src/cpu/set.rs#L408).
 
 ### Name proof roles
 

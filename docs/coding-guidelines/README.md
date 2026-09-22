@@ -30,7 +30,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`organize-proof-imports`](maintainability.md#organize-proof-imports) — import proof symbols concisely while keeping proof-only dependencies visible and `reveal` calls minimal.
 - [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — stack verification-added imports (`vstd`/`vstd_extra`, then `crate::specs`) above the original import list in blank-line-separated groups the formatter cannot cross, combine same-crate definitions into one `use`, and keep verification-added spec imports separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
-- [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
+- [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs, and mark any executable rewrite with a block comment carrying the divergence reason plus the `Origin Rust:` original.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
 - [`avoid-unused-spec-helpers`](maintainability.md#avoid-unused-spec-helpers) — add spec and proof helpers only for a current caller or a documented abstraction boundary.
 - [`inline-single-use-proof-helpers`](maintainability.md#inline-single-use-proof-helpers) — keep one-off proof steps in their caller instead of adding module-level or associated helpers with a single call site.
