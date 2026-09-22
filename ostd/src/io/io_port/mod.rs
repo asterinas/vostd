@@ -255,7 +255,7 @@ impl<T, A> IoPort<T, A> {
      *         // SAFETY: We have ownership of the PIO region.
      *         unsafe { allocator::IO_PORT_ALLOCATOR.get().unwrap().recycle(range) };
      *     }
-    * }
+     * }
      */
     pub fn drop(self) {
         proof! { use_type_invariant(&self); }

@@ -185,7 +185,17 @@ impl IoMemAllocatorBuilder {
             );
         };
 
-        if let Err(err) = allocator.alloc_specific(&range) {
+        proof! {
+            use_type_invariant(self);
+            lemma_found_window_contains(&self.allocators, &range, allocator);
+        }
+        proof_decl! {
+            let tracked initialized: OneShotSet;
+        }
+
+        if let Err(err) = #[verus_spec(with => Tracked(initialized))]
+        allocator.alloc_specific(&range)
+        {
             vstd_extra::panic!(
                 "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
                 range,
