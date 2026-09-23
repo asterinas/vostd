@@ -7,6 +7,9 @@
 //! resource. Every registered allocation also has persistent typed block
 //! information, and each non-null history message agrees with that information
 //! by full pointer equality, including provenance.
+//! Replacing the current publication transfers its previous linear resources to
+//! the caller while retaining historical identities. Appended timestamps may
+//! have gaps.
 //!
 //! Resolving a historical message returns identity only. Reader protection and
 //! permission to reclaim an allocation belong to the surrounding RCU protocol.
@@ -174,6 +177,122 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             assert(ts == timestamp);
         };
         res
+    }
+
+    /// Appends a fresh registration or null message, returning the previous client resource.
+    ///
+    /// This transfers bookkeeping resources only. It does not certify that the
+    /// previous allocation is detached from every link or safe to reclaim.
+    pub proof fn tracked_push_fresh(
+        tracked &mut self,
+        prev: AtomicHistory<*mut T>,
+        next: AtomicHistory<*mut T>,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: ThreadView,
+        tracked ownership: Option<O>,
+    ) -> (tracked previous: Option<RcuOwnedObject<T, O>>)
+        requires
+            rcu_owned_root_history_inv(prev, *old(self)),
+            old(self).root().current_timestamp() < new_timestamp,
+            next == prev.insert(new_timestamp, value, message_view),
+            (ownership is Some) == (value.addr() != 0),
+        ensures
+            rcu_owned_root_history_inv(next, *final(self)),
+            final(self).domain() == old(self).domain(),
+            final(self).root().domain_auth().retire_registry() == old(
+                self,
+            ).root().domain_auth().retire_registry(),
+            final(self).root().current_timestamp() == new_timestamp,
+            final(self).current_ownership() == ownership,
+            final(self).root().publications() == old(self).root().publications().insert(
+                new_timestamp,
+                match final(self).current_owned() {
+                    Some(owned) => Some(owned.block_info().obj()),
+                    None => None,
+                },
+            ),
+            forall|obj: nat| #[trigger]
+                old(self).infos().contains_key(obj) ==> {
+                    &&& final(self).infos().contains_key(obj)
+                    &&& final(self).infos()[obj] == old(self).infos()[obj]
+                },
+            match final(self).current_owned() {
+                Some(owned) => {
+                    &&& value.addr() != 0
+                    &&& equal(owned.block_info().ptr(), value)
+                    &&& !old(self).infos().contains_key(owned.block_info().obj())
+                    &&& final(self).infos().dom() == old(self).infos().dom().insert(
+                        owned.block_info().obj(),
+                    )
+                },
+                None => {
+                    &&& value.addr() == 0
+                    &&& final(self).infos() == old(self).infos()
+                },
+            },
+        returns
+            old(self).current_owned(),
+    {
+        let tracked previous = if self.current is Some {
+            Some(self.current.tracked_take())
+        } else {
+            None
+        };
+        let tracked registration = self.root.tracked_push_fresh(
+            prev,
+            next,
+            new_timestamp,
+            value,
+            message_view,
+        );
+        let tracked current = match registration {
+            Some(registration) => {
+                let ghost obj = registration.0.obj();
+                let tracked info = registration.0.tracked_duplicate();
+                self.infos.tracked_insert(obj, info);
+                assert forall|registered: nat| self.infos.contains_key(registered) implies {
+                    let saved = #[trigger] self.infos[registered];
+                    &&& saved.inv()
+                    &&& saved.domain() == self.domain()
+                    &&& saved.obj() == registered
+                    &&& self.root().objects().contains_pair(registered, saved.addr())
+                } by {
+                    if registered != obj {
+                        assert(old(self).infos().contains_key(registered));
+                        assert(self.infos[registered] == old(self).infos()[registered]);
+                        assert(old(self).root().objects().contains_pair(
+                            registered,
+                            self.infos[registered].addr(),
+                        ));
+                    }
+                };
+                Some(RcuOwnedObject::tracked_new(registration, ownership.tracked_unwrap()))
+            },
+            None => None,
+        };
+        self.current = current;
+        assert(self.inv());
+        assert forall|ts: nat| next.contains_timestamp(ts) implies {
+            match #[trigger] self.root().publications()[ts] {
+                Some(obj) => equal(self.infos()[obj].ptr(), next.value(ts)),
+                None => true,
+            }
+        } by {
+            if ts != new_timestamp {
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
+                assert(self.root().publications()[ts] == old(self).root().publications()[ts]);
+                match old(self).root().publications()[ts] {
+                    Some(obj) => {
+                        assert(old(self).infos().contains_key(obj));
+                        assert(self.infos()[obj] == old(self).infos()[obj]);
+                    },
+                    None => {},
+                }
+            }
+        };
+        previous
     }
 
     /// Copies a message's typed allocation identity without borrowing its client resource.
