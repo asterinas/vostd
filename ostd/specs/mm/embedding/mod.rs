@@ -2128,15 +2128,22 @@ proof fn lemma_step_segment_split<'rcu>(
     let ghost entry_left = SegmentEntry { range: range.start..mid };
     let ghost entry_right = SegmentEntry { range: mid..range.end };
     let ghost id_left = fresh_segment_id(s.segments);
+    lemma_fresh_segment_id_not_in_dom(s.segments);
+    assert(id_left != sid);
     let ghost stub_entry = SegmentEntry { range: range.start..mid };
     let ghost id_right = fresh_segment_id(s.segments.insert(id_left, stub_entry));
     lemma_fresh_segment_id_not_in_dom(s.segments.insert(id_left, stub_entry));
+    assert(id_right != sid);
+    assert(id_right != id_left);
     // Now extract and insert.
     let tracked _orig = s.tracked_extract_segment(sid);
+    assert(!s.segments.contains_key(id_left));
     let tracked entry_l = tracked_segment_entry_new(range.start..mid);
     s.lemma_insert_segment(id_left, entry_l);
+    assert(!s.segments.contains_key(id_right));
     let tracked entry_r = tracked_segment_entry_new(mid..range.end);
     s.lemma_insert_segment(id_right, entry_r);
+    assert(s.regions == old_regions);
     assert forall|paddr: Paddr| #[trigger]
         frame_to_index(paddr) < max_meta_slots() implies segment_cover_count(s.segments, paddr)
         == segment_cover_count(old_segments, paddr) by {
@@ -2150,6 +2157,10 @@ proof fn lemma_step_segment_split<'rcu>(
             paddr,
         );
     };
+    assert(entry_left.range.start % PAGE_SIZE == 0);
+    assert(entry_right.range.start % PAGE_SIZE == 0);
+    assert(entry_left.range.end % PAGE_SIZE == 0);
+    assert(entry_right.range.end % PAGE_SIZE == 0);
     assert forall|sid_other: SegmentId, paddr_c: Paddr|
         #![trigger
             s.segments.contains_key(sid_other),
@@ -2158,10 +2169,13 @@ proof fn lemma_step_segment_split<'rcu>(
             < s.segments[sid_other].range.end && paddr_c % PAGE_SIZE
             == 0 implies s.regions.slot_owner(paddr_c).usage is Frame by {
         if sid_other == id_left {
+            assert(old_segments.contains_key(sid));
             assert(old_segments[sid].range.start <= paddr_c < old_segments[sid].range.end);
         } else if sid_other == id_right {
+            assert(old_segments.contains_key(sid));
             assert(old_segments[sid].range.start <= paddr_c < old_segments[sid].range.end);
         } else {
+            assert(old_segments.contains_key(sid_other));
             assert(old_segments[sid_other] == s.segments[sid_other]);
         }
     };
@@ -2174,6 +2188,17 @@ proof fn lemma_step_segment_split<'rcu>(
         index_to_frame(idx),
     ) == 0 by {
         let paddr = index_to_frame(idx);
+        assert(paddr == (idx * PAGE_SIZE) as usize);
+        assert(frame_to_index(paddr) == idx);
+        lemma_segment_cover_split(
+            old_segments,
+            sid,
+            id_left,
+            id_right,
+            entry_left,
+            entry_right,
+            paddr,
+        );
     };
     assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
@@ -2185,6 +2210,8 @@ proof fn lemma_step_segment_split<'rcu>(
         index_to_frame(idx),
     ) > 0 by {
         let paddr = index_to_frame(idx);
+        assert(paddr == (idx * PAGE_SIZE) as usize);
+        assert(frame_to_index(paddr) == idx);
         lemma_segment_cover_split(
             old_segments,
             sid,
