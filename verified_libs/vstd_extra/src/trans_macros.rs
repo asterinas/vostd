@@ -40,3 +40,13 @@ macro_rules! debug_assert {
         }
     };
 }
+
+#[macro_export]
+macro_rules! debug_assert_eq {
+    ($l:expr, $r:expr) => {
+        #[cfg(debug_assertions)]
+        if ($l != $r) {
+            $crate::panic::panic_diverge()
+        }
+    };
+}
