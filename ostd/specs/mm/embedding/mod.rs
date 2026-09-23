@@ -2118,12 +2118,14 @@ proof fn lemma_step_segment_split<'rcu>(
     ensures
         final(s).inv(),
 {
-    reveal(VmStore::structural_inv);
-    reveal(VmStore::accounting_inv);
+    let ghost s_before = *s;
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;
     let ghost range = s.segments[sid].range;
+    assert(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0) by {
+        reveal(VmStore::structural_inv);
+    };
     let ghost mid = (range.start + offset) as Paddr;
     let ghost entry_left = SegmentEntry { range: range.start..mid };
     let ghost entry_right = SegmentEntry { range: mid..range.end };
@@ -2171,12 +2173,15 @@ proof fn lemma_step_segment_split<'rcu>(
         if sid_other == id_left {
             assert(old_segments.contains_key(sid));
             assert(old_segments[sid].range.start <= paddr_c < old_segments[sid].range.end);
+            lemma_structural_inv_segment(s_before, sid, paddr_c);
         } else if sid_other == id_right {
             assert(old_segments.contains_key(sid));
             assert(old_segments[sid].range.start <= paddr_c < old_segments[sid].range.end);
+            lemma_structural_inv_segment(s_before, sid, paddr_c);
         } else {
             assert(old_segments.contains_key(sid_other));
             assert(old_segments[sid_other] == s.segments[sid_other]);
+            lemma_structural_inv_segment(s_before, sid_other, paddr_c);
         }
     };
     assert forall|idx: int|
@@ -2187,6 +2192,7 @@ proof fn lemma_step_segment_split<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) == 0 by {
+        lemma_accounting_inv_at(s_before, idx);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(paddr) == idx);
@@ -2209,6 +2215,7 @@ proof fn lemma_step_segment_split<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) > 0 by {
+        lemma_accounting_inv_at(s_before, idx);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(paddr) == idx);
@@ -2240,6 +2247,7 @@ proof fn lemma_step_segment_split<'rcu>(
             index_to_frame(idx),
         )
     } by {
+        lemma_accounting_inv_at(s_before, idx);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(paddr) == idx);
@@ -2252,6 +2260,10 @@ proof fn lemma_step_segment_split<'rcu>(
             entry_right,
             paddr,
         );
+    };
+    lemma_accounting_inv_intro(*s);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::structural_inv);
     };
 }
 
