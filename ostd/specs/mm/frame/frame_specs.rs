@@ -42,6 +42,13 @@ pub tracked struct FrameRawPerms {
     pub metadata_perm: FracMetadataPerm,
 }
 
+// SAFETY: Slot and counted metadata permissions describe global memory ownership
+// and do not carry subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl vstd::thread_view::Objective for FrameRawPerms {
+
+}
+
 impl FrameRawPerms {
     pub open spec fn slot_vaddr(self) -> Vaddr {
         self.slot_perm.pptr().addr()
