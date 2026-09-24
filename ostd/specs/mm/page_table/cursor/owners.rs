@@ -745,7 +745,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
         &&& self.prefix.leading_bits == C::LEADING_BITS_spec()
         &&& self.level <= self.guard_level ==> forall|i: int|
-            #![auto]
+            #![trigger self.continuations[i].idx]
             self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx
                 == self.prefix.index[i]
         // The cursor's VA shares upper indices with the prefix when the
