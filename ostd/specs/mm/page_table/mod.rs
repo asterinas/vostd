@@ -72,7 +72,6 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
         vaddr_range_spec::<UserPtConfig>().start == 0,
         vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
-    assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0);
     lemma_arch_specific_consts_properties::<PagingConsts>();
 }
 
@@ -140,18 +139,6 @@ impl AbstractVaddr {
         ensures
             AbstractVaddr::from_vaddr(va).inv(),
     {
-        let abs = AbstractVaddr::from_vaddr(va);
-        assert forall|i: int| #![trigger abs.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
-            &&& abs.index.contains_key(i)
-            &&& 0 <= abs.index[i]
-            &&& abs.index[i] < NR_ENTRIES
-        } by {};
-        let va_i = va as int;
-        assert(0 <= abs.leading_bits < 0x1_0000int) by (nonlinear_arith)
-            requires
-                abs.leading_bits == va_i / 0x1_0000_0000_0000int,
-                0 <= va_i < 0x1_0000_0000_0000_0000int,
-        ;
     }
 
     /// Reconstruct the concrete virtual address from the AbstractVaddr components.
@@ -206,11 +193,11 @@ impl AbstractVaddr {
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         let abs = Self::from_vaddr(va);
-        assert(abs.to_vaddr_indices(4) == 0);
+
         assert(abs.to_vaddr_indices(3) == abs.index[3] * pow2(39nat) + abs.to_vaddr_indices(4));
-        assert(abs.to_vaddr_indices(2) == abs.index[2] * pow2(30nat) + abs.to_vaddr_indices(3));
+
         assert(abs.to_vaddr_indices(1) == abs.index[1] * pow2(21nat) + abs.to_vaddr_indices(2));
-        assert(abs.to_vaddr_indices(0) == abs.index[0] * pow2(12nat) + abs.to_vaddr_indices(1));
+
         assert(va == (va % 4096usize) + ((va / 4096usize) % 512usize) * 4096usize + ((va
             / 0x20_0000usize) % 512usize) * 0x20_0000usize + ((va / 0x4000_0000usize) % 512usize)
             * 0x4000_0000usize + ((va / 0x80_0000_0000usize) % 512usize) * 0x80_0000_0000usize + (va
@@ -223,7 +210,6 @@ impl AbstractVaddr {
             #[trigger] Self::from_vaddr(va).reflect(va),
             #[trigger] Self::from_vaddr(va).inv(),
     {
-        Self::from_vaddr_wf(va);
     }
 
     /// If self.inv(), then self reflects self.to_vaddr().
@@ -374,14 +360,6 @@ impl AbstractVaddr {
         ensures
             (AbstractVaddr { offset: 0, ..self }).inv(),
     {
-        let new = AbstractVaddr { offset: 0, ..self };
-        assert(new.index == self.index);
-        assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
-            &&& new.index.contains_key(i)
-            &&& 0 <= new.index[i] < NR_ENTRIES
-        } by {
-            assert(self.index.contains_key(i));
-        }
     }
 
     /// Updating one valid page-table index with an in-range value preserves the VA invariant.
@@ -412,7 +390,6 @@ impl AbstractVaddr {
         ensures
             (AbstractVaddr { index: self.index.insert(index, 0), ..self }).inv(),
     {
-        self.lemma_insert_preserves_inv(index, 0);
     }
 
     pub proof fn align_down_inv(self, level: int)
@@ -428,8 +405,6 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            self.lemma_zero_offset_preserves_inv();
-
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
@@ -463,9 +438,7 @@ impl AbstractVaddr {
         decreases level,
     {
         self.align_down_inv(level);
-        if level == 1 {
-        } else {
-            let tmp = self.align_down(level - 1);
+        if level != 1 {
             self.align_down_shape(level - 1);
         }
     }
@@ -527,7 +500,7 @@ impl AbstractVaddr {
         lhs.to_vaddr_indices_drop_zero_range(0, level - 1);
         rhs.to_vaddr_indices_drop_zero_range(0, level - 1);
         lhs.to_vaddr_indices_eq_if_indices_eq(rhs, level - 1);
-        assert(lhs.leading_bits == rhs.leading_bits);
+
     }
 
     /// The aligned form is a multiple of `page_size(level)` and the difference from `self.to_vaddr()`
@@ -545,13 +518,11 @@ impl AbstractVaddr {
         let aligned = self.align_down(level);
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
-        lemma_page_size_spec_values();
+
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
 
         self.align_down_shape(level);
         self.align_down_leading_bits(level);
-        self.to_vaddr_bounded();
-        aligned.to_vaddr_bounded();
 
         // aligned.to_vaddr_indices(0) == self.to_vaddr_indices(level - 1).
         aligned.to_vaddr_indices_drop_zero_range(0, level - 1);
@@ -559,7 +530,6 @@ impl AbstractVaddr {
 
         // Unroll to_vaddr_indices against concrete pow2 values so bit_vector can reason.
         let o = self.offset;
-        let lb = self.leading_bits;
         assert(self.index.contains_key(0));
         assert(self.index.contains_key(1));
         assert(self.index.contains_key(2));
@@ -573,63 +543,19 @@ impl AbstractVaddr {
         assert(self.to_vaddr_indices(2) == i2 * 0x4000_0000int + i3 * 0x80_0000_0000int);
         assert(self.to_vaddr_indices(1) == i1 * 0x20_0000int + i2 * 0x4000_0000int + i3
             * 0x80_0000_0000int);
-        assert(self.to_vaddr_indices(0) == i0 * 0x1000int + i1 * 0x20_0000int + i2 * 0x4000_0000int
-            + i3 * 0x80_0000_0000int);
 
         let va = self.to_vaddr() as int;
         let av = aligned.to_vaddr() as int;
         let ps = page_size(level as PagingLevel) as int;
 
         // Both va and av fit in [0, 2^64) by to_vaddr_bounded.
-        assert(va == o + self.to_vaddr_indices(0) + lb * 0x1_0000_0000_0000int);
-        assert(av == 0 + self.to_vaddr_indices(level - 1) + lb * 0x1_0000_0000_0000int);
 
         // Case-split on level to discharge the arithmetic.
         let diff = va - av;
         if level == 1 {
-            assert(ps == 0x1000);
-            assert(diff == o);
-            assert(av % ps == 0) by (nonlinear_arith)
-                requires
-                    av == i0 * 0x1000int + i1 * 0x20_0000int + i2 * 0x4000_0000int + i3
-                        * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int,
-                    ps == 0x1000,
-            ;
         } else if level == 2 {
-            assert(ps == 0x20_0000);
-            assert(diff == o + i0 * 0x1000int);
-            assert(0 <= diff < ps) by (nonlinear_arith)
-                requires
-                    diff == o + i0 * 0x1000int,
-                    0 <= o < 4096,
-                    0 <= i0 < 512,
-                    ps == 0x20_0000,
-            ;
-            assert(av % ps == 0) by (nonlinear_arith)
-                requires
-                    av == i1 * 0x20_0000int + i2 * 0x4000_0000int + i3 * 0x80_0000_0000int + lb
-                        * 0x1_0000_0000_0000int,
-                    ps == 0x20_0000,
-            ;
         } else if level == 3 {
-            assert(ps == 0x4000_0000);
-            assert(diff == o + i0 * 0x1000int + i1 * 0x20_0000int);
-            assert(0 <= diff < ps) by (nonlinear_arith)
-                requires
-                    diff == o + i0 * 0x1000int + i1 * 0x20_0000int,
-                    0 <= o < 4096,
-                    0 <= i0 < 512,
-                    0 <= i1 < 512,
-                    ps == 0x4000_0000,
-            ;
-            assert(av % ps == 0) by (nonlinear_arith)
-                requires
-                    av == i2 * 0x4000_0000int + i3 * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int,
-                    ps == 0x4000_0000,
-            ;
         } else {
-            assert(ps == 0x80_0000_0000);
-            assert(diff == o + i0 * 0x1000int + i1 * 0x20_0000int + i2 * 0x4000_0000int);
             assert(0 <= diff < ps) by (nonlinear_arith)
                 requires
                     diff == o + i0 * 0x1000int + i1 * 0x20_0000int + i2 * 0x4000_0000int,
@@ -639,11 +565,7 @@ impl AbstractVaddr {
                     0 <= i2 < 512,
                     ps == 0x80_0000_0000,
             ;
-            assert(av % ps == 0) by (nonlinear_arith)
-                requires
-                    av == i3 * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int,
-                    ps == 0x80_0000_0000,
-            ;
+
         }
     }
 
@@ -701,11 +623,6 @@ impl AbstractVaddr {
         self.align_down_shape(level);
         self.align_down_to_vaddr_nat_align_down(level);
         aligned.reflect_to_vaddr();
-        // aligned.reflect(aligned.to_vaddr()) ∧ aligned.to_vaddr() == nat_align_down(...) as Vaddr
-        // ⇒ aligned.reflect(nat_align_down(...) as Vaddr).
-        let nad = nat_align_down(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat);
-        self.to_vaddr_bounded();
-        assert(nad as Vaddr == aligned.to_vaddr());
     }
 
     /// Two virtual addresses in the same page_size(level+1) aligned block
@@ -870,7 +787,6 @@ impl AbstractVaddr {
                     ns % 0x80_0000_0000usize == 0usize,
             ;
         } else {
-            assert(level == 4);
             assert(va1 / 0x1_0000_0000_0000usize == va2 / 0x1_0000_0000_0000usize) by (bit_vector)
                 requires
                     va1 >= ns,
@@ -894,17 +810,6 @@ impl AbstractVaddr {
         ensures
             va1 == va2,
     {
-        assert(va1 == va2) by (bit_vector)
-            requires
-                page_start <= va1,
-                va1 - page_start < 4096usize,
-                page_start <= va2,
-                va2 - page_start < 4096usize,
-                va1 % 4096usize == 0usize,
-                va2 % 4096usize == 0usize,
-                page_start % 4096usize == 0usize,
-                PAGE_SIZE == 4096usize,
-        ;
     }
 
     pub open spec fn align_up(self, level: int) -> Self {
@@ -935,20 +840,10 @@ impl AbstractVaddr {
             index: aligned.index.insert(level - 1, aligned.index[level - 1] + 1),
             ..aligned
         };
-        assert(aligned.next_index(level) == advanced);
-        assert(self.align_up(level) == advanced);
 
         assert(advanced.inv()) by {
             assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
-            assert forall|i: int|
-                #![trigger advanced.index.contains_key(i)]
-                0 <= i < NR_LEVELS implies {
-                &&& advanced.index.contains_key(i)
-                &&& 0 <= advanced.index[i]
-                &&& advanced.index[i] < NR_ENTRIES
-            } by {
-                assert(aligned.index.contains_key(i));
-            }
+
         };
         advanced.reflect_to_vaddr();
     }
@@ -973,11 +868,9 @@ impl AbstractVaddr {
         self.align_down_shape(level);
         self.align_down_to_vaddr_nat_align_down(level);
         lemma_page_size_ge_page_size(level as PagingLevel);
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);
-        self.to_vaddr_bounded();
 
         // nat_align_down(va, ps) == va because va % ps == 0.
-        assert(nat_align_down(va, ps) == va);
+
         // So aligned.to_vaddr() as nat == va, i.e., aligned.to_vaddr() == self.to_vaddr().
         // (both fit in usize by bounds.)
 
@@ -1013,8 +906,6 @@ impl AbstractVaddr {
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         lemma_page_size_spec_values();
-        vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-        lemma_page_size_ge_page_size(level as PagingLevel);
 
         self.aligned_align_down_is_self(level);
         // self.align_down(level) == self
@@ -1028,10 +919,8 @@ impl AbstractVaddr {
                 index: self.index.insert(level - 1, self.index[level - 1] + 1),
                 ..self
             };
-            assert(self.next_index(level) == advanced);
-            assert(self.align_up(level) == advanced);
+
             assert(advanced.inv()) by {
-                assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                 assert forall|i: int|
                     #![trigger advanced.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -1045,83 +934,42 @@ impl AbstractVaddr {
         } else {
             // Carry branches. From inv + !no-carry condition:
             assert(self.index.contains_key(level - 1));
-            assert(self.index[level - 1] < NR_ENTRIES);  // from inv()
-            assert(self.index[level - 1] + 1 >= NR_ENTRIES);  // branch condition
-            assert(self.index[level - 1] == NR_ENTRIES - 1);
+            // from inv()
+            // branch condition
 
             if level < NR_LEVELS {
-                self.align_up_carry(level);
                 // self.align_up(level) == self.align_up(level + 1)
-
                 let prev_aligned = self.align_down(level + 1);
                 self.align_down_shape(level + 1);
                 self.align_down_to_vaddr_nat_align_down(level + 1);
-                self.align_down_leading_bits(level + 1);
-                lemma_page_size_ge_page_size((level + 1) as PagingLevel);
-                self.to_vaddr_bounded();
+
                 prev_aligned.to_vaddr_bounded();
 
                 // prev_aligned.to_vaddr() % page_size(level + 1) == 0.
                 let ps1 = page_size((level + 1) as PagingLevel) as nat;
-                vstd_extra::arithmetic::lemma_nat_align_down_sound(self.to_vaddr() as nat, ps1);
-                assert(prev_aligned.to_vaddr() as nat % ps1 == 0);
 
                 // Set up arithmetic relation: page_size(level+1) == NR_ENTRIES * page_size(level).
                 let ps = page_size(level as PagingLevel) as int;
-                assert(ps1 == NR_ENTRIES * ps) by {
-                    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
-                    (level + 1) as PagingLevel);
-                };
 
                 // Relate prev_aligned.to_vaddr() to self.to_vaddr():
                 //   prev_aligned differs from self only in index[level-1] (NR_ENTRIES-1 → 0).
                 //   Since self is ps-aligned, lower indices and offset are already 0.
-                assert forall|i: int| 0 <= i < level - 1 implies self.index[i] == 0 by {
-                    assert(self.index.contains_key(i));
-                };
+
                 self.to_vaddr_indices_drop_zero_range(0, level - 1);
                 prev_aligned.to_vaddr_indices_drop_zero_range(0, level);
                 prev_aligned.to_vaddr_indices_eq_if_indices_eq(self, level);
 
-                assert(self.index.contains_key(level - 1));
                 if level == 1 {
-                    assert(ps == 0x1000);
-                    assert(pow2(12nat) == ps);
                 } else if level == 2 {
-                    assert(ps == 0x20_0000);
-                    assert(pow2(21nat) == ps);
                 } else if level == 3 {
-                    assert(ps == 0x4000_0000);
-                    assert(pow2(30nat) == ps);
                 }
-                assert(self.to_vaddr_indices(level - 1) == self.index[level - 1] * ps
-                    + self.to_vaddr_indices(level));
-                assert(self.to_vaddr_indices(level - 1) == (NR_ENTRIES - 1) * ps
-                    + self.to_vaddr_indices(level));
-
-                // Offsets match (both 0).
-                assert(prev_aligned.offset == 0);
-                assert(prev_aligned.leading_bits == self.leading_bits);
-                assert(self.offset == 0);
-
-                assert(prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps == self.to_vaddr());
-
                 // Now: prev_aligned.to_vaddr() + page_size(level + 1) == self.to_vaddr() + ps.
-                assert(prev_aligned.to_vaddr() + ps1 == self.to_vaddr() + ps) by (nonlinear_arith)
-                    requires
-                        prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps == self.to_vaddr(),
-                        ps1 == NR_ENTRIES * ps,
-                ;
-                assert(prev_aligned.to_vaddr() + page_size((level + 1) as PagingLevel)
-                    <= usize::MAX);
 
                 prev_aligned.aligned_align_up_advances(level + 1);
                 prev_aligned.aligned_align_down_is_self(level + 1);
 
                 // self.align_up(level + 1) == prev_aligned.next_index(level + 1)
                 //                         == prev_aligned.align_up(level + 1).
-                assert(self.align_up(level + 1) == prev_aligned.align_up(level + 1));
 
                 // Combining:
                 // self.align_up(level).to_vaddr()
@@ -1132,7 +980,6 @@ impl AbstractVaddr {
             } else {
                 // level == NR_LEVELS, top-level carry. Derive leading_bits + 1 < 0x1_0000
                 // from the outer overflow bound and the aligned + saturated-index structure.
-                assert(level == NR_LEVELS);
                 // self is aligned to ps(NR_LEVELS) ⇒ offset=0, index[0..NR_LEVELS-1)=0.
                 // self.index[NR_LEVELS-1] = NR_ENTRIES-1 (from branch condition).
                 // So self.to_vaddr() = (NR_ENTRIES-1) * ps(NR_LEVELS) + leading_bits * 2^48.
@@ -1141,22 +988,13 @@ impl AbstractVaddr {
                 //                             = (leading_bits + 1) * 2^48.
                 // This must be <= usize::MAX = 2^64 - 1 ⇒ leading_bits + 1 < 2^16.
                 self.align_down_shape(NR_LEVELS as int);
-                self.to_vaddr_bounded();
-                assert forall|i: int| 0 <= i < NR_LEVELS - 1 implies self.index[i] == 0 by {
-                    assert(self.index.contains_key(i));
-                    assert(self.align_down(NR_LEVELS as int).index[i] == 0);
-                };
+
                 self.to_vaddr_indices_drop_zero_range(0, NR_LEVELS - 1);
-                assert(self.index.contains_key(NR_LEVELS - 1));
+
                 let ps_top = page_size(NR_LEVELS as PagingLevel) as int;
-                assert(ps_top == 0x80_0000_0000);
+
                 assert(self.to_vaddr_indices(NR_LEVELS as int) == 0);
-                assert(self.to_vaddr_indices(NR_LEVELS - 1) == self.index[NR_LEVELS - 1] * ps_top);
-                assert(self.to_vaddr_indices(0) == (NR_ENTRIES - 1) * ps_top);
-                assert(self.offset == 0);
-                assert(self.to_vaddr() == (NR_ENTRIES - 1) * ps_top + self.leading_bits
-                    * 0x1_0000_0000_0000int);
-                assert(NR_ENTRIES * ps_top == 0x1_0000_0000_0000int) by (compute);
+
                 // Now apply the overflow bound.
                 assert(self.leading_bits + 1 < 0x1_0000) by (nonlinear_arith)
                     requires
@@ -1179,21 +1017,6 @@ impl AbstractVaddr {
                     leading_bits: self.leading_bits + 1,
                     ..self
                 };
-                assert(self.next_index(NR_LEVELS as int) == advanced_top);
-                assert(self.align_up(NR_LEVELS as int) == advanced_top);
-
-                assert(advanced_top.inv()) by {
-                    assert(advanced_top.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
-                    assert forall|i: int|
-                        #![trigger advanced_top.index.contains_key(i)]
-                        0 <= i < NR_LEVELS implies {
-                        &&& advanced_top.index.contains_key(i)
-                        &&& 0 <= advanced_top.index[i]
-                        &&& advanced_top.index[i] < NR_ENTRIES
-                    } by {
-                        assert(self.index.contains_key(i));
-                    }
-                };
 
                 // Arithmetic: advanced_top.to_vaddr() == self.to_vaddr() + page_size(NR_LEVELS).
                 //   Change: index[NR_LEVELS-1] from NR_ENTRIES-1 to 0 (diff -NR_ENTRIES+1 * ps(NR_LEVELS))
@@ -1204,51 +1027,27 @@ impl AbstractVaddr {
                 //        = -(NR_ENTRIES - 1)*ps + 2^48
                 //        = -(NR_ENTRIES - 1)*ps + NR_ENTRIES*ps
                 //        = ps. ✓
-                self.to_vaddr_bounded();
-                advanced_top.to_vaddr_bounded();
+
                 let ps = page_size(NR_LEVELS as PagingLevel) as int;
                 assert(pow2((12 + 9 * NR_LEVELS) as nat) == 0x1_0000_0000_0000int) by (compute);
                 // ps == 0x80_0000_0000 (level NR_LEVELS == 4).
-                assert(ps == 0x80_0000_0000);
 
                 // For aligned self (ps(NR_LEVELS)-aligned): offset == 0, index[i] == 0 for
                 // 0 <= i < NR_LEVELS - 1. Bridge via self == self.align_down(level).
-                self.align_down_shape(NR_LEVELS as int);
-                assert forall|i: int| 0 <= i < NR_LEVELS - 1 implies self.index[i] == 0 by {
-                    assert(self.index.contains_key(i));
-                    assert(self.align_down(NR_LEVELS as int).index[i] == 0);
-                };
-                self.to_vaddr_indices_drop_zero_range(0, NR_LEVELS - 1);
-                assert(self.index.contains_key(NR_LEVELS - 1));
-                assert(self.to_vaddr_indices(NR_LEVELS - 1) == self.index[NR_LEVELS - 1] * ps
-                    + self.to_vaddr_indices(NR_LEVELS as int));
-                assert(self.to_vaddr_indices(NR_LEVELS as int) == 0);
-                assert(self.to_vaddr_indices(0) == (NR_ENTRIES - 1) * ps);
+
+                assert forall|i: int| 0 <= i < NR_LEVELS - 1 implies self.index[i] == 0 by {};
 
                 // For advanced_top: all indices 0, offset 0, leading_bits = self.leading_bits + 1.
-                assert(advanced_top.offset == 0);
-                assert forall|i: int| 0 <= i < NR_LEVELS implies advanced_top.index[i] == 0 by {
-                    assert(self.index.contains_key(i));
-                };
+
                 advanced_top.to_vaddr_indices_drop_zero_range(0, NR_LEVELS as int);
-                assert(advanced_top.to_vaddr_indices(0) == 0);
 
                 // Putting it together:
                 //   self.to_vaddr() = 0 + (NR_ENTRIES - 1)*ps + self.leading_bits * 2^48
                 //   advanced_top.to_vaddr() = 0 + 0 + (self.leading_bits + 1) * 2^48
                 // Diff = 2^48 - (NR_ENTRIES - 1)*ps = NR_ENTRIES*ps - (NR_ENTRIES - 1)*ps = ps.
-                assert(advanced_top.leading_bits == self.leading_bits + 1);
+
                 assert(advanced_top.to_vaddr() == (self.leading_bits + 1) * 0x1_0000_0000_0000int);
-                assert(self.to_vaddr() == (NR_ENTRIES - 1) * ps + self.leading_bits
-                    * 0x1_0000_0000_0000int);
-                assert(NR_ENTRIES * ps == 0x1_0000_0000_0000int) by (compute);
-                assert(advanced_top.to_vaddr() == self.to_vaddr() + ps) by (nonlinear_arith)
-                    requires
-                        advanced_top.to_vaddr() == (self.leading_bits + 1) * 0x1_0000_0000_0000int,
-                        self.to_vaddr() == (NR_ENTRIES - 1) * ps + self.leading_bits
-                            * 0x1_0000_0000_0000int,
-                        NR_ENTRIES * ps == 0x1_0000_0000_0000int,
-                ;
+
             }
         }
     }
@@ -1281,16 +1080,13 @@ impl AbstractVaddr {
         self.align_down_shape(level);
         self.align_down_to_vaddr_nat_align_down(level);
         lemma_page_size_ge_page_size(level as PagingLevel);
-        self.to_vaddr_bounded();
-        aligned.to_vaddr_bounded();
+
         vstd_extra::arithmetic::lemma_nat_align_down_sound(self.to_vaddr() as nat, ps);
 
         // aligned.to_vaddr() as nat == nat_align_down(self.to_vaddr(), ps).
         // So aligned.to_vaddr() % ps == 0 (from sound's `nat_align_down % align == 0`).
-        assert(aligned.to_vaddr() as nat % ps == 0);
 
         // aligned.to_vaddr() + ps <= usize::MAX (from precondition).
-        assert(aligned.to_vaddr() + page_size(level as PagingLevel) <= usize::MAX);
 
         // Reduce to aligned case.
         aligned.aligned_align_up_advances(level);
@@ -1301,7 +1097,7 @@ impl AbstractVaddr {
         //   self.align_up(level)    == self.align_down(level).next_index(level)
         //                          == aligned.next_index(level)
         aligned.aligned_align_down_is_self(level);
-        assert(self.align_up(level) == aligned.align_up(level));
+
     }
 
     /// Sound variant of the previously-axiomatic `align_diff` under a non-aligned precondition.
@@ -1330,10 +1126,7 @@ impl AbstractVaddr {
         decreases NR_LEVELS - level,
     {
         self.align_down_shape(level);
-        self.align_down_shape(level + 1);
-        assert(self.align_down(level).index.insert(level - 1, 0) == self.align_down(
-            level + 1,
-        ).index);
+
     }
 
     pub open spec fn next_index(self, level: int) -> Self
@@ -1420,11 +1213,6 @@ impl AbstractVaddr {
         ensures
             self.next_index(start_level).index[level - 1] != 0,
     {
-        if self.next_index(start_level).index[level - 1] == 0 {
-            if level < NR_LEVELS {
-                self.use_wrapped(start_level, level);
-            }
-        }
     }
 
     /// Index 0 + wrapped ==> next_index nonzero at that level.
@@ -1466,7 +1254,6 @@ impl AbstractVaddr {
         ensures
             abs_next_va.index[level - 1] != 0,
     {
-        abs_va_down.wrapped_index_nonzero(start_level, level);
     }
 
     #[verifier::spinoff_prover]
@@ -1512,7 +1299,7 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES {
             if level < NR_LEVELS {
                 let next_va = Self { index: self.index.insert(level - 1, 0), ..self };
-                self.lemma_insert_zero_preserves_inv(level - 1);
+
                 next_va.next_index_wrap_condition(level + 1);
                 self.wrapped_after_carry_equiv(level, level + 1);
                 next_va.next_index_preserves_lower_indices(level + 1, level);
@@ -1752,25 +1539,11 @@ impl AbstractVaddr {
     {
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
-        lemma_page_size_spec_values();
+
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         self.to_vaddr_indices_gap_bound(start);
         if start < NR_LEVELS {
             self.rec_compute_vaddr_is_to_vaddr_indices(start + 1);
-            self.to_vaddr_indices_gap_bound(start + 1);
-            assert(self.index.contains_key(start));
-            // page_size(start+1) matches the positional shift pow2(12 + 9*start).
-            // For NR_LEVELS == 4, enumerate concrete cases so the constant
-            // folds from `lemma_page_size_spec_values`.
-            if start == 0 {
-                assert(page_size(1) == pow2(12nat) as usize);
-            } else if start == 1 {
-                assert(page_size(2) == pow2(21nat) as usize);
-            } else if start == 2 {
-                assert(page_size(3) == pow2(30nat) as usize);
-            } else {
-                assert(page_size(4) == pow2(39nat) as usize);
-            }
         }
     }
 
@@ -1802,13 +1575,9 @@ impl AbstractVaddr {
         decreases NR_LEVELS - start,
     {
         vstd::arithmetic::power2::lemma2_to64();
-        vstd::arithmetic::power2::lemma2_to64_rest();
-        vstd::arithmetic::power2::lemma_pow2_pos((12 + 9 * start) as nat);
-        if start == NR_LEVELS {
-        } else {
+
+        if start != NR_LEVELS {
             let shift = pow2((12 + 9 * start) as nat) as int;
-            let next_shift = pow2((12 + 9 * (start + 1)) as nat) as int;
-            let top = pow2((12 + 9 * NR_LEVELS) as nat) as int;
             self.to_vaddr_indices_gap_bound(start + 1);
             assert(self.index.contains_key(start));
             vstd::arithmetic::power2::lemma_pow2_adds((12 + 9 * start) as nat, 9nat);
@@ -1834,13 +1603,7 @@ impl AbstractVaddr {
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         self.to_vaddr_indices_gap_bound(0);
-        assert(pow2((12 + 9 * NR_LEVELS) as nat) == 0x1_0000_0000_0000int) by (compute);
-        assert(self.leading_bits * 0x1_0000_0000_0000int + 0x1_0000_0000_0000int <= 0x1_0000
-            * 0x1_0000_0000_0000int) by (nonlinear_arith)
-            requires
-                0 <= self.leading_bits < 0x1_0000int,
-        ;
-        assert(0x1_0000 * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int) by (compute);
+
     }
 
     #[verifier::spinoff_prover]
@@ -1868,43 +1631,28 @@ impl AbstractVaddr {
         };
         self.to_vaddr_bounded();
         new_va.to_vaddr_bounded();
-        assert(new_va.to_vaddr() - self.to_vaddr() == new_va.to_vaddr_indices(0)
-            - self.to_vaddr_indices(0));
+
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         if level == 1 {
             lemma_page_size_spec_level1();
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 1);
-            assert((self.index[0] + 1) * 0x1000 == self.index[0] * 0x1000 + 0x1000)
-                by (nonlinear_arith);
+
         } else if level == 2 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 2);
-            assert(self.to_vaddr_indices(0) == self.index[0] * pow2(12nat) + self.to_vaddr_indices(
-                1,
-            ));
-            assert((self.index[1] + 1) * 0x20_0000 == self.index[1] * 0x20_0000 + 0x20_0000)
-                by (nonlinear_arith);
+
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x20_0000);
         } else if level == 3 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 3);
-            assert(self.index.contains_key(2));
-            assert(new_va.index.contains_key(2));
-            assert((12 + 9 * 2) as nat == 30nat) by (compute);
-            assert((self.index[2] + 1) * 0x4000_0000 == self.index[2] * 0x4000_0000 + 0x4000_0000)
-                by (nonlinear_arith);
+
             assert(new_va.to_vaddr_indices(2) == self.to_vaddr_indices(2) + 0x4000_0000);
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x4000_0000);
         } else {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 4);
-            assert(self.to_vaddr_indices(1) == self.index[1] * pow2(21nat) + self.to_vaddr_indices(
-                2,
-            ));
-            assert(self.to_vaddr_indices(2) == self.index[2] * pow2(30nat) + self.to_vaddr_indices(
-                3,
-            ));
+
             assert((self.index[3] + 1) * 0x80_0000_0000 == self.index[3] * 0x80_0000_0000
                 + 0x80_0000_0000) by (nonlinear_arith);
             assert(new_va.to_vaddr_indices(3) == self.to_vaddr_indices(3) + 0x80_0000_0000);
@@ -1979,8 +1727,6 @@ impl AbstractVaddr {
         decreases path1.len() - idx,
     {
         if idx < path1.len() {
-            path1.lemma_index_satisfies_elem_inv(idx);
-            path2.lemma_index_satisfies_elem_inv(idx);
             Self::rec_vaddr_eq_if_indices_eq(path1, path2, idx + 1);
         }
     }
@@ -1997,33 +1743,18 @@ impl AbstractVaddr {
             vaddr(path) == self.align_down(NR_LEVELS - path.len() + 1).compute_vaddr()
                 - self.align_down(NR_LEVELS - path.len() + 1).offset,
     {
-        lemma_arch_specific_consts_properties::<crate::mm::PagingConsts>();
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
             // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
-            assert(aligned.index[3] == 0) by {
-                assert(aligned == AbstractVaddr {
-                    index: self.align_down(4).index.insert(3, 0),
-                    ..self.align_down(4)
-                });
-            };
-            assert(aligned.index[0] == 0);
-            assert(aligned.index[1] == 0);
-            assert(aligned.index[2] == 0);
-            assert(aligned.rec_compute_vaddr(4) == 0);
+            assert(aligned.index[3] == 0) by {};
+
             assert(aligned.rec_compute_vaddr(3) == 0) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
                     + aligned.rec_compute_vaddr(4)) as Vaddr);
             };
-            assert(aligned.rec_compute_vaddr(2) == 0) by {
-                assert(aligned.rec_compute_vaddr(2) == (aligned.index[2] * page_size(3)
-                    + aligned.rec_compute_vaddr(3)) as Vaddr);
-            };
-            assert(aligned.rec_compute_vaddr(1) == 0) by {
-                assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
-                    + aligned.rec_compute_vaddr(2)) as Vaddr);
-            };
+            assert(aligned.rec_compute_vaddr(2) == 0) by {};
+            assert(aligned.rec_compute_vaddr(1) == 0) by {};
         } else {
             let level = NR_LEVELS - path.len();
             self.to_path_inv(level);
@@ -2062,7 +1793,6 @@ impl AbstractVaddr {
             self.rec_to_path(abstract_level, bottom_level)[i] == self.index[abstract_level - i],
         decreases abstract_level - bottom_level,
     {
-        assert(self.index.contains_key(abstract_level));
         if abstract_level == bottom_level {
         } else {
             let head = seq![self.index[abstract_level]];
@@ -2121,12 +1851,7 @@ impl AbstractVaddr {
             self.to_vaddr() as nat,
             page_size((level + 1) as PagingLevel) as nat,
         );
-        assert(aligned.leading_bits == self.leading_bits);
-        assert(vaddr(self.to_path(level)) == aligned.compute_vaddr());
-        assert(aligned.to_vaddr() == aligned.compute_vaddr() + aligned.leading_bits
-            * 0x1_0000_0000_0000int);
-        assert(aligned.to_vaddr() == nad as Vaddr);
-        assert(aligned.to_vaddr() == nad);
+
     }
 
     /// Key property: `vaddr(path) + leading_bits * 2^48` (i.e. the canonical
@@ -2144,7 +1869,6 @@ impl AbstractVaddr {
         self.to_path_vaddr_concrete(level);
         let size = page_size((level + 1) as PagingLevel);
         let cur = self.to_vaddr() as nat;
-        let start = vaddr(self.to_path(level));
 
         assert(page_size((level + 1) as PagingLevel) >= PAGE_SIZE) by {
             lemma_page_size_ge_page_size((level + 1) as PagingLevel);
