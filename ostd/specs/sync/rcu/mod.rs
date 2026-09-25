@@ -21,6 +21,9 @@ use vstd::{
 use vstd_extra::ownership::Inv;
 
 #[cfg(feature = "irc11")]
+pub mod owned_root;
+pub mod ownership;
+#[cfg(feature = "irc11")]
 pub mod root;
 
 verus! {
