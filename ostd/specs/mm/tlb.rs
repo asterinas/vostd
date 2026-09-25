@@ -3,7 +3,7 @@ use vstd_extra::ownership::*;
 
 use crate::specs::mm::{cpu::*, page_table::*};
 
-use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
+use crate::mm::{tlb::TlbFlushOp, Paddr, Vaddr};
 
 verus! {
 
@@ -120,7 +120,7 @@ impl TlbModel {
     pub open spec fn dispatch_tlb_flush_spec(self) -> Self {
         let op = self.pending.last();
         let popped = TlbModel {
-            pending: self.pending.take(self.pending.len() - 1),
+            pending: self.pending[..self.pending.len() - 1],
             mappings: self.mappings,
         };
         match op {

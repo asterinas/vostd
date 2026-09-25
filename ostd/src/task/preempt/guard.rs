@@ -5,7 +5,7 @@ use crate::{sync::GuardTransfer /*, task::atomic_mode::InAtomicMode*/};
 
 #[cfg(feature = "irc11")]
 use {
-    crate::specs::mm::cpu::CpuId,
+    crate::cpu::CpuId,
     vstd::resource::Loc,
     vstd_extra::{
         atomic_irc11::{ThreadView, ViewSeen},

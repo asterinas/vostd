@@ -26,10 +26,11 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`use-chained-comparisons`](maintainability.md#use-chained-comparisons) — express contiguous bounds as one logically equivalent chained comparison.
 - [`use-returns-for-exact-results`](maintainability.md#use-returns-for-exact-results) — express exact return values with `returns` and remove unused return binders.
 - [`avoid-redundant-as-int-casts`](maintainability.md#avoid-redundant-as-int-casts) — drop `as int` where Verus auto-coerces comparisons and arithmetic, but keep it at spec `int` parameters and standalone `/` divisors.
+- [`seq-range-slicing`](maintainability.md#seq-range-slicing) — range-slice a `Seq` or view in specs (`s[i..j]`, `s[i..]`) instead of calling `subrange`/`take`/`skip`; endpoints take any `Integer` type and the inlined desugaring is proof-neutral.
 - [`organize-proof-imports`](maintainability.md#organize-proof-imports) — import proof symbols concisely while keeping proof-only dependencies visible and `reveal` calls minimal.
 - [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — stack verification-added imports (`vstd`/`vstd_extra`, then `crate::specs`) above the original import list in blank-line-separated groups the formatter cannot cross, combine same-crate definitions into one `use`, and keep verification-added spec imports separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
-- [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs.
+- [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs, and mark any executable rewrite with a block comment carrying the divergence reason plus the `Origin Rust:` original.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
 - [`avoid-unused-spec-helpers`](maintainability.md#avoid-unused-spec-helpers) — add spec and proof helpers only for a current caller or a documented abstraction boundary.
 - [`inline-single-use-proof-helpers`](maintainability.md#inline-single-use-proof-helpers) — keep one-off proof steps in their caller instead of adding module-level or associated helpers with a single call site.

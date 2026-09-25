@@ -2496,8 +2496,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.0.level < level ==> self.0.level >= owner0.level,
                 self.0.level < level ==> owner@ == owner0@,
                 forall|idx: int|
+                    #![trigger regions.slot_owners[idx], old(regions).ref_count(idx)]
                     old(regions).ref_count(idx) != REF_COUNT_UNUSED
-                        ==> (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
+                        ==> regions.slot_owners[idx] == old(regions).slot_owners[idx],
                 forall|idx: int|
                     #![trigger regions.slots.contains_key(idx)]
                     old(regions).slots.contains_key(idx) ==> regions.slots.contains_key(idx),
@@ -3823,7 +3824,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 proof {
                     owner.lemma_inv_continuation(owner.level - 1);
                     assert forall|i: int|
-                        #![trigger owner.continuations[i]]
+                        #![trigger
+                            owner.continuations[i],
+                            owner_before_dfs.continuations[i]]
                         owner.level - 1 <= i < NR_LEVELS implies {
                         &&& owner.continuations[i].children
                             == owner_before_dfs.continuations[i].children

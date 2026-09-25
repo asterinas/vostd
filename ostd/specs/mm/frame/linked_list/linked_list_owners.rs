@@ -16,12 +16,12 @@ use crate::specs::{
 
 use super::*;
 use crate::mm::{
-    Paddr,
     frame::{
-        AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrame,
         meta::{META_SLOT_SIZE, REF_COUNT_UNIQUE},
+        AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrame,
     },
     kspace::FRAME_METADATA_RANGE,
+    Paddr,
 };
 use core::marker::PhantomData;
 
@@ -1087,8 +1087,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> View for CursorOwner<M> {
     open spec fn view(&self) -> Self::V {
         let list = self.list_own.view();
         CursorModel {
-            fore: list.list.take(self.index),
-            rear: list.list.skip(self.index),
+            fore: list.list[..self.index],
+            rear: list.list[self.index..],
             list_model: list,
         }
     }

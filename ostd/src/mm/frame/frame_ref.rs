@@ -100,7 +100,7 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     type Permission: Inv;
 
     #[cfg(feature = "irc11")]
-    type Permission: Inv + Objective;
+    type Permission: Inv + vstd::thread_view::Objective;
 
     /// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>;
