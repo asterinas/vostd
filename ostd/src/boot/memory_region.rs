@@ -49,6 +49,27 @@ pub struct MemoryRegion {
 verus! {
 
 impl MemoryRegion {
+    /// Whether inward alignment leaves a nonnegative length.
+    pub closed spec fn can_align(self) -> bool {
+        self.typ == MemoryRegionType::Usable ==> nat_align_up(self.base as nat, PAGE_SIZE as nat)
+            <= nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat)
+    }
+
+    /// The region with its boundaries rounded according to its usability.
+    pub closed spec fn aligned_region(self) -> Self {
+        let base = if self.typ == MemoryRegionType::Usable {
+            nat_align_up(self.base as nat, PAGE_SIZE as nat)
+        } else {
+            nat_align_down(self.base as nat, PAGE_SIZE as nat)
+        };
+        let end = if self.typ == MemoryRegionType::Usable {
+            nat_align_down((self.base + self.len) as nat, PAGE_SIZE as nat)
+        } else {
+            nat_align_up((self.base + self.len) as nat, PAGE_SIZE as nat)
+        };
+        Self { base: base as usize, len: (end - base) as usize, typ: self.typ }
+    }
+
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.base + self.len <= MAX_PADDR
@@ -115,7 +136,24 @@ impl MemoryRegion {
         }
     }
 
+    */
     /// Constructs a framebuffer memory region.
+    ///
+    /// # Verified Properties
+    /// - Safety: the pixel-size multiplications do not overflow.
+    /// - Preconditions: both multiplication stages fit in `usize`, and the
+    ///   framebuffer's physical end is at most `MAX_PADDR`.
+    /// - Postconditions: the base is preserved, the bit size is rounded up to
+    ///   bytes, and the type is `Framebuffer`.
+    #[verus_spec(
+        requires
+            fb.width * fb.height <= usize::MAX,
+            fb.width * fb.height * fb.bpp <= usize::MAX,
+            fb.address + (fb.width * fb.height * fb.bpp + 7) / 8 <= MAX_PADDR,
+        returns
+            Self::new(fb.address, ((fb.width * fb.height * fb.bpp + 7) / 8) as usize,
+                MemoryRegionType::Framebuffer),
+    )]
     pub fn framebuffer(fb: &crate::boot::BootloaderFramebufferArg) -> Self {
         Self {
             base: fb.address,
@@ -129,6 +167,25 @@ impl MemoryRegion {
     /// # Panics
     ///
     /// This method will panic if the byte slice does not live in the linear mapping.
+    ///
+    /// # Verified Properties
+    /// - Safety: the mapping assertion and address subtraction succeed, using
+    ///   the existing slice-pointer specification.
+    /// - Preconditions: the base lies in the linear mapping and the translated
+    ///   physical end is at most `MAX_PADDR`.
+    /// - Postconditions: preserves the slice length, translates its base into a
+    ///   physical address, and retains the original `Reclaimable` type.
+    #[verus_spec(
+        requires
+            crate::mm::kspace::LINEAR_MAPPING_BASE_VADDR
+                <= (bytes.as_ptr() as usize) < crate::mm::kspace::VMALLOC_BASE_VADDR,
+            (bytes.as_ptr() as usize) - crate::mm::kspace::LINEAR_MAPPING_BASE_VADDR
+                + bytes.len() <= MAX_PADDR,
+        returns
+            Self::new((bytes.as_ptr() as usize
+                - crate::mm::kspace::LINEAR_MAPPING_BASE_VADDR) as usize,
+                bytes.len(), MemoryRegionType::Reclaimable),
+    )]
     pub fn module(bytes: &[u8]) -> Self {
         let vaddr = bytes.as_ptr() as Vaddr;
         assert!(crate::mm::kspace::LINEAR_MAPPING_VADDR_RANGE.contains(&vaddr));
@@ -138,7 +195,7 @@ impl MemoryRegion {
             len: bytes.len(),
             typ: MemoryRegionType::Reclaimable,
         }
-    } */
+    }
 
     /// The physical address of the base of the region.
     #[verus_verify(dual_spec)]
@@ -250,6 +307,65 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     closed spec fn type_inv(self) -> bool {
         self.count <= LEN
     }
+
+    /// All backing entries can be aligned without arithmetic underflow.
+    pub closed spec fn can_align(self) -> bool {
+        forall|i: int| 0 <= i < LEN ==> #[trigger] self.regions[i].can_align()
+    }
+}
+
+/// A contiguous, page-aligned partition of `[0, end)`.
+pub closed spec fn is_partition(rs: Seq<MemoryRegion>, end: int) -> bool {
+    &&& (if rs.len() == 0 {
+        end == 0
+    } else {
+        rs[0].base == 0 && rs[rs.len() - 1].base + rs[rs.len() - 1].len == end
+    })
+    &&& (forall|i: int|
+        0 <= i < rs.len() ==> {
+            &&& #[trigger] rs[i].aligned(PAGE_SIZE as int)
+            &&& rs[i].len > 0
+            &&& rs[i].base + rs[i].len <= MAX_PADDR
+            &&& (i > 0 ==> rs[i - 1].base + rs[i - 1].len == rs[i].base)
+        })
+}
+
+/// The boundaries at which the sweep can advance.
+closed spec fn region_boundaries(rs: Seq<MemoryRegion>) -> Set<int> {
+    rs.map_values(|r: MemoryRegion| r.base as int).to_set().union(
+        rs.map_values(|r: MemoryRegion| r.base + r.len).to_set(),
+    )
+}
+
+/// The type selected by the lowest-usability covering input region.
+#[verifier::opaque]
+closed spec fn selected_type(rs: Seq<MemoryRegion>, addr: int, typ: MemoryRegionType) -> bool {
+    &&& ((exists|j: int|
+        0 <= j < rs.len() && #[trigger] rs[j].base <= addr < rs[j].base + rs[j].len) ==> exists|
+        j: int,
+    |
+        0 <= j < rs.len() && #[trigger] rs[j].base <= addr < rs[j].base + rs[j].len && rs[j].typ
+            == typ)
+    &&& (forall|j: int|
+        0 <= j < rs.len() && #[trigger] rs[j].base <= addr < rs[j].base + rs[j].len ==> typ as int
+            <= rs[j].typ as int)
+    &&& ((!(exists|j: int|
+        0 <= j < rs.len() && #[trigger] rs[j].base <= addr < rs[j].base + rs[j].len)) ==> typ
+        == MemoryRegionType::Unknown)
+}
+
+/// Every output byte carries the most restrictive covering input type.
+pub closed spec fn preserves_types(output: Seq<MemoryRegion>, input: Seq<MemoryRegion>) -> bool {
+    forall|i: int, addr: int|
+        #![trigger output[i], selected_type(input, addr, output[i].typ)]
+        0 <= i < output.len() && output[i].base <= addr < output[i].base + output[i].len
+            ==> selected_type(input, addr, output[i].typ)
+}
+
+/// Adjacent regions have different types, so no further merge is possible.
+#[verifier::opaque]
+pub closed spec fn coalesced(rs: Seq<MemoryRegion>) -> bool {
+    forall|j: int| 0 < j < rs.len() ==> #[trigger] rs[j].typ != rs[j - 1].typ
 }
 
 impl<const LEN: usize> View for MemoryRegionArray<LEN> {
@@ -289,9 +405,11 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
+    #[verus_verify(dual_spec)]
     #[verus_spec(ret =>
         ensures
             ret@ == Seq::<MemoryRegion>::empty(),
+        returns Self::new(),
     )]
     pub const fn new() -> Self {
         let ret = Self {
@@ -319,6 +437,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
                 &&& final(self)@ == old(self)@
                 &&& ret.is_err()
             },
+            old(self).can_align() && region.can_align() ==> final(self).can_align(),
     )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
         proof! {
@@ -337,7 +456,6 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             Err("MemoryRegionArray is full")
         }
     }
-    /*
     /// Sorts the regions and returns a full set of non-overlapping regions.
     ///
     /// If an address is in multiple regions, the region with the lowest
@@ -353,54 +471,407 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// # Panics
     ///
     /// This method will panic if the number of output regions is greater than `LEN`.
-    pub fn into_non_overlapping(mut self) -> Self {
-        let max_addr = self
-            .iter()
-            .map(|r| r.end())
-            .max()
-            .unwrap_or(0)
-            .align_down(PAGE_SIZE);
-        self.regions.iter_mut().for_each(|r| *r = r.as_aligned());
+    ///
+    /// # Verified Properties
+    /// - Safety: the scans terminate, indexing and arithmetic are in bounds, and
+    ///   the temporary region array cannot overflow.
+    /// - Preconditions: `LEN > 0`, every backing entry can be aligned, and `LEN`
+    ///   is at least twice the active input count (a sufficient capacity bound).
+    /// - Postconditions: a contiguous page-aligned partition covers every original
+    ///   inward-aligned end. Each byte uses the most restrictive covering aligned
+    ///   input type, or `Unknown` in holes; adjacent equal types are merged.
+    ///   The original no-interval behavior, one empty `BadMemory` entry, is preserved.
+    #[verus_spec(ret =>
+        requires
+            LEN > 0,
+            self.can_align(),
+            2 * self@.len() <= LEN,
+        ensures
+            ret@.len() > 0,
+            ret@ == seq![MemoryRegion::bad()]
+                || is_partition(ret@, ret@.last().end() as int),
+            preserves_types(ret@, self@.map_values(|r: MemoryRegion| r.aligned_region())),
+            forall|j: int| 0 <= j < self@.len() ==> nat_align_down(
+                (#[trigger] self@[j]).end() as nat, PAGE_SIZE as nat) <= ret@.last().end(),
+            coalesced(ret@),
+    )]
+    pub fn into_non_overlapping(self) -> Self {
+        /* Verus does not support `mut self`; move the same value into a mutable
+         * local without changing ownership or the order of operations.
+         * Origin Rust: pub fn into_non_overlapping(mut self) -> Self
+         */
+        proof! {
+            broadcast use vstd::array::group_array_axioms;
+            use_type_invariant(&self);
+            reveal(MemoryRegion::__VERUS_SPEC_end);
+            reveal(MemoryRegionArray::can_align);
+            reveal(is_partition);
+        }
+        let mut regions = self;
+        /* `Iterator::max` has no model in the active vstd. Scan the same active
+         * entries in order and retain the original zero default.
+         * Origin Rust: let max_addr = self.iter().map(|r| r.end())
+         *     .max().unwrap_or(0).align_down(PAGE_SIZE);
+         */
+        let mut max_end = 0;
+        let mut i = 0;
+        #[verus_spec(
+            invariant
+                i <= regions.count <= LEN,
+                regions == self,
+                max_end <= MAX_PADDR,
+                forall|j: int| 0 <= j < i ==> #[trigger] regions.regions[j].end() <= max_end,
+                max_end == 0 || exists|j: int| 0 <= j < i && #[trigger] regions.regions[j].end() == max_end,
+            decreases regions.count - i,
+        )]
+        while i < regions.count {
+            let region = &regions.regions[i];
+            proof! { use_type_invariant(region); }
+            let end = region.end();
+            if end > max_end {
+                max_end = end;
+            }
+            i += 1;
+        }
+        proof! { lemma_pow2_is_pow2_to64(); }
+        let max_addr = max_end.align_down(PAGE_SIZE);
+        proof! {
+            assert forall|j: int| 0 <= j < self@.len() implies nat_align_down(
+                (#[trigger] self@[j]).end() as nat, PAGE_SIZE as nat) <= max_addr by {
+                lemma_nat_align_down_sound(self@[j].end() as nat, PAGE_SIZE as nat);
+                lemma_nat_align_down_sound(max_end as nat, PAGE_SIZE as nat);
+            }
+        }
+        /* `IterMut::for_each` has no model in the active vstd. Visit every backing
+         * entry, including unused slots, in the original order.
+         * Origin Rust: self.regions.iter_mut().for_each(|r| *r = r.as_aligned());
+         */
+        i = 0;
+        #[verus_spec(
+            invariant
+                i <= LEN,
+                regions.count == self.count,
+                self.count <= LEN,
+                self.can_align(),
+                max_addr == nat_align_down(max_end as nat, PAGE_SIZE as nat),
+                forall|j: int| 0 <= j < self@.len() ==> nat_align_down(
+                    (#[trigger] self@[j]).end() as nat, PAGE_SIZE as nat) <= max_addr,
+                max_end == 0 || exists|j: int| 0 <= j < self.count && #[trigger] self.regions[j].end() == max_end,
+                forall|j: int| 0 <= j < i ==> {
+                    &&& #[trigger] regions.regions[j].aligned(PAGE_SIZE as int)
+                    &&& regions.regions[j].base + regions.regions[j].len <= MAX_PADDR
+                    &&& regions.regions[j] == self.regions[j].aligned_region()
+                    &&& regions.regions[j].end() >= nat_align_down(self.regions[j].end() as nat, PAGE_SIZE as nat)
+                },
+                forall|j: int| i <= j < LEN ==> #[trigger] regions.regions[j] == self.regions[j],
+            decreases LEN - i,
+        )]
+        while i < LEN {
+            proof! {
+                vstd::array::array_len_matches_n(&self.regions);
+                assert(self.regions[i as int].can_align());
+                lemma_pow2_is_pow2_to64();
+            }
+            let aligned = regions.regions[i].as_aligned();
+            proof! {
+                use_type_invariant(&aligned);
+                assert(aligned.end() >= nat_align_down(self.regions[i as int].end() as nat, PAGE_SIZE as nat));
+            }
+            regions.regions[i] = aligned;
+            proof! {
+                assert forall|j: int| 0 <= j <= i implies {
+                    &&& #[trigger] regions.regions[j].aligned(PAGE_SIZE as int)
+                    &&& regions.regions[j].base + regions.regions[j].len <= MAX_PADDR
+                    &&& regions.regions[j] == self.regions[j].aligned_region()
+                    &&& regions.regions[j].end() >= nat_align_down(self.regions[j].end() as nat, PAGE_SIZE as nat)
+                } by {
+                    if j < i {}
+                }
+            }
+            i += 1;
+        }
+        proof_decl! {
+            let ghost source = regions@;
+            let ghost bounds = region_boundaries(source);
+            let ghost mut visited = Set::<int>::empty();
+        }
+        proof! {
+            assert forall|j: int| 0 <= j < source.len() implies {
+                &&& #[trigger] source[j].aligned(PAGE_SIZE as int)
+                &&& source[j].base + source[j].len <= MAX_PADDR
+            } by {}
+            assert(source == self@.map_values(|r: MemoryRegion| r.aligned_region())) by {
+                assert forall|j: int| 0 <= j < source.len() implies
+                    #[trigger] source[j] == self@[j].aligned_region() by {
+                    assert(regions.regions[j].aligned(PAGE_SIZE as int));
+                }
+            }
+            let bases = source.map_values(|r: MemoryRegion| r.base as int);
+            let ends = source.map_values(|r: MemoryRegion| r.base + r.len);
+            bases.lemma_cardinality_of_set();
+            ends.lemma_cardinality_of_set();
+            vstd::set_lib::lemma_len_union(bases.to_set(), ends.to_set());
+            if max_addr > 0 {
+                let j = choose|j: int| 0 <= j < self.count && self.regions[j].end() == max_end;
+                assert(regions.regions[j].aligned(PAGE_SIZE as int));
+                assert(source[j] == regions.regions[j]);
+            }
+        }
 
         let mut result = MemoryRegionArray::<LEN>::new();
 
         let mut cur_right = 0;
 
+        #[verus_spec(
+            invariant
+                regions@ == source,
+                source.len() == regions.count <= LEN,
+                bounds == region_boundaries(source),
+                bounds.len() <= LEN,
+                visited.subset_of(bounds),
+                visited.len() == result.count,
+                forall|p: int| #[trigger] visited.contains(p) ==> p <= cur_right,
+                cur_right <= MAX_PADDR,
+                cur_right % PAGE_SIZE == 0,
+                is_partition(result@, cur_right as int),
+                preserves_types(result@, source),
+                result.count == result@.len() <= LEN,
+                result.count == 0 ==> result.regions[0] == MemoryRegion::bad(),
+                LEN > 0,
+                max_addr > 0 ==> exists|j: int| 0 <= j < source.len() && #[trigger] source[j].end() >= max_addr,
+                forall|j: int| 0 <= j < source.len() ==> {
+                    &&& #[trigger] source[j].aligned(PAGE_SIZE as int)
+                    &&& source[j].base + source[j].len <= MAX_PADDR
+                },
+            decreases MAX_PADDR - cur_right,
+        )]
         while cur_right < max_addr {
+            /* `Iterator::min` and `filter_map` have no models in the active vstd.
+             * Scan the same active prefix, selecting the least type among covering
+             * regions and the least boundary strictly beyond `cur_right`.
+             * The two scans are fused; their inputs and closures are read-only.
+             * Origin Rust: let typ = self.iter()
+             *     .filter(|region| (region.base()..region.end()).contains(&cur_right))
+             *     .map(|region| region.typ()).min().unwrap_or(MemoryRegionType::Unknown);
+             * let right = self.iter().filter_map(|region| {
+             *     if region.base() > cur_right { Some(region.base()) }
+             *     else if region.end() > cur_right { Some(region.end()) }
+             *     else { None }
+             * }).min().unwrap();
+             */
             // Find the most restrictive type.
-            let typ = self
-                .iter()
-                .filter(|region| (region.base()..region.end()).contains(&cur_right))
-                .map(|region| region.typ())
-                .min()
-                .unwrap_or(MemoryRegionType::Unknown);
-
-            // Find the right boundary.
-            let right = self
-                .iter()
-                .filter_map(|region| {
-                    if region.base() > cur_right {
-                        Some(region.base())
-                    } else if region.end() > cur_right {
-                        Some(region.end())
-                    } else {
-                        None
+            let mut typ: Option<MemoryRegionType> = None;
+            let mut right: Option<usize> = None;
+            i = 0;
+            #[verus_spec(
+                invariant
+                    i <= regions.count <= LEN,
+                    regions@ == source,
+                    typ matches Some(t) ==> exists|j: int| 0 <= j < i
+                        && #[trigger] source[j].base <= cur_right < source[j].end() && source[j].typ == t,
+                    forall|j: int| #![trigger source[j]] 0 <= j < i
+                        && source[j].base <= cur_right < source[j].end()
+                        ==> typ is Some && typ->0 as int <= source[j].typ as int,
+                    cur_right < max_addr,
+                    max_addr > 0 ==> exists|j: int| 0 <= j < source.len() && #[trigger] source[j].end() >= max_addr,
+                    forall|j: int| 0 <= j < source.len() ==> {
+                        &&& #[trigger] source[j].aligned(PAGE_SIZE as int)
+                        &&& source[j].base + source[j].len <= MAX_PADDR
+                    },
+                    right matches Some(r) ==> {
+                        &&& cur_right < r <= MAX_PADDR
+                        &&& r % PAGE_SIZE == 0
+                        &&& exists|j: int| 0 <= j < i && (#[trigger] source[j].base == r || source[j].end() == r)
+                    },
+                    forall|j: int| #![trigger source[j]] 0 <= j < i ==> {
+                        &&& (source[j].base > cur_right ==> right is Some && right->0 <= source[j].base)
+                        &&& (source[j].end() > cur_right ==> right is Some && right->0 <= source[j].end())
+                    },
+                decreases regions.count - i,
+            )]
+            while i < regions.count {
+                proof_decl! { let ghost previous_right = right; }
+                let region = &regions.regions[i];
+                proof! {
+                    use_type_invariant(region);
+                    assert(source[i as int].aligned(PAGE_SIZE as int));
+                }
+                if region.base() <= cur_right && cur_right < region.end() {
+                    match typ {
+                        None => typ = Some(region.typ()),
+                        Some(old) => {
+                            /* Compare the explicit discriminants to expose usability
+                             * ordering to Verus. Derived `Ord` on this fieldless enum
+                             * uses the same discriminant order (0 through 8).
+                             * Origin Rust: region.typ() < old
+                             */
+                            if (region.typ() as u8) < old as u8 {
+                                typ = Some(region.typ());
+                            }
+                        }
                     }
-                })
-                .min()
-                .unwrap();
+                }
+                let candidate = if region.base() > cur_right {
+                    Some(region.base())
+                } else if region.end() > cur_right {
+                    Some(region.end())
+                } else {
+                    None
+                };
+                if let Some(candidate) = candidate {
+                    match right {
+                        None => right = Some(candidate),
+                        Some(old) => {
+                            if candidate < old {
+                                right = Some(candidate);
+                            }
+                        }
+                    }
+                }
+                proof! {
+                    assert(right matches Some(r) ==> cur_right < r <= MAX_PADDR && r % PAGE_SIZE == 0);
+                    assert(source[i as int].base > cur_right ==> right is Some && right->0 <= source[i as int].base);
+                    assert(source[i as int].end() > cur_right ==> right is Some && right->0 <= source[i as int].end());
+                    assert forall|j: int| 0 <= j <= i implies {
+                        &&& (#[trigger] source[j].base > cur_right ==> right is Some && right->0 <= source[j].base)
+                        &&& (#[trigger] source[j].end() > cur_right ==> right is Some && right->0 <= source[j].end())
+                    } by {
+                        if j < i {
+                            assert(source[j].base > cur_right ==> previous_right is Some && previous_right->0 <= source[j].base);
+                            assert(source[j].end() > cur_right ==> previous_right is Some && previous_right->0 <= source[j].end());
+                        }
+                    }
+                }
+                i += 1;
+            }
+            let right = right.unwrap();
+            proof_decl! { let ghost chosen = typ; }
+            let typ = typ.unwrap_or(MemoryRegionType::Unknown);
+            proof! {
+                assert(forall|addr: int| cur_right <= addr < right ==>
+                    #[trigger] selected_type(source, addr, typ)) by {
+                    reveal(selected_type);
+                    assert forall|j: int| #![trigger source[j]] 0 <= j < source.len()
+                        && source[j].base <= cur_right < source[j].base + source[j].len implies
+                        typ as int <= source[j].typ as int by {
+                        assert(source[j].aligned(PAGE_SIZE as int));
+                    }
+                    if let Some(t) = chosen {
+                        let j = choose|j: int| #![trigger source[j]] 0 <= j < source.len()
+                            && source[j].base <= cur_right < source[j].end() && source[j].typ == t;
+                        assert(source[j].base <= cur_right < source[j].base + source[j].len);
+                    } else {
+                        assert forall|j: int| #![trigger source[j]] 0 <= j < source.len() implies
+                            !(source[j].base <= cur_right < source[j].base + source[j].len) by {
+                            assert(source[j].aligned(PAGE_SIZE as int));
+                        }
+                    }
+                    assert forall|addr: int| cur_right <= addr < right implies
+                        #[trigger] selected_type(source, addr, typ) by {
+                        assert forall|j: int| 0 <= j < source.len() implies
+                            (#[trigger] source[j].base <= addr < source[j].base + source[j].len)
+                                == (source[j].base <= cur_right < source[j].base + source[j].len) by {}
+                    }
+                }
+            }
+            proof_decl! { let ghost before = result@; }
+            proof! {
+                let j = choose|j: int| 0 <= j < source.len() && (source[j].base == right || source[j].end() == right);
+                assert(source[j].aligned(PAGE_SIZE as int));
+                if source[j].base == right {
+                    assert(source.map_values(|r: MemoryRegion| r.base as int)[j] == right);
+                } else {
+                    assert(source.map_values(|r: MemoryRegion| r.base + r.len)[j] == right);
+                }
+                visited.lemma_subset_not_in_lt(bounds, right as int);
+                visited = visited.insert(right as int);
+            }
 
             result
                 .push(MemoryRegion::new(cur_right, right - cur_right, typ))
                 .unwrap();
+
+            proof! {
+                assert(result@ == before.push(MemoryRegion::new(cur_right, (right - cur_right) as usize, typ)));
+                assert forall|j: int| 0 <= j < result@.len() implies
+                    {
+                        &&& #[trigger] result@[j].aligned(PAGE_SIZE as int)
+                        &&& result@[j].len > 0
+                        &&& result@[j].base + result@[j].len <= MAX_PADDR
+                        &&& (j > 0 ==> result@[j - 1].base + result@[j - 1].len == result@[j].base)
+                    } by {
+                    if j < before.len() { assert(before[j].aligned(PAGE_SIZE as int)); }
+                }
+                assert forall|j: int| 0 <= j < result@.len() implies #[trigger] result@[j].len > 0 by {
+                    if j < before.len() { assert(before[j].aligned(PAGE_SIZE as int)); }
+                }
+                assert forall|j: int| 0 <= j < result@.len() implies #[trigger] result@[j].base + result@[j].len <= MAX_PADDR by {
+                    if j < before.len() { assert(before[j].aligned(PAGE_SIZE as int)); }
+                }
+                assert forall|j: int| 0 < j < result@.len() implies result@[j - 1].base + result@[j - 1].len == #[trigger] result@[j].base by {
+                    if j < before.len() { assert(before[j].aligned(PAGE_SIZE as int)); }
+                }
+                lemma_partition(result@, right as int);
+                assert forall|j: int, addr: int| #![trigger result@[j], selected_type(source, addr, result@[j].typ)]
+                    0 <= j < result@.len() && result@[j].base <= addr < result@[j].base + result@[j].len
+                    implies selected_type(source, addr, result@[j].typ) by {}
+            }
 
             cur_right = right;
         }
 
         // Merge the adjacent regions with the same type.
         let mut merged_count = 1;
-        for i in 1..result.count {
-            if result[i].typ() == result.regions[merged_count - 1].typ() {
+        proof_decl! { let ghost split = result@; }
+        /* Use an explicit index to state the in-place compaction invariant.
+         * `result.count` remains unchanged throughout this loop, so its index
+         * range and mutation order are the same as the original `for` loop.
+         * Origin Rust: for i in 1..result.count { ... }
+         */
+        let mut i = 1;
+        proof! {
+            assert(coalesced(result.regions@.subrange(0, 1))) by { reveal(coalesced); }
+            if split.len() > 0 {
+                assert(split[0].aligned(PAGE_SIZE as int));
+                assert(is_partition(result.regions@.subrange(0, 1), split[0].end() as int));
+            }
+        }
+        #[verus_spec(
+            invariant
+                result.count == split.len() <= LEN,
+                1 <= merged_count <= i,
+                i <= split.len() || i == 1 && split.len() == 0,
+                is_partition(split, cur_right as int),
+                cur_right >= max_addr,
+                coalesced(result.regions@.subrange(0, merged_count as int)),
+                preserves_types(split, source),
+                preserves_types(result.regions@.subrange(0, merged_count as int), source),
+                split.len() > 0 ==> is_partition(result.regions@.subrange(0, merged_count as int), split[i - 1].end() as int),
+                forall|j: int| i <= j < split.len() ==> #[trigger] result.regions[j] == split[j],
+                split.len() == 0 ==> result.regions[0] == MemoryRegion::bad(),
+                LEN > 0,
+            decreases result.count - i,
+        )]
+        while i < result.count {
+            proof_decl! { let ghost previous = result.regions@; let ghost old_count = merged_count; }
+            proof! {
+                let prefix = result.regions@.subrange(0, merged_count as int);
+                assert forall|j: int| 0 <= j < merged_count implies {
+                    &&& #[trigger] previous[j].aligned(PAGE_SIZE as int)
+                    &&& previous[j].len > 0
+                    &&& previous[j].base + previous[j].len <= MAX_PADDR
+                    &&& (j > 0 ==> previous[j - 1].base + previous[j - 1].len == previous[j].base)
+                } by { assert(prefix[j].aligned(PAGE_SIZE as int)); }
+
+                assert(split[i as int].aligned(PAGE_SIZE as int));
+                assert(split[i as int].base == split[i - 1].base + split[i - 1].len);
+                assert(prefix.last().base + prefix.last().len == split[i as int].base);
+            }
+            /* Expose equality of fieldless enum variants through their unique
+             * discriminants; this is the same equality as the derived `PartialEq`.
+             * Origin Rust: result[i].typ() == result.regions[merged_count - 1].typ()
+             */
+            if result[i].typ() as u8 == result.regions[merged_count - 1].typ() as u8 {
                 result.regions[merged_count - 1] = MemoryRegion::new(
                     result.regions[merged_count - 1].base(),
                     result.regions[merged_count - 1].len() + result[i].len(),
@@ -410,13 +881,85 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
                 result.regions[merged_count] = result[i];
                 merged_count += 1;
             }
+            proof! {
+                let prefix = result.regions@.subrange(0, merged_count as int);
+                vstd::array::array_len_matches_n(&result.regions);
+                lemma_coalesced_update(previous.subrange(0, old_count as int), prefix);
+                assert(prefix.last().base + prefix.last().len == split[i as int].end());
+                assert forall|j: int| 0 <= j < prefix.len() implies
+                    #[trigger] prefix[j].aligned(PAGE_SIZE as int) by {
+                    if j < old_count { assert(previous[j].aligned(PAGE_SIZE as int)); }
+                }
+                assert forall|j: int| 0 <= j < prefix.len() implies #[trigger] prefix[j].len > 0 by {
+                    if j < old_count { assert(previous[j].aligned(PAGE_SIZE as int)); }
+                }
+                assert forall|j: int| 0 <= j < prefix.len() implies #[trigger] prefix[j].base + prefix[j].len <= MAX_PADDR by {
+                    if j < old_count { assert(previous[j].aligned(PAGE_SIZE as int)); }
+                }
+                assert forall|j: int| 0 < j < prefix.len() implies prefix[j - 1].base + prefix[j - 1].len == #[trigger] prefix[j].base by {
+                    if j < old_count { assert(previous[j].aligned(PAGE_SIZE as int)); }
+                }
+                lemma_partition(prefix, split[i as int].end() as int);
+                assert forall|j: int, addr: int| #![trigger prefix[j], selected_type(source, addr, prefix[j].typ)]
+                    0 <= j < prefix.len() && prefix[j].base <= addr < prefix[j].base + prefix[j].len
+                    implies selected_type(source, addr, prefix[j].typ) by {
+                    reveal(preserves_types);
+                    if j < old_count && addr < previous[j].base + previous[j].len {
+                        assert(selected_type(source, addr, previous.subrange(0, old_count as int)[j].typ));
+                    } else {
+                        assert(split[i as int].base <= addr < split[i as int].base + split[i as int].len);
+                    }
+                }
+            }
+            i += 1;
         }
         result.count = merged_count;
 
+        proof! {
+            assert(result@ == result.regions@.subrange(0, merged_count as int));
+        }
+
         result
-    }*/
+    }
 }
 
+// Auxiliary proof for assembling sweep and compaction invariants.
+verus! {
+
+proof fn lemma_partition(rs: Seq<MemoryRegion>, end: int)
+    requires
+        rs.len() > 0,
+        rs[0].base == 0,
+        rs.last().base + rs.last().len == end,
+        forall|i: int| 0 <= i < rs.len() ==> #[trigger] rs[i].aligned(PAGE_SIZE as int),
+        forall|i: int| 0 <= i < rs.len() ==> #[trigger] rs[i].len > 0,
+        forall|i: int| 0 <= i < rs.len() ==> #[trigger] rs[i].base + rs[i].len <= MAX_PADDR,
+        forall|i: int| 0 < i < rs.len() ==> rs[i - 1].base + rs[i - 1].len == #[trigger] rs[i].base,
+    ensures
+        is_partition(rs, end),
+{
+}
+
+/// Updating lengths or appending a different type preserves complete merging.
+proof fn lemma_coalesced_update(before: Seq<MemoryRegion>, after: Seq<MemoryRegion>)
+    requires
+        coalesced(before),
+        0 < before.len() <= after.len() <= before.len() + 1,
+        forall|j: int| 0 <= j < before.len() ==> #[trigger] after[j].typ == before[j].typ,
+        after.len() > before.len() ==> after.last().typ != before.last().typ,
+    ensures
+        coalesced(after),
+{
+    reveal(coalesced);
+    assert forall|j: int| 0 < j < after.len() implies #[trigger] after[j].typ != after[j
+        - 1].typ by {
+        if j < before.len() {
+            assert(before[j].typ != before[j - 1].typ);
+        }
+    }
+}
+
+} // verus!
 #[cfg(ktest)]
 mod test {
     use super::*;

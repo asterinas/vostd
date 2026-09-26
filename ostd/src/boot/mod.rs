@@ -5,6 +5,7 @@
 //!  2. the routine booting into the actual kernel;
 //!  3. the routine booting the other processors in the SMP context.
 pub mod memory_region;
+use vstd::prelude::*;
 //pub mod smp;
 
 /*
@@ -56,7 +57,9 @@ pub enum BootloaderAcpiArg {
     Xsdt(usize),
 }
 
+*/
 /// The framebuffer arguments.
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 pub struct BootloaderFramebufferArg {
     /// The address of the buffer.
@@ -69,6 +72,7 @@ pub struct BootloaderFramebufferArg {
     pub bpp: usize,
 }
 
+/*
 /*************************** Boot-time information ***************************/
 
 /// The boot-time boot information.
