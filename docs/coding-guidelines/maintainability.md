@@ -467,6 +467,14 @@ For public executable APIs, append a `Verified Properties` section containing:
 - `Preconditions`: State caller obligations.
 - `Postconditions`: State return guarantees, including absence of panic if proved.
 
+Format the section as level-2 rustdoc subsections, not inline fields: write
+`## Safety`, `## Functional Correctness`, `## Preconditions`, and
+`## Postconditions` in that order, and give each verified fact its own `-`
+bullet so the bullets mirror the conjuncts of the function's
+`requires`/`ensures`. Do not merge the fields into single inline entries such
+as `- Safety: ...`. Keep a verified module's `Verified Properties` paragraph
+as prose.
+
 Omit the section when the verified contract adds nothing beyond the signature
 and the type's own invariant. Two common cases:
 
@@ -500,6 +508,8 @@ See also:
 [`SpinLock`](../../ostd/src/sync/spin.rs#L18),
 [`AlignExt`](../../ostd/libs/align_ext/src/lib.rs#L98), and
 [`entails_and_temp_reverse`](../../verified_libs/vstd_extra/src/temporal_logic/rules.rs#L793).
+A canonical subsection-formatted block:
+[`VmSpace::reader`](../../ostd/src/mm/vm_space.rs#L347).
 An omitted block for a field getter:
 [`Segment::start_paddr`](../../ostd/src/mm/frame/segment.rs#L507).
 
@@ -518,11 +528,11 @@ Avoid crate- or module-wide allowances for a local Verus interoperability issue.
 <!-- guideline: right-size-spec-placement -->
 
 Keep a small, implementation-specific model beside its verified code. Create a
-separate file under `ostd/specs/` when the model is substantial, shared, or
-expected to grow into a subsystem-level interface.
+separate file under `ostd/specs/` when the model is substantial (e.g., more
+than about 200 lines), shared, or expected to grow into a subsystem-level
+interface.
 
-See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740708147)
-and [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740719198).
+See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740713899).
 
 ### Document real proof debt
 
