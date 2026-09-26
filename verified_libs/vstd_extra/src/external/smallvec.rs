@@ -159,8 +159,7 @@ pub assume_specification<A: Array>[ SmallVec::<A>::resize ](
         )[..new_len],
         new_len > smallvec_view(old(v)).len() ==> {
             &&& smallvec_view(final(v)).len() == new_len
-            &&& smallvec_view(final(v))[..smallvec_view(old(v)).len()]
-                == smallvec_view(old(v))
+            &&& smallvec_view(final(v))[..smallvec_view(old(v)).len()] == smallvec_view(old(v))
             &&& forall|i: int|
                 #![trigger smallvec_view(final(v))[i]]
                 smallvec_view(old(v)).len() <= i < new_len ==> cloned::<A::Item>(
