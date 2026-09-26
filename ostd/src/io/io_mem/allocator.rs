@@ -16,7 +16,7 @@ use log::{debug, info};
 use crate::{
     io::io_mem::IoMem,
     mm::{CachePolicy, PageFlags},
-    util::range_alloc::RangeAllocator,
+    util::range_alloc::{RangeAllocator, RangeAllocatorState},
 };
 
 /// I/O memory allocator that allocates memory I/O access to device drivers.
@@ -31,9 +31,11 @@ impl IoMemAllocator {
     ///
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
+        with Tracked(state): Tracked<&mut RangeAllocatorState>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             io_mem_range_registered(range),
+            self.state_matches(*old(state)),
         ensures
             result matches Some(io_mem) ==> {
                 &&& io_mem.paddr() == range.start
@@ -50,11 +52,12 @@ impl IoMemAllocator {
         proof! {
             use_type_invariant(self);
             lemma_found_window_contains(&self.allocators, &range, allocator);
+            lemma_found_state_matches(&self.allocators, allocator, *state);
         }
         proof_decl! {
             let tracked initialized: OneShotSet;
         }
-        let result = #[verus_spec(with => Tracked(initialized))]
+        let result = #[verus_spec(with Tracked(state) => Tracked(initialized))]
         allocator.alloc_specific(&range);
         result.ok()?;
 
@@ -78,6 +81,7 @@ impl IoMemAllocator {
     /// The caller must have ownership of the MMIO region through the `IoMemAllocator::get` interface.
     #[expect(dead_code)]
     #[verifier::external_body]
+    #[verus_spec(with Tracked(state): Tracked<&mut RangeAllocatorState>)]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
         let allocator = find_allocator(&self.allocators, &range).unwrap();
 
@@ -118,11 +122,14 @@ impl IoMemAllocatorBuilder {
     ///
     /// User must ensure the range doesn't belong to physical memory.
     #[verus_spec(ret =>
+        with
+            -> state_out: Tracked<RangeAllocatorState>,
         requires
             usize_ranges_ordered(ranges@),
             usize_ranges_match_registered(ranges@),
         ensures
             ret.type_inv(),
+            ret.state_matches(state_out@),
     )]
     pub(crate) unsafe fn new(ranges: Vec<Range<usize>>) -> Self {
         /* info!(
@@ -130,6 +137,9 @@ impl IoMemAllocatorBuilder {
             ranges
         ); */
         let mut allocators: Vec<RangeAllocator> = Vec::with_capacity(ranges.len());
+        proof_decl! {
+            let tracked (mut state, empty_state) = RangeAllocatorState::new(Map::empty());
+        }
         #[verus_spec(it =>
             invariant
                 allocators@.len() == it.index(),
@@ -142,12 +152,28 @@ impl IoMemAllocatorBuilder {
                 forall|j: int| #![trigger registered_io_mem_windows()[j]] 0 <= j < it.index() ==>
                     allocators@[j]@ == registered_io_mem_windows()[j],
                 windows_ordered(allocators@),
+                allocator_states_match(allocators@, state),
+                forall|key: usize| #[trigger] state@.contains_key(key)
+                    <==> key < it.index(),
         )]
         for range in ranges {
             proof! {
                 assert(range == it.seq()[it.index()]);
+                assert(it.index() == allocators@.len());
+                assert(allocators@.len() == allocators.len());
+                assert(allocators.len() <= usize::MAX);
+                assert(0 <= it.index() <= usize::MAX);
+                assert(!state@.contains_key(it.index() as usize));
             }
-            allocators.push(RangeAllocator::new(range));
+            proof_decl! {
+                let ghost prev_state = state@;
+                let ghost prev_state_id = state.id();
+                let ghost prev_allocators = allocators@;
+            }
+            allocators.push(
+                #[verus_spec(with Ghost(it.index() as usize), Tracked(&mut state))]
+                RangeAllocator::new(range),
+            );
             proof! {
                 assert(allocators@[allocators@.len() - 1]@.start == range.start);
                 assert(range.start == registered_io_mem_windows()[it.index()].start);
@@ -159,12 +185,31 @@ impl IoMemAllocatorBuilder {
                     assert(it.seq()[i].end <= it.seq()[i as int + 1].start);
                 }
                 assert(windows_ordered(allocators@));
+                assert forall|i: int| #![trigger allocators@[i]]
+                    0 <= i < allocators@.len() implies {
+                        &&& allocators@[i].state_id() == state.id()
+                        &&& state@.contains_key(allocators@[i].state_key())
+                    } by {
+                    if i < allocators@.len() - 1 {
+                        assert(prev_allocators[i].state_id() == prev_state_id);
+                        assert(prev_state.contains_key(prev_allocators[i].state_key()));
+                    }
+                }
+                assert(allocator_states_match(allocators@, state));
+                assert forall|key: usize| #[trigger] state@.contains_key(key)
+                    <==> key < it.index() + 1 by {
+                    if key == it.index() as usize {
+                    } else {
+                        assert(state@.contains_key(key) == prev_state.contains_key(key));
+                    }
+                }
             }
         }
         proof! {
             assert(allocators@.len() == registered_io_mem_windows().len());
             assert(windows_match_registered(allocators@));
         }
+        proof_with!(|= Tracked(state));
         Self { allocators }
     }
 
@@ -172,30 +217,45 @@ impl IoMemAllocatorBuilder {
     ///
     /// All drivers in OSTD must use this method to prevent peripheral drivers from accessing illegal memory I/O range.
     #[verus_spec(
+        with Tracked(state): Tracked<&mut RangeAllocatorState>,
         requires
             range.start < range.end,
-            vstd_extra::panic::may_panic(),
+            !self.can_remove(*old(state), range) ==> vstd_extra::panic::may_panic(),
             io_mem_range_registered(range),
+            self.state_matches(*old(state)),
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
+            proof! {
+                reveal(IoMemAllocatorBuilder::can_remove);
+                assert(!self.can_remove(*state, range));
+            }
             vstd_extra::panic!(
                 "Allocator for the system device's MMIO was not found. Range: {:x?}",
                 range
             );
         };
 
+        proof_decl! {
+            let ghost state_before = *state;
+        }
         proof! {
             use_type_invariant(self);
             lemma_found_window_contains(&self.allocators, &range, allocator);
+            lemma_found_state_matches(&self.allocators, allocator, state_before);
+            lemma_found_can_remove(&self.allocators, allocator, state_before, range);
         }
         proof_decl! {
             let tracked initialized: OneShotSet;
         }
 
-        if let Err(err) = #[verus_spec(with => Tracked(initialized))]
+        if let Err(err) = #[verus_spec(with Tracked(state) => Tracked(initialized))]
         allocator.alloc_specific(&range)
         {
+            proof! {
+                assert(!allocator.can_allocate(state_before, range));
+                assert(!self.can_remove(state_before, range));
+            }
             vstd_extra::panic!(
                 "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
                 range,
@@ -237,18 +297,45 @@ pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bo
         0 <= i < allocators.len() ==> allocators[i]@ == registered_io_mem_windows()[i]
 }
 
+pub open spec fn allocator_states_match(
+    allocators: Seq<RangeAllocator>,
+    state: RangeAllocatorState,
+) -> bool {
+    forall|i: int|
+        #![trigger allocators[i]]
+        0 <= i < allocators.len() ==> {
+            &&& allocators[i].state_id() == state.id()
+            &&& state@.contains_key(allocators[i].state_key())
+        }
+}
+
 /// The ranges passed across the unsafe builder boundary represent the abstract windows.
 pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> bool {
     &&& ranges.len() == registered_io_mem_windows().len()
     &&& forall|i: int|
         #![trigger ranges[i]]
         0 <= i < ranges.len() ==> {
+            &&& ranges[i].start <= ranges[i].end
             &&& ranges[i].start == registered_io_mem_windows()[i].start
             &&& ranges[i].end == registered_io_mem_windows()[i].end
         }
 }
 
 impl IoMemAllocatorBuilder {
+    pub closed spec fn can_remove(self, state: RangeAllocatorState, range: Range<usize>) -> bool {
+        exists|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && {
+                let allocator = self.allocators@[i];
+                &&& allocator@.start <= range.start < range.end <= allocator@.end
+                &&& allocator.can_allocate(state, range)
+            }
+    }
+
+    pub closed spec fn state_matches(self, state: RangeAllocatorState) -> bool {
+        allocator_states_match(self.allocators@, state)
+    }
+
     /// The builder always holds the ordered windows handed to [`IoMemAllocatorBuilder::new`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
@@ -257,6 +344,10 @@ impl IoMemAllocatorBuilder {
 }
 
 impl IoMemAllocator {
+    pub closed spec fn state_matches(self, state: RangeAllocatorState) -> bool {
+        allocator_states_match(self.allocators@, state)
+    }
+
     /// The allocator inherits the ordered windows of the builder it was built from.
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
@@ -305,6 +396,70 @@ pub proof fn lemma_found_window_contains(
     }
 }
 
+proof fn lemma_found_state_matches(
+    allocators: &Vec<RangeAllocator>,
+    found: &RangeAllocator,
+    state: RangeAllocatorState,
+)
+    requires
+        allocator_states_match(allocators@, state),
+        exists|k: int|
+            #![trigger allocators@[k]]
+            0 <= k < allocators@.len() && allocators@[k].state_id() == found.state_id()
+                && allocators@[k].state_key() == found.state_key(),
+    ensures
+        found.state_id() == state.id(),
+        state@.contains_key(found.state_key()),
+{
+    let i = choose|k: int|
+        #![trigger allocators@[k]]
+        0 <= k < allocators@.len() && allocators@[k].state_id() == found.state_id()
+            && allocators@[k].state_key() == found.state_key();
+}
+
+proof fn lemma_found_can_remove(
+    allocators: &Vec<RangeAllocator>,
+    found: &RangeAllocator,
+    state: RangeAllocatorState,
+    range: Range<usize>,
+)
+    requires
+        windows_ordered(allocators@),
+        exists|k: int|
+            0 <= k < allocators@.len() && allocators@[k]@.start <= range.start < range.end
+                <= allocators@[k]@.end && allocators@[k].state_id() == found.state_id()
+                && allocators@[k].state_key() == found.state_key(),
+    ensures
+        (exists|i: int|
+            #![trigger allocators@[i]]
+            0 <= i < allocators@.len() && {
+                let allocator = allocators@[i];
+                &&& allocator@.start <= range.start < range.end <= allocator@.end
+                &&& allocator.can_allocate(state, range)
+            }) <==> found.can_allocate(state, range),
+{
+    let k = choose|k: int|
+        0 <= k < allocators@.len() && allocators@[k]@.start <= range.start < range.end
+            <= allocators@[k]@.end && allocators@[k].state_id() == found.state_id()
+            && allocators@[k].state_key() == found.state_key();
+    assert forall|i: int|
+        #![trigger allocators@[i]]
+        0 <= i < allocators@.len() && allocators@[i]@.start <= range.start < range.end
+            <= allocators@[i]@.end implies i == k by {
+        if i < k {
+            assert(allocators@[i]@.end <= allocators@[k]@.start);
+        } else if k < i {
+            assert(allocators@[k]@.end <= allocators@[i]@.start);
+        }
+    }
+    crate::util::range_alloc::lemma_can_allocate_same_identity(
+        allocators@[k],
+        *found,
+        state,
+        range,
+    );
+}
+
 /// A range is registered when one abstract boot-time MMIO window contains it.
 pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
     exists|m: int|
@@ -351,13 +506,22 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
             &&& res@.start < range.end
             &&& res@.end > range.start
             &&& exists|k: int| #![trigger allocators@[k]]
-                0 <= k < allocators@.len() && allocators@[k]@ == res@
-        }
+                0 <= k < allocators@.len()
+                    && allocators@[k]@ == res@
+                    && allocators@[k].state_id() == res.state_id()
+                    && allocators@[k].state_key() == res.state_key()
+        },
+        ret is None ==> forall|i: int| #![trigger allocators@[i]] 0 <= i < allocators@.len()
+            ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
 )]
 fn find_allocator<'a>(
     allocators: &'a [RangeAllocator],
     range: &Range<usize>,
 ) -> Option<&'a RangeAllocator> {
+    #[verus_spec(it => invariant
+        forall|i: int| #![trigger allocators@[i]] 0 <= i < it.index()
+            ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
+    )]
     for allocator in allocators.iter() {
         let allocator_range = allocator.fullrange();
         /* Verus does not yet support `continue` in `for` loops.

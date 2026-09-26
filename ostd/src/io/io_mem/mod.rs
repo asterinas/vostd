@@ -62,6 +62,7 @@ impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
     #[verifier::external_body]
     #[verus_spec(result =>
+        with Tracked(state): Tracked<&mut crate::util::range_alloc::RangeAllocatorState>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             allocator::io_mem_range_registered(range),
