@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the x86 platform.
 /*pub mod boot;
-pub(crate) mod cpu;
+pub(crate) mod cpu;*/
 pub mod device;
-pub(crate) mod ex_table;
+/*pub(crate) mod ex_table;*/
 pub(crate) mod io;
-pub(crate) mod iommu;*/
+/*pub(crate) mod iommu;*/
 pub(crate) mod irq;
 /* pub(crate) mod kernel; */
 pub(crate) mod mm;
-/*pub(crate) mod pci;
-pub mod qemu;
+pub(crate) mod pci;
+/*pub mod qemu;
 pub(crate) mod serial;
 pub(crate) mod task; */
 pub mod timer;
@@ -212,7 +212,7 @@ pub(crate) fn enable_cpu_features() {
             *efer |= EferFlags::NO_EXECUTE_ENABLE;
         });
     }
-}
+}*/
 
 /// Inserts a TDX-specific code block.
 ///
@@ -251,4 +251,3 @@ macro_rules! if_tdx_enabled {
 }
 
 pub use if_tdx_enabled;
-*/
