@@ -8,10 +8,8 @@ use vstd_extra::{
     resource_invariant::{SimpleResourceInvariant, ValueInvariant},
 };
 
-use crate::specs::mm::cpu::AtomicCpuSet;
-
 use crate::{
-    cpu::CpuSet,
+    cpu::{AtomicCpuSet, CpuSet},
     sync::{LocalIrqDisabled, SpinLock},
 };
 

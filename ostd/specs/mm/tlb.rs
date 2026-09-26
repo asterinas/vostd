@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::{cpu::*, page_table::*};
+use crate::specs::mm::page_table::*;
 
 use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
 
