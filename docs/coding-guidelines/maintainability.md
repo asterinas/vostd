@@ -518,11 +518,11 @@ Avoid crate- or module-wide allowances for a local Verus interoperability issue.
 <!-- guideline: right-size-spec-placement -->
 
 Keep a small, implementation-specific model beside its verified code. Create a
-separate file under `ostd/specs/` when the model is substantial, shared, or
-expected to grow into a subsystem-level interface.
+separate file under `ostd/specs/` when the model is substantial (e.g., more
+than about 200 lines), shared, or expected to grow into a subsystem-level
+interface.
 
-See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740708147)
-and [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740719198).
+See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3740713899).
 
 ### Document real proof debt
 
