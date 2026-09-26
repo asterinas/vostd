@@ -3,10 +3,7 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::{
-    cpu::{AtomicCpuSet, PinCurrentCpu},
-    tlb::TlbModel,
-};
+use crate::specs::mm::tlb::TlbModel;
 
 use super::{
     PAGE_SIZE, Vaddr,
@@ -20,7 +17,7 @@ use core::{
 
 use crate::{
     //arch::irq,
-    cpu::{/*AtomicCpuSet,*/ CpuSet /*, PinCurrentCpu*/},
+    cpu::{AtomicCpuSet, CpuSet /*, PinCurrentCpu*/},
     //cpu_local,
     //sync::{LocalIrqDisabled, SpinLock},
 };

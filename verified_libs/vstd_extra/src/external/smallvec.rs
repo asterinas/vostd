@@ -10,23 +10,45 @@
 //!
 //! `SmallVec::new` asserts at construction that `A` is a well-formed `Array` impl
 //! (its reported size matches the real layout); a custom `unsafe impl Array` could
-//! trip this. So every operation below is guarded by `obeys_smallvec_array::<A>`
-//! and only the trusted instances in `group_smallvec_models` (currently `[u64; 2]`)
-//! are admitted by broadcast axioms. Any other `A: Array` cannot satisfy the guard
-//! without an added axiom, so the model never assumes invokability for an arbitrary
-//! `A`.
+//! trip this. So every operation below is guarded by `obeys_smallvec_array::<A>`,
+//! which unfolds to smallvec's own construction assert. Only the two arrays
+//! used by OSTD have checked guard lemmas — `lemma_smallvec_array_u64_2` and
+//! `lemma_smallvec_array_atomic_u64_2`; any other `A: Array` needs a
+//! correspondingly trusted size/alignment fact.
 //!
 //! Allocation-growth panics (capacity overflow past `isize::MAX`) are noted on each
-//! spec and excluded by an additional `requires`; `SmallVec::reserve` rounds the
-//! capacity up to the next power of two, so those bounds use a factor of 2.
+//! spec and, where a `requires` fits, excluded by that precondition;
+//! `SmallVec::reserve` rounds the capacity up to the next power of two, so those
+//! bounds use a factor of 2.
 use core::{
     ops::{Deref, DerefMut, Index, IndexMut},
     slice::SliceIndex,
+    sync::atomic::AtomicU64,
 };
 use smallvec::{Array, SmallVec};
-use vstd::{layout::size_of, prelude::*, slice::SliceIndexSpec};
+use vstd::{
+    layout::{align_of, size_of},
+    prelude::*,
+    slice::SliceIndexSpec,
+    std_specs::iter::{FromIteratorSpec, IteratorSpec},
+};
 
 verus! {
+
+// `global layout` accepts only named types, so aliases are needed for arrays.
+type U64Array2 = [u64; 2];
+
+type AtomicU64Array2 = [AtomicU64; 2];
+
+// rustc checks these declarations; together they provide the element and array
+// sizes and alignments needed to prove `obeys_smallvec_array` below.
+global layout u64 is size == 8, align == 8;
+
+global layout U64Array2 is size == 16, align == 8;
+
+global layout AtomicU64 is size == 8, align == 8;
+
+global layout AtomicU64Array2 is size == 16, align == 8;
 
 /// Verus declaration for `smallvec::Array`; only the element type `Item` is surfaced.
 #[verifier::external_trait_specification]
@@ -45,16 +67,49 @@ pub struct ExSmallVec<A: Array>(SmallVec<A>);
 /// The contents of a `SmallVec`, modelled as a sequence of its elements.
 pub uninterp spec fn smallvec_view<A: Array>(v: &SmallVec<A>) -> Seq<A::Item>;
 
-/// Whether `A` is a well-formed standard `Array` impl, i.e. `SmallVec::new`'s
-/// construction-time validity assert holds. Only the instances in
-/// `group_smallvec_models` are trusted (add an axiom there to admit new `A`s).
-pub uninterp spec fn obeys_smallvec_array<A: Array>() -> bool;
+/// The element count that `A`'s smallvec `Array` impl reports (`A::size()`).
+/// No `Array` bound, so the mirrors below can state it for every array `N`.
+pub uninterp spec fn smallvec_array_size<A>() -> nat;
 
-/// The standard `[u64; 2]` array (the `CpuSet` backing store) is a well-formed `Array`.
-pub broadcast axiom fn axiom_smallvec_array_u64_2()
+/// Whether `A` is a well-formed standard `Array` impl, i.e. smallvec's
+/// `SmallVec::new` construction assert holds: the reported element count and
+/// the alignment of `A` are consistent with the real layouts of `A` and
+/// `A::Item`. The two array instances used by OSTD satisfy this guard via the
+/// concrete lemmas below; any other impl needs corresponding layout and size facts.
+pub open spec fn obeys_smallvec_array<A: Array>() -> bool {
+    size_of::<A>() == smallvec_array_size::<A>() * size_of::<A::Item>() && align_of::<A>()
+        >= align_of::<A::Item>()
+}
+
+/// Mirrors smallvec's `Array::size()`: an array `[T; N]` reports its own
+/// length `N`. Trusted from the smallvec 1.15.0 source; impls exist only for
+/// its fixed size list (no `const_generics`), and other sizes can't be used
+/// as `A: Array` anywhere below.
+pub broadcast axiom fn axiom_smallvec_array_size_of_array<T, const N: usize>()
+    ensures
+        #![trigger smallvec_array_size::<[T; N]>()]
+        smallvec_array_size::<[T; N]>() == N,
+;
+
+/// The `[u64; 2]` used by `CpuSet` is a well-formed `SmallVec` backing store.
+/// Its concrete layout declarations above are checked by rustc.
+pub broadcast proof fn lemma_smallvec_array_u64_2()
     ensures
         #[trigger] obeys_smallvec_array::<[u64; 2]>(),
-;
+{
+    broadcast use axiom_smallvec_array_size_of_array;
+
+}
+
+/// The `[AtomicU64; 2]` used by `AtomicCpuSet` is a well-formed `SmallVec`
+/// backing store. Its concrete layout declarations above are checked by rustc.
+pub broadcast proof fn lemma_smallvec_array_atomic_u64_2()
+    ensures
+        #[trigger] obeys_smallvec_array::<[AtomicU64; 2]>(),
+{
+    broadcast use axiom_smallvec_array_size_of_array;
+
+}
 
 /// `SmallVec`'s single-position indexing precondition is the slice bounds check.
 pub broadcast axiom fn axiom_smallvec_index_req<A: Array>(v: &SmallVec<A>, index: usize)
@@ -67,7 +122,8 @@ pub broadcast axiom fn axiom_smallvec_index_req<A: Array>(v: &SmallVec<A>, index
 ;
 
 pub broadcast group group_smallvec_models {
-    axiom_smallvec_array_u64_2,
+    lemma_smallvec_array_u64_2,
+    lemma_smallvec_array_atomic_u64_2,
     axiom_smallvec_index_req,
 }
 
@@ -207,6 +263,48 @@ pub assume_specification<A: Array>[ <SmallVec<A> as DerefMut>::deref_mut ](
             &&& ret@ == smallvec_view(old(v))
             &&& final(ret)@ == smallvec_view(final(v))
         },
+;
+
+/// Verus proxy for the owned `SmallVec` iterator `smallvec::IntoIter`
+/// (mirrors the array-IntoIter precedent in `crate::external::iter`).
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(A)]
+pub struct ExSmallVecIntoIter<A: Array>(smallvec::IntoIter<A>);
+
+/// Consumes the `SmallVec`, yielding exactly its elements from left to right,
+/// once each. Guarded as an ensures-implication since `requires` is
+/// disallowed on trait-method specs (same as [`Deref`]).
+pub assume_specification<A: Array>[ <SmallVec<A> as IntoIterator>::into_iter ](
+    v: SmallVec<A>,
+) -> (iter: <SmallVec<A> as IntoIterator>::IntoIter)
+    ensures
+        obeys_smallvec_array::<A>() ==> {
+            &&& IteratorSpec::obeys_prophetic_iter_laws(&iter)
+            &&& IteratorSpec::will_return_none(&iter)
+            &&& IteratorSpec::remaining(&iter) == smallvec_view(&v)
+            &&& IteratorSpec::decrease(&iter) == Some(smallvec_view(&v).len())
+        },
+;
+
+/// Collecting a terminated iterator into a `SmallVec` yields exactly its
+/// remaining elements, in order; the axiom slot for `FromIteratorSpecImpl`,
+/// which cannot be implemented here because both `SmallVec` and
+/// `FromIteratorSpecImpl` are defined in external crates (orphan rule, E0117).
+/// Consequently `from_iter_ensures` remains uninterpreted for `SmallVec`, so
+/// local proof/spec code alone cannot prove this equality. Eliminating this
+/// trusted boundary requires either an upstream spec implementation or replacing
+/// `collect()` with operations such as `SmallVec::new()` and `push()` that already
+/// have usable contracts.
+/// Panics on capacity overflow like `push`; a no-panic caller needs
+/// `2 * remaining.len() * size_of::<A::Item>() <= isize::MAX`.
+pub broadcast axiom fn axiom_smallvec_from_iter_ensures<A: Array>(
+    remaining: Seq<A::Item>,
+    s: SmallVec<A>,
+)
+    ensures
+        obeys_smallvec_array::<A>() ==> #[trigger] FromIteratorSpec::from_iter_ensures(remaining, s)
+            == (remaining == smallvec_view(&s)),
 ;
 
 } // verus!

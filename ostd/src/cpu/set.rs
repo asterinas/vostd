@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use vstd::{
-    assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
+    arithmetic::div_mod::lemma_fundamental_div_mod_converse, assert_seqs_equal, layout::size_of,
+    prelude::*, set::Set, std_specs::iter::IteratorSpec,
 };
 use vstd_extra::{
     bits::{group_u64_bit_algebra, lemma_u64_and_zero, u64_bit_is_set},
     external::{
         bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
-        smallvec::{group_smallvec_models, smallvec_view},
+        smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
     },
     ownership::Inv,
 };
@@ -67,6 +68,8 @@ verus! {
 
 broadcast use {
     group_smallvec_models,
+    axiom_smallvec_from_iter_ensures,
+    vstd::std_specs::iter::group_iter_axioms,
     lemma_u64_set_bits_nonzero,
     group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
@@ -269,32 +272,26 @@ impl CpuSet {
         returns self@ == Set::empty(),
     )]
     pub fn is_empty(&self) -> bool {
-        /* `Iterator::all` on a temporary receiver does not expose its initial `remaining()`
-         * sequence to the caller's proof, so name the iterator and retain a ghost snapshot.
+        /* Bind the result as `ret` so the spec and the proof below can refer to it.
          * Origin Rust: self.bits.iter().all(|part| *part == 0)
          */
-        let mut iter = self.bits.iter();
-        proof_decl! {
-            let ghost initial_iter = iter;
-        }
-        let ret = iter.all(
+        let ret = self.bits.iter().all(
             #[verus_spec(ret: bool => ensures ret == (*part == 0u64))]
             |part| *part == 0,
         );
         proof! {
+            let seq = smallvec_view(&self.bits);
             if ret {
                 assert forall|i: int|
                     0 <= i < smallvec_view(&self.bits).len() implies
                         smallvec_view(&self.bits)[i] == 0u64 by {
-                    assert(*IteratorSpec::remaining(&initial_iter)[i] == 0u64);
+                    assert(*seq.as_ref()[i] == seq[i]);
                 }
                 lemma_empty_bits_imply_empty_set(self);
             } else {
-                let seq = smallvec_view(&self.bits);
-                let initial = IteratorSpec::remaining(&initial_iter);
-                let idx = initial.len() - IteratorSpec::remaining(&iter).len() - 1;
-                lemma_u64_nonzero_has_set_bit(*initial[idx]);
-                let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(*initial[idx], b);
+                let idx = choose|i: int| 0 <= i < seq.len() && seq[i] != 0u64;
+                lemma_u64_nonzero_has_set_bit(seq[idx]);
+                let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(seq[idx], b);
                 let j = 64 * idx + b;
                 assert(bit_at(seq, j));
                 assert(self@.contains(j));
@@ -505,6 +502,7 @@ impl CpuSet {
 /// It provides atomic operations for each CPU in the system. When the
 /// operation contains multiple CPUs, the ordering is not guaranteed.
 #[derive(Debug)]
+#[verus_verify]
 pub struct AtomicCpuSet {
     bits: SmallVec<[AtomicInnerPart; NR_PARTS_NO_ALLOC]>,
 }
@@ -512,8 +510,30 @@ pub struct AtomicCpuSet {
 type AtomicInnerPart = AtomicU64;
 /* const_assert!(core::mem::size_of::<AtomicInnerPart>() * 8 == BITS_PER_PART); */
 
+verus! {
+
+/// Number of backing words (a `closed` fn since `bits` is private).
+pub closed spec fn num_parts(s: &AtomicCpuSet) -> nat {
+    smallvec_view(&s.bits).len()
+}
+
+pub closed spec fn cpu_num_parts(s: &CpuSet) -> nat {
+    smallvec_view(&s.bits).len()
+}
+
+impl AtomicCpuSet {
+    /// The word count always matches the system's CPU count.
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        num_parts(&self) == parts_for_cpus_spec(cpu_count() as usize)
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl AtomicCpuSet {
     /// Creates a new `AtomicCpuSet` with an initial value.
+    #[verus_spec(requires value.inv())]
     pub fn new(value: CpuSet) -> Self {
         let bits = value.bits.into_iter().map(AtomicU64::new).collect();
         Self { bits }
@@ -529,6 +549,10 @@ impl AtomicCpuSet {
     /// Note that load with [`Ordering::Release`] is a valid operation, which
     /// is different from the normal atomic operations. When coupled with
     /// [`Ordering::Release`], it actually performs `fetch_or(0, Release)`.
+    #[verus_spec(ret =>
+        ensures
+            cpu_num_parts(&ret) == num_parts(&self),
+    )]
     pub fn load(&self, ordering: Ordering) -> CpuSet {
         let bits = self
             .bits
@@ -572,6 +596,10 @@ impl AtomicCpuSet {
     }
 
     /// Atomically checks if the set contains the specified CPU.
+    #[verus_spec(ret =>
+        ensures
+            cpu_id@ / 64 >= num_parts(&self) ==> ret == false,
+    )]
     pub fn contains(&self, cpu_id: CpuId, ordering: Ordering) -> bool {
         let part_idx = part_idx(cpu_id);
         let bit_idx = bit_idx(cpu_id);
@@ -628,11 +656,8 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: int)
 {
     if n == 0 {
         assert(word >> (0u32) == word) by (bit_vector);
-    } else if u64_bit_is_set(word, 0) {
-        assert(u64_bit_is_set(word, 0));
-    } else {
+    } else if !u64_bit_is_set(word, 0) {
         let shifted = word >> 1u32;
-        assert((word & (1u64 << 0usize)) == 0u64);
         assert(shifted != 0) by (bit_vector)
             requires
                 shifted == word >> 1u32,
@@ -661,7 +686,6 @@ proof fn lemma_u64_nonzero_has_set_bit_aux(word: u64, n: int)
                     bu < 63,
             ;
         };
-        assert(0 <= b + 1 < n && u64_bit_is_set(word, b + 1));
     }
 }
 
@@ -779,9 +803,6 @@ proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
     let n = cpu_count();
     let len = seq.len() as int;
     let k = n % 64;
-    if k != 0 {
-    } else {
-    }
     // A bit where the word differs from its full-set value.
     let word = seq[p];
     let expected = full_set_word(n, len, p);
@@ -808,10 +829,6 @@ proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
             }
             assert(bit_at(seq, j));
             assert(false);
-        }
-    } else {
-        if p < len - 1 {
-        } else {
         }
     }
 }
