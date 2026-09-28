@@ -132,27 +132,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    /// Constructor spec for a translation-only / borrowed entry. See
-    /// [`EntryOwner`]'s `borrowed` field for semantics.
-    pub open spec fn new_borrowed(
-        path: TreePath<NR_ENTRIES>,
-        parent_level: PagingLevel,
-        mappings: Set<Mapping>,
-    ) -> Self {
-        EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), path, parent_level }
-    }
-
-    pub proof fn tracked_new_borrowed(
-        path: TreePath<NR_ENTRIES>,
-        parent_level: PagingLevel,
-        mappings: Set<Mapping>,
-    ) -> tracked Self
-        returns
-            Self::new_borrowed(path, parent_level, mappings),
-    {
-        Self { kind: EntryOwnerKind::Borrowed(mappings), path, parent_level }
-    }
-
     pub proof fn tracked_new_absent(
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
@@ -314,20 +293,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             #[trigger] entry.frame_is_tracked()
                 != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
     ;
-
-    pub proof fn tracked_new_node(
-        tracked node: NodeOwner<C>,
-        path: TreePath<NR_ENTRIES>,
-    ) -> tracked Self
-        returns
-            Self::new_node(node, path),
-    {
-        Self {
-            parent_level: (node.level() + 1) as PagingLevel,
-            kind: EntryOwnerKind::Node(node),
-            path,
-        }
-    }
 
     /// Creates a ghost entry owner for mapping an untracked (device memory) frame.
     /// Unlike `new_frame`, this does not consume a slot permission from the meta region,

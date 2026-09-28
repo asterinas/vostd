@@ -1151,47 +1151,6 @@ impl AbstractVaddr {
     {
     }
 
-    /// Index 0 + wrapped ==> next_index nonzero at that level.
-    pub proof fn wrapped_nonzero_at_level(
-        abs_va_down: Self,
-        abs_next_va: Self,
-        start_level: int,
-        level: int,
-        owner_index_at_level: int,
-    )
-        requires
-            1 <= start_level <= level <= NR_LEVELS,
-            abs_va_down.wrapped(start_level, level),
-            abs_va_down.next_index(start_level) == abs_next_va,
-            abs_va_down.index[level - 1] == owner_index_at_level,
-            owner_index_at_level == 0,
-        ensures
-            abs_next_va.index[level - 1] != 0,
-    {
-        abs_va_down.wrapped_index_nonzero(start_level, level);
-    }
-
-    /// Generalized form: any starting index where `idx + 1 < NR_ENTRIES`
-    /// (the "no-carry-from-this-level" case) gives `next_index.index[level-1] != 0`.
-    /// Subsumes `wrapped_nonzero_at_level` (the `idx == 0` case).
-    pub proof fn wrapped_nonzero_at_level_general(
-        abs_va_down: Self,
-        abs_next_va: Self,
-        start_level: int,
-        level: int,
-        owner_index_at_level: int,
-    )
-        requires
-            1 <= start_level <= level <= NR_LEVELS,
-            abs_va_down.wrapped(start_level, level),
-            abs_va_down.next_index(start_level) == abs_next_va,
-            abs_va_down.index[level - 1] == owner_index_at_level,
-            owner_index_at_level + 1 < NR_ENTRIES,
-        ensures
-            abs_next_va.index[level - 1] != 0,
-    {
-    }
-
     #[verifier::spinoff_prover]
     pub proof fn next_index_preserves_lower_indices(self, start_level: int, lower_level: int)
         requires
@@ -1664,45 +1623,6 @@ impl AbstractVaddr {
     {
         if idx < path1.len() {
             Self::rec_vaddr_eq_if_indices_eq(path1, path2, idx + 1);
-        }
-    }
-
-    /// If a TreePath matches this abstract vaddr's indices at all levels covered by the path,
-    /// then vaddr(path) equals the aligned compute_vaddr at the corresponding level.
-    pub proof fn path_matches_vaddr(self, path: TreePath<NR_ENTRIES>)
-        requires
-            self.inv(),
-            path.inv(),
-            path.len() <= NR_LEVELS,
-            forall|i: int| 0 <= i < path.len() ==> path[i] == self.index[NR_LEVELS - 1 - i],
-        ensures
-            vaddr(path) == self.align_down(NR_LEVELS - path.len() + 1).compute_vaddr()
-                - self.align_down(NR_LEVELS - path.len() + 1).offset,
-    {
-        if path.len() == 0 {
-            let aligned = self.align_down(5);
-            self.align_down_shape(4);
-            // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
-            assert(aligned.index[3] == 0) by {};
-
-            assert(aligned.rec_compute_vaddr(3) == 0) by {
-                assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
-                    + aligned.rec_compute_vaddr(4)) as Vaddr);
-            };
-            assert(aligned.rec_compute_vaddr(2) == 0) by {};
-            assert(aligned.rec_compute_vaddr(1) == 0) by {};
-        } else {
-            let level = NR_LEVELS - path.len();
-            self.to_path_inv(level);
-            self.to_path_len(level);
-            assert forall|i: int| 0 <= i < path.len() implies #[trigger] path[i] == self.to_path(
-                level,
-            )[i] by {
-                self.to_path_index(level, i);
-            };
-            Self::rec_vaddr_eq_if_indices_eq(path, self.to_path(level), 0);
-            self.to_path_vaddr(level);
-            self.align_down_shape(level + 1);
         }
     }
 

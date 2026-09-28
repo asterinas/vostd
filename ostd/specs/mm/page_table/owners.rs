@@ -664,18 +664,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         };
     }
 
-    /// For a top-level (root) page table, entries at indices outside of
-    /// `C::TOP_LEVEL_INDEX_RANGE()` are absent. This ensures that
-    /// UserPtConfig and KernelPtConfig page tables manage disjoint portions
-    /// of the virtual address space.
-    pub open spec fn top_level_indices_absent(self) -> bool {
-        let range = C::TOP_LEVEL_INDEX_RANGE();
-        self.0.value().is_node() ==> forall|i: int|
-            #![trigger self.0.has_child(i)]
-            0 <= i < NR_ENTRIES && !(range.start <= i < range.end) ==> self.0.has_child(i)
-                && self.0.child(i).value().is_absent()
-    }
-
     pub open spec fn view_rec_node_children(self, path: TreePath<NR_ENTRIES>) -> Seq<Set<Mapping>>
         decreases INC_LEVELS - path.len(), 0nat,
         when self.0.inv() && path.len() < INC_LEVELS - 1

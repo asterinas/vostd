@@ -941,29 +941,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         }
     }
 
-    /// Proves that view_helper commutes with remove:
-    /// view_helper(s.remove(i)) == view_helper(s).remove(i)
-    pub proof fn lemma_view_helper_remove(owners: Seq<LinkOwner>, i: int)
-        requires
-            0 <= i < owners.len(),
-        ensures
-            Self::view_helper(owners.remove(i)) == Self::view_helper(owners).remove(i),
-    {
-        Self::lemma_view_preserves_len(owners);
-        Self::lemma_view_preserves_len(owners.remove(i));
-        assert forall|j: int|
-            0 <= j < Self::view_helper(owners.remove(i)).len() implies Self::view_helper(
-            owners.remove(i),
-        )[j] == Self::view_helper(owners).remove(i)[j] by {
-            Self::lemma_view_helper_index(owners.remove(i), j);
-            if j < i {
-                Self::lemma_view_helper_index(owners, j);
-            } else {
-                Self::lemma_view_helper_index(owners, j + 1);
-            }
-        };
-    }
-
     /// Proves that view_helper commutes with insert:
     /// view_helper(s.insert(i, v)) == view_helper(s).insert(i, v.view())
     pub proof fn lemma_view_helper_insert(owners: Seq<LinkOwner>, i: int, v: LinkOwner)
@@ -1296,17 +1273,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
                 0
             },
         }
-    }
-
-    pub open spec fn ghost_owner(list_own: LinkedListOwner<M>) -> Self {
-        CursorOwner::<M> { list_own: list_own, index: list_own.list.len() as int }
-    }
-
-    pub proof fn tracked_ghost_owner(tracked list_own: LinkedListOwner<M>) -> (tracked res: Self)
-        ensures
-            res == Self::ghost_owner(list_own),
-    {
-        CursorOwner::<M> { list_own: list_own, index: list_own.list.len() as int }
     }
 }
 
