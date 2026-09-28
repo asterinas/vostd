@@ -339,11 +339,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
-                // Canonical model: neither `from_pte` (old non-node) nor
-                // `into_pte` (new non-node) touches the per-frame ledger, so
-                // it is preserved. Lets the huge-page split loop carry the
-                // freshly-allocated node's obligation across the per-child
-                // `replace` calls up to its own `into_pte`.
             },
             // When old child is absent and new child is not a node: slots values unchanged.
             (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
@@ -353,9 +348,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     )]
     #[verifier::spinoff_prover]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> Child<C> {
-        // For restoring `count_consistent` (the `nr_children == count_present`
-        // invariant) at the end: snapshot the parent's PTE array and counter
-        // before the PTE write + counter inc/dec.
         let ghost cp0 = parent_owner.children_perm.value();
         let ghost initial_regions = *regions;
         let ghost initial_owner = *owner;
