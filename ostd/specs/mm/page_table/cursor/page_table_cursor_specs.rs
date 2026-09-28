@@ -14,10 +14,6 @@ use core::ops::Range;
 
 verus! {
 
-impl<C: PageTableConfig> PageTableOwner<C> {
-    pub uninterp spec fn new_cursor_owner_spec<'rcu>(self) -> (Self, CursorOwner<'rcu, C>);
-}
-
 /// A `CursorView` is not aware that the underlying structure of the page table is a tree.
 /// It treats the page table as an array of mappings of various sizes, and the cursor itself as the
 /// current virtual address, moving from low to high addresses. These functions specify its behavior

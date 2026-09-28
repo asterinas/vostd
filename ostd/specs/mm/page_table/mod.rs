@@ -354,14 +354,6 @@ impl AbstractVaddr {
         }
     }
 
-    proof fn lemma_zero_offset_preserves_inv(self)
-        requires
-            self.inv(),
-        ensures
-            (AbstractVaddr { offset: 0, ..self }).inv(),
-    {
-    }
-
     /// Updating one valid page-table index with an in-range value preserves the VA invariant.
     pub proof fn lemma_insert_preserves_inv(self, index: int, value: int)
         requires
@@ -817,37 +809,6 @@ impl AbstractVaddr {
         lower_aligned.next_index(level)
     }
 
-    /// Sound variant of the previously-axiomatic `align_up_concrete` for the no-carry case.
-    /// Gives `align_up(level).reflect((nat_align_down + ps) as Vaddr)`, matching the real
-    /// always-advance semantics.
-    pub proof fn align_up_concrete_sound(self, level: int)
-        requires
-            self.inv(),
-            1 <= level <= NR_LEVELS,
-            self.index[level - 1] + 1 < NR_ENTRIES,
-        ensures
-            self.align_up(level).reflect(
-                (nat_align_down(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat)
-                    + page_size(level as PagingLevel) as nat) as Vaddr,
-            ),
-    {
-        let aligned = self.align_down(level);
-        self.align_down_shape(level);
-        self.align_down_to_vaddr_nat_align_down(level);
-        aligned.index_increment_adds_page_size(level);
-
-        let advanced = AbstractVaddr {
-            index: aligned.index.insert(level - 1, aligned.index[level - 1] + 1),
-            ..aligned
-        };
-
-        assert(advanced.inv()) by {
-            assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
-
-        };
-        advanced.reflect_to_vaddr();
-    }
-
     /// When `self.to_vaddr()` is already `page_size(level)`-aligned, `self.align_down(level) == self`.
     ///
     /// Follows from: both share the same `to_vaddr` (via `align_down_to_vaddr_nat_align_down`
@@ -1082,35 +1043,10 @@ impl AbstractVaddr {
         lemma_page_size_ge_page_size(level as PagingLevel);
 
         vstd_extra::arithmetic::lemma_nat_align_down_sound(self.to_vaddr() as nat, ps);
-
-        // aligned.to_vaddr() as nat == nat_align_down(self.to_vaddr(), ps).
-        // So aligned.to_vaddr() % ps == 0 (from sound's `nat_align_down % align == 0`).
-
-        // aligned.to_vaddr() + ps <= usize::MAX (from precondition).
-
-        // Reduce to aligned case.
         aligned.aligned_align_up_advances(level);
 
-        // Show self.align_up(level) == aligned.align_up(level) via idempotence of align_down.
-        //   aligned.align_up(level) == aligned.align_down(level).next_index(level)
-        //                          == aligned.next_index(level)  (aligned.align_down(level) == aligned)
-        //   self.align_up(level)    == self.align_down(level).next_index(level)
-        //                          == aligned.next_index(level)
         aligned.aligned_align_down_is_self(level);
 
-    }
-
-    /// Sound variant of the previously-axiomatic `align_diff` under a non-aligned precondition.
-    pub proof fn align_diff_sound(self, level: int)
-        requires
-            1 <= level <= NR_LEVELS,
-            self.to_vaddr() as nat % page_size(level as PagingLevel) as nat != 0,
-        ensures
-            nat_align_up(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat)
-                == nat_align_down(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat)
-                + page_size(level as PagingLevel),
-    {
-        // Follows directly from the definition of `nat_align_up`.
     }
 
     /// When at the last entry of a level (index[level-1] == NR_ENTRIES - 1),
