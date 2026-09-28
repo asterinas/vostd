@@ -12,7 +12,6 @@ use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::may_panic, prelude::*}
 use crate::specs::{
     arch::*,
     mm::{
-        cpu::AtomicCpuSet,
         frame::{
             meta_owners::{FracMetadataPerm, MetaSlotStorage},
             meta_region_owners::MetaRegionOwners,
@@ -26,7 +25,7 @@ use crate::specs::{
 };
 
 use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
-use crate::cpu::CpuSet;
+use crate::cpu::{AtomicCpuSet, CpuSet};
 use crate::error::Error;
 use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::frame::untyped::UFrame;
