@@ -1740,20 +1740,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         &&& forall|i: int| 0 <= i < prefix.len() ==> prefix[i] == path[i]
     }
 
-    /// Transitivity of is_prefix_of
-    pub proof fn prefix_transitive<const N: usize>(
-        p1: TreePath<N>,
-        p2: TreePath<N>,
-        p3: TreePath<N>,
-    )
-        requires
-            Self::is_prefix_of(p1, p2),
-            Self::is_prefix_of(p2, p3),
-        ensures
-            Self::is_prefix_of(p1, p3),
-    {
-    }
-
     /// Entries in a subtree whose structural path is disjoint from `old_entry.path`
     /// have different physical addresses from `old_entry`.
     pub proof fn neq_old_from_path_disjoint(
