@@ -16,9 +16,8 @@ use vstd::{prelude::*, raw_ptr::ptr_null_mut, resource::Loc};
 use vstd_extra::{
     atomic_irc11::{AtomicHistory, ThreadView},
     ownership::Inv,
+    rcu_objects::{RcuBlockInfo, RcuDomainAuth, RcuRegistration},
 };
-
-use super::{RcuBlockInfo, RcuDomainAuth, RcuRegistration};
 
 verus! {
 
