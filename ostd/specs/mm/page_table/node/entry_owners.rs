@@ -399,18 +399,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& !pte.is_last(parent_level)
     }
 
-    /// When owner is absent and pte is the absent PTE with valid paddr, match_pte holds.
-    pub proof fn absent_match_pte(owner: Self, pte: C::E, parent_level: PagingLevel)
-        requires
-            owner.is_absent(),
-            pte == C::E::new_absent_spec(),
-            valid_frame_paddr(pte.paddr()),
-        ensures
-            owner.match_pte(pte, parent_level),
-    {
-        C::E::lemma_page_table_entry_properties();
-    }
-
     pub proof fn last_pte_implies_frame_match(self, pte: C::E, parent_level: PagingLevel)
         requires
             self.inv(),
@@ -769,44 +757,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 Tracked(self.frame_permission()),
             );
             assert(!self.frame_is_tracked());
-        }
-    }
-
-    /// Two entries with the same physical address whose `paths_in_pt` matches their
-    /// respective paths must have the same path.
-    pub proof fn same_paddr_implies_same_path(self, other: Self, regions: MetaRegionOwners)
-        requires
-            self.meta_slot_paddr() is Some,
-            self.meta_slot_paddr() == other.meta_slot_paddr(),
-            regions.slot_owner(self.meta_slot_paddr()->0).paths_in_pt == set![self.path],
-            regions.slot_owner(other.meta_slot_paddr()->0).paths_in_pt == set![other.path],
-        ensures
-            self.path == other.path,
-    {
-        assert(set![self.path].contains(other.path));
-    }
-
-    /// Two node entries with `metaregion_sound` under the same regions cannot share
-    /// a meta slot paddr if their paths have different lengths.
-    ///
-    /// For nodes, `metaregion_sound` requires `paths_in_pt == set![path]` (singleton).
-    /// Equal slot indices would force equal singleton sets, hence equal paths —
-    /// contradicting the length difference.
-    pub proof fn nodes_different_path_lengths_neq_slot(self, other: Self, regions: MetaRegionOwners)
-        requires
-            self.is_node(),
-            other.is_node(),
-            self.metaregion_sound(regions),
-            other.metaregion_sound(regions),
-            self.path.len() != other.path.len(),
-        ensures
-            self.meta_slot_paddr_neq(other),
-    {
-        let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
-        let other_idx = frame_to_index(other.meta_slot_paddr().unwrap());
-        if self_idx == other_idx {
-            assert(set![self.path].contains(other.path));
-            assert(false);
         }
     }
 }
