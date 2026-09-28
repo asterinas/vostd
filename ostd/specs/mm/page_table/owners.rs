@@ -659,13 +659,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             (depth - 1) as nat,
         ) by {
             let child = owner.child(i);
-            // pt_edge_at follows from the per-edge facts in the precondition.
-            // owner.inv() ⇒ child.inv() (`TreeNode::inv` recurses since
-            // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base
-            // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
             assert(owner.has_child(i));
-            // Each child is non-node with all grandchildren None — the
-            // non-node branch of pt_inv_at_depth fires.
             PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
         };
     }
