@@ -221,7 +221,8 @@ global layout PageTableEntry is size == 8, align == 8;
 
 #[verus_verify]
 unsafe impl Pod for PageTableEntry {
-
+    uninterp spec fn pod_bytes(&self) -> Seq<u8>;
+    axiom fn axiom_pod_exists(bytes: Seq<u8>);
 }
 
 impl PageTableEntry {

@@ -966,7 +966,7 @@ impl<'a> VmReader<'a, Infallible> {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
                     &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
-                    &&& ostd_pod::pod_bytes::<T>(v)
+                    &&& v.pod_bytes()
                         == crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner))
                             .read_bytes(old(self).cursor.vaddr, core::mem::size_of::<T>())
                     &&& forall|va: usize|

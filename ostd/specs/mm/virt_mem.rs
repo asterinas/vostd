@@ -19,7 +19,6 @@ use crate::specs::{arch::MAX_PADDR, mm::page_table::Mapping};
 use crate::Pod;
 use crate::mm::{Paddr, PodOnce, Vaddr};
 use core::{marker::PhantomData, ops::Range};
-use ostd_pod::{decode_pod, pod_bytes};
 
 verus! {
 
@@ -595,7 +594,7 @@ impl VirtPtr {
                     )->0).1 as int] is Init
                 },
         ensures
-            pod_bytes(val) == mem.read_bytes(self.vaddr, core::mem::size_of::<T>()),
+            val.pod_bytes() == mem.read_bytes(self.vaddr, core::mem::size_of::<T>()),
     {
         let pnt = self.vaddr as *const T;
         unsafe { pnt.read_volatile() }
@@ -617,7 +616,7 @@ impl VirtPtr {
     /// - Every byte in that range must translate in `mem`.
     ///
     /// ## Postconditions
-    /// - The final memory equals `old(mem).write_bytes(self.vaddr, pod_bytes(val))`.
+    /// - The final memory equals `old(mem).write_bytes(self.vaddr, val.pod_bytes())`.
     /// - `mem.mappings` is unchanged (derivable from `write_bytes`, but stated
     ///   directly for caller convenience).
     /// - `mem.memory.dom()` can only grow (same).
@@ -638,7 +637,7 @@ impl VirtPtr {
                     &&& old(mem).addr_transl(i) is Some
                 },
         ensures
-            *final(mem) == old(mem).write_bytes(self.vaddr, pod_bytes(val)),
+            *final(mem) == old(mem).write_bytes(self.vaddr, val.pod_bytes()),
             final(mem).mappings == old(mem).mappings,
             old(mem).memory.dom().subset_of(final(mem).memory.dom()),
             forall|va: usize|
