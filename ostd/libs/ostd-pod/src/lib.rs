@@ -22,6 +22,24 @@ verus! {
 ///
 /// Marking a non-POD type as POD may cause undefined behaviors.
 pub unsafe trait Pod: Copy + Sized {
+    /// The (uninterpreted) byte representation of this value; see
+    /// [`Self::axiom_pod_exists`].
+    spec fn pod_bytes(&self) -> Seq<u8>;
+
+    /// Every byte sequence of length `size_of::<Self>()` represents some
+    /// `Self` value (any bits form a valid value).
+    ///
+    /// # Safety
+    ///
+    /// Implementors assume this fact; it is guaranteed by the safety
+    /// obligation of [`Pod`] itself.
+    proof fn axiom_pod_exists(bytes: Seq<u8>)
+        ensures
+            bytes.len() == core::mem::size_of::<Self>() ==> exists|val: Self|
+                #![trigger val.pod_bytes()]
+                val.pod_bytes() == bytes,
+    ;
+
     /// Creates a new instance of Pod type that is filled with zeroes.
     #[verifier::external_body]
     fn new_zeroed() -> Self {
@@ -42,14 +60,16 @@ pub unsafe trait Pod: Copy + Sized {
         requires
             bytes@.len() >= core::mem::size_of::<Self>(),
         returns
-            from_bytes_spec::<Self>(bytes@),
+            choose|val: Self| val.pod_bytes()
+                == bytes@[..core::mem::size_of::<Self>()],
     )]
     fn from_bytes(bytes: &[u8]) -> Self {
         let mut new_self = Self::new_uninit();
         let copy_len = new_self.as_bytes().len();
         new_self.as_bytes_mut().copy_from_slice(&bytes[..copy_len]);
         proof {
-            assert(new_self == decode_pod::<Self>(bytes@[0..core::mem::size_of::<Self>()]));
+            assert(new_self == choose|val: Self|
+                val.pod_bytes() == bytes@[..core::mem::size_of::<Self>()]);
         }
         new_self
     }
@@ -59,7 +79,7 @@ pub unsafe trait Pod: Copy + Sized {
     #[verus_spec(r =>
         ensures
             r.len() == core::mem::size_of::<Self>(),
-            r@ == pod_bytes(*self),
+            r@ == self.pod_bytes(),
     )]
     fn as_bytes(&self) -> &[u8] {
         let ptr = self as *const Self as *const u8;
@@ -72,8 +92,8 @@ pub unsafe trait Pod: Copy + Sized {
     #[verus_spec(r =>
         ensures
             r.len() == core::mem::size_of::<Self>(),
-            final(r)@ == pod_bytes(*final(self)),
-            *final(self) == decode_pod::<Self>(final(r)@),
+            final(r)@ == final(self).pod_bytes(),
+            *final(self) == choose|val: Self| val.pod_bytes() == final(r)@,
     )]
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         let ptr = self as *mut Self as *mut u8;
@@ -83,29 +103,28 @@ pub unsafe trait Pod: Copy + Sized {
 }
 
 /// The value decoded from the first `size_of::<T>()` input bytes.
-pub open spec fn from_bytes_spec<T>(bytes: Seq<u8>) -> T {
-    decode_pod::<T>(bytes[0..core::mem::size_of::<T>()])
+pub open spec fn from_bytes_spec<T: Pod>(bytes: Seq<u8>) -> T {
+    decode_pod::<T>(bytes[..core::mem::size_of::<T>()])
 }
-
-/// Spec function: the byte representation of a [`Pod`] value.
-///
-/// This is uninterpreted — the actual byte mapping depends on `T`'s layout
-/// (endianness, padding, etc.) which we don't model. Callers use this to
-/// relate writes and reads of the same value through memory.
-pub uninterp spec fn pod_bytes<T>(val: T) -> Seq<u8>;
 
 /// The Pod value whose byte representation equals `bytes` (when one exists).
 ///
-/// Defined via `choose`; if no Pod value maps to `bytes`, the result is
-/// arbitrary. Callers should obtain the relevant existence fact from a checked
-/// byte conversion before relying on the returned value.
-pub open spec fn decode_pod<T>(bytes: Seq<u8>) -> T {
-    choose|val: T| pod_bytes::<T>(val) == bytes
+/// Defined via `choose`; if no value maps to `bytes`, the result is
+/// arbitrary. For exact-size `bytes` at a concrete `T`, existence is given
+/// by `T::axiom_pod_exists`; otherwise callers should obtain the relevant
+/// existence fact from a checked byte conversion.
+pub open spec fn decode_pod<T: Pod>(bytes: Seq<u8>) -> T {
+    choose|val: T| val.pod_bytes() == bytes
 }
 
 macro_rules! impl_pod_for {
     ($($pod_ty:ty),*) => {
-        $(unsafe impl Pod for $pod_ty {})*
+        $(::vstd::prelude::verus! {
+            unsafe impl Pod for $pod_ty {
+                uninterp spec fn pod_bytes(&self) -> Seq<u8>;
+                axiom fn axiom_pod_exists(bytes: Seq<u8>);
+            }
+        })*
     };
 }
 
@@ -114,7 +133,9 @@ impl_pod_for!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, isize, usize);
 
 // impl Pod for array
 unsafe impl<T: Pod, const N: usize> Pod for [T; N] {
+    uninterp spec fn pod_bytes(&self) -> Seq<u8>;
 
+    axiom fn axiom_pod_exists(bytes: Seq<u8>);
 }
 
 } // verus!
