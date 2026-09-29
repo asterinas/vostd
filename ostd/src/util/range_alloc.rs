@@ -6,8 +6,7 @@
 //! The free list is hidden behind a spin lock and mirrored by a [`GhostSubset`]
 //! retained alongside its [`GhostSetAuth`]. Successful allocations return a
 //! [`GhostSubRange`] token to the caller, and freeing a range consumes that
-//! token. Thus all manipulation of the authoritative set and the retained
-//! free-list subset stays inside the allocator API.
+//! token.
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
@@ -32,7 +31,38 @@ use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
 
+#[verus_verify]
+pub struct RangeAllocator {
+    fullrange: Range<usize>,
+    freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled, FreelistInvariant>,
+}
+
+/// An error returned when allocating from a [`RangeAllocator`].
+#[verus_verify]
+#[derive(Debug)]
+pub struct RangeAllocError;
+
 verus! {
+
+impl View for RangeAllocator {
+    type V = Range<usize>;
+
+    closed spec fn view(&self) -> Range<usize> {
+        Range { start: self.fullrange.start, end: self.fullrange.end }
+    }
+}
+
+impl RangeAllocator {
+    /// The identifier shared by this allocator's authority and allocation tokens.
+    pub closed spec fn state_id(self) -> Loc {
+        self.freelist.constant().state_id
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.freelist.constant().fullrange == self@ && self@.start <= self@.end
+    }
+}
 
 ghost struct FreelistConstant {
     fullrange: Range<usize>,
@@ -119,40 +149,6 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
 
 } // verus!
 #[verus_verify]
-pub struct RangeAllocator {
-    fullrange: Range<usize>,
-    freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>, PreemptDisabled, FreelistInvariant>,
-}
-
-/// An error returned when allocating from a [`RangeAllocator`].
-#[verus_verify]
-#[derive(Debug)]
-pub struct RangeAllocError;
-
-verus! {
-
-impl View for RangeAllocator {
-    type V = Range<usize>;
-
-    closed spec fn view(&self) -> Range<usize> {
-        Range { start: self.fullrange.start, end: self.fullrange.end }
-    }
-}
-
-impl RangeAllocator {
-    /// The identifier shared by this allocator's authority and allocation tokens.
-    pub closed spec fn state_id(self) -> Loc {
-        self.freelist.constant().state_id
-    }
-
-    #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
-        self.freelist.constant().fullrange == self@ && self@.start <= self@.end
-    }
-}
-
-} // verus!
-#[verus_verify]
 impl RangeAllocator {
     #[verus_spec(ret =>
         requires
@@ -167,14 +163,10 @@ impl RangeAllocator {
      */
     pub fn new(fullrange: Range<usize>) -> Self {
         proof_decl! {
-            let ghost fullrange_view = Range {
-                start: fullrange.start,
-                end: fullrange.end,
-            };
             let tracked initialized = OneShotPending::alloc();
-            let tracked (state_auth, remaining) = GhostSetAuth::new(fullrange_view.view_set());
+            let tracked (state_auth, remaining) = GhostSetAuth::new(fullrange.view_set());
             let ghost constant = FreelistConstant {
-                fullrange: fullrange_view,
+                fullrange,
                 initialized_id: initialized.id(),
                 state_id: state_auth.id(),
             };
@@ -193,11 +185,7 @@ impl RangeAllocator {
         }
     }
 
-    #[verus_spec(ret =>
-        ensures
-            ret.start == self@.start,
-            ret.end == self@.end,
-    )]
+    #[verus_spec(returns self@)]
     pub const fn fullrange(&self) -> &Range<usize> {
         &self.fullrange
     }
@@ -228,27 +216,23 @@ impl RangeAllocator {
             res is Ok <==> allocated@ is Some,
             allocated@ matches Some(token) ==> {
                 &&& token.id() == self.state_id()
-                &&& token.range() == *allocate_range
+                &&& token.range() == allocate_range
             },
     )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
         debug_assert!(allocate_range.start < allocate_range.end);
 
-        proof_decl! {
-            let tracked allocated: Option<GhostSubRange<usize>>;
-        }
         let mut lock_guard = self.get_freelist_guard();
         proof_decl! {
+            let tracked allocated: Option<GhostSubRange<usize>>;
             let ghost initial_map = lock_guard@->0@;
             let ghost initial_freelist = freelist_model(initial_map);
+            let ghost mut checked = Set::<(usize, FreeRange)>::empty();
         }
         let freelist = lock_guard.as_mut().unwrap();
         let mut target_node = None;
         let mut left_length = 0;
         let mut right_length = 0;
-        proof_decl! {
-            let ghost mut checked = Set::<(usize, FreeRange)>::empty();
-        }
         #[verus_spec(it =>
             invariant
                 self@.start <= allocate_range.start < allocate_range.end <= self@.end,
@@ -275,8 +259,6 @@ impl RangeAllocator {
                         *allocate_range,
                     ),
             ensures
-                target_node is None ==> checked == it.seq().unref().to_set(),
-                target_node is None ==> checked == freelist@.kv_pairs(),
                 target_node is None ==> forall|entry: (usize, FreeRange)|
                     #![trigger freelist@.kv_pairs().contains(entry)]
                     freelist@.kv_pairs().contains(entry) ==> !block_contains(
@@ -369,12 +351,8 @@ impl RangeAllocator {
                     key,
                     *allocate_range,
                 );
-                let ghost allocation = Range {
-                    start: allocate_range.start,
-                    end: allocate_range.end,
-                };
-                let tracked subset = resource.remaining.split(allocation.view_set());
-                allocated = Some(GhostSubRange::tracked_new(subset, allocation));
+                let tracked subset = resource.remaining.split(allocate_range.view_set());
+                allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
             } else {
                 allocated = None;
             }
@@ -416,12 +394,10 @@ impl RangeAllocator {
             res is Ok <==> allocated@ is Some,
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
-        proof_decl! {
-            let tracked allocated: Option<GhostSubRange<usize>>;
-        }
         let mut lock_guard = self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
         proof_decl! {
+            let tracked allocated: Option<GhostSubRange<usize>>;
             let ghost initial_map = freelist@;
             let ghost initial_freelist = freelist_model(freelist@);
         }
@@ -480,12 +456,8 @@ impl RangeAllocator {
                 let ghost range = res->Ok_0;
                 let ghost key = to_remove->0;
                 lemma_alloc_suffix_model(self@, initial_map, freelist@, key, range);
-                let ghost allocation = Range {
-                    start: range.start,
-                    end: range.end,
-                };
-                let tracked subset = resource.remaining.split(allocation.view_set());
-                allocated = Some(GhostSubRange::tracked_new(subset, allocation));
+                let tracked subset = resource.remaining.split(range.view_set());
+                allocated = Some(GhostSubRange::tracked_new(subset, range));
             } else {
                 allocated = None;
             }
@@ -565,26 +537,21 @@ impl RangeAllocator {
                 }
             }
         }
-        proof! {
+        proof_decl! {
             if !merged_left {
                 assert(freelist@ == before_left_map);
             }
-        }
-        proof_decl! {
             let ghost before_insert_map = freelist@;
             let ghost inserted_range = free_range;
         }
         freelist.insert(free_range.start, FreeRange::new(free_range.clone()));
-        proof! {
-            lemma_insert_free_range(self@, before_insert_map, freelist@, inserted_range);
-        }
-
-        // 2. check if we can merge the current block with the next block, if we can, do so.
         proof_decl! {
+            lemma_insert_free_range(self@, before_insert_map, freelist@, inserted_range);
             let ghost before_right_map = freelist@;
             let ghost before_right_range = free_range;
             let ghost mut merged_right = false;
         }
+        // 2. check if we can merge the current block with the next block, if we can, do so.
         if let Some((next_va, next_node)) = freelist
             .lower_bound_mut(core::ops::Bound::Excluded(&free_range.start))
             .peek_next()
