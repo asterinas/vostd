@@ -203,13 +203,6 @@ impl MemView {
         }
     }
 
-    /// Whether two virtual addresses denote equal byte contents in this view.
-    pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
-        let (pa1, off1) = self.addr_transl(va1)->0;
-        let (pa2, off2) = self.addr_transl(va2)->0;
-        self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
-    }
-
     /// Whether `va` is translated and mapped to frame base `pa`.
     pub open spec fn is_mapped(self, va: usize, pa: usize) -> bool {
         self.addr_transl(va) is Some && self.addr_transl(va)->Some_0.0 == pa

@@ -557,16 +557,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
     }
 
-    pub proof fn pop_level_owner_preserves_inv(self)
-        requires
-            self.inv(),
-            self.level < NR_LEVELS,
-        ensures
-            self.pop_level_owner().0.inv(),
-    {
-        reveal(PageTableOwner::pt_inv_at_depth);
-    }
-
     #[verifier::rlimit(200)]
     pub proof fn pop_level_owner_preserves_invs(self, guards: Guards, regions: MetaRegionOwners)
         requires

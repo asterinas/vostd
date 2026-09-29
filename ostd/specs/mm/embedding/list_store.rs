@@ -304,15 +304,6 @@ pub open spec fn fresh_loose_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     choose|id: LooseId| !m.dom().contains(id)
 }
 
-pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
-    m: Map<LooseId, UniqueFrameOwner<Link<M>>>,
-)
-    ensures
-        !m.dom().contains(fresh_loose_id(m)),
-{
-    lemma_finite_int_set_has_unused(m.dom());
-}
-
 /// Checked front specialization of [`axiom_take_at_embedded`], reflecting
 /// [`crate::mm::frame::LinkedList::pop_front`].
 pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(

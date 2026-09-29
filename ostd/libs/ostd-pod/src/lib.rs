@@ -2,7 +2,6 @@
 #![no_std]
 
 use vstd::prelude::*;
-use vstd_extra::array_ptr::{self, ArrayPtr};
 
 use core::mem::MaybeUninit;
 
@@ -35,9 +34,7 @@ pub unsafe trait Pod: Copy + Sized {
     fn new_uninit() -> Self {
         // SAFETY. A value of `T: Pod` can have arbitrary bits.
         #[allow(clippy::uninit_assumed_init)]
-        unsafe {
-            MaybeUninit::uninit().assume_init()
-        }
+        unsafe { MaybeUninit::uninit().assume_init() }
     }
 
     /// Creates a new instance from the given bytes.
@@ -52,9 +49,7 @@ pub unsafe trait Pod: Copy + Sized {
         let copy_len = new_self.as_bytes().len();
         new_self.as_bytes_mut().copy_from_slice(&bytes[..copy_len]);
         proof {
-            assert(new_self == decode_pod::<Self>(
-                bytes@[0..core::mem::size_of::<Self>()],
-            ));
+            assert(new_self == decode_pod::<Self>(bytes@[0..core::mem::size_of::<Self>()]));
         }
         new_self
     }
@@ -113,12 +108,15 @@ macro_rules! impl_pod_for {
         $(unsafe impl Pod for $pod_ty {})*
     };
 }
+
 // impl Pod for primitive types
 impl_pod_for!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, isize, usize);
+
 // impl Pod for array
-unsafe impl<T: Pod, const N: usize> Pod for [T; N] {}
+unsafe impl<T: Pod, const N: usize> Pod for [T; N] {
+
+}
 
 } // verus!
-
 #[cfg(feature = "derive")]
 pub use ostd_pod_derive::*;

@@ -686,29 +686,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         pto.view_rec_mapping_inv(root_path);
     }
 
-    /// Every mapping in the cursor view has `page_size ∈ {4K, 2M, 1G}`.
-    ///
-    /// Uses the standard collapse trick: `view_mappings` equals
-    /// `as_page_table_owner().view_rec(continuations[3].path())`, then applies
-    /// `view_rec_mapping_page_size`. The root's `parent_level == 5 == INC_LEVELS`
-    /// is given by the cursor invariant (continuations[3].entry_own.parent_level == 5).
-    pub proof fn view_mapping_page_size_valid(self)
-        requires
-            self.inv(),
-        ensures
-            forall|m: Mapping| #[trigger]
-                self.view_mappings().contains(m)
-                    ==> set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size),
-    {
-        self.as_page_table_owner_preserves_view_mappings();
-        let pto = self.as_page_table_owner();
-        let root_path = self.continuations[3].path();
-        // pto.0.level == continuations[3].tree_level == 0
-        // pto.0.value.parent_level == continuations[3].entry_own.parent_level == 5
-        // == INC_LEVELS == INC_LEVELS - 0 == INC_LEVELS - pto.0.level
-        pto.view_rec_mapping_page_size(root_path);
-    }
-
     /// Non-overlapping mappings in the cursor view.
     ///
     /// Collapses the union-over-continuations `view_mappings` into a single

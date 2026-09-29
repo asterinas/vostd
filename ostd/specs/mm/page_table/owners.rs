@@ -659,27 +659,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             (depth - 1) as nat,
         ) by {
             let child = owner.child(i);
-            // pt_edge_at follows from the per-edge facts in the precondition.
-            // owner.inv() ⇒ child.inv() (`TreeNode::inv` recurses since
-            // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base
-            // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
             assert(owner.has_child(i));
-            // Each child is non-node with all grandchildren None — the
-            // non-node branch of pt_inv_at_depth fires.
             PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
         };
-    }
-
-    /// For a top-level (root) page table, entries at indices outside of
-    /// `C::TOP_LEVEL_INDEX_RANGE()` are absent. This ensures that
-    /// UserPtConfig and KernelPtConfig page tables manage disjoint portions
-    /// of the virtual address space.
-    pub open spec fn top_level_indices_absent(self) -> bool {
-        let range = C::TOP_LEVEL_INDEX_RANGE();
-        self.0.value().is_node() ==> forall|i: int|
-            #![trigger self.0.has_child(i)]
-            0 <= i < NR_ENTRIES && !(range.start <= i < range.end) ==> self.0.has_child(i)
-                && self.0.child(i).value().is_absent()
     }
 
     pub open spec fn view_rec_node_children(self, path: TreePath<NR_ENTRIES>) -> Seq<Set<Mapping>>
@@ -1744,20 +1726,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     pub open spec fn is_prefix_of<const N: usize>(prefix: TreePath<N>, path: TreePath<N>) -> bool {
         &&& prefix.len() <= path.len()
         &&& forall|i: int| 0 <= i < prefix.len() ==> prefix[i] == path[i]
-    }
-
-    /// Transitivity of is_prefix_of
-    pub proof fn prefix_transitive<const N: usize>(
-        p1: TreePath<N>,
-        p2: TreePath<N>,
-        p3: TreePath<N>,
-    )
-        requires
-            Self::is_prefix_of(p1, p2),
-            Self::is_prefix_of(p2, p3),
-        ensures
-            Self::is_prefix_of(p1, p3),
-    {
     }
 
     /// Entries in a subtree whose structural path is disjoint from `old_entry.path`

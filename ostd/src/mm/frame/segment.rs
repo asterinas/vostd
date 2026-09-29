@@ -19,13 +19,13 @@ use crate::specs::{
 };
 
 use super::{
+    Frame, Paddr,
     meta::mapping::frame_to_meta,
     meta::{AnyFrameMeta, GetFrameError},
-    Frame, Paddr,
 };
 use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 use crate::mm::page_table::RCClone;
-use crate::mm::{frame::MetaSlot, paddr_to_vaddr, PagingLevel, Vaddr};
+use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 verus! {
@@ -823,30 +823,30 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 range: at..self.end_paddr(),
                 _marker: core::marker::PhantomData,
                 #[cfg(verus_keep_ghost_body)]
-                tracked_perms: Tracked(
-                    Some(self.raw_perms()[idx..]),
-                ),
+                tracked_perms: Tracked(Some(self.raw_perms()[idx..])),
             },
         )
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment<M>
-{
-    open spec fn obeys_from_spec() -> bool { true }
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment<M> {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
 
     closed spec fn from_spec(frame: Frame<M>) -> Self {
         let paddr = frame.start_paddr_spec();
         let slot_perm = frame.slot_perm();
         let metadata_perm = frame.frac_metadata_perm();
-        let perm = seq!{
+        let perm =
+            seq!{
             FrameRawPerms { slot_perm: &slot_perm, metadata_perm}
         };
         Self {
             range: paddr..(paddr + PAGE_SIZE) as usize,
             _marker: core::marker::PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(Some(perm))
+            tracked_perms: Tracked(Some(perm)),
         }
     }
 }
@@ -872,7 +872,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
             range: pa..(pa + PAGE_SIZE),
             _marker: core::marker::PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_perms: Tracked(Some(perms))
+            tracked_perms: Tracked(Some(perms)),
         }
     }
 }

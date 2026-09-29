@@ -208,13 +208,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // align_up(1).to_vaddr() == self.va.to_vaddr() + PAGE_SIZE.
         }
     }
-
-    // ─── Tree membership & tracking ────────────────────────────
-    pub open spec fn not_in_tree(self, owner: EntryOwner<C>) -> bool {
-        self.map_full_tree(
-            |owner0: EntryOwner<C>, path: TreePath<NR_ENTRIES>| owner0.meta_slot_paddr_neq(owner),
-        )
-    }
 }
 
 } // verus!

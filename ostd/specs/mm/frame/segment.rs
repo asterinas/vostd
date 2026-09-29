@@ -49,42 +49,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 (self.range().start + i * PAGE_SIZE) as usize,
             ) != frame_to_index((self.range().start + j * PAGE_SIZE) as usize)
     }
-
-    /// Whether a [`MemView`] covers the segment through the kernel direct mapping.
-    ///
-    /// This predicate only describes the virtual-to-physical relation and the
-    /// presence of initialized backing frame contents.
-    pub open spec fn kernel_mem_view_covers(&self, view: &MemView) -> bool {
-        &&& self.inv()
-        &&& view.mappings_are_disjoint()
-        &&& forall|vaddr: Vaddr|
-            #![trigger view.addr_transl(vaddr)]
-            paddr_to_vaddr(self.start_paddr()) <= vaddr < paddr_to_vaddr(self.start_paddr())
-                + self.end_paddr() - self.start_paddr() ==> {
-                &&& view.addr_transl(vaddr) is Some
-                &&& view.memory.contains_key((view.addr_transl(vaddr)->0).0)
-                &&& view.memory[(view.addr_transl(vaddr)->0).0].inv()
-                &&& view.memory[(view.addr_transl(vaddr)->0).0].contents[(view.addr_transl(
-                    vaddr,
-                )->0).1 as int] is Init
-            }
-        &&& forall|paddr: Paddr|
-            #![trigger paddr_to_vaddr(paddr)]
-            self.start_paddr() <= paddr < self.end_paddr() ==> {
-                let vaddr = paddr_to_vaddr(paddr);
-                &&& view.addr_transl(vaddr) is Some
-                &&& (view.addr_transl(vaddr)->0).0 <= paddr
-                &&& paddr < (view.addr_transl(vaddr)->0).0 + view.memory[(view.addr_transl(
-                    vaddr,
-                )->0).0].size@
-                &&& (view.addr_transl(vaddr)->0).1 == paddr - (view.addr_transl(vaddr)->0).0
-                &&& view.memory.contains_key((view.addr_transl(vaddr)->0).0)
-                &&& view.memory[(view.addr_transl(vaddr)->0).0].inv()
-                &&& view.memory[(view.addr_transl(vaddr)->0).0].contents[(view.addr_transl(
-                    vaddr,
-                )->0).1 as int] is Init
-            }
-    }
 }
 
 /// Helper spec: the slot index of the j-th frame in a segment whose physical

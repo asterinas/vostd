@@ -108,10 +108,6 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
-        // Stage 5.3: opening a cursor only allocates fresh PT nodes —
-        // every *changed* slot was UNUSED before and becomes a
-        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
-        // from this single clause.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
@@ -153,10 +149,6 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
-        // Stage 5.3: opening a cursor only allocates fresh PT nodes —
-        // every *changed* slot was UNUSED before and becomes a
-        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
-        // from this single clause.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {

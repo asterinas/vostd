@@ -60,11 +60,6 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
-        // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
-        // nodes — every *changed* slot was UNUSED before and becomes a
-        // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
-        // chains from this; the `usage == PageTable` strengthening also
-        // feeds `structural_inv`'s slot-perm coverage exception.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
@@ -107,11 +102,6 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
-        // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
-        // nodes — every *changed* slot was UNUSED before and becomes a
-        // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
-        // chains from this; the `usage == PageTable` strengthening also
-        // feeds `structural_inv`'s slot-perm coverage exception.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {

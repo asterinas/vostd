@@ -64,10 +64,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Range { start, end }
     }
 
-    pub open spec fn set_va(self, new_va: AbstractVaddr) -> Self {
-        Self { va: new_va, ..self }
-    }
-
     pub open spec fn set_va_in_node(self, new_va: AbstractVaddr) -> Self {
         let old_cont = self.continuations[self.level - 1];
         Self {
@@ -103,18 +99,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.zero_below_level().va == self.va.align_down(self.level as int),
     {
-    }
-
-    pub proof fn zero_preserves_above(self)
-        requires
-            self.va.inv(),
-            1 <= self.level <= NR_LEVELS,
-        ensures
-            forall|lv: int|
-                self.level <= lv < NR_LEVELS ==> self.zero_below_level().va.index[lv]
-                    == #[trigger] self.va.index[lv],
-    {
-        self.va.align_down_shape(self.level as int);
     }
 
     pub proof fn do_zero_below_level(tracked &mut self)
@@ -238,85 +222,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // and self_va % ps < ps.
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(self_va as int, ps as int);
         vstd::arithmetic::div_mod::lemma_mod_bound(self_va as int, ps as int);
-    }
-
-    // ─── Proofs: VA range / view ─────────────────────────────────────────
-    #[verifier::spinoff_prover]
-    pub proof fn cur_va_range_reflects_view(self)
-        requires
-            self.inv(),
-            self.in_locked_range(),
-            !self.popped_too_high,
-            self.cur_entry_owner().is_frame(),
-        ensures
-            self.cur_va_range().start.reflect(self@.query_range().start as Vaddr),
-            self.cur_va_range().end.reflect(self@.query_range().end as Vaddr),
-    {
-        broadcast use CursorContinuation::group_lemmas;
-
-        self.lemma_cur_subtree_inv();
-        self.cur_va_in_subtree_range();
-        self.view_preserves_inv();
-        self.lemma_cur_entry_frame_present();
-        let subtree = self.cur_subtree();
-        let path = subtree.value().path;
-        let frame = self.cur_entry_owner().frame();
-
-        let ps = page_size(self.level as PagingLevel);
-        let m = Mapping {
-            va_range: Range { start: vaddr_of::<C>(path) as int, end: vaddr_of::<C>(path) + ps },
-            pa_range: Range { start: frame.mapped_pa, end: (frame.mapped_pa + ps) as Paddr },
-            page_size: ps,
-            property: frame.prop,
-        };
-
-        assert(PageTableOwner(subtree).view_rec(path).contains(m));
-        self.lemma_view_mappings_intro(m, self.level - 1);
-        assert(m.inv());
-
-        self.cur_va_in_subtree_range();
-        crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
-
-        let filtered = self@.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
-        );
-        vstd::set::lemma_set_choose_len(filtered);
-
-        let cur_va = self.va.to_vaddr() as nat;
-        let ps_nat = ps as nat;
-        self.va.align_down_concrete(self.level as int);
-        lemma_page_size_ge_page_size(self.level as PagingLevel);
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(cur_va, ps_nat);
-
-        // Bridge: `cur_va == vaddr_of::<C>(path)` for paths aligned with the
-        // cursor (offset is 0, the `to_vaddr_indices(0)` positional sum
-        // equals `vaddr(path)`, and the `leading_bits * 2^48` is the same
-        // `LEADING_BITS * 2^48` that `vaddr_of` adds).
-
-        assert(nat_align_down(cur_va, ps_nat) == vaddr_of::<C>(path) as nat) by {
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(cur_va as int, ps as int);
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                vaddr_of::<C>(path) as int,
-                ps as int,
-            );
-            assert(vaddr_of::<C>(path) as int % ps as int == 0);
-            vstd::arithmetic::div_mod::lemma_indistinguishable_quotients(
-                vaddr_of::<C>(path) as int,
-                cur_va as int,
-                ps as int,
-            );
-        };
-
-        self.lemma_locked_range_page_aligned();
-        self.va.to_vaddr_bounded();
-        self.lemma_in_locked_range_level_le_guard_level();
-        self.lemma_va_plus_page_size_no_overflow(self.level as PagingLevel);
-        self.va.align_up_advances_general(self.level as int);
-
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip((vaddr_of::<C>(path) + ps) as Vaddr);
-
-        self.va.align_up(self.level as int).reflect_to_vaddr();
     }
 
     /// The current virtual address falls within the VA range of the
