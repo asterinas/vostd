@@ -48,13 +48,13 @@ impl View for RangeAllocator {
     type V = Range<usize>;
 
     closed spec fn view(&self) -> Range<usize> {
-        Range { start: self.fullrange.start, end: self.fullrange.end }
+        self.fullrange
     }
 }
 
 impl RangeAllocator {
     /// The identifier shared by this allocator's authority and allocation tokens.
-    pub closed spec fn state_id(self) -> Loc {
+    pub closed spec fn id(self) -> Loc {
         self.freelist.constant().state_id
     }
 
@@ -107,7 +107,7 @@ closed spec fn block_contains(block: Range<usize>, range: Range<usize>) -> bool 
 
 /// Lock-guarded proof resource: initialization state, the authoritative set,
 /// and ownership of all currently free addresses.
-pub(super) tracked struct FreelistResource {
+tracked struct FreelistResource {
     initialized: Sum<OneShotPending, OneShotSet>,
     state: GhostSetAuth<usize>,
     remaining: GhostSubset<usize>,
@@ -215,7 +215,7 @@ impl RangeAllocator {
         ensures
             res is Ok <==> allocated@ is Some,
             allocated@ matches Some(token) ==> {
-                &&& token.id() == self.state_id()
+                &&& token.id() == self.id()
                 &&& token.range() == allocate_range
             },
     )]
@@ -387,7 +387,7 @@ impl RangeAllocator {
                 &&& res.end - res.start == size
                 &&& self@.start <= res.start <= res.end <= self@.end
                 &&& allocated@ matches Some(token) && {
-                    &&& token.id() == self.state_id()
+                    &&& token.id() == self.id()
                     &&& token.range() == res
                 }
             },
@@ -414,8 +414,6 @@ impl RangeAllocator {
                     &&& freelist@[key].block.end == range.end
                 },
                 concrete_freelist_wf(self@, freelist@),
-                freelist@ == initial_map,
-                freelist_model(freelist@) == initial_freelist,
         )]
         for (key, value) in freelist.iter() {
             proof! {
@@ -430,8 +428,7 @@ impl RangeAllocator {
 
         proof! {
             if let Some(key) = to_remove {
-                let block = freelist@[key].block;
-                lemma_free_set_contains_range(initial_freelist, block);
+                lemma_free_set_contains_range(initial_freelist, freelist@[key].block);
             }
         }
 
@@ -445,17 +442,11 @@ impl RangeAllocator {
             }
         }
 
-        let res = if let Some(range) = allocate_range {
-            Ok(range)
-        } else {
-            Err(RangeAllocError)
-        };
         proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-                if res is Ok {
-                let ghost range = res->Ok_0;
-                let ghost key = to_remove->0;
-                lemma_alloc_suffix_model(self@, initial_map, freelist@, key, range);
+            if allocate_range is Some {
+                let ghost range = allocate_range -> 0;
+                lemma_alloc_suffix_model(self@, initial_map, freelist@, to_remove->0, range);
                 let tracked subset = resource.remaining.split(range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(subset, range));
             } else {
@@ -464,7 +455,11 @@ impl RangeAllocator {
         }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(allocated))]
-        res
+        if let Some(range) = allocate_range {
+            Ok(range)
+        } else {
+            Err(RangeAllocError)
+        }
     }
 
     /// Frees a `range`.
@@ -483,7 +478,7 @@ impl RangeAllocator {
             Tracked(allocated): Tracked<GhostSubRange<usize>>,
         requires
             self@.start <= range.start < range.end <= self@.end,
-            allocated.id() == self.state_id(),
+            allocated.id() == self.id(),
             allocated.range() == range,
     )]
     pub fn free(&self, range: Range<usize>) {
@@ -542,11 +537,10 @@ impl RangeAllocator {
                 assert(freelist@ == before_left_map);
             }
             let ghost before_insert_map = freelist@;
-            let ghost inserted_range = free_range;
         }
         freelist.insert(free_range.start, FreeRange::new(free_range.clone()));
         proof_decl! {
-            lemma_insert_free_range(self@, before_insert_map, freelist@, inserted_range);
+            lemma_insert_free_range(self@, before_insert_map, freelist@, free_range);
             let ghost before_right_map = freelist@;
             let ghost before_right_range = free_range;
             let ghost mut merged_right = false;
@@ -598,9 +592,9 @@ impl RangeAllocator {
                 &&& ret.resource().remaining@ == free_set(freelist_model(freelist@))
             },
             ret.constant().fullrange == self@,
-            ret.constant().state_id == self.state_id(),
-            ret.resource().state.id() == self.state_id(),
-            ret.resource().remaining.id() == self.state_id(),
+            ret.constant().state_id == self.id(),
+            ret.resource().state.id() == self.id(),
+            ret.resource().remaining.id() == self.id(),
             ret.resource().state@ == self@.view_set(),
             ret.resource().initialized is Right,
             ret.resource().initialized->Right_0.id() == ret.constant().initialized_id,
@@ -621,8 +615,6 @@ impl RangeAllocator {
                 let tracked resource = lock_guard.tracked_borrow_mut_resource();
                 let tracked pending = resource.initialized.tracked_swap_left(OneShotPending::alloc());
                 resource.initialized = Sum::Right(pending.set());
-            }
-            proof! {
                 assert(freelist_model(lock_guard@->0@) == Set::empty().insert(self@)) by {
                     assert forall|block: Range<usize>|
                         freelist_model(lock_guard@->0@).contains(block) <==>
@@ -632,7 +624,7 @@ impl RangeAllocator {
                         }
                     }
                 }
-                let freelist = Set::empty().insert(self@);
+                let ghost freelist = Set::empty().insert(self@);
                 freelist.lemma_map_contains(|range: Range<usize>| range.view_set(), self@.view_set());
                 assert(exists|range: Range<usize>|
                     freelist.contains(range) && self@.view_set() == #[trigger] range.view_set()) by {
