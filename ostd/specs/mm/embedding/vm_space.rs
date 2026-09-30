@@ -11,7 +11,7 @@ use crate::specs::mm::{
     frame::{
         mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
     },
-    page_table::cursor::owners::CursorOwner,
+    page_table::FlatPageTableOwner,
 };
 
 use crate::mm::{
@@ -26,7 +26,7 @@ verus! {
 /// extracts from `regions.slots` (the root is owned by the page table,
 /// not parked in the free pool).
 pub open spec fn vm_space_root_idx(owner: VmSpaceOwner) -> int {
-    frame_to_index(owner.page_table_owner.value().meta_slot_paddr()->0)
+    frame_to_index(owner.page_table_owner.root)
 }
 
 // =============================================================================
@@ -34,10 +34,10 @@ pub open spec fn vm_space_root_idx(owner: VmSpaceOwner) -> int {
 // =============================================================================
 /// Mirror of [`crate::mm::vm_space::VmSpace::new`].
 ///
-/// `metaregion_sound_preserves`: any `CursorOwner` sound w.r.t. the
-/// old `regions` is still sound w.r.t. the new `regions`. Mirrors the
-/// underlying `create_user_page_table` regions-preservation property.
-pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -> (tracked res:
+/// `metaregion_sound_preserves`: any flat page-table owner sound w.r.t. the
+/// old `regions` is still sound w.r.t. the new `regions`. Cursor owners borrow
+/// from this authoritative store, so they inherit the same preservation fact.
+pub axiom fn vm_space_new_embedded(tracked regions: &mut MetaRegionOwners) -> (tracked res:
     VmSpaceOwner)
     requires
         old(regions).inv(),
@@ -67,7 +67,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
                 &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage is PageTable
             },
-        forall|c: CursorOwner<'a, UserPtConfig>|
+        forall|c: FlatPageTableOwner<UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -79,7 +79,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
 /// `VmSpaceOwner` from the regions; the caller (the dispatcher in
 /// [`super::lemma_step`]) is responsible for inserting it into the store
 /// under a fresh id.
-pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners) -> (tracked res:
+pub(super) proof fn new_vm_space_step(tracked regions: &mut MetaRegionOwners) -> (tracked res:
     VmSpaceOwner)
     requires
         old(regions).inv(),
@@ -109,7 +109,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
                 &&& final(regions).ref_count(i) != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage is PageTable
             },
-        forall|c: CursorOwner<'a, UserPtConfig>|
+        forall|c: FlatPageTableOwner<UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

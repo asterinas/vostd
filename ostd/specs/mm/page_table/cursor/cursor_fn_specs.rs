@@ -47,6 +47,65 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& !owner.popped_too_high
     }
 
+    /// Runtime/ghost correspondence for the flat cursor owner.  This is kept
+    /// separate during the cut-over so callers can migrate without any
+    /// `OwnerSubtree` <-> flat conversion layer.
+    pub open spec fn wf_flat<'owner>(
+        self,
+        owner: FlatCursorOwner<'owner, 'rcu, C>,
+    ) -> bool {
+        &&& owner.va.reflect(self.va)
+        &&& self.level == owner.level
+        &&& self.guard_level == owner.guard_level
+        &&& self.level <= 4 ==> {
+            &&& 4 <= self.guard_level ==> {
+                &&& self.path[3] is Some
+                &&& owner.continuations.contains_key(3)
+                &&& owner.continuations[3].guard == self.path[3]->0
+            }
+            &&& 4 > self.guard_level ==> self.path[3] is None
+        }
+        &&& self.level <= 3 ==> {
+            &&& 3 <= self.guard_level ==> {
+                &&& self.path[2] is Some
+                &&& owner.continuations.contains_key(2)
+                &&& owner.continuations[2].guard == self.path[2]->0
+            }
+            &&& 3 > self.guard_level ==> self.path[2] is None
+        }
+        &&& self.level <= 2 ==> {
+            &&& 2 <= self.guard_level ==> {
+                &&& self.path[1] is Some
+                &&& owner.continuations.contains_key(1)
+                &&& owner.continuations[1].guard == self.path[1]->0
+            }
+            &&& 2 > self.guard_level ==> self.path[1] is None
+        }
+        &&& self.level == 1 ==> {
+            &&& self.path[0] is Some
+            &&& owner.continuations.contains_key(0)
+            &&& owner.continuations[0].guard == self.path[0]->0
+        }
+        &&& self.barrier_va.start == owner.locked_range().start
+        &&& self.barrier_va.end == owner.locked_range().end
+    }
+
+    pub open spec fn invariants_flat<'owner>(
+        self,
+        owner: FlatCursorOwner<'owner, 'rcu, C>,
+        regions: MetaRegionOwners,
+        guards: Guards,
+    ) -> bool {
+        &&& owner.inv()
+        &&& self.inv()
+        &&& self.wf_flat(owner)
+        &&& regions.inv()
+        &&& owner.children_not_locked(guards)
+        &&& owner.nodes_locked(guards)
+        &&& owner.metaregion_sound(regions)
+        &&& !owner.popped_too_high
+    }
+
     pub open spec fn query_some_condition(self, owner: CursorOwner<'rcu, C>) -> bool {
         owner@.present()
     }

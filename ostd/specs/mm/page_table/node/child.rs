@@ -41,7 +41,11 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
                 &&& owner.is_node()
                 &&& node.inner@.ptr.addr() == owner.node().slot_vaddr()
                 &&& node.inner@.ptr_inv()
-                &&& node.inner@.external_meta_wf(owner.node().frame_permission.resource(), ())
+                &&& node.inner@.external_meta_wf(
+                    node.tracked_metadata_perm.resource(),
+                    (),
+                )
+                &&& owner.node().permission_matches(**node.tracked_metadata_perm)
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()

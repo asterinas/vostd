@@ -471,7 +471,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             let cur_child = {
                 let tracked child_value = child_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(child_value), Tracked(&parent_owner), Tracked(regions))]
+                let tracked child_node = child_value.tracked_borrow_node();
+                #[verus_spec(with Tracked(child_value), Tracked(&parent_owner), Tracked(regions),
+                    Tracked(child_value.tracked_borrow_node_permission()))]
                 entry.to_ref()
             };
 
@@ -958,7 +960,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             let cur_child = {
                 let tracked child_value = child_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(child_value), Tracked(&node_owner), Tracked(regions))]
+                let tracked child_node = child_value.tracked_borrow_node();
+                #[verus_spec(with Tracked(child_value), Tracked(&node_owner), Tracked(regions),
+                    Tracked(child_value.tracked_borrow_node_permission()))]
                 cur_entry.to_ref()
             };
 
@@ -2548,8 +2552,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let cur_child = {
                     let tracked child_value = child_owner.tracked_borrow_value();
+                    let tracked child_node = child_value.tracked_borrow_node();
                     #[verus_spec(with Tracked(child_value), Tracked(&parent_owner),
-                        Tracked(regions))]
+                        Tracked(regions), Tracked(child_value.tracked_borrow_node_permission()))]
                     cur_entry.to_ref()
                 };
 
@@ -3781,7 +3786,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let ghost regions_before_borrow = *regions;
 
                 #[verus_spec(with
-                    Tracked(&old_node_owner.frame_permission),
+                    Tracked(old_child_owner.tracked_borrow_value().tracked_borrow_parked_node_permission()),
                     Tracked(regions)
                 )]
                 let borrow_pt = pt.borrow_with_permission();

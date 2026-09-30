@@ -7,6 +7,7 @@ use crate::specs::{
     arch::*,
     mm::frame::{
         mapping::{group_page_meta, meta_to_index},
+        meta_owners::FracMetadataPerm,
         meta_region_owners::MetaRegionOwners,
     },
     *,
@@ -158,7 +159,7 @@ pub enum ChildRef<'a, C: PageTableConfig> {
 }
 
 #[verus_verify]
-impl<C: PageTableConfig> ChildRef<'_, C> {
+impl<'a, C: PageTableConfig> ChildRef<'a, C> {
     /// Converts a PTE to a reference to a child.
     ///
     /// # Verified Properties
@@ -175,9 +176,12 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(entry_owner): Tracked<&EntryOwner<C>>,
+             Tracked(metadata_permission): Tracked<&'a FracMetadataPerm>,
         requires
             entry_owner.pte_invariants(*pte, *old(regions)),
             level == entry_owner.parent_level,
+            entry_owner.is_node() ==>
+                entry_owner.node().permission_matches(*metadata_permission),
         ensures
             res.invariants(*entry_owner, *final(regions)),
             final(regions).slot_owners == old(regions).slot_owners,
@@ -201,10 +205,10 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
             }
 
-            let tracked node_owner = entry_owner.tracked_borrow_node();
-            let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
+            let ghost slot_index = entry_owner.node().slot_index;
+            let tracked slot_perm = *regions.slots.tracked_borrow(slot_index);
             let node = unsafe {
-                #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
+                #[verus_spec(with Tracked(slot_perm), Tracked(metadata_permission))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
 

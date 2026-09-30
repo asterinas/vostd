@@ -6,7 +6,7 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::{frame_to_index, index_to_meta, meta_to_index},
-            meta_owners::PageUsage,
+            meta_owners::{FracMetadataPerm, PageUsage},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{node::entry_view::*, *},
@@ -55,6 +55,10 @@ pub tracked enum EntryOwnerKind<C: PageTableConfig> {
 
 pub tracked struct EntryOwner<C: PageTableConfig> {
     pub kind: EntryOwnerKind<C>,
+    /// Metadata permission for a child page-table node that is currently raw
+    /// in its parent's PTE.  The root node keeps this as `None`: its live
+    /// `Frame` owns the permission instead.
+    pub node_permission: Option<FracMetadataPerm>,
     pub ghost path: TreePath<NR_ENTRIES>,
     pub ghost parent_level: PagingLevel,
 }
@@ -84,6 +88,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.kind->Node_0
     }
 
+    pub open spec fn node_permission(self) -> FracMetadataPerm
+        recommends
+            self.is_node(),
+            self.node_permission is Some,
+    {
+        self.node_permission.unwrap()
+    }
+
     pub open spec fn frame(self) -> FrameEntryOwner<C> {
         self.kind->Frame_0
     }
@@ -107,7 +119,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
-        EntryOwner { kind: EntryOwnerKind::Absent, path, parent_level }
+        EntryOwner { kind: EntryOwnerKind::Absent, node_permission: None, path, parent_level }
     }
 
     pub open spec fn new_frame(
@@ -119,14 +131,20 @@ impl<C: PageTableConfig> EntryOwner<C> {
     ) -> Self {
         EntryOwner {
             kind: EntryOwnerKind::Frame(FrameEntryOwner { mapped_pa: paddr, prop, permission }),
+            node_permission: None,
             path,
             parent_level,
         }
     }
 
-    pub open spec fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> Self {
+    pub open spec fn new_node(
+        node: NodeOwner<C>,
+        permission: Option<FracMetadataPerm>,
+        path: TreePath<NR_ENTRIES>,
+    ) -> Self {
         EntryOwner {
             kind: EntryOwnerKind::Node(node),
+            node_permission: permission,
             path,
             parent_level: (node.level() + 1) as PagingLevel,
         }
@@ -139,7 +157,19 @@ impl<C: PageTableConfig> EntryOwner<C> {
         returns
             Self::new_absent(path, parent_level),
     {
-        Self { kind: EntryOwnerKind::Absent, path, parent_level }
+        Self { kind: EntryOwnerKind::Absent, node_permission: None, path, parent_level }
+    }
+
+    pub proof fn tracked_new_node(
+        tracked node: NodeOwner<C>,
+        tracked permission: Option<FracMetadataPerm>,
+        path: TreePath<NR_ENTRIES>,
+    ) -> (tracked result: Self)
+        returns
+            Self::new_node(node, permission, path),
+    {
+        let ghost parent_level = (node.level() + 1) as PagingLevel;
+        Self { kind: EntryOwnerKind::Node(node), node_permission: permission, path, parent_level }
     }
 
     pub proof fn tracked_take_node(tracked &mut self) -> (tracked res: NodeOwner<C>)
@@ -187,6 +217,56 @@ impl<C: PageTableConfig> EntryOwner<C> {
             EntryOwnerKind::Node(ref mut node) => node,
             _ => { proof_from_false() },
         }
+    }
+
+    pub proof fn tracked_borrow_node_permission(tracked &self) -> (tracked res: &FracMetadataPerm)
+        requires
+            self.kind is Node,
+            self.node_permission is Some,
+        ensures
+            *res == self.node_permission(),
+    {
+        self.node_permission.tracked_borrow()
+    }
+
+    /// Borrows a parked raw-node permission while the structural `NodeOwner`
+    /// is temporarily taken out of `kind` by legacy cursor code.
+    pub proof fn tracked_borrow_parked_node_permission(tracked &self) -> (tracked res:
+        &FracMetadataPerm)
+        requires
+            self.node_permission is Some,
+        ensures
+            *res == self.node_permission.unwrap(),
+    {
+        self.node_permission.tracked_borrow()
+    }
+
+    pub proof fn tracked_take_node_permission(tracked &mut self) -> (tracked res: FracMetadataPerm)
+        requires
+            old(self).node_permission is Some,
+        ensures
+            res == old(self).node_permission.unwrap(),
+            final(self).node_permission is None,
+            final(self).kind == old(self).kind,
+            final(self).path == old(self).path,
+            final(self).parent_level == old(self).parent_level,
+    {
+        self.node_permission.tracked_take()
+    }
+
+    pub proof fn tracked_put_node_permission(
+        tracked &mut self,
+        tracked permission: FracMetadataPerm,
+    )
+        requires
+            old(self).node_permission is None,
+        ensures
+            final(self).node_permission == Some(permission),
+            final(self).kind == old(self).kind,
+            final(self).path == old(self).path,
+            final(self).parent_level == old(self).parent_level,
+    {
+        self.node_permission = Some(permission);
     }
 
     pub proof fn tracked_set_frame_prop(tracked &mut self, prop: PageProperty)
@@ -275,6 +355,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         Self {
             kind: EntryOwnerKind::Frame(FrameEntryOwner { mapped_pa: paddr, prop, permission }),
+            node_permission: None,
             path,
             parent_level,
         }
@@ -328,6 +409,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             kind: EntryOwnerKind::Frame(
                 FrameEntryOwner { mapped_pa: paddr, prop, permission: None },
             ),
+            node_permission: None,
             path: TreePath(Seq::empty()),
             parent_level,
         }
@@ -532,6 +614,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
+            &&& self.path.len() == 0 ==> self.node_permission is None
+            &&& self.path.len() > 0 ==> {
+                &&& self.node_permission is Some
+                &&& self.node().metaregion_sound(self.node_permission(), regions)
+            }
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slots.contains_key(idx)
@@ -733,7 +820,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.is_node() ==> {
             &&& self.node().inv()
             &&& self.parent_level == self.node().level() + 1
+            &&& self.node_permission is Some ==> self.node().permission_matches(
+                self.node_permission(),
+            )
         }
+        &&& !self.is_node() ==> self.node_permission is None
         &&& self.is_frame() ==> {
             // Architectural constraint: frames only exist at PT levels that the
             // ISA actually supports as leaves (4K, 2M, 1G on x86). `parent_level

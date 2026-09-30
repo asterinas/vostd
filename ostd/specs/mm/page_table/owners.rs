@@ -299,6 +299,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
             kind: EntryOwnerKind::Absent,
+            node_permission: None,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv) as PagingLevel,
         }
