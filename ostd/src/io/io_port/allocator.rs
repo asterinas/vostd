@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{
     assert_seqs_equal,
     prelude::*,
@@ -133,6 +135,11 @@ impl IoPortAllocation {
 }
 
 ghost struct IoPortAllocInvariant;
+
+#[cfg(feature = "irc11")]
+unsafe impl Objective for IoPortAllocation {
+
+}
 
 impl SimpleResourceInvariant<IdAlloc> for IoPortAllocInvariant {
     type Resource = IoPortAllocation;
