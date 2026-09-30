@@ -675,6 +675,7 @@ dependencies = [
  "bitvec",
  "smallvec",
  "vstd",
+ "x86_64",
 ]
 
 [[package]]
