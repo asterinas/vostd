@@ -60,6 +60,24 @@ impl HasPaddr for IoMem {
 #[verus_verify]
 impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Safety
+    /// - The body is trusted (`external_body`): it looks up the initialized
+    ///   global allocator and forwards to its verified acquire; only the
+    ///   registered MMIO windows can be handed out.
+    ///
+    /// ## Preconditions
+    /// - The range is non-empty and bounded:
+    ///   `range.start < range.end <= usize::MAX - (PAGE_SIZE - 1)`.
+    /// - The range lies within a boot-time registered MMIO window.
+    /// - The global I/O memory allocator has been initialized.
+    /// - The caller supplies a tracked permission exactly covering `range`.
+    ///
+    /// ## Postconditions
+    /// - On success, the returned `IoMem` covers exactly the requested range:
+    ///   `paddr() == range.start` and `length() == range.end - range.start`.
     #[verifier::external_body]
     #[verus_spec(result =>
         with

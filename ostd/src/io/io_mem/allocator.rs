@@ -215,8 +215,10 @@ impl IoMemAllocatorBuilder {
     /// - The permission sequence matches this builder's allocator windows.
     ///
     /// ## Postconditions
-    /// - Only the requested range is removed from its window's permission;
-    ///   every other permission remains available.
+    /// - The permit sequence keeps its length and still matches every window.
+    /// - Exactly `range` is removed from its window's permission, preserving
+    ///   the permission's identity; every other window's permission is
+    ///   unchanged.
     #[verus_spec(
         with Tracked(state): Tracked<&mut RangeAllocatorPermits>,
         requires
@@ -226,6 +228,17 @@ impl IoMemAllocatorBuilder {
             self.state_matches(*old(state)),
         ensures
             self.state_matches(*final(state)),
+            final(state).len() == old(state).len(),
+            exists|window: int|
+                #![trigger final(state)[window]]
+                0 <= window < old(state).len() && {
+                    let permit = final(state)[window];
+                    let old_permit = old(state)[window];
+                    &&& permit.id() == old_permit.id()
+                    &&& permit@ == old_permit@ - range.view_set()
+                    &&& forall|j: int| 0 <= j < old(state).len() && j != window
+                        ==> final(state)[j] == old(state)[j]
+                },
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
@@ -245,9 +258,8 @@ impl IoMemAllocatorBuilder {
                     &&& state_before[k].id() == candidate.free_id()
                     &&& range.view_set() <= state_before[k]@
                 };
-            let tracked mut window_permit = state.tracked_remove(k);
+            let tracked mut window_permit = state.tracked_borrow_mut(k);
             let tracked range_permit = window_permit.split(range.view_set());
-            state.tracked_insert(k, window_permit);
             let tracked permit = GhostSubRange::tracked_new(range_permit, range);
         }
         proof! {
@@ -387,40 +399,6 @@ impl IoMemAllocator {
     }
 }
 
-/// The window overlapping `range` found by [`find_allocator`] is exactly the registered
-/// window containing it: ordered windows cannot partially cover a range contained in
-/// another window.
-pub proof fn lemma_found_window_contains(
-    windows: &Vec<RangeAllocator>,
-    range: &Range<usize>,
-    found: &RangeAllocator,
-)
-    requires
-        windows_ordered(windows@),
-        windows_match_registered(windows@),
-        io_mem_range_registered(*range),
-        found@.start < range.end && found@.end > range.start,
-        exists|k: int| #![trigger windows@[k]] 0 <= k < windows@.len() && windows@[k]@ == found@,
-    ensures
-        found@.start <= range.start && range.end <= found@.end,
-{
-    // The trusted [`io_mem_range_registered`] existential, made concrete as the index of
-    // the registered window containing `range`.
-    let container_idx = choose|m: int|
-        #![trigger registered_io_mem_windows()[m]]
-        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
-            <= range.start && range.end <= registered_io_mem_windows()[m].end;
-    let found_idx = choose|k: int|
-        #![trigger windows@[k]]
-        0 <= k < windows@.len() && windows@[k]@ == found@;
-    if found_idx < container_idx {
-        assert(false);
-    } else if found_idx == container_idx {
-    } else {
-        assert(false);
-    }
-}
-
 /// A range is registered when one abstract boot-time MMIO window contains it.
 pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
     exists|m: int|
@@ -499,46 +477,6 @@ fn find_allocator<'a>(
     None
 }
 
-// Auxiliary permission lemma backing the allocator proofs above.
-verus! {
-
-/// The found ordered window has the permission identity of the unique containing window.
-proof fn lemma_found_permission_matches(
-    allocators: &Vec<RangeAllocator>,
-    found: &RangeAllocator,
-    permit_id: Loc,
-    range: Range<usize>,
-)
-    requires
-        windows_ordered(allocators@),
-        found@.start <= range.start < range.end <= found@.end,
-        exists|found_idx: int|
-            #![trigger allocators@[found_idx]]
-            0 <= found_idx < allocators@.len() && allocators@[found_idx]@ == found@
-                && allocators@[found_idx].free_id() == found.free_id(),
-        exists|permit_idx: int|
-            #![trigger allocators@[permit_idx]]
-            0 <= permit_idx < allocators@.len() && allocators@[permit_idx].free_id() == permit_id
-                && allocators@[permit_idx]@.start <= range.start < range.end
-                <= allocators@[permit_idx]@.end,
-    ensures
-        found.free_id() == permit_id,
-{
-    let found_idx = choose|i: int|
-        0 <= i < allocators@.len() && #[trigger] allocators@[i]@ == found@
-            && allocators@[i].free_id() == found.free_id();
-    let permit_idx = choose|i: int|
-        0 <= i < allocators@.len() && allocators@[i].free_id() == permit_id
-            && #[trigger] allocators@[i]@.start <= range.start < range.end <= allocators@[i]@.end;
-    if found_idx < permit_idx {
-        assert(false);
-    } else if permit_idx < found_idx {
-        assert(false);
-    } else {
-    }
-}
-
-} // verus!
 #[cfg(ktest)]
 mod test {
     use alloc::vec;
