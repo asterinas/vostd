@@ -17,7 +17,10 @@ use vstd::{
         set::{GhostSetAuth, GhostSubset},
     },
     seq_lib::lemma_seq_contains_after_push,
-    std_specs::btree::{before_lower_bound, before_upper_bound},
+    std_specs::btree::{
+        CursorMutModel, before_lower_bound, before_upper_bound, positioned_at_lower_bound,
+        positioned_at_upper_bound,
+    },
     std_specs::cmp::OrdSpec,
 };
 use vstd_extra::{
@@ -561,7 +564,7 @@ impl RangeAllocator {
     /// ## Postconditions
     /// - Writes a splittable free-range permission for the released range to
     ///   the tracked output slot.
-    #[verus_verify(spinoff_prover, rlimit(50))]
+    #[verus_verify(spinoff_prover)]
     #[verus_spec(
         with
             Tracked(allocated): Tracked<GhostSubRange<usize>>,
@@ -654,29 +657,13 @@ impl RangeAllocator {
                             key,
                             core::ops::Bound::Excluded(&before_left_range.start),
                         ));
-                        assert(prev_cursor_model.map.contains_key(key));
-                        let key_idx = choose|i: int|
-                            0 <= i < prev_cursor_model.keys.len()
-                                && #[trigger] prev_cursor_model.keys[i] == key;
-                        assert(key_idx < prev_cursor_model.position) by {
-                            if prev_cursor_model.position <= key_idx {
-                                assert(!before_upper_bound(
-                                    prev_cursor_model.keys[key_idx],
-                                    core::ops::Bound::Excluded(&before_left_range.start),
-                                ));
-                            }
-                        }
                         assert(*prev_va == prev_cursor_model.keys[prev_cursor_model.position - 1]);
-                        if key_idx < prev_cursor_model.position - 1 {
-                            assert(prev_cursor_model.keys[key_idx].cmp_spec(
-                                &prev_cursor_model.keys[prev_cursor_model.position - 1],
-                            ) is Less);
-                            assert(key < *prev_va);
-                        } else {
-                            assert(key_idx == prev_cursor_model.position - 1);
-                            assert(key == *prev_va);
-                        }
-                        assert(key <= *prev_va);
+                        lemma_upper_bound_prev_is_maximal(
+                            prev_cursor_model,
+                            before_left_range.start,
+                            *prev_va,
+                            key,
+                        );
                         if key != *prev_va {
                             assert(before_left_map.contains_key(key));
                             assert(before_left_map.contains_key(*prev_va));
@@ -704,15 +691,11 @@ impl RangeAllocator {
                             key,
                             core::ops::Bound::Excluded(&before_left_range.start),
                         ));
-                        assert(prev_cursor_model.map.contains_key(key));
-                        let key_idx = choose|i: int|
-                            0 <= i < prev_cursor_model.keys.len()
-                                && #[trigger] prev_cursor_model.keys[i] == key;
-                        assert(prev_cursor_model.position == 0);
-                        assert(!before_upper_bound(
-                            prev_cursor_model.keys[key_idx],
-                            core::ops::Bound::Excluded(&before_left_range.start),
-                        ));
+                        lemma_upper_bound_has_previous(
+                            prev_cursor_model,
+                            before_left_range.start,
+                            key,
+                        );
                         assert(false);
                     }
                 }
@@ -787,29 +770,13 @@ impl RangeAllocator {
                             key,
                             core::ops::Bound::Excluded(&before_right_range.start),
                         ));
-                        assert(next_cursor_model.map.contains_key(key));
-                        let key_idx = choose|i: int|
-                            0 <= i < next_cursor_model.keys.len()
-                                && #[trigger] next_cursor_model.keys[i] == key;
-                        assert(next_cursor_model.position <= key_idx) by {
-                            if key_idx < next_cursor_model.position {
-                                assert(before_lower_bound(
-                                    next_cursor_model.keys[key_idx],
-                                    core::ops::Bound::Excluded(&before_right_range.start),
-                                ));
-                            }
-                        }
                         assert(*next_va == next_cursor_model.keys[next_cursor_model.position]);
-                        if next_cursor_model.position < key_idx {
-                            assert(next_cursor_model.keys[next_cursor_model.position].cmp_spec(
-                                &next_cursor_model.keys[key_idx],
-                            ) is Less);
-                            assert(*next_va < key);
-                        } else {
-                            assert(key_idx == next_cursor_model.position);
-                            assert(*next_va == key);
-                        }
-                        assert(*next_va <= key);
+                        lemma_lower_bound_next_is_minimal(
+                            next_cursor_model,
+                            before_right_range.start,
+                            *next_va,
+                            key,
+                        );
                         if merged_right {
                             assert(freelist@ == before_right_map.remove(*next_va).insert(
                                 before_right_range.start,
@@ -877,15 +844,11 @@ impl RangeAllocator {
                             key,
                             core::ops::Bound::Excluded(&before_right_range.start),
                         ));
-                        assert(next_cursor_model.map.contains_key(key));
-                        let key_idx = choose|i: int|
-                            0 <= i < next_cursor_model.keys.len()
-                                && #[trigger] next_cursor_model.keys[i] == key;
-                        assert(next_cursor_model.position == next_cursor_model.keys.len());
-                        assert(before_lower_bound(
-                            next_cursor_model.keys[key_idx],
-                            core::ops::Bound::Excluded(&before_right_range.start),
-                        ));
+                        lemma_lower_bound_has_next(
+                            next_cursor_model,
+                            before_right_range.start,
+                            key,
+                        );
                         assert(false);
                     }
                 }
@@ -1021,6 +984,108 @@ proof fn lemma_concrete_free_set_contains(freelist: Map<usize, FreeRange>, addre
         let range = freelist[key].block;
         freelist.dom().lemma_map_contains(|key: usize| freelist[key].block, range);
         ranges.lemma_map_contains(|range: Range<usize>| range.view_set(), range.view_set());
+    }
+}
+
+proof fn lemma_upper_bound_has_previous(
+    model: CursorMutModel<usize, FreeRange>,
+    bound: usize,
+    key: usize,
+)
+    requires
+        model.wf(),
+        positioned_at_upper_bound(model, core::ops::Bound::Excluded(&bound)),
+        model.map.contains_key(key),
+        before_upper_bound(key, core::ops::Bound::Excluded(&bound)),
+    ensures
+        model.position > 0,
+{
+    let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
+    if model.position == 0 {
+        assert(!before_upper_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
+        assert(false);
+    }
+}
+
+proof fn lemma_upper_bound_prev_is_maximal(
+    model: CursorMutModel<usize, FreeRange>,
+    bound: usize,
+    previous: usize,
+    key: usize,
+)
+    requires
+        model.wf(),
+        positioned_at_upper_bound(model, core::ops::Bound::Excluded(&bound)),
+        model.map.contains_key(key),
+        before_upper_bound(key, core::ops::Bound::Excluded(&bound)),
+        model.position > 0,
+        previous == model.keys[model.position - 1],
+    ensures
+        key <= previous,
+{
+    let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
+    assert(key_idx < model.position) by {
+        if model.position <= key_idx {
+            assert(!before_upper_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
+        }
+    }
+    if key_idx < model.position - 1 {
+        assert(model.keys[key_idx].cmp_spec(&model.keys[model.position - 1]) is Less);
+        assert(key < previous);
+    } else {
+        assert(key_idx == model.position - 1);
+        assert(key == previous);
+    }
+}
+
+proof fn lemma_lower_bound_has_next(
+    model: CursorMutModel<usize, FreeRange>,
+    bound: usize,
+    key: usize,
+)
+    requires
+        model.wf(),
+        positioned_at_lower_bound(model, core::ops::Bound::Excluded(&bound)),
+        model.map.contains_key(key),
+        !before_lower_bound(key, core::ops::Bound::Excluded(&bound)),
+    ensures
+        model.position < model.keys.len(),
+{
+    let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
+    if model.position == model.keys.len() {
+        assert(before_lower_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
+        assert(false);
+    }
+}
+
+proof fn lemma_lower_bound_next_is_minimal(
+    model: CursorMutModel<usize, FreeRange>,
+    bound: usize,
+    next: usize,
+    key: usize,
+)
+    requires
+        model.wf(),
+        positioned_at_lower_bound(model, core::ops::Bound::Excluded(&bound)),
+        model.map.contains_key(key),
+        !before_lower_bound(key, core::ops::Bound::Excluded(&bound)),
+        model.position < model.keys.len(),
+        next == model.keys[model.position],
+    ensures
+        next <= key,
+{
+    let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
+    assert(model.position <= key_idx) by {
+        if key_idx < model.position {
+            assert(before_lower_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
+        }
+    }
+    if model.position < key_idx {
+        assert(model.keys[model.position].cmp_spec(&model.keys[key_idx]) is Less);
+        assert(next < key);
+    } else {
+        assert(key_idx == model.position);
+        assert(next == key);
     }
 }
 
