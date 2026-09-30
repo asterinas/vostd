@@ -70,9 +70,6 @@ impl IoMemAllocator {
         let allocator = find_allocator(&self.allocators, &range)?;
         proof! {
             use_type_invariant(self);
-            reveal(IoMemAllocator::has_free_permission);
-            lemma_found_window_contains(&self.allocators, &range, allocator);
-            lemma_found_permission_matches(&self.allocators, allocator, permit.id(), range);
         }
         proof_decl! {
             let tracked allocated: Option<GhostSubRange<usize>>;
@@ -86,7 +83,6 @@ impl IoMemAllocator {
         proof! {
             // PAGE_SIZE = 4096 = 2^12: 13 unfoldings of the opaque `is_pow2`.
             reveal_with_fuel(is_pow2, 13);
-            assert(is_pow2(PAGE_SIZE as int));
         }
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
@@ -168,10 +164,6 @@ impl IoMemAllocatorBuilder {
         proof_decl! {
             let tracked mut state = Seq::tracked_empty();
         }
-        proof! {
-            // `allocator_states_match` is closed; keep it transparent for the loop proofs.
-            reveal(allocator_states_match);
-        }
         #[verus_spec(it =>
             invariant
                 allocators@.len() == it.index(),
@@ -188,17 +180,7 @@ impl IoMemAllocatorBuilder {
                 state.len() == it.index(),
         )]
         for range in ranges {
-            proof! {
-                assert(range == it.seq()[it.index()]);
-                assert(range.start <= range.end);
-                assert(it.index() == allocators@.len());
-                assert(allocators@.len() == allocators.len());
-                assert(allocators.len() <= usize::MAX);
-                assert(0 <= it.index() <= usize::MAX);
-            }
             proof_decl! {
-                let ghost prev_state = state;
-                let ghost prev_allocators = allocators@;
                 let tracked permit: GhostSubset<usize>;
             }
             allocators.push(
@@ -207,23 +189,12 @@ impl IoMemAllocatorBuilder {
             );
             proof! {
                 state.tracked_push(permit);
-                assert(allocators@.len() == prev_allocators.len() + 1);
-                assert(allocators@[allocators@.len() - 1]@.start == range.start);
-                assert(range.start == registered_io_mem_windows()[it.index()].start);
-                assert(range.end == registered_io_mem_windows()[it.index()].end);
                 assert forall|i: int| #![trigger allocators@[i]]
                     0 <= i < allocators@.len() - 1
                     implies allocators@[i]@.end <= range.start by {
-                    assert(allocators@[i]@.end == it.seq()[i].end);
-                    assert(it.seq()[i].end <= it.seq()[i as int + 1].start);
+                    assert(it.seq()[i].end <= it.seq()[i + 1].start);
                 }
-                assert(windows_ordered(allocators@));
-                assert(allocator_states_match(allocators@, state));
             }
-        }
-        proof! {
-            assert(allocators@.len() == registered_io_mem_windows().len());
-            assert(windows_match_registered(allocators@));
         }
         proof_with!(|= Tracked(state));
         Self { allocators }
@@ -258,10 +229,6 @@ impl IoMemAllocatorBuilder {
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
-            proof! {
-                reveal(IoMemAllocatorBuilder::can_remove);
-                assert(!self.can_remove(*state, range));
-            }
             vstd_extra::panic!(
                 "Allocator for the system device's MMIO was not found. Range: {:x?}",
                 range
@@ -285,26 +252,6 @@ impl IoMemAllocatorBuilder {
         }
         proof! {
             use_type_invariant(self);
-            reveal(IoMemAllocatorBuilder::can_remove);
-            lemma_found_window_contains(&self.allocators, &range, allocator);
-            assert forall|i: int|
-                #![trigger self.allocators@[i]]
-                0 <= i < self.allocators@.len() && self.allocators@[i]@.start <= range.start
-                    < range.end <= self.allocators@[i]@.end implies i == k by {
-                if i < k {
-                    assert(self.allocators@[i]@.end <= self.allocators@[k]@.start);
-                } else if k < i {
-                    assert(self.allocators@[k]@.end <= self.allocators@[i]@.start);
-                }
-            }
-            assert(self.allocators@[k]@ == allocator@);
-            lemma_found_permission_matches(
-                &self.allocators,
-                allocator,
-                state_before[k].id(),
-                range,
-            );
-            assert(self.allocators@[k].free_id() == state_before[k].id());
         }
         proof_decl! {
             let tracked allocated: Option<GhostSubRange<usize>>;
@@ -318,11 +265,6 @@ impl IoMemAllocatorBuilder {
                 range,
                 err
             );
-        }
-        proof! {
-            reveal(IoMemAllocatorBuilder::state_matches);
-            reveal(allocator_states_match);
-            assert(self.state_matches(*state));
         }
     }
 }
@@ -468,20 +410,13 @@ pub proof fn lemma_found_window_contains(
         #![trigger registered_io_mem_windows()[m]]
         0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
             <= range.start && range.end <= registered_io_mem_windows()[m].end;
-    assert(windows@[container_idx]@ == registered_io_mem_windows()[container_idx]);
-    assert(0 <= container_idx < windows@.len());
     let found_idx = choose|k: int|
         #![trigger windows@[k]]
         0 <= k < windows@.len() && windows@[k]@ == found@;
     if found_idx < container_idx {
-        assert(windows@[found_idx]@.end <= windows@[container_idx]@.start);
-        assert(windows@[container_idx]@.start <= range.start);
         assert(false);
     } else if found_idx == container_idx {
-        assert(windows@[found_idx]@.start <= range.start && range.end <= windows@[found_idx]@.end);
     } else {
-        assert(range.end <= windows@[container_idx]@.end);
-        assert(windows@[container_idx]@.end <= windows@[found_idx]@.start);
         assert(false);
     }
 }
@@ -596,13 +531,10 @@ proof fn lemma_found_permission_matches(
         0 <= i < allocators@.len() && allocators@[i].free_id() == permit_id
             && #[trigger] allocators@[i]@.start <= range.start < range.end <= allocators@[i]@.end;
     if found_idx < permit_idx {
-        assert(allocators@[found_idx]@.end <= allocators@[permit_idx]@.start);
         assert(false);
     } else if permit_idx < found_idx {
-        assert(allocators@[permit_idx]@.end <= allocators@[found_idx]@.start);
         assert(false);
     } else {
-        assert(found_idx == permit_idx);
     }
 }
 

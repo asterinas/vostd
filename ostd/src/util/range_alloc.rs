@@ -50,8 +50,6 @@ pub struct RangeAllocError;
 
 verus! {
 
-broadcast use vstd::std_specs::btree::group_btree_axioms;
-
 impl View for RangeAllocator {
     type V = Range<usize>;
 
@@ -348,13 +346,6 @@ impl RangeAllocator {
             }
         }
 
-        proof! {
-            if let Some(key) = target_node {
-                let block = freelist@[key].block;
-                lemma_free_set_contains_range(initial_freelist, block);
-            }
-        }
-
         if let Some(key) = target_node {
             if left_length == 0 {
                 freelist.remove(&key);
@@ -381,8 +372,6 @@ impl RangeAllocator {
                     #![trigger initial_map.contains_key(key)]
                     initial_map.contains_key(key)
                         && block_contains(initial_map[key].block, *allocate_range);
-                assert(freelist@.contains_key(key));
-                assert(block_contains(freelist@[key].block, *allocate_range));
                 assert(freelist@.kv_pairs().contains((key, freelist@[key])));
                 assert(false);
             }
@@ -401,18 +390,10 @@ impl RangeAllocator {
                 resource.free.delete(permit.tracked_into_subset());
                 let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
-                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@) by {
-                    assert forall|address: usize| #[trigger]
-                        resource.allocated@.contains(address) <==>
-                            (constant.fullrange.view_set() - resource.free@).contains(address) by {
-                    }
-                }
+                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@);
             } else {
                 allocated = None;
             }
-            assert(value is Some);
-            assert(freelist@ == value->0@);
-            assert(FreelistInvariant::inv(constant, value, *resource));
         }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(allocated))]
@@ -464,9 +445,6 @@ impl RangeAllocator {
             res is Err ==> final(permit)@ == old(permit)@,
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
-        proof! {
-            use_type_invariant(self);
-        }
         let mut lock_guard = self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
         proof_decl! {
@@ -527,18 +505,10 @@ impl RangeAllocator {
                 resource.free.delete(free_subset);
                 let tracked allocated_subset = resource.allocated.insert_set(range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(allocated_subset, range));
-                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@) by {
-                    assert forall|address: usize| #[trigger]
-                        resource.allocated@.contains(address) <==>
-                            (constant.fullrange.view_set() - resource.free@).contains(address) by {
-                    }
-                }
+                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@);
             } else {
                 allocated = None;
             }
-            assert(value is Some);
-            assert(freelist@ == value->0@);
-            assert(FreelistInvariant::inv(constant, value, *resource));
         }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(allocated))]
@@ -650,14 +620,6 @@ impl RangeAllocator {
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies freelist@[key].block.end != free_range.start by {
                     if freelist@[key].block.end == free_range.start {
-                        assert(freelist@[key].block.start == key);
-                        assert(key < freelist@[key].block.end);
-                        assert(key < before_left_range.start);
-                        assert(before_upper_bound(
-                            key,
-                            core::ops::Bound::Excluded(&before_left_range.start),
-                        ));
-                        assert(*prev_va == prev_cursor_model.keys[prev_cursor_model.position - 1]);
                         lemma_upper_bound_prev_is_maximal(
                             prev_cursor_model,
                             before_left_range.start,
@@ -667,10 +629,6 @@ impl RangeAllocator {
                         if key != *prev_va {
                             assert(before_left_map.contains_key(key));
                             assert(before_left_map.contains_key(*prev_va));
-                            assert(before_left_map[key].block.end
-                                < before_left_map[*prev_va].block.start
-                                || before_left_map[*prev_va].block.end
-                                    < before_left_map[key].block.start);
                             assert(false);
                         } else {
                             assert(false);
@@ -684,13 +642,6 @@ impl RangeAllocator {
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies freelist@[key].block.end != free_range.start by {
                     if freelist@[key].block.end == free_range.start {
-                        assert(freelist@[key].block.start == key);
-                        assert(key < freelist@[key].block.end);
-                        assert(key < before_left_range.start);
-                        assert(before_upper_bound(
-                            key,
-                            core::ops::Bound::Excluded(&before_left_range.start),
-                        ));
                         lemma_upper_bound_has_previous(
                             prev_cursor_model,
                             before_left_range.start,
@@ -699,9 +650,6 @@ impl RangeAllocator {
                         assert(false);
                     }
                 }
-            }
-            assert forall|key: usize| #[trigger] freelist@.contains_key(key)
-                implies freelist@[key].block.end != free_range.start by {
             }
         }
         proof_decl! {
@@ -764,13 +712,6 @@ impl RangeAllocator {
                         || freelist@[key].block.start != free_range.end by {
                     if key != free_range.start
                         && freelist@[key].block.start == free_range.end {
-                        assert(freelist@[key].block.start == key);
-                        assert(before_right_range.start < key);
-                        assert(!before_lower_bound(
-                            key,
-                            core::ops::Bound::Excluded(&before_right_range.start),
-                        ));
-                        assert(*next_va == next_cursor_model.keys[next_cursor_model.position]);
                         lemma_lower_bound_next_is_minimal(
                             next_cursor_model,
                             before_right_range.start,
@@ -778,52 +719,26 @@ impl RangeAllocator {
                             key,
                         );
                         if merged_right {
-                            assert(freelist@ == before_right_map.remove(*next_va).insert(
-                                before_right_range.start,
-                                FreeRange { block: free_range },
-                            ));
-                            assert(key != *next_va);
                             assert(before_right_map.contains_key(key));
                             assert(before_right_map.contains_key(*next_va));
-                            assert(key != before_right_range.start);
-                            assert(*next_va != before_right_range.start);
-                            assert(before_insert_map.contains_key(key));
                             assert(before_insert_map.contains_key(*next_va));
                             assert(before_left_map.contains_key(key));
                             assert(before_left_map.contains_key(*next_va));
                             assert(before_left_map[key] == before_right_map[key]);
-                            assert(before_left_map[*next_va] == before_right_map[*next_va]);
                             assert(before_right_map[*next_va].block.end == free_range.end);
-                            assert(before_left_map[*next_va].block.end
-                                < before_left_map[key].block.start
-                                || before_left_map[key].block.end
-                                    < before_left_map[*next_va].block.start);
                             assert(false);
                         } else {
                             assert(freelist@ == before_right_map);
-                            assert(free_range == before_right_range);
                             if key == *next_va {
-                                assert(before_right_map[*next_va].block.start
-                                    == before_right_range.end);
                                 assert(false);
                             } else {
                                 assert(*next_va < key);
-                                assert(*next_va != before_right_range.start);
                                 assert(before_right_map.contains_key(*next_va));
                                 assert(before_right_map.contains_key(before_right_range.start));
-                                assert(before_right_map[before_right_range.start].block
-                                    == before_right_range);
                                 assert(concrete_freelist_wf(self@, before_right_map));
-                                assert(before_right_range.start < *next_va
-                                    < before_right_range.end);
-                                assert(before_right_range.view_set().contains(*next_va));
                                 assert(before_right_map[*next_va].block.view_set().contains(
                                     *next_va,
                                 ));
-                                assert(before_right_map[before_right_range.start]
-                                    .block.view_set().disjoint(
-                                        before_right_map[*next_va].block.view_set(),
-                                    ));
                                 assert(false);
                             }
                         }
@@ -839,11 +754,6 @@ impl RangeAllocator {
                     if key != free_range.start
                         && freelist@[key].block.start == free_range.end {
                         assert(freelist@[key].block.start == key);
-                        assert(before_right_range.start < key);
-                        assert(!before_lower_bound(
-                            key,
-                            core::ops::Bound::Excluded(&before_right_range.start),
-                        ));
                         lemma_lower_bound_has_next(
                             next_cursor_model,
                             before_right_range.start,
@@ -852,10 +762,6 @@ impl RangeAllocator {
                         assert(false);
                     }
                 }
-            }
-            assert forall|key: usize| #[trigger] freelist@.contains_key(key)
-                implies key == free_range.start
-                    || freelist@[key].block.start != free_range.end by {
             }
         }
         proof! {
@@ -873,20 +779,13 @@ impl RangeAllocator {
             let tracked free_subset = resource.free.insert_set(range.view_set());
             let tracked permit = GhostSubRange::tracked_new(free_subset, range);
             *free_permit = Tracked(Some(permit));
+            assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
+                - resource.free@);
             assert(resource.free@ == free_set(freelist_model(freelist@))) by {
                 if !merged_right {
                     assert(freelist@ == before_right_map);
                 }
             }
-            assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
-                - resource.free@) by {
-                assert forall|address: usize| #[trigger]
-                    resource.allocated@.contains(address) <==>
-                        (lock_guard.constant().fullrange.view_set()
-                            - resource.free@).contains(address) by {
-                }
-            }
-            assert(FreelistInvariant::inv(lock_guard.constant(), lock_guard@, *resource));
         }
         lock_guard.drop();
     }
@@ -1002,7 +901,6 @@ proof fn lemma_upper_bound_has_previous(
 {
     let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
     if model.position == 0 {
-        assert(!before_upper_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
         assert(false);
     }
 }
@@ -1024,17 +922,8 @@ proof fn lemma_upper_bound_prev_is_maximal(
         key <= previous,
 {
     let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
-    assert(key_idx < model.position) by {
-        if model.position <= key_idx {
-            assert(!before_upper_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
-        }
-    }
     if key_idx < model.position - 1 {
         assert(model.keys[key_idx].cmp_spec(&model.keys[model.position - 1]) is Less);
-        assert(key < previous);
-    } else {
-        assert(key_idx == model.position - 1);
-        assert(key == previous);
     }
 }
 
@@ -1053,7 +942,6 @@ proof fn lemma_lower_bound_has_next(
 {
     let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
     if model.position == model.keys.len() {
-        assert(before_lower_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
         assert(false);
     }
 }
@@ -1075,17 +963,8 @@ proof fn lemma_lower_bound_next_is_minimal(
         next <= key,
 {
     let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
-    assert(model.position <= key_idx) by {
-        if key_idx < model.position {
-            assert(before_lower_bound(model.keys[key_idx], core::ops::Bound::Excluded(&bound)));
-        }
-    }
     if model.position < key_idx {
         assert(model.keys[model.position].cmp_spec(&model.keys[key_idx]) is Less);
-        assert(next < key);
-    } else {
-        assert(key_idx == model.position);
-        assert(next == key);
     }
 }
 
@@ -1105,21 +984,17 @@ proof fn lemma_contiguous_subset_has_covering_block(
             freelist.contains_key(key) && block_contains(freelist[key].block, range),
 {
     lemma_concrete_free_set_contains(freelist, range.start);
-    assert(range.view_set().contains(range.start));
     let key = choose|key: usize| #[trigger]
         freelist.contains_key(key) && freelist[key].block.view_set().contains(range.start);
     let block = freelist[key].block;
     if block.end < range.end {
         let address = block.end;
-        assert(range.view_set().contains(address));
         lemma_concrete_free_set_contains(freelist, address);
         let other = choose|other: usize| #[trigger]
             freelist.contains_key(other) && freelist[other].block.view_set().contains(address);
-        assert(other != key);
         if block.end < freelist[other].block.start {
             assert(false);
         } else {
-            assert(freelist[other].block.end < block.start);
             assert(false);
         }
     }
@@ -1155,38 +1030,22 @@ proof fn lemma_restored_freelist_is_separated(
         new_freelist.contains_key(left) && new_freelist.contains_key(right) && left
             != right implies new_freelist[left].block.end < new_freelist[right].block.start
         || new_freelist[right].block.end < new_freelist[left].block.start by {
-        if left != new_key && right != new_key {
-            assert(old_freelist.contains_key(left));
-            assert(old_freelist.contains_key(right));
-        } else {
+        if left == new_key || right == new_key {
             let other = if left == new_key {
                 right
             } else {
                 left
             };
-            assert(other != new_key);
-            assert(new_freelist[other].block.start == other);
-            assert(new_freelist[new_key].block.start == new_key);
-            assert(new_key < other || other < new_key);
-            assert(new_freelist[new_key].block.view_set().disjoint(
-                new_freelist[other].block.view_set(),
-            ));
             if new_key < other {
                 if other < new_range.end {
-                    assert(new_range.view_set().contains(other));
                     assert(new_freelist[other].block.view_set().contains(other));
                     assert(false);
                 }
-                assert(new_range.end <= other);
-                assert(new_range.end != other);
             } else {
                 if new_range.start < new_freelist[other].block.end {
-                    assert(new_range.view_set().contains(new_range.start));
                     assert(new_freelist[other].block.view_set().contains(new_range.start));
                     assert(false);
                 }
-                assert(new_freelist[other].block.end <= new_range.start);
-                assert(new_freelist[other].block.end != new_range.start);
             }
         }
     }
@@ -1246,24 +1105,6 @@ proof fn lemma_alloc_suffix_model(
             } else {
                 assert(new_freelist.contains_key(old_key));
             }
-        }
-    }
-    assert forall|left: usize, right: usize|
-        #![trigger new_freelist.contains_key(left), new_freelist.contains_key(right)]
-        new_freelist.contains_key(left) && new_freelist.contains_key(right) && left
-            != right implies new_freelist[left].block.end < new_freelist[right].block.start
-        || new_freelist[right].block.end < new_freelist[left].block.start by {
-        if left != key && right != key {
-            assert(old_freelist.contains_key(left));
-            assert(old_freelist.contains_key(right));
-        } else {
-            let other = if left == key {
-                right
-            } else {
-                left
-            };
-            assert(old_freelist.contains_key(other));
-            assert(old_freelist.contains_key(key));
         }
     }
 }
@@ -1339,31 +1180,11 @@ proof fn lemma_alloc_specific_model(
             } else {
                 if old_key == allocation.end && allocation.end < old_freelist[key].block.end {
                     let other_block = old_freelist[old_key].block;
-                    assert(other_block.view_set().contains(allocation.end));
                     assert(false);
                 } else {
                     assert(new_freelist.contains_key(old_key));
                 }
             }
-        }
-    }
-    assert forall|left: usize, right: usize|
-        #![trigger new_freelist.contains_key(left), new_freelist.contains_key(right)]
-        new_freelist.contains_key(left) && new_freelist.contains_key(right) && left
-            != right implies new_freelist[left].block.end < new_freelist[right].block.start
-        || new_freelist[right].block.end < new_freelist[left].block.start by {
-        if (left == key && right == allocation.end) || (right == key && left == allocation.end) {
-        } else if left != key && left != allocation.end && right != key && right != allocation.end {
-            assert(old_freelist.contains_key(left));
-            assert(old_freelist.contains_key(right));
-        } else {
-            let other = if left == key || left == allocation.end {
-                right
-            } else {
-                left
-            };
-            assert(old_freelist.contains_key(other));
-            assert(old_freelist.contains_key(key));
         }
     }
 }
