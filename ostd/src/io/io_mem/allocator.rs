@@ -5,20 +5,23 @@
 //!
 //! The allocatable windows are the boot-time registered MMIO windows, handed
 //! to [`IoMemAllocatorBuilder::new`] in their registered order; every
-//! allocator built from a builder inherits them. A caller-threaded
-//! `RangeAllocatorState` mirrors every window's free blocks
-//! ([`IoMemAllocatorBuilder::state_matches`]), and
-//! [`IoMemAllocatorBuilder::remove`] decides panics from that mirror: when the
-//! mirror predicts success ([`IoMemAllocatorBuilder::can_remove`]), the
-//! removal is proved not to panic. The registered-window registry is trusted
-//! boot-time data.
-use vstd::{arithmetic::power2::is_pow2, prelude::*};
+//! allocator built from a builder inherits them. Construction returns one
+//! splittable free-address permission per window. A builder removal consumes
+//! the requested portion of the corresponding permission, proving that the
+//! underlying range allocation cannot panic. The registered-window registry
+//! is trusted boot-time data.
+use vstd::{
+    arithmetic::power2::is_pow2,
+    prelude::*,
+    resource::{Loc, set::GhostSubset},
+};
 use vstd_extra::{
-    once::OnceImpl, resource::range::GhostSubRange, resource_invariant::TrivialResourceInvariant,
+    once::OnceImpl, range::RangeExtraFns, resource::range::GhostSubRange,
+    resource_invariant::TrivialResourceInvariant,
 };
 
 use crate::specs::arch::PAGE_SIZE;
-use crate::util::range_alloc::RangeAllocatorState;
+use crate::util::range_alloc::RangeAllocatorPermits;
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -44,18 +47,19 @@ impl IoMemAllocator {
     ///
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
-        with Tracked(state): Tracked<&mut RangeAllocatorState>,
+        with
+            Tracked(permit): Tracked<GhostSubRange<usize>>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             io_mem_range_registered(range),
-            self.state_matches(*old(state)),
+            permit.range() == range,
+            self.has_free_permission(permit.id(), range),
         ensures
             result matches Some(io_mem) ==> {
                 &&& io_mem.paddr() == range.start
                 &&& io_mem.length() == range.end - range.start
             },
-            final(state).id() == old(state).id(),
-            self.state_matches(*final(state)),
+            result is Some,
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         /* Original Rust:
@@ -66,27 +70,15 @@ impl IoMemAllocator {
         let allocator = find_allocator(&self.allocators, &range)?;
         proof! {
             use_type_invariant(self);
+            reveal(IoMemAllocator::has_free_permission);
             lemma_found_window_contains(&self.allocators, &range, allocator);
-            lemma_found_state_matches(&self.allocators, allocator, *state);
+            lemma_found_permission_matches(&self.allocators, allocator, permit.id(), range);
         }
         proof_decl! {
             let tracked allocated: Option<GhostSubRange<usize>>;
         }
-        let result = #[verus_spec(with Tracked(state) => Tracked(allocated))]
+        let result = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
         allocator.alloc_specific(&range);
-        proof! {
-            // Every window's mirror entry survives the call, so the caller can
-            // keep threading it through later predictions.
-            reveal(IoMemAllocator::state_matches);
-            reveal(allocator_states_match);
-            assert forall|i: int| #![trigger self.allocators@[i]]
-                0 <= i < self.allocators@.len() ==> {
-                &&& self.allocators@[i].state_id() == state.id()
-                &&& state@.contains_key(self.allocators@[i].state_key())
-            } by {
-            }
-            assert(self.state_matches(*state));
-        }
         result.ok()?;
 
         /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
@@ -110,14 +102,13 @@ impl IoMemAllocator {
     #[expect(dead_code)]
     #[verifier::external_body]
     #[verus_spec(
-        with Tracked(state): Tracked<&mut RangeAllocatorState>,
+        with
+            Tracked(allocated): Tracked<GhostSubRange<usize>>,
         requires
             range.start < range.end,
             self.covers_range(range),
-            self.state_matches(*old(state)),
-        ensures
-            final(state).id() == old(state).id(),
-            self.state_matches(*final(state)),
+            allocated.range() == range,
+            self.has_allocation(allocated.id()),
     )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
         let allocator = find_allocator(&self.allocators, &range).unwrap();
@@ -160,7 +151,7 @@ impl IoMemAllocatorBuilder {
     /// User must ensure the range doesn't belong to physical memory.
     #[verus_spec(ret =>
         with
-            -> state_out: Tracked<RangeAllocatorState>,
+            -> state_out: Tracked<RangeAllocatorPermits>,
         requires
             usize_ranges_ordered(ranges@),
             usize_ranges_match_registered(ranges@),
@@ -175,7 +166,7 @@ impl IoMemAllocatorBuilder {
         ); */
         let mut allocators: Vec<RangeAllocator> = Vec::with_capacity(ranges.len());
         proof_decl! {
-            let tracked (mut state, empty_state) = RangeAllocatorState::new(Map::empty());
+            let tracked mut state = Seq::tracked_empty();
         }
         proof! {
             // `allocator_states_match` is closed; keep it transparent for the loop proofs.
@@ -194,8 +185,7 @@ impl IoMemAllocatorBuilder {
                     allocators@[j]@ == registered_io_mem_windows()[j],
                 windows_ordered(allocators@),
                 allocator_states_match(allocators@, state),
-                forall|key: usize| #[trigger] state@.contains_key(key)
-                    <==> key < it.index(),
+                state.len() == it.index(),
         )]
         for range in ranges {
             proof! {
@@ -205,18 +195,18 @@ impl IoMemAllocatorBuilder {
                 assert(allocators@.len() == allocators.len());
                 assert(allocators.len() <= usize::MAX);
                 assert(0 <= it.index() <= usize::MAX);
-                assert(!state@.contains_key(it.index() as usize));
             }
             proof_decl! {
-                let ghost prev_state = state@;
-                let ghost prev_state_id = state.id();
+                let ghost prev_state = state;
                 let ghost prev_allocators = allocators@;
+                let tracked permit: GhostSubset<usize>;
             }
             allocators.push(
-                #[verus_spec(with Ghost(it.index() as usize), Tracked(&mut state))]
+                #[verus_spec(with => Tracked(permit))]
                 RangeAllocator::new(range),
             );
             proof! {
+                state.tracked_push(permit);
                 assert(allocators@.len() == prev_allocators.len() + 1);
                 assert(allocators@[allocators@.len() - 1]@.start == range.start);
                 assert(range.start == registered_io_mem_windows()[it.index()].start);
@@ -228,29 +218,7 @@ impl IoMemAllocatorBuilder {
                     assert(it.seq()[i].end <= it.seq()[i as int + 1].start);
                 }
                 assert(windows_ordered(allocators@));
-                assert(state@ == prev_state.insert(
-                    it.index() as usize,
-                    Map::empty().insert(range.start, range),
-                ));
-                assert forall|i: int| #![trigger allocators@[i]]
-                    0 <= i < allocators@.len() implies {
-                    &&& allocators@[i].state_id() == state.id()
-                    &&& state@.contains_key(allocators@[i].state_key())
-                } by {
-                    if i < allocators@.len() - 1 {
-                        assert(allocators@[i] == prev_allocators[i]);
-                        assert(allocators@[i].state_id() == prev_state_id);
-                        assert(prev_state.contains_key(prev_allocators[i].state_key()));
-                    }
-                }
                 assert(allocator_states_match(allocators@, state));
-                assert forall|key: usize| #[trigger] state@.contains_key(key)
-                    <==> key < it.index() + 1 by {
-                    if key == it.index() {
-                    } else {
-                        assert(state@.contains_key(key) == prev_state.contains_key(key));
-                    }
-                }
             }
         }
         proof! {
@@ -268,26 +236,24 @@ impl IoMemAllocatorBuilder {
     /// # Verified Properties
     ///
     /// ## Safety
-    /// - No unsafe code; panics are proved impossible whenever the threaded
-    ///   state predicts success ([`Self::can_remove`]).
+    /// - No unsafe code; panics are proved impossible whenever the supplied
+    ///   permission covers the requested range ([`Self::can_remove`]).
     ///
     /// ## Preconditions
     /// - The range is non-empty and registered as a boot-time MMIO window.
-    /// - The shared `RangeAllocatorState` mirrors this builder's windows.
+    /// - The permission sequence matches this builder's allocator windows.
     ///
     /// ## Postconditions
-    /// - The threaded [`RangeAllocatorState`](crate::util::range_alloc::RangeAllocatorState)
-    ///   keeps its identity and every window's mirror entry across the
-    ///   removal.
+    /// - Only the requested range is removed from its window's permission;
+    ///   every other permission remains available.
     #[verus_spec(
-        with Tracked(state): Tracked<&mut RangeAllocatorState>,
+        with Tracked(state): Tracked<&mut RangeAllocatorPermits>,
         requires
             range.start < range.end,
-            !self.can_remove(*old(state), range) ==> vstd_extra::panic::may_panic(),
+            self.can_remove(*old(state), range),
             io_mem_range_registered(range),
             self.state_matches(*old(state)),
         ensures
-            final(state).id() == old(state).id(),
             self.state_matches(*final(state)),
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
@@ -304,17 +270,23 @@ impl IoMemAllocatorBuilder {
 
         proof_decl! {
             let ghost state_before = *state;
+            let ghost k = choose|k: int|
+                #![trigger self.allocators@[k]]
+                0 <= k < self.allocators@.len() && k < state_before.len() && {
+                    let candidate = self.allocators@[k];
+                    &&& candidate@.start <= range.start < range.end <= candidate@.end
+                    &&& state_before[k].id() == candidate.free_id()
+                    &&& range.view_set() <= state_before[k]@
+                };
+            let tracked mut window_permit = state.tracked_remove(k);
+            let tracked range_permit = window_permit.split(range.view_set());
+            state.tracked_insert(k, window_permit);
+            let tracked permit = GhostSubRange::tracked_new(range_permit, range);
         }
         proof! {
             use_type_invariant(self);
+            reveal(IoMemAllocatorBuilder::can_remove);
             lemma_found_window_contains(&self.allocators, &range, allocator);
-            lemma_found_state_matches(&self.allocators, allocator, state_before);
-            let k = choose|k: int|
-                #![trigger self.allocators@[k]]
-                0 <= k < self.allocators@.len() && self.allocators@[k]@.start <= range.start
-                    < range.end <= self.allocators@[k]@.end
-                    && self.allocators@[k].state_id() == allocator.state_id()
-                    && self.allocators@[k].state_key() == allocator.state_key();
             assert forall|i: int|
                 #![trigger self.allocators@[i]]
                 0 <= i < self.allocators@.len() && self.allocators@[i]@.start <= range.start
@@ -325,24 +297,22 @@ impl IoMemAllocatorBuilder {
                     assert(self.allocators@[k]@.end <= self.allocators@[i]@.start);
                 }
             }
-            crate::util::range_alloc::lemma_can_allocate_same_identity(
-                self.allocators@[k],
-                *allocator,
-                state_before,
+            assert(self.allocators@[k]@ == allocator@);
+            lemma_found_permission_matches(
+                &self.allocators,
+                allocator,
+                state_before[k].id(),
                 range,
             );
+            assert(self.allocators@[k].free_id() == state_before[k].id());
         }
         proof_decl! {
             let tracked allocated: Option<GhostSubRange<usize>>;
         }
 
-        if let Err(err) = #[verus_spec(with Tracked(state) => Tracked(allocated))]
+        if let Err(err) = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
         allocator.alloc_specific(&range)
         {
-            proof! {
-                assert(!allocator.can_allocate(state_before, range));
-                assert(!self.can_remove(state_before, range));
-            }
             vstd_extra::panic!(
                 "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
                 range,
@@ -350,21 +320,8 @@ impl IoMemAllocatorBuilder {
             );
         }
         proof! {
-            // Every window's mirror entry survives the removal, so the caller
-            // can keep threading it through later predictions.
             reveal(IoMemAllocatorBuilder::state_matches);
             reveal(allocator_states_match);
-            assert forall|i: int| #![trigger self.allocators@[i]]
-                0 <= i < self.allocators@.len() ==> {
-                &&& self.allocators@[i].state_id() == state.id()
-                &&& state@.contains_key(self.allocators@[i].state_key())
-            } by {
-                if self.allocators@[i].state_key() == allocator.state_key() {
-                    // Own entry: kept by alloc_specific's own-entry ensures.
-                } else {
-                    // Foreign entry: kept by the frame conjunct + state_matches.
-                }
-            }
             assert(self.state_matches(*state));
         }
     }
@@ -414,34 +371,36 @@ pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> boo
         }
 }
 
-/// Every window's entry in the shared state is present, under the shared state's identity.
+/// Every window has a matching free-address permission.
 closed spec fn allocator_states_match(
     allocators: Seq<RangeAllocator>,
-    state: RangeAllocatorState,
+    state: RangeAllocatorPermits,
 ) -> bool {
-    forall|i: int|
+    &&& state.len() == allocators.len()
+    &&& forall|i: int|
         #![trigger allocators[i]]
         0 <= i < allocators.len() ==> {
-            &&& allocators[i].state_id() == state.id()
-            &&& state@.contains_key(allocators[i].state_key())
+            &&& state[i].id() == allocators[i].free_id()
+            &&& state[i]@ <= allocators[i]@.view_set()
         }
 }
 
 impl IoMemAllocatorBuilder {
-    /// Whether the shared state predicts that `remove` will succeed without panicking:
-    /// some window wholly covering `range` can still allocate it.
-    pub closed spec fn can_remove(self, state: RangeAllocatorState, range: Range<usize>) -> bool {
+    /// Whether some matching window permission covers `range`, proving that
+    /// `remove` succeeds without panicking.
+    pub closed spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
         exists|i: int|
             #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && {
+            0 <= i < self.allocators@.len() && i < state.len() && {
                 let allocator = self.allocators@[i];
                 &&& allocator@.start <= range.start < range.end <= allocator@.end
-                &&& allocator.can_allocate(state, range)
+                &&& state[i].id() == allocator.free_id()
+                &&& range.view_set() <= state[i]@
             }
     }
 
-    /// Whether every window's entry in `state` is present, under the shared state's identity.
-    pub closed spec fn state_matches(self, state: RangeAllocatorState) -> bool {
+    /// Whether every window has a permission with the matching identity.
+    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
         allocator_states_match(self.allocators@, state)
     }
 
@@ -453,9 +412,19 @@ impl IoMemAllocatorBuilder {
 }
 
 impl IoMemAllocator {
-    /// Whether every window's entry in `state` is present, under the shared state's identity.
-    pub closed spec fn state_matches(self, state: RangeAllocatorState) -> bool {
-        allocator_states_match(self.allocators@, state)
+    /// Whether `id` is the free-permission identity of a window containing `range`.
+    pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
+        exists|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
+                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
+    }
+
+    /// Whether `id` is the allocation-token identity of one of the windows.
+    pub closed spec fn has_allocation(self, id: Loc) -> bool {
+        exists|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].id() == id
     }
 
     /// Whether some window wholly covers `range`.
@@ -565,8 +534,7 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
             &&& exists|k: int| #![trigger allocators@[k]]
                 0 <= k < allocators@.len()
                     && allocators@[k]@ == res@
-                    && allocators@[k].state_id() == res.state_id()
-                    && allocators@[k].state_key() == res.state_key()
+                    && allocators@[k].free_id() == res.free_id()
         },
         ret is None ==> forall|i: int| #![trigger allocators@[i]] 0 <= i < allocators@.len()
             ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
@@ -596,30 +564,46 @@ fn find_allocator<'a>(
     None
 }
 
-// Auxiliary state-tracking lemma backing the allocator proofs above.
+// Auxiliary permission lemma backing the allocator proofs above.
 verus! {
 
-/// A window whose id and key match those of `found` is covered by the shared state.
-proof fn lemma_found_state_matches(
+/// The found ordered window has the permission identity of the unique containing window.
+proof fn lemma_found_permission_matches(
     allocators: &Vec<RangeAllocator>,
     found: &RangeAllocator,
-    state: RangeAllocatorState,
+    permit_id: Loc,
+    range: Range<usize>,
 )
     requires
-        allocator_states_match(allocators@, state),
-        exists|k: int|
-            #![trigger allocators@[k]]
-            0 <= k < allocators@.len() && allocators@[k].state_id() == found.state_id()
-                && allocators@[k].state_key() == found.state_key(),
+        windows_ordered(allocators@),
+        found@.start <= range.start < range.end <= found@.end,
+        exists|found_idx: int|
+            #![trigger allocators@[found_idx]]
+            0 <= found_idx < allocators@.len() && allocators@[found_idx]@ == found@
+                && allocators@[found_idx].free_id() == found.free_id(),
+        exists|permit_idx: int|
+            #![trigger allocators@[permit_idx]]
+            0 <= permit_idx < allocators@.len() && allocators@[permit_idx].free_id() == permit_id
+                && allocators@[permit_idx]@.start <= range.start < range.end
+                <= allocators@[permit_idx]@.end,
     ensures
-        found.state_id() == state.id(),
-        state@.contains_key(found.state_key()),
+        found.free_id() == permit_id,
 {
-    reveal(allocator_states_match);
-    let i = choose|k: int|
-        #![trigger allocators@[k]]
-        0 <= k < allocators@.len() && allocators@[k].state_id() == found.state_id()
-            && allocators@[k].state_key() == found.state_key();
+    let found_idx = choose|i: int|
+        0 <= i < allocators@.len() && #[trigger] allocators@[i]@ == found@
+            && allocators@[i].free_id() == found.free_id();
+    let permit_idx = choose|i: int|
+        0 <= i < allocators@.len() && allocators@[i].free_id() == permit_id
+            && #[trigger] allocators@[i]@.start <= range.start < range.end <= allocators@[i]@.end;
+    if found_idx < permit_idx {
+        assert(allocators@[found_idx]@.end <= allocators@[permit_idx]@.start);
+        assert(false);
+    } else if permit_idx < found_idx {
+        assert(allocators@[permit_idx]@.end <= allocators@[found_idx]@.start);
+        assert(false);
+    } else {
+        assert(found_idx == permit_idx);
+    }
 }
 
 } // verus!

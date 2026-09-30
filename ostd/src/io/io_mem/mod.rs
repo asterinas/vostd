@@ -62,11 +62,13 @@ impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
     #[verifier::external_body]
     #[verus_spec(result =>
-        with Tracked(state): Tracked<&mut crate::util::range_alloc::RangeAllocatorState>,
+        with
+            Tracked(permit): Tracked<vstd_extra::resource::range::GhostSubRange<usize>>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             allocator::io_mem_range_registered(range),
             allocator::io_mem_allocator_initialized(),
+            permit.range() == range,
         ensures
             result matches Ok(io_mem) ==> {
                 &&& io_mem.paddr() == range.start

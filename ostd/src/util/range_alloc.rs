@@ -3,24 +3,22 @@
 //!
 //! # Verified Properties
 //!
-//! The free list is hidden behind a spin lock and mirrored by a [`GhostSubset`]
-//! retained alongside its [`GhostSetAuth`]. Successful allocations return a
-//! [`GhostSubRange`] token to the caller, and freeing a range consumes that
-//! token.
-//! Callers may additionally thread a [`RangeAllocatorState`] through the
-//! allocation interface to keep a predictive mirror of every allocator's free
-//! blocks, characterized by [`RangeAllocator::can_allocate`]; the threaded
-//! state keeps its identity and this allocator's entry across each operation.
+//! The free list is hidden behind a spin lock and modeled as an abstract set of
+//! addresses. Construction returns a splittable [`GhostSubset`] permission.
+//! Allocating a specific range consumes the corresponding permission and
+//! returns a [`GhostSubRange`] allocation token; freeing performs the inverse
+//! transition.
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
     prelude::*,
     resource::{
         Loc,
-        map::{GhostMapAuth, GhostPointsTo},
         set::{GhostSetAuth, GhostSubset},
     },
     seq_lib::lemma_seq_contains_after_push,
+    std_specs::btree::{before_lower_bound, before_upper_bound},
+    std_specs::cmp::OrdSpec,
 };
 use vstd_extra::{
     debug_assert,
@@ -49,6 +47,8 @@ pub struct RangeAllocError;
 
 verus! {
 
+broadcast use vstd::std_specs::btree::group_btree_axioms;
+
 impl View for RangeAllocator {
     type V = Range<usize>;
 
@@ -58,19 +58,14 @@ impl View for RangeAllocator {
 }
 
 impl RangeAllocator {
-    /// The identifier shared by this allocator's free-set authority and allocation tokens.
+    /// The identifier shared by this allocator's allocated-set authority and allocation tokens.
     pub closed spec fn id(self) -> Loc {
+        self.freelist.constant().allocated_id
+    }
+
+    /// The identifier shared by this allocator's free-set authority and allocation permissions.
+    pub closed spec fn free_id(self) -> Loc {
         self.freelist.constant().free_id
-    }
-
-    /// The identifier of the shared [`RangeAllocatorState`] threaded by the caller.
-    pub closed spec fn state_id(self) -> Loc {
-        self.freelist.constant().state_id
-    }
-
-    /// The key of this allocator's entry in the caller's [`RangeAllocatorState`].
-    pub closed spec fn state_key(self) -> usize {
-        self.freelist.constant().state_key
     }
 
     #[verifier::type_invariant]
@@ -79,43 +74,11 @@ impl RangeAllocator {
     }
 }
 
-impl RangeAllocator {
-    /// Whether the caller's shared state predicts that
-    /// [`RangeAllocator::alloc_specific`] will grant `range`: some entirely free
-    /// block wholly covering it.
-    pub closed spec fn can_allocate(self, state: RangeAllocatorState, range: Range<usize>) -> bool {
-        state@.contains_key(self.state_key()) && exists|key: usize|
-            #![trigger state@[self.state_key()][key]]
-            {
-                let freelist = state@[self.state_key()];
-                let block = freelist[key];
-                &&& freelist.contains_key(key)
-                &&& block_contains(block, range)
-            }
-    }
-}
-
-/// Two allocator values sharing the same state entry agree on predictions.
-pub proof fn lemma_can_allocate_same_identity(
-    left: RangeAllocator,
-    right: RangeAllocator,
-    state: RangeAllocatorState,
-    range: Range<usize>,
-)
-    requires
-        left.state_key() == right.state_key(),
-    ensures
-        left.can_allocate(state, range) == right.can_allocate(state, range),
-{
-    reveal(RangeAllocator::can_allocate);
-}
-
 ghost struct FreelistConstant {
     fullrange: Range<usize>,
     initialized_id: Loc,
-    state_id: Loc,
-    state_key: usize,
     free_id: Loc,
+    allocated_id: Loc,
 }
 
 ghost struct FreelistInvariant;
@@ -140,6 +103,7 @@ closed spec fn concrete_freelist_wf(
         freelist.contains_key(key) ==> {
             let block = freelist[key].block;
             &&& fullrange.start <= block.start <= block.end <= fullrange.end
+            &&& (block.start < block.end || fullrange.start == fullrange.end)
             &&& key == block.start
         }
     &&& forall|left: usize, right: usize|
@@ -148,29 +112,29 @@ closed spec fn concrete_freelist_wf(
             ==> freelist[left].block.view_set().disjoint(freelist[right].block.view_set())
 }
 
+/// Distinct free-list blocks are not adjacent; maximal free runs are merged.
+closed spec fn freelist_blocks_not_adjacent(freelist: Map<usize, FreeRange>) -> bool {
+    forall|left: usize, right: usize|
+        #![trigger freelist.contains_key(left), freelist.contains_key(right)]
+        freelist.contains_key(left) && freelist.contains_key(right) && left != right
+            ==> freelist[left].block.end < freelist[right].block.start || freelist[right].block.end
+            < freelist[left].block.start
+}
+
 /// Whether `block` wholly covers `range`.
 closed spec fn block_contains(block: Range<usize>, range: Range<usize>) -> bool {
     block.start <= range.start && range.end <= block.end
 }
 
-/// The block map mirrored in the shared state: the key of each free block is its
-/// start address.
-closed spec fn state_model(freelist: Map<usize, FreeRange>) -> Map<usize, Range<usize>> {
-    Map::new(freelist.dom(), |key: usize| freelist[key].block)
-}
-
-/// A caller-threaded mirror of every allocator's free blocks, keyed by each
-/// allocator's [`RangeAllocator::state_key`].
-pub type RangeAllocatorState = GhostMapAuth<usize, Map<usize, Range<usize>>>;
+/// Splittable free-range permissions for a sequence of allocators.
+pub type RangeAllocatorPermits = Seq<GhostSubset<usize>>;
 
 /// Lock-guarded proof resource: initialization state, the authoritative set,
-/// ownership of all currently free addresses, and the block map mirrored
-/// into the caller-threaded `RangeAllocatorState`.
+/// and the authoritative free and allocated address sets.
 tracked struct FreelistResource {
     initialized: Sum<OneShotPending, OneShotSet>,
-    state: GhostSetAuth<usize>,
-    remaining: GhostSubset<usize>,
-    model: GhostPointsTo<usize, Map<usize, Range<usize>>>,
+    free: GhostSetAuth<usize>,
+    allocated: GhostSetAuth<usize>,
 }
 
 #[cfg(feature = "irc11")]
@@ -188,27 +152,22 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         freelist: Option<BTreeMap<usize, FreeRange>>,
         resource: Self::Resource,
     ) -> bool {
-        &&& resource.state.id() == constant.free_id
-        &&& resource.remaining.id() == constant.free_id
-        &&& resource.model.id() == constant.state_id
-        &&& resource.model.key() == constant.state_key
-        &&& resource.state@ == constant.fullrange.view_set()
+        &&& resource.free.id() == constant.free_id
+        &&& resource.allocated.id() == constant.allocated_id
         &&& match resource.initialized {
             Sum::Left(pending) => {
                 &&& pending.id() == constant.initialized_id
                 &&& freelist is None
-                &&& resource.remaining@ == constant.fullrange.view_set()
-                &&& resource.model.value() == Map::empty().insert(
-                    constant.fullrange.start,
-                    constant.fullrange,
-                )
+                &&& resource.free@ == constant.fullrange.view_set()
+                &&& resource.allocated@ == Set::empty()
             },
             Sum::Right(set) => {
                 &&& set.id() == constant.initialized_id
                 &&& freelist is Some
                 &&& concrete_freelist_wf(constant.fullrange, freelist->0@)
-                &&& resource.remaining@ == free_set(freelist_model(freelist->0@))
-                &&& resource.model.value() == state_model(freelist->0@)
+                &&& freelist_blocks_not_adjacent(freelist->0@)
+                &&& resource.free@ == free_set(freelist_model(freelist->0@))
+                &&& resource.allocated@ == constant.fullrange.view_set() - resource.free@
             },
         }
     }
@@ -218,20 +177,14 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
 #[verus_verify]
 impl RangeAllocator {
     #[verus_spec(ret =>
-        with Ghost(state_key): Ghost<usize>, state_arg: Tracked<&mut RangeAllocatorState>,
+        with -> permit: Tracked<GhostSubset<usize>>,
         requires
             fullrange.start <= fullrange.end,
-            !old(state_arg@)@.contains_key(state_key),
         ensures
             ret@.start == fullrange.start,
             ret@.end == fullrange.end,
-            ret.state_id() == final(state_arg@).id(),
-            final(state_arg@).id() == old(state_arg@).id(),
-            final(state_arg@)@.contains_key(ret.state_key()),
-            final(state_arg@)@ == old(state_arg@)@.insert(
-                state_key,
-                Map::empty().insert(fullrange.start, fullrange),
-            ),
+            permit@.id() == ret.free_id(),
+            permit@@ == fullrange.view_set(),
     )]
     /* `#[verus_spec]` on a `const fn` does not keep `proof_decl!` locals visible to
      * `verus_exec_expr!` in the active Verus toolchain, so this constructor cannot remain const.
@@ -239,25 +192,23 @@ impl RangeAllocator {
      */
     pub fn new(fullrange: Range<usize>) -> Self {
         proof_decl! {
-            let tracked state = state_arg.get();
             let tracked initialized = OneShotPending::alloc();
-            let tracked (state_auth, remaining) = GhostSetAuth::new(fullrange.view_set());
-            let tracked model = state.insert(state_key, Map::empty().insert(fullrange.start, fullrange));
+            let tracked (free, permit) = GhostSetAuth::new(fullrange.view_set());
+            let tracked (allocated, empty_allocated) = GhostSetAuth::new(Set::empty());
             let ghost constant = FreelistConstant {
                 fullrange,
                 initialized_id: initialized.id(),
-                state_id: state.id(),
-                state_key,
-                free_id: state_auth.id(),
+                free_id: free.id(),
+                allocated_id: allocated.id(),
             };
             let tracked resource = FreelistResource {
                 initialized: Sum::Left(initialized),
-                state: state_auth,
-                remaining,
-                model,
+                free,
+                allocated,
             };
         }
 
+        #[verus_spec(with |= Tracked(permit))]
         verus_exec_expr! {
             Self {
                 fullrange,
@@ -284,31 +235,25 @@ impl RangeAllocator {
     ///
     /// ## Preconditions
     /// - The target range is non-empty and lies within this allocator's range.
-    /// - Thread the shared [`RangeAllocatorState`] mirroring this allocator's
-    ///   free blocks so that later predictions stay exact.
+    /// - Supply a free-range permission for exactly `allocate_range`.
     ///
     /// ## Postconditions
     /// - On success, returns a [`GhostSubRange`] proving ownership of the
     ///   allocated range; a token is dispatched if and only if the result is
     ///   `Ok`, and it is consumed by [`RangeAllocator::free`].
-    /// - The threaded [`RangeAllocatorState`] keeps its identity, this
-    ///   allocator's entry, and every other window's entry across calls.
+    /// - The free-range permission is consumed, and a matching allocation
+    ///   token is returned.
     #[verus_spec(res =>
         with
-            Tracked(state): Tracked<&mut RangeAllocatorState>,
+            Tracked(permit): Tracked<GhostSubRange<usize>>,
             -> allocated: Tracked<Option<GhostSubRange<usize>>>,
         requires
             self@.start <= allocate_range.start < allocate_range.end <= self@.end,
-            old(state).id() == self.state_id(),
-            old(state)@.contains_key(self.state_key()),
+            permit.id() == self.free_id(),
+            permit.range() == allocate_range,
         ensures
             res is Ok <==> allocated@ is Some,
-            res is Ok <==> self.can_allocate(*old(state), *allocate_range),
-            final(state).id() == old(state).id(),
-            final(state)@.contains_key(self.state_key()),
-            forall|key: usize| key != self.state_key() ==>
-                (final(state)@.contains_key(key) <==>
-                    old(state)@.contains_key(key)),
+            res is Ok,
             allocated@ matches Some(token) ==> {
                 &&& token.id() == self.id()
                 &&& token.range() == allocate_range
@@ -326,9 +271,12 @@ impl RangeAllocator {
         }
         proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            resource.model.agree(state);
-            assert(state@.dom().contains(self.state_key()));
-            assert(state@[self.state_key()] == state_model(initial_map));
+            permit.tracked_borrow().agree(&resource.free);
+            lemma_contiguous_subset_has_covering_block(
+                self@,
+                initial_map,
+                *allocate_range,
+            );
         }
         let freelist = lock_guard.as_mut().unwrap();
         let mut target_node = None;
@@ -339,6 +287,7 @@ impl RangeAllocator {
                 self@.start <= allocate_range.start < allocate_range.end <= self@.end,
                 right_length <= usize::MAX - allocate_range.end,
                 concrete_freelist_wf(self@, freelist@),
+                freelist_blocks_not_adjacent(freelist@),
                 freelist@ == initial_map,
                 freelist_model(freelist@) == initial_freelist,
                 it.seq().unref().to_set() == freelist@.kv_pairs(),
@@ -424,38 +373,16 @@ impl RangeAllocator {
             Err(RangeAllocError)
         };
         proof! {
-            reveal(RangeAllocator::can_allocate);
-            reveal(state_model);
-            // The mirror agrees with the freelist, so a predicted block is a freelist block.
-            if self.can_allocate(*state, *allocate_range) && res is Err {
+            if res is Err {
                 let key = choose|key: usize|
-                    #![trigger state@[self.state_key()][key]]
-                    {
-                        let freelist = state@[self.state_key()];
-                        let block = freelist[key];
-                        &&& freelist.contains_key(key)
-                        &&& block.start <= allocate_range.start
-                        &&& allocate_range.end <= block.end
-                    };
-                assert(freelist@ == initial_map);
-                assert(freelist@.dom() == state_model(initial_map).dom());
+                    #![trigger initial_map.contains_key(key)]
+                    initial_map.contains_key(key)
+                        && block_contains(initial_map[key].block, *allocate_range);
                 assert(freelist@.contains_key(key));
                 assert(block_contains(freelist@[key].block, *allocate_range));
                 assert(freelist@.kv_pairs().contains((key, freelist@[key])));
                 assert(false);
             }
-            assert(self.can_allocate(*state, *allocate_range) ==> res is Ok);
-            // Success carves a free block that the mirror already knew about.
-            if res is Ok {
-                let ghost covered_key = target_node->0;
-                let ghost covered_block = initial_map[covered_key].block;
-                assert(initial_map.dom().contains(covered_key));
-                assert(state_model(initial_map)[covered_key] == covered_block);
-                assert(state@[self.state_key()][covered_key] == covered_block);
-                assert(self.can_allocate(*state, *allocate_range));
-            }
-            assert(res is Ok ==> self.can_allocate(*state, *allocate_range));
-            assert(res is Ok <==> self.can_allocate(*state, *allocate_range));
             let ghost constant = lock_guard.constant();
             let ghost value = lock_guard@;
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
@@ -468,17 +395,20 @@ impl RangeAllocator {
                     key,
                     *allocate_range,
                 );
-                let tracked subset = resource.remaining.split(allocate_range.view_set());
+                resource.free.delete(permit.tracked_into_subset());
+                let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
+                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@) by {
+                    assert forall|address: usize| #[trigger]
+                        resource.allocated@.contains(address) <==>
+                            (constant.fullrange.view_set() - resource.free@).contains(address) by {
+                    }
+                }
             } else {
                 allocated = None;
             }
-            resource.model.update(state, state_model(freelist@));
             assert(value is Some);
             assert(freelist@ == value->0@);
-            assert(resource.model.id() == self.state_id());
-            assert(resource.model.key() == self.state_key());
-            assert(resource.model.value() == state_model(freelist@));
             assert(FreelistInvariant::inv(constant, value, *resource));
         }
         lock_guard.drop();
@@ -500,22 +430,22 @@ impl RangeAllocator {
     ///   `size` addresses.
     ///
     /// ## Preconditions
-    /// - Thread the shared [`RangeAllocatorState`] mirroring this allocator's
-    ///   free blocks so that later predictions stay exact.
+    /// - Supply the allocator's current free-address permission. It can be
+    ///   split before dispatching independent portions to different threads.
     ///
     /// ## Postconditions
     /// - On success, returns a [`GhostSubRange`] proving ownership of the
     ///   returned range; a token is dispatched if and only if the result is
     ///   `Ok`, and it is consumed by [`RangeAllocator::free`].
-    /// - The threaded [`RangeAllocatorState`] keeps its identity and this
-    ///   allocator's entry across calls.
+    /// - On success, the allocated range is removed from the supplied
+    ///   permission and returned as an allocation token.
     #[verus_spec(res =>
         with
-            Tracked(state): Tracked<&mut RangeAllocatorState>,
+            Tracked(permit): Tracked<&mut GhostSubset<usize>>,
             -> allocated: Tracked<Option<GhostSubRange<usize>>>,
         requires
-            old(state).id() == self.state_id(),
-            old(state)@.contains_key(self.state_key()),
+            old(permit).id() == self.free_id(),
+            old(permit)@ == self@.view_set(),
         ensures
             res matches Ok(res) ==> {
                 &&& res.end - res.start == size
@@ -526,8 +456,9 @@ impl RangeAllocator {
                 }
             },
             res is Ok <==> allocated@ is Some,
-            final(state).id() == old(state).id(),
-            final(state)@.contains_key(self.state_key()),
+            final(permit).id() == old(permit).id(),
+            res matches Ok(range) ==> final(permit)@ == old(permit)@ - range.view_set(),
+            res is Err ==> final(permit)@ == old(permit)@,
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         proof! {
@@ -553,6 +484,7 @@ impl RangeAllocator {
                     &&& freelist@[key].block.end == range.end
                 },
                 concrete_freelist_wf(self@, freelist@),
+                freelist_blocks_not_adjacent(freelist@),
         )]
         for (key, value) in freelist.iter() {
             proof! {
@@ -588,17 +520,21 @@ impl RangeAllocator {
             if allocate_range is Some {
                 let ghost range = allocate_range -> 0;
                 lemma_alloc_suffix_model(self@, initial_map, freelist@, to_remove->0, range);
-                let tracked subset = resource.remaining.split(range.view_set());
-                allocated = Some(GhostSubRange::tracked_new(subset, range));
+                let tracked free_subset = permit.split(range.view_set());
+                resource.free.delete(free_subset);
+                let tracked allocated_subset = resource.allocated.insert_set(range.view_set());
+                allocated = Some(GhostSubRange::tracked_new(allocated_subset, range));
+                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@) by {
+                    assert forall|address: usize| #[trigger]
+                        resource.allocated@.contains(address) <==>
+                            (constant.fullrange.view_set() - resource.free@).contains(address) by {
+                    }
+                }
             } else {
                 allocated = None;
             }
-            resource.model.update(state, state_model(freelist@));
             assert(value is Some);
             assert(freelist@ == value->0@);
-            assert(resource.model.id() == self.state_id());
-            assert(resource.model.key() == self.state_key());
-            assert(resource.model.value() == state_model(freelist@));
             assert(FreelistInvariant::inv(constant, value, *resource));
         }
         lock_guard.drop();
@@ -621,28 +557,26 @@ impl RangeAllocator {
     /// - The range to free lies within this allocator's range.
     /// - Supply the allocation token returned when this exact range was
     ///   allocated. The token is consumed by this operation.
-    /// - Thread the shared [`RangeAllocatorState`] mirroring this allocator's
-    ///   free blocks so that later predictions stay exact.
     ///
     /// ## Postconditions
-    /// - The threaded [`RangeAllocatorState`] keeps its identity, this
-    ///   allocator's entry, and every other window's entry across calls.
+    /// - Writes a splittable free-range permission for the released range to
+    ///   the tracked output slot.
+    #[verus_verify(spinoff_prover, rlimit(50))]
     #[verus_spec(
         with
             Tracked(allocated): Tracked<GhostSubRange<usize>>,
-            Tracked(state): Tracked<&mut RangeAllocatorState>,
+            Tracked(free_permit): Tracked<&mut Tracked<Option<GhostSubRange<usize>>>>,
         requires
             self@.start <= range.start < range.end <= self@.end,
             allocated.id() == self.id(),
             allocated.range() == range,
-            old(state).id() == self.state_id(),
-            old(state)@.contains_key(self.state_key()),
+            old(free_permit)@ is None,
         ensures
-            final(state).id() == old(state).id(),
-            final(state)@.contains_key(self.state_key()),
-            forall|key: usize| key != self.state_key() ==>
-                (final(state)@.contains_key(key) <==>
-                    old(state)@.contains_key(key)),
+            final(free_permit)@ matches Some(permit) ==> {
+                &&& permit.id() == self.free_id()
+                &&& permit.range() == range
+            },
+            final(free_permit)@ is Some,
     )]
     pub fn free(&self, range: Range<usize>) {
         proof! {
@@ -652,11 +586,10 @@ impl RangeAllocator {
         proof_decl! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             let tracked allocated_subset = allocated.tracked_borrow();
-            allocated_subset.agree(&resource.state);
-            resource.remaining.disjoint(allocated_subset);
-            resource.model.agree(state);
+            allocated_subset.agree(&resource.allocated);
             if resource.initialized is Left {
-                assert(resource.remaining@.contains(range.start));
+                assert(resource.allocated@.is_empty());
+                assert(allocated_subset@.contains(range.start));
                 assert(false);
             }
         }
@@ -674,10 +607,25 @@ impl RangeAllocator {
             let ghost mut merged_left = false;
         }
 
-        if let Some((prev_va, prev_node)) = freelist
-            .upper_bound_mut(core::ops::Bound::Excluded(&free_range.start))
-            .peek_prev()
-        {
+        /* Retaining the cursor in a local keeps its verified position model available to the
+         * proof; it does not change the lookup, mutation, or control flow.
+         * Origin Rust: if let Some((prev_va, prev_node)) = freelist
+         *     .upper_bound_mut(core::ops::Bound::Excluded(&free_range.start))
+         *     .peek_prev()
+         * {
+         */
+        let mut prev_cursor =
+            freelist.upper_bound_mut(core::ops::Bound::Excluded(&free_range.start));
+        proof_decl! {
+            let ghost prev_cursor_model = prev_cursor@;
+        }
+        if let Some((prev_va, prev_node)) = prev_cursor.peek_prev() {
+            proof! {
+                assert(before_upper_bound(
+                    *prev_va,
+                    core::ops::Bound::Excluded(&free_range.start),
+                ));
+            }
             if prev_node.block.end == free_range.start {
                 let prev_va = *prev_va;
                 free_range.start = prev_node.block.start;
@@ -695,6 +643,83 @@ impl RangeAllocator {
                     merged_left = true;
                 }
             }
+            proof! {
+                assert forall|key: usize| #[trigger] freelist@.contains_key(key)
+                    implies freelist@[key].block.end != free_range.start by {
+                    if freelist@[key].block.end == free_range.start {
+                        assert(freelist@[key].block.start == key);
+                        assert(key < freelist@[key].block.end);
+                        assert(key < before_left_range.start);
+                        assert(before_upper_bound(
+                            key,
+                            core::ops::Bound::Excluded(&before_left_range.start),
+                        ));
+                        assert(prev_cursor_model.map.contains_key(key));
+                        let key_idx = choose|i: int|
+                            0 <= i < prev_cursor_model.keys.len()
+                                && #[trigger] prev_cursor_model.keys[i] == key;
+                        assert(key_idx < prev_cursor_model.position) by {
+                            if prev_cursor_model.position <= key_idx {
+                                assert(!before_upper_bound(
+                                    prev_cursor_model.keys[key_idx],
+                                    core::ops::Bound::Excluded(&before_left_range.start),
+                                ));
+                            }
+                        }
+                        assert(*prev_va == prev_cursor_model.keys[prev_cursor_model.position - 1]);
+                        if key_idx < prev_cursor_model.position - 1 {
+                            assert(prev_cursor_model.keys[key_idx].cmp_spec(
+                                &prev_cursor_model.keys[prev_cursor_model.position - 1],
+                            ) is Less);
+                            assert(key < *prev_va);
+                        } else {
+                            assert(key_idx == prev_cursor_model.position - 1);
+                            assert(key == *prev_va);
+                        }
+                        assert(key <= *prev_va);
+                        if key != *prev_va {
+                            assert(before_left_map.contains_key(key));
+                            assert(before_left_map.contains_key(*prev_va));
+                            assert(before_left_map[key].block.end
+                                < before_left_map[*prev_va].block.start
+                                || before_left_map[*prev_va].block.end
+                                    < before_left_map[key].block.start);
+                            assert(false);
+                        } else {
+                            assert(false);
+                        }
+                    }
+                }
+            }
+        }
+        proof! {
+            if prev_cursor_model.position == 0 {
+                assert forall|key: usize| #[trigger] freelist@.contains_key(key)
+                    implies freelist@[key].block.end != free_range.start by {
+                    if freelist@[key].block.end == free_range.start {
+                        assert(freelist@[key].block.start == key);
+                        assert(key < freelist@[key].block.end);
+                        assert(key < before_left_range.start);
+                        assert(before_upper_bound(
+                            key,
+                            core::ops::Bound::Excluded(&before_left_range.start),
+                        ));
+                        assert(prev_cursor_model.map.contains_key(key));
+                        let key_idx = choose|i: int|
+                            0 <= i < prev_cursor_model.keys.len()
+                                && #[trigger] prev_cursor_model.keys[i] == key;
+                        assert(prev_cursor_model.position == 0);
+                        assert(!before_upper_bound(
+                            prev_cursor_model.keys[key_idx],
+                            core::ops::Bound::Excluded(&before_left_range.start),
+                        ));
+                        assert(false);
+                    }
+                }
+            }
+            assert forall|key: usize| #[trigger] freelist@.contains_key(key)
+                implies freelist@[key].block.end != free_range.start by {
+            }
         }
         proof_decl! {
             if !merged_left {
@@ -710,10 +735,25 @@ impl RangeAllocator {
             let ghost mut merged_right = false;
         }
         // 2. check if we can merge the current block with the next block, if we can, do so.
-        if let Some((next_va, next_node)) = freelist
-            .lower_bound_mut(core::ops::Bound::Excluded(&free_range.start))
-            .peek_next()
-        {
+        /* Retaining the cursor in a local keeps its verified position model available to the
+         * proof; it does not change the lookup, mutation, or control flow.
+         * Origin Rust: if let Some((next_va, next_node)) = freelist
+         *     .lower_bound_mut(core::ops::Bound::Excluded(&free_range.start))
+         *     .peek_next()
+         * {
+         */
+        let mut next_cursor =
+            freelist.lower_bound_mut(core::ops::Bound::Excluded(&free_range.start));
+        proof_decl! {
+            let ghost next_cursor_model = next_cursor@;
+        }
+        if let Some((next_va, next_node)) = next_cursor.peek_next() {
+            proof! {
+                assert(!before_lower_bound(
+                    *next_va,
+                    core::ops::Bound::Excluded(&free_range.start),
+                ));
+            }
             if free_range.end == next_node.block.start {
                 let next_va = *next_va;
                 free_range.end = next_node.block.end;
@@ -735,16 +775,155 @@ impl RangeAllocator {
                     merged_right = true;
                 }
             }
+            proof! {
+                assert forall|key: usize| #[trigger] freelist@.contains_key(key)
+                    implies key == free_range.start
+                        || freelist@[key].block.start != free_range.end by {
+                    if key != free_range.start
+                        && freelist@[key].block.start == free_range.end {
+                        assert(freelist@[key].block.start == key);
+                        assert(before_right_range.start < key);
+                        assert(!before_lower_bound(
+                            key,
+                            core::ops::Bound::Excluded(&before_right_range.start),
+                        ));
+                        assert(next_cursor_model.map.contains_key(key));
+                        let key_idx = choose|i: int|
+                            0 <= i < next_cursor_model.keys.len()
+                                && #[trigger] next_cursor_model.keys[i] == key;
+                        assert(next_cursor_model.position <= key_idx) by {
+                            if key_idx < next_cursor_model.position {
+                                assert(before_lower_bound(
+                                    next_cursor_model.keys[key_idx],
+                                    core::ops::Bound::Excluded(&before_right_range.start),
+                                ));
+                            }
+                        }
+                        assert(*next_va == next_cursor_model.keys[next_cursor_model.position]);
+                        if next_cursor_model.position < key_idx {
+                            assert(next_cursor_model.keys[next_cursor_model.position].cmp_spec(
+                                &next_cursor_model.keys[key_idx],
+                            ) is Less);
+                            assert(*next_va < key);
+                        } else {
+                            assert(key_idx == next_cursor_model.position);
+                            assert(*next_va == key);
+                        }
+                        assert(*next_va <= key);
+                        if merged_right {
+                            assert(freelist@ == before_right_map.remove(*next_va).insert(
+                                before_right_range.start,
+                                FreeRange { block: free_range },
+                            ));
+                            assert(key != *next_va);
+                            assert(before_right_map.contains_key(key));
+                            assert(before_right_map.contains_key(*next_va));
+                            assert(key != before_right_range.start);
+                            assert(*next_va != before_right_range.start);
+                            assert(before_insert_map.contains_key(key));
+                            assert(before_insert_map.contains_key(*next_va));
+                            assert(before_left_map.contains_key(key));
+                            assert(before_left_map.contains_key(*next_va));
+                            assert(before_left_map[key] == before_right_map[key]);
+                            assert(before_left_map[*next_va] == before_right_map[*next_va]);
+                            assert(before_right_map[*next_va].block.end == free_range.end);
+                            assert(before_left_map[*next_va].block.end
+                                < before_left_map[key].block.start
+                                || before_left_map[key].block.end
+                                    < before_left_map[*next_va].block.start);
+                            assert(false);
+                        } else {
+                            assert(freelist@ == before_right_map);
+                            assert(free_range == before_right_range);
+                            if key == *next_va {
+                                assert(before_right_map[*next_va].block.start
+                                    == before_right_range.end);
+                                assert(false);
+                            } else {
+                                assert(*next_va < key);
+                                assert(*next_va != before_right_range.start);
+                                assert(before_right_map.contains_key(*next_va));
+                                assert(before_right_map.contains_key(before_right_range.start));
+                                assert(before_right_map[before_right_range.start].block
+                                    == before_right_range);
+                                assert(concrete_freelist_wf(self@, before_right_map));
+                                assert(before_right_range.start < *next_va
+                                    < before_right_range.end);
+                                assert(before_right_range.view_set().contains(*next_va));
+                                assert(before_right_map[*next_va].block.view_set().contains(
+                                    *next_va,
+                                ));
+                                assert(before_right_map[before_right_range.start]
+                                    .block.view_set().disjoint(
+                                        before_right_map[*next_va].block.view_set(),
+                                    ));
+                                assert(false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        proof! {
+            if next_cursor_model.position == next_cursor_model.keys.len() {
+                assert forall|key: usize| #[trigger] freelist@.contains_key(key)
+                    implies key == free_range.start
+                        || freelist@[key].block.start != free_range.end by {
+                    if key != free_range.start
+                        && freelist@[key].block.start == free_range.end {
+                        assert(freelist@[key].block.start == key);
+                        assert(before_right_range.start < key);
+                        assert(!before_lower_bound(
+                            key,
+                            core::ops::Bound::Excluded(&before_right_range.start),
+                        ));
+                        assert(next_cursor_model.map.contains_key(key));
+                        let key_idx = choose|i: int|
+                            0 <= i < next_cursor_model.keys.len()
+                                && #[trigger] next_cursor_model.keys[i] == key;
+                        assert(next_cursor_model.position == next_cursor_model.keys.len());
+                        assert(before_lower_bound(
+                            next_cursor_model.keys[key_idx],
+                            core::ops::Bound::Excluded(&before_right_range.start),
+                        ));
+                        assert(false);
+                    }
+                }
+            }
+            assert forall|key: usize| #[trigger] freelist@.contains_key(key)
+                implies key == free_range.start
+                    || freelist@[key].block.start != free_range.end by {
+            }
+        }
+        proof! {
+            lemma_restored_freelist_is_separated(
+                self@,
+                before_left_map,
+                freelist@,
+                free_range.start,
+                free_range,
+            );
         }
         proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            resource.remaining.combine(allocated.tracked_into_subset());
-            assert(resource.remaining@ == free_set(freelist_model(freelist@))) by {
+            resource.allocated.delete(allocated.tracked_into_subset());
+            let tracked free_subset = resource.free.insert_set(range.view_set());
+            let tracked permit = GhostSubRange::tracked_new(free_subset, range);
+            *free_permit = Tracked(Some(permit));
+            assert(resource.free@ == free_set(freelist_model(freelist@))) by {
                 if !merged_right {
                     assert(freelist@ == before_right_map);
                 }
             }
-            resource.model.update(state, state_model(freelist@));
+            assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
+                - resource.free@) by {
+                assert forall|address: usize| #[trigger]
+                    resource.allocated@.contains(address) <==>
+                        (lock_guard.constant().fullrange.view_set()
+                            - resource.free@).contains(address) by {
+                }
+            }
+            assert(FreelistInvariant::inv(lock_guard.constant(), lock_guard@, *resource));
         }
         lock_guard.drop();
     }
@@ -754,18 +933,15 @@ impl RangeAllocator {
             ret@ is Some,
             ret@ matches Some(freelist) ==> {
                 &&& concrete_freelist_wf(self@, freelist@)
-                &&& ret.resource().remaining@ == free_set(freelist_model(freelist@))
+                &&& freelist_blocks_not_adjacent(freelist@)
+                &&& ret.resource().free@ == free_set(freelist_model(freelist@))
+                &&& ret.resource().allocated@ == self@.view_set() - ret.resource().free@
             },
             ret.constant().fullrange == self@,
-            ret.constant().free_id == self.id(),
-            ret.constant().state_id == self.state_id(),
-            ret.constant().state_key == self.state_key(),
-            ret.resource().state.id() == self.id(),
-            ret.resource().remaining.id() == self.id(),
-            ret.resource().model.id() == self.state_id(),
-            ret.resource().model.key() == self.state_key(),
-            ret.resource().model.value() == state_model(ret@->0@),
-            ret.resource().state@ == self@.view_set(),
+            ret.constant().free_id == self.free_id(),
+            ret.constant().allocated_id == self.id(),
+            ret.resource().free.id() == self.free_id(),
+            ret.resource().allocated.id() == self.id(),
             ret.resource().initialized is Right,
             ret.resource().initialized->Right_0.id() == ret.constant().initialized_id,
     )]
@@ -795,8 +971,6 @@ impl RangeAllocator {
                     }
                 }
                 let ghost freelist = Set::empty().insert(self@);
-                reveal(state_model);
-                assert(resource.model.value() == state_model(lock_guard@->0@));
                 freelist.lemma_map_contains(|range: Range<usize>| range.view_set(), self@.view_set());
                 assert(exists|range: Range<usize>|
                     freelist.contains(range) && self@.view_set() == #[trigger] range.view_set()) by {
@@ -850,6 +1024,109 @@ proof fn lemma_concrete_free_set_contains(freelist: Map<usize, FreeRange>, addre
     }
 }
 
+/// A nonempty contiguous subset of a well-formed free set is covered by one block.
+proof fn lemma_contiguous_subset_has_covering_block(
+    fullrange: Range<usize>,
+    freelist: Map<usize, FreeRange>,
+    range: Range<usize>,
+)
+    requires
+        concrete_freelist_wf(fullrange, freelist),
+        freelist_blocks_not_adjacent(freelist),
+        range.start < range.end,
+        range.view_set() <= free_set(freelist_model(freelist)),
+    ensures
+        exists|key: usize| #[trigger]
+            freelist.contains_key(key) && block_contains(freelist[key].block, range),
+{
+    lemma_concrete_free_set_contains(freelist, range.start);
+    assert(range.view_set().contains(range.start));
+    let key = choose|key: usize| #[trigger]
+        freelist.contains_key(key) && freelist[key].block.view_set().contains(range.start);
+    let block = freelist[key].block;
+    if block.end < range.end {
+        let address = block.end;
+        assert(range.view_set().contains(address));
+        lemma_concrete_free_set_contains(freelist, address);
+        let other = choose|other: usize| #[trigger]
+            freelist.contains_key(other) && freelist[other].block.view_set().contains(address);
+        assert(other != key);
+        if block.end < freelist[other].block.start {
+            assert(false);
+        } else {
+            assert(freelist[other].block.end < block.start);
+            assert(false);
+        }
+    }
+}
+
+/// Restores the canonical separation property after inserting one merged free block.
+proof fn lemma_restored_freelist_is_separated(
+    fullrange: Range<usize>,
+    old_freelist: Map<usize, FreeRange>,
+    new_freelist: Map<usize, FreeRange>,
+    new_key: usize,
+    new_range: Range<usize>,
+)
+    requires
+        freelist_blocks_not_adjacent(old_freelist),
+        concrete_freelist_wf(fullrange, new_freelist),
+        new_freelist.contains_key(new_key),
+        new_key == new_range.start,
+        new_freelist[new_key].block == new_range,
+        forall|key: usize| #[trigger]
+            new_freelist.contains_key(key) && key != new_key ==> old_freelist.contains_key(key)
+                && new_freelist[key] == old_freelist[key],
+        forall|key: usize| #[trigger]
+            new_freelist.contains_key(key) ==> new_freelist[key].block.end != new_range.start,
+        forall|key: usize| #[trigger]
+            new_freelist.contains_key(key) ==> key == new_key || new_freelist[key].block.start
+                != new_range.end,
+    ensures
+        freelist_blocks_not_adjacent(new_freelist),
+{
+    assert forall|left: usize, right: usize|
+        #![trigger new_freelist.contains_key(left), new_freelist.contains_key(right)]
+        new_freelist.contains_key(left) && new_freelist.contains_key(right) && left
+            != right implies new_freelist[left].block.end < new_freelist[right].block.start
+        || new_freelist[right].block.end < new_freelist[left].block.start by {
+        if left != new_key && right != new_key {
+            assert(old_freelist.contains_key(left));
+            assert(old_freelist.contains_key(right));
+        } else {
+            let other = if left == new_key {
+                right
+            } else {
+                left
+            };
+            assert(other != new_key);
+            assert(new_freelist[other].block.start == other);
+            assert(new_freelist[new_key].block.start == new_key);
+            assert(new_key < other || other < new_key);
+            assert(new_freelist[new_key].block.view_set().disjoint(
+                new_freelist[other].block.view_set(),
+            ));
+            if new_key < other {
+                if other < new_range.end {
+                    assert(new_range.view_set().contains(other));
+                    assert(new_freelist[other].block.view_set().contains(other));
+                    assert(false);
+                }
+                assert(new_range.end <= other);
+                assert(new_range.end != other);
+            } else {
+                if new_range.start < new_freelist[other].block.end {
+                    assert(new_range.view_set().contains(new_range.start));
+                    assert(new_freelist[other].block.view_set().contains(new_range.start));
+                    assert(false);
+                }
+                assert(new_freelist[other].block.end <= new_range.start);
+                assert(new_freelist[other].block.end != new_range.start);
+            }
+        }
+    }
+}
+
 proof fn lemma_alloc_suffix_model(
     fullrange: Range<usize>,
     old_freelist: Map<usize, FreeRange>,
@@ -859,6 +1136,7 @@ proof fn lemma_alloc_suffix_model(
 )
     requires
         concrete_freelist_wf(fullrange, old_freelist),
+        freelist_blocks_not_adjacent(old_freelist),
         old_freelist.contains_key(key),
         old_freelist[key].block.start <= allocation.start <= allocation.end,
         old_freelist[key].block.end == allocation.end,
@@ -872,6 +1150,7 @@ proof fn lemma_alloc_suffix_model(
         },
     ensures
         concrete_freelist_wf(fullrange, new_freelist),
+        freelist_blocks_not_adjacent(new_freelist),
         free_set(freelist_model(new_freelist)) == free_set(freelist_model(old_freelist))
             - allocation.view_set(),
 {
@@ -904,6 +1183,24 @@ proof fn lemma_alloc_suffix_model(
             }
         }
     }
+    assert forall|left: usize, right: usize|
+        #![trigger new_freelist.contains_key(left), new_freelist.contains_key(right)]
+        new_freelist.contains_key(left) && new_freelist.contains_key(right) && left
+            != right implies new_freelist[left].block.end < new_freelist[right].block.start
+        || new_freelist[right].block.end < new_freelist[left].block.start by {
+        if left != key && right != key {
+            assert(old_freelist.contains_key(left));
+            assert(old_freelist.contains_key(right));
+        } else {
+            let other = if left == key {
+                right
+            } else {
+                left
+            };
+            assert(old_freelist.contains_key(other));
+            assert(old_freelist.contains_key(key));
+        }
+    }
 }
 
 proof fn lemma_alloc_specific_model(
@@ -915,6 +1212,7 @@ proof fn lemma_alloc_specific_model(
 )
     requires
         concrete_freelist_wf(fullrange, old_freelist),
+        freelist_blocks_not_adjacent(old_freelist),
         old_freelist.contains_key(key),
         old_freelist[key].block.start <= allocation.start < allocation.end
             <= old_freelist[key].block.end,
@@ -940,6 +1238,7 @@ proof fn lemma_alloc_specific_model(
         }),
     ensures
         concrete_freelist_wf(fullrange, new_freelist),
+        freelist_blocks_not_adjacent(new_freelist),
         free_set(freelist_model(new_freelist)) == free_set(freelist_model(old_freelist))
             - allocation.view_set(),
 {
@@ -981,6 +1280,25 @@ proof fn lemma_alloc_specific_model(
                     assert(new_freelist.contains_key(old_key));
                 }
             }
+        }
+    }
+    assert forall|left: usize, right: usize|
+        #![trigger new_freelist.contains_key(left), new_freelist.contains_key(right)]
+        new_freelist.contains_key(left) && new_freelist.contains_key(right) && left
+            != right implies new_freelist[left].block.end < new_freelist[right].block.start
+        || new_freelist[right].block.end < new_freelist[left].block.start by {
+        if (left == key && right == allocation.end) || (right == key && left == allocation.end) {
+        } else if left != key && left != allocation.end && right != key && right != allocation.end {
+            assert(old_freelist.contains_key(left));
+            assert(old_freelist.contains_key(right));
+        } else {
+            let other = if left == key || left == allocation.end {
+                right
+            } else {
+                left
+            };
+            assert(old_freelist.contains_key(other));
+            assert(old_freelist.contains_key(key));
         }
     }
 }
