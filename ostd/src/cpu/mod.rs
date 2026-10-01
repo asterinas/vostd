@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU-related definitions.
-use vstd::prelude::*;
+use vstd::{prelude::*, std_specs::convert::TryFromSpecImpl};
 
 // pub mod local;
 pub mod set;
@@ -49,15 +49,31 @@ impl CpuId {
 
 /// The error type returned when converting an out-of-range integer to [`CpuId`].
 #[derive(Debug, Clone, Copy)]
+#[verus_verify]
 pub struct CpuIdFromIntError;
 
+#[verus_verify]
 impl TryFrom<usize> for CpuId {
     type Error = CpuIdFromIntError;
 
+    #[verus_spec(ret =>
+        ensures
+            ret matches Ok(id) ==> id@ == value && cpu_count() > value,
+            cpu_count() > value ==> ret is Ok,
+            ret is Err ==> value >= cpu_count(),
+    )]
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         if value < num_cpus() {
+            proof! {
+                broadcast use { axiom_cpu_count_bounds };
+                assert(0 <= value < cpu_count());
+            }
             Ok(CpuId(value as u32))
         } else {
+            proof! {
+                broadcast use { axiom_cpu_count_bounds };
+                assert(value >= cpu_count());
+            }
             Err(CpuIdFromIntError)
         }
     }
@@ -136,8 +152,54 @@ pub broadcast axiom fn axiom_cpu_count_bounds()
 impl CpuId {
     /// A CPU id is always in the range of CPUs present in the system.
     #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
+    pub closed spec fn type_inv(self) -> bool {
         0 <= self@ < cpu_count()
+    }
+}
+
+/// The `CpuId` at numeric index `i`. A closed helper, since a `pub open` spec
+/// cannot use the private tuple-struct constructor outside well-formed scopes.
+pub closed spec fn cpu_id_from_index(i: int) -> CpuId {
+    CpuId(i as u32)
+}
+
+/// The numeric range of a `CpuId`, exposed beyond `ostd::cpu` as a checked
+/// export: the closed `type_inv` definition does not unfold in other modules,
+/// so this broadcast lemma re-exposes the range facts to callers that
+/// establish the type invariant (e.g. via `use_type_invariant`).
+pub broadcast proof fn lemma_type_inv_range(cpu_id: CpuId)
+    requires
+        CpuId::type_inv(cpu_id),
+    ensures
+        #![trigger cpu_id@]
+        0 <= cpu_id@ < cpu_count(),
+{
+}
+
+/// `as_usize` mirrors the numeric view, and the index re-encodes exactly to a
+/// `u32` (below the CPU count): the `dual_spec` proxy's body is closed to other
+/// modules, so this broadcast lemma re-exposes the provable equalities.
+pub broadcast proof fn lemma_cpu_id_model(cpu_id: CpuId)
+    ensures
+        #![trigger cpu_id.as_usize()]
+        cpu_id.as_usize() == cpu_id@,
+        (cpu_id.as_usize() as u32) == cpu_id@,
+{
+}
+
+/// The spec model of [`TryFrom<usize>` for `CpuId`] required by vstd's `TryFrom`
+/// external trait extension: the conversion succeeds exactly below the CPU count.
+impl TryFromSpecImpl<usize> for CpuId {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(v: usize) -> Result<Self, Self::Error> {
+        if cpu_count() > v {
+            Ok(cpu_id_from_index(v as int))
+        } else {
+            Err(arbitrary())
+        }
     }
 }
 
