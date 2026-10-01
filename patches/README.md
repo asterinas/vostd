@@ -89,7 +89,7 @@ workspace still builds and verifies against a stock Verus.
 | Crate | Feature | Gates |
 |---|---|---|
 | `vstd_extra` | `type_id` | the whole `typing::` module |
-| `ostd` | `type_id` (implies `vstd_extra/type_id`) | `AnyFrameMeta::{meta_id, to_any}`, `Frame::<dyn AnyFrameMeta>::{meta_type_id, dyn_meta}`, both `TryFrom` impls, and the identity clause on `into_dyn` |
+| `ostd` | `type_id` (implies `vstd_extra/type_id`) | `AnyFrameMeta::{meta_id, to_any}`, `Frame::<dyn AnyFrameMeta>::{meta_type_id, dyn_meta}`, and both `TryFrom` impls |
 | `ostd` | `dyn_supertrait` | `axiom_segment_reparam` and the `From<Segment<M>> for USegment` conversion |
 
 `dyn_supertrait` gates a **second** toolchain requirement, carried here as
@@ -120,16 +120,18 @@ sits on the trait rather than at the two use sites so every `M: AnyFrameMeta`
 gets it for free; it is unconditional because `#[cfg]` is not honoured inside
 `verus!`, and it costs the default shape nothing.
 
-Off by default, following the `irc11` precedent. `into_dyn` is the one item that
-exists either way — it has real callers — so it is split in two, differing only
-in whether the postcondition pins the erased frame's identity. Runtime behaviour
-is identical.
+Off by default, following the `irc11` precedent. Nothing now needs splitting
+across the gate: erasure is a single ungated `From<Frame<M>> for
+Frame<dyn AnyFrameMeta>` whose spec is a struct literal, so identity preservation
+falls out of it rather than needing a `type_id`-only postcondition. (This replaced
+a pair of gated `into_dyn` methods; the counts below each dropped by one as a
+result.)
 
 Verify both shapes:
 
-    cargo dv verify --targets ostd                                       # 1507 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id                    # 1514 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1515 verified, 0 errors
+    cargo dv verify --targets ostd                                       # 1506 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id                    # 1513 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1514 verified, 0 errors
 
 Measured 2026-09-30 against `asterinas/verus` `main` at `fec4c33a` with both
 patches applied; `vstd` itself builds at 2059 verified, 0 errors.
