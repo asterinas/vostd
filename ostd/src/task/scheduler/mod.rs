@@ -64,9 +64,9 @@
 //! can have catastrophic consequences,
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
 // mod fifo_scheduler;
+pub mod info;
 #[cfg(feature = "irc11")]
 mod thread_view;
-// pub mod info;
 use alloc::sync::Arc;
 use spin::Once;
 
