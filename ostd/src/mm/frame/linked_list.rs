@@ -1718,6 +1718,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
 unsafe impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
+    #[cfg(feature = "type_id")]
     open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()
     }

@@ -27,7 +27,6 @@ use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 use crate::mm::page_table::RCClone;
 use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
-use vstd::std_specs::convert::FromSpecImpl;
 
 verus! {
 
@@ -70,6 +69,7 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 ///
 /// Representation only. Segments are homogeneous by invariant, but that their
 /// frames really carry `B`'s metadata is an identity claim this does not make.
+#[cfg(feature = "dyn_supertrait")]
 #[verifier::external_body]
 proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Sized>(s: Segment<A>)
     ensures
@@ -83,6 +83,7 @@ proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Size
 {
 }
 
+#[cfg(feature = "dyn_supertrait")]
 impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
     open spec fn obeys_from_spec() -> bool {
         true
@@ -102,6 +103,7 @@ impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
 ///
 /// The segment counterpart of `From<Frame<M>> for Frame<dyn AnyFrameMeta>`, and
 /// the conversion upstream writes as `.into()`.
+#[cfg(feature = "dyn_supertrait")]
 impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
     fn from(seg: Segment<M>) -> (r: Self) {
         proof {

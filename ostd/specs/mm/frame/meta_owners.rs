@@ -108,6 +108,7 @@ pub enum MetaSlotStorage {
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
 
+    #[cfg(feature = "type_id")]
     open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()
     }
@@ -168,21 +169,37 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
     }
 }
 
-/// The identity recorded for a slot holding metadata of type `M`.
-/// Only defined if we have type id support.
+/// The type of a recorded metadata identity.
+///
+/// `core::any::TypeId` is only *usable* with the patched toolchain -- stock vstd
+/// has no specification for the type at all, so merely naming it in an ungated
+/// signature fails with "`core::any::TypeId` is not supported". The alias keeps
+/// the recording machinery ungated (which it has to be, because `#[cfg]` is not
+/// honoured inside `verus!` ensures clauses) while confining the real type to the
+/// feature.
 #[cfg(feature = "type_id")]
-pub open spec fn recorded_meta_id<M: ?Sized>() -> TypeId {
+pub type MetaTypeId = TypeId;
+
+#[cfg(not(feature = "type_id"))]
+pub type MetaTypeId = int;
+
+/// The identity recorded for a slot holding metadata of type `M`.
+///
+/// Uninterpreted without the feature, so nothing downstream can conclude
+/// anything from it -- which is the intended behaviour of a stock build.
+#[cfg(feature = "type_id")]
+pub open spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId {
     type_id::<M>()
 }
 
 #[cfg(not(feature = "type_id"))]
-pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> TypeId;
+pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId;
 
 /// Permissions to access metadata.
 pub tracked struct MetadataPerm {
     pub storage_perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
-    pub ghost meta_type_id: TypeId,
+    pub ghost meta_type_id: MetaTypeId,
 }
 
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;

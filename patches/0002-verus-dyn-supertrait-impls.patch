@@ -1,0 +1,96 @@
+--- a/source/rust_verify/src/trait_conflicts.rs
++++ b/source/rust_verify/src/trait_conflicts.rs
+@@ -447,6 +447,8 @@
+     // This works around https://github.com/rust-lang/rust/issues/57893 .
+     // This (and vir::traits::get_dyn_traits) can be removed when that issue is fixed.
+     let dyn_traits: HashSet<Path> = vir::traits::get_dyn_traits(vir_crate);
++    let traits_by_path: HashMap<Path, &vir::ast::Trait> =
++        vir_crate.traits.iter().map(|t| (t.x.name.clone(), t)).collect();
+     let mut n_trait: usize = 0;
+     for t in &vir_crate.traits {
+         if !dyn_traits.contains(&t.x.name) {
+@@ -487,6 +489,84 @@
+         ));
+         let trait_as_datatype = Box::new(TypX::Datatype(name, Vec::new(), t_args));
+         let trait_polarity = rustc_middle::ty::ImplPolarity::Positive;
++
++        // `dyn T` is also a `U` for every supertrait `U` of `T`. Rust supplies
++        // those impls automatically; we do not, so a bound `X: U` cannot be
++        // discharged at `X = dyn T` without them -- which is what makes types
++        // like `Segment<dyn AnyUFrameMeta>` (where `Segment<M: AnyFrameMeta>`)
++        // unusable even though they are legal Rust.
++        //
++        // Same `self_typ` as the impl above, so these all describe the one
++        // `Dyn<n_trait, ..>` rather than introducing new types.
++        // The trait's own bounds include its supertrait bounds (`Self: U`), and
++        // those are precisely what these impls supply. Carrying them over would
++        // make each impl require itself -- rustc reports that as `overflow
++        // evaluating the requirement`, not as a missing impl.
++        let is_self_bound = |b: &vir::ast::GenericBound| match &**b {
++            GenericBoundX::Trait(TraitId::Path(_), targs) if targs.len() >= 1 => {
++                matches!(
++                    &*targs[0],
++                    vir::ast::TypX::TypParam(p) if *p == vir::def::trait_self_type_param()
++                )
++            }
++            _ => false,
++        };
++        let non_self_bounds: GenericBounds =
++            Arc::new(t.x.typ_bounds.iter().filter(|b| !is_self_bound(b)).cloned().collect());
++        let (_, mut super_bounds) = gen_generics(
++            state,
++            &t.x.typ_params.iter().map(|(x, _)| x.clone()).collect(),
++            &non_self_bounds,
++            None,
++        );
++        let (_, super_a_bounds) =
++            gen_generics(state, &t.x.assoc_typs, &t.x.assoc_typs_bounds, None);
++        super_bounds.extend(super_a_bounds);
++
++        for bound in t.x.typ_bounds.iter() {
++            let (u_path, u_targs) = match &**bound {
++                GenericBoundX::Trait(TraitId::Path(u_path), targs) => (u_path, targs),
++                _ => continue,
++            };
++            // Only a bound whose first argument is `Self` is a supertrait.
++            if u_targs.len() < 1 {
++                continue;
++            }
++            match &*u_targs[0] {
++                vir::ast::TypX::TypParam(p) if *p == vir::def::trait_self_type_param() => {}
++                _ => continue,
++            }
++            // An impl has to supply the supertrait's associated types, and we do
++            // not model those here yet. Skipping leaves the bound undischargeable
++            // (incompleteness) rather than emitting a wrong impl.
++            //
++            // `traits_by_path` only covers traits declared in *this* crate, so an
++            // unknown path is a foreign supertrait whose associated types we
++            // cannot inspect -- skip it too. Treating unknown as "has none" emits
++            // an impl with no `assoc_typs` for a trait that may well have them,
++            // which surfaces far away as
++            // `Verus does not recognize associated type ... of trait ...`.
++            match traits_by_path.get(u_path) {
++                Some(u) if u.x.assoc_typs.len() == 0 => {}
++                _ => continue,
++            }
++            // Transitive supertraits are not covered: `U`'s own supertraits
++            // would need their arguments substituted through each hop. Also
++            // incompleteness, never unsoundness.
++            let u_name = state.trait_name(u_path);
++            let u_args = gen_typ_slice(state, &u_targs[1..]);
++            state.trait_impls.push(TraitImpl {
++                span: spans.from_air_span(&t.span, None),
++                self_typ: self_typ.clone(),
++                generic_params: generic_params.clone(),
++                generic_bounds: super_bounds.clone(),
++                trait_as_datatype: Box::new(TypX::Datatype(u_name, Vec::new(), u_args)),
++                assoc_typs: Vec::new(),
++                trait_polarity,
++                is_clone: false,
++            });
++        }
++
+         let decl = TraitImpl {
+             span,
+             self_typ,

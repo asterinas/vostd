@@ -109,6 +109,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
+    #[cfg(feature = "type_id")]
     open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()
     }

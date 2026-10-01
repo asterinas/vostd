@@ -3,45 +3,72 @@
 Local changes to the `tools/verus` checkout, carried as patch files so a build is
 always *an upstream commit plus a reviewable set of files*.
 
-The changes live as a **single commit on the `typeid-hash-ids` branch** of our
-Verus fork — `9b3934b9`, *Encode unique `TypeTag` for each type*, plus three
-follow-ups — rebased onto upstream rather than merged with it. This file is the portable export of that
-commit: the thing to hand to anyone reconstructing the toolchain from a stock
-checkout.
+Two patches, both against **`asterinas/verus`, branch `main`, commit
+`fec4c33a`** — the commit `cargo dv bootstrap --upgrade` lands on, which pins
+Rust 1.98.1:
 
-The reference checkout is `../verus`, on `typeid-hash-ids`. Its internal design
-docs — `source/docs/internal/type-identity-emission.md` and
+| Patch | Supplies | Needed by |
+|---|---|---|
+| `0001-verus-type-identity.patch` | `TypeTag` encoding, `type_id::<T>()`, `vstd/std_specs/any.rs` | `type_id` |
+| `0002-verus-dyn-supertrait-impls.patch` | supertrait impls for `dyn` types in the trait-conflict checker | `dyn_supertrait` |
+
+Both apply with a plain `git apply` to a pristine checkout of that commit, in
+order, and together reproduce the tree the counts below were measured against.
+
+**The lineage is `asterinas/verus`, not `verus-lang/verus`.** This is the single
+most expensive mistake available here. The two forks have diverged, and a
+toolchain built from `verus-lang` lacks the `bitvec`/`wyz` specifications `ostd`
+now depends on; the symptom is seven *is not supported* / *does not recognize
+associated type* errors while compiling **`vstd_extra`**, which looks like a
+broken `Cargo.toml` in this workspace and is not. `cargo dv bootstrap` fetches
+the right one; prefer it over any hand-managed checkout.
+
+The reference checkout is `../verus`, on `typeid-and-dyn` (type identity plus the
+supertrait work). Its internal design docs —
+`source/docs/internal/type-identity-emission.md` and
 `type-identity-prelude.md` — are the authoritative account of the encoding and
 supersede the summaries here. **Both are currently untracked in that checkout**,
 so a regeneration will not carry them; commit them before relying on the export.
+Note that `../verus` is itself based on `verus-lang`, so it is a source for
+*reading* the changes, not a base to regenerate against — see below.
 
-## Refreshing the patch
+## Refreshing a patch
 
-    cd ../verus                       # on branch typeid-hash-ids
-    git diff upstream/1.98.0 HEAD > ../vostd/patches/0001-verus-type-identity.patch
+Regenerate against the **bootstrapped `tools/verus`**, not against `../verus`:
+the latter sits on the `verus-lang` lineage, so a diff taken there will not apply
+here (it needed a three-way merge and a hand-resolved conflict in
+`vstd/std_specs/mod.rs`, where both lineages add a module at the same
+alphabetical slot). To re-split the pair from a tree that has both applied:
 
-**The base is `upstream/1.98.0`, not `upstream/main` and not `origin/main`.**
-`rust_verify` is a rustc driver and has to match the channel of the crate it
-verifies; `ostd` moved to Rust 1.98.0 in asterinas #745, and upstream carries
-that on a long-running `1.98.0` branch that periodically merges `main`. Rebasing
-there costs whatever `main` has landed since its last merge — at the time of
-writing, ten commits, including the array/slice `decreases` work (#2888, #2890).
-The fork's `origin` has no `main` at all, only `typeid-hash-ids` and
-`typeid-counter-ids`, so the old spelling of this command failed outright.
-Check the result against a stock checkout rather than trusting it:
+    P1=$PWD/patches/0001-verus-type-identity.patch
+    P2=$PWD/patches/0002-verus-dyn-supertrait-impls.patch
+    git -C tools/verus apply -R "$P2"        # leave only type identity
+    git -C tools/verus add -A                # include new files
+    git -C tools/verus diff HEAD --binary > "$P1"
+    git -C tools/verus apply "$P2"           # put it back
 
-    TMP=$(mktemp -d)
-    git -C ../verus worktree add -q --detach $TMP upstream/1.98.0
-    git -C $TMP apply --check patches/0001-verus-type-identity.patch
-    git -C ../verus worktree remove --force $TMP
+**Pass absolute paths.** `git -C <dir> apply <relative>` resolves the patch
+relative to `<dir>`, so a repo-relative path silently fails to open — and if you
+ignore the exit status, the revert no-ops and the "split" patch quietly contains
+both changes.
 
-Run that before every commit that touches `tools/verus`. This patch had silently
-gone stale once across a `TypeId` -> `TypeIdSpec` rename, and a regenerated one
-had silently dropped two files that were untracked at the time.
+Check the result against a pristine checkout rather than trusting it:
+
+    W=$(mktemp -d)/w
+    git -C tools/verus worktree add -q --detach $W fec4c33a
+    git -C $W apply --check patches/0001-verus-type-identity.patch
+    git -C $W apply       patches/0001-verus-type-identity.patch
+    git -C $W apply --check patches/0002-verus-dyn-supertrait-impls.patch
+    git -C tools/verus worktree remove --force $W
+
+Run that before every commit that touches `tools/verus`. These patches had
+silently gone stale once across a `TypeId` -> `TypeIdSpec` rename, and a
+regenerated one had silently dropped two files that were untracked at the time.
 
 ## Applying to a fresh checkout
 
-    git -C tools/verus apply patches/0001-verus-type-identity.patch
+    git -C tools/verus apply $PWD/patches/0001-verus-type-identity.patch
+    git -C tools/verus apply $PWD/patches/0002-verus-dyn-supertrait-impls.patch
 
 Then rebuild — both steps, in `tools/verus/source`:
 
@@ -63,6 +90,35 @@ workspace still builds and verifies against a stock Verus.
 |---|---|---|
 | `vstd_extra` | `type_id` | the whole `typing::` module |
 | `ostd` | `type_id` (implies `vstd_extra/type_id`) | `AnyFrameMeta::{meta_id, to_any}`, `Frame::<dyn AnyFrameMeta>::{meta_type_id, dyn_meta}`, both `TryFrom` impls, and the identity clause on `into_dyn` |
+| `ostd` | `dyn_supertrait` | `axiom_segment_reparam` and the `From<Segment<M>> for USegment` conversion |
+
+`dyn_supertrait` gates a **second** toolchain requirement, carried here as
+`0002`. `USegment` is `Segment<dyn AnyUFrameMeta>`, so discharging `Segment`'s
+`M: AnyFrameMeta` bound there needs `dyn AnyUFrameMeta: AnyFrameMeta` -- a
+supertrait impl, which stock Verus does not derive for `dyn` types (it emits one
+impl per `dyn T` and none for `T`'s supertraits). Without `0002` the symptom is
+`the trait bound Dyn<2, ()>: T193_AnyFrameMeta is not satisfied`.
+
+The emission in `0002` is deliberately incomplete rather than wrong: it skips
+supertraits with associated types, and skips transitive supertraits, because
+either would need substitution work it does not do. Both leave a bound
+undischargeable; neither emits an unsound impl. It also skips supertraits whose
+path is not declared in the crate being verified, since their associated types
+cannot be inspected -- treating unknown as "has none" emitted an impl for a
+trait that had them, surfacing far away as `Verus does not recognize associated
+type ... of trait ...`.
+
+Note that `0002` emits for **every** `dyn` trait in the crate, so it is not
+inert with respect to the `dyn_supertrait` feature gate -- the gate controls
+which vostd code *relies* on those impls, not whether they are emitted.
+
+`AnyFrameMeta` carries an explicit `'static` bound. Upstream gets it from the
+`Any` supertrait, which is commented out here because Verus cannot model `Any` --
+and without it `is_::<M>` and the `&dyn Any` coercion in `Link<M>` fail to
+compile with `E0310: the parameter type M may not live long enough`. The bound
+sits on the trait rather than at the two use sites so every `M: AnyFrameMeta`
+gets it for free; it is unconditional because `#[cfg]` is not honoured inside
+`verus!`, and it costs the default shape nothing.
 
 Off by default, following the `irc11` precedent. `into_dyn` is the one item that
 exists either way — it has real callers — so it is split in two, differing only
@@ -71,12 +127,18 @@ is identical.
 
 Verify both shapes:
 
-    cargo dv verify --targets ostd                      # 1514 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id   # 1521 verified, 0 errors
+    cargo dv verify --targets ostd                                       # 1507 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id                    # 1514 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1515 verified, 0 errors
 
-Measured 2026-09-05 against `typeid-hash-ids` rebased onto `upstream/1.98.0`.
-`vstd_extra` goes 567 -> 583 across the same pair, and `vstd` itself builds at
-2045 verified, 0 errors.
+Measured 2026-09-30 against `asterinas/verus` `main` at `fec4c33a` with both
+patches applied; `vstd` itself builds at 2059 verified, 0 errors.
+
+When reading these runs, grep with `tail`, not `head`. `dv` prints a
+`verification results::` line per crate, and `ostd`'s comes last; `head -4` keeps
+the dependency crates' successes and discards `ostd`'s own errors, which reads as
+a pass. The `type_id` shape appeared to pass that way while in fact failing to
+compile.
 
 **`tools/verus` has to *be* the patched checkout.** Setting `CARGO_VERUS_PATH` is
 not enough: `dv`'s `executable::locate` tries its hints *before* the environment,

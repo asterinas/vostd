@@ -42,10 +42,6 @@ use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
 use vstd::std_specs::convert::TryFromSpecImpl;
 #[cfg(feature = "type_id")]
 use core::any::TypeId;
-use vstd::{assert_maps_equal, assert_sets_equal};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::may_panic;
 use vstd_extra::transmute::{can_transmute, transmuted};
 use vstd::std_specs::convert::FromSpecImpl;
 #[cfg(feature = "type_id")]
@@ -751,7 +747,7 @@ impl<M: ?Sized> Frame<M> {
     /// was written at some concrete type, so the recorded id is that concrete
     /// type's -- not `type_id::<M>()`. Which is why [`Frame::into_dyn`]
     /// *preserves* this rather than claiming it equals `type_id::<M>()`.
-    pub open spec fn meta_type_id(&self) -> TypeId {
+    pub open spec fn meta_type_id(&self) -> MetaTypeId {
         self.metadata_perm().meta_type_id
     }
 }
@@ -830,6 +826,7 @@ pub fn transmute_frame_to_typed<M: AnyFrameMeta>(dyn_frame: Frame<dyn AnyFrameMe
     unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) }
 }
 
+#[cfg(feature = "type_id")]
 impl<M: AnyFrameMeta> TryFromSpecImpl<Frame<dyn AnyFrameMeta>> for Frame<M> {
     open spec fn obeys_try_from_spec() -> bool {
         true
@@ -853,6 +850,7 @@ impl<M: AnyFrameMeta> TryFromSpecImpl<Frame<dyn AnyFrameMeta>> for Frame<M> {
     }
 }
 
+#[cfg(feature = "type_id")]
 impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     type Error = Frame<dyn AnyFrameMeta>;
 

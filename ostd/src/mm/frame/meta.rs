@@ -223,7 +223,9 @@ type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 /// If `on_drop` reads the page using the provided `VmReader`, the
 /// implementer must ensure that the frame is safe to read.
 pub unsafe trait AnyFrameMeta:   /*Any +*/
-Send + Sync {
+// `Any` is unavailable under Verus, but its `'static` is what makes
+// `is_::<M>` and `&dyn Any` coercions legal; supply it directly.
+'static + Send + Sync {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region invariants) override this; the trait method's
@@ -275,6 +277,7 @@ Send + Sync {
     /// Upstream gets this from `AnyFrameMeta: Any`. We cannot: Verus propagates an
     /// unsized-blanket-impl rejection from supertrait to subtrait
     /// (`vir/src/traits.rs`) -- `dyn AnyFrameMeta` would stop being a legal type.
+    #[cfg(feature = "type_id")]
     spec fn meta_id(&self) -> TypeId;
 
     /// [`Self::meta_id`] really is `Self`'s identity.
@@ -301,6 +304,7 @@ Send + Sync {
     /// `AnyFrameMeta: Any` makes `Any` a supertrait. We make it a method
     /// instead: each impl performs the *sized* coercion `&Self -> &dyn Any`, which
     /// is the same operation the vtable would have performed.
+    #[cfg(feature = "type_id")]
     fn to_any(&self) -> (r: &dyn Any)
         ensures
             r.type_id_spec() == self.meta_id(),
