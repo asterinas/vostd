@@ -170,13 +170,6 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
 }
 
 /// The type of a recorded metadata identity.
-///
-/// `core::any::TypeId` is only *usable* with the patched toolchain -- stock vstd
-/// has no specification for the type at all, so merely naming it in an ungated
-/// signature fails with "`core::any::TypeId` is not supported". The alias keeps
-/// the recording machinery ungated (which it has to be, because `#[cfg]` is not
-/// honoured inside `verus!` ensures clauses) while confining the real type to the
-/// feature.
 #[cfg(feature = "type_id")]
 pub type MetaTypeId = TypeId;
 
@@ -184,9 +177,6 @@ pub type MetaTypeId = TypeId;
 pub type MetaTypeId = int;
 
 /// The identity recorded for a slot holding metadata of type `M`.
-///
-/// Uninterpreted without the feature, so nothing downstream can conclude
-/// anything from it -- which is the intended behaviour of a stock build.
 #[cfg(feature = "type_id")]
 pub open spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId {
     type_id::<M>()
@@ -200,6 +190,47 @@ pub tracked struct MetadataPerm {
     pub storage_perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
     pub ghost meta_type_id: MetaTypeId,
+}
+
+/// How a permission is reinterpreted when a handle is reparameterized from
+/// metadata type `A` to metadata type `B`.
+///
+/// Uninterpreted, and generic in the permission so that frame handles and
+/// segment handles share one notion. Reparameterizing a handle is not in
+/// general a no-op on its permissions: the permission describes the metadata
+/// the slot holds, so changing the type the handle claims about that metadata
+/// has to change the permission to match.
+///
+/// It *is* a no-op for every cast performed today, which is what
+/// [`axiom_reparam_perm_untyped`] supplies. That no-op is a property of the
+/// current representation rather than of reparameterization, so it is named
+/// separately instead of being written into the representation axioms
+/// (`axiom_frame_reparam`, `axiom_segment_reparam`) -- those claim layout, and
+/// this claims what happens to ownership.
+pub uninterp spec fn reparam_perm<A: ?Sized, B: ?Sized, P>(p: P) -> P;
+
+/// Reparameterization leaves permissions alone, because they are not indexed by
+/// the metadata type.
+///
+/// Holds for *every* pair of metadata types, and that breadth is the point:
+/// `MetadataPerm::storage_perm` points at a [`MetaSlotStorage`] -- the closed
+/// stand-in for `dyn AnyFrameMeta` -- and `meta_type_id` records what the slot
+/// holds rather than how the handle is parameterized. Neither mentions `A` or
+/// `B`, so erasing a static type or recovering one changes nothing about the
+/// permission. `FrameRawPerms` is in the same position.
+///
+/// **This is the axiom to revisit when `MetaSlotStorage` is retired.** At that
+/// point `storage_perm` becomes typed, [`reparam_perm`] becomes a real
+/// operation, and this becomes false in general -- derivable only for the
+/// erasure pairs, and only given that the slot really holds the target type,
+/// which is an identity claim the representation axioms deliberately do not
+/// make. Withdrawing it will break the reparameterizing casts rather than
+/// silently weaken them, which is why the no-op lives here and not inside them.
+#[verifier::external_body]
+pub proof fn axiom_reparam_perm_untyped<A: ?Sized, B: ?Sized, P>(p: P)
+    ensures
+        reparam_perm::<A, B, P>(p) == p,
+{
 }
 
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;

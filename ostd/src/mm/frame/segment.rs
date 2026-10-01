@@ -58,8 +58,10 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 /// `PhantomData` and `tracked_perms` is `Tracked`, both erased at compile time.
 /// The compiled struct is one address range, identically for every `M`, and
 /// nothing about it is reinterpreted -- `range`'s type is the same on both
-/// sides. The permission sequence carries across unchanged, which is well-typed
-/// because `FrameRawPerms` does not mention `M`.
+/// sides. The permission sequence does not carry across unchanged: it is
+/// reinterpreted by `reparam_perm`, exactly as a frame's metadata permission is,
+/// and collapsed to the identity by `axiom_reparam_perm_untyped` only because
+/// `FrameRawPerms` is not indexed by the metadata type today.
 ///
 /// Module-private, deliberately. `Segment`'s fields are private, and a publicly
 /// visible spec signature may not construct a datatype whose fields are not
@@ -67,19 +69,41 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 /// `From`'s postcondition close, so the axiom stays inside the module instead of
 /// being weakened to accessor equalities.
 ///
+/// Describes a transmute rather than licensing one: `can_transmute` is a
+/// precondition, supplied for the one pair we permit by
+/// [`axiom_segment_erase_transmutable`].
+///
 /// Representation only. Segments are homogeneous by invariant, but that their
 /// frames really carry `B`'s metadata is an identity claim this does not make.
 #[cfg(feature = "dyn_supertrait")]
 #[verifier::external_body]
 proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Sized>(s: Segment<A>)
-    ensures
+    requires
         vstd_extra::transmute::can_transmute::<Segment<A>, Segment<B>>(s),
+    ensures
         vstd_extra::transmute::transmuted::<Segment<A>, Segment<B>>(s) == (Segment::<B> {
             range: s.range,
             _marker: core::marker::PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_perms: s.tracked_perms,
+            tracked_perms: reparam_perm::<A, B, _>(s.tracked_perms),
         }),
+{
+}
+
+/// Erasing a segment's metadata type is a valid transmute.
+///
+/// `Segment<M>` is a `Range<Paddr>` beside a `PhantomData<M>` and one tracked
+/// field, so erasing `M` leaves the range alone -- the same argument as
+/// [`axiom_segment_reparam`]'s, and the only route to its precondition.
+///
+/// Narrower than the frame pair: `AnyUFrameMeta` rather than `AnyFrameMeta`,
+/// because `USegment` is `Segment<dyn AnyUFrameMeta>` and that is the single
+/// erasure segments perform.
+#[cfg(feature = "dyn_supertrait")]
+#[verifier::external_body]
+proof fn axiom_segment_erase_transmutable<M: AnyUFrameMeta>(s: Segment<M>)
+    ensures
+        vstd_extra::transmute::can_transmute::<Segment<M>, Segment<dyn AnyUFrameMeta>>(s),
 {
 }
 
@@ -107,7 +131,9 @@ impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
 impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
     fn from(seg: Segment<M>) -> (r: Self) {
         proof {
+            axiom_segment_erase_transmutable::<M>(seg);
             axiom_segment_reparam::<M, dyn AnyUFrameMeta>(seg);
+            axiom_reparam_perm_untyped::<M, dyn AnyUFrameMeta, _>(seg.tracked_perms);
         }
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute::<Segment<M>, USegment>(seg) }
@@ -122,16 +148,6 @@ impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
 }
 */
 
-/*impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
-    fn drop(&mut self) {
-        for paddr in self.range.clone().step_by(PAGE_SIZE) {
-            // SAFETY: for each frame there would be a forgotten handle
-            // when creating the `Segment` object.
-            drop(unsafe { Frame::<M>::from_raw(paddr) });
-        }
-    }
-}*/
-
 /// A contiguous range of homogeneous untyped physical memory frames that have any metadata.
 ///
 /// In other words, the metadata of the frames are of the same type, and they
@@ -139,46 +155,19 @@ impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
 /// [`USegment`] as a parameter accepts any untyped segments.
 ///
 /// The usage of this frame will not be changed while this object is alive.
-/// Not yet instantiable, and the obstacle is in Verus rather than here.
 ///
-/// `AnyUFrameMeta` is dyn-compatible as of the `Repr` supertrait being moved to
-/// its use sites, so `dyn AnyUFrameMeta` is a legal Rust type. But `Segment` is
-/// declared `Segment<M: AnyFrameMeta + ?Sized>`, and discharging that bound needs
-/// `dyn AnyUFrameMeta: AnyFrameMeta` -- a *supertrait* impl, which Verus does not
-/// derive for `dyn` types. Minimal reproduction, no `ostd` involved:
+/// Instantiable only with the `dyn_supertrait` feature, and the requirement is
+/// in Verus rather than here. `Segment` is declared
+/// `Segment<M: AnyFrameMeta + ?Sized>`, so discharging that bound at
+/// `dyn AnyUFrameMeta` needs `dyn AnyUFrameMeta: AnyFrameMeta` -- a *supertrait*
+/// impl, which stock Verus does not derive for `dyn` types. This is why
+/// `Frame<dyn ..>` works without the feature and `Segment<dyn ..>` does not:
+/// `Frame<M: ?Sized>` carries no trait bound at all, so there is nothing to
+/// discharge.
 ///
-/// ```text
-/// pub trait A { spec fn a(&self) -> int; }
-/// pub trait B: A {}
-/// pub struct Holder<T: A + ?Sized> { .. }
-/// pub fn make() -> Holder<dyn B> { .. }
-///
-/// error: the trait bound `Dyn<0, ()>: T4_A` is not satisfied
-/// note: This error was found in Verus's Trait-Conflict-Checker
-/// ```
-///
-/// Verus supplies `dyn B: B` but not `dyn B: A`. This is why `Frame<dyn ..>`
-/// works and `Segment<dyn ..>` does not: `Frame<M: ?Sized>` carries no trait
-/// bound at all, so there is nothing to discharge.
-///
-/// Fixing it means emitting supertrait impls for `Dyn` types in `vir`, or
-/// relaxing `Segment`'s parameter to `M: ?Sized` as `Frame`'s is.
+/// `patches/0002-verus-dyn-supertrait-impls.patch` emits those impls; see
+/// [`From<Segment<M>>`](Segment) for the conversion that produces one.
 pub type USegment = Segment<dyn AnyUFrameMeta>;
-
-/* impl<M: AnyFrameMeta + ?Sized> Clone for Segment<M> {
-    fn clone(&self) -> Self {
-        for paddr in self.range.clone().step_by(PAGE_SIZE) {
-            // SAFETY: for each frame there would be a forgotten handle
-            // when creating the `Segment` object, so we already have
-            // reference counts for the frames.
-            unsafe { inc_frame_ref_count(paddr) };
-        }
-        Self {
-            range: self.range.clone(),
-            _marker: core::marker::PhantomData,
-        }
-    }
-} */
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
@@ -1203,13 +1192,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
         }
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         Ok(unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, Segment<M>>(seg) })
-    }
-}
-
-impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
-    fn from(seg: Segment<M>) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(seg) }
     }
 }
 

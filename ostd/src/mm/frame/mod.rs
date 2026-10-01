@@ -745,7 +745,7 @@ impl<M: ?Sized> Frame<M> {
     /// [`MetaSlot::write_meta`]. Defined for every `M`, not just the erased
     /// form: a `Frame<MetaSlotStorage>` is already an erased handle whose slot
     /// was written at some concrete type, so the recorded id is that concrete
-    /// type's -- not `type_id::<M>()`. Which is why [`Frame::into_dyn`]
+    /// type's -- not `type_id::<M>()`. Which is why the erasing `From` impl
     /// *preserves* this rather than claiming it equals `type_id::<M>()`.
     pub open spec fn meta_type_id(&self) -> MetaTypeId {
         self.metadata_perm().meta_type_id
@@ -773,7 +773,14 @@ impl Frame<dyn AnyFrameMeta> {
     }
 }
 
-/// Reparameterizing a frame handle's metadata type is always a valid transmute.
+/// What reparameterizing a frame handle's metadata type produces.
+///
+/// Describes a transmute rather than licensing one: `can_transmute` is a
+/// *precondition* here, supplied for the pairs we actually permit by
+/// [`axiom_frame_erase_transmutable`] and [`axiom_frame_recover_transmutable`].
+/// Stating it as a conclusion instead would have made every `Frame<A>` to
+/// `Frame<B>` transmute available for the asking, which is far more than the
+/// layout argument below supports.
 ///
 /// The layout claim is about the *compiled* struct. `Frame<M>` is a
 /// `PPtr<MetaSlot>` beside a `PhantomData<M>` and two `Tracked` fields, and
@@ -789,25 +796,54 @@ impl Frame<dyn AnyFrameMeta> {
 /// fact, and the layout fact is what this axiom asserts. If `Frame` ever gains a
 /// second *exec* field, this becomes false.
 ///
-/// The tracked fields carry across unchanged, which is well-typed precisely
-/// because neither `FracMetadataPerm` nor `PointsTo<MetaSlot>` mentions `M`.
+/// The slot permission carries across unchanged, which is well-typed because
+/// `PointsTo<MetaSlot>` does not mention `M`. The *metadata* permission does not
+/// carry across: it is reinterpreted by [`reparam_perm`], because the permission
+/// describes the metadata the slot holds and the reparameterization changes what
+/// the handle claims about it. For every cast performed today that
+/// reinterpretation is the identity -- see [`axiom_reparam_perm_untyped`], which
+/// callers invoke to collapse it -- but that is a fact about the current
+/// representation, not about reparameterizing, so it is not baked in here.
 ///
 /// Representation only. That the slot really holds a `B` is an identity claim,
 /// which this does not make -- the `is_::<M>` guard in [`TryFrom`] establishes
 /// that separately.
-/// TODO: update `tracked_metadata_perm` to reflect the new value.
 #[verifier::external_body]
 pub proof fn axiom_frame_reparam<A: ?Sized, B: ?Sized>(f: Frame<A>)
-    ensures
+    requires
         can_transmute::<Frame<A>, Frame<B>>(f),
+    ensures
         transmuted::<Frame<A>, Frame<B>>(f) == (Frame::<B> {
             ptr: f.ptr,
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: f.tracked_slot_perm,
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: f.tracked_metadata_perm,
+            tracked_metadata_perm: reparam_perm::<A, B, _>(f.tracked_metadata_perm),
         }),
+{
+}
+
+/// Erasing a frame's metadata type is a valid transmute.
+///
+/// The layout argument is [`axiom_frame_reparam`]'s: `M` appears in `Frame<M>`
+/// only under a `PhantomData` and in ghost fields, so erasing it to
+/// `dyn AnyFrameMeta` leaves one `PPtr<MetaSlot>` on both sides. `M` is sized
+/// and bounded by `AnyFrameMeta`, so the coercion is one Rust would accept.
+#[verifier::external_body]
+pub proof fn axiom_frame_erase_transmutable<M: AnyFrameMeta>(f: Frame<M>)
+    ensures
+        can_transmute::<Frame<M>, Frame<dyn AnyFrameMeta>>(f),
+{
+}
+
+/// Recovering a static metadata type from an erased frame is a valid transmute.
+///
+/// The converse of [`axiom_frame_erase_transmutable`].
+#[verifier::external_body]
+pub proof fn axiom_frame_recover_transmutable<M: AnyFrameMeta>(f: Frame<dyn AnyFrameMeta>)
+    ensures
+        can_transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(f),
 {
 }
 
@@ -820,7 +856,9 @@ pub fn transmute_frame_to_typed<M: AnyFrameMeta>(dyn_frame: Frame<dyn AnyFrameMe
         r.tracked_metadata_perm == dyn_frame.tracked_metadata_perm,
 {
     proof {
+        axiom_frame_recover_transmutable::<M>(dyn_frame);
         axiom_frame_reparam::<dyn AnyFrameMeta, M>(dyn_frame);
+        axiom_reparam_perm_untyped::<dyn AnyFrameMeta, M, _>(dyn_frame.tracked_metadata_perm);
     }
     // SAFETY: The metadata is coerceable and the struct is transmutable.
     unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) }
@@ -881,15 +919,6 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
 }
 
 }  // verus!
-/*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
-    fn from(frame: UFrame) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(frame) }
-    }
-}*/
-/*impl TryFrom<Frame<FrameMeta>> for UFrame {
-    type Error = Frame<FrameMeta>;
-}*/
 
 
 #[verifier::external]
@@ -902,12 +931,12 @@ impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
 
 verus! {
 
-impl FromSpecImpl<UFrame> for Frame<dyn AnyFrameMeta> {
+impl<M: AnyFrameMeta> FromSpecImpl<Frame<M>> for Frame<dyn AnyFrameMeta> {
     open spec fn obeys_from_spec() -> bool {
         true
     }
 
-    open spec fn from_spec(v: UFrame) -> Self {
+    open spec fn from_spec(v: Frame<M>) -> Self {
         Frame {
             ptr: v.ptr,
             _marker: PhantomData,
@@ -919,20 +948,27 @@ impl FromSpecImpl<UFrame> for Frame<dyn AnyFrameMeta> {
     }
 }
 
-/// Widens an already-erased handle from `UFrame` to `Frame<dyn AnyFrameMeta>`.
+/// Erases a frame handle's metadata type, yielding a `Frame<dyn AnyFrameMeta>`.
 ///
-/// This is the conversion upstream writes as `old_frame.into()`. It is *not*
-/// [`Frame::into_dyn`]: a `UFrame` is `Frame<MetaSlotStorage>`, which is already
-/// an erased stand-in, so there is no static type here to pin. The recorded
-/// identity is preserved, not asserted -- the slot was written at whatever
-/// concrete type it actually holds.
-impl From<UFrame> for Frame<dyn AnyFrameMeta> {
-    fn from(frame: UFrame) -> (r: Self) {
+/// Spelled as `From` to match upstream, where this conversion is written
+/// `frame.into()`. One impl covers both erasures vostd performs: from a concrete
+/// `M`, and from `UFrame`/`DynFrame` -- which is `Frame<MetaSlotStorage>`, itself
+/// a sized `AnyFrameMeta`, so it is an instance of this impl rather than a case
+/// beside it. A separate `From<UFrame>` impl would overlap this one.
+///
+/// The recorded identity is preserved, not asserted: the slot was written at
+/// whatever concrete type it actually holds, which for an already-erased handle
+/// need not be `M`.
+impl<M: AnyFrameMeta> From<Frame<M>> for Frame<dyn AnyFrameMeta> {
+    fn from(frame: Frame<M>) -> (r: Self) {
         proof {
-            axiom_frame_reparam::<MetaSlotStorage, dyn AnyFrameMeta>(frame);
+            axiom_frame_erase_transmutable::<M>(frame);
+            axiom_frame_reparam::<M, dyn AnyFrameMeta>(frame);
+            axiom_reparam_perm_untyped::<M, dyn AnyFrameMeta, _>(frame.tracked_metadata_perm);
         }
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute::<UFrame, Frame<dyn AnyFrameMeta>>(frame) }
+        // SAFETY: see [`axiom_frame_reparam`] -- one pointer either way, once the
+        // ghost and tracked fields are erased.
+        unsafe { core::mem::transmute::<Frame<M>, Frame<dyn AnyFrameMeta>>(frame) }
     }
 }
 
@@ -1015,47 +1051,5 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) -> (permission: Tr
 /// A dynamically-typed frame is represented by a frame of the underlying metadata type,
 /// which can be cast from any other type.
 pub type DynFrame = Frame<MetaSlotStorage>;
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> Frame<M> {
-    /// Erases the static metadata type, yielding a `Frame<dyn AnyFrameMeta>`.
-    ///
-    /// Inherent method rather than `From`/`Into` to avoid trait-inference
-    /// ambiguity at call sites that previously relied on the blanket
-    /// `From<T> for T` (e.g. `frame.into()` for `Frame<UFrame>`).
-    ///
-    ///
-    /// Two versions, differing only in strength. `type_id` adds the clause that
-    /// pins the erased frame's identity, which is what makes the downcast in
-    /// [`TryFrom`] able to conclude anything; without the feature the frame still
-    /// erases, it just carries no recoverable identity. The runtime behaviour is
-    /// identical -- one `transmute` either way.
-    #[cfg(feature = "type_id")]
-    pub fn into_dyn(self) -> (r: Frame<dyn AnyFrameMeta>)
-        ensures
-            r.ptr == self.ptr,
-            r.meta_type_id() == self.meta_type_id(),
-    {
-        proof {
-            axiom_frame_reparam::<M, dyn AnyFrameMeta>(self);
-        }
-        // SAFETY: see [`axiom_frame_reparam`] -- one pointer either way, once
-        // the ghost and tracked fields are erased.
-        // The permission fraction rides across unchanged (see the axiom), and it
-        // is what carries the recorded identity -- so the clause below is proved.
-        unsafe { core::mem::transmute::<Frame<M>, Frame<dyn AnyFrameMeta>>(self) }
-    }
-
-    #[cfg(not(feature = "type_id"))]
-    pub fn into_dyn(self) -> (r: Frame<dyn AnyFrameMeta>)
-        ensures
-            r.ptr == self.ptr,
-    {
-        proof {
-            axiom_frame_reparam::<M, dyn AnyFrameMeta>(self);
-        }
-        // SAFETY: as above.
-        unsafe { core::mem::transmute::<Frame<M>, Frame<dyn AnyFrameMeta>>(self) }
-    }
-}
 
 } // verus!
