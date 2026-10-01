@@ -89,6 +89,12 @@ coverage = ["minicov"]
 # `AnyFrameMeta` identity methods) rests on Verus type identity; see
 # `patches/README.md`. Off by default so `ostd` still builds on a stock toolchain.
 type_id = ["vstd_extra/type_id"]
+# `USegment` is `Segment<dyn AnyUFrameMeta>`, and discharging `Segment`'s
+# `M: AnyFrameMeta` bound there needs `dyn AnyUFrameMeta: AnyFrameMeta` -- a
+# *supertrait* impl, which stock Verus does not derive for `dyn` types. That is a
+# second toolchain patch, separate from type identity and not carried in
+# `patches/`, so this is off by default and the conversion is opt-in.
+dyn_supertrait = []
 
 [lints]
 workspace = true
