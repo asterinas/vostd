@@ -129,9 +129,9 @@ result.)
 
 Verify both shapes:
 
-    cargo dv verify --targets ostd                                       # 1509 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id                    # 1516 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1517 verified, 0 errors
+    cargo dv verify --targets ostd                                       # 1510 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id                    # 1517 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1518 verified, 0 errors
 
 Measured 2026-10-01 against `asterinas/verus` `main` at `fec4c33a` with both
 patches applied; `vstd` itself builds at 2059 verified, 0 errors.

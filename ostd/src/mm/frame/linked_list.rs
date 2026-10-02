@@ -8,6 +8,7 @@ use vstd_extra::{
     cast_ptr::*,
     drop_tracking::{Drop, DropObligation, TrackDrop},
     ownership::*,
+    typing::tagged::ByteRepr,
 };
 #[cfg(feature = "type_id")]
 use core::any::TypeId;
@@ -123,7 +124,7 @@ verus! {
 /// A given linked list can only have one cursor at a time, so there are no data races.
 /// The `prev` and `next` fields of the metadata for each link always points to valid
 /// links in the list, so the structure is memory safe (will not read or write invalid memory).
-pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+pub struct LinkedList<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub front: Option<ReprPtr<MetaSlotStorage, Link<M>>>,
     pub back: Option<ReprPtr<MetaSlotStorage, Link<M>>>,
     /// The number of frames in the list.
@@ -137,7 +138,7 @@ pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 ///
 /// The cursor points to either a frame or the "ghost" non-element. It points
 /// to the "ghost" non-element when the cursor surpasses the back of the list.
-pub struct CursorMut<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+pub struct CursorMut<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub list: &'a mut LinkedList<M>,
     pub current: Option<ReprPtr<MetaSlotStorage, Link<M>>>,
 }
@@ -160,7 +161,7 @@ proof fn lemma_meta_region_inv_at(regions: MetaRegionOwners, i: int)
 /// into its own prover query, so the `MetaRegionOwners::inv` and map-insert
 /// quantifiers do not get over-instantiated inside `insert_before`'s body.
 #[verifier::spinoff_prover]
-proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     owner0: LinkedListOwner<M>,
     regions0: MetaRegionOwners,
     frame_idx: int,
@@ -194,21 +195,21 @@ proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedList<M> {
     /// Creates a new linked list.
     pub const fn new() -> Self {
         Self { front: None, back: None, size: 0, list_id: 0 }
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Default for LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Default for LinkedList<M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedList<M> {
     /// Gets the number of frames in the linked list.
     #[verus_spec(s =>
         with
@@ -663,7 +664,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     }
 }
 
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
+impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
     /// Moves the cursor to the next frame towards the back.
     ///
     /// If the cursor is pointing to the "ghost" non-element then this will
@@ -1445,7 +1446,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> TrackDrop for LinkedList<M> {
     type State = (LinkedListOwner<M>, MetaRegionOwners);
 
     /// Real key: the list's `list_id`. The token carries the identity of
@@ -1530,7 +1531,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Drop for LinkedList<M> {
     #[verifier::spinoff_prover]
     fn drop(
         self,
@@ -1688,13 +1689,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
 // #[verifier::external]
 // unsafe impl<M> Sync for LinkedList<M> where Link<M>: AnyFrameMeta {}
 /// A link in the linked list.
-pub struct Link<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+pub struct Link<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub next: Option<ReprPtr<MetaSlotStorage, Link<M>>>,
     pub prev: Option<ReprPtr<MetaSlotStorage, Link<M>>>,
     pub meta: M,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Deref for Link<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Deref for Link<M> {
     type Target = M;
 
     fn deref(&self) -> &Self::Target {
@@ -1702,13 +1703,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Deref for Link<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> DerefMut for Link<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> DerefMut for Link<M> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.meta
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Link<M> {
     /// Creates a new linked list metadata.
     pub const fn new(meta: M) -> Self {
         Self { next: None, prev: None, meta }
@@ -1717,7 +1718,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
-unsafe impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
+unsafe impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> AnyFrameMeta for Link<M> {
     #[cfg(feature = "type_id")]
     open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()

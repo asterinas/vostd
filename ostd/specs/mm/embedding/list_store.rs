@@ -9,7 +9,7 @@
 //! `M`. The kernel's `LinkedList<M>` is a generic library with no
 //! canonical concrete instantiation in ostd, and `LinkedListOwner<M>`
 //! cannot be type-erased to `dyn`: its per-link permission is the
-//! associated type `<M as Repr<MetaSlotSmall>>::Perm`, embedded in
+//! associated type `<M as ByteRepr<LINK_INNER_SIZE>>::Perm`, embedded in
 //! `LinkInnerPerms<M>`, so the trait is not object-safe (cf.
 //! `Frame<dyn AnyFrameMeta>`, which works only because it exposes no
 //! associated type post-erasure).
@@ -43,13 +43,16 @@
 //! through it (`step_cursor_insert_before` / `step_cursor_take_current`),
 //! and checks it back in on drop ([`ListStore::step_cursor_drop`]).
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_has_unused};
+use vstd_extra::{
+    cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_has_unused,
+    typing::tagged::ByteRepr,
+};
 
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
         linked_list::linked_list_owners::{
-            CursorOwner, LinkInnerPerms, LinkOwner, LinkedListOwner, MetaSlotSmall,
+            CursorOwner, LINK_INNER_SIZE, LinkInnerPerms, LinkOwner, LinkedListOwner,
         },
         mapping::{frame_to_index, meta_to_index},
         meta_owners::{MetadataPerm, PageUsage},
@@ -92,7 +95,7 @@ pub type CursorId = ListId;
 /// Together they make `in_list == list_id` an *exact* membership test,
 /// which is exactly what [`crate::mm::frame::LinkedList::contains`]
 /// computes.
-pub open spec fn list_registry_ok<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub open spec fn list_registry_ok<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     regions: MetaRegionOwners,
     lo: LinkedListOwner<M>,
 ) -> bool {
@@ -116,14 +119,14 @@ pub open spec fn list_registry_ok<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 /// `LinkedList` exclusively, so while a cursor exists its
 /// `LinkedListOwner` lives inside the [`CursorOwner`] (`cursors`) rather
 /// than in `lists`. Dropping the cursor returns the list to `lists`.
-pub tracked struct ListStore<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+pub tracked struct ListStore<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub regions: MetaRegionOwners,
     pub lists: Map<ListId, LinkedListOwner<M>>,
     pub loose: Map<LooseId, UniqueFrameOwner<Link<M>>>,
     pub cursors: Map<CursorId, CursorOwner<M>>,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ListStore<M> {
     /// The store's top-level invariant.
     pub open spec fn inv(self) -> bool {
         &&& self.regions.inv()
@@ -203,7 +206,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 // Fresh-id helpers + tracked constructors
 // =============================================================================
 /// Tracked constructor for a fresh *empty* list owner.
-pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -> (tracked res:
+pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>() -> (tracked res:
     LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
@@ -225,14 +228,14 @@ pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -
 }
 
 /// Fresh-id helper for the list id space.
-pub open spec fn fresh_list_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub open spec fn fresh_list_id<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     lists: Map<ListId, LinkedListOwner<M>>,
     cursors: Map<CursorId, CursorOwner<M>>,
 ) -> ListId {
     choose|id: ListId| !lists.dom().contains(id) && !cursors.dom().contains(id)
 }
 
-pub proof fn lemma_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn lemma_fresh_list_id_not_in_dom<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     lists: Map<ListId, LinkedListOwner<M>>,
     cursors: Map<CursorId, CursorOwner<M>>,
 )
@@ -245,7 +248,7 @@ pub proof fn lemma_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
 }
 
 /// Trusted reflection of [`crate::mm::frame::LinkedList::push_front`].
-pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn push_front_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     tracked frame_own: &mut UniqueFrameOwner<Link<M>>,
@@ -298,13 +301,13 @@ pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 }
 
 /// Fresh-id helper for the loose-frame id space.
-pub open spec fn fresh_loose_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub open spec fn fresh_loose_id<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     m: Map<LooseId, UniqueFrameOwner<Link<M>>>,
 ) -> LooseId {
     choose|id: LooseId| !m.dom().contains(id)
 }
 
-pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     m: Map<LooseId, UniqueFrameOwner<Link<M>>>,
 )
     ensures
@@ -315,7 +318,7 @@ pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmal
 
 /// Checked front specialization of [`axiom_take_at_embedded`], reflecting
 /// [`crate::mm::frame::LinkedList::pop_front`].
-pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
 ) -> (tracked frame_own: UniqueFrameOwner<Link<M>>)
@@ -369,7 +372,7 @@ pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 
 /// Checked back specialization of [`axiom_insert_before_at_embedded`], reflecting the
 /// [`crate::mm::frame::LinkedList::push_back`].
-pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     tracked frame_own: &mut UniqueFrameOwner<Link<M>>,
@@ -437,7 +440,7 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 
 /// Checked back specialization of [`axiom_take_at_embedded`], reflecting the
 /// [`crate::mm::frame::LinkedList::pop_back`].
-pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
 ) -> (tracked frame_own: UniqueFrameOwner<Link<M>>)
@@ -491,7 +494,7 @@ pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 }
 
 /// Trusted reflection of [`crate::mm::frame::CursorMut::insert_before`].
-pub axiom fn axiom_insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub axiom fn axiom_insert_before_at_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     tracked frame_own: &mut UniqueFrameOwner<Link<M>>,
@@ -545,7 +548,7 @@ pub axiom fn axiom_insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmal
 ;
 
 /// Trusted reflection of [`crate::mm::frame::CursorMut::take_current`].
-pub axiom fn axiom_take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub axiom fn axiom_take_at_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     n: int,
@@ -596,7 +599,7 @@ pub axiom fn axiom_take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 ;
 
 /// Trusted reflection of the [`crate::mm::frame::LinkedList`]'s `Drop`.
-pub axiom fn axiom_list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub axiom fn axiom_list_drop_embedded<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: LinkedListOwner<M>,
 )
@@ -653,7 +656,7 @@ pub axiom fn axiom_list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 // =============================================================================
 // Operations
 // =============================================================================
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ListStore<M> {
     /// `LinkedList::size`: the number of links in list `id`. A read-only
     /// query — the store is unchanged.
     pub proof fn step_size(tracked &self, id: ListId) -> (res: nat)
