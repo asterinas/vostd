@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, prelude::*, typing::tagged::ByteRepr};
 
 use super::linked_list_owners::*;
 use crate::mm::{
@@ -73,7 +73,7 @@ impl CursorModel {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorOwner<M> {
     pub open spec fn remove_owner_spec(self, post: Self) -> bool {
         &&& post.list_own.list == self.list_own.list.remove(self.index)
         &&& post.index == self.index
