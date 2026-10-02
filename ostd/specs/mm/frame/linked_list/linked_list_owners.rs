@@ -45,16 +45,23 @@ pub tracked struct LinkInnerPerms<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     type ReprPerm = LinkInnerPerms<M>;
 
+    /// The slot's bytes are tagged as a link, agree with that tag, and decode to
+    /// a link whose stored addresses match the permission's pointers.
+    ///
+    /// Replaces a match on `MetaSlotStorage::FrameLink`: the discriminant test is
+    /// now an id test, and the payload is reached by decoding rather than by
+    /// projection.
     open spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> bool {
-        match r {
-            MetaSlotStorage::FrameLink(link) => {
+        &&& r.holds::<StoredLink>()
+        &&& match frame_link_decode(r.0.data) {
+            Ok(link) => {
                 &&& M::wf(link.slot, perm.storage)
                 &&& (link.next is Some) == (perm.next_ptr is Some)
                 &&& (link.prev is Some) == (perm.prev_ptr is Some)
                 &&& link.next is Some ==> link.next->0 == perm.next_ptr->0.addr()
                 &&& link.prev is Some ==> link.prev->0 == perm.prev_ptr->0.addr()
             },
-            _ => false,
+            Err(_) => false,
         }
     }
 
@@ -64,18 +71,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     ) {
         let (slot, storage) = self.meta.to_repr_spec(perm.storage);
         (
-            MetaSlotStorage::FrameLink(
-                StoredLink {
-                    next: match self.next {
-                        Some(ptr) => Some(ptr.ptr.addr()),
-                        None => None,
+            MetaSlotStorage::tagged::<StoredLink>(
+                frame_link_encode(
+                    StoredLink {
+                        next: match self.next {
+                            Some(ptr) => Some(ptr.ptr.addr()),
+                            None => None,
+                        },
+                        prev: match self.prev {
+                            Some(ptr) => Some(ptr.ptr.addr()),
+                            None => None,
+                        },
+                        slot,
                     },
-                    prev: match self.prev {
-                        Some(ptr) => Some(ptr.ptr.addr()),
-                        None => None,
-                    },
-                    slot,
-                },
+                ),
             ),
             LinkInnerPerms {
                 storage,
@@ -97,8 +106,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     }
 
     open spec fn from_repr_spec(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> Self {
-        match r {
-            MetaSlotStorage::FrameLink(link) => Link {
+        match frame_link_decode(r.0.data) {
+            Ok(link) => Link {
                 next: match link.next {
                     Some(addr) => Some(ReprPtr { ptr: perm.next_ptr->0, _T: PhantomData }),
                     None => None,
@@ -109,7 +118,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
                 },
                 meta: M::from_repr_spec(link.slot, perm.storage),
             },
-            _ => Link {
+            Err(_) => Link {
                 next: None,
                 prev: None,
                 meta: M::from_repr_spec(MetaSlotSmall, perm.storage),
@@ -139,21 +148,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     }
 
     proof fn from_to_repr(self, perm: LinkInnerPerms<M>) {
+        broadcast use axiom_frame_link_round_trip;
+
         <M as Repr<MetaSlotSmall>>::from_to_repr(self.meta, perm.storage);
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage, perm: LinkInnerPerms<M>) {
-        match r {
-            MetaSlotStorage::FrameLink(link) => {
-                M::to_from_repr(link.slot, perm.storage);
-            },
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
     proof fn to_repr_wf(self, perm: LinkInnerPerms<M>) {
+        broadcast use axiom_frame_link_round_trip;
+
         <M as Repr<MetaSlotSmall>>::to_repr_wf(self.meta, perm.storage);
     }
 }

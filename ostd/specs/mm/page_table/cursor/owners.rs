@@ -1,4 +1,7 @@
-use vstd::{arithmetic::power2::pow2, prelude::*, seq_lib::*, set::lemma_set_contains_len};
+use vstd::{
+    arithmetic::power2::pow2, prelude::*, seq_lib::*,
+    set::{lemma_set_choose_len, lemma_set_contains_len},
+};
 use vstd_extra::{
     drop_tracking::*,
     ghost_tree::*,
@@ -1830,6 +1833,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
         lemma_set_contains_len(filtered, m);
+
+        // `present()` is just `filtered.len() > 0`, which the line above gives.
+        // `query()` reads `filtered.choose()`, so it additionally needs the set to
+        // be *exactly* `{m}` -- otherwise `choose` may return something else. That
+        // follows from non-overlap: a second mapping covering `cur_va` would have
+        // to overlap `m`. This was previously left to automation.
+        self.as_page_table_owner_view_non_overlapping();
+        assert forall|x: Mapping| filtered.contains(x) implies x == m by {
+            if x != m {
+                assert(self@.mappings.contains(x));
+                assert(self@.mappings.contains(m));
+            }
+        };
+        assert(filtered =~= set![m]);
+        lemma_set_choose_len(filtered);
     }
 
     /// The entry_own at each continuation level satisfies `metaregion_sound`.

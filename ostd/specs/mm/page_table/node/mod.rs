@@ -5,7 +5,10 @@ pub mod owners;
 use vstd::prelude::*;
 use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
 
-use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
+use crate::specs::mm::frame::meta_owners::{
+    MetaSlotStorage, StoredPageTablePageMeta, axiom_pt_node_round_trip, pt_node_decode,
+    pt_node_encode,
+};
 
 use crate::mm::{
     frame::Frame,
@@ -135,12 +138,20 @@ pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     type ReprPerm = ();
 
+    /// The slot's bytes are tagged as a page-table node and agree with that tag.
+    ///
+    /// Replaces `matches!(r, MetaSlotStorage::PTNode(_))`. The discriminant test
+    /// became an id test; `wf_storage` is the part the enum got for free by
+    /// construction and a byte array has to state.
     open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
-        matches!(r, MetaSlotStorage::PTNode(_))
+        r.holds::<StoredPageTablePageMeta>()
     }
 
     open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (MetaSlotStorage::PTNode(self.into_spec()), ())
+        (
+            MetaSlotStorage::tagged::<StoredPageTablePageMeta>(pt_node_encode(self.into_spec())),
+            (),
+        )
     }
 
     #[verifier::external_body]
@@ -149,9 +160,9 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
-        match r {
-            MetaSlotStorage::PTNode(node) => node.into_spec::<C>(),
-            _ => arbitrary(),
+        match pt_node_decode(r.0.data) {
+            Ok(node) => node.into_spec::<C>(),
+            Err(_) => arbitrary(),
         }
     }
 
@@ -174,18 +185,14 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     proof fn from_to_repr(self, perm: ()) {
+        broadcast use axiom_pt_node_round_trip;
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
-        match r {
-            MetaSlotStorage::PTNode(node) => {},
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
+    /// Note there is no `to_from_repr`: see [`BijectiveRepr`]. A page-table node
+    /// is smaller than the slot and holds `PCell`s, so re-encoding its decoded
+    /// bytes cannot reproduce the slack or the cell ids.
     proof fn to_repr_wf(self, perm: ()) {
+        broadcast use axiom_pt_node_round_trip;
     }
 }
 

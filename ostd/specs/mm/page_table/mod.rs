@@ -110,6 +110,7 @@ impl Inv for AbstractVaddr {
         &&& self.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int)
         &&& forall|i: int|
             #![trigger self.index.contains_key(i)]
+            #![trigger self.index[i]]
             0 <= i < NR_LEVELS ==> {
                 &&& self.index.contains_key(i)
                 &&& 0 <= self.index[i] < NR_ENTRIES
@@ -1746,15 +1747,37 @@ impl AbstractVaddr {
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
-            // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
-            assert(aligned.index[3] == 0) by {};
+            let down4 = self.align_down(4);
+            // `align_down(5)` is `align_down(4)` with `index[3]` zeroed, and
+            // `align_down_shape(4)` zeroes 0..=2 and the offset. Each index and
+            // each level of the fold is named explicitly rather than left to
+            // automation: every one of these was being instantiated incidentally,
+            // which is why the whole lemma moved when unrelated declarations
+            // changed what terms were in scope.
+            assert(aligned.index == down4.index.insert(3, 0));
+            assert(aligned.index[3] == 0);
+            assert(aligned.index[2] == 0);
+            assert(aligned.index[1] == 0);
+            assert(aligned.index[0] == 0);
+            assert(aligned.offset == 0);
 
+            assert(aligned.rec_compute_vaddr(4) == 0);
             assert(aligned.rec_compute_vaddr(3) == 0) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
                     + aligned.rec_compute_vaddr(4)) as Vaddr);
             };
-            assert(aligned.rec_compute_vaddr(2) == 0) by {};
-            assert(aligned.rec_compute_vaddr(1) == 0) by {};
+            assert(aligned.rec_compute_vaddr(2) == 0) by {
+                assert(aligned.rec_compute_vaddr(2) == (aligned.index[2] * page_size(3)
+                    + aligned.rec_compute_vaddr(3)) as Vaddr);
+            };
+            assert(aligned.rec_compute_vaddr(1) == 0) by {
+                assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
+                    + aligned.rec_compute_vaddr(2)) as Vaddr);
+            };
+            assert(aligned.rec_compute_vaddr(0) == 0) by {
+                assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
+                    + aligned.rec_compute_vaddr(1)) as Vaddr);
+            };
         } else {
             let level = NR_LEVELS - path.len();
             self.to_path_inv(level);

@@ -2,8 +2,6 @@ use vstd::prelude::*;
 
 use core::any::TypeId;
 
-use vstd::std_specs::convert::{IntoSpec, TryFromSpec};
-
 verus! {
 
 /// A duplicate of [`core::any::Any`]'s interface.
@@ -100,78 +98,6 @@ pub exec fn is_<T: 'static>(x: &dyn Any) -> (r: bool)
         r == is_type::<T>(x),
 {
     x.type_id().eq(&TypeId::of::<T>())
-}
-
-// ===========================================================================
-// Representation
-// ===========================================================================
-//
-pub trait ByteSized<const SIZE: usize>: Sized {
-    proof fn size_correct()
-        ensures
-            size_of::<Self>() == SIZE,
-    ;
-}
-
-pub trait ByteRepr<const SIZE: usize>: ByteSized<SIZE> + TryFromSpec<[u8; SIZE]> + IntoSpec<
-    [u8; SIZE],
-> {
-    proof fn round_trip(self)
-        ensures
-            Self::try_from_spec(self.into_spec()) == Ok(self),
-    ;
-
-    proof fn canonical(data: [u8; SIZE])
-        requires
-            Self::try_from_spec(data) is Ok,
-        ensures
-            Self::try_from_spec(data)->Ok_0.into_spec() == data,
-    ;
-}
-
-/// Reinterpret stored bytes as a reference to the value they encode.
-///
-/// # The one axiom
-///
-/// It cannot be proved. Verus has no model of the pointer cast involved, and the
-/// fact being asserted is that a byte pattern satisfying `M`'s decode really may
-/// be *read as* an `M` in place, rather than decoded into a fresh value. That is
-/// a statement about layout, which is why the precondition is exactly the decode
-/// and nothing weaker: bytes that do not decode may not be borrowed at all.
-///
-/// Note what this is *not*: it says nothing about identity. Deciding which type a
-/// stored value is belongs to [`Any`], and with a `&M` in hand the ordinary
-/// `&M -> &dyn Any` coercion carries the identity across.
-#[verifier::external_body]
-pub exec fn borrow_as<'a, const SIZE: usize, M: ByteRepr<SIZE>>(data: &'a [u8; SIZE]) -> (r: &'a M)
-    requires
-        M::try_from_spec(*data) is Ok,
-    ensures
-        *r == M::try_from_spec(*data)->Ok_0,
-{
-    unimplemented!()
-}
-
-/// Distinct valid byte patterns decode to distinct values.
-///
-/// The content of [`ByteRepr::canonical`], stated the way it is usually wanted:
-/// decoding is injective on valid patterns. Together with
-/// [`ByteRepr::round_trip`] — which makes it surjective onto values — this is the
-/// bijection a storage abstraction needs in order to promise that reading a value
-/// out and writing it back leaves the bytes alone.
-pub proof fn lemma_decode_injective<const SIZE: usize, M: ByteRepr<SIZE>>(
-    a: [u8; SIZE],
-    b: [u8; SIZE],
-)
-    requires
-        M::try_from_spec(a) is Ok,
-        M::try_from_spec(b) is Ok,
-        M::try_from_spec(a) == M::try_from_spec(b),
-    ensures
-        a == b,
-{
-    M::canonical(a);
-    M::canonical(b);
 }
 
 } // verus!

@@ -3,8 +3,12 @@ use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
 use core::any::TypeId;
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
+use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
+use vstd_extra::typing::tagged::{
+    ByteRepr, ByteSized, OpenTaggedArray, recorded_id,
+};
 use vstd_extra::{
-    cast_ptr::{self, Repr},
+    cast_ptr::{self, BijectiveRepr, Repr},
     ghost_tree::TreePath,
     ownership::*,
     resource::ghost_resource::count_auth::{Count, CountResource},
@@ -95,11 +99,202 @@ pub struct StoredPageTablePageMeta {
     pub lock: PAtomicU8,
 }
 
-pub enum MetaSlotStorage {
-    Empty([u8; 39]),
-    Untyped,
-    FrameLink(StoredLink),
-    PTNode(StoredPageTablePageMeta),
+/// Bytes a frame's metadata may occupy.
+///
+/// The slot is [`META_SLOT_SIZE`] with three 8-byte words after the storage --
+/// `ref_count`, `vtable_ptr`, `in_list` -- leaving this much. Note the ghost-tag
+/// representation gets the *whole* 40: the discriminant the tagged union spent a
+/// byte on now lives in ghost state, which is why the old `Empty` variant's
+/// payload was `[u8; 39]` and this is one larger.
+pub const META_STORAGE_SIZE: usize = META_SLOT_SIZE - 3 * 8;
+
+// ---------------------------------------------------------------------------
+// Members
+// ---------------------------------------------------------------------------
+//
+// Each member supplies an encoding, a decoding, and the round-trip law relating
+// them. Encode and decode are left *uninterpreted*: a concrete byte layout is a
+// fact about the type's representation, not about the aggregate machinery, and
+// naming them without defining them is what keeps the round trip the only thing
+// consumers may assume.
+//
+// Neither member implements `CanonicalRepr`. Both are strictly smaller than
+// `META_STORAGE_SIZE`, so the slack bytes are unconstrained and encoding is not
+// onto; `StoredPageTablePageMeta` additionally holds `PCell`s and a `PAtomicU8`,
+// whose values include ids that are nowhere in memory. Claiming canonicity for
+// either would be assuming something false.
+
+pub uninterp spec fn frame_link_encode(v: StoredLink) -> [u8; META_STORAGE_SIZE];
+
+pub uninterp spec fn frame_link_decode(b: [u8; META_STORAGE_SIZE]) -> Result<StoredLink, ()>;
+
+/// Decoding recovers what encoding produced.
+///
+/// Axiomatized: the representation obligation a member discharges from its
+/// layout, which Verus does not derive for user structs.
+#[verifier::external_body]
+pub broadcast proof fn axiom_frame_link_round_trip(v: StoredLink)
+    ensures
+        #[trigger] frame_link_decode(frame_link_encode(v)) == Ok(v),
+{
+}
+
+pub uninterp spec fn pt_node_encode(v: StoredPageTablePageMeta) -> [u8; META_STORAGE_SIZE];
+
+pub uninterp spec fn pt_node_decode(b: [u8; META_STORAGE_SIZE]) -> Result<
+    StoredPageTablePageMeta,
+    (),
+>;
+
+#[verifier::external_body]
+pub broadcast proof fn axiom_pt_node_round_trip(v: StoredPageTablePageMeta)
+    ensures
+        #[trigger] pt_node_decode(pt_node_encode(v)) == Ok(v),
+{
+}
+
+// --- StoredLink as a member ---
+
+impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredLink {
+    type Error = ();
+
+    #[verifier::external_body]
+    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
+impl TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        frame_link_decode(b)
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<[u8; META_STORAGE_SIZE]> for StoredLink {
+    #[verifier::external_body]
+    fn into(self) -> [u8; META_STORAGE_SIZE] {
+        unimplemented!()
+    }
+}
+
+impl IntoSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
+    open spec fn obeys_into_spec() -> bool {
+        true
+    }
+
+    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
+        frame_link_encode(self)
+    }
+}
+
+impl ByteSized<{ META_STORAGE_SIZE }> for StoredLink {
+    /// Axiomatized: a layout fact. Upstream's `impl_frame_meta_for!` asserts the
+    /// same inequality with a `const` check.
+    #[verifier::external_body]
+    proof fn size_correct() {
+    }
+}
+
+impl ByteRepr<{ META_STORAGE_SIZE }> for StoredLink {
+    proof fn round_trip(self) {
+        broadcast use axiom_frame_link_round_trip;
+    }
+
+    proof fn obeys() {
+    }
+}
+
+// --- StoredPageTablePageMeta as a member ---
+
+impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
+    type Error = ();
+
+    #[verifier::external_body]
+    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
+impl TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        pt_node_decode(b)
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
+    #[verifier::external_body]
+    fn into(self) -> [u8; META_STORAGE_SIZE] {
+        unimplemented!()
+    }
+}
+
+impl IntoSpecImpl<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
+    open spec fn obeys_into_spec() -> bool {
+        true
+    }
+
+    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
+        pt_node_encode(self)
+    }
+}
+
+impl ByteSized<{ META_STORAGE_SIZE }> for StoredPageTablePageMeta {
+    /// Axiomatized: a layout fact. Upstream's `impl_frame_meta_for!` asserts the
+    /// same inequality with a `const` check.
+    #[verifier::external_body]
+    proof fn size_correct() {
+    }
+}
+
+impl ByteRepr<{ META_STORAGE_SIZE }> for StoredPageTablePageMeta {
+    proof fn round_trip(self) {
+        broadcast use axiom_pt_node_round_trip;
+    }
+
+    proof fn obeys() {
+    }
+}
+
+/// A frame's metadata, as stored in its slot.
+///
+/// Bytes plus a ghost id naming the type they hold. This was a tagged union
+/// enumerating every metadata type in the development; the recorded id does that
+/// job now, without a runtime discriminant and without the enum having to be
+/// reopened for each new one.
+///
+/// The world is **open**: anything with a `ByteRepr<META_STORAGE_SIZE>` may be
+/// stored, and that size bound is the only restriction. Nothing is enumerated, so
+/// a generic family like `Link<M>` -- or `Slab<const SLOT_SIZE>`, which has
+/// infinitely many instantiations -- needs no special treatment, where a closed
+/// member tree would have had to name each one.
+///
+/// A newtype rather than a bare [`OpenTaggedArray`] so that the frame layer's
+/// `Repr<MetaSlotStorage>` bounds, the `AnyFrameMeta` impl, and `UFrame`/`DynFrame`
+/// keep naming one type.
+pub struct MetaSlotStorage(pub OpenTaggedArray<META_STORAGE_SIZE>);
+
+impl MetaSlotStorage {
+    /// This slot holds an `M`.
+    pub open spec fn holds<M: ByteRepr<META_STORAGE_SIZE>>(self) -> bool {
+        self.0.holds::<M>()
+    }
+
+    /// Build a slot holding `data` as an `M`.
+    pub open spec fn tagged<M: ByteRepr<META_STORAGE_SIZE>>(
+        data: [u8; META_STORAGE_SIZE],
+    ) -> MetaSlotStorage {
+        MetaSlotStorage(OpenTaggedArray { id: Ghost(recorded_id::<M>()), data })
+    }
 }
 
 /// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
@@ -162,10 +357,13 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
     proof fn from_to_repr(self, perm: ()) {
     }
 
-    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
-    }
-
     proof fn to_repr_wf(self, perm: ()) {
+    }
+}
+
+/// The identity representation is trivially a bijection.
+impl BijectiveRepr<MetaSlotStorage> for MetaSlotStorage {
+    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
     }
 }
 

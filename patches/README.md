@@ -129,11 +129,11 @@ result.)
 
 Verify both shapes:
 
-    cargo dv verify --targets ostd                                       # 1506 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id                    # 1513 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1514 verified, 0 errors
+    cargo dv verify --targets ostd                                       # 1509 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id                    # 1516 verified, 0 errors
+    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1517 verified, 0 errors
 
-Measured 2026-09-30 against `asterinas/verus` `main` at `fec4c33a` with both
+Measured 2026-10-01 against `asterinas/verus` `main` at `fec4c33a` with both
 patches applied; `vstd` itself builds at 2059 verified, 0 errors.
 
 When reading these runs, grep with `tail`, not `head`. `dv` prints a
