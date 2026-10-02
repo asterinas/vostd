@@ -58,16 +58,30 @@ pub trait Repr<R: Sized>: Sized {
             Self::from_repr_spec(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1) == self,
     ;
 
+    proof fn to_repr_wf(self, perm: Self::ReprPerm)
+        ensures
+            Self::wf(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1),
+    ;
+}
+
+/// A [`Repr`] whose representation is a bijection: decoding a well-formed
+/// representation and re-encoding it recovers it exactly.
+///
+/// Split from [`Repr`] because it is **not true of every representation**, while
+/// `from_to_repr` -- the other direction -- is. A representation backed by a byte
+/// array fails it twice over: a value smaller than the array leaves the slack
+/// bytes unconstrained, and a value containing a `PCell` or an atomic carries an
+/// id that is nowhere in those bytes, so re-encoding cannot reproduce them. An
+/// enumeration that *holds* its members satisfies it trivially, which is why this
+/// obligation went unnoticed while the representation was a tagged union.
+///
+/// Only require it where the round trip is actually taken.
+pub trait BijectiveRepr<R: Sized>: Repr<R> {
     proof fn to_from_repr(r: R, perm: Self::ReprPerm)
         requires
             Self::wf(r, perm),
         ensures
             Self::from_repr_spec(r, perm).to_repr_spec(perm) == (r, perm),
-    ;
-
-    proof fn to_repr_wf(self, perm: Self::ReprPerm)
-        ensures
-            Self::wf(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1),
     ;
 }
 

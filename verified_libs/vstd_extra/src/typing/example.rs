@@ -52,10 +52,10 @@ pub exec fn upcast_l2(v: &L2) -> (r: &dyn Any)
 // ------------------------------------------------------------------
 /// An erased `L2` is an `L2`, and is neither an `L1` nor an `L3`.
 ///
-/// Both halves matter. The first is what a downcast needs in order to succeed;
-/// the second is the soundness property, and it is the one that used to cost a
-/// `DisjointFrom` witness at every node joining the members. It is now
-/// definitional.
+/// Both halves matter. The first is what a downcast needs in order to succeed; the
+/// second is the soundness property, and it is the one a closed-world model has to
+/// pay for with an explicit disjointness witness per pair of members. Here it is
+/// definitional, because the ids are real type ids rather than invented tags.
 pub proof fn erased_is_exactly_one(x: &dyn Any)
     requires
         x.type_id_spec() == type_id::<L2>(),
