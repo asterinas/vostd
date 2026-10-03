@@ -3,7 +3,7 @@ name: Format and Verify VOSTD (Main)
 # One verification run feeds everything: a verify leg runs with
 # --time-expanded and uploads the log, `perf` parses it (never re-verifies),
 # `doc` builds the docs in parallel, and `doc-deploy` merges those docs with
-# the gh-pages benchmark before deploying. `format` delegates to `cargo verus fmt` and shares the same tools/verus cache.
+# the gh-pages benchmark before deploying. `format` delegates to `cargo verus fmt`.
 
 on:
   push:
@@ -120,9 +120,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   format:
-    # `cargo dv fmt` delegates to `cargo verus fmt`, so the format job
-    # needs the cargo-verus binary like the verify jobs; reuse the shared
-    # setup-verus toolchain cache and bootstrap.
     runs-on: ubuntu-24.04
     permissions:
       contents: read
