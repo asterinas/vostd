@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The definition of Linux Boot Protocol boot_params struct.
 //!
 //! The bootloader will deliver the address of the `BootParams` struct
@@ -7,7 +6,6 @@
 //! ABI compatible struct in Rust, despite that most of the fields are
 //! currently not needed by Asterinas.
 //!
-
 #![cfg_attr(not(test), no_std)]
 
 /// Magic stored in the boot protocol header.

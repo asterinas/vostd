@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! This module is used to compress kernel ELF.
-
 use std::{
     ffi::{OsStr, OsString},
     io::Write,

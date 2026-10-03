@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The linux bzImage setup binary.
 //!
 //! With respect to the format of the bzImage, we design our bzImage setup in the similar
@@ -18,7 +17,6 @@
 //! by the linux-bzimage-builder crate. And the code of the setup is in this crate.
 //! You should compile this crate using the functions provided in the builder.
 //!
-
 #![no_std]
 #![no_main]
 #![feature(maybe_uninit_fill)]

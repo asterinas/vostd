@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Big zImage PE/COFF header generation.
 //!
 //! The definition of the PE/COFF header is in the Microsoft PE/COFF specification:
@@ -7,14 +6,13 @@
 //!
 //! The reference to the Linux PE header definition:
 //! <https://github.com/torvalds/linux/blob/master/include/linux/pe.h>
-
 use std::{mem::size_of, vec};
 
 use align_ext::AlignExt;
 use bytemuck::{Pod, Zeroable};
 use serde::Serialize;
 
-use crate::mapping::{SetupFileOffset, SetupVA, LEGACY_SETUP_SEC_SIZE};
+use crate::mapping::{LEGACY_SETUP_SEC_SIZE, SetupFileOffset, SetupVA};
 
 // The MS-DOS header.
 const MZ_MAGIC: u16 = 0x5a4d; // "MZ"
