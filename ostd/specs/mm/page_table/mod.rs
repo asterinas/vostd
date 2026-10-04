@@ -80,6 +80,31 @@ pub proof fn lemma_page_size_for_level_is_pow2<C: PagingConstsTrait>(level: Pagi
     lemma_usize_pow2_no_overflow(pte_index_bit_offset_spec::<C>(level) as nat);
 }
 
+/// A parent slot contains exactly one fanout of slots at the preceding level.
+pub proof fn lemma_page_size_for_level_next<C: PagingConstsTrait>(level: PagingLevel)
+    requires
+        1 <= level <= C::NR_LEVELS(),
+    ensures
+        page_size_for_level_spec::<C>((level + 1) as PagingLevel)
+            == page_size_for_level_spec::<C>(level) * nr_subpage_per_huge::<C>(),
+        0 < page_size_for_level_spec::<C>(level)
+            <= page_size_for_level_spec::<C>((level + 1) as PagingLevel),
+{
+    C::lemma_paging_consts_properties();
+    lemma_page_size_for_level_is_pow2::<C>(level);
+    lemma_page_size_for_level_is_pow2::<C>((level + 1) as PagingLevel);
+    let bits = nr_pte_index_bits_spec::<C>();
+    lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
+    lemma_mul_is_distributive_sub(bits as int, level as int, 1);
+    assert(pte_index_bit_offset_spec::<C>((level + 1) as PagingLevel)
+        == pte_index_bit_offset_spec::<C>(level) + bits);
+    lemma_pow2_adds(pte_index_bit_offset_spec::<C>(level) as nat, bits as nat);
+    vstd::arithmetic::mul::lemma_mul_left_inequality(
+        page_size_for_level_spec::<C>(level) as int, 1, nr_subpage_per_huge::<C>() as int,
+    );
+    vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(level) as int);
+}
+
 /// Temporary bridge to the architecture-global `page_size` helper used by the executable code.
 pub proof fn lemma_page_size_for_level_matches_page_size<C: PagingConstsTrait>(
     level: PagingLevel,
@@ -120,6 +145,52 @@ pub proof fn lemma_pte_index_spec_is_div_mod<C: PagingConstsTrait>(va: Vaddr, le
         va >> pte_index_bit_offset_spec::<C>(level),
         bits as nat,
     );
+}
+
+/// At the next aligned boundary, a terminal index carries into the parent slot.
+pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
+    va: Vaddr,
+    next: Vaddr,
+    level: PagingLevel,
+)
+    requires
+        1 <= level <= C::NR_LEVELS(),
+        va < next <= va + page_size_for_level_spec::<C>(level),
+        next % page_size_for_level_spec::<C>(level) == 0,
+    ensures
+        next == (nat_align_down(va as nat, page_size_for_level_spec::<C>(level) as nat)
+            + page_size_for_level_spec::<C>(level)) as Vaddr,
+        pte_index_spec::<C>(next, level) == 0 ==> {
+            &&& pte_index_spec::<C>(va, level) + 1 == nr_subpage_per_huge::<C>()
+            &&& next % page_size_for_level_spec::<C>((level + 1) as PagingLevel) == 0
+        },
+        pte_index_spec::<C>(next, level) != 0
+            ==> pte_index_spec::<C>(va, level) + 1 < nr_subpage_per_huge::<C>(),
+{
+    C::lemma_paging_consts_properties();
+    lemma_pte_index_spec_is_div_mod::<C>(va, level);
+    lemma_pte_index_spec_is_div_mod::<C>(next, level);
+    lemma_page_size_for_level_next::<C>(level);
+    let size = page_size_for_level_spec::<C>(level) as int;
+    let fanout = nr_subpage_per_huge::<C>() as int;
+    let quotient = next as int / size;
+    let diff = next - va;
+    lemma_fundamental_div_mod(next as int, size);
+    vstd::arithmetic::mul::lemma_mul_basics(size);
+    vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(size, quotient, 1);
+    lemma_fundamental_div_mod_converse(va as int, size, quotient - 1, size - diff);
+    vstd::arithmetic::div_mod::lemma_mod_bound(va as int / size, fanout);
+    vstd::arithmetic::div_mod::lemma_add_mod_noop_right(1, va as int / size, fanout);
+    let index = pte_index_spec::<C>(va, level) as int;
+    if index + 1 < fanout {
+        vstd::arithmetic::div_mod::lemma_small_mod((index + 1) as nat, fanout as nat);
+    } else {
+        vstd::arithmetic::div_mod::lemma_mod_self_0(fanout);
+    }
+    if pte_index_spec::<C>(next, level) == 0 {
+        vstd::arithmetic::div_mod::lemma_mod_breakdown(next as int, size, fanout);
+        vstd::arithmetic::mul::lemma_mul_basics(size);
+    }
 }
 
 /// Replace one page-table index while leaving the other address components unchanged.
@@ -1249,124 +1320,6 @@ impl AbstractVaddr {
             }
         } else {
             Self { index: self.index.insert(level - 1, next_index), ..self }
-        }
-    }
-
-    pub open spec fn wrapped(self, start_level: int, level: int) -> bool
-        decreases NR_LEVELS - level,
-        when 1 <= start_level <= level <= NR_LEVELS
-    {
-        &&& self.next_index(start_level).index[level - 1] == 0 ==> {
-            &&& self.index[level - 1] + 1 == NR_ENTRIES
-            &&& if level < NR_LEVELS {
-                self.wrapped(start_level, level + 1)
-            } else {
-                true
-            }
-        }
-        &&& self.next_index(start_level).index[level - 1] != 0 ==> self.index[level - 1] + 1
-            < NR_ENTRIES
-    }
-
-    pub proof fn use_wrapped(self, start_level: int, level: int)
-        requires
-            1 <= start_level <= level < NR_LEVELS,
-            self.wrapped(start_level, level),
-            self.next_index(start_level).index[level - 1] == 0,
-        ensures
-            self.index[level - 1] + 1 == NR_ENTRIES,
-    {
-    }
-
-    pub proof fn wrapped_unwrap(self, start_level: int, level: int)
-        requires
-            1 <= start_level <= level < NR_LEVELS,
-            self.wrapped(start_level, level),
-            self.next_index(start_level).index[level - 1] == 0,
-        ensures
-            self.wrapped(start_level, level + 1),
-    {
-    }
-
-    pub proof fn wrapped_after_carry_equiv(self, start_level: int, level: int)
-        requires
-            self.inv(),
-            1 <= start_level < level <= NR_LEVELS,
-            self.index[start_level - 1] + 1 == NR_ENTRIES,
-        ensures
-            ({
-                let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
-                self.wrapped(start_level, level) == next_va.wrapped(start_level + 1, level)
-            }),
-        decreases NR_LEVELS - level,
-    {
-        let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
-        if level < NR_LEVELS {
-            self.wrapped_after_carry_equiv(start_level, level + 1);
-        }
-    }
-
-    /// Contrapositive of `use_wrapped`: index + 1 < NR_ENTRIES ==> next_index != 0.
-    pub proof fn wrapped_index_nonzero(self, start_level: int, level: int)
-        requires
-            1 <= start_level <= level <= NR_LEVELS,
-            self.wrapped(start_level, level),
-            self.index[level - 1] + 1 < NR_ENTRIES,
-        ensures
-            self.next_index(start_level).index[level - 1] != 0,
-    {
-    }
-
-    #[verifier::spinoff_prover]
-    pub proof fn next_index_preserves_lower_indices(self, start_level: int, lower_level: int)
-        requires
-            self.inv(),
-            1 <= lower_level < start_level <= NR_LEVELS,
-        ensures
-            self.next_index(start_level).index[lower_level - 1] == self.index[lower_level - 1],
-        decreases NR_LEVELS - start_level,
-    {
-        let index = self.index[start_level - 1];
-        let next_index = index + 1;
-        if next_index == NR_ENTRIES && start_level < NR_LEVELS {
-            let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
-            assert(next_va.inv()) by {
-                assert(next_va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
-                assert forall|i: int|
-                    #![trigger next_va.index.contains_key(i)]
-                    0 <= i < NR_LEVELS implies {
-                    &&& next_va.index.contains_key(i)
-                    &&& 0 <= next_va.index[i]
-                    &&& next_va.index[i] < NR_ENTRIES
-                } by {
-                    assert(self.index.contains_key(i));
-                }
-            };
-            next_va.next_index_preserves_lower_indices(start_level + 1, lower_level);
-        } else if next_index == NR_ENTRIES && start_level == NR_LEVELS {
-        }
-    }
-
-    pub proof fn next_index_wrap_condition(self, level: int)
-        requires
-            self.inv(),
-            1 <= level <= NR_LEVELS,
-        ensures
-            self.wrapped(level, level),
-        decreases NR_LEVELS - level,
-    {
-        let index = self.index[level - 1];
-        let next_index = index + 1;
-        if next_index == NR_ENTRIES {
-            if level < NR_LEVELS {
-                let next_va = Self { index: self.index.insert(level - 1, 0), ..self };
-
-                next_va.next_index_wrap_condition(level + 1);
-                self.wrapped_after_carry_equiv(level, level + 1);
-                next_va.next_index_preserves_lower_indices(level + 1, level);
-            }
-        } else {
-            assert(self.index.contains_key(level - 1));
         }
     }
 
