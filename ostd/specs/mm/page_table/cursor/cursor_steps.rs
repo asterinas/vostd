@@ -1,4 +1,4 @@
-use vstd::prelude::*;
+use vstd::{arithmetic::div_mod::lemma_mod_add_multiples_vanish, prelude::*};
 use vstd_extra::{
     arithmetic::{lemma_nat_align_down_sound, nat_align_down},
     ghost_tree::*,
@@ -11,7 +11,8 @@ use crate::specs::{
         frame::mapping::meta_to_index,
         page_table::{
             cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
-            lemma_page_size_for_level_matches_page_size, lemma_pte_index_spec_matches_abstract,
+            lemma_next_slot_pte_index, lemma_page_size_for_level_matches_page_size,
+            lemma_page_size_for_level_next, lemma_pte_index_spec_matches_abstract,
             node::EntryOwner,
             owners::{OwnerSubtree, PageTableOwner, INC_LEVELS},
             pte_index_spec, AbstractVaddr,
@@ -656,35 +657,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             !self.popped_too_high,
         ensures
-            self.move_forward_owner_spec().va_view().to_vaddr() > self.va_view().to_vaddr(),
-        decreases NR_LEVELS - self.level,
+            self.move_forward_owner_spec().va > self.va,
     {
-        reveal(PageTableOwner::pt_inv_at_depth);
-        if self.index() + 1 < NR_ENTRIES {
-            self.inc_and_zero_increases_va();
-        } else if self.level == self.guard_level {
-            // level == guard_level, index + 1 >= NR_ENTRIES.
-            // move_forward_owner_spec pops if level < NR_LEVELS, else returns self.
-            self.lemma_in_locked_range_guard_index_eq_prefix();
-            let k = self.prefix_view().index[self.guard_level - 1];
-
-            if self.guard_level < NR_LEVELS {
-                // Pop to parent. Parent is at guard_level + 1 with popped_too_high.
-            } else {
-                assert(false);
-            }
-        } else if self.level + 1 < self.guard_level {
-            self.pop_level_owner().0.move_forward_increases_va();
-        } else {
-            let k = self.prefix_view().index[self.guard_level - 1];
-
-            let popped = self.pop_level_owner().0;
-
-            if k + 1 < NR_ENTRIES {
-                assert(popped.move_forward_owner_spec() == popped.inc_index().zero_below_level());
-                popped.inc_and_zero_increases_va();
-            }
-        }
+        self.lemma_in_locked_range_guard_index_eq_prefix();
+        self.move_forward_va_is_align_up();
+        self.lemma_va_plus_page_size_no_overflow(self.level);
+        lemma_page_size_ge_page_size(self.level);
+        lemma_nat_align_down_sound(self.va as nat, page_size(self.level) as nat);
     }
 
     pub proof fn move_forward_not_popped_too_high(self)
@@ -862,15 +841,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
 
         self.lemma_cur_pte_index();
-        lemma_pte_index_spec_matches_abstract::<C>(self.va, self.level);
         self.lemma_va_plus_page_size_no_overflow(self.level);
+        lemma_page_size_for_level_matches_page_size::<C>(self.level);
+        lemma_page_size_for_level_matches_page_size::<C>(popped.level);
+        lemma_page_size_for_level_next::<C>(self.level);
         lemma_page_size_ge_page_size(self.level);
-        lemma_page_size_ge_page_size(popped.level);
         lemma_nat_align_down_sound(self.va as nat, page_size(self.level) as nat);
-        lemma_nat_align_down_sound(popped.va as nat, page_size(popped.level) as nat);
-        self.va_view().align_up_carry(self.level as int);
-        self.va_view().align_up_advances_general(self.level as int);
-        popped.va_view().align_up_advances_general(popped.level as int);
+        let next = self@.align_up_spec(page_size(self.level));
+        lemma_mod_add_multiples_vanish(
+            nat_align_down(self.va as nat, page_size(self.level) as nat) as int,
+            page_size(self.level) as int,
+        );
+        lemma_next_slot_pte_index::<C>(self.va, next, self.level);
+        assert(pte_index_spec::<C>(next, self.level) == 0);
+        lemma_next_slot_pte_index::<C>(popped.va, next, popped.level);
         assert(self@.align_up_spec(page_size(self.level))
             == popped@.align_up_spec(page_size(popped.level)));
     }

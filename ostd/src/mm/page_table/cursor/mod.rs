@@ -2980,7 +2980,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         self.0.move_forward();
 
         proof {
-            owner2.va_view().aligned_align_up_advances(level as int);
+            lemma_page_size_ge_page_size(level);
+            lemma_nat_align_down_sound(owner2.va as nat, page_size(level) as nat);
         }
 
         proof {
