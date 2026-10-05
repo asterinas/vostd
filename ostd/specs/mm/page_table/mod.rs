@@ -1,6 +1,7 @@
 #![allow(hidden_glob_reexports)]
 
 pub mod cursor;
+pub mod flat_owners;
 pub mod mapping_set_lemmas;
 pub mod node;
 mod owners;
@@ -23,6 +24,7 @@ use crate::mm::{
 use align_ext::AlignExt;
 use core::ops::Range;
 pub use cursor::*;
+pub use flat_owners::*;
 pub use node::*;
 pub use owners::*;
 pub use view::*;

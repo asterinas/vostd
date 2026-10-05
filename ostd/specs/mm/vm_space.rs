@@ -7,8 +7,8 @@ use crate::specs::{
         frame::meta_region_owners::MetaRegionOwners,
         io::{VmIoMemView, VmIoOwner},
         page_table::{
-            Mapping, OwnerSubtree,
-            cursor::{CursorView, owners::CursorOwner},
+            FlatCursorOwner, FlatPageTableOwner, Mapping,
+            cursor::CursorView,
             node::entry_owners::EntryOwner,
         },
         virt_mem::MemView,
@@ -77,7 +77,7 @@ pub tracked struct VmIoPermission {
 ///    active list via [`Self::remove_reader`] and [`Self::remove_writer`].
 pub tracked struct VmSpaceOwner {
     /// The owner of the page table of this VM space.
-    pub page_table_owner: OwnerSubtree<UserPtConfig>,
+    pub page_table_owner: FlatPageTableOwner<UserPtConfig>,
     /// Whether this VM space is currently active.
     pub active: bool,
     /// Active readers for this VM space.
@@ -100,7 +100,7 @@ impl<'a> Inv for VmSpaceOwner {
     /// regarding memory access permissions and overlapping ranges.
     ///
     /// # Invariants
-    /// 1. **Recursion**: The underlying `page_table_owner` must satisfy its own invariant.
+    /// 1. **Page-table ownership**: The authoritative flat page-table store must satisfy its invariant.
     /// 2. **Finiteness**: The sets of readers and writers must be finite.
     /// 3. **Active State Consistency**: If the VM space is marked as `active`:
     ///    - **ID Separation**: A handle ID cannot be both a reader and a writer simultaneously.
@@ -709,9 +709,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
-    pub open spec fn map_cursor_requires(
+    pub open spec fn map_cursor_requires<'owner>(
         self,
-        cursor_owner: CursorOwner<'a, UserPtConfig>,
+        cursor_owner: FlatCursorOwner<'owner, 'a, UserPtConfig>,
     ) -> bool {
         &&& cursor_owner.in_locked_range()
         &&& self.pt_cursor.0.level < self.pt_cursor.0.guard_level

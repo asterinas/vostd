@@ -1043,10 +1043,10 @@ impl PageTable<KernelPtConfig> {
             root_ref.lock(preempt_guard)
         };
         let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
-        let mut new_node: PageTableGuard<'rcu, UserPtConfig> = {
+        let mut new_node = {
             let new_ref = new_root.borrow();
             #[verus_spec(with Tracked(&new_node_owner), Tracked(guards))]
-            new_ref.lock(preempt_guard)
+            new_ref.lock(&*preempt_guard)
         };
         proof {
             let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
@@ -1199,7 +1199,9 @@ impl PageTable<KernelPtConfig> {
             #[verus_spec(with Tracked(root_owner), Tracked(entry_owner), Tracked(&*regions))]
             let root_entry = root_node.entry(i);
             let ghost pre_to_ref_regions: MetaRegionOwners = *regions;
-            #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions))]
+            let tracked child_owner = entry_owner.tracked_borrow_node();
+            #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions),
+                Tracked(entry_owner.tracked_borrow_node_permission()))]
             let child = root_entry.to_ref();
 
             proof {
@@ -1284,6 +1286,26 @@ impl PageTable<KernelPtConfig> {
 
 #[verus_verify]
 impl<C: PageTableConfig> PageTable<C> {
+    /// Relates the executable root handle to the flat ownership store.  Raw
+    /// children obtain their metadata permissions from the flat map; the root
+    /// deliberately uses the permission already carried by its live `Frame`.
+    pub open spec fn relates_flat_owner(
+        &self,
+        owner: FlatPageTableOwner<C>,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        &&& owner.inv()
+        &&& owner.metaregion_sound(regions)
+        &&& self.root.inv()
+        &&& self.root.start_paddr_spec() == owner.root
+        &&& self.root.ptr.addr() == owner.node(owner.root).node.slot_vaddr()
+        &&& owner.node(owner.root).node.permission_matches(self.root.frac_metadata_perm())
+        &&& owner.node(owner.root).node.metaregion_sound(
+            self.root.frac_metadata_perm(),
+            regions,
+        )
+    }
+
     /// Relates this executable page-table handle to its tracked ownership tree.
     pub open spec fn relates_owner(
         &self,
