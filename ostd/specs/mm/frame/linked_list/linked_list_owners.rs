@@ -1,8 +1,9 @@
 use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, simple_pptr::*};
+use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
-    typing::tagged::ByteRepr,
+    typing::tagged::{ByteRepr, ByteSized},
 };
 
 use crate::specs::{
@@ -57,6 +58,92 @@ pub struct StoredLink {
     pub prev: Option<Paddr>,
     pub slot: [u8; LINK_INNER_SIZE],
 }
+
+// ---------------------------------------------------------------------------
+// `StoredLink`'s representation
+// ---------------------------------------------------------------------------
+//
+// An encoding, a decoding, and the round-trip law relating them, beside the type
+// they are about. Encode and decode are left *uninterpreted*: a concrete byte
+// layout is a fact about the type's representation, not about the storage
+// machinery, and naming them without defining them is what keeps the round trip
+// the only thing consumers may assume.
+//
+// Here rather than in `meta_owners` because the slot's world is open -- a type is
+// storable iff it has a `ByteRepr<META_STORAGE_SIZE>`, so a representation is a
+// property of its own type and needs no entry in a central list. The encoding is
+// not onto and does not claim to be: `StoredLink` is strictly smaller than the
+// slot, so the slack bytes are unconstrained.
+
+pub uninterp spec fn frame_link_encode(v: StoredLink) -> [u8; META_STORAGE_SIZE];
+
+pub uninterp spec fn frame_link_decode(b: [u8; META_STORAGE_SIZE]) -> Result<StoredLink, ()>;
+
+/// Decoding recovers what encoding produced.
+///
+/// Axiomatized: the representation obligation a stored type discharges from its
+/// layout, which Verus does not derive for user structs.
+#[verifier::external_body]
+pub broadcast proof fn axiom_frame_link_round_trip(v: StoredLink)
+    ensures
+        #[trigger] frame_link_decode(frame_link_encode(v)) == Ok(v),
+{
+}
+
+impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredLink {
+    type Error = ();
+
+    #[verifier::external_body]
+    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
+impl TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        frame_link_decode(b)
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<[u8; META_STORAGE_SIZE]> for StoredLink {
+    #[verifier::external_body]
+    fn into(self) -> [u8; META_STORAGE_SIZE] {
+        unimplemented!()
+    }
+}
+
+impl IntoSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
+    open spec fn obeys_into_spec() -> bool {
+        true
+    }
+
+    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
+        frame_link_encode(self)
+    }
+}
+
+impl ByteSized<{ META_STORAGE_SIZE }> for StoredLink {
+    /// Axiomatized: a layout fact. Upstream's `impl_frame_meta_for!` asserts the
+    /// same inequality with a `const` check.
+    #[verifier::external_body]
+    proof fn size_correct() {
+    }
+}
+
+impl ByteRepr<{ META_STORAGE_SIZE }> for StoredLink {
+    proof fn round_trip(self) {
+        broadcast use axiom_frame_link_round_trip;
+    }
+
+    proof fn obeys() {
+    }
+}
+
 
 /// The ghost pointers a link's stored addresses correspond to.
 ///

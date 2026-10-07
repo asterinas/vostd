@@ -265,40 +265,18 @@ pub unsafe trait AnyFrameMeta:   /*Any +*/
 
     /// Whether this metadata describes an untyped frame, at the spec level.
     ///
-    /// The counterpart to [`Self::is_untyped`], and the reason it exists: without
-    /// it, untypedness is observable only as a runtime `bool` and so cannot appear
-    /// in any specification. Nothing could state what
-    /// `TryFrom<Segment<dyn AnyFrameMeta>> for USegment` establishes, which is the
-    /// whole content of that conversion.
-    ///
-    /// Deliberately *not* `where Self: Sized` -- like [`Self::meta_id`], this has to
-    /// survive erasure, since the segment downcast observes it through
-    /// `&dyn AnyFrameMeta`.
-    ///
-    /// Defaulted, like [`Self::on_drop_pre`], and for a reason that is not just
-    /// convenience: [`Self::is_untyped`] has a default body, and Verus checks that
-    /// body against *this* function. Left bodiless it would be abstract there, so
-    /// `res == self.is_untyped_spec()` would be unprovable -- and the inherited-body
-    /// call redirection panics outright (`vir/src/traits.rs`). With a default here,
-    /// each impl's inherited copy resolves to whichever version that impl has, so
-    /// an impl that overrides one of the pair must override the other to agree.
+    /// Not `where Self: Sized`: the segment downcast observes it through
+    /// `&dyn AnyFrameMeta`. Defaulted so [`Self::is_untyped`]'s default body can be
+    /// checked against it, which means an impl overriding either must override both.
     open spec fn is_untyped_spec(&self) -> bool {
         false
     }
 
     /// The runtime answer is *sound* with respect to the spec one.
     ///
-    /// Stated on the trait rather than per impl so a caller holding only
-    /// `&dyn AnyFrameMeta` can rely on it.
-    ///
-    /// An implication, not an equality, and the asymmetry is forced rather than
-    /// chosen. Verus checks the default body below once, generically, where
-    /// `Self::is_untyped_spec` is abstract -- so `res == self.is_untyped_spec()`
-    /// is unprovable there, and equally unprovable in an impl that overrides this
-    /// method while inheriting the spec default. `res ==> ...` is provable in both
-    /// positions from `res == false`, needs no impl to say anything, and is the
-    /// direction every caller uses: the segment downcast only has to justify the
-    /// `Ok` branch, since the `false` branch hands the input back untouched.
+    /// An implication, not an equality: Verus checks the default body below
+    /// generically, where `is_untyped_spec` is abstract. It is also the only
+    /// direction callers need -- a `false` answer hands the input back untouched.
     fn is_untyped(&self) -> (res: bool)
         ensures
             res ==> self.is_untyped_spec(),
@@ -449,31 +427,16 @@ pub fn vtable_ptr_of<M: AnyFrameMeta>(m: &M) -> (r: usize)
 
 /// Reads whether the metadata a slot holds describes untyped memory.
 ///
-/// The erasure-tolerant form of [`AnyFrameMeta::is_untyped`], and the exec step
-/// the segment downcast turns on. Takes a *borrowed* permission, which is the
-/// whole reason it exists as a free function rather than going through
-/// [`Frame::dyn_meta`]: a segment being downcast must hand its permissions to
-/// the result, so it cannot spare an owned `FrameRawPerms` for the
-/// `Frame::from_raw` that upstream's `try_from` reconstructs.
+/// Takes a *borrowed* permission: a segment being downcast hands its permissions
+/// to the result, so it cannot spare the owned `FrameRawPerms` that
+/// [`Frame::dyn_meta`] would need. Sound rather than exact, matching
+/// [`AnyFrameMeta::is_untyped`].
 ///
-/// The returned `bool` is only *sound*, not exact -- `r ==> ...` rather than
-/// `r == ...` -- matching [`AnyFrameMeta::is_untyped`]'s own contract and for the
-/// same reason given there. It is also all a downcast needs: the `false` branch
-/// returns its input untouched and so has nothing to prove.
-///
-/// Trusted, and what it rests on: the slot's recorded vtable word (written by
-/// [`MetaSlot::write_meta`], from [`vtable_ptr_of`]) reconstitutes the
-/// `&dyn AnyFrameMeta` whose `is_untyped` would be called, that call's own
-/// postcondition gives `is_untyped_spec`, and
-/// [`axiom_untyped_recorded_by_id`] carries that to the recorded identity. Every
-/// link but the first is proved; the first is the same fat-pointer step
-/// [`vtable_ptr_of`] takes in the opposite direction.
-///
-/// Unimplemented, like its neighbours [`MetaSlot::dyn_meta_ptr`] and
-/// [`Frame::dyn_meta`]: this fork models slot metadata as a `MetaSlotStorage`
-/// rather than a real trait object, so there is no `&dyn` here to dispatch on.
-/// The address parameter is carried, and tied to the permission, so that the
-/// body can be written the moment there is.
+/// Trusted, and unimplemented like [`MetaSlot::dyn_meta_ptr`] and
+/// [`Frame::dyn_meta`] -- this fork models slot metadata as a `MetaSlotStorage`
+/// rather than a trait object, so there is no `&dyn` to dispatch on. The address
+/// is carried, and tied to the permission, so the body can be written when
+/// there is.
 #[cfg(feature = "type_id")]
 #[verifier::external_body]
 pub fn is_untyped_at(
