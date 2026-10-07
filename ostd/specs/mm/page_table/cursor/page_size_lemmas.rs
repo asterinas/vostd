@@ -3,7 +3,7 @@ use vstd::prelude::*;
 use crate::specs::arch::*;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::{nr_subpage_per_huge, page_size, Paddr, PagingLevel, Vaddr, KERNEL_VADDR_RANGE};
+use crate::mm::{KERNEL_VADDR_RANGE, Paddr, PagingLevel, Vaddr, nr_subpage_per_huge, page_size};
 
 verus! {
 

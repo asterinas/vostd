@@ -9,17 +9,20 @@ mod view;
 
 use vstd::{
     arithmetic::{
-        div_mod::{lemma_div_denominator, lemma_fundamental_div_mod, lemma_fundamental_div_mod_converse},
+        div_mod::{
+            lemma_div_denominator, lemma_fundamental_div_mod, lemma_fundamental_div_mod_converse,
+        },
         mul::{lemma_mul_inequality, lemma_mul_is_distributive_sub},
         power2::{lemma_pow2_adds, lemma_pow2_pos, lemma2_to64, lemma2_to64_rest, pow2},
     },
-    bits::{lemma_usize_low_bits_mask_is_mod, lemma_usize_pow2_no_overflow, lemma_usize_shr_is_div},
+    bits::{
+        lemma_usize_low_bits_mask_is_mod, lemma_usize_pow2_no_overflow, lemma_usize_shr_is_div,
+    },
     prelude::*,
     std_specs::range::RangeInclusiveView,
 };
 use vstd_extra::{
-    arithmetic::*, external::ilog2::lemma_usize_is_pow2_is_ilog2_pow2,
-    ownership::*, prelude::*,
+    arithmetic::*, external::ilog2::lemma_usize_is_pow2_is_ilog2_pow2, ownership::*, prelude::*,
 };
 
 use crate::specs::arch::*;
@@ -50,9 +53,7 @@ pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLe
 /// Page size at `level`, derived entirely from the selected paging constants.
 #[verifier::inline]
 pub open spec fn page_size_for_level_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
-    (C::BASE_PAGE_SIZE() * pow2(
-        (nr_pte_index_bits_spec::<C>() * (level - 1)) as nat,
-    )) as usize
+    (C::BASE_PAGE_SIZE() * pow2((nr_pte_index_bits_spec::<C>() * (level - 1)) as nat)) as usize
 }
 
 /// A configured page size is the power of two at that level's index-bit offset.
@@ -61,10 +62,11 @@ pub proof fn lemma_page_size_for_level_is_pow2<C: PagingConstsTrait>(level: Pagi
         1 <= level <= C::NR_LEVELS() + 1,
     ensures
         pte_index_bit_offset_spec::<C>(level) < usize::BITS,
-        pte_index_bit_offset_spec::<C>(level)
-            == C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1),
-        0 < page_size_for_level_spec::<C>(level)
-            == pow2(pte_index_bit_offset_spec::<C>(level) as nat),
+        pte_index_bit_offset_spec::<C>(level) == C::BASE_PAGE_SIZE().ilog2()
+            + nr_pte_index_bits_spec::<C>() * (level - 1),
+        0 < page_size_for_level_spec::<C>(level) == pow2(
+            pte_index_bit_offset_spec::<C>(level) as nat,
+        ),
 {
     C::lemma_paging_consts_properties();
     let bits = nr_pte_index_bits_spec::<C>();
@@ -74,8 +76,8 @@ pub proof fn lemma_page_size_for_level_is_pow2<C: PagingConstsTrait>(level: Pagi
     assert(bits == (C::BASE_PAGE_SIZE() / C::PTE_SIZE()).ilog2());
     lemma_mul_inequality(level - 1, C::NR_LEVELS() as int, bits as int);
     assert(C::BASE_PAGE_SIZE().ilog2() + bits * (level - 1) <= C::ADDRESS_WIDTH());
-    assert(pte_index_bit_offset_spec::<C>(level)
-        == C::BASE_PAGE_SIZE().ilog2() + bits * (level - 1));
+    assert(pte_index_bit_offset_spec::<C>(level) == C::BASE_PAGE_SIZE().ilog2() + bits * (level
+        - 1));
     lemma_pow2_adds(C::BASE_PAGE_SIZE().ilog2() as nat, (bits * (level - 1)) as nat);
     lemma_usize_pow2_no_overflow(pte_index_bit_offset_spec::<C>(level) as nat);
 }
@@ -85,10 +87,12 @@ pub proof fn lemma_page_size_for_level_next<C: PagingConstsTrait>(level: PagingL
     requires
         1 <= level <= C::NR_LEVELS(),
     ensures
-        page_size_for_level_spec::<C>((level + 1) as PagingLevel)
-            == page_size_for_level_spec::<C>(level) * nr_subpage_per_huge::<C>(),
-        0 < page_size_for_level_spec::<C>(level)
-            <= page_size_for_level_spec::<C>((level + 1) as PagingLevel),
+        page_size_for_level_spec::<C>((level + 1) as PagingLevel) == page_size_for_level_spec::<C>(
+            level,
+        ) * nr_subpage_per_huge::<C>(),
+        0 < page_size_for_level_spec::<C>(level) <= page_size_for_level_spec::<C>(
+            (level + 1) as PagingLevel,
+        ),
 {
     C::lemma_paging_consts_properties();
     lemma_page_size_for_level_is_pow2::<C>(level);
@@ -100,14 +104,20 @@ pub proof fn lemma_page_size_for_level_next<C: PagingConstsTrait>(level: PagingL
         == pte_index_bit_offset_spec::<C>(level) + bits);
     lemma_pow2_adds(pte_index_bit_offset_spec::<C>(level) as nat, bits as nat);
     vstd::arithmetic::mul::lemma_mul_left_inequality(
-        page_size_for_level_spec::<C>(level) as int, 1, nr_subpage_per_huge::<C>() as int,
+        page_size_for_level_spec::<C>(level) as int,
+        1,
+        nr_subpage_per_huge::<C>() as int,
     );
     vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(level) as int);
 }
 
 /// Configured page sizes divide the sizes of all higher-level slots.
-pub proof fn lemma_page_size_for_level_divides<C: PagingConstsTrait>(small: PagingLevel, large: PagingLevel)
-    requires 1 <= small <= large <= C::NR_LEVELS() + 1,
+pub proof fn lemma_page_size_for_level_divides<C: PagingConstsTrait>(
+    small: PagingLevel,
+    large: PagingLevel,
+)
+    requires
+        1 <= small <= large <= C::NR_LEVELS() + 1,
     ensures
         0 < page_size_for_level_spec::<C>(small) <= page_size_for_level_spec::<C>(large),
         page_size_for_level_spec::<C>(large) % page_size_for_level_spec::<C>(small) == 0,
@@ -132,9 +142,7 @@ pub proof fn lemma_page_size_for_level_divides<C: PagingConstsTrait>(small: Pagi
 }
 
 /// Temporary bridge to the architecture-global `page_size` helper used by the executable code.
-pub proof fn lemma_page_size_for_level_matches_page_size<C: PagingConstsTrait>(
-    level: PagingLevel,
-)
+pub proof fn lemma_page_size_for_level_matches_page_size<C: PagingConstsTrait>(level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS() + 1,
     ensures
@@ -158,8 +166,8 @@ pub proof fn lemma_pte_index_spec_is_div_mod<C: PagingConstsTrait>(va: Vaddr, le
     requires
         1 <= level <= C::NR_LEVELS(),
     ensures
-        pte_index_spec::<C>(va, level)
-            == (va / page_size_for_level_spec::<C>(level)) % nr_subpage_per_huge::<C>(),
+        pte_index_spec::<C>(va, level) == (va / page_size_for_level_spec::<C>(level))
+            % nr_subpage_per_huge::<C>(),
 {
     C::lemma_paging_consts_properties();
     lemma_page_size_for_level_is_pow2::<C>(level);
@@ -167,27 +175,28 @@ pub proof fn lemma_pte_index_spec_is_div_mod<C: PagingConstsTrait>(va: Vaddr, le
     lemma_mul_inequality(1, C::NR_LEVELS() as int, bits as int);
     lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
     lemma_usize_shr_is_div(va, pte_index_bit_offset_spec::<C>(level));
-    lemma_usize_low_bits_mask_is_mod(
-        va >> pte_index_bit_offset_spec::<C>(level),
-        bits as nat,
-    );
+    lemma_usize_low_bits_mask_is_mod(va >> pte_index_bit_offset_spec::<C>(level), bits as nat);
 }
 
 /// Every extracted index is in the configured fanout.
 pub proof fn lemma_pte_index_bound<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel)
-    requires 1 <= level <= C::NR_LEVELS(),
-    ensures pte_index_spec::<C>(va, level) < nr_subpage_per_huge::<C>(),
+    requires
+        1 <= level <= C::NR_LEVELS(),
+    ensures
+        pte_index_spec::<C>(va, level) < nr_subpage_per_huge::<C>(),
 {
     lemma_pte_index_spec_is_div_mod::<C>(va, level);
     C::lemma_paging_consts_properties();
     vstd::arithmetic::div_mod::lemma_mod_bound(
-        va as int / page_size_for_level_spec::<C>(level) as int, nr_subpage_per_huge::<C>() as int,
+        va as int / page_size_for_level_spec::<C>(level) as int,
+        nr_subpage_per_huge::<C>() as int,
     );
 }
 
 /// The first configured level has the base-page size.
 pub proof fn lemma_page_size_for_level_base<C: PagingConstsTrait>()
-    ensures page_size_for_level_spec::<C>(1) == C::BASE_PAGE_SIZE(),
+    ensures
+        page_size_for_level_spec::<C>(1) == C::BASE_PAGE_SIZE(),
 {
     reveal(vstd::arithmetic::power::pow);
     vstd::arithmetic::power2::lemma_pow2(0);
@@ -202,7 +211,8 @@ pub proof fn lemma_lower_indices_aligned<C: PagingConstsTrait>(va: Vaddr, level:
         1 <= level <= C::NR_LEVELS() + 1,
         va % C::BASE_PAGE_SIZE() == 0,
         forall|i: int| 1 <= i < level ==> #[trigger] pte_index_spec::<C>(va, i as PagingLevel) == 0,
-    ensures va % page_size_for_level_spec::<C>(level) == 0,
+    ensures
+        va % page_size_for_level_spec::<C>(level) == 0,
     decreases level,
 {
     C::lemma_paging_consts_properties();
@@ -214,7 +224,9 @@ pub proof fn lemma_lower_indices_aligned<C: PagingConstsTrait>(va: Vaddr, level:
         lemma_pte_index_spec_is_div_mod::<C>(va, lower);
         assert(pte_index_spec::<C>(va, lower) == 0);
         vstd::arithmetic::div_mod::lemma_mod_breakdown(
-            va as int, page_size_for_level_spec::<C>(lower) as int, nr_subpage_per_huge::<C>() as int,
+            va as int,
+            page_size_for_level_spec::<C>(lower) as int,
+            nr_subpage_per_huge::<C>() as int,
         );
         vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(lower) as int);
         assert(va % page_size_for_level_spec::<C>(level) == 0);
@@ -245,9 +257,12 @@ pub proof fn lemma_aligned_indices_zero<C: PagingConstsTrait>(va: Vaddr, level: 
         vstd::arithmetic::div_mod::lemma_mod_breakdown(va as int, size, fanout);
         vstd::arithmetic::div_mod::lemma_mod_bound(va as int / size, fanout);
         assert(pte_index_spec::<C>(va, lower) == 0) by (nonlinear_arith)
-            requires size > 0, 0 <= va as int / size % fanout,
+            requires
+                size > 0,
+                0 <= va as int / size % fanout,
                 size * (va as int / size % fanout) == 0,
-                pte_index_spec::<C>(va, lower) == va as int / size % fanout;
+                pte_index_spec::<C>(va, lower) == va as int / size % fanout,
+        ;
         lemma_aligned_indices_zero::<C>(va, lower);
     } else {
         assert(page_size_for_level_spec::<C>(level) == C::BASE_PAGE_SIZE());
@@ -259,11 +274,15 @@ pub proof fn lemma_aligned_vaddr_slack<C: PagingConstsTrait>(va: Vaddr, level: P
     requires
         1 <= level <= C::NR_LEVELS() + 1,
         va % page_size_for_level_spec::<C>(level) == 0,
-    ensures va + page_size_for_level_spec::<C>(level) <= usize::MAX + 1,
+    ensures
+        va + page_size_for_level_spec::<C>(level) <= usize::MAX + 1,
 {
     lemma_page_size_for_level_is_pow2::<C>(level);
     let size = page_size_for_level_spec::<C>(level);
-    vstd::bits::lemma_usize_low_bits_mask_is_mod(usize::MAX, pte_index_bit_offset_spec::<C>(level) as nat);
+    vstd::bits::lemma_usize_low_bits_mask_is_mod(
+        usize::MAX,
+        pte_index_bit_offset_spec::<C>(level) as nat,
+    );
     vstd::bits::lemma_low_bits_mask_values();
     assert(usize::MAX & ((size - 1) as usize) == (size - 1) as usize) by (bit_vector);
     assert(usize::MAX % size == size - 1);
@@ -271,14 +290,17 @@ pub proof fn lemma_aligned_vaddr_slack<C: PagingConstsTrait>(va: Vaddr, level: P
     lemma_fundamental_div_mod(usize::MAX as int, size as int);
     vstd::arithmetic::div_mod::lemma_div_is_ordered(va as int, usize::MAX as int, size as int);
     vstd::arithmetic::mul::lemma_mul_inequality(
-        va as int / size as int, usize::MAX as int / size as int, size as int,
+        va as int / size as int,
+        usize::MAX as int / size as int,
+        size as int,
     );
     assert(va + size <= usize::MAX + 1) by (nonlinear_arith)
         requires
             va == (size as int) * (va as int / size as int),
             usize::MAX == (size as int) * (usize::MAX as int / size as int) + size - 1,
             0 < size,
-            va as int / size as int <= usize::MAX as int / size as int;
+            va as int / size as int <= usize::MAX as int / size as int,
+    ;
 }
 
 /// At the next aligned boundary, a terminal index carries into the parent slot.
@@ -298,8 +320,8 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
             &&& pte_index_spec::<C>(va, level) + 1 == nr_subpage_per_huge::<C>()
             &&& next % page_size_for_level_spec::<C>((level + 1) as PagingLevel) == 0
         },
-        pte_index_spec::<C>(next, level) != 0
-            ==> pte_index_spec::<C>(va, level) + 1 < nr_subpage_per_huge::<C>(),
+        pte_index_spec::<C>(next, level) != 0 ==> pte_index_spec::<C>(va, level) + 1
+            < nr_subpage_per_huge::<C>(),
 {
     C::lemma_paging_consts_properties();
     lemma_pte_index_spec_is_div_mod::<C>(va, level);
@@ -333,8 +355,9 @@ pub open spec fn vaddr_with_pte_index_spec<C: PagingConstsTrait>(
     level: PagingLevel,
     index: int,
 ) -> Vaddr {
-    (va as int + (index - pte_index_spec::<C>(va, level))
-        * page_size_for_level_spec::<C>(level)) as Vaddr
+    (va as int + (index - pte_index_spec::<C>(va, level)) * page_size_for_level_spec::<C>(
+        level,
+    )) as Vaddr
 }
 
 /// Width of the complete page-table-address body, including the in-page offset and every
@@ -418,8 +441,10 @@ pub proof fn lemma_same_node_pte_indices_match<C: PagingConstsTrait>(
         va2 < node_start + page_size_for_level_spec::<C>((level + 1) as PagingLevel),
         node_start as nat % page_size_for_level_spec::<C>((level + 1) as PagingLevel) as nat == 0,
     ensures
-        pte_index_spec::<C>(va1, (level + 1) as PagingLevel)
-            == pte_index_spec::<C>(va2, (level + 1) as PagingLevel),
+        pte_index_spec::<C>(va1, (level + 1) as PagingLevel) == pte_index_spec::<C>(
+            va2,
+            (level + 1) as PagingLevel,
+        ),
         forall|i: int|
             level <= i < C::NR_LEVELS() ==> (#[trigger] pte_index_spec::<C>(
                 va1,
@@ -432,26 +457,22 @@ pub proof fn lemma_same_node_pte_indices_match<C: PagingConstsTrait>(
     let small = page_size_for_level_spec::<C>(small_level) as int;
     let quotient = node_start as int / small;
     lemma_fundamental_div_mod(node_start as int, small);
-    lemma_fundamental_div_mod_converse(
-        va1 as int, small, quotient, va1 - node_start,
-    );
-    lemma_fundamental_div_mod_converse(
-        va2 as int, small, quotient, va2 - node_start,
-    );
+    lemma_fundamental_div_mod_converse(va1 as int, small, quotient, va1 - node_start);
+    lemma_fundamental_div_mod_converse(va2 as int, small, quotient, va2 - node_start);
     lemma_pte_index_spec_is_div_mod::<C>(va1, small_level);
     lemma_pte_index_spec_is_div_mod::<C>(va2, small_level);
 
     assert forall|i: int| level <= i < C::NR_LEVELS() implies (#[trigger] pte_index_spec::<C>(
-        va1, (i + 1) as PagingLevel,
+        va1,
+        (i + 1) as PagingLevel,
     )) == pte_index_spec::<C>(va2, (i + 1) as PagingLevel) by {
         let large_level = (i + 1) as PagingLevel;
         lemma_page_size_for_level_is_pow2::<C>(large_level);
         let delta = (nr_pte_index_bits_spec::<C>() * (i - level)) as nat;
-        lemma_mul_is_distributive_sub(
-            nr_pte_index_bits_spec::<C>() as int, i, level as int,
-        );
-        assert(pte_index_bit_offset_spec::<C>(large_level)
-            == pte_index_bit_offset_spec::<C>(small_level) + delta);
+        lemma_mul_is_distributive_sub(nr_pte_index_bits_spec::<C>() as int, i, level as int);
+        assert(pte_index_bit_offset_spec::<C>(large_level) == pte_index_bit_offset_spec::<C>(
+            small_level,
+        ) + delta);
         lemma_pow2_adds(pte_index_bit_offset_spec::<C>(small_level) as nat, delta);
         lemma_pow2_pos(delta);
         let ratio = pow2(delta) as int;
@@ -489,18 +510,15 @@ pub proof fn lemma_same_node_vaddr_upper_bits_match<C: PagingConstsTrait>(
     let small = page_size_for_level_spec::<C>(small_level) as int;
     let quotient = node_start as int / small;
     lemma_fundamental_div_mod(node_start as int, small);
-    lemma_fundamental_div_mod_converse(
-        va1 as int, small, quotient, va1 - node_start,
-    );
-    lemma_fundamental_div_mod_converse(
-        va2 as int, small, quotient, va2 - node_start,
-    );
+    lemma_fundamental_div_mod_converse(va1 as int, small, quotient, va1 - node_start);
+    lemma_fundamental_div_mod_converse(va2 as int, small, quotient, va2 - node_start);
     let delta = (nr_pte_index_bits_spec::<C>() * (C::NR_LEVELS() - level)) as nat;
     lemma_mul_is_distributive_sub(
-        nr_pte_index_bits_spec::<C>() as int, C::NR_LEVELS() as int, level as int,
+        nr_pte_index_bits_spec::<C>() as int,
+        C::NR_LEVELS() as int,
+        level as int,
     );
-    assert(paging_body_width_spec::<C>()
-        == pte_index_bit_offset_spec::<C>(small_level) + delta);
+    assert(paging_body_width_spec::<C>() == pte_index_bit_offset_spec::<C>(small_level) + delta);
     lemma_pow2_adds(pte_index_bit_offset_spec::<C>(small_level) as nat, delta);
     lemma_pow2_pos(delta);
     let ratio = pow2(delta) as int;
@@ -513,9 +531,11 @@ pub proof fn lemma_same_node_vaddr_upper_bits_match<C: PagingConstsTrait>(
 
 /// Upper address bits contribute the aligned base of the complete paging body.
 pub proof fn lemma_vaddr_upper_base_spec<C: PagingConstsTrait>(va: Vaddr)
-    ensures vaddr_upper_base_spec::<C>(va) == nat_align_down(
-        va as nat, page_size_for_level_spec::<C>((C::NR_LEVELS() + 1) as PagingLevel) as nat,
-    ),
+    ensures
+        vaddr_upper_base_spec::<C>(va) == nat_align_down(
+            va as nat,
+            page_size_for_level_spec::<C>((C::NR_LEVELS() + 1) as PagingLevel) as nat,
+        ),
 {
     C::lemma_paging_consts_properties();
     let level = (C::NR_LEVELS() + 1) as PagingLevel;
@@ -523,19 +543,32 @@ pub proof fn lemma_vaddr_upper_base_spec<C: PagingConstsTrait>(va: Vaddr)
     lemma_usize_shr_is_div(va, paging_body_width_spec::<C>());
     lemma_fundamental_div_mod(va as int, page_size_for_level_spec::<C>(level) as int);
     vstd::arithmetic::mul::lemma_mul_is_commutative(
-        page_size_for_level_spec::<C>(level) as int, vaddr_upper_bits_spec::<C>(va) as int,
+        page_size_for_level_spec::<C>(level) as int,
+        vaddr_upper_bits_spec::<C>(va) as int,
     );
 }
 
 /// Aligning down preserves all indices at and above the slot and the upper address bits.
 pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel)
-    requires 1 <= level <= C::NR_LEVELS(),
+    requires
+        1 <= level <= C::NR_LEVELS(),
     ensures
-        ({ let aligned = nat_align_down(va as nat, page_size_for_level_spec::<C>(level) as nat) as Vaddr;
+        ({
+            let aligned = nat_align_down(
+                va as nat,
+                page_size_for_level_spec::<C>(level) as nat,
+            ) as Vaddr;
             &&& aligned % C::BASE_PAGE_SIZE() == 0
             &&& vaddr_upper_bits_spec::<C>(aligned) == vaddr_upper_bits_spec::<C>(va)
-            &&& forall|i: int| 1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(aligned, i as PagingLevel)
-                == if i < level { 0 } else { pte_index_spec::<C>(va, i as PagingLevel) }
+            &&& forall|i: int|
+                1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(
+                    aligned,
+                    i as PagingLevel,
+                ) == if i < level {
+                    0
+                } else {
+                    pte_index_spec::<C>(va, i as PagingLevel)
+                }
         }),
 {
     lemma_page_size_for_level_is_pow2::<C>(level);
@@ -545,12 +578,20 @@ pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: Pa
     lemma_aligned_indices_zero::<C>(aligned, level);
     lemma_same_node_pte_indices_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
     lemma_same_node_vaddr_upper_bits_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
-    assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(aligned, i as PagingLevel)
-        == if i < level { 0 } else { pte_index_spec::<C>(va, i as PagingLevel) } by {
+    assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
+        aligned,
+        i as PagingLevel,
+    ) == if i < level {
+        0
+    } else {
+        pte_index_spec::<C>(va, i as PagingLevel)
+    } by {
         if i >= level {
             assert((level - 1) < i);
-            assert(pte_index_spec::<C>(va, ((i - 1) + 1) as PagingLevel)
-                == pte_index_spec::<C>(aligned, ((i - 1) + 1) as PagingLevel));
+            assert(pte_index_spec::<C>(va, ((i - 1) + 1) as PagingLevel) == pte_index_spec::<C>(
+                aligned,
+                ((i - 1) + 1) as PagingLevel,
+            ));
         }
     };
 }
@@ -562,11 +603,17 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
         pte_index_spec::<C>(va, level) + 1 < nr_subpage_per_huge::<C>(),
     ensures
         va + page_size_for_level_spec::<C>(level) <= usize::MAX,
-        ({ let next = (va + page_size_for_level_spec::<C>(level)) as Vaddr;
+        ({
+            let next = (va + page_size_for_level_spec::<C>(level)) as Vaddr;
             &&& next % C::BASE_PAGE_SIZE() == va % C::BASE_PAGE_SIZE()
             &&& vaddr_upper_bits_spec::<C>(next) == vaddr_upper_bits_spec::<C>(va)
-            &&& forall|i: int| 1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(next, i as PagingLevel)
-                == pte_index_spec::<C>(va, i as PagingLevel) + if i == level { 1int } else { 0int }
+            &&& forall|i: int|
+                1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(next, i as PagingLevel)
+                    == pte_index_spec::<C>(va, i as PagingLevel) + if i == level {
+                    1int
+                } else {
+                    0int
+                }
         }),
 {
     C::lemma_paging_consts_properties();
@@ -588,9 +635,12 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
     lemma_fundamental_div_mod(va as int, parent_size);
     assert(va - start == va as int % parent_size);
     assert(va - start + size < parent_size) by (nonlinear_arith)
-        requires va - start == size * index + va as int % size,
-            0 <= va as int % size < size, index + 1 < fanout,
-            parent_size == size * fanout;
+        requires
+            va - start == size * index + va as int % size,
+            0 <= va as int % size < size,
+            index + 1 < fanout,
+            parent_size == size * fanout,
+    ;
     let next = (va + size) as Vaddr;
     lemma_fundamental_div_mod(va as int, size);
     vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size, va as int / size, 1);
@@ -608,8 +658,10 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
     vstd::arithmetic::div_mod::lemma_add_mod_noop(va as int, size, C::BASE_PAGE_SIZE() as int);
     vstd::arithmetic::div_mod::lemma_mod_twice(va as int, C::BASE_PAGE_SIZE() as int);
     assert(next % C::BASE_PAGE_SIZE() == va % C::BASE_PAGE_SIZE());
-    assert forall|i: int| 1 <= i < level implies #[trigger] pte_index_spec::<C>(next, i as PagingLevel)
-        == pte_index_spec::<C>(va, i as PagingLevel) by {
+    assert forall|i: int| 1 <= i < level implies #[trigger] pte_index_spec::<C>(
+        next,
+        i as PagingLevel,
+    ) == pte_index_spec::<C>(va, i as PagingLevel) by {
         let lower = i as PagingLevel;
         let parent = (i + 1) as PagingLevel;
         lemma_page_size_for_level_divides::<C>(parent, level);
@@ -627,15 +679,27 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
         lemma_pte_index_spec_is_div_mod::<C>(next, lower);
         assert(next as int % small == va as int % small);
         assert(small * pte_index_spec::<C>(next, lower) == small * pte_index_spec::<C>(va, lower));
-        assert(pte_index_spec::<C>(next, lower) == pte_index_spec::<C>(va, lower)) by (nonlinear_arith)
-            requires small > 0, small * pte_index_spec::<C>(next, lower) == small * pte_index_spec::<C>(va, lower);
+        assert(pte_index_spec::<C>(next, lower) == pte_index_spec::<C>(va, lower))
+            by (nonlinear_arith)
+            requires
+                small > 0,
+                small * pte_index_spec::<C>(next, lower) == small * pte_index_spec::<C>(va, lower),
+        ;
     };
-    assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(next, i as PagingLevel)
-        == pte_index_spec::<C>(va, i as PagingLevel) + if i == level { 1int } else { 0int } by {
+    assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
+        next,
+        i as PagingLevel,
+    ) == pte_index_spec::<C>(va, i as PagingLevel) + if i == level {
+        1int
+    } else {
+        0int
+    } by {
         if i > level {
             assert(level < C::NR_LEVELS());
-            assert(pte_index_spec::<C>(va, ((i - 1) + 1) as PagingLevel)
-                == pte_index_spec::<C>(next, ((i - 1) + 1) as PagingLevel));
+            assert(pte_index_spec::<C>(va, ((i - 1) + 1) as PagingLevel) == pte_index_spec::<C>(
+                next,
+                ((i - 1) + 1) as PagingLevel,
+            ));
         }
     };
 }

@@ -1,6 +1,9 @@
 //! Tree-predicate lifting, tree entry level constraints, and tree membership
 //! lemmas for `CursorContinuation` and `CursorOwner`.
-use vstd::{arithmetic::div_mod::{lemma_small_mod, lemma_sub_mod_noop}, prelude::*};
+use vstd::{
+    arithmetic::div_mod::{lemma_small_mod, lemma_sub_mod_noop},
+    prelude::*,
+};
 use vstd_extra::{arithmetic::lemma_nat_align_down_sound, ghost_tree::*, ownership::*};
 
 use crate::specs::{

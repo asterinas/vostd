@@ -8,7 +8,7 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    page_prop::PageProperty, page_table::*, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_table::*,
 };
 use core::ops::Range;
 

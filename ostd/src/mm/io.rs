@@ -42,18 +42,18 @@ use vstd::{arithmetic::power2::is_pow2, prelude::*, simple_pptr::*};
 use vstd_extra::{assert, ownership::Inv, panic::may_panic};
 
 pub use crate::specs::mm::io::{
-    axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner,
+    VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
 };
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
 use crate::error::*;
 use crate::{
-    mm::{
-        kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
-        MAX_USERSPACE_VADDR,
-    },
     Pod,
+    mm::{
+        MAX_USERSPACE_VADDR,
+        kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
+    },
 };
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -2125,7 +2125,7 @@ macro_rules! impl_read_fallible {
             }
         }
         } // verus!
-    };
+};
 }
 
 macro_rules! impl_write_fallible {
@@ -2168,7 +2168,7 @@ macro_rules! impl_write_fallible {
             }
         }
         } // verus!
-    };
+};
 }
 
 impl_read_fallible!(Fallible, Infallible);

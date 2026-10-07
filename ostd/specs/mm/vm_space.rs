@@ -7,9 +7,9 @@ use crate::specs::{
         frame::meta_region_owners::MetaRegionOwners,
         io::{VmIoMemView, VmIoOwner},
         page_table::{
-            cursor::{owners::CursorOwner, CursorView},
-            node::entry_owners::EntryOwner,
             Mapping, OwnerSubtree,
+            cursor::{CursorView, owners::CursorOwner},
+            node::entry_owners::EntryOwner,
         },
         virt_mem::MemView,
     },
@@ -18,13 +18,13 @@ use crate::specs::{
 
 use crate::arch::mm::current_page_table_paddr;
 use crate::mm::{
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::untyped::UFrame,
     io::{VmReader, VmWriter},
     page_prop::PageProperty,
     page_size,
     page_table::*,
     vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace},
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
 };
 use core::ops::Range;
 

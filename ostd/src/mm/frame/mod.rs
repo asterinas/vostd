@@ -74,16 +74,16 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::page_table::RCClone;
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::{
+    MAX_PADDR, Paddr, Vaddr,
     frame::meta::{
-        mapping::{frame_to_meta, meta_to_frame},
         META_SLOT_SIZE,
+        mapping::{frame_to_meta, meta_to_frame},
     },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
-    Paddr, Vaddr, MAX_PADDR,
 };
 pub use linked_list::{CursorMut, Link, LinkedList};
-use meta::{mapping, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
+use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
 pub use segment::Segment;
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};

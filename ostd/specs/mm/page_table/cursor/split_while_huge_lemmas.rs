@@ -3,12 +3,12 @@ use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
-    mm::page_table::{cursor::owners::*, owners::PageTableOwner, vaddr_range_spec, Mapping},
+    mm::page_table::{Mapping, cursor::owners::*, owners::PageTableOwner, vaddr_range_spec},
 };
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    page_prop::PageProperty, page_size, page_table::*, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,
 };
 
 verus! {

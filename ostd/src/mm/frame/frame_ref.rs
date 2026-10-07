@@ -16,11 +16,11 @@ use crate::specs::{
 };
 
 use super::{
-    meta::{AnyFrameMeta, MetaSlot},
     Frame,
+    meta::{AnyFrameMeta, MetaSlot},
 };
-use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::Paddr;
+use crate::mm::frame::meta::mapping::frame_to_meta;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 verus! {

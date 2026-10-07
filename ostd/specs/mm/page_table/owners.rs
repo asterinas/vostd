@@ -5,7 +5,10 @@ use vstd::{
         power2::pow2,
     },
     bits::lemma_usize_shr_is_div,
-    prelude::*, seq::*, seq_lib::*, set_lib::*,
+    prelude::*,
+    seq::*,
+    seq_lib::*,
+    set_lib::*,
 };
 use vstd_extra::{
     arithmetic::nat_align_down, drop_tracking::*, ghost_tree::*, ownership::*,
@@ -26,10 +29,10 @@ use crate::specs::{
 };
 
 use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     page_size,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
 };
 use core::ops::{Deref, Range};
 
@@ -225,8 +228,9 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.len() <= INC_LEVELS - 1,
     ensures
         vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
-        vaddr_of::<C>(path) == vaddr(path)
-            + C::LEADING_BITS_spec() as int * pow2(paging_body_width_spec::<C>() as nat),
+        vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * pow2(
+            paging_body_width_spec::<C>() as nat,
+        ),
 {
     C::lemma_page_table_config_constant_properties();
     C::lemma_paging_consts_properties();
@@ -238,15 +242,15 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
 }
 
 /// A path of concrete PTE indices identifies the aligned slot containing the address.
-pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(
-    path: TreePath<NR_ENTRIES>,
-    va: Vaddr,
-)
+pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, va: Vaddr)
     requires
         path.inv(),
         path.len() <= C::NR_LEVELS(),
-        forall|k: int| 0 <= k < path.len() ==> #[trigger] path[k]
-            == pte_index_spec::<C>(va, (C::NR_LEVELS() - k) as PagingLevel),
+        forall|k: int|
+            0 <= k < path.len() ==> #[trigger] path[k] == pte_index_spec::<C>(
+                va,
+                (C::NR_LEVELS() - k) as PagingLevel,
+            ),
     ensures
         vaddr(path) + vaddr_upper_base_spec::<C>(va) == nat_align_down(
             va as nat,

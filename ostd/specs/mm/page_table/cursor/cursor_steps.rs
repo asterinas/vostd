@@ -8,20 +8,21 @@ use vstd_extra::{
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS},
     mm::{
+        Guards, Mapping, MetaRegionOwners,
         frame::mapping::meta_to_index,
         page_table::{
             cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
             lemma_next_slot_pte_index, lemma_page_size_for_level_matches_page_size,
             lemma_page_size_for_level_next, lemma_pte_index_bound,
             node::EntryOwner,
-            owners::{OwnerSubtree, PageTableOwner, INC_LEVELS},
-            page_size_for_level_spec, pte_index_spec, },
-        Guards, Mapping, MetaRegionOwners,
+            owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
+            page_size_for_level_spec, pte_index_spec,
+        },
     },
 };
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::{page_size, page_table::*, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -208,10 +209,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).max_steps() < self.max_steps(),
     {
         C::lemma_paging_consts_properties();
-        lemma_pte_index_bound::<C>(
-            self.cur_va(),
-            (self.level - 1) as PagingLevel,
-        );
+        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         let new_self = self.push_level_owner(guard);
         let l = self.level as usize;
         let lm1 = (self.level - 1) as usize;
@@ -249,10 +247,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
         C::lemma_paging_consts_properties();
-        lemma_pte_index_bound::<C>(
-            self.cur_va(),
-            (self.level - 1) as PagingLevel,
-        );
+        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         broadcast use {
             CursorContinuation::group_lemmas,
             CursorOwner::group_lemmas,
@@ -311,10 +306,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).inv(),
     {
         C::lemma_paging_consts_properties();
-        lemma_pte_index_bound::<C>(
-            self.cur_va(),
-            (self.level - 1) as PagingLevel,
-        );
+        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         // locking-work: when self.level == self.guard_level, self.inv() does
         // not supply va.index[guard_level-1] == prefix.index[guard_level-1]
         // (the conjunct at owners.rs:481-482 requires strict level < guard_level).
@@ -406,10 +398,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).metaregion_sound(regions),
     {
         C::lemma_paging_consts_properties();
-        lemma_pte_index_bound::<C>(
-            self.cur_va(),
-            (self.level - 1) as PagingLevel,
-        );
+        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         reveal(CursorContinuation::map_children);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
@@ -545,10 +534,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             *final(self) == old(self).push_level_owner(guard),
     {
         C::lemma_paging_consts_properties();
-        lemma_pte_index_bound::<C>(
-            self.cur_va(),
-            (self.level - 1) as PagingLevel,
-        );
+        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         let ghost self0 = *self;
@@ -821,7 +807,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inc_and_zero_increases_va();
             return;
         }
-
         assert(self.level < NR_LEVELS);
         let popped = self.pop_level_owner().0;
         assert(self.move_forward_owner_spec().va == popped.move_forward_owner_spec().va);
@@ -849,8 +834,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_next_slot_pte_index::<C>(self.va, next, self.level);
         assert(pte_index_spec::<C>(next, self.level) == 0);
         lemma_next_slot_pte_index::<C>(popped.va, next, popped.level);
-        assert(self@.align_up_spec(page_size(self.level))
-            == popped@.align_up_spec(page_size(popped.level)));
+        assert(self@.align_up_spec(page_size(self.level)) == popped@.align_up_spec(
+            page_size(popped.level),
+        ));
     }
 
     /// After popping a level, the total view_mappings is preserved.

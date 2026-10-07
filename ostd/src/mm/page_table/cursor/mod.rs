@@ -1254,8 +1254,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(continuation.entry_own.node().level() > 1) by {
                             assert(cur_entry_fits_range == (cur_va == owner0.cur_va_range().start
                                 && owner0.cur_va_range().end <= end));
-                            assert(cur_va == owner0.cur_va()) by {
-                            };
+                            assert(cur_va == owner0.cur_va()) by {};
                             owner0.frame_not_fits_implies_level_gt_1(
                                 cur_entry_fits_range,
                                 cur_va,
@@ -1320,7 +1319,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         let old_level = owner_before_push.level;
                         let cont = owner_before_push.continuations[old_level - 1];
-                        let idx_below = pte_index_spec::<C>(owner_before_push.va, (old_level - 2 + 1) as PagingLevel) as usize;
+                        let idx_below = pte_index_spec::<C>(
+                            owner_before_push.va,
+                            (old_level - 2 + 1) as PagingLevel,
+                        ) as usize;
                         let (child_cont, _) = cont.make_cont(idx_below, split_child_ghost);
 
                         assert(child_cont.children == child_owner_children);
@@ -1626,7 +1628,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             if owner.level == NR_LEVELS {
                 owner0.lemma_in_locked_range_top_index_lt_top_end();
                 lemma_pte_index_bound::<C>(va, NR_LEVELS as PagingLevel);
-                assert(pte_index_spec::<C>(owner0.va, (NR_LEVELS - 1 + 1) as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end);
+                assert(pte_index_spec::<C>(owner0.va, (NR_LEVELS - 1 + 1) as PagingLevel)
+                    < C::TOP_LEVEL_INDEX_RANGE().end);
                 assert(owner.continuations[owner.level - 1].idx + 1
                     <= C::TOP_LEVEL_INDEX_RANGE().end);
             }
@@ -2548,8 +2551,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     }
                     let entry_idx = pte_index::<C>(self.0.va, self.0.level);
                     proof {
-                        assert(entry_idx
-                            == owner_pre_none.continuations[owner_pre_none.level - 1].idx);
+                        assert(entry_idx == owner_pre_none.continuations[owner_pre_none.level
+                            - 1].idx);
                     }
                     let ghost cur_path_guard = self.0.path[cur_level - 1]->0;
 
@@ -3473,8 +3476,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let va = self.0.va;
         let level = self.0.level;
 
-        assert(1 <= owner0.level <= NR_LEVELS && pte_index_spec::<C>(owner0.va, (owner0.level - 1 + 1) as PagingLevel)
-            == owner0.continuations[owner0.level - 1].idx && owner0.continuations[owner0.level
+        assert(1 <= owner0.level <= NR_LEVELS && pte_index_spec::<C>(
+            owner0.va,
+            (owner0.level - 1 + 1) as PagingLevel,
+        ) == owner0.continuations[owner0.level - 1].idx && owner0.continuations[owner0.level
             - 1].all_some() && owner0.continuations[owner0.level - 1].level() == owner0.level
             && self.0.path[level - 1] is Some) by {
             reveal(<CursorOwner as Inv>::inv);

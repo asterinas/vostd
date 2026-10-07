@@ -5,7 +5,7 @@ use crate::specs::mm::frame::{mapping::meta_to_index, meta_region_owners::MetaRe
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    frame::*, page_prop::PageProperty, page_table::*, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, frame::*, page_prop::PageProperty, page_table::*,
 };
 
 verus! {

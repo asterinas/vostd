@@ -22,10 +22,10 @@ use crate::specs::{
             mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
         },
         page_table::{
+            Mapping,
             cursor::owners::{CursorContinuation, CursorOwner},
             node::entry_owners::EntryOwner,
-            owners::{vaddr_of, OwnerSubtree, PageTableOwner},
-            Mapping,
+            owners::{OwnerSubtree, PageTableOwner, vaddr_of},
         },
     },
 };

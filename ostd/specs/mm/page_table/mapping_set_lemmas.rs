@@ -3,7 +3,7 @@ use vstd::{prelude::*, set_lib::*};
 use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 
 use super::view::Mapping;
-use crate::mm::{Vaddr, MAX_USERSPACE_VADDR};
+use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
 
 verus! {
 

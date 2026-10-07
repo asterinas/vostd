@@ -16,8 +16,8 @@ use crate::specs::{
         linked_list::linked_list_owners::*,
         mapping::{frame_to_index, group_page_meta, index_to_meta, meta_to_index},
         meta_owners::{
-            borrow_meta, borrow_meta_mut, typed_meta_value, typed_meta_wf, MetaSlotOwner,
-            MetaSlotStorage,
+            MetaSlotOwner, MetaSlotStorage, borrow_meta, borrow_meta_mut, typed_meta_value,
+            typed_meta_wf,
         },
         meta_region_owners::MetaRegionOwners,
         unique::UniqueFrameOwner,
@@ -25,14 +25,13 @@ use crate::specs::{
 };
 
 use super::{
-    mapping,
-    meta::{get_slot, AnyFrameMeta},
+    MetaSlot, mapping,
+    meta::{AnyFrameMeta, get_slot},
     unique::UniqueFrame,
-    MetaSlot,
 };
 use crate::mm::frame::meta::{
-    mapping::{frame_to_meta, meta_to_frame},
     META_SLOT_SIZE, REF_COUNT_UNIQUE,
+    mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::{

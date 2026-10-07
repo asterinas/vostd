@@ -5,7 +5,9 @@ use vstd::{
         power2::pow2,
     },
     bits::lemma_usize_shr_is_div,
-    prelude::*, seq_lib::*, set::lemma_set_contains_len,
+    prelude::*,
+    seq_lib::*,
+    set::lemma_set_contains_len,
 };
 use vstd_extra::{
     drop_tracking::*,
@@ -25,19 +27,19 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
+            Guards, Mapping,
             cursor::page_size_lemmas::{
                 lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
             },
-            lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
+            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
+            lemma_page_size_for_level_divides, lemma_page_size_for_level_is_pow2,
+            lemma_page_size_for_level_matches_page_size, lemma_page_size_for_level_next,
+            lemma_pte_index_bound, lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
+            lemma_vaddr_upper_base_spec,
             owners::*,
-            lemma_page_size_for_level_is_pow2, lemma_page_size_for_level_matches_page_size,
-            lemma_page_size_for_level_next, page_size_for_level_spec,
-            lemma_inc_slot_indices, lemma_lower_indices_aligned,
-            lemma_aligned_vaddr_slack, lemma_page_size_for_level_divides,
-            lemma_pte_index_bound, lemma_vaddr_upper_base_spec, vaddr_upper_base_spec,
-            vaddr_upper_bits_spec,
-            paging_body_width_spec, pte_index_bit_offset_spec, pte_index_spec, vaddr_range_spec,
-            vaddr_with_pte_index_spec, Guards, Mapping,
+            page_size_for_level_spec, paging_body_width_spec, pte_index_bit_offset_spec,
+            pte_index_spec, vaddr_range_spec, vaddr_upper_base_spec, vaddr_upper_bits_spec,
+            vaddr_with_pte_index_spec,
         },
     },
     task::InAtomicMode,
@@ -45,16 +47,16 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::{
-        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
         Frame,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     },
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::PageProperty,
     page_size,
     page_table::*,
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
 };
 use core::{marker::PhantomData, ops::Range};
 
@@ -648,7 +650,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The top-level index of the cursor's VA must be within the page table config's
         // managed range. This ensures cursors for UserPtConfig and KernelPtConfig operate
         // on disjoint portions of the virtual address space.
-        &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
+        &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
+            self.va,
+            (NR_LEVELS - 1 + 1) as PagingLevel,
+        )
         // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
         // sentinel meaning the cursor has been advanced past the very last in-range
         // top-level slot. In this state the cursor is `above_locked_range`.
@@ -687,12 +692,16 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 - 1].children[j].unwrap().value().is_absent())
         &&& self.prefix % C::BASE_PAGE_SIZE() == 0
         &&& forall|i: int|
-            1 <= i <= self.guard_level ==> #[trigger] pte_index_spec::<C>(self.prefix, i as PagingLevel)
+            1 <= i <= self.guard_level ==> #[trigger] pte_index_spec::<C>(
+                self.prefix,
+                i as PagingLevel,
+            )
                 == 0
             // The prefix's top-level index is within the configured page-table range.
             // This is established at construction (when prefix == va, which itself starts
             // strictly in-range) and preserved by all cursor operations (none touch prefix).
-        &&& pte_index_spec::<C>(self.prefix, (NR_LEVELS - 1 + 1) as PagingLevel) >= C::TOP_LEVEL_INDEX_RANGE().start
+        &&& pte_index_spec::<C>(self.prefix, (NR_LEVELS - 1 + 1) as PagingLevel)
+            >= C::TOP_LEVEL_INDEX_RANGE().start
         &&& pte_index_spec::<C>(self.prefix, (NR_LEVELS - 1 + 1) as PagingLevel)
             < C::TOP_LEVEL_INDEX_RANGE().end
         // Top-of-address-space sentinel reservation: none of our `PtConfig`s actually use
@@ -712,15 +721,18 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             <= C::LOCKED_END_BOUND_spec()
         // The cursor stays within the same canonical half of the address
         // space as its prefix — so `leading_bits` agrees throughout traversal.
-        &&& vaddr_upper_bits_spec::<C>(self.va)
-            == vaddr_upper_bits_spec::<C>(self.prefix)
+        &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(
+            self.prefix,
+        )
         // Established at construction (new initializes both va and
         // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
         &&& vaddr_upper_bits_spec::<C>(self.prefix) == C::LEADING_BITS_spec()
         &&& self.level <= self.guard_level ==> forall|i: int|
             #![trigger self.continuations[i].idx]
-            self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx
-                == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel)
+            self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx == pte_index_spec::<C>(
+                self.prefix,
+                (i + 1) as PagingLevel,
+            )
         // The cursor's VA shares upper indices with the prefix when the
         // cursor hasn't popped above guard_level AND is either in_locked_range
         // OR strictly below guard_level. The wrap branch of
@@ -730,10 +742,13 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // from this clause.
         &&& !self.popped_too_high && (self.in_locked_range() || self.level < self.guard_level)
             ==> forall|i: int|
-            self.guard_level <= i < NR_LEVELS ==> #[trigger] pte_index_spec::<C>(self.va, (i + 1) as PagingLevel) == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel)
+            self.guard_level <= i < NR_LEVELS ==> #[trigger] pte_index_spec::<C>(
+                self.va,
+                (i + 1) as PagingLevel,
+            ) == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel)
         &&& !self.popped_too_high && self.guard_level >= 1 && self.level < self.guard_level
             ==> pte_index_spec::<C>(self.va, (self.guard_level - 1 + 1) as PagingLevel)
-                == pte_index_spec::<C>(self.prefix, (self.guard_level - 1 + 1) as PagingLevel)
+            == pte_index_spec::<C>(self.prefix, (self.guard_level - 1 + 1) as PagingLevel)
         &&& self.level <= 4 ==> {
             &&& self.continuations.contains_key(3)
             &&& self.continuations[3].inv()
@@ -746,14 +761,16 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             // cursor is in_locked_range. Above-locked-range cursors keep
             // their continuations as-is (stale w.r.t. the wrapped va) and
             // never read from them.
-            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (3 + 1) as PagingLevel) == self.continuations[3].idx
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (3 + 1) as PagingLevel)
+                == self.continuations[3].idx
         }
         &&& self.level <= 3 ==> {
             &&& self.continuations.contains_key(2)
             &&& self.continuations[2].inv()
             &&& self.continuations[2].level() == 3
             &&& self.continuations[2].entry_own.parent_level == 4
-            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (2 + 1) as PagingLevel) == self.continuations[2].idx
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (2 + 1) as PagingLevel)
+                == self.continuations[2].idx
             &&& self.continuations[2].guard.inner.inner@.ptr.addr()
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
@@ -775,7 +792,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[1].inv()
             &&& self.continuations[1].level() == 2
             &&& self.continuations[1].entry_own.parent_level == 3
-            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (1 + 1) as PagingLevel) == self.continuations[1].idx
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (1 + 1) as PagingLevel)
+                == self.continuations[1].idx
             &&& self.continuations[1].guard.inner.inner@.ptr.addr()
                 != self.continuations[2].guard.inner.inner@.ptr.addr()
             &&& self.continuations[1].guard.inner.inner@.ptr.addr()
@@ -799,7 +817,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[0].inv()
             &&& self.continuations[0].level() == 1
             &&& self.continuations[0].entry_own.parent_level == 2
-            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (0 + 1) as PagingLevel) == self.continuations[0].idx
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (0 + 1) as PagingLevel)
+                == self.continuations[0].idx
             &&& self.continuations[0].guard.inner.inner@.ptr.addr()
                 != self.continuations[1].guard.inner.inner@.ptr.addr()
             &&& self.continuations[0].guard.inner.inner@.ptr.addr()
@@ -949,7 +968,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ..self
         }
     }
-
 
     #[verifier::spinoff_prover]
     pub proof fn do_inc_index(tracked &mut self)
@@ -1219,8 +1237,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         self.lemma_locked_range_span();
         let gl = self.guard_level;
-        let path = TreePath::new(Seq::new((C::NR_LEVELS() - gl + 1) as nat, |k: int|
-            pte_index_spec::<C>(self.prefix, (C::NR_LEVELS() - k) as PagingLevel) as int));
+        let path = TreePath::new(
+            Seq::new(
+                (C::NR_LEVELS() - gl + 1) as nat,
+                |k: int|
+                    pte_index_spec::<C>(self.prefix, (C::NR_LEVELS() - k) as PagingLevel) as int,
+            ),
+        );
         assert forall|k: int| 0 <= k < path.len() implies {
             &&& TreePath::<NR_ENTRIES>::elem_inv(#[trigger] path[k])
             &&& path[k] == pte_index_spec::<C>(self.va, (C::NR_LEVELS() - k) as PagingLevel)
@@ -1249,8 +1272,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         C::lemma_paging_consts_properties();
         self.lemma_locked_range_vaddr_prefix_match(self.va);
-        assert(pte_index_spec::<C>(self.va, self.guard_level)
-            == pte_index_spec::<C>(self.prefix, self.guard_level));
+        assert(pte_index_spec::<C>(self.va, self.guard_level) == pte_index_spec::<C>(
+            self.prefix,
+            self.guard_level,
+        ));
         lemma_pte_index_bound::<C>(self.va, self.guard_level);
         lemma_pte_index_bound::<C>(self.prefix, self.guard_level);
     }
@@ -1274,7 +1299,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             !self.popped_too_high,
         ensures
-            pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end,
+            pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
+                < C::TOP_LEVEL_INDEX_RANGE().end,
     {
         if self.guard_level == NR_LEVELS {
             // level < guard_level: va.index[guard_level-1] == prefix.index[guard_level-1]
@@ -1369,8 +1395,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_fundamental_div_mod(self_va as int, node_size as int);
         lemma_mul_is_commutative(self_va as int / node_size as int, node_size as int);
         lemma_nat_align_down_sound(self_va as nat, node_size as nat);
-        assert(nat_align_down(self_va as nat, node_size as nat)
-            == vaddr_upper_base_spec::<C>(self_va));
+        assert(nat_align_down(self_va as nat, node_size as nat) == vaddr_upper_base_spec::<C>(
+            self_va,
+        ));
 
         lemma_vaddr_upper_base_spec::<C>(self_va);
         lemma_lower_indices_aligned::<C>(self.prefix, body_level);
@@ -1396,7 +1423,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_for_level_next::<C>(gl);
         lemma_page_size_for_level_matches_page_size::<C>(gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
-            page_size_for_level_spec::<C>(gl) as int, 2, crate::mm::nr_subpage_per_huge::<C>() as int,
+            page_size_for_level_spec::<C>(gl) as int,
+            2,
+            crate::mm::nr_subpage_per_huge::<C>() as int,
         );
     }
 
@@ -1425,7 +1454,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_for_level_matches_page_size::<C>(level);
         lemma_page_size_for_level_matches_page_size::<C>(gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
-            page_size_for_level_spec::<C>(gl) as int, 2, crate::mm::nr_subpage_per_huge::<C>() as int,
+            page_size_for_level_spec::<C>(gl) as int,
+            2,
+            crate::mm::nr_subpage_per_huge::<C>() as int,
         );
     }
 
@@ -1449,7 +1480,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             page_size(gl) as int / PAGE_SIZE as int,
         );
         vstd::arithmetic::div_mod::lemma_add_mod_noop(
-            self.prefix as int, page_size(gl) as int, PAGE_SIZE as int,
+            self.prefix as int,
+            page_size(gl) as int,
+            PAGE_SIZE as int,
         );
     }
 
@@ -1727,8 +1760,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
     ) -> Self {
-        let va = (C::LEADING_BITS_spec() as int * pow2(paging_body_width_spec::<C>() as nat)
-            + idx * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
+        let va = (C::LEADING_BITS_spec() as int * pow2(paging_body_width_spec::<C>() as nat) + idx
+            * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
         Self {
             level: C::NR_LEVELS(),
             continuations: Map::empty().insert(

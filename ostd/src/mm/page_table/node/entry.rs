@@ -10,7 +10,7 @@ use crate::specs::{
             mapping::{frame_to_index, group_page_meta, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{PageTableOwner, INC_LEVELS},
+        page_table::{INC_LEVELS, PageTableOwner},
     },
     task::InAtomicMode,
 };
@@ -19,8 +19,8 @@ use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::frame::{
-    meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
     Frame, FrameRef,
+    meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
 };
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
