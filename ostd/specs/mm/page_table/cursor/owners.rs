@@ -643,7 +643,7 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
-        &&& self.va_view().offset == 0
+        &&& self.va % C::BASE_PAGE_SIZE() == 0
         &&& 1 <= self.level <= NR_LEVELS
         &&& 1 <= self.guard_level
             <= NR_LEVELS
@@ -688,7 +688,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 - 1].children[j] is Some ==> (self.continuations[NR_LEVELS
                 - 1].children[j].unwrap().value().is_borrowed() || self.continuations[NR_LEVELS
                 - 1].children[j].unwrap().value().is_absent())
-        &&& self.prefix_view().offset == 0
+        &&& self.prefix % C::BASE_PAGE_SIZE() == 0
         &&& forall|i: int|
             i < self.guard_level ==> self.prefix_view().index[i]
                 == 0
@@ -987,6 +987,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             final(self).inv(),
             *final(self) == old(self).inc_index(),
     {
+        C::lemma_paging_consts_properties();
         old(self).lemma_inc_index_va_view();
         old(self).lemma_inc_index_va();
         self.popped_too_high = false;
@@ -1212,46 +1213,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 property: prop,
             }],
     {
-        let path = new_subtree.value().path;
-        let ps = page_size(level);
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(self.va);
-
-        // Bridge `nat_align_down(cur_va, ps) == vaddr_of::<C>(path) as Vaddr`:
-        //   to_path_vaddr_concrete: vaddr(path) + va.leading_bits * 2^48 == nat_align_down(cur_va, ps)
-        //   lemma_vaddr_of_eq_int : vaddr_of::<C>(path) == vaddr(path) + LEADING_BITS_spec * 2^48
-        //   cursor inv            : va.leading_bits == LEADING_BITS_spec
         self.cur_va_in_subtree_range();
-        assert(vaddr_of::<C>(path) == nat_align_down(self@.cur_va as nat, ps as nat) as Vaddr) by {
-            self.va_view().to_path_vaddr_concrete(self.level - 1);
-            let va_path = self.va_view().to_path(self.level - 1);
-            self.va_view().to_path_len(self.level - 1);
-            assert forall|i: int| 0 <= i < path.len() implies path[i] == va_path[i] by {
-                self.va_view().to_path_index(self.level - 1, i);
-            };
-            AbstractVaddr::rec_vaddr_eq_if_indices_eq(path, va_path, 0);
-        };
-        // Show the singleton equality. view_rec at a frame produces a
-        // singleton with va_range built from vaddr_of(path). cur_slot_range
-        // produces start..start+ps with start = nat_align_down(cur_va, ps).
-        // The bridge above identifies the two starts.
-        let target = Mapping {
-            va_range: self@.cur_slot_range(page_size(level)),
-            pa_range: pa..(pa + page_size(level)) as usize,
-            page_size: page_size(level),
-            property: prop,
-        };
-        let from_view = Mapping {
-            va_range: Range { start: vaddr_of::<C>(path) as int, end: vaddr_of::<C>(path) + ps },
-            pa_range: pa..(pa + ps) as usize,
-            page_size: ps,
-            property: prop,
-        };
-        // The bridge gave `vaddr_of::<C>(path) == nat_align_down(...) as Vaddr`
-        // (both usize). Cast both to int to compare.
-        let nad = nat_align_down(self@.cur_va as nat, ps as nat);
-        assert(nad <= self@.cur_va as nat) by {
-            vstd_extra::arithmetic::lemma_nat_align_down_sound(self@.cur_va as nat, ps as nat);
-        };
     }
 
     /// The guard-level slot containing the numeric prefix, with its end excluded.
@@ -1384,7 +1346,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The cursor's `prefix` is aligned to `page_size(self.guard_level)`, since the
-    /// cursor invariant sets `prefix.offset == 0` and zeros all indices below
+    /// cursor invariant makes the prefix base-page-aligned and zeros all indices below
     /// `self.guard_level`.
     pub proof fn lemma_prefix_aligned_to_guard_level(self)
         requires
@@ -1392,6 +1354,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.prefix as nat % page_size(self.guard_level) as nat == 0,
     {
+        C::lemma_paging_consts_properties();
         let gl = self.guard_level;
         let ps = page_size(gl as PagingLevel) as nat;
         lemma_page_size_ge_page_size(gl as PagingLevel);

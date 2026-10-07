@@ -15,7 +15,7 @@ use crate::specs::{
             lemma_page_size_for_level_next, lemma_pte_index_spec_matches_abstract,
             node::EntryOwner,
             owners::{OwnerSubtree, PageTableOwner, INC_LEVELS},
-            pte_index_spec, AbstractVaddr,
+            page_size_for_level_spec, pte_index_spec, AbstractVaddr,
         },
         Guards, Mapping, MetaRegionOwners,
     },
@@ -645,8 +645,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.move_forward_owner_spec()
         } else {
             // self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
-            // Advance to the next leading_bits-chunk via `next_index(NR_LEVELS)`.
-            Self { va: self.va_view().next_index(NR_LEVELS as int).to_vaddr(), popped_too_high: false, ..self }
+            // Preserve lower address bits and the former address-word wrapping semantics.
+            Self {
+                va: (self.va + page_size_for_level_spec::<C>(C::NR_LEVELS())) as Vaddr,
+                popped_too_high: false,
+                ..self
+            }
         }
     }
 

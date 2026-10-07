@@ -204,35 +204,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(va as int, ps as int);
     }
 
-    /// The current virtual address falls within the VA range of the
-    /// current subtree's path, in canonical form (positional vaddr plus
-    /// the `leading_bits * 2^48` shift).
+    /// The current subtree starts at the cursor's aligned slot boundary and contains its VA.
     pub proof fn cur_va_in_subtree_range(self)
         requires
             self.inv(),
             self.in_locked_range(),
         ensures
-            vaddr(self.cur_subtree().value().path) + self.va_view().leading_bits * 0x1_0000_0000_0000int
-                <= self.cur_va(),
-            self.cur_va() < vaddr(self.cur_subtree().value().path) + self.va_view().leading_bits
-                * 0x1_0000_0000_0000int + page_size(self.level as PagingLevel),
+            vaddr_of::<C>(self.cur_subtree().value().path) <= self.cur_va()
+                < vaddr_of::<C>(self.cur_subtree().value().path) + page_size(self.level),
+            vaddr_of::<C>(self.cur_subtree().value().path)
+                == nat_align_down(self.cur_va() as nat, page_size(self.level) as nat),
     {
-        let L = self.level as int;
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(self.va);
-        let cont = self.continuations[L - 1];
-        let subtree_path = cont.path().push_tail(cont.idx as int);
-        let va_path = self.va_view().to_path(L - 1);
-
-        self.va_view().to_path_len(L - 1);
-
-        assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path[i] == va_path[i] by {
-            self.va_view().to_path_index(L - 1, i);
-        };
-
-        self.va_view().to_path_inv(L - 1);
-        self.lemma_cur_subtree_inv();
-        AbstractVaddr::rec_vaddr_eq_if_indices_eq(subtree_path, va_path, 0);
-        self.va_view().vaddr_range_from_path(L - 1);
+        self.cur_va_in_cont_child_range(self.level - 1);
     }
 
 
