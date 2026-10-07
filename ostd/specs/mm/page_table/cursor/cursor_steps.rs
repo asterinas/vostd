@@ -12,11 +12,10 @@ use crate::specs::{
         page_table::{
             cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
             lemma_next_slot_pte_index, lemma_page_size_for_level_matches_page_size,
-            lemma_page_size_for_level_next, lemma_pte_index_spec_matches_abstract,
+            lemma_page_size_for_level_next, lemma_pte_index_bound,
             node::EntryOwner,
             owners::{OwnerSubtree, PageTableOwner, INC_LEVELS},
-            page_size_for_level_spec, pte_index_spec, AbstractVaddr,
-        },
+            page_size_for_level_spec, pte_index_spec, },
         Guards, Mapping, MetaRegionOwners,
     },
 };
@@ -27,11 +26,7 @@ use core::ops::Range;
 
 verus! {
 
-broadcast use {
-    group_ghost_tree_lemmas,
-    AbstractVaddr::from_vaddr_to_vaddr_roundtrip,
-    AbstractVaddr::reflect_from_vaddr,
-};
+broadcast use group_ghost_tree_lemmas;
 
 /// Upgrade `node_unlocked_except` to `node_unlocked` on a subtree where the excepted
 /// entry cannot appear. The precondition `path == subtree.value.path` ties structural
@@ -213,8 +208,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).max_steps() < self.max_steps(),
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(
+        lemma_pte_index_bound::<C>(
             self.cur_va(),
             (self.level - 1) as PagingLevel,
         );
@@ -224,7 +218,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Continuations agree at indices [l-1, NR_LEVELS): only [l-2] changed.
         new_self.max_steps_partial_eq(self, l);
         // va.index[l-2] < NR_ENTRIES (from va.inv()).
-        assert(self.va_view().index.contains_key(self.level - 2));
+        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
         let new_child = new_self.continuations[lm1 - 1];
 
         // subtree(l) == NR * (subtree(lm1) + 1) (from def of max_steps_subtree, l > 1).
@@ -255,8 +249,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(
+        lemma_pte_index_bound::<C>(
             self.cur_va(),
             (self.level - 1) as PagingLevel,
         );
@@ -318,8 +311,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).inv(),
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(
+        lemma_pte_index_bound::<C>(
             self.cur_va(),
             (self.level - 1) as PagingLevel,
         );
@@ -340,7 +332,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             guard,
         );
 
-        assert(self.va_view().index.contains_key(self.level - 2));
+        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         assert(child.inv_children_rel()) by {
             assert forall|j: int|
@@ -414,8 +406,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).metaregion_sound(regions),
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(
+        lemma_pte_index_bound::<C>(
             self.cur_va(),
             (self.level - 1) as PagingLevel,
         );
@@ -554,12 +545,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             *final(self) == old(self).push_level_owner(guard),
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(
+        lemma_pte_index_bound::<C>(
             self.cur_va(),
             (self.level - 1) as PagingLevel,
         );
-        assert(self.va_view().index.contains_key(self.level - 2));
+        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);

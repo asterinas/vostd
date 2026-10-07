@@ -83,8 +83,8 @@ pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
 
 /// Virtual address of `path` with `leading_bits` placed in bits `[48, 64)`.
 ///
-/// Matches `AbstractVaddr { offset: 0, index: <from path>, leading_bits }
-/// .to_vaddr()` modulo the offset. For `leading_bits == 0` this reduces to
+/// Adds the upper-address contribution to the positional path address.
+/// For `leading_bits == 0` this reduces to
 /// `vaddr(path)`; for `leading_bits == 0xffff` and a kernel path this yields
 /// the canonical sign-extended high-half address.
 pub open spec fn vaddr_at(path: TreePath<NR_ENTRIES>, leading_bits: int) -> usize {
@@ -225,9 +225,16 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.len() <= INC_LEVELS - 1,
     ensures
         vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
+        vaddr_of::<C>(path) == vaddr(path)
+            + C::LEADING_BITS_spec() as int * pow2(paging_body_width_spec::<C>() as nat),
 {
     C::lemma_page_table_config_constant_properties();
+    C::lemma_paging_consts_properties();
     lemma_vaddr_strict_bound(path);
+    let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
+    lemma_page_size_for_level_is_pow2::<C>(body_level);
+    lemma_page_size_for_level_matches_page_size::<C>(body_level);
+    lemma_page_size_spec_values();
 }
 
 /// A path of concrete PTE indices identifies the aligned slot containing the address.
@@ -252,6 +259,8 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(
     lemma_page_size_for_level_is_pow2::<C>(level);
     let size = page_size_for_level_spec::<C>(level) as int;
     lemma_fundamental_div_mod(va as int, size);
+    vstd::arithmetic::div_mod::lemma_mod_bound(va as int, size);
+    vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, size);
     if path.len() == 0 {
         assert(pte_index_bit_offset_spec::<C>(level) == paging_body_width_spec::<C>());
         lemma_usize_shr_is_div(va, paging_body_width_spec::<C>());
@@ -277,6 +286,8 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(
         lemma_div_denominator(va as int, size, fanout);
         lemma_fundamental_div_mod(quotient, fanout);
         lemma_fundamental_div_mod(va as int, parent_size);
+        vstd::arithmetic::div_mod::lemma_mod_bound(va as int, parent_size);
+        vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, parent_size);
         assert(index == pte_index_spec::<C>(va, level));
         assert(quotient == fanout * (va as int / parent_size) + index);
         assert(size * quotient == parent_size * (va as int / parent_size) + size * index)

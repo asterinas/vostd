@@ -61,7 +61,7 @@ use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 
 verus! {
 
-broadcast use {group_ghost_tree_lemmas, AbstractVaddr::reflect_from_vaddr};
+broadcast use group_ghost_tree_lemmas;
 
 /// The state of virtual pages represented by a page table.
 ///
@@ -839,7 +839,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         // Keep solver tuning for this scan proof local to the function.
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::pt_inv_children);
-        broadcast use AbstractVaddr::from_vaddr_to_vaddr_roundtrip;
         assert_eq!(len % PAGE_SIZE, 0);
 
         // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
@@ -912,7 +911,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 split_happened ==> self.va == old(self).va,
             decreases owner.max_steps(),
         {
-            broadcast use AbstractVaddr::from_vaddr_to_vaddr_roundtrip;
             proof {
                 owner.lemma_in_locked_range_level_le_nr_levels();
             }
@@ -975,24 +973,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     owner.split_while_huge_at_level_noop();
                                 }
                                 owner.lemma_in_locked_range_level_le_nr_levels();
-                                if self.level < NR_LEVELS {
-                                    owner.va_view().align_down_inv(self.level as int);
-                                    owner.va_view().align_down_concrete(self.level as int);
-                                    owner.va_view().align_down(self.level as int).reflect_prop(
-                                        nat_align_down(
-                                            self.va as nat,
-                                            page_size(self.level) as nat,
-                                        ) as Vaddr,
-                                    );
-                                } else {
-                                    owner.va_view().align_down_concrete(self.level as int);
-                                    owner.va_view().align_down(self.level as int).reflect_prop(
-                                        nat_align_down(
-                                            self.va as nat,
-                                            page_size(self.level) as nat,
-                                        ) as Vaddr,
-                                    );
-                                }
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
@@ -1259,14 +1239,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     owner.split_while_huge_at_level_noop();
                                 }
                                 owner.lemma_in_locked_range_level_le_nr_levels();
-                                owner.va_view().align_down_inv(self.level as int);
-                                owner.va_view().align_down_concrete(self.level as int);
-                                owner.va_view().align_down(self.level as int).reflect_prop(
-                                    nat_align_down(
-                                        self.va as nat,
-                                        page_size(self.level) as nat,
-                                    ) as Vaddr,
-                                );
                             }
                         }
                         return Some(cur_va);
@@ -1348,7 +1320,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         let old_level = owner_before_push.level;
                         let cont = owner_before_push.continuations[old_level - 1];
-                        let idx_below = owner_before_push.va_view().index[old_level - 2] as usize;
+                        let idx_below = pte_index_spec::<C>(owner_before_push.va, (old_level - 2 + 1) as PagingLevel) as usize;
                         let (child_cont, _) = cont.make_cont(idx_below, split_child_ghost);
 
                         assert(child_cont.children == child_owner_children);
@@ -1639,10 +1611,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             C::lemma_paging_consts_properties();
             lemma_next_slot_pte_index::<C>(va, next_va, self.level);
             owner.lemma_cur_pte_index();
-            if pte_index_spec::<C>(next_va, self.level) == 0 {
+            if pte_index_spec::<C>(next_va, (self.level - 1 + 1) as PagingLevel) == 0 {
                 assert(self.level == self.guard_level);
                 owner.lemma_in_locked_range_guard_index_eq_prefix();
-                lemma_pte_index_spec_matches_abstract::<C>(owner.va, owner.level);
+                lemma_pte_index_bound::<C>(owner.va, owner.level);
                 assert(owner.index() + 1 < NR_ENTRIES);
             }
             assert(owner.index() + 1 < NR_ENTRIES);
@@ -1653,8 +1625,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             if owner.level == NR_LEVELS {
                 owner0.lemma_in_locked_range_top_index_lt_top_end();
-                lemma_pte_index_spec_matches_abstract::<C>(va, NR_LEVELS as PagingLevel);
-                assert(owner0.va_view().index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE().end);
+                lemma_pte_index_bound::<C>(va, NR_LEVELS as PagingLevel);
+                assert(pte_index_spec::<C>(owner0.va, (NR_LEVELS - 1 + 1) as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end);
                 assert(owner.continuations[owner.level - 1].idx + 1
                     <= C::TOP_LEVEL_INDEX_RANGE().end);
             }
@@ -1953,7 +1925,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             res.start == self.va ==> res.end == self.va + page_size(self.level),
     )]
     fn cur_va_range(&self) -> Range<Vaddr> {
-        broadcast use AbstractVaddr::from_vaddr_to_vaddr_roundtrip;
         let page_size = page_size(self.level);
         let start = self.va.align_down(page_size);
 
@@ -2426,7 +2397,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // Keep quantified continuation and region predicates local to this loop proof.
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
-        hide(<AbstractVaddr as Inv>::inv);
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
         hide(CursorContinuation::pt_inv_children);
@@ -2857,7 +2827,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
-        broadcast use AbstractVaddr::from_vaddr_to_vaddr_roundtrip;
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
@@ -3137,7 +3106,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // This proof touches several cursor snapshots. Keep their quantified invariants
         // opaque by default, then reveal only the concrete facts needed below. Leaving
         // them all open creates matching loops across the snapshots and dominates `make`.
-        hide(<AbstractVaddr as Inv>::inv);
         hide(<CursorOwner as Inv>::inv);
         hide(<MetaRegionOwners as Inv>::inv);
         hide(CursorContinuation::inv_children);
@@ -3145,17 +3113,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         hide(CursorOwner::map_only_children);
         hide(CursorOwner::nodes_locked);
         hide(TreeNode::inv);
-        broadcast use AbstractVaddr::from_vaddr_to_vaddr_roundtrip;
-        proof {
-            AbstractVaddr::from_vaddr_wf(owner.va);
-        }
         let find_result = #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next_impl(len, true, true);
 
         if find_result.is_none() {
-            proof {
-                AbstractVaddr::from_vaddr_wf(owner.va);
-            }
             return None;
         }
         let tracked mut absent_entry_owner = EntryOwner::tracked_new_absent(
@@ -3194,7 +3155,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost regions_after_replace = *regions;
 
         proof {
-            AbstractVaddr::from_vaddr_wf(owner.va);
             owner.move_forward_increases_va();
         }
         let ghost owner_before_move = *owner;
@@ -3203,7 +3163,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         self.0.move_forward();
 
         proof {
-            AbstractVaddr::from_vaddr_wf(owner.va);
             old(owner).view_preserves_inv();
 
             owner_before_move.move_forward_owner_preserves_mappings();
@@ -3495,7 +3454,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // Keep quantified child predicates out of this replacement proof's ambient context.
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::view_mappings);
-        hide(<AbstractVaddr as Inv>::inv);
         hide(<CursorOwner as Inv>::inv);
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
@@ -3515,7 +3473,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let va = self.0.va;
         let level = self.0.level;
 
-        assert(1 <= owner0.level <= NR_LEVELS && owner0.va_view().index[owner0.level - 1]
+        assert(1 <= owner0.level <= NR_LEVELS && pte_index_spec::<C>(owner0.va, (owner0.level - 1 + 1) as PagingLevel)
             == owner0.continuations[owner0.level - 1].idx && owner0.continuations[owner0.level
             - 1].all_some() && owner0.continuations[owner0.level - 1].level() == owner0.level
             && self.0.path[level - 1] is Some) by {

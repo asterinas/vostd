@@ -106,7 +106,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     proof {
         C::lemma_paging_consts_properties();
-        lemma_pte_index_spec_matches_abstract::<C>(va.start, C::NR_LEVELS());
+        lemma_pte_index_bound::<C>(va.start, C::NR_LEVELS());
         assert forall|i: int| 0 <= i < NR_ENTRIES implies (
         #[trigger] pt_own.0.children()[i]) is Some by {
             assert(pt_own.0.has_child(i));

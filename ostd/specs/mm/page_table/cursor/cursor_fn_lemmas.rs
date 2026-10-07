@@ -8,10 +8,10 @@ use crate::specs::{
         frame::meta_region_owners::MetaRegionOwners,
         page_table::{
             cursor::owners::{CursorContinuation, CursorOwner},
-            lemma_pte_index_spec_matches_abstract,
+            lemma_pte_index_bound,
             nat_align_down,
             owners::*,
-            pte_index_spec, AbstractVaddr, Mapping,
+            pte_index_spec, Mapping,
         },
     },
 };
@@ -21,11 +21,7 @@ use core::ops::Range;
 
 verus! {
 
-broadcast use {
-    group_ghost_tree_lemmas,
-    AbstractVaddr::from_vaddr_to_vaddr_roundtrip,
-    AbstractVaddr::reflect_from_vaddr,
-};
+broadcast use group_ghost_tree_lemmas;
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn protect_preserves_cursor_inv_metaregion(
@@ -162,7 +158,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == owner0.continuations[owner0.level - 1].guard.inner.inner@.ptr.addr(),
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
-            pte_index_spec::<C>(self.cur_va(), self.level)
+            pte_index_spec::<C>(self.cur_va(), (self.level - 1 + 1) as PagingLevel)
                 == self.continuations[self.level - 1].idx,
             // Domain preserved: same keys as owner0.
             self.continuations.dom() =~= owner0.continuations.dom(),
@@ -171,9 +167,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let L = self.level as int;
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(self.cur_va(), self.level);
-        assert(self.va_view().index[self.level - 1] == self.continuations[self.level - 1].idx);
+        lemma_pte_index_bound::<C>(self.cur_va(), self.level);
+        assert(pte_index_spec::<C>(self.va, (self.level - 1 + 1) as PagingLevel) == self.continuations[self.level - 1].idx);
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
         // Isolation clauses for the root continuation (NR_LEVELS-1).
@@ -188,7 +183,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // child keeps `owner0`'s value; `idx` is in-range (top index in
             // [start, end), and `in_locked_range` rules out the sentinel).
             owner0.lemma_in_locked_range_top_index_lt_top_end();
-            assert(self.continuations[NR_LEVELS - 1].idx == self.va_view().index[NR_LEVELS - 1]);
+            assert(self.continuations[NR_LEVELS - 1].idx == pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel));
             assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
             assert(C::TOP_LEVEL_INDEX_RANGE().start <= owner0.continuations[owner0.level - 1].idx

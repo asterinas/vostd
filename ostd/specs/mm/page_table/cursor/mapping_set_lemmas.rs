@@ -19,9 +19,9 @@ use crate::specs::{
             lemma_vaddr_of_eq_int, lemma_vaddr_path_aligned, sibling_paths_disjoint,
             vaddr, vaddr_of, OwnerSubtree, PageTableOwner, INC_LEVELS,
         },
-        lemma_page_size_for_level_matches_page_size, lemma_pte_index_spec_matches_abstract,
-        lemma_vaddr_upper_base_spec_matches_abstract, pte_index_spec, vaddr_upper_base_spec,
-        AbstractVaddr, Mapping,
+        lemma_page_size_for_level_matches_page_size, lemma_pte_index_bound,
+        lemma_vaddr_upper_base_spec, pte_index_spec, vaddr_upper_base_spec,
+        Mapping,
     },
 };
 
@@ -29,11 +29,7 @@ use crate::mm::{page_size, page_table::*, PagingConstsTrait, PagingLevel, Vaddr}
 
 verus! {
 
-broadcast use {
-    group_ghost_tree_lemmas,
-    AbstractVaddr::from_vaddr_to_vaddr_roundtrip,
-    AbstractVaddr::reflect_from_vaddr,
-};
+broadcast use group_ghost_tree_lemmas;
 // ─── CursorContinuation mapping lemmas ───────────────────────────────────────
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
@@ -291,13 +287,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ),
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_vaddr_upper_base_spec_matches_abstract::<C>(self.cur_va());
+        lemma_vaddr_upper_base_spec::<C>(self.cur_va());
         let cont = self.continuations[lvl];
         let child_path = cont.path().push_tail(cont.idx as int);
+        assert(child_path.len() == C::NR_LEVELS() - lvl);
         assert forall|k: int| 0 <= k < child_path.len() implies #[trigger] child_path[k]
             == pte_index_spec::<C>(self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel) by {
-            lemma_pte_index_spec_matches_abstract::<C>(
+            lemma_pte_index_bound::<C>(
                 self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel,
             );
         };
@@ -411,8 +407,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
     {
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
-        self.va_view().reflect_to_vaddr();
-        lemma_vaddr_upper_base_spec_matches_abstract::<C>(self.cur_va());
+        lemma_vaddr_upper_base_spec::<C>(self.cur_va());
         // m comes from some continuation level i
 
         let i = choose|i: int|

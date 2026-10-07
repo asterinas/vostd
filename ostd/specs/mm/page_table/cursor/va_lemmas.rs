@@ -6,7 +6,7 @@
 /// - Lemmas about how zeroing preserves fields other than VA.
 /// - Spec functions for the cursor's current VA and VA range
 ///   (`cur_va`, `cur_va_range`).
-/// - Lemmas relating the abstract VA to the page table view range.
+/// - Lemmas relating the concrete VA to the page table view range.
 /// - Specifications and proofs for repositioning the cursor inside its current node.
 use vstd::prelude::*;
 use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
@@ -14,16 +14,15 @@ use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
     mm::page_table::{
-        AbstractVaddr, Mapping,
+        Mapping,
         cursor::{
             owners::{CursorContinuation, CursorOwner},
             page_size_lemmas::{
                 lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
             },
         },
-        lemma_page_size_for_level_matches_page_size, lemma_pte_index_spec_matches_abstract,
-        lemma_same_node_pte_indices_match,
-        lemma_vaddr_upper_bits_spec_matches_abstract,
+        lemma_page_size_for_level_matches_page_size, lemma_pte_index_bound,
+        lemma_same_node_pte_indices_match, lemma_align_down_indices, lemma_inc_slot_indices,
         owners::*,
         page_size_for_level_spec, pte_index_spec, vaddr_upper_bits_spec, vaddr_with_pte_index_spec,
     },
@@ -35,11 +34,7 @@ use core::ops::Range;
 
 verus! {
 
-broadcast use {
-    group_ghost_tree_lemmas,
-    AbstractVaddr::from_vaddr_to_vaddr_roundtrip,
-    AbstractVaddr::reflect_from_vaddr,
-};
+broadcast use group_ghost_tree_lemmas;
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn zero_below_level(self) -> Self
@@ -59,18 +54,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va
     }
 
-    /// Temporary decomposition of the numeric current address for the remaining legacy proofs.
-    pub open spec fn va_view(self) -> AbstractVaddr {
-        AbstractVaddr::from_vaddr(self.va)
-    }
-
     pub open spec fn prefix_vaddr(self) -> Vaddr {
         self.prefix
-    }
-
-    /// Temporary decomposition of the numeric prefix for the remaining legacy proofs.
-    pub open spec fn prefix_view(self) -> AbstractVaddr {
-        AbstractVaddr::from_vaddr(self.prefix)
     }
 
     pub open spec fn cur_va_range(self) -> Range<Vaddr> {
@@ -94,22 +79,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    /// Compatibility lemma for proofs that still use the decomposed address view.
-    pub proof fn lemma_zero_below_level_view(self)
-        requires
-            1 <= self.level <= C::NR_LEVELS(),
-        ensures
-            self.zero_below_level().va_view() == self.va_view().align_down(self.level as int),
-            self.zero_below_level().va
-                == nat_align_down(self.va as nat, page_size(self.level) as nat) as Vaddr,
-    {
-        C::lemma_paging_consts_properties();
-        AbstractVaddr::from_vaddr_wf(self.va);
-        lemma_page_size_for_level_matches_page_size::<C>(self.level);
-        self.va_view().align_down_to_vaddr_nat_align_down(self.level as int);
-        self.va_view().align_down_inv(self.level as int);
-        AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.va_view().align_down(self.level as int));
-    }
 
     pub proof fn do_zero_below_level(tracked &mut self)
         requires
@@ -121,9 +90,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let ghost old_self = *self;
         C::lemma_paging_consts_properties();
-        old_self.lemma_zero_below_level_view();
-        old_self.va_view().align_down_shape(old_self.level as int);
-        old_self.va_view().align_down_leading_bits(old_self.level as int);
+        lemma_align_down_indices::<C>(old_self.va, old_self.level);
+        lemma_page_size_for_level_matches_page_size::<C>(old_self.level);
         self.va = old_self.zero_below_level().va;
 
         old_self.lemma_locked_range_span();
@@ -175,10 +143,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         C::lemma_paging_consts_properties();
         self.lemma_cur_pte_index();
-        // The selected index is nonterminal even after popping above the guard.
-        // Keep the legacy bound proof here until its address decomposition is removed.
-        self.va_view().lemma_index_replacement_vaddr::<C>(self.level, self.index() + 1);
-        lemma_pte_index_spec_matches_abstract::<C>(self.va, self.level);
+        lemma_inc_slot_indices::<C>(self.va, self.level);
         reveal(vaddr_with_pte_index_spec);
         vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(self.level) as int);
     }
@@ -271,8 +236,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pte_index_spec::<C>(self.cur_va(), self.level) < NR_ENTRIES,
     {
         C::lemma_paging_consts_properties();
-        self.va_view().reflect_to_vaddr();
-        lemma_pte_index_spec_matches_abstract::<C>(self.cur_va(), self.level);
+        lemma_pte_index_bound::<C>(self.cur_va(), self.level);
     }
 
     /// Architecture-parameterized entry point for repositioning a cursor inside its current
@@ -294,49 +258,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             final(self).inv(),
     {
         let ghost old_self = *self;
-
         C::lemma_paging_consts_properties();
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(old_self.prefix);
-        lemma_pte_index_spec_matches_abstract::<C>(new_va, old_self.level);
-        old_self.va_view().reflect_to_vaddr();
-
-        lemma_vaddr_upper_bits_spec_matches_abstract::<C>(new_va);
-        lemma_vaddr_upper_bits_spec_matches_abstract::<C>(old_self.cur_va());
-        old_self.prefix_view().reflect_to_vaddr();
-        lemma_vaddr_upper_bits_spec_matches_abstract::<C>(old_self.prefix_view().to_vaddr());
-
-        assert(vaddr_upper_bits_spec::<C>(new_va)
-            == vaddr_upper_bits_spec::<C>(old_self.prefix_view().to_vaddr()));
-
-        assert forall|i: int| old_self.level <= i < C::NR_LEVELS() implies (
-        #[trigger] AbstractVaddr::from_vaddr(new_va).index[i]) == old_self.va_view().index[i] by {
-            lemma_pte_index_spec_matches_abstract::<C>(new_va, (i + 1) as PagingLevel);
-            lemma_pte_index_spec_matches_abstract::<C>(old_self.cur_va(), (i + 1) as PagingLevel);
-        };
-
-        let ghost new_abs_va = AbstractVaddr::from_vaddr(new_va);
+        lemma_pte_index_bound::<C>(new_va, old_self.level);
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
-
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(new_va);
-
         cont.idx = pte_index_spec::<C>(new_va, old_self.level);
-
         self.continuations.tracked_insert(self.level - 1, cont);
         self.va = new_va;
         self.popped_too_high = false;
-
         assert(self.continuations == old_self.continuations.insert(old_self.level - 1, cont));
-
         old_self.lemma_locked_range_vaddr_prefix_match(new_va);
-
-        assert forall|i: int| old_self.guard_level - 1 <= i < C::NR_LEVELS() implies (
-        #[trigger] AbstractVaddr::from_vaddr(new_va).index[i]) == old_self.prefix_view().index[i] by {
-            assert(pte_index_spec::<C>(new_va, (i + 1) as PagingLevel)
-                == pte_index_spec::<C>(old_self.prefix_view().to_vaddr(), (i + 1) as PagingLevel));
-            lemma_pte_index_spec_matches_abstract::<C>(new_va, (i + 1) as PagingLevel);
-            lemma_pte_index_spec_matches_abstract::<C>(old_self.prefix_view().to_vaddr(), (i + 1) as PagingLevel);
-        };
-
         if old_self.level < old_self.guard_level {
             old_self.lemma_prefix_in_locked_range();
         }
