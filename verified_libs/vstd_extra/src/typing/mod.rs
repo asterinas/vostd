@@ -5,8 +5,7 @@
 //! `type_id` toolchain patch, so the storage is available in every feature shape
 //! and only *deciding* identity needs the patch.
 //!
-//! [`types`] models `core::any::TypeId` directly -- the real identity, usable
-//! through a `dyn` reference -- and needs the patch outright, so it is gated.
+//! [`types`] models `core::any::TypeId`.
 pub mod tagged;
 
 #[cfg(feature = "type_id")]
