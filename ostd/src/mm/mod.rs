@@ -4,6 +4,9 @@ use vstd::{
     arithmetic::{div_mod::group_div_basics, power2::*},
     prelude::*,
 };
+use vstd_extra::external::ilog2::{
+    lemma_pow2_is_pow2, lemma_usize_ilog2_ordered, lemma_usize_is_pow2_is_ilog2_pow2,
+};
 
 use crate::specs::arch::*;
 
@@ -154,7 +157,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            is_pow2((Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()) as int),
             0 < Self::ADDRESS_WIDTH() < usize::BITS,
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2()
                 * Self::NR_LEVELS() <= Self::ADDRESS_WIDTH(),
@@ -177,6 +179,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() * (
             Self::NR_LEVELS() - 1) <= Self::ADDRESS_WIDTH(),
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            is_pow2((Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()) as int),
             NR_ENTRIES * Self::PTE_SIZE() == PAGE_SIZE,
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
@@ -185,7 +188,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            is_pow2((Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()) as int),
             0 < Self::ADDRESS_WIDTH() < usize::BITS,
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2()
                 * Self::NR_LEVELS() <= Self::ADDRESS_WIDTH(),
@@ -200,6 +202,13 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;
 
+        let page = Self::BASE_PAGE_SIZE();
+        let pte = Self::PTE_SIZE();
+        lemma_usize_is_pow2_is_ilog2_pow2(page);
+        lemma_usize_is_pow2_is_ilog2_pow2(pte);
+        lemma_usize_ilog2_ordered(pte, page);
+        lemma_pow2_subtracts(pte.ilog2() as nat, page.ilog2() as nat);
+        lemma_pow2_is_pow2((page.ilog2() - pte.ilog2()) as nat);
     }
 }
 
