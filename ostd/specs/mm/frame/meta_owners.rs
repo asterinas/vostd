@@ -383,6 +383,44 @@ pub open spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId {
 #[cfg(not(feature = "type_id"))]
 pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId;
 
+/// Whether metadata recorded under `id` describes *untyped* memory.
+///
+/// The erased counterpart of [`AnyFrameMeta::is_untyped_spec`]. A handle that has
+/// lost its metadata type still knows the identity its slot recorded, so this is
+/// the only form in which an erased handle can talk about untypedness at all --
+/// and `USegment` is exactly a segment that has lost its type but kept this fact.
+///
+/// Uninterpreted. All of its content comes from
+/// [`axiom_untyped_recorded_by_id`]; without that axiom, every statement made
+/// with this predicate would be vacuous.
+pub uninterp spec fn id_is_untyped(id: MetaTypeId) -> bool;
+
+/// Untypedness is a property of the metadata *type*, not of a value of that type.
+///
+/// This is what connects [`id_is_untyped`] to
+/// [`AnyFrameMeta::is_untyped_spec`], and so what makes a postcondition stated
+/// in terms of the former mean anything.
+///
+/// Trusted, and it cannot be discharged as a trait obligation instead: an impl
+/// would have to prove `self.is_untyped_spec() == id_is_untyped(self.meta_id())`
+/// for an *uninterpreted* `id_is_untyped`, which no impl can do. Nor can
+/// `id_is_untyped` be given a body, since a spec function cannot dispatch on a
+/// type identity.
+///
+/// It is true of every impl in the tree: each defines `is_untyped_spec` as a
+/// constant, except `Link<M>`, which defers to `M` and so is constant once `M`
+/// is fixed -- and `M` *is* fixed by `Link<M>`'s own identity. An impl whose
+/// untypedness varied between two values of one type would make this false, so
+/// the constraint belongs in `AnyFrameMeta`'s contract, which is where
+/// `is_untyped_spec` records it.
+#[cfg(feature = "type_id")]
+#[verifier::external_body]
+pub proof fn axiom_untyped_recorded_by_id<M: AnyFrameMeta + ?Sized>(m: &M)
+    ensures
+        m.is_untyped_spec() == id_is_untyped(m.meta_id()),
+{
+}
+
 /// Permissions to access metadata.
 pub tracked struct MetadataPerm {
     pub storage_perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,

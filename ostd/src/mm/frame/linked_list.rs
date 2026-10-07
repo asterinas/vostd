@@ -1753,6 +1753,10 @@ unsafe impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> AnyFrameMeta for Link<M
         self.meta.on_drop(reader, regions, vm_io_owner);
     }
 
+    open spec fn is_untyped_spec(&self) -> bool {
+        self.meta.is_untyped_spec()
+    }
+
     fn is_untyped(&self) -> bool {
         self.meta.is_untyped()
     }
