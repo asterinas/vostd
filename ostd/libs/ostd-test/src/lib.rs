@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! # The kernel mode testing framework of OSTD.
 //!
 //! `ostd-test` stands for kernel-mode testing framework for OSTD. Its goal is to provide a
@@ -63,7 +62,6 @@
 //! Doctest is not taken into consideration yet, and the interface is subject to
 //! change.
 //!
-
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
