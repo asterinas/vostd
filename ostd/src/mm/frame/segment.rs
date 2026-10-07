@@ -73,8 +73,9 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 /// nothing about it is reinterpreted -- `range`'s type is the same on both
 /// sides. The permission sequence does not carry across unchanged: it is
 /// reinterpreted by `reparam_perm`, exactly as a frame's metadata permission is,
-/// and collapsed to the identity by `axiom_reparam_perm_untyped` only because
-/// `FrameRawPerms` is not indexed by the metadata type today.
+/// and collapsed to the identity by the `axiom_reparam_perm_*` axiom for the pair
+/// at hand, only because `FrameRawPerms` is not indexed by the metadata type
+/// today.
 ///
 /// Module-private, deliberately. `Segment`'s fields are private, and a publicly
 /// visible spec signature may not construct a datatype whose fields are not
@@ -99,7 +100,12 @@ proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Size
             _marker: core::marker::PhantomData,
             meta_type_id: s.meta_type_id,
             #[cfg(verus_keep_ghost_body)]
-            tracked_perms: reparam_perm::<A, B, _>(s.tracked_perms),
+            tracked_perms: Tracked(
+                match s.tracked_perms@ {
+                    Some(p) => Some(reparam_perm::<A, B, Seq<FrameRawPerms>>(p)),
+                    None => None,
+                },
+            ),
         }),
 {
 }
@@ -148,7 +154,7 @@ impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
         proof {
             axiom_segment_erase_transmutable::<M>(seg);
             axiom_segment_reparam::<M, dyn AnyUFrameMeta>(seg);
-            axiom_reparam_perm_untyped::<M, dyn AnyUFrameMeta, _>(seg.tracked_perms);
+            axiom_reparam_perm_erase_untyped::<M>(seg.tracked_perms@->0);
         }
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute::<Segment<M>, USegment>(seg) }
@@ -681,16 +687,10 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 
     /// [`Self::inv`], restated as its conjuncts.
     ///
-    /// Verus will not unfold a *trait-impl* spec function at a `dyn` type
-    /// argument: `Inv for Segment<M>` is an impl, so `inv()` is opaque to every
-    /// caller holding a `Segment<dyn AnyFrameMeta>` -- including callers in this
-    /// module, where `open` would otherwise make the body visible. The same
-    /// resolution gap makes Verus reject a `dyn` call from an inherited default
-    /// body outright.
-    ///
-    /// Proved here, where `M` is still a type parameter and the body does unfold,
-    /// and called at `dyn AnyFrameMeta` to recover the contents. Paired with
-    /// [`Self::lemma_inv_from_parts`] for the other direction.
+    /// Verus will not unfold a trait-impl spec function at a `dyn` type argument,
+    /// so `inv()` is opaque to callers holding a `Segment<dyn AnyFrameMeta>`, `open`
+    /// notwithstanding. Proved here where `M` is still a parameter, and called at
+    /// the `dyn` types.
     pub proof fn lemma_inv_parts(self)
         requires
             self.inv(),
@@ -713,10 +713,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     }
 
     /// The converse of [`Self::lemma_inv_parts`]: folds the conjuncts back up.
-    ///
-    /// Needed for the same reason, in the other direction -- a downcast's result
-    /// is a `Segment<dyn AnyUFrameMeta>`, and establishing `inv()` on it means
-    /// folding a trait-impl spec function at a `dyn` type.
     pub proof fn lemma_inv_from_parts(self)
         requires
             self.start_paddr() % PAGE_SIZE == 0,
@@ -740,11 +736,9 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 
     /// Whether this segment's frames hold untyped metadata.
     ///
-    /// One predicate for the whole segment rather than one per frame, and that is
-    /// sound because [`Self::inv`] makes segments homogeneous: every frame's
-    /// permission records [`Self::meta_id`], so untypedness -- being a property of
-    /// the recorded type, by `axiom_untyped_recorded_by_id` -- is the same for all
-    /// of them. It is also why the downcast below may test a single frame.
+    /// One predicate for the whole segment: [`Self::inv`] makes them homogeneous,
+    /// so untypedness is the same for all of them -- which is why the downcast may
+    /// test a single frame.
     pub open spec fn is_untyped(&self) -> bool {
         id_is_untyped(self.meta_id())
     }
@@ -1417,26 +1411,15 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
 
 /// An untyped homogeneous segment may be viewed as a [`USegment`].
 ///
-/// The trusted core of the downcast, and the one claim in it that is not proved.
-/// Both sides are `dyn`, so this is not the erasure
-/// [`axiom_segment_erase_transmutable`] covers -- that one goes from a *sized*
-/// `M: AnyUFrameMeta`, where the untypedness is in the type system. Here it is a
-/// runtime fact, and this axiom is where that fact is accepted as licensing the
-/// reinterpretation.
+/// The one claim in the downcast that is not proved. Both sides are `dyn`, so this
+/// is not the sized erasure [`axiom_segment_erase_transmutable`] covers; here
+/// untypedness is a runtime fact, and the precondition is discharged by a read of
+/// the slot rather than assumed. Layout is not at issue --
+/// [`axiom_segment_reparam`] covers that -- so what is trusted is the metadata
+/// claim alone.
 ///
-/// Conditioned, which is the improvement over the `external_body` conversion it
-/// replaces: the precondition is discharged by an actual read of the slot
-/// ([`is_untyped_at`]) rather than assumed. Layout is not at issue --
-/// [`axiom_segment_reparam`] already argues that every `Segment<M>` compiles to
-/// one address range -- so what is taken on trust is exactly the metadata claim:
-/// that frames recording an untyped type may be addressed through
-/// `dyn AnyUFrameMeta`.
-///
-/// The `len() == 0` disjunct is not a weakening. An empty segment owns no frames
-/// -- `inv()` gives it an empty permission sequence -- so there is no metadata
-/// anywhere in it to misinterpret, and the claim above is about nothing. Spelling
-/// it out is what lets the metadata claim stay confined to segments that actually
-/// have metadata.
+/// The `len() == 0` disjunct is not a weakening: an empty segment owns no frames,
+/// so there is no metadata to misinterpret.
 #[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
 #[verifier::external_body]
 proof fn axiom_segment_untyped_transmutable(s: Segment<dyn AnyFrameMeta>)
@@ -1449,69 +1432,38 @@ proof fn axiom_segment_untyped_transmutable(s: Segment<dyn AnyFrameMeta>)
 
 /// The erased-to-untyped segment downcast.
 ///
-/// An *inherent* impl on [`USegment`], which is what lets the conversion keep a
-/// `requires` clause: a trait method impl may carry neither that nor a `with`
-/// parameter, and this one needs `seg.inv()` -- the source of the homogeneity
-/// that lets a single frame answer for all of them. Inherent methods also take
-/// precedence in resolution, so `USegment::try_from(seg)` is upstream's call
-/// written unchanged; only `TryFrom`'s *generic* uses (`.try_into()`, and
-/// `T: TryFrom<_>` bounds) still want the trait impl, which waits on the
-/// invariant becoming a type invariant -- currently blocked by `FrameRef`'s
-/// `Tracked(None)`.
+/// An *inherent* impl, which is what lets the conversion carry a `requires`: a
+/// trait method impl may carry neither that nor a `with` parameter, and this one
+/// needs `seg.inv()`. Inherent methods win resolution, so `USegment::try_from(seg)`
+/// is upstream's call unchanged; `TryFrom`'s generic uses still want the trait
+/// impl, which waits on the invariant becoming a type invariant.
 #[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
 impl Segment<dyn AnyUFrameMeta> {
     /// Tries to view an erased segment as an untyped one.
     ///
-    /// Tests a single frame, as upstream does, but for a stated reason rather than
-    /// a comment: by [`Segment::inv`] every frame's permission records
-    /// [`Segment::meta_id`], so one frame's recorded identity *is* the segment's.
-    /// Upstream's `debug_assert!` loop over the remaining frames checks what is
-    /// here an invariant, so it is dropped.
+    /// Tests a single frame: by [`Segment::inv`] every frame's permission records
+    /// [`Segment::meta_id`], so one frame's recorded identity is the segment's.
+    /// Upstream's `debug_assert!` loop over the rest checks what is here an
+    /// invariant, so it is dropped.
     ///
-    /// # Divergence from upstream: the empty segment
+    /// # Upstream bug: the empty segment
     ///
-    /// Upstream reads the first frame unconditionally:
-    ///
-    /// ```ignore
-    /// let first_frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(seg.range.start) };
-    /// let first_frame = ManuallyDrop::new(first_frame);
-    /// if !first_frame.dyn_meta().is_untyped() {
-    /// ```
-    ///
-    /// For an empty segment `range.start == range.end`, and that address is *not*
-    /// a frame the segment owns -- it is one past the last one, or, for an empty
-    /// slice, wherever the slice was taken. `Frame::from_raw`'s contract is that
-    /// the caller restores only a handle previously forgotten by
-    /// `Frame::into_raw`, and for an empty segment no handle was forgotten
-    /// anywhere. `dyn_meta()` then reads that slot's recorded vtable word and
-    /// dispatches `is_untyped()` through it, so an unused slot -- whose metadata
-    /// and vtable word are uninitialized -- yields an indirect call through
-    /// whatever those bytes happen to be. The `ManuallyDrop` prevents the
-    /// reference-count decrement, not the read; the read is the bug.
-    ///
-    /// It is reachable from entirely safe code, which is what makes it a soundness
-    /// bug rather than a latent one: `TryFrom::try_from` is safe, and upstream's
-    /// `Segment::slice` is a safe `pub fn` whose only guard is
-    /// `assert!(start <= end && end <= self.range.end)` -- so `slice(&(0..0))`
-    /// hands back an empty segment. `Iterator::next` is a second route, draining
-    /// `range.start` up to `range.end` and leaving the exhausted segment empty and
-    /// still live.
-    ///
-    /// This version answers `Ok` for an empty segment without reading anything.
-    /// That is the vacuous truth -- a segment with no frames has no typed frames
-    /// -- and it is why the postcondition below guards `is_untyped()` with
-    /// `seg.len() > 0`: an empty segment's recorded `meta_id` is constrained by
-    /// nothing, so there is no untypedness to claim, only nothing to contradict.
+    /// Upstream reads `from_raw(seg.range.start)` unconditionally. For an empty
+    /// segment that address is not a frame the segment owns, so `dyn_meta()`
+    /// dispatches `is_untyped()` through the vtable word of a slot that may be
+    /// uninitialized. It is reachable from safe code -- `try_from` and `slice` are
+    /// both safe and `slice(&(0..0))` returns an empty segment, as does draining the
+    /// `Iterator`. This version answers `Ok` without reading anything, which is why
+    /// the postcondition guards `is_untyped()` with `seg.len() > 0`.
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - the segment satisfies its invariant. Non-emptiness is deliberately *not*
-    ///   required; see above.
+    /// - the segment satisfies its invariant; non-emptiness is deliberately not
+    ///   required.
     ///
     /// ## Postconditions
-    /// - `Ok` implies the segment was untyped if it had any frames at all, and the
-    ///   result keeps its range, its recorded metadata identity, its permissions,
-    ///   and its invariant;
+    /// - `Ok` implies the segment was untyped if it had any frames, and the result
+    ///   keeps its range, identity, permissions and invariant;
     /// - `Err` returns the input unchanged.
     pub fn try_from(seg: Segment<dyn AnyFrameMeta>) -> (r: core::result::Result<
         Self,
@@ -1533,13 +1485,10 @@ impl Segment<dyn AnyUFrameMeta> {
             seg.lemma_inv_parts();
         }
         let untyped = if seg.size() == 0 {
-            // No frame is read, which is the whole point of the branch.
             assert(seg.len() == 0);
             true
         } else {
             proof {
-                // Both ends are page-aligned and distinct, so the segment spans at
-                // least one frame and index 0 exists.
                 assert(seg.len() > 0) by (nonlinear_arith)
                     requires
                         seg.start_paddr() % PAGE_SIZE == 0,
@@ -1548,7 +1497,6 @@ impl Segment<dyn AnyUFrameMeta> {
                         seg.len() == (seg.size() / PAGE_SIZE) as int,
                         seg.size() == seg.end_paddr() - seg.start_paddr(),
                 ;
-                // Its slot address is the one `is_untyped_at` is about to be handed.
                 assert(seg.raw_perms()[0].slot_vaddr() == frame_to_meta(seg.start_paddr()));
             }
             let tracked perms = seg.tracked_perms.borrow().tracked_borrow();
@@ -1562,13 +1510,11 @@ impl Segment<dyn AnyUFrameMeta> {
         proof {
             axiom_segment_untyped_transmutable(seg);
             axiom_segment_reparam::<dyn AnyFrameMeta, dyn AnyUFrameMeta>(seg);
-            axiom_reparam_perm_untyped::<dyn AnyFrameMeta, dyn AnyUFrameMeta, _>(seg.tracked_perms);
+            axiom_reparam_perm_narrow_untyped(seg.tracked_perms@->0);
         }
         // SAFETY: The frames are untyped and the struct is transmutable.
         let res = unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, USegment>(seg) };
         proof {
-            // Every conjunct carries across unchanged: the reparameterization leaves
-            // the range, the recorded identity and the permissions alone.
             res.lemma_inv_from_parts();
         }
         Ok(res)

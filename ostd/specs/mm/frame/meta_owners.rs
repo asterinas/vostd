@@ -5,7 +5,7 @@ use core::any::TypeId;
 use vstd_extra::typing::types::Any;
 use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd_extra::typing::tagged::{
-    ByteRepr, ByteSized, OpenTaggedArray, recorded_id,
+    ByteRepr, ByteSized, TaggedArray, recorded_id,
 };
 use vstd_extra::{
     cast_ptr::{self, BijectiveRepr, Repr},
@@ -14,7 +14,7 @@ use vstd_extra::{
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
-use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners::StoredLink};
+use crate::specs::{arch::NR_ENTRIES, mm::frame::frame_specs::FrameRawPerms};
 
 use super::*;
 use crate::mm::{
@@ -28,6 +28,11 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
+/// Gated because its only uses here are: both untyped-segment reparam axioms need
+/// `dyn_supertrait`, so an unconditional import would be dead in every other
+/// configuration.
+#[cfg(feature = "dyn_supertrait")]
+use crate::mm::frame::untyped::AnyUFrameMeta;
 
 verus! {
 
@@ -99,45 +104,7 @@ pub struct StoredPageTablePageMeta {
     pub lock: PAtomicU8,
 }
 
-/// Bytes a frame's metadata may occupy.
-///
-/// The slot is [`META_SLOT_SIZE`] with three 8-byte words after the storage --
-/// `ref_count`, `vtable_ptr`, `in_list` -- leaving this much. Note the ghost-tag
-/// representation gets the *whole* 40: the discriminant the tagged union spent a
-/// byte on now lives in ghost state, which is why the old `Empty` variant's
-/// payload was `[u8; 39]` and this is one larger.
 pub const META_STORAGE_SIZE: usize = META_SLOT_SIZE - 3 * 8;
-
-// ---------------------------------------------------------------------------
-// Members
-// ---------------------------------------------------------------------------
-//
-// Each member supplies an encoding, a decoding, and the round-trip law relating
-// them. Encode and decode are left *uninterpreted*: a concrete byte layout is a
-// fact about the type's representation, not about the aggregate machinery, and
-// naming them without defining them is what keeps the round trip the only thing
-// consumers may assume.
-//
-// Neither member implements `CanonicalRepr`. Both are strictly smaller than
-// `META_STORAGE_SIZE`, so the slack bytes are unconstrained and encoding is not
-// onto; `StoredPageTablePageMeta` additionally holds `PCell`s and a `PAtomicU8`,
-// whose values include ids that are nowhere in memory. Claiming canonicity for
-// either would be assuming something false.
-
-pub uninterp spec fn frame_link_encode(v: StoredLink) -> [u8; META_STORAGE_SIZE];
-
-pub uninterp spec fn frame_link_decode(b: [u8; META_STORAGE_SIZE]) -> Result<StoredLink, ()>;
-
-/// Decoding recovers what encoding produced.
-///
-/// Axiomatized: the representation obligation a member discharges from its
-/// layout, which Verus does not derive for user structs.
-#[verifier::external_body]
-pub broadcast proof fn axiom_frame_link_round_trip(v: StoredLink)
-    ensures
-        #[trigger] frame_link_decode(frame_link_encode(v)) == Ok(v),
-{
-}
 
 pub uninterp spec fn pt_node_encode(v: StoredPageTablePageMeta) -> [u8; META_STORAGE_SIZE];
 
@@ -152,64 +119,6 @@ pub broadcast proof fn axiom_pt_node_round_trip(v: StoredPageTablePageMeta)
         #[trigger] pt_node_decode(pt_node_encode(v)) == Ok(v),
 {
 }
-
-// --- StoredLink as a member ---
-
-impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredLink {
-    type Error = ();
-
-    #[verifier::external_body]
-    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-impl TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
-    open spec fn obeys_try_from_spec() -> bool {
-        true
-    }
-
-    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        frame_link_decode(b)
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<[u8; META_STORAGE_SIZE]> for StoredLink {
-    #[verifier::external_body]
-    fn into(self) -> [u8; META_STORAGE_SIZE] {
-        unimplemented!()
-    }
-}
-
-impl IntoSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
-    open spec fn obeys_into_spec() -> bool {
-        true
-    }
-
-    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
-        frame_link_encode(self)
-    }
-}
-
-impl ByteSized<{ META_STORAGE_SIZE }> for StoredLink {
-    /// Axiomatized: a layout fact. Upstream's `impl_frame_meta_for!` asserts the
-    /// same inequality with a `const` check.
-    #[verifier::external_body]
-    proof fn size_correct() {
-    }
-}
-
-impl ByteRepr<{ META_STORAGE_SIZE }> for StoredLink {
-    proof fn round_trip(self) {
-        broadcast use axiom_frame_link_round_trip;
-    }
-
-    proof fn obeys() {
-    }
-}
-
-// --- StoredPageTablePageMeta as a member ---
 
 impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
     type Error = ();
@@ -266,22 +175,7 @@ impl ByteRepr<{ META_STORAGE_SIZE }> for StoredPageTablePageMeta {
 }
 
 /// A frame's metadata, as stored in its slot.
-///
-/// Bytes plus a ghost id naming the type they hold. This was a tagged union
-/// enumerating every metadata type in the development; the recorded id does that
-/// job now, without a runtime discriminant and without the enum having to be
-/// reopened for each new one.
-///
-/// The world is **open**: anything with a `ByteRepr<META_STORAGE_SIZE>` may be
-/// stored, and that size bound is the only restriction. Nothing is enumerated, so
-/// a generic family like `Link<M>` -- or `Slab<const SLOT_SIZE>`, which has
-/// infinitely many instantiations -- needs no special treatment, where a closed
-/// member tree would have had to name each one.
-///
-/// A newtype rather than a bare [`OpenTaggedArray`] so that the frame layer's
-/// `Repr<MetaSlotStorage>` bounds, the `AnyFrameMeta` impl, and `UFrame`/`DynFrame`
-/// keep naming one type.
-pub struct MetaSlotStorage(pub OpenTaggedArray<META_STORAGE_SIZE>);
+pub struct MetaSlotStorage(pub TaggedArray<META_STORAGE_SIZE>);
 
 impl MetaSlotStorage {
     /// This slot holds an `M`.
@@ -293,13 +187,10 @@ impl MetaSlotStorage {
     pub open spec fn tagged<M: ByteRepr<META_STORAGE_SIZE>>(
         data: [u8; META_STORAGE_SIZE],
     ) -> MetaSlotStorage {
-        MetaSlotStorage(OpenTaggedArray { id: Ghost(recorded_id::<M>()), data })
+        MetaSlotStorage(TaggedArray { id: Ghost(recorded_id::<M>()), data })
     }
 }
 
-/// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
-/// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
-/// it can then be used to stand in for `dyn AnyFrameMeta`.
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
 
@@ -383,36 +274,10 @@ pub open spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId {
 #[cfg(not(feature = "type_id"))]
 pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId;
 
-/// Whether metadata recorded under `id` describes *untyped* memory.
-///
-/// The erased counterpart of [`AnyFrameMeta::is_untyped_spec`]. A handle that has
-/// lost its metadata type still knows the identity its slot recorded, so this is
-/// the only form in which an erased handle can talk about untypedness at all --
-/// and `USegment` is exactly a segment that has lost its type but kept this fact.
-///
-/// Uninterpreted. All of its content comes from
-/// [`axiom_untyped_recorded_by_id`]; without that axiom, every statement made
-/// with this predicate would be vacuous.
+/// Whether metadata recorded under `id` describes *untyped* memory
 pub uninterp spec fn id_is_untyped(id: MetaTypeId) -> bool;
 
-/// Untypedness is a property of the metadata *type*, not of a value of that type.
-///
-/// This is what connects [`id_is_untyped`] to
-/// [`AnyFrameMeta::is_untyped_spec`], and so what makes a postcondition stated
-/// in terms of the former mean anything.
-///
-/// Trusted, and it cannot be discharged as a trait obligation instead: an impl
-/// would have to prove `self.is_untyped_spec() == id_is_untyped(self.meta_id())`
-/// for an *uninterpreted* `id_is_untyped`, which no impl can do. Nor can
-/// `id_is_untyped` be given a body, since a spec function cannot dispatch on a
-/// type identity.
-///
-/// It is true of every impl in the tree: each defines `is_untyped_spec` as a
-/// constant, except `Link<M>`, which defers to `M` and so is constant once `M`
-/// is fixed -- and `M` *is* fixed by `Link<M>`'s own identity. An impl whose
-/// untypedness varied between two values of one type would make this false, so
-/// the constraint belongs in `AnyFrameMeta`'s contract, which is where
-/// `is_untyped_spec` records it.
+/// Untypedness is a property of the metadata *type*, not of a value of that type
 #[cfg(feature = "type_id")]
 #[verifier::external_body]
 pub proof fn axiom_untyped_recorded_by_id<M: AnyFrameMeta + ?Sized>(m: &M)
@@ -429,45 +294,49 @@ pub tracked struct MetadataPerm {
 }
 
 /// How a permission is reinterpreted when a handle is reparameterized from
-/// metadata type `A` to metadata type `B`.
-///
-/// Uninterpreted, and generic in the permission so that frame handles and
-/// segment handles share one notion. Reparameterizing a handle is not in
-/// general a no-op on its permissions: the permission describes the metadata
-/// the slot holds, so changing the type the handle claims about that metadata
-/// has to change the permission to match.
-///
-/// It *is* a no-op for every cast performed today, which is what
-/// [`axiom_reparam_perm_untyped`] supplies. That no-op is a property of the
-/// current representation rather than of reparameterization, so it is named
-/// separately instead of being written into the representation axioms
-/// (`axiom_frame_reparam`, `axiom_segment_reparam`) -- those claim layout, and
-/// this claims what happens to ownership.
+/// metadata type `A` to metadata type `B`. Uninterpreted and axiomatized
+/// for individual pairs `A` and `B`.
 pub uninterp spec fn reparam_perm<A: ?Sized, B: ?Sized, P>(p: P) -> P;
 
-/// Reparameterization leaves permissions alone, because they are not indexed by
-/// the metadata type.
-///
-/// Holds for *every* pair of metadata types, and that breadth is the point:
-/// `MetadataPerm::storage_perm` points at a [`MetaSlotStorage`] -- the closed
-/// stand-in for `dyn AnyFrameMeta` -- and `meta_type_id` records what the slot
-/// holds rather than how the handle is parameterized. Neither mentions `A` or
-/// `B`, so erasing a static type or recovering one changes nothing about the
-/// permission. `FrameRawPerms` is in the same position.
-///
-/// **This is the axiom to revisit when `MetaSlotStorage` is retired.** At that
-/// point `storage_perm` becomes typed, [`reparam_perm`] becomes a real
-/// operation, and this becomes false in general -- derivable only for the
-/// erasure pairs, and only given that the slot really holds the target type,
-/// which is an identity claim the representation axioms deliberately do not
-/// make. Withdrawing it will break the reparameterizing casts rather than
-/// silently weaken them, which is why the no-op lives here and not inside them.
-#[verifier::external_body]
-pub proof fn axiom_reparam_perm_untyped<A: ?Sized, B: ?Sized, P>(p: P)
+// ---------------------------------------------------------------------------
+// Effect of reparameterization on permissions
+// ---------------------------------------------------------------------------
+
+/// Erasing a sized metadata type leaves the permission alone.
+pub axiom fn axiom_reparam_perm_erase<M: AnyFrameMeta>(p: FracMetadataPerm)
     ensures
-        reparam_perm::<A, B, P>(p) == p,
-{
-}
+        reparam_perm::<M, dyn AnyFrameMeta, FracMetadataPerm>(p) == p,
+;
+
+/// Recovering a metadata type from an erased handle leaves the permission alone.
+pub axiom fn axiom_reparam_perm_recover<M: AnyFrameMeta>(p: FracMetadataPerm)
+    ensures
+        reparam_perm::<dyn AnyFrameMeta, M, FracMetadataPerm>(p) == p,
+;
+
+/// Reparameterizing between two sized metadata types also converts the permission.
+pub axiom fn axiom_reparam_perm_between<A: AnyFrameMeta, B: AnyFrameMeta>(p: MetadataPerm)
+    ensures
+        reparam_perm::<A, B, MetadataPerm>(p) == (MetadataPerm {
+            storage_perm: p.storage_perm,
+            vtable_ptr_perm: p.vtable_ptr_perm,
+            meta_type_id: recorded_meta_id::<B>(),
+        }),
+;
+
+/// Erasing an *untyped* metadata type leaves the permission alone.
+#[cfg(feature = "dyn_supertrait")]
+pub axiom fn axiom_reparam_perm_erase_untyped<M: AnyUFrameMeta>(p: Seq<FrameRawPerms>)
+    ensures
+        reparam_perm::<M, dyn AnyUFrameMeta, Seq<FrameRawPerms>>(p) == p,
+;
+
+/// Narrowing an erased handle to the untyped erasure leaves the permission alone.
+#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
+pub axiom fn axiom_reparam_perm_narrow_untyped(p: Seq<FrameRawPerms>)
+    ensures
+        reparam_perm::<dyn AnyFrameMeta, dyn AnyUFrameMeta, Seq<FrameRawPerms>>(p) == p,
+;
 
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;
 

@@ -818,9 +818,10 @@ impl Frame<dyn AnyFrameMeta> {
 /// carry across: it is reinterpreted by [`reparam_perm`], because the permission
 /// describes the metadata the slot holds and the reparameterization changes what
 /// the handle claims about it. For every cast performed today that
-/// reinterpretation is the identity -- see [`axiom_reparam_perm_untyped`], which
-/// callers invoke to collapse it -- but that is a fact about the current
-/// representation, not about reparameterizing, so it is not baked in here.
+/// reinterpretation is the identity -- collapsed by whichever of the
+/// `axiom_reparam_perm_*` family covers the pair, which callers invoke explicitly
+/// -- but that is a fact about the current representation, not about
+/// reparameterizing, so it is not baked in here.
 ///
 /// Representation only. That the slot really holds a `B` is an identity claim,
 /// which this does not make -- the `is_::<M>` guard in [`TryFrom`] establishes
@@ -836,7 +837,12 @@ pub proof fn axiom_frame_reparam<A: ?Sized, B: ?Sized>(f: Frame<A>)
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: f.tracked_slot_perm,
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: reparam_perm::<A, B, _>(f.tracked_metadata_perm),
+            tracked_metadata_perm: Tracked(
+                match f.tracked_metadata_perm@ {
+                    Some(p) => Some(reparam_perm::<A, B, FracMetadataPerm>(p)),
+                    None => None,
+                },
+            ),
         }),
 {
 }
@@ -862,23 +868,6 @@ pub proof fn axiom_frame_recover_transmutable<M: AnyFrameMeta>(f: Frame<dyn AnyF
     ensures
         can_transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(f),
 {
-}
-
-/// The transmute half of the downcast.
-pub fn transmute_frame_to_typed<M: AnyFrameMeta>(dyn_frame: Frame<dyn AnyFrameMeta>)
--> (r: Frame<M>)
-    ensures
-        r.ptr == dyn_frame.ptr,
-        r.tracked_slot_perm == dyn_frame.tracked_slot_perm,
-        r.tracked_metadata_perm == dyn_frame.tracked_metadata_perm,
-{
-    proof {
-        axiom_frame_recover_transmutable::<M>(dyn_frame);
-        axiom_frame_reparam::<dyn AnyFrameMeta, M>(dyn_frame);
-        axiom_reparam_perm_untyped::<dyn AnyFrameMeta, M, _>(dyn_frame.tracked_metadata_perm);
-    }
-    // SAFETY: The metadata is coerceable and the struct is transmutable.
-    unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) }
 }
 
 #[cfg(feature = "type_id")]
@@ -913,22 +902,15 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     ///
     /// If the usage of the frame is not the same as the expected usage, it will
     /// return the dynamic frame itself as is.
-    ///
-    /// Upstream tests with
-    ///
-    /// ```text
-    /// if (dyn_frame.dyn_meta() as &dyn core::any::Any).is::<M>() {
-    /// ```
-    ///
-    /// In our code the upcast is a method, [`AnyFrameMeta::to_any`]. Each impl
-    /// performs the coercion `&Self -> &dyn Any`, which Verus does model.
-    /// `is_` is then the same `is` upstream calls.
-    ///
-    /// For now, `transmute_frame_to_typed` stands in for an axiomatized `transmute`
-    /// function. Axiomatizing `transmute` is a separate task.
     fn try_from(dyn_frame: Frame<dyn AnyFrameMeta>) -> (res: Result<Self, Self::Error>) {
         if is_::<M>(dyn_frame.dyn_meta().to_any()) {
-            Ok(transmute_frame_to_typed::<M>(dyn_frame))
+            proof {
+                axiom_frame_recover_transmutable::<M>(dyn_frame);
+                axiom_frame_reparam::<dyn AnyFrameMeta, M>(dyn_frame);
+                axiom_reparam_perm_recover::<M>(dyn_frame.tracked_metadata_perm@->0);
+            }
+            // SAFETY: The metadata is coerceable and the struct is transmutable.
+            Ok(unsafe { core::mem::transmute::<Frame<dyn AnyFrameMeta>, Frame<M>>(dyn_frame) })
         } else {
             Err(dyn_frame)
         }
@@ -981,7 +963,7 @@ impl<M: AnyFrameMeta> From<Frame<M>> for Frame<dyn AnyFrameMeta> {
         proof {
             axiom_frame_erase_transmutable::<M>(frame);
             axiom_frame_reparam::<M, dyn AnyFrameMeta>(frame);
-            axiom_reparam_perm_untyped::<M, dyn AnyFrameMeta, _>(frame.tracked_metadata_perm);
+            axiom_reparam_perm_erase::<M>(frame.tracked_metadata_perm@->0);
         }
         // SAFETY: see [`axiom_frame_reparam`] -- one pointer either way, once the
         // ghost and tracked fields are erased.

@@ -16,7 +16,7 @@ use crate::specs::{
     mm::frame::{
         mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
         meta_owners::{
-            MetaSlotStorage, MetadataPerm, axiom_reparam_perm_untyped, borrow_meta, borrow_meta_mut,
+            MetaSlotStorage, MetadataPerm, axiom_reparam_perm_between, borrow_meta, borrow_meta_mut,
             recorded_meta_id, reparam_perm,
         },
         meta_region_owners::MetaRegionOwners,
@@ -143,18 +143,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
     /// The slot this handle owns holds metadata of type `M1`.
     ///
-    /// This is the claim [`Self::transmute`] was missing. Reparameterizing a handle
-    /// is a statement about *bytes* -- one pointer either way -- but handing the
-    /// metadata permission to an arbitrary `M1` additionally asserts that the slot
-    /// really holds an `M1`, and nothing about the layout establishes that. The
-    /// recorded id is what does: [`MetaSlot::write_meta`] stamps
-    /// `recorded_meta_id::<M>()` into the permission when it installs metadata, so a
-    /// caller that has just written an `M1` can discharge this and a caller that has
-    /// not cannot.
+    /// Reparameterizing a handle is a statement about bytes; handing the metadata
+    /// permission to an arbitrary `M1` additionally asserts that the slot really
+    /// holds an `M1`, which no layout fact establishes. The recorded id does:
+    /// [`MetaSlot::write_meta`] stamps it when it installs metadata, so only a
+    /// caller that has just written an `M1` can discharge this.
     pub open spec fn transmute_requires<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         self,
     ) -> bool {
-        self.metadata_perm().meta_type_id == recorded_meta_id::<M1>()
+        // `metadata_perm()` alone would not imply presence: it reads through `->0`,
+        // which is underspecified on `None` rather than false.
+        &&& self.tracked_metadata_perm@ is Some
+        &&& self.metadata_perm().meta_type_id == recorded_meta_id::<M1>()
     }
 
     pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -171,8 +171,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     ///
     /// Three claims, kept apart: [`axiom_unique_frame_transmutable`] says the pair
     /// may be reinterpreted, [`axiom_unique_frame_reparam`] says what that yields,
-    /// and [`Self::transmute_requires`] says the slot really holds an `M1`. Only the
-    /// last is about identity, and it is the one that was missing.
+    /// and [`Self::transmute_requires`] says the slot really holds an `M1` -- the
+    /// only one of the three about identity.
     #[verus_spec(res =>
         requires
             self.transmute_requires::<M1>(),
@@ -183,7 +183,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         proof {
             axiom_unique_frame_transmutable::<M, M1>(self);
             axiom_unique_frame_reparam::<M, M1>(self);
-            axiom_reparam_perm_untyped::<M, M1, _>(self.tracked_metadata_perm);
+            axiom_reparam_perm_between::<M, M1>(self.tracked_metadata_perm@->0);
         }
         // SAFETY: see [`axiom_unique_frame_reparam`] -- one pointer either way, once
         // the ghost fields are erased.
@@ -737,7 +737,12 @@ pub proof fn axiom_unique_frame_reparam<
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: f.tracked_slot_perm,
             #[cfg(verus_keep_ghost_body)]
-            tracked_metadata_perm: reparam_perm::<A, B, _>(f.tracked_metadata_perm),
+            tracked_metadata_perm: Tracked(
+                match f.tracked_metadata_perm@ {
+                    Some(p) => Some(reparam_perm::<A, B, MetadataPerm>(p)),
+                    None => None,
+                },
+            ),
         }),
 {
 }
