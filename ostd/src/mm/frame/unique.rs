@@ -4,13 +4,21 @@ use vstd::{
     prelude::*,
     simple_pptr::{self, PPtr},
 };
-use vstd_extra::{auxiliary::OptionExtraFns, cast_ptr::*, ownership::*};
+use vstd_extra::{
+    auxiliary::OptionExtraFns,
+    cast_ptr::*,
+    ownership::*,
+    transmute::{can_transmute, transmuted},
+};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
         mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
-        meta_owners::{MetaSlotStorage, MetadataPerm, borrow_meta, borrow_meta_mut},
+        meta_owners::{
+            MetaSlotStorage, MetadataPerm, axiom_reparam_perm_untyped, borrow_meta, borrow_meta_mut,
+            recorded_meta_id, reparam_perm,
+        },
         meta_region_owners::MetaRegionOwners,
         unique::*,
     },
@@ -133,7 +141,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
     }
 
-    // FIXME: This seems to be unsound and has to be corrected until we have better modeling of trait object.
+    /// The slot this handle owns holds metadata of type `M1`.
+    ///
+    /// This is the claim [`Self::transmute`] was missing. Reparameterizing a handle
+    /// is a statement about *bytes* -- one pointer either way -- but handing the
+    /// metadata permission to an arbitrary `M1` additionally asserts that the slot
+    /// really holds an `M1`, and nothing about the layout establishes that. The
+    /// recorded id is what does: [`MetaSlot::write_meta`] stamps
+    /// `recorded_meta_id::<M>()` into the permission when it installs metadata, so a
+    /// caller that has just written an `M1` can discharge this and a caller that has
+    /// not cannot.
+    pub open spec fn transmute_requires<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+        self,
+    ) -> bool {
+        self.metadata_perm().meta_type_id == recorded_meta_id::<M1>()
+    }
+
     pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         self,
         transmuted: UniqueFrame<M1>,
@@ -144,13 +167,27 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         &&& transmuted.tracked_metadata_perm@ == self.tracked_metadata_perm@
     }
 
-    #[verifier::external_body]
+    /// Reparameterizes a unique handle from `M` to `M1`.
+    ///
+    /// Three claims, kept apart: [`axiom_unique_frame_transmutable`] says the pair
+    /// may be reinterpreted, [`axiom_unique_frame_reparam`] says what that yields,
+    /// and [`Self::transmute_requires`] says the slot really holds an `M1`. Only the
+    /// last is about identity, and it is the one that was missing.
     #[verus_spec(res =>
+        requires
+            self.transmute_requires::<M1>(),
         ensures
             Self::transmute_spec(self, res),
     )]
     pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> UniqueFrame<M1> {
-        unimplemented!()
+        proof {
+            axiom_unique_frame_transmutable::<M, M1>(self);
+            axiom_unique_frame_reparam::<M, M1>(self);
+            axiom_reparam_perm_untyped::<M, M1, _>(self.tracked_metadata_perm);
+        }
+        // SAFETY: see [`axiom_unique_frame_reparam`] -- one pointer either way, once
+        // the ghost fields are erased.
+        unsafe { core::mem::transmute::<UniqueFrame<M>, UniqueFrame<M1>>(self) }
     }
 
     /// Repurposes the frame with a new metadata.
@@ -670,6 +707,57 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TryFrom<Frame<M>> for Un
     fn try_from(frame: Frame<M>) -> Result<Self, Self::Error> {
         UniqueFrame::try_from_shared(frame)
     }
+}
+
+/// What reparameterizing a unique handle's metadata type produces.
+///
+/// The `UniqueFrame` counterpart of `axiom_frame_reparam`, and the same shape: a
+/// `UniqueFrame<M>` is a `PPtr<MetaSlot>` beside a `PhantomData<M>` and two ghost
+/// fields, so what is actually there is one pointer regardless of `M`. The slot
+/// permission carries across unchanged; the metadata permission is reinterpreted by
+/// [`reparam_perm`], which is the identity for as long as `MetadataPerm` is not
+/// indexed by the metadata type.
+///
+/// Describes a transmute rather than licensing one: `can_transmute` is a
+/// precondition, supplied by [`axiom_unique_frame_transmutable`].
+///
+/// Representation only. That the slot holds a `B` is an identity claim this does not
+/// make -- `UniqueFrame::transmute_requires` is where that lives.
+#[verifier::external_body]
+pub proof fn axiom_unique_frame_reparam<
+    A: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
+    B: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
+>(f: UniqueFrame<A>)
+    requires
+        can_transmute::<UniqueFrame<A>, UniqueFrame<B>>(f),
+    ensures
+        transmuted::<UniqueFrame<A>, UniqueFrame<B>>(f) == (UniqueFrame::<B> {
+            ptr: f.ptr,
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_slot_perm: f.tracked_slot_perm,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_metadata_perm: reparam_perm::<A, B, _>(f.tracked_metadata_perm),
+        }),
+{
+}
+
+/// Reparameterizing a unique handle between two sized metadata types is a valid
+/// transmute.
+///
+/// One permission rather than the frame layer's erase/recover pair, because there is
+/// one shape here: both sides are sized, and `repurpose` may install any metadata
+/// type it likes. The breadth is safe precisely because this says nothing about
+/// *which* type the slot holds -- `UniqueFrame::transmute_requires` is what stops the
+/// reparameterization being useful at the wrong one.
+#[verifier::external_body]
+pub proof fn axiom_unique_frame_transmutable<
+    A: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
+    B: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
+>(f: UniqueFrame<A>)
+    ensures
+        can_transmute::<UniqueFrame<A>, UniqueFrame<B>>(f),
+{
 }
 
 } // verus!

@@ -386,6 +386,29 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError>
     Ok(ptr.borrow(Tracked(slot_perm.tracked_borrow())))
 }
 
+/// The vtable word for `m`'s concrete type.
+///
+/// `external_body`, and it is the *only* trusted step between a concrete metadata
+/// value and the word the slot stores. The operation is `core::ptr::metadata`,
+/// which `vstd` does not specify -- `raw_ptr` models a pointer's metadata as
+/// `PtrData::metadata` but gives no way to read it off a reference.
+///
+/// Isolated here deliberately. Until that specification exists this is where the
+/// vtable's provenance is taken on trust, and when it does exist this function is
+/// what it replaces. The `usize` return is a second, smaller debt: upstream stores
+/// a `DynMetadata<dyn AnyFrameMeta>` directly, and narrowing it to an address is
+/// what forces the transmute below.
+#[verifier::external_body]
+pub fn vtable_ptr_of<M: AnyFrameMeta>(m: &M) -> (r: usize)
+    ensures
+        r == m.vtable_ptr(),
+{
+    let meta = core::ptr::metadata(m as &dyn AnyFrameMeta);
+    // SAFETY: `DynMetadata` for a trait object is a pointer to the vtable, so it
+    // is word-sized and may be read as an address.
+    unsafe { core::mem::transmute(meta) }
+}
+
 #[verus_verify]
 impl MetaSlot {
     /// This is the equivalent of &self as *const as Vaddr, but we need to axiomatize it.
@@ -784,6 +807,7 @@ impl MetaSlot {
             final(metadata_perm).storage_perm.is_init(),
             final(metadata_perm).vtable_ptr_perm.pptr() == old(metadata_perm).vtable_ptr_perm.pptr(),
             final(metadata_perm).vtable_ptr_perm.is_init(),
+            final(metadata_perm).vtable_ptr_perm.value() == metadata.vtable_ptr(),
             <M as Repr<MetaSlotStorage>>::wf(
                 final(metadata_perm).storage_perm.value(),
                 *final(repr_perm),
@@ -798,10 +822,10 @@ impl MetaSlot {
         &self,
         metadata: M,
     ) {
-        // SAFETY: Caller ensures that the access to the fields are exclusive.
-        //        let vtable_ptr = unsafe { &mut *self.vtable_ptr.get() };
-        //        vtable_ptr.write(core::ptr::metadata(&metadata as &dyn AnyFrameMeta));
-        self.vtable_ptr.put(Tracked(&mut metadata_perm.vtable_ptr_perm), 0);
+        // The vtable word for `M`, taken before `metadata` is moved into the
+        // storage below.
+        let vtable = vtable_ptr_of(&metadata);
+        self.vtable_ptr.put(Tracked(&mut metadata_perm.vtable_ptr_perm), vtable);
 
         // SAFETY:
         // 1. `ptr` points to the metadata storage.

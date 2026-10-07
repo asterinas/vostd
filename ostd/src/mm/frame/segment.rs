@@ -46,6 +46,19 @@ verus! {
 pub struct Segment<M: AnyFrameMeta + ?Sized> {
     range: Range<Paddr>,
     _marker: core::marker::PhantomData<M>,
+    /// The metadata type every frame in this segment holds, as ghost state.
+    ///
+    /// The segment's own record of the homogeneity its doc comment claims, rather
+    /// than a fact recovered by comparing frames. Three things come out of putting
+    /// it here: an empty segment still has an id (agreement between frames goes
+    /// vacuous and loses it), a split inherits it instead of re-deriving it, and a
+    /// downcast reads it once off the segment instead of per frame.
+    ///
+    /// `Ghost<MetaTypeId>` rather than a `ghost` field: a `ghost` field cannot be
+    /// initialised from executable code, which would make every constructor below
+    /// unreachable. `Ghost` is zero-sized, so the compiled struct is still just the
+    /// range -- which is what `axiom_segment_reparam`'s layout claim needs.
+    meta_type_id: Ghost<MetaTypeId>,
     /// One raw permission bundle for each frame in `range`, in address order.
     #[cfg(verus_keep_ghost_body)]
     tracked_perms: Tracked<Option<Seq<FrameRawPerms>>>,
@@ -84,6 +97,7 @@ proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Size
         vstd_extra::transmute::transmuted::<Segment<A>, Segment<B>>(s) == (Segment::<B> {
             range: s.range,
             _marker: core::marker::PhantomData,
+            meta_type_id: s.meta_type_id,
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: reparam_perm::<A, B, _>(s.tracked_perms),
         }),
@@ -117,6 +131,7 @@ impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
         Segment {
             range: v.range,
             _marker: core::marker::PhantomData,
+            meta_type_id: v.meta_type_id,
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: v.tracked_perms,
         }
@@ -276,6 +291,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         Self {
             range: self.range.start..self.range.end,
             _marker: core::marker::PhantomData,
+            meta_type_id: self.meta_type_id,
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(raw_perms)),
         }
@@ -373,6 +389,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         let mut segment = Self {
             range: range.start..range.start,
             _marker: core::marker::PhantomData,
+            meta_type_id: Ghost(recorded_meta_id::<M>()),
         };
 
         let mut i = 0;
@@ -417,6 +434,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 regions.inv(),
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                 segment.range.end == range.start + i * PAGE_SIZE,
+                // `segment` is mutated in the loop, so its ghost id is havocked
+                // unless pinned here -- the per-frame conjunct above is useless
+                // without it, since `inv()` compares frames against *this*.
+                segment.meta_id() == recorded_meta_id::<M>(),
+                // Every frame pushed so far was written at `M`.
+                //
+                // Its own quantifier, triggered on the permission sequence rather than
+                // on `addrs`: `inv()`'s homogeneity conjunct is keyed on
+                // `raw_perms()[i]`, so a fact keyed on `addrs[j]` never instantiates
+                // there even though both range over the same frames.
+                forall|j: int|
+                    #![trigger segment.tracked_perms@->0[j]]
+                    0 <= j < segment.tracked_perms@->0.len()
+                        ==> segment.tracked_perms@->0[j].metadata_perm.resource().meta_type_id
+                        == recorded_meta_id::<M>(),
             ensures
                 i == addr_len,
             decreases addr_len - i,
@@ -557,6 +589,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(raw_perms): Tracked<Seq<FrameRawPerms>>,
+            Ghost(meta_id): Ghost<MetaTypeId>,
         requires
             range.start % PAGE_SIZE == 0,
             range.end % PAGE_SIZE == 0,
@@ -567,14 +600,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     let paddr = (range.start + i * PAGE_SIZE) as usize;
                     &&& raw_perms[i].slot_vaddr() == frame_to_meta(paddr)
                     &&& raw_perms[i].inv()
+                    // The safety comment's "matches the type `M`", made explicit.
+                    &&& raw_perms[i].metadata_perm.resource().meta_type_id == meta_id
                 },
         ensures
             r.inv(),
             r.range() == range,
+            r.meta_id() == meta_id,
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
-        Self { range, _marker: core::marker::PhantomData }
+        Self { range, _marker: core::marker::PhantomData, meta_type_id: Ghost(meta_id) }
     }
 }
 
@@ -625,6 +661,11 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 
     pub closed spec fn raw_perms(&self) -> Seq<FrameRawPerms> {
         self.tracked_perms@->0
+    }
+
+    /// The metadata type every frame in this segment holds.
+    pub closed spec fn meta_id(&self) -> MetaTypeId {
+        self.meta_type_id@
     }
 
     pub open spec fn metadata_perms(&self) -> Seq<FracMetadataPerm> {
@@ -682,12 +723,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self {
                 range: old.range.start..at,
                 _marker: core::marker::PhantomData,
+                // Read through `old`, as `range` is: `self` has been moved by here.
+                meta_type_id: old.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(left_perms)),
             },
             Self {
                 range: at..old.range.end,
                 _marker: core::marker::PhantomData,
+                meta_type_id: old.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(right_perms)),
             },
@@ -790,6 +834,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& raw_perms[j].inv()
                         &&& raw_perms[j].metadata_perm.id()
                             == regions.slot_owners[idx].metadata_perm.id()
+                        // A slice's frames are a sub-range of this segment's, so they
+                        // hold the type this segment records. Folded in here because
+                        // this quantifier is already keyed on `raw_perms[j]` -- the
+                        // sequence that becomes the result's -- unlike `from_unused`'s,
+                        // which is keyed on `addrs[j]` and needed its own.
+                        &&& raw_perms[j].metadata_perm.resource().meta_type_id
+                            == self.meta_id()
                     },
                 forall|j: int|
                     #![trigger frame_to_index((start + j * PAGE_SIZE) as usize)]
@@ -833,6 +884,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             };
             let tracked frame_permission = tracked_permission.get();
             proof {
+                // TODO: the new fraction's metadata type.
+                //
+                // It is a *fresh* fraction from the region, not one of `self`'s. The
+                // link runs through ids -- `relate_regions` says `self`'s fraction and
+                // the region's share one, and `Count::agree` turns matching ids into
+                // matching values -- but `agree` needs a *tracked* reference to
+                // `self.raw_perms()[perm_idx].metadata_perm`, and indexing a tracked
+                // `Seq` yields a spec value. The only helper, `seq_tracked_split_at`,
+                // needs `&mut` and `slice` holds `&self`.
+                //
+                // Needs either a `seq_tracked_borrow_at(&Seq<T>, i) -> &T` helper, or
+                // the recorded id carried on the region side so the fact can come from
+                // `regions` instead of from `self`.
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
                 raw_perms.tracked_push(
                     FrameRawPerms { slot_perm, metadata_perm: frame_permission },
@@ -847,7 +911,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
 
         proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
-        Self { range: start..end, _marker: core::marker::PhantomData }
+        // A slice holds a sub-range of the same frames, so it holds the same type.
+        Self {
+            range: start..end,
+            _marker: core::marker::PhantomData,
+            meta_type_id: self.meta_type_id,
+        }
     }
 
     /// Forgets the [`Segment`] and gets a raw range of physical addresses.
@@ -892,12 +961,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self {
                 range: self.start_paddr()..at,
                 _marker: core::marker::PhantomData,
+                meta_type_id: self.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(self.raw_perms()[..idx])),
             },
             Self {
                 range: at..self.end_paddr(),
                 _marker: core::marker::PhantomData,
+                meta_type_id: self.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(self.raw_perms()[idx..])),
             },
@@ -921,6 +992,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
         Self {
             range: paddr..(paddr + PAGE_SIZE) as usize,
             _marker: core::marker::PhantomData,
+            meta_type_id: Ghost(frame.metadata_perm().meta_type_id),
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(perm)),
         }
@@ -931,6 +1003,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
     fn from(frame: Frame<M>) -> Self {
         assume(frame.inv());
+
+        // Before the permission is taken below: afterwards `metadata_perm()` reads
+        // `->0` of `None`, which is unspecified, while `from_spec` reads it off the
+        // original frame -- so the two would disagree.
+        let ghost meta_id = frame.metadata_perm().meta_type_id;
 
         let mut frame = frame;
         let pa = frame.start_paddr();
@@ -947,6 +1024,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
         Self {
             range: pa..(pa + PAGE_SIZE),
             _marker: core::marker::PhantomData,
+            meta_type_id: Ghost(meta_id),
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(perms)),
         }
@@ -1242,6 +1320,18 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
                 let paddr = (self.range().start + i * PAGE_SIZE) as usize;
                 &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
                 &&& self.raw_perms()[i].inv()
+                // Homogeneity: every frame holds the metadata type the segment
+                // records.
+                //
+                // Not `recorded_meta_id::<M>()`: an erased segment's frames carry the
+                // *concrete* type's recorded id, since erasure preserves it rather than
+                // overwriting it, so pinning this to `M` would be false for
+                // `Segment<dyn AnyFrameMeta>`.
+                //
+                // Folded into this quantifier to reuse its trigger rather than adding a
+                // second one over the same sequence.
+                &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id
+                    == self.meta_id()
             }
     }
 }

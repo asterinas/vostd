@@ -218,6 +218,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
                 &&& res.inv()
                 &&& res.start_paddr_spec() == paddr
                 &&& res.wf_with_region(*final(regions))
+                // The type that went in. Established by `MetaSlot::write_meta` and
+                // exposed here so callers that aggregate frames -- `Segment` -- can
+                // state the type their frames share.
+                &&& res.metadata_perm().meta_type_id == recorded_meta_id::<M>()
             },
             r is Err ==> *final(regions) == *old(regions)
     )]
@@ -763,7 +767,20 @@ impl Frame<dyn AnyFrameMeta> {
     ///
     /// If the type is known at compile time, use [`Frame::meta`] instead.
     ///
-    /// `external_body` until we handle the vtable pointer again.
+    /// `external_body`, and *unconditionally* so -- which is a real weakness, not
+    /// just missing work. See the note on [`borrow_dyn_meta`]'s absence below.
+    ///
+    /// Giving this a precondition is not possible while [`TryFrom`] is its caller:
+    /// a trait-method impl can take neither `with` parameters nor a `requires`, so
+    /// anything it calls must be callable on an arbitrary `Frame<dyn AnyFrameMeta>`
+    /// -- including one whose metadata permission is `None`, which is a legitimate
+    /// state (`Frame::meta` branches on exactly that). So the downcast verifies
+    /// only because this promises its result's identity for free.
+    ///
+    /// Fixing it means changing how the downcast receives the permission, the way
+    /// [`Frame::meta`] does with a `with` clause -- which upstream's `TryFrom`
+    /// signature has no room for. That is a interface question, not a
+    /// fat-pointer one.
     #[verifier::external_body]
     pub fn dyn_meta(&self) -> (r: &dyn AnyFrameMeta)
         ensures

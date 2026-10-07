@@ -12,6 +12,7 @@ use crate::specs::{
 
 use super::meta_owners::{
     FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
+    recorded_meta_id,
 };
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
@@ -116,6 +117,10 @@ impl MetaSlot {
         &&& Self::perms_related(*post.slots[idx], metadata_perms)
         &&& <M as Repr<MetaSlotStorage>>::wf(metadata_perms.storage_perm.value(), repr_perm)
         &&& M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm) == metadata
+        // The recorded identity, beside the value it identifies. `write_meta` stamps
+        // this when it installs the metadata; stating it here is what carries it out
+        // through `get_from_unused` to callers that aggregate frames.
+        &&& metadata_perms.meta_type_id == recorded_meta_id::<M>()
     }
 
     /// Variant of [`get_from_unused_region_spec`] for allocating a page-table *node*
