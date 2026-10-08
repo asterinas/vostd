@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Synchronization primitives.
-
 use core::cell::{RefCell, RefMut};
 
 /// A mutex.

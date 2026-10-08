@@ -856,27 +856,12 @@ fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
 /// The index of a VA's PTE in a page table node at the given level.
 fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
-        1 <= level <= NR_LEVELS,
-    ensures
-        res == AbstractVaddr::from_vaddr(va).index[level - 1],
+        1 <= level <= C::NR_LEVELS(),
+    returns
+        pte_index_spec::<C>(va, level),
 {
     proof {
-        let offset = pte_index_bit_offset_spec::<C>(level);
         C::lemma_paging_consts_properties();
-        lemma_arch_specific_consts_properties::<C>();
-        assert(0 <= offset < usize::BITS) by (nonlinear_arith)
-            requires
-                1 <= level <= 4,
-                offset == 12 + 9 * (level - 1),
-        ;
-        lemma2_to64();
-        lemma2_to64_rest();
-        vstd::bits::lemma_usize_shr_is_div(va, pte_index_bit_offset_spec::<C>(level));
-        vstd::bits::lemma_low_bits_mask_values();
-        vstd::bits::lemma_usize_low_bits_mask_is_mod(
-            va >> pte_index_bit_offset_spec::<C>(level),
-            9,
-        );
     }
     (va >> pte_index_bit_offset::<C>(level)) & (nr_subpage_per_huge::<C>() - 1)
 }
@@ -888,17 +873,21 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
 fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
-        1 <= level <= NR_LEVELS,
+        1 <= level <= C::NR_LEVELS(),
+    ensures
+        pte_index_bit_offset_spec::<C>(level) < usize::BITS,
     returns
         pte_index_bit_offset_spec::<C>(level),
 {
     proof {
         C::lemma_paging_consts_properties();
-        lemma_arch_specific_consts_properties::<C>();
-        assert(12 + 9 * (level - 1) <= 39) by (nonlinear_arith)
+        assert(C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)
+            < usize::BITS) by (nonlinear_arith)
             requires
-                1 <= level <= NR_LEVELS,
-                NR_LEVELS == 4,
+                level <= C::NR_LEVELS(),
+                C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * C::NR_LEVELS()
+                    <= C::ADDRESS_WIDTH(),
+                C::ADDRESS_WIDTH() < usize::BITS,
         ;
     }
     C::BASE_PAGE_SIZE().ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)

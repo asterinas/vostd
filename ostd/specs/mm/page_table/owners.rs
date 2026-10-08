@@ -1,5 +1,19 @@
-use vstd::{arithmetic::power2::pow2, prelude::*, seq::*, seq_lib::*, set_lib::*};
-use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
+use vstd::{
+    arithmetic::{
+        div_mod::{lemma_div_denominator, lemma_fundamental_div_mod},
+        mul::lemma_mul_is_commutative,
+        power2::pow2,
+    },
+    bits::lemma_usize_shr_is_div,
+    prelude::*,
+    seq::*,
+    seq_lib::*,
+    set_lib::*,
+};
+use vstd_extra::{
+    arithmetic::nat_align_down, drop_tracking::*, ghost_tree::*, ownership::*,
+    prelude::TreeNodeValue,
+};
 
 use crate::specs::{
     arch::*,
@@ -72,8 +86,8 @@ pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
 
 /// Virtual address of `path` with `leading_bits` placed in bits `[48, 64)`.
 ///
-/// Matches `AbstractVaddr { offset: 0, index: <from path>, leading_bits }
-/// .to_vaddr()` modulo the offset. For `leading_bits == 0` this reduces to
+/// Adds the upper-address contribution to the positional path address.
+/// For `leading_bits == 0` this reduces to
 /// `vaddr(path)`; for `leading_bits == 0xffff` and a kernel path this yields
 /// the canonical sign-extended high-half address.
 pub open spec fn vaddr_at(path: TreePath<NR_ENTRIES>, leading_bits: int) -> usize {
@@ -214,9 +228,79 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.len() <= INC_LEVELS - 1,
     ensures
         vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
+        vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * pow2(
+            page_table_vaddr_bits_spec::<C>() as nat,
+        ),
 {
     C::lemma_page_table_config_constant_properties();
+    C::lemma_paging_consts_properties();
     lemma_vaddr_strict_bound(path);
+    let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
+    lemma_page_size_for_level_is_pow2::<C>(body_level);
+    lemma_page_size_for_level_matches_page_size::<C>(body_level);
+    lemma_page_size_spec_values();
+}
+
+/// A path of concrete PTE indices identifies the aligned slot containing the address.
+pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, va: Vaddr)
+    requires
+        path.inv(),
+        path.len() <= C::NR_LEVELS(),
+        forall|k: int|
+            0 <= k < path.len() ==> #[trigger] path[k] == pte_index_spec::<C>(
+                va,
+                (C::NR_LEVELS() - k) as PagingLevel,
+            ),
+    ensures
+        vaddr(path) + vaddr_upper_part_spec::<C>(va) == nat_align_down(
+            va as nat,
+            page_size_for_level_spec::<C>((C::NR_LEVELS() - path.len() + 1) as PagingLevel) as nat,
+        ),
+    decreases path.len(),
+{
+    C::lemma_paging_consts_properties();
+    let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
+    lemma_page_size_for_level_is_pow2::<C>(level);
+    let size = page_size_for_level_spec::<C>(level) as int;
+    lemma_fundamental_div_mod(va as int, size);
+    vstd::arithmetic::div_mod::lemma_mod_bound(va as int, size);
+    vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, size);
+    if path.len() == 0 {
+        assert(pte_index_bit_offset_spec::<C>(level) == page_table_vaddr_bits_spec::<C>());
+        lemma_usize_shr_is_div(va, page_table_vaddr_bits_spec::<C>());
+        lemma_mul_is_commutative(size, va as int / size);
+    } else {
+        let (index, parent) = path.pop_tail();
+        path.lemma_pop_tail_preserves_inv();
+        path.lemma_index_satisfies_elem_inv(path.len() - 1);
+        assert(parent.push_tail(index) == path);
+        assert forall|k: int| 0 <= k < parent.len() implies #[trigger] parent[k]
+            == pte_index_spec::<C>(va, (C::NR_LEVELS() - k) as PagingLevel) by {
+            assert(parent[k] == path[k]);
+        };
+        lemma_vaddr_path_aligned::<C>(parent, va);
+        PageTableOwner::<C>::lemma_vaddr_push_tail_eq(parent, index);
+        lemma_page_size_for_level_matches_page_size::<C>(level);
+        lemma_page_size_for_level_next::<C>(level);
+        lemma_pte_index_spec_is_div_mod::<C>(va, level);
+
+        let fanout = nr_subpage_per_huge::<C>() as int;
+        let quotient = va as int / size;
+        let parent_size = page_size_for_level_spec::<C>((level + 1) as PagingLevel) as int;
+        lemma_div_denominator(va as int, size, fanout);
+        lemma_fundamental_div_mod(quotient, fanout);
+        lemma_fundamental_div_mod(va as int, parent_size);
+        vstd::arithmetic::div_mod::lemma_mod_bound(va as int, parent_size);
+        vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, parent_size);
+        assert(index == pte_index_spec::<C>(va, level));
+        assert(quotient == fanout * (va as int / parent_size) + index);
+        assert(size * quotient == parent_size * (va as int / parent_size) + size * index)
+            by (nonlinear_arith)
+            requires
+                quotient == fanout * (va as int / parent_size) + index,
+                parent_size == size * fanout,
+        ;
+    }
 }
 
 /// page_size is monotonically increasing in its argument.

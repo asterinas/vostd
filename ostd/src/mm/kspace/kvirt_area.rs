@@ -613,7 +613,6 @@ impl KVirtArea {
             let ghost old_cursor_owner_va = cursor_owner.va;
             proof {
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
-                cursor_owner.va.reflect_prop(cursor.0.va);
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
                 lemma_va_align_page_size_level_1(cursor.0.va);
                 cursor_owner.lemma_locked_range_page_aligned();
@@ -664,11 +663,9 @@ impl KVirtArea {
                 // va is PAGE_SIZE-aligned (loop invariant via cursor.0.invariants),
                 // so nat_align_down returns va unchanged.
                 vstd_extra::arithmetic::lemma_nat_align_down_sound(
-                    old_cursor_owner_va.to_vaddr() as nat,
+                    old_cursor_owner_va as nat,
                     PAGE_SIZE as nat,
                 );
-
-                cursor_owner.va.reflect_prop(cursor.0.va);
 
                 // Reinsert a fresh owner for this paddr so later iterations on the
                 // same frame reuse it. `new_frame` fabricates an `EntryOwner` with
@@ -904,7 +901,6 @@ impl KVirtArea {
 
                 proof {
                     cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
-                    cursor_owner.va.reflect_prop(cursor.0.va);
 
                     // pa_range.end == pa_range.start + len (in nat) — from loop invariant.
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);
@@ -932,10 +928,6 @@ impl KVirtArea {
                 };
 
                 proof {
-                    cursor_owner.va.reflect_prop(cursor.0.va);
-                }
-
-                proof {
                     let level_raw = KernelPtConfig::item_into_raw(item).1;
 
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
@@ -950,14 +942,13 @@ impl KVirtArea {
                     lemma_page_size_ge_page_size(level_raw);
 
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
-                        old_cursor_owner_va.to_vaddr() as nat,
+                        old_cursor_owner_va as nat,
                         page_size(level_raw) as nat,
                     );
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
-                        old_cursor_owner_va.to_vaddr() as nat,
+                        old_cursor_owner_va as nat,
                         page_size(level_raw) as nat,
                     );
-                    old_cursor_owner_va.align_up_advances_general(level_raw as int);
 
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);
 

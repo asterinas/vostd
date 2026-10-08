@@ -102,9 +102,11 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-    let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS - 1];
+    let ghost start_idx = pte_index_spec::<C>(va.start, C::NR_LEVELS());
 
     proof {
+        C::lemma_paging_consts_properties();
+        lemma_pte_index_bound::<C>(va.start, C::NR_LEVELS());
         assert forall|i: int| 0 <= i < NR_ENTRIES implies (
         #[trigger] pt_own.0.children()[i]) is Some by {
             assert(pt_own.0.has_child(i));
@@ -113,7 +115,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
-        start_idx as usize,
+        start_idx,
         root_guard,
     );
 

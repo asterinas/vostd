@@ -933,7 +933,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verifier::spinoff_prover]
     pub fn unmap(&mut self, len: usize) -> usize {
         proof {
-            cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
             cursor_owner.view_preserves_inv();
         }
 
@@ -1026,7 +1025,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             let ghost prev_view_inv: bool = cursor_owner@.inv();
             proof {
-                cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
                 cursor_owner.view_preserves_inv();
                 // Per-config VA bound on prev_mappings — needed for
                 // preserving the `removed`-end-bound loop invariant. The user
@@ -1046,7 +1044,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.take_next(end_va - self.virt_addr())
             }) else {
                 proof {
-                    cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
                     // At break: take_next returned None, so no mappings in [prev_va, end_va).
                     // Any m with start >= prev_va leads to contradiction via the empty filter.
                     assert forall|m: Mapping|
@@ -1074,10 +1071,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             let ghost old_adjusted = adjusted_base;
             let ghost old_removed = removed;
-
-            proof {
-                cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
-            }
 
             let ghost frag_ghost = frag;
 
@@ -1440,8 +1433,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             }
         }
         proof {
-            cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
-
             let old_view = old(cursor_owner)@;
             let new_view = cursor_owner@;
 

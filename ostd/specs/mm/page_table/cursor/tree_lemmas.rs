@@ -1,7 +1,10 @@
 //! Tree-predicate lifting, tree entry level constraints, and tree membership
 //! lemmas for `CursorContinuation` and `CursorOwner`.
-use vstd::prelude::*;
-use vstd_extra::{ghost_tree::*, ownership::*};
+use vstd::{
+    arithmetic::div_mod::{lemma_small_mod, lemma_sub_mod_noop},
+    prelude::*,
+};
+use vstd_extra::{arithmetic::lemma_nat_align_down_sound, ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
@@ -187,25 +190,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // cur_va is the cursor's current VA (from the call site: cur_va == self.va).
             cur_va == self.cur_va(),
             // Definition: cur_entry_fits_range iff cur_va is at start of entry AND entry end <= end.
-            cur_entry_fits_range == (cur_va == self.cur_va_range().start.to_vaddr()
-                && self.cur_va_range().end.to_vaddr() <= end),
+            cur_entry_fits_range == (cur_va == self.cur_va_range().start && self.cur_va_range().end
+                <= end),
             // cur_va and end are PAGE_SIZE-aligned
             cur_va as nat % PAGE_SIZE as nat == 0,
             end as nat % PAGE_SIZE as nat == 0,
         ensures
             self.level > 1,
     {
-        // At level 1, page_size(1) == PAGE_SIZE. cursor inv gives va.offset == 0,
-        // so align_down(va, PAGE_SIZE) == va. The range is [va, va + PAGE_SIZE).
-        // cur_va == va (precondition) and cur_va + PAGE_SIZE <= end (from alignment
-        // and cur_va < end). Hence cur_entry_fits_range == true, contradicting
-        // !cur_entry_fits_range.
         if self.level == 1 {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
-            self.va.align_down_concrete(1);
-            // cur_va is PAGE_SIZE-aligned and cur_va < end, so cur_va + PAGE_SIZE <= end <= usize::MAX.
-            self.va.aligned_align_up_advances(1);
-            // align_up(1).to_vaddr() == self.va.to_vaddr() + PAGE_SIZE.
+            lemma_nat_align_down_sound(cur_va as nat, PAGE_SIZE as nat);
+            lemma_sub_mod_noop(end as int, cur_va as int, PAGE_SIZE as int);
+            if end - cur_va < PAGE_SIZE {
+                lemma_small_mod((end - cur_va) as nat, PAGE_SIZE as nat);
+                assert(false);
+            }
         }
     }
 }

@@ -7,15 +7,16 @@ use crate::specs::{
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
         page_table::{
-            AbstractVaddr, Mapping,
+            Mapping,
             cursor::owners::{CursorContinuation, CursorOwner},
-            nat_align_down,
+            lemma_pte_index_bound, nat_align_down,
             owners::*,
+            pte_index_spec,
         },
     },
 };
 
-use crate::mm::{PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -80,6 +81,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.inv(),
             other.metaregion_sound(regions),
     {
+        self.lemma_cur_pte_index();
         other.map_branch_none_inv_holds(self);
 
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
@@ -156,13 +158,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == owner0.continuations[owner0.level - 1].guard.inner.inner@.ptr.addr(),
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
-            self.va.index[self.level - 1] == self.continuations[self.level - 1].idx,
+            pte_index_spec::<C>(self.cur_va(), (self.level - 1 + 1) as PagingLevel)
+                == self.continuations[self.level - 1].idx,
             // Domain preserved: same keys as owner0.
             self.continuations.dom() =~= owner0.continuations.dom(),
         ensures
             self.inv(),
     {
         let L = self.level as int;
+        C::lemma_paging_consts_properties();
+        lemma_pte_index_bound::<C>(self.cur_va(), self.level);
+        assert(pte_index_spec::<C>(self.va, (self.level - 1 + 1) as PagingLevel)
+            == self.continuations[self.level - 1].idx);
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
         // Isolation clauses for the root continuation (NR_LEVELS-1).
@@ -177,7 +184,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // child keeps `owner0`'s value; `idx` is in-range (top index in
             // [start, end), and `in_locked_range` rules out the sentinel).
             owner0.lemma_in_locked_range_top_index_lt_top_end();
-            assert(self.continuations[NR_LEVELS - 1].idx == self.va.index[NR_LEVELS - 1]);
+            assert(self.continuations[NR_LEVELS - 1].idx == pte_index_spec::<C>(
+                self.va,
+                (NR_LEVELS - 1 + 1) as PagingLevel,
+            ));
             assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
             assert(C::TOP_LEVEL_INDEX_RANGE().start <= owner0.continuations[owner0.level - 1].idx

@@ -81,8 +81,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         owner: CursorOwner<'rcu, C>,
         res: PagesState<C>,
     ) -> bool {
-        &&& owner.cur_va_range().start.reflect(res.0.start)
-        &&& owner.cur_va_range().end.reflect(res.0.end)
+        &&& owner.cur_va_range() == res.0
         &&& res.1 is Some
         &&& {
             let qr = owner@.query_range();
