@@ -209,3 +209,26 @@ index bfb1c293..d6660fa3 100644
  // note: the fact that tuples are Objective (above) suffices for OBJMOD-SEP
  // OBJ with wand update
  #[cfg(verus_keep_ghost)]
+diff --git a/source/rust_verify/src/rust_to_vir_impl.rs b/source/rust_verify/src/rust_to_vir_impl.rs
+index 8ea7dd203..ebbb57be2 100644
+--- a/source/rust_verify/src/rust_to_vir_impl.rs
++++ b/source/rust_verify/src/rust_to_vir_impl.rs
+@@ -731,9 +731,16 @@ pub(crate) fn collect_external_trait_impls<'tcx>(
+                         if !trait_map[&trait_path].iter().any(|t| t.x.assoc_typs.contains(&name)) {
+                             continue;
+                         }
+-                        if !crate::rust_to_vir_base::mid_ty_filter_for_external_impls(
++                        // Normalize projections so filtering sees the resolved types.
++                        let Ok(typ) = tcx.try_normalize_erasing_regions(
++                            TypingEnv::post_analysis(tcx, assoc_item.def_id),
++                            tcx.type_of(assoc_item.def_id).instantiate_identity(),
++                        ) else {
++                            continue 'impls;
++                        };
++                        if !crate::rust_to_vir_base::mid_arg_filter_for_external_impls(
+                             ctxt,
+-                            &tcx.type_of(assoc_item.def_id).skip_binder(),
++                            typ.walk(),
+                             external_info,
+                         ) {
+                             continue 'impls;
