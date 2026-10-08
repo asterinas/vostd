@@ -951,25 +951,23 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     /// while previous readers remain unaffected. The calling thread
     /// will spin-wait until previous readers finish.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(  /* mut */ self) -> RwLockWriteGuard<'a, T, G> {
-        let mut this = self;
+    pub fn upgrade(mut self) -> RwLockWriteGuard<'a, T, G> {
         proof! {
-            use_type_invariant(&this);
-            use_type_invariant(&this.inner);
+            use_type_invariant(&self);
+            use_type_invariant(&self.inner);
             lemma_consts_properties();
         }
         // self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
         atomic_with_ghost!(
-            this.inner.lock => fetch_or(BEING_UPGRADED);
+            self.inner.lock => fetch_or(BEING_UPGRADED);
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
             }
         );
         loop {
-            // self = match self.try_upgrade() {
-            this =
-            match this.try_upgrade() {
+            self =
+            match self.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -983,15 +981,14 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     ///
     /// This function is not exposed publicly because the `BEING_UPGRADED` bit
     /// is set only in [`Self::upgrade`].
-    fn try_upgrade(  /* mut */ self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
+    fn try_upgrade(mut self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let mut this = self;
         proof_decl! {
-            let tracked mut upread_guard_token = this.tracked_token.get();
+            let tracked mut upread_guard_token = self.tracked_token.get();
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -1006,7 +1003,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         // );
         let res =
             atomic_with_ghost!(
-            this.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
+            self.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
             update prev -> next;
             returning res;
             ghost g => {
@@ -1033,8 +1030,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             }
         );
         if res.is_ok() {
-            let guard = this.guard.transfer_to();
-            let inner = this.inner;
+            let guard = self.guard.transfer_to();
+            let inner = self.inner;
             // drop(self);
             atomic_with_ghost!(
                 inner.lock => fetch_sub(UPGRADEABLE_READER);
@@ -1062,8 +1059,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         } else {
             Err(
                 RwLockUpgradeableGuard {
-                    guard: this.guard,
-                    inner: this.inner,
+                    guard: self.guard,
+                    inner: self.inner,
                     tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )

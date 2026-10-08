@@ -689,11 +689,10 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
     ///
     /// This method always succeeds because the lock is exclusively held by the writer.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn downgrade(self) -> RwMutexUpgradeableGuard<'a, T> {
-        let mut this = self;
+    pub fn downgrade(mut self) -> RwMutexUpgradeableGuard<'a, T> {
         loop {
-            this =
-            match this.try_downgrade() {
+            self =
+            match self.try_downgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -874,23 +873,22 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
     /// - First, it needs to sleep in an extra waiting queue and needs extra wake-up logic and overhead.
     /// - Second, upgrading method usually requires a high response time (because the mutex is being used now).
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(self) -> RwMutexWriteGuard<'a, T> {
-        let mut this = self;
+    pub fn upgrade(mut self) -> RwMutexWriteGuard<'a, T> {
         proof! {
-            use_type_invariant(&this);
-            use_type_invariant(&this.inner);
+            use_type_invariant(&self);
+            use_type_invariant(&self.inner);
             lemma_consts_properties();
         }
         atomic_with_ghost!(
-            this.inner.lock => fetch_or(BEING_UPGRADED);
+            self.inner.lock => fetch_or(BEING_UPGRADED);
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
             }
         );
         loop {
-            this =
-            match this.try_upgrade() {
+            self =
+            match self.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };

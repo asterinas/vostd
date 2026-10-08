@@ -2,6 +2,7 @@
 //!
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
+pub mod acpi;
 pub mod bits;
 mod bitvec;
 pub mod cmp;
@@ -18,8 +19,10 @@ pub mod range;
 pub mod slice;
 pub mod smallvec;
 pub mod smart_ptr;
+pub mod str;
 pub mod time;
 
+pub use acpi::*;
 pub use bitvec::*;
 pub use cmp::*;
 pub use ilog2::*;
@@ -33,6 +36,7 @@ pub use range::*;
 pub use slice::*;
 pub use smallvec::*;
 pub use smart_ptr::*;
+pub use str::*;
 pub use time::*;
 
 use vstd::prelude::*;

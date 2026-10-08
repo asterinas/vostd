@@ -7,14 +7,14 @@
 pub mod memory_region;
 //pub mod smp;
 
-/*
-use alloc::{
+/* use alloc::{
     string::{String, ToString},
     vec::Vec,
-};
-*/
-use memory_region::{/* MemoryRegion, */ MemoryRegionArray};
+}; */
+
+use memory_region::{MemoryRegion, MemoryRegionArray};
 use spin::Once;
+
 /*
 /// The boot information provided by the bootloader.
 pub struct BootInfo {
@@ -39,7 +39,6 @@ pub fn boot_info() -> &'static BootInfo {
 
 static INFO: Once<BootInfo> = Once::new();
 */
-
 /// ACPI information from the bootloader.
 ///
 /// The boot crate can choose either providing the raw RSDP physical address or

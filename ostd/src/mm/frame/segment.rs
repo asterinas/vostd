@@ -588,18 +588,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             (r.0, r.1) == self.split_spec(offset),
     )]
     #[verifier::spinoff_prover]
-    pub fn split(self, offset: usize) -> (Self, Self) {
+    pub fn split(mut self, offset: usize) -> (Self, Self) {
         assert!(offset % PAGE_SIZE == 0);
         assert!(0 < offset && offset < self.size());
 
-        let mut this = self;
-
-        let tracked mut left_perms = this.tracked_perms.tracked_take();
+        let tracked mut left_perms = self.tracked_perms.tracked_take();
         let tracked right_perms = seq_tracked_split_at(
             &mut left_perms,
             (offset / PAGE_SIZE) as int,
         );
-        let old = ManuallyDrop::new(this);
+        let old = ManuallyDrop::new(self);
         let at = old.range.start + offset;
 
         (
@@ -790,15 +788,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r == self.range(),
             raw_perms@ == self.raw_perms(),
     )]
-    pub(crate) fn into_raw(self) -> Range<Paddr> {
-        let mut this = self;
-        let range = this.range.clone();
+    pub(crate) fn into_raw(mut self) -> Range<Paddr> {
+        let range = self.range.clone();
 
         proof_decl!{
-            let tracked raw_perms = this.tracked_perms.tracked_take();
+            let tracked raw_perms = self.tracked_perms.tracked_take();
         }
 
-        let _ = ManuallyDrop::new(this);
+        let _ = ManuallyDrop::new(self);
 
         proof_with!(|= Tracked(raw_perms));
         range
