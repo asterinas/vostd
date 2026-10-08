@@ -79,14 +79,10 @@ jobs:
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
       - name: Run dv bootstrap with upstream verus
-        # macOS stays informational until the `--upstream-verus` from-source
-        # build is validated there (z3/llvm deps may be missing on the runner).
-        continue-on-error: ${{ matrix.os == 'macos-14' }}
         run: cargo dv bootstrap --upstream-verus
 
       - name: Merge pending upstream verus PRs and rebuild verus
         working-directory: tools/verus
-        continue-on-error: ${{ matrix.os == 'macos-14' }}
         run: |
           git remote add upstream https://github.com/verus-lang/verus.git || true
           git fetch upstream pull/2921/head:pr-2921
@@ -98,7 +94,6 @@ jobs:
 
       - name: Verify ostd with upstream verus
         id: verify
-        continue-on-error: ${{ matrix.os == 'macos-14' }}
         run: make
 
       - name: Report upstream Verus verification status
