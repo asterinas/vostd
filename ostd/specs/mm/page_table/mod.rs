@@ -152,10 +152,6 @@ pub proof fn lemma_page_size_for_level_matches_page_size<C: PagingConstsTrait>(l
 }
 
 /// Page-table index selected by `va` at `level`.
-///
-/// This is the architecture-parameterized address view used by executable page-table walks. The
-/// mask width and bit offset both come from `C`; callers should use this instead of decomposing a
-/// virtual address into an architecture-specific ghost structure.
 #[verifier::inline]
 pub open spec fn pte_index_spec<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize {
     (va >> pte_index_bit_offset_spec::<C>(level)) & ((nr_subpage_per_huge::<C>() - 1) as usize)
@@ -350,7 +346,7 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
 }
 
 /// Replace one page-table index while leaving the other address components unchanged.
-pub open spec fn vaddr_with_pte_index_spec<C: PagingConstsTrait>(
+pub open spec fn vaddr_replace_pte_index_spec<C: PagingConstsTrait>(
     va: Vaddr,
     level: PagingLevel,
     index: int,
@@ -360,24 +356,24 @@ pub open spec fn vaddr_with_pte_index_spec<C: PagingConstsTrait>(
     )) as Vaddr
 }
 
-/// Width of the complete page-table-address body, including the in-page offset and every
-/// configured page-table index. Bits above this boundary are not interpreted by a page walk.
+/// Number of bits occupied by all configured page-table indices and the in-page offset.
+/// This need not equal the architecture's effective virtual-address width.
 #[verifier::inline]
-pub open spec fn paging_body_width_spec<C: PagingConstsTrait>() -> usize {
+pub open spec fn page_table_vaddr_bits_spec<C: PagingConstsTrait>() -> usize {
     (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * C::NR_LEVELS()) as usize
 }
 
-/// Bits of `va` above the complete architecture-parameterized page-table-address body.
+/// Bits of `va` above the complete configured page-table coverage.
 #[verifier::inline]
 pub open spec fn vaddr_upper_bits_spec<C: PagingConstsTrait>(va: Vaddr) -> usize {
-    va >> paging_body_width_spec::<C>()
+    va >> page_table_vaddr_bits_spec::<C>()
 }
 
 /// Contribution of the uninterpreted upper virtual-address bits to the concrete address.
 /// Unlike the legacy fixed `leading_bits * 2^48` expression, the boundary is derived from `C`.
 #[verifier::inline]
-pub open spec fn vaddr_upper_base_spec<C: PagingConstsTrait>(va: Vaddr) -> int {
-    vaddr_upper_bits_spec::<C>(va) as int * pow2(paging_body_width_spec::<C>() as nat) as int
+pub open spec fn vaddr_upper_part_spec<C: PagingConstsTrait>(va: Vaddr) -> int {
+    vaddr_upper_bits_spec::<C>(va) as int * pow2(page_table_vaddr_bits_spec::<C>() as nat) as int
 }
 
 #[verifier::inline]
@@ -518,21 +514,22 @@ pub proof fn lemma_same_node_vaddr_upper_bits_match<C: PagingConstsTrait>(
         C::NR_LEVELS() as int,
         level as int,
     );
-    assert(paging_body_width_spec::<C>() == pte_index_bit_offset_spec::<C>(small_level) + delta);
+    assert(page_table_vaddr_bits_spec::<C>() == pte_index_bit_offset_spec::<C>(small_level)
+        + delta);
     lemma_pow2_adds(pte_index_bit_offset_spec::<C>(small_level) as nat, delta);
     lemma_pow2_pos(delta);
     let ratio = pow2(delta) as int;
-    assert(pow2(paging_body_width_spec::<C>() as nat) == small * ratio);
+    assert(pow2(page_table_vaddr_bits_spec::<C>() as nat) == small * ratio);
     lemma_div_denominator(va1 as int, small, ratio);
     lemma_div_denominator(va2 as int, small, ratio);
-    lemma_usize_shr_is_div(va1, paging_body_width_spec::<C>());
-    lemma_usize_shr_is_div(va2, paging_body_width_spec::<C>());
+    lemma_usize_shr_is_div(va1, page_table_vaddr_bits_spec::<C>());
+    lemma_usize_shr_is_div(va2, page_table_vaddr_bits_spec::<C>());
 }
 
 /// Upper address bits contribute the aligned base of the complete paging body.
-pub proof fn lemma_vaddr_upper_base_spec<C: PagingConstsTrait>(va: Vaddr)
+pub proof fn lemma_vaddr_upper_part_is_align_down<C: PagingConstsTrait>(va: Vaddr)
     ensures
-        vaddr_upper_base_spec::<C>(va) == nat_align_down(
+        vaddr_upper_part_spec::<C>(va) == nat_align_down(
             va as nat,
             page_size_for_level_spec::<C>((C::NR_LEVELS() + 1) as PagingLevel) as nat,
         ),
@@ -540,7 +537,7 @@ pub proof fn lemma_vaddr_upper_base_spec<C: PagingConstsTrait>(va: Vaddr)
     C::lemma_paging_consts_properties();
     let level = (C::NR_LEVELS() + 1) as PagingLevel;
     lemma_page_size_for_level_is_pow2::<C>(level);
-    lemma_usize_shr_is_div(va, paging_body_width_spec::<C>());
+    lemma_usize_shr_is_div(va, page_table_vaddr_bits_spec::<C>());
     lemma_fundamental_div_mod(va as int, page_size_for_level_spec::<C>(level) as int);
     vstd::arithmetic::mul::lemma_mul_is_commutative(
         page_size_for_level_spec::<C>(level) as int,

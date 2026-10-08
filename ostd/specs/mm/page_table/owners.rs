@@ -229,7 +229,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     ensures
         vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
         vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * pow2(
-            paging_body_width_spec::<C>() as nat,
+            page_table_vaddr_bits_spec::<C>() as nat,
         ),
 {
     C::lemma_page_table_config_constant_properties();
@@ -252,7 +252,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
                 (C::NR_LEVELS() - k) as PagingLevel,
             ),
     ensures
-        vaddr(path) + vaddr_upper_base_spec::<C>(va) == nat_align_down(
+        vaddr(path) + vaddr_upper_part_spec::<C>(va) == nat_align_down(
             va as nat,
             page_size_for_level_spec::<C>((C::NR_LEVELS() - path.len() + 1) as PagingLevel) as nat,
         ),
@@ -266,8 +266,8 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
     vstd::arithmetic::div_mod::lemma_mod_bound(va as int, size);
     vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, size);
     if path.len() == 0 {
-        assert(pte_index_bit_offset_spec::<C>(level) == paging_body_width_spec::<C>());
-        lemma_usize_shr_is_div(va, paging_body_width_spec::<C>());
+        assert(pte_index_bit_offset_spec::<C>(level) == page_table_vaddr_bits_spec::<C>());
+        lemma_usize_shr_is_div(va, page_table_vaddr_bits_spec::<C>());
         lemma_mul_is_commutative(size, va as int / size);
     } else {
         let (index, parent) = path.pop_tail();

@@ -35,11 +35,11 @@ use crate::specs::{
             lemma_page_size_for_level_divides, lemma_page_size_for_level_is_pow2,
             lemma_page_size_for_level_matches_page_size, lemma_page_size_for_level_next,
             lemma_pte_index_bound, lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
-            lemma_vaddr_upper_base_spec,
+            lemma_vaddr_upper_part_is_align_down,
             owners::*,
-            page_size_for_level_spec, paging_body_width_spec, pte_index_bit_offset_spec,
-            pte_index_spec, vaddr_range_spec, vaddr_upper_base_spec, vaddr_upper_bits_spec,
-            vaddr_with_pte_index_spec,
+            page_size_for_level_spec, page_table_vaddr_bits_spec, pte_index_bit_offset_spec,
+            pte_index_spec, vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
+            vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -959,7 +959,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.level - 1,
                 self.continuations[self.level - 1].inc_index(),
             ),
-            va: vaddr_with_pte_index_spec::<C>(
+            va: vaddr_replace_pte_index_spec::<C>(
                 self.va,
                 self.level,
                 self.continuations[self.level - 1].inc_index().idx as int,
@@ -1391,17 +1391,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_for_level_matches_page_size::<C>(body_level);
         lemma_page_size_for_level_matches_page_size::<C>(self.guard_level);
         lemma_page_size_for_level_next::<C>(self.guard_level);
-        lemma_usize_shr_is_div(self_va, paging_body_width_spec::<C>());
+        lemma_usize_shr_is_div(self_va, page_table_vaddr_bits_spec::<C>());
         lemma_fundamental_div_mod(self_va as int, node_size as int);
         lemma_mul_is_commutative(self_va as int / node_size as int, node_size as int);
         lemma_nat_align_down_sound(self_va as nat, node_size as nat);
-        assert(nat_align_down(self_va as nat, node_size as nat) == vaddr_upper_base_spec::<C>(
+        assert(nat_align_down(self_va as nat, node_size as nat) == vaddr_upper_part_spec::<C>(
             self_va,
         ));
 
-        lemma_vaddr_upper_base_spec::<C>(self_va);
+        lemma_vaddr_upper_part_is_align_down::<C>(self_va);
         lemma_lower_indices_aligned::<C>(self.prefix, body_level);
-        lemma_usize_shr_is_div(self.prefix, paging_body_width_spec::<C>());
+        lemma_usize_shr_is_div(self.prefix, page_table_vaddr_bits_spec::<C>());
         lemma_fundamental_div_mod(self.prefix as int, node_size as int);
         assert(nat_align_down(self_va as nat, node_size as nat) == self.prefix);
     }
@@ -1760,8 +1760,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
     ) -> Self {
-        let va = (C::LEADING_BITS_spec() as int * pow2(paging_body_width_spec::<C>() as nat) + idx
-            * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
+        let va = (C::LEADING_BITS_spec() as int * pow2(page_table_vaddr_bits_spec::<C>() as nat)
+            + idx * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
         Self {
             level: C::NR_LEVELS(),
             continuations: Map::empty().insert(
@@ -1783,8 +1783,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         returns
             Self::new(owner_subtree, idx, guard),
     {
-        let ghost va = (C::LEADING_BITS_spec() as int * pow2(paging_body_width_spec::<C>() as nat)
-            + idx * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
+        let ghost va = (C::LEADING_BITS_spec() as int * pow2(
+            page_table_vaddr_bits_spec::<C>() as nat,
+        ) + idx * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
         let tracked continuation = CursorContinuation::tracked_new(owner_subtree, idx, guard);
         let tracked mut continuations = Map::tracked_empty();
         continuations.tracked_insert(C::NR_LEVELS() - 1, continuation);

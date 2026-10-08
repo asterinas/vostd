@@ -25,7 +25,8 @@ use crate::specs::{
         lemma_page_size_for_level_matches_page_size, lemma_pte_index_bound,
         lemma_same_node_pte_indices_match,
         owners::*,
-        page_size_for_level_spec, pte_index_spec, vaddr_upper_bits_spec, vaddr_with_pte_index_spec,
+        page_size_for_level_spec, pte_index_spec, vaddr_replace_pte_index_spec,
+        vaddr_upper_bits_spec,
     },
 };
 
@@ -144,7 +145,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         self.lemma_cur_pte_index();
         lemma_inc_slot_indices::<C>(self.va, self.level);
-        reveal(vaddr_with_pte_index_spec);
+        reveal(vaddr_replace_pte_index_spec);
         vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(self.level) as int);
     }
 
