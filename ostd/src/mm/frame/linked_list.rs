@@ -1529,7 +1529,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
     #[verifier::spinoff_prover]
     fn drop(
-        self,
+        mut self,
         Tracked(s): Tracked<&mut Self::State>,
         Tracked(obl): Tracked<DropObligation<u64>>,
     ) {
@@ -1544,10 +1544,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
             list_own = LinkedListOwner::<M>::tracked_take(&mut s.0);
         }
         let tracked regions: &mut MetaRegionOwners = &mut s.1;
-        let mut this = self;
 
         #[verus_spec(with Tracked(list_own))]
-        let cursor_pair = this.cursor_front_mut();
+        let cursor_pair = self.cursor_front_mut();
         let (mut cursor, Tracked(mut cursor_own)) = cursor_pair;
 
         proof {
