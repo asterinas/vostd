@@ -525,17 +525,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             r == self.start_paddr_spec(),
             raw_permission@.inv(),
     )]
-    pub(in crate::mm) fn into_raw(mut self) -> Paddr {
+    pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use group_page_meta;
 
+        let mut this = self;
         proof_decl!{
             let tracked perm = FrameRawPerms {
-                slot_perm: &*self.tracked_slot_perm,
-                metadata_perm: self.tracked_metadata_perm.tracked_take(),
+                slot_perm: &*this.tracked_slot_perm,
+                metadata_perm: this.tracked_metadata_perm.tracked_take(),
             };
         }
 
-        let this = ManuallyDrop::new(self);
+        let this = ManuallyDrop::new(this);
         proof_with!(|= Tracked(perm));
         this.start_paddr()
     }
@@ -687,20 +688,21 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
 }*/
 
 impl<M: ?Sized> Frame<M> {
-    pub fn drop(mut self, Tracked(regions): Tracked<&mut MetaRegionOwners>)
+    pub fn drop(self, Tracked(regions): Tracked<&mut MetaRegionOwners>)
         requires
             self.drop_requires(*old(regions)),
         ensures
             self.drop_ensures(*old(regions), *final(regions)),
     {
+        let mut this = self;
         proof_decl!{
-            let ghost idx = self.index();
+            let ghost idx = this.index();
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(self.start_paddr_spec());
-            let tracked frame_permission = self.tracked_metadata_perm.tracked_take();
+            let tracked frame_permission = this.tracked_metadata_perm.tracked_take();
             slot_own.metadata_perm.combine(frame_permission);
         }
 
-        let last_ref_cnt = self.slot().ref_count.fetch_sub(
+        let last_ref_cnt = this.slot().ref_count.fetch_sub(
             Tracked(&mut slot_own.ref_count_perm),
             1,
         );
@@ -712,7 +714,7 @@ impl<M: ?Sized> Frame<M> {
             // SAFETY: this is the last reference and is about to be dropped.
             unsafe {
                 #[verus_spec(with Tracked(slot_own))]
-                self.slot().drop_last_in_place()
+                this.slot().drop_last_in_place()
             };
 
             // TODO: return page to allocator

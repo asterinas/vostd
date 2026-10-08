@@ -186,15 +186,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).inv(),
     )]
     pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
-        mut self,
+        self,
         metadata: M1,
     ) -> UniqueFrame<M1> {
+        let mut this = self;
         proof_decl! {
             broadcast use group_page_meta;
             let tracked mut repr_perm = repr_perm_in;
-            let ghost idx = self.index();
+            let ghost idx = this.index();
             let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
-            let tracked metadata_perm = self.tracked_metadata_perm.tracked_take();
+            let tracked metadata_perm = this.tracked_metadata_perm.tracked_take();
         }
 
         // SAFETY: We are the sole owner and the metadata is initialized.
@@ -204,7 +205,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 Tracked(&slot_own.in_list_perm),
                 Tracked(&mut metadata_perm)
             )]
-            self.slot().drop_meta_in_place()
+            this.slot().drop_meta_in_place()
         };
 
         unsafe {
@@ -212,25 +213,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 Tracked(&mut metadata_perm),
                 Tracked(&mut repr_perm)
             )]
-            self.slot().write_meta(metadata)
+            this.slot().write_meta(metadata)
         };
 
         proof_decl!{
         let tracked new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             meta_own_in,
             repr_perm,
-            meta_to_index(self.ptr.addr()),
+            meta_to_index(this.ptr.addr()),
         );
         }
 
         #[cfg(verus_keep_ghost_body)]
         {
-            self.tracked_metadata_perm = Tracked(Some(metadata_perm));
+            this.tracked_metadata_perm = Tracked(Some(metadata_perm));
         }
 
         // SAFETY: The metadata is initialized with type `M1`.
         proof_with!(|= Tracked(new_owner));
-        self.transmute()
+        this.transmute()
     }
 
     /// Gets the metadata of this page.
@@ -392,7 +393,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         ensures
             final(regions).inv(),
     )]
-    pub fn reset_as_unused(mut self) {
+    pub fn reset_as_unused(self) {
         let mut this = self;
 
         proof_decl! {
@@ -423,9 +424,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             metadata_perms@ == self.metadata_perm(),
             r == meta_to_frame(self.ptr.addr()),
     )]
-    pub(crate) fn into_raw(mut self) -> Paddr {
-        let tracked metadata_perms = self.tracked_metadata_perm.tracked_take();
-        let this = ManuallyDrop::new(self);
+    pub(crate) fn into_raw(self) -> Paddr {
+        let mut this = self;
+
+        let tracked metadata_perms = this.tracked_metadata_perm.tracked_take();
+        let this = ManuallyDrop::new(this);
 
         proof_with!(|= Tracked(metadata_perms));
         this.start_paddr()

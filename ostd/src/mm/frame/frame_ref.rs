@@ -175,16 +175,17 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<MetaSlot>().trailing_zeros();
 
-    fn into_raw(mut self) -> (PPtr<Self::Target>, Tracked<Self::Permission>) {
+    fn into_raw(self) -> (PPtr<Self::Target>, Tracked<Self::Permission>) {
         assume(self.inv());
+        let mut this = self;
         proof_decl! {
             let tracked perm = FrameRawPerms {
-                slot_perm: *self.tracked_slot_perm.borrow(),
-                metadata_perm: self.tracked_metadata_perm.tracked_take(),
+                slot_perm: *this.tracked_slot_perm.borrow(),
+                metadata_perm: this.tracked_metadata_perm.tracked_take(),
             };
         }
-        let ptr = self.ptr;
-        let _ = ManuallyDrop::new(self);
+        let ptr = this.ptr;
+        let _ = ManuallyDrop::new(this);
         assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
         (PPtr::<Self::Target>::from_addr(ptr.addr()), Tracked(perm))
     }
