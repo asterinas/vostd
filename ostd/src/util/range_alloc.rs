@@ -69,6 +69,22 @@ impl RangeAllocator {
         self.freelist.constant().free_id
     }
 
+    /// The free permission and borrowed allocation tokens account for this allocator's full range.
+    pub open spec fn owns_free_pool(
+        self,
+        permit: GhostSubset<usize>,
+        allocations: Seq<GhostSubRange<usize>>,
+    ) -> bool {
+        &&& permit.id() == self.free_id()
+        &&& forall|i: int|
+            0 <= i < allocations.len() ==> #[trigger] allocations[i].id() == self.id()
+        &&& forall|address: usize| #[trigger]
+            self@.view_set().contains(address) ==> {
+                permit@.contains(address) || exists|i: int|
+                    0 <= i < allocations.len() && #[trigger] allocations[i]@.contains(address)
+            }
+    }
+
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.freelist.constant().fullrange == self@ && self@.start <= self@.end
@@ -223,7 +239,7 @@ impl RangeAllocator {
         &self.fullrange
     }
 
-    /// Allocates a caller-specified range.
+    /// Allocates a specific kernel virtual area.
     ///
     /// # Verified Properties
     ///
@@ -231,19 +247,17 @@ impl RangeAllocator {
     /// - No unsafe code; no panic under the verified contract.
     ///
     /// ## Functional Correctness
-    /// - Returns `Ok` if and only if the shared state's free list covers
-    ///   `allocate_range`.
+    /// - Returns `Ok` for `allocate_range` under the free-range permission
+    ///   precondition.
     ///
     /// ## Preconditions
     /// - The target range is non-empty and lies within this allocator's range.
     /// - Supply a free-range permission for exactly `allocate_range`.
     ///
     /// ## Postconditions
-    /// - On success, returns a [`GhostSubRange`] proving ownership of the
-    ///   allocated range; a token is dispatched if and only if the result is
-    ///   `Ok`, and it is consumed by [`RangeAllocator::free`].
-    /// - The free-range permission is consumed, and a matching allocation
-    ///   token is returned.
+    /// - Consumes the free-range permission and returns a [`GhostSubRange`]
+    ///   proving ownership of the allocated range, consumed by
+    ///   [`RangeAllocator::free`].
     #[verus_spec(res =>
         with
             Tracked(permit): Tracked<GhostSubRange<usize>>,
@@ -253,9 +267,8 @@ impl RangeAllocator {
             permit.id() == self.free_id(),
             permit.range() == allocate_range,
         ensures
-            res is Ok <==> allocated@ is Some,
             res is Ok,
-            allocated@ matches Some(token) ==> {
+            allocated@ matches Some(token) && {
                 &&& token.id() == self.id()
                 &&& token.range() == allocate_range
             },
@@ -375,8 +388,6 @@ impl RangeAllocator {
                 assert(freelist@.kv_pairs().contains((key, freelist@[key])));
                 assert(false);
             }
-            let ghost constant = lock_guard.constant();
-            let ghost value = lock_guard@;
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             if res is Ok {
                 let ghost key = target_node->0;
@@ -390,7 +401,8 @@ impl RangeAllocator {
                 resource.free.delete(permit.tracked_into_subset());
                 let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
-                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@);
+                assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
+                    - resource.free@);
             } else {
                 allocated = None;
             }
@@ -414,22 +426,24 @@ impl RangeAllocator {
     ///   `size` addresses.
     ///
     /// ## Preconditions
-    /// - Supply the allocator's current free-address permission. It can be
-    ///   split before dispatching independent portions to different threads.
+    /// - Supply the remaining free-address permission and borrow the allocation
+    ///   tokens that together account for this allocator's full range.
+    /// - Split permissions can be used independently with `alloc_specific`;
+    ///   `alloc` requires ownership of the entire current free pool.
     ///
     /// ## Postconditions
-    /// - On success, returns a [`GhostSubRange`] proving ownership of the
-    ///   returned range; a token is dispatched if and only if the result is
-    ///   `Ok`, and it is consumed by [`RangeAllocator::free`].
-    /// - On success, the allocated range is removed from the supplied
-    ///   permission and returned as an allocation token.
+    /// - On `Ok`, removes the returned range from the supplied permission and
+    ///   returns a [`GhostSubRange`] proving ownership, consumed by
+    ///   [`RangeAllocator::free`]. On `Err`, no allocation token is returned.
+    /// - Append the returned token to the borrowed collection before calling
+    ///   `alloc` again. On failure, the existing permissions remain usable.
     #[verus_spec(res =>
         with
             Tracked(permit): Tracked<&mut GhostSubset<usize>>,
+            Tracked(allocations): Tracked<&Seq<GhostSubRange<usize>>>,
             -> allocated: Tracked<Option<GhostSubRange<usize>>>,
         requires
-            old(permit).id() == self.free_id(),
-            old(permit)@ == self@.view_set(),
+            self.owns_free_pool(*old(permit), *allocations),
         ensures
             res matches Ok(res) ==> {
                 &&& res.end - res.start == size
@@ -437,15 +451,59 @@ impl RangeAllocator {
                 &&& allocated@ matches Some(token) && {
                     &&& token.id() == self.id()
                     &&& token.range() == res
+                    &&& self.owns_free_pool(*final(permit), allocations.push(token))
                 }
             },
             res is Ok <==> allocated@ is Some,
             final(permit).id() == old(permit).id(),
             res matches Ok(range) ==> final(permit)@ == old(permit)@ - range.view_set(),
+            res matches Ok(range) ==> range.view_set() <= old(permit)@,
             res is Err ==> final(permit)@ == old(permit)@,
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
+        proof! {
+            proof fn lemma_allocations_agree(
+                tracked allocations: &Seq<GhostSubRange<usize>>,
+                tracked authority: &GhostSetAuth<usize>,
+                count: int,
+            )
+                requires
+                    0 <= count <= allocations.len(),
+                    forall|i: int| 0 <= i < allocations.len() ==> #[trigger]
+                        allocations[i].id() == authority.id(),
+                ensures
+                    forall|i: int| 0 <= i < count ==> #[trigger] allocations[i]@
+                        <= authority@,
+                decreases count,
+            {
+                if count > 0 {
+                    lemma_allocations_agree(allocations, authority, count - 1);
+                    let tracked token = allocations.tracked_borrow(count - 1);
+                    token.tracked_borrow().agree(authority);
+                }
+            }
+
+            let tracked resource = lock_guard.tracked_borrow_mut_resource();
+            permit.agree(&resource.free);
+            lemma_allocations_agree(allocations, &resource.allocated, allocations.len() as int);
+            assert(resource.free@ <= permit@) by {
+                assert forall|address: usize| #[trigger] resource.free@.contains(address) implies
+                    permit@.contains(address) by {
+                    lemma_concrete_free_set_contains(lock_guard@->0@, address);
+                    let key = choose|key: usize| #[trigger]
+                        lock_guard@->0@.contains_key(key)
+                            && lock_guard@->0@[key].block.view_set().contains(address);
+                    assert(self@.view_set().contains(address));
+                    if !permit@.contains(address) {
+                        let j = choose|j: int| 0 <= j < allocations.len()
+                            && #[trigger] allocations[j]@.contains(address);
+                        assert(allocations[j]@ <= resource.allocated@);
+                    }
+                }
+            }
+            assert(permit@ == resource.free@);
+        }
         let freelist = lock_guard.as_mut().unwrap();
         proof_decl! {
             let tracked allocated: Option<GhostSubRange<usize>>;
@@ -495,17 +553,37 @@ impl RangeAllocator {
         }
 
         proof! {
-            let ghost constant = lock_guard.constant();
-            let ghost value = lock_guard@;
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             if allocate_range is Some {
                 let ghost range = allocate_range -> 0;
                 lemma_alloc_suffix_model(self@, initial_map, freelist@, to_remove->0, range);
+                let ghost permit_before = *permit;
                 let tracked free_subset = permit.split(range.view_set());
                 resource.free.delete(free_subset);
                 let tracked allocated_subset = resource.allocated.insert_set(range.view_set());
-                allocated = Some(GhostSubRange::tracked_new(allocated_subset, range));
-                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@);
+                let tracked token = GhostSubRange::tracked_new(allocated_subset, range);
+                let ghost next_allocations = allocations.push(token);
+                assert(self.owns_free_pool(*permit, next_allocations)) by {
+                    assert forall|address: usize| #[trigger] self@.view_set().contains(address)
+                        implies permit@.contains(address) || exists|i: int|
+                            0 <= i < next_allocations.len()
+                                && #[trigger] next_allocations[i]@.contains(address) by {
+                        if !permit@.contains(address) {
+                            if range.view_set().contains(address) {
+                                assert(next_allocations[allocations.len() as int]@
+                                    .contains(address));
+                            } else {
+                                assert(!permit_before@.contains(address));
+                                let i = choose|i: int| 0 <= i < allocations.len()
+                                    && #[trigger] allocations[i]@.contains(address);
+                                assert(next_allocations[i]@.contains(address));
+                            }
+                        }
+                    }
+                }
+                allocated = Some(token);
+                assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
+                    - resource.free@);
             } else {
                 allocated = None;
             }
@@ -532,24 +610,20 @@ impl RangeAllocator {
     ///   allocated. The token is consumed by this operation.
     ///
     /// ## Postconditions
-    /// - Writes a splittable free-range permission for the released range to
-    ///   the tracked output slot.
+    /// - Returns a free-range permission for the released range. Its underlying
+    ///   subset can be combined with the allocator's remaining free permission.
     #[verus_verify(spinoff_prover)]
     #[verus_spec(
         with
             Tracked(allocated): Tracked<GhostSubRange<usize>>,
-            Tracked(free_permit): Tracked<&mut Tracked<Option<GhostSubRange<usize>>>>,
+            -> free_permit: Tracked<GhostSubRange<usize>>,
         requires
             self@.start <= range.start < range.end <= self@.end,
             allocated.id() == self.id(),
             allocated.range() == range,
-            old(free_permit)@ is None,
         ensures
-            final(free_permit)@ matches Some(permit) ==> {
-                &&& permit.id() == self.free_id()
-                &&& permit.range() == range
-            },
-            final(free_permit)@ is Some,
+            free_permit@.id() == self.free_id(),
+            free_permit@.range() == range,
     )]
     pub fn free(&self, range: Range<usize>) {
         proof! {
@@ -557,6 +631,7 @@ impl RangeAllocator {
         }
         let mut lock_guard = self.freelist.lock();
         proof_decl! {
+            let tracked free_permit: GhostSubRange<usize>;
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             let tracked allocated_subset = allocated.tracked_borrow();
             allocated_subset.agree(&resource.allocated);
@@ -777,8 +852,7 @@ impl RangeAllocator {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             resource.allocated.delete(allocated.tracked_into_subset());
             let tracked free_subset = resource.free.insert_set(range.view_set());
-            let tracked permit = GhostSubRange::tracked_new(free_subset, range);
-            *free_permit = Tracked(Some(permit));
+            free_permit = GhostSubRange::tracked_new(free_subset, range);
             assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
                 - resource.free@);
             assert(resource.free@ == free_set(freelist_model(freelist@))) by {
@@ -787,7 +861,8 @@ impl RangeAllocator {
                 }
             }
         }
-        lock_guard.drop();
+        #[verus_spec(with |= Tracked(free_permit))]
+        lock_guard.drop()
     }
 
     #[verus_spec(ret =>
