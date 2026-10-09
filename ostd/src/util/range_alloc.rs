@@ -5,8 +5,8 @@
 //!
 //! The free list is hidden behind a spin lock and modeled as an abstract set of
 //! addresses. Construction returns a splittable [`AllocPermit`] permission.
-//! Allocating a specific range consumes the corresponding [`FreePermit`] and
-//! returns an allocation token; freeing performs the inverse transition.
+//! Allocating a specific range consumes the corresponding [`AllocRangePermit`]
+//! and returns a [`FreePermit`]; freeing performs the inverse transition.
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
@@ -51,6 +51,9 @@ verus! {
 
 /// The splittable permission to allocate from a range allocator's free addresses.
 pub type AllocPermit = GhostSubset<usize>;
+
+/// The permission to allocate a contiguous range of free addresses.
+pub type AllocRangePermit = GhostSubRange<usize>;
 
 /// The permission to free a previously allocated range, consumed by [`RangeAllocator::free`].
 pub type FreePermit = GhostSubRange<usize>;
@@ -255,7 +258,7 @@ impl RangeAllocator {
     ///
     /// ## Preconditions
     /// - The target range is non-empty and lies within this allocator's range.
-    /// - Supply a free-range permission for exactly `allocate_range`.
+    /// - Supply an [`AllocRangePermit`] for exactly `allocate_range`.
     ///
     /// ## Postconditions
     /// - Consumes the free-range permission and returns a [`FreePermit`]
@@ -263,7 +266,7 @@ impl RangeAllocator {
     ///   [`RangeAllocator::free`].
     #[verus_spec(res =>
         with
-            Tracked(permit): Tracked<FreePermit>,
+            Tracked(permit): Tracked<AllocRangePermit>,
             -> allocated: Tracked<FreePermit>,
         requires
             self@.start <= allocate_range.start < allocate_range.end <= self@.end,
@@ -612,20 +615,20 @@ impl RangeAllocator {
     ///   allocated. The token is consumed by this operation.
     ///
     /// ## Postconditions
-    /// - Returns a free-range permission for the released range. Its underlying
-    ///   subset can be combined with the allocator's remaining free permission.
+    /// - Returns an [`AllocRangePermit`] for the released range. Its underlying
+    ///   subset can be combined with the allocator's remaining [`AllocPermit`].
     #[verus_verify(spinoff_prover)]
     #[verus_spec(
         with
             Tracked(allocated): Tracked<FreePermit>,
-            -> free_permit: Tracked<FreePermit>,
+            -> alloc_permit: Tracked<AllocRangePermit>,
         requires
             self@.start <= range.start < range.end <= self@.end,
             allocated.id() == self.allocated_id(),
             allocated.range() == range,
         ensures
-            free_permit@.id() == self.free_id(),
-            free_permit@.range() == range,
+            alloc_permit@.id() == self.free_id(),
+            alloc_permit@.range() == range,
     )]
     pub fn free(&self, range: Range<usize>) {
         proof! {
@@ -633,7 +636,7 @@ impl RangeAllocator {
         }
         let mut lock_guard = self.freelist.lock();
         proof_decl! {
-            let tracked free_permit: FreePermit;
+            let tracked alloc_permit: AllocRangePermit;
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             let tracked allocated_subset = allocated.tracked_borrow();
             allocated_subset.agree(&resource.allocated);
@@ -854,7 +857,7 @@ impl RangeAllocator {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             resource.allocated.delete(allocated.tracked_into_subset());
             let tracked free_subset = resource.free.insert_set(range.view_set());
-            free_permit = GhostSubRange::tracked_new(free_subset, range);
+            alloc_permit = GhostSubRange::tracked_new(free_subset, range);
             assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
                 - resource.free@);
             assert(resource.free@ == free_set(freelist_model(freelist@))) by {
@@ -863,7 +866,7 @@ impl RangeAllocator {
                 }
             }
         }
-        #[verus_spec(with |= Tracked(free_permit))]
+        #[verus_spec(with |= Tracked(alloc_permit))]
         lock_guard.drop()
     }
 

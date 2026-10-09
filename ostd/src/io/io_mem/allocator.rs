@@ -21,7 +21,7 @@ use vstd_extra::{
 };
 
 use crate::specs::arch::PAGE_SIZE;
-use crate::util::range_alloc::{FreePermit, RangeAllocatorPermits};
+use crate::util::range_alloc::{AllocRangePermit, FreePermit, RangeAllocatorPermits};
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -48,7 +48,7 @@ impl IoMemAllocator {
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
         with
-            Tracked(permit): Tracked<FreePermit>,
+            Tracked(permit): Tracked<AllocRangePermit>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             io_mem_range_registered(range),
