@@ -18,3 +18,5 @@ vstd = { workspace = true }
 bitvec.workspace = true
 smallvec = "1.13.2"
 acpi = "=5.2.0"
+x86 = "0.52.0"
+x86_64 = "0.14.13"
