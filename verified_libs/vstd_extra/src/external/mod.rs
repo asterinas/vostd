@@ -18,6 +18,8 @@ pub mod smallvec;
 pub mod smart_ptr;
 pub mod str;
 pub mod time;
+#[cfg(target_arch = "x86_64")]
+pub mod x86;
 
 pub use acpi::*;
 pub use bitvec::*;
@@ -33,6 +35,8 @@ pub use smallvec::*;
 pub use smart_ptr::*;
 pub use str::*;
 pub use time::*;
+#[cfg(target_arch = "x86_64")]
+pub use x86::*;
 
 use vstd::prelude::*;
 
