@@ -797,7 +797,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             !self.popped_too_high,
             self.level == self.guard_level ==> self.index() + 1 < NR_ENTRIES,
         ensures
-            self.move_forward_owner_spec().va == self@.align_up_spec(page_size::<PagingConsts>(self.level)),
+            self.move_forward_owner_spec().va == self@.align_up_spec(
+                page_size::<PagingConsts>(self.level),
+            ),
         decreases NR_LEVELS - self.level,
     {
         C::lemma_paging_consts_properties();

@@ -21,12 +21,10 @@ use crate::specs::{
                 lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
             },
         },
-        lemma_align_down_indices, lemma_inc_slot_indices,
-        lemma_pte_index_bound,
+        lemma_align_down_indices, lemma_inc_slot_indices, lemma_pte_index_bound,
         lemma_same_node_pte_indices_match,
         owners::*,
-        pte_index_spec, vaddr_replace_pte_index_spec,
-        vaddr_upper_bits_spec,
+        pte_index_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
     },
 };
 
@@ -45,10 +43,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             1 <= self.level <= C::NR_LEVELS(),
     {
         Self {
-            va: nat_align_down(
-                self.va as nat,
-                page_size::<C>(self.level) as nat,
-            ) as Vaddr,
+            va: nat_align_down(self.va as nat, page_size::<C>(self.level) as nat) as Vaddr,
             ..self
         }
     }
@@ -157,7 +152,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.index() + 1 < NR_ENTRIES,
         ensures
             self.inc_index().zero_below_level().va > self.va,
-            self.inc_index().zero_below_level().va == self@.align_up_spec(page_size::<PagingConsts>(self.level)),
+            self.inc_index().zero_below_level().va == self@.align_up_spec(
+                page_size::<PagingConsts>(self.level),
+            ),
     {
         C::lemma_paging_consts_properties();
         self.lemma_inc_index_va();

@@ -104,7 +104,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// `node_start == nat_align_down(self.va, page_size(lv + 1))` and
     /// `node_size == page_size(lv + 1)`).
     pub open spec fn jump_node_holds(self, lv: PagingLevel, va: Vaddr) -> bool {
-        let nstart = nat_align_down(self.va as nat, page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat);
+        let nstart = nat_align_down(
+            self.va as nat,
+            page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat,
+        );
         &&& nstart <= va as nat
         &&& (va as nat) - nstart < page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat
     }

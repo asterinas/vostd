@@ -16,8 +16,7 @@ use crate::specs::{
             owners::*,
             page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_page_size},
         },
-        lemma_pte_index_bound,
-        lemma_vaddr_upper_part_is_align_down,
+        lemma_pte_index_bound, lemma_vaddr_upper_part_is_align_down,
         owners::{
             INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int,
             lemma_vaddr_path_aligned, sibling_paths_disjoint, vaddr, vaddr_of,
@@ -89,7 +88,9 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     m,
                 );
 
-                let size = page_size::<PagingConsts>((INC_LEVELS - self.path().len() - 1) as PagingLevel);
+                let size = page_size::<PagingConsts>(
+                    (INC_LEVELS - self.path().len() - 1) as PagingLevel,
+                );
                 // Positional disjointness; shift both sides by LEADING_BITS * 2^48.
                 sibling_paths_disjoint::<C>(self.path(), self.idx as int, i, size);
                 lemma_vaddr_of_eq_int::<C>(self.path().push_tail(self.idx as int));
@@ -216,7 +217,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // in subtree_mappings via view_rec at the same path.
                 if j as usize != self.index() {
                     // Disjointness: sibling j's VA range doesn't overlap [subtree_va, subtree_va + page_size(level))
-                    let sib_size = page_size::<PagingConsts>((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
+                    let sib_size = page_size::<PagingConsts>(
+                        (INC_LEVELS - cont.path().len() - 1) as PagingLevel,
+                    );
                     sibling_paths_disjoint::<C>(cont.path(), self.index() as int, j, sib_size);
                     // Lift positional disjointness to canonical by adding
                     // the same leading_bits * 2^48 to both sides.
@@ -230,7 +233,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.subtree_va_in_ancestor_range(i);
 
                     // Sibling j is disjoint from cont_i.idx child
-                    let sib_size = page_size::<PagingConsts>((INC_LEVELS - cont_i.path().len() - 1) as PagingLevel);
+                    let sib_size = page_size::<PagingConsts>(
+                        (INC_LEVELS - cont_i.path().len() - 1) as PagingLevel,
+                    );
                     sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx as int, j, sib_size);
                     lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j));
                     lemma_vaddr_of_eq_int::<C>(cur_path);
@@ -278,7 +283,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 + vaddr_upper_part_spec::<C>(self.cur_va()) <= self.cur_va(),
             self.cur_va() < vaddr(
                 self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
-            ) + vaddr_upper_part_spec::<C>(self.cur_va()) + page_size::<PagingConsts>((lvl + 1) as PagingLevel),
+            ) + vaddr_upper_part_spec::<C>(self.cur_va()) + page_size::<PagingConsts>(
+                (lvl + 1) as PagingLevel,
+            ),
             vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int))
                 + vaddr_upper_part_spec::<C>(self.cur_va()) == nat_align_down(
                 self.cur_va() as nat,
@@ -286,7 +293,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
             vaddr_of::<C>(
                 self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
-            ) == nat_align_down(self.cur_va() as nat, page_size::<PagingConsts>((lvl + 1) as PagingLevel) as nat),
+            ) == nat_align_down(
+                self.cur_va() as nat,
+                page_size::<PagingConsts>((lvl + 1) as PagingLevel) as nat,
+            ),
     {
         C::lemma_paging_consts_properties();
         lemma_vaddr_upper_part_is_align_down::<C>(self.cur_va());
@@ -320,9 +330,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
                 );
                 &&& idx_path_va <= subtree_va
-                &&& subtree_va + page_size::<PagingConsts>(self.level) <= idx_path_va + page_size::<PagingConsts>(
-                    (lvl + 1) as PagingLevel,
-                )
+                &&& subtree_va + page_size::<PagingConsts>(self.level) <= idx_path_va + page_size::<
+                    PagingConsts,
+                >((lvl + 1) as PagingLevel)
             }),
     {
         self.cur_va_in_cont_child_range(self.level - 1);
@@ -377,9 +387,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             vaddr(self.continuations[i].path().push_tail(j)) + vaddr_upper_part_spec::<C>(
                 self.cur_va(),
-            ) + page_size::<PagingConsts>((i + 1) as PagingLevel) <= self.cur_va() || self.cur_va() < vaddr(
-                self.continuations[i].path().push_tail(j),
-            ) + vaddr_upper_part_spec::<C>(self.cur_va()),
+            ) + page_size::<PagingConsts>((i + 1) as PagingLevel) <= self.cur_va() || self.cur_va()
+                < vaddr(self.continuations[i].path().push_tail(j)) + vaddr_upper_part_spec::<C>(
+                self.cur_va(),
+            ),
     {
         let cont = self.continuations[i];
 

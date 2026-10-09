@@ -29,8 +29,9 @@ pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
         1 <= level <= NR_LEVELS + 1,
         va % PAGE_SIZE == 0,
         exists|large_level: PagingLevel|
-            1 <= large_level <= NR_LEVELS + 1 && level <= large_level && va % page_size::<PagingConsts>(large_level)
-                == 0,
+            1 <= large_level <= NR_LEVELS + 1 && level <= large_level && va % page_size::<
+                PagingConsts,
+            >(large_level) == 0,
     ensures
         va % page_size::<PagingConsts>(level) == 0,
 {
@@ -132,7 +133,9 @@ pub proof fn lemma_page_size_div_mul_eq(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,
     ensures
-        (page_size::<PagingConsts>(level) / PAGE_SIZE) * PAGE_SIZE == page_size::<PagingConsts>(level),
+        (page_size::<PagingConsts>(level) / PAGE_SIZE) * PAGE_SIZE == page_size::<PagingConsts>(
+            level,
+        ),
 {
     lemma_page_size_spec_values();
 }
@@ -143,7 +146,9 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
     requires
         2 <= level <= NR_LEVELS + 1,
     ensures
-        NR_ENTRIES * page_size::<PagingConsts>((level - 1) as PagingLevel) == page_size::<PagingConsts>(level),
+        NR_ENTRIES * page_size::<PagingConsts>((level - 1) as PagingLevel) == page_size::<
+            PagingConsts,
+        >(level),
 {
     lemma_page_size_spec_values();
     crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
@@ -168,7 +173,8 @@ pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize)
         pa + i * page_size::<PagingConsts>((level - 1) as PagingLevel) == pa + big_j * PAGE_SIZE,
         big_j == i * (page_size::<PagingConsts>((level - 1) as PagingLevel) / PAGE_SIZE),
 {
-    let sub_pages_per_entry: int = (page_size::<PagingConsts>((level - 1) as PagingLevel) / PAGE_SIZE) as int;
+    let sub_pages_per_entry: int = (page_size::<PagingConsts>((level - 1) as PagingLevel)
+        / PAGE_SIZE) as int;
     let big_j_int: int = i * sub_pages_per_entry;
     lemma_page_size_spec_values();
     lemma_page_size_div_mul_eq((level - 1) as PagingLevel);

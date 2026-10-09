@@ -58,9 +58,7 @@ pub proof fn lemma_page_size_for_level_is_pow2<C: PagingConstsTrait>(level: Pagi
         pte_index_bit_offset_spec::<C>(level) < usize::BITS,
         pte_index_bit_offset_spec::<C>(level) == C::BASE_PAGE_SIZE().ilog2()
             + nr_pte_index_bits_spec::<C>() * (level - 1),
-        0 < page_size::<C>(level) == pow2(
-            pte_index_bit_offset_spec::<C>(level) as nat,
-        ),
+        0 < page_size::<C>(level) == pow2(pte_index_bit_offset_spec::<C>(level) as nat),
 {
     C::lemma_paging_consts_properties();
     let bits = nr_pte_index_bits_spec::<C>();
@@ -81,12 +79,10 @@ pub proof fn lemma_page_size_for_level_next<C: PagingConstsTrait>(level: PagingL
     requires
         1 <= level <= C::NR_LEVELS(),
     ensures
-        page_size::<C>((level + 1) as PagingLevel) == page_size::<C>(
-            level,
-        ) * nr_subpage_per_huge::<C>(),
-        0 < page_size::<C>(level) <= page_size::<C>(
-            (level + 1) as PagingLevel,
-        ),
+        page_size::<C>((level + 1) as PagingLevel) == page_size::<C>(level) * nr_subpage_per_huge::<
+            C,
+        >(),
+        0 < page_size::<C>(level) <= page_size::<C>((level + 1) as PagingLevel),
 {
     C::lemma_paging_consts_properties();
     lemma_page_size_for_level_is_pow2::<C>(level);
@@ -146,8 +142,7 @@ pub proof fn lemma_pte_index_spec_is_div_mod<C: PagingConstsTrait>(va: Vaddr, le
     requires
         1 <= level <= C::NR_LEVELS(),
     ensures
-        pte_index_spec::<C>(va, level) == (va / page_size::<C>(level))
-            % nr_subpage_per_huge::<C>(),
+        pte_index_spec::<C>(va, level) == (va / page_size::<C>(level)) % nr_subpage_per_huge::<C>(),
 {
     C::lemma_paging_consts_properties();
     lemma_page_size_for_level_is_pow2::<C>(level);
@@ -294,8 +289,9 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
         va < next <= va + page_size::<C>(level),
         next % page_size::<C>(level) == 0,
     ensures
-        next == (nat_align_down(va as nat, page_size::<C>(level) as nat)
-            + page_size::<C>(level)) as Vaddr,
+        next == (nat_align_down(va as nat, page_size::<C>(level) as nat) + page_size::<C>(
+            level,
+        )) as Vaddr,
         pte_index_spec::<C>(next, level) == 0 ==> {
             &&& pte_index_spec::<C>(va, level) + 1 == nr_subpage_per_huge::<C>()
             &&& next % page_size::<C>((level + 1) as PagingLevel) == 0
@@ -335,9 +331,7 @@ pub open spec fn vaddr_replace_pte_index_spec<C: PagingConstsTrait>(
     level: PagingLevel,
     index: int,
 ) -> Vaddr {
-    (va as int + (index - pte_index_spec::<C>(va, level)) * page_size::<C>(
-        level,
-    )) as Vaddr
+    (va as int + (index - pte_index_spec::<C>(va, level)) * page_size::<C>(level)) as Vaddr
 }
 
 /// Number of bits occupied by all configured page-table indices and the in-page offset.
@@ -535,10 +529,7 @@ pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: Pa
         1 <= level <= C::NR_LEVELS(),
     ensures
         ({
-            let aligned = nat_align_down(
-                va as nat,
-                page_size::<C>(level) as nat,
-            ) as Vaddr;
+            let aligned = nat_align_down(va as nat, page_size::<C>(level) as nat) as Vaddr;
             &&& aligned % C::BASE_PAGE_SIZE() == 0
             &&& vaddr_upper_bits_spec::<C>(aligned) == vaddr_upper_bits_spec::<C>(va)
             &&& forall|i: int|

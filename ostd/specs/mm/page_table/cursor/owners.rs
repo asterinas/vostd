@@ -33,12 +33,11 @@ use crate::specs::{
             },
             lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
             lemma_page_size_for_level_divides, lemma_page_size_for_level_is_pow2,
-            lemma_page_size_for_level_next,
-            lemma_pte_index_bound, lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
-            lemma_vaddr_upper_part_is_align_down,
+            lemma_page_size_for_level_next, lemma_pte_index_bound, lemma_vaddr_range_spec_kernel,
+            lemma_vaddr_range_spec_user, lemma_vaddr_upper_part_is_align_down,
             owners::*,
-            page_table_vaddr_bits_spec, pte_index_bit_offset_spec,
-            pte_index_spec, vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
+            page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
+            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
             vaddr_upper_part_spec,
         },
     },
@@ -1342,8 +1341,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
             self.locked_range().start == self.prefix,
             self.locked_range().end == self.prefix + page_size::<PagingConsts>(self.guard_level),
-            self.locked_range().start as nat % page_size::<PagingConsts>(self.guard_level as PagingLevel) as nat
-                == 0,
+            self.locked_range().start as nat % page_size::<PagingConsts>(
+                self.guard_level as PagingLevel,
+            ) as nat == 0,
             self.locked_range().end - self.locked_range().start == page_size::<PagingConsts>(
                 self.guard_level as PagingLevel,
             ),
@@ -1352,7 +1352,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.lemma_prefix_aligned_to_guard_level();
         self.lemma_prefix_plus_ps_no_overflow();
         lemma_page_size_ge_page_size(self.guard_level);
-        lemma_nat_align_down_sound(self.prefix as nat, page_size::<PagingConsts>(self.guard_level) as nat);
+        lemma_nat_align_down_sound(
+            self.prefix as nat,
+            page_size::<PagingConsts>(self.guard_level) as nat,
+        );
     }
 
     /// The cursor's `prefix` is aligned to `page_size(self.guard_level)`, since the
@@ -1563,7 +1566,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             },
             pa_range: Range {
                 start: frame.mapped_pa,
-                end: (frame.mapped_pa + page_size::<PagingConsts>(pt_level as PagingLevel)) as Paddr,
+                end: (frame.mapped_pa + page_size::<PagingConsts>(
+                    pt_level as PagingLevel,
+                )) as Paddr,
             },
             page_size: page_size::<PagingConsts>(pt_level as PagingLevel),
             property: frame.prop,

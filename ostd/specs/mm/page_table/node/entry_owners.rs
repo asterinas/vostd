@@ -385,20 +385,24 @@ impl<C: PageTableConfig> EntryOwner<C> {
             1 < self.parent_level < NR_LEVELS,
             idx < NR_ENTRIES,
         ensures
-            self.frame().mapped_pa + idx * page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel)
-                < MAX_PADDR,
+            self.frame().mapped_pa + idx * page_size::<PagingConsts>(
+                (self.parent_level - 1) as PagingLevel,
+            ) < MAX_PADDR,
             ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel) == 0,
             ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
+            )) as Paddr) + page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel)
+                <= MAX_PADDR,
             ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % PAGE_SIZE == 0,
     {
         let pa = self.frame().mapped_pa;
-        let child_pa = (pa + idx * page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel)) as Paddr;
+        let child_pa = (pa + idx * page_size::<PagingConsts>(
+            (self.parent_level - 1) as PagingLevel,
+        )) as Paddr;
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
@@ -410,7 +414,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             };
         } else {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size::<PagingConsts>(2) as int);
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
+                idx as int,
+                page_size::<PagingConsts>(2) as int,
+            );
             vstd::arithmetic::div_mod::lemma_add_mod_noop(
                 pa as int,
                 (idx * page_size::<PagingConsts>(2)) as int,
