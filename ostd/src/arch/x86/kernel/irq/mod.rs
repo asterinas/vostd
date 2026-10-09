@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
+use crate::specs::arch::irq::{
+    IsaOverrideMapping, MadtOverrideEntry, collect_isa_overrides, isa_mapping_correct,
+    isa_overrides_with_fallback, lemma_collect_isa_override_push,
+};
+
 use alloc::{boxed::Box, vec::Vec};
 use core::{
     fmt,
@@ -29,6 +36,7 @@ pub struct IrqChip {
     overrides: Box<[IsaOverride]>,
 }
 
+#[verus_verify]
 struct IsaOverride {
     /// ISA IRQ source.
     source: u8,
@@ -36,6 +44,24 @@ struct IsaOverride {
     target: u32,
 }
 
+verus! {
+
+/// Relate the executable override list to the ISA mapping model.
+spec fn isa_overrides_view(overrides: Seq<IsaOverride>) -> Seq<IsaOverrideMapping> {
+    overrides.map_values(|entry: IsaOverride| (entry.source, entry.target))
+}
+
+/// Project a decoded MADT entry's mapping fields without modeling ACPI memory decoding.
+spec fn madt_override_entry(entry: acpi::madt::MadtEntry<'_>) -> MadtOverrideEntry {
+    match entry {
+        acpi::madt::MadtEntry::InterruptSourceOverride(raw) => Some(
+            (raw.bus, raw.irq, raw.global_system_interrupt),
+        ),
+        _ => None,
+    }
+}
+
+} // verus!
 impl IrqChip {
     /// Maps an IRQ pin specified by a GSI number to an IRQ line.
     ///
@@ -87,6 +113,10 @@ impl IrqChip {
     /// controller still use it.
     ///
     /// This method is x86-specific.
+    ///
+    /// Only the abstract ISA models and collection lemma are currently verified;
+    /// this executable module is excluded from the verification target.
+    #[verus_verify]
     pub fn map_isa_pin_to(
         &'static self,
         irq_line: IrqLine,
@@ -95,9 +125,37 @@ impl IrqChip {
         let gsi_index = self
             .overrides
             .iter()
-            .find(|isa_override| isa_override.source == isa_index)
-            .map(|isa_override| isa_override.target)
+            .find(
+                #[verus_spec(ret: bool => ensures ret == (isa_override.source == isa_index))]
+                |isa_override| isa_override.source == isa_index,
+            )
+            .map(
+                #[verus_spec(ret: u32 => ensures ret == isa_override.target)]
+                |isa_override| isa_override.target,
+            )
             .unwrap_or(isa_index as u32);
+
+        proof! {
+            reveal(isa_mapping_correct);
+            let overrides = self.overrides@;
+            if exists|i: int| 0 <= i < overrides.len() && #[trigger] overrides[i].source == isa_index {
+                let first = choose|i: int| 0 <= i < overrides.len()
+                    && #[trigger] overrides[i].source == isa_index
+                    && (forall|j: int| 0 <= j < i ==> #[trigger] overrides[j].source != isa_index)
+                    && gsi_index == overrides[i].target;
+                assert(isa_overrides_view(overrides)[first] == (isa_index, gsi_index));
+                assert(isa_overrides_view(overrides)[first].0 == isa_index);
+                assert(isa_overrides_view(overrides)[first].1 == gsi_index);
+                assert(first < isa_overrides_view(overrides).len());
+                assert forall|j: int| 0 <= j < first implies
+                    #[trigger] isa_overrides_view(overrides)[j].0 != isa_index by {
+                    assert(overrides[j].source != isa_index);
+                }
+                assert(isa_mapping_correct(isa_overrides_view(overrides), isa_index, gsi_index));
+            } else {
+                assert(isa_mapping_correct(isa_overrides_view(overrides), isa_index, gsi_index));
+            }
+        }
 
         self.map_gsi_pin_to(irq_line, gsi_index)
     }
@@ -158,6 +216,7 @@ impl Drop for MappedIrqLine {
 /// The [`IrqChip`] singleton.
 pub static IRQ_CHIP: Once<IrqChip> = Once::new();
 
+#[verus_verify]
 pub(in crate::arch) fn init(io_mem_builder: &IoMemAllocatorBuilder) {
     use acpi::madt::{Madt, MadtEntry};
 
@@ -178,9 +237,27 @@ pub(in crate::arch) fn init(io_mem_builder: &IoMemAllocatorBuilder) {
     let mut io_apics = Vec::with_capacity(2);
     let mut isa_overrides = Vec::new();
 
+    proof_decl! {
+        let ghost mut madt_override_entries = Seq::<MadtOverrideEntry>::empty();
+    }
+
     const BUS_ISA: u8 = 0; // "0 Constant, meaning ISA".
 
+    // Track visited entries without modeling ACPI memory decoding.
+    #[verus_spec(iter => invariant
+        isa_overrides_view(isa_overrides@) == collect_isa_overrides(madt_override_entries),
+        madt_override_entries == iter.history().map_values(|entry| madt_override_entry(entry)),
+        ensures
+            isa_overrides_view(isa_overrides@) == collect_isa_overrides(madt_override_entries),
+            madt_override_entries == iter.history().map_values(|entry| madt_override_entry(entry)),
+    )]
     for madt_entry in madt_table.get().entries() {
+        proof! {
+            lemma_collect_isa_override_push(madt_override_entries, madt_override_entry(madt_entry));
+            madt_override_entries = madt_override_entries.push(madt_override_entry(madt_entry));
+            broadcast use vstd::seq_lib::group_seq_properties;
+        }
+
         match madt_entry {
             MadtEntry::IoApic(madt_io_apic) => {
                 // SAFETY: We trust the ACPI tables (as well as the MADTs in them), from which the
@@ -215,6 +292,11 @@ pub(in crate::arch) fn init(io_mem_builder: &IoMemAllocatorBuilder) {
             source: 0, // Timer ISA IRQ
             target: 2, // Timer GSI
         });
+    }
+
+    proof! {
+        assert(isa_overrides_view(isa_overrides@)
+            == isa_overrides_with_fallback(collect_isa_overrides(madt_override_entries)));
     }
 
     for isa_override in isa_overrides.iter() {
