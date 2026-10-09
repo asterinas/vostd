@@ -55,7 +55,7 @@ use crate::mm::{
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::PageProperty,
-    page_size, page_size_spec,
+    page_size,
     page_table::*,
 };
 use core::{marker::PhantomData, ops::Range};
@@ -1213,7 +1213,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// The guard-level slot containing the numeric prefix, with its end excluded.
     pub open spec fn locked_range(self) -> Range<Vaddr> {
-        let size = page_size_spec::<C>(self.guard_level) as nat;
+        let size = page_size::<C>(self.guard_level) as nat;
         let start = nat_align_down(self.prefix as nat, size);
         Range { start: start as Vaddr, end: (start + size) as Vaddr }
     }
@@ -1417,7 +1417,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_aligned_vaddr_slack::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_page_size_for_level_next::<C>(gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
-            page_size_spec::<C>(gl) as int,
+            page_size::<C>(gl) as int,
             2,
             crate::mm::nr_subpage_per_huge::<C>() as int,
         );
@@ -1446,7 +1446,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_for_level_next::<C>(gl);
         lemma_page_size_for_level_divides::<C>(level, gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
-            page_size_spec::<C>(gl) as int,
+            page_size::<C>(gl) as int,
             2,
             crate::mm::nr_subpage_per_huge::<C>() as int,
         );

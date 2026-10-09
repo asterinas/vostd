@@ -32,7 +32,7 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    page_size, page_size_spec,
+    page_size,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
 };
 use core::ops::{Deref, Range};
@@ -254,14 +254,14 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
     ensures
         vaddr(path) + vaddr_upper_part_spec::<C>(va) == nat_align_down(
             va as nat,
-            page_size_spec::<C>((C::NR_LEVELS() - path.len() + 1) as PagingLevel) as nat,
+            page_size::<C>((C::NR_LEVELS() - path.len() + 1) as PagingLevel) as nat,
         ),
     decreases path.len(),
 {
     C::lemma_paging_consts_properties();
     let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
     lemma_page_size_for_level_is_pow2::<C>(level);
-    let size = page_size_spec::<C>(level) as int;
+    let size = page_size::<C>(level) as int;
     lemma_fundamental_div_mod(va as int, size);
     vstd::arithmetic::div_mod::lemma_mod_bound(va as int, size);
     vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, size);
@@ -285,7 +285,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
 
         let fanout = nr_subpage_per_huge::<C>() as int;
         let quotient = va as int / size;
-        let parent_size = page_size_spec::<C>((level + 1) as PagingLevel) as int;
+        let parent_size = page_size::<C>((level + 1) as PagingLevel) as int;
         lemma_div_denominator(va as int, size, fanout);
         lemma_fundamental_div_mod(quotient, fanout);
         lemma_fundamental_div_mod(va as int, parent_size);

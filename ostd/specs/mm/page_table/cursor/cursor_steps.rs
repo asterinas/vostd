@@ -21,7 +21,7 @@ use crate::specs::{
 };
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_size_spec, page_table::*};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -622,7 +622,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
             // Preserve lower address bits and the former address-word wrapping semantics.
             Self {
-                va: (self.va + page_size_spec::<C>(C::NR_LEVELS())) as Vaddr,
+                va: (self.va + page_size::<C>(C::NR_LEVELS())) as Vaddr,
                 popped_too_high: false,
                 ..self
             }

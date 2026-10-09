@@ -31,7 +31,7 @@ use crate::specs::{
 };
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_size_spec, page_table::*};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use crate::specs::task::InAtomicMode;
 use core::ops::Range;
 
@@ -47,7 +47,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Self {
             va: nat_align_down(
                 self.va as nat,
-                page_size_spec::<C>(self.level) as nat,
+                page_size::<C>(self.level) as nat,
             ) as Vaddr,
             ..self
         }
@@ -140,13 +140,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
-            self.inc_index().va == self.va + page_size_spec::<C>(self.level),
+            self.inc_index().va == self.va + page_size::<C>(self.level),
     {
         C::lemma_paging_consts_properties();
         self.lemma_cur_pte_index();
         lemma_inc_slot_indices::<C>(self.va, self.level);
         reveal(vaddr_replace_pte_index_spec);
-        vstd::arithmetic::mul::lemma_mul_basics(page_size_spec::<C>(self.level) as int);
+        vstd::arithmetic::mul::lemma_mul_basics(page_size::<C>(self.level) as int);
     }
 
     /// Incrementing a nonterminal index and aligning down reaches the next slot boundary.

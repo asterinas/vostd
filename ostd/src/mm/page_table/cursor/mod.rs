@@ -52,7 +52,7 @@ use crate::mm::frame::meta::{
 };
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size, page_size_spec};
+use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
     specs::task::InAtomicMode,
@@ -1587,8 +1587,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 C::NR_LEVELS() == NR_LEVELS,
                 owner.va == va,
                 owner0.va == va,
-                va < next_va <= va + page_size_spec::<C>(self.level),
-                next_va % page_size_spec::<C>(self.level) == 0,
+                va < next_va <= va + page_size::<C>(self.level),
+                next_va % page_size::<C>(self.level) == 0,
                 owner.in_locked_range(),
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
