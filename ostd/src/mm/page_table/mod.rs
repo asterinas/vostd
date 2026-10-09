@@ -640,8 +640,8 @@ pub fn largest_pages<C: PageTableConfig>(
                     return None;
                 }
                 let mut level = C::HIGHEST_TRANSLATION_LEVEL();
-                while page_size::<C>(level) > len || va % page_size::<C>(level) != 0 || pa % page_size::<C>(level)
-                    != 0 {
+                while page_size::<C>(level) > len || va % page_size::<C>(level) != 0 || pa
+                    % page_size::<C>(level) != 0 {
                     level -= 1;
                 }
 

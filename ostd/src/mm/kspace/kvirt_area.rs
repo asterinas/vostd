@@ -848,9 +848,9 @@ impl KVirtArea {
                             <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
                     forall|i: int|
                         0 <= i < it.seq().len() ==> (va_range.start as nat
-                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size::<PagingConsts>(
-                            it.seq()[i].1,
-                        ) as nat == 0,
+                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size::<
+                            PagingConsts,
+                        >(it.seq()[i].1) as nat == 0,
                     forall|i: int|
                         #![auto]
                         0 <= i < it.seq().len() ==> it.seq()[i].0 == pa_range.start
@@ -932,7 +932,9 @@ impl KVirtArea {
 
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                     level_raw);
-                    let split_self = old_cursor_model.split_while_huge(page_size::<PagingConsts>(level_raw));
+                    let split_self = old_cursor_model.split_while_huge(
+                        page_size::<PagingConsts>(level_raw),
+                    );
 
                     CursorView::<KernelPtConfig>::lemma_split_while_huge_preserves_cur_va(
                         old_cursor_model,

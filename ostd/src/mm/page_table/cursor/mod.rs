@@ -1333,7 +1333,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.cur_entry_owner().is_frame());
 
                         let ghost old_view = if split_happened {
-                            old(owner)@.split_while_huge(page_size::<PagingConsts>(owner_before_push.level))
+                            old(owner)@.split_while_huge(
+                                page_size::<PagingConsts>(owner_before_push.level),
+                            )
                         } else {
                             old(owner)@
                         };
@@ -2691,7 +2693,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             page_size::<PagingConsts>(level_pre_none),
                             page_size::<PagingConsts>(self.0.level),
                         );
-                        owner_pre_none.split_while_huge_absent_noop(page_size::<PagingConsts>(self.0.level));
+                        owner_pre_none.split_while_huge_absent_noop(
+                            page_size::<PagingConsts>(self.0.level),
+                        );
                     }
 
                     proof {

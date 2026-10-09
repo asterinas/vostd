@@ -1121,7 +1121,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     pa, level, i);
                 }
                 if level - 1 > 1 {
-                    let nr_subpages = page_size::<PagingConsts>((level - 1) as PagingLevel) / PAGE_SIZE;
+                    let nr_subpages = page_size::<PagingConsts>((level - 1) as PagingLevel)
+                        / PAGE_SIZE;
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
                     (level - 1) as PagingLevel);
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
@@ -1139,8 +1140,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                         }
                     } by {
-                        let sub_pages_per_subframe = page_size::<PagingConsts>((level - 1) as PagingLevel)
-                            / PAGE_SIZE;
+                        let sub_pages_per_subframe = page_size::<PagingConsts>(
+                            (level - 1) as PagingLevel,
+                        ) / PAGE_SIZE;
                         let big_j_int: int = i * sub_pages_per_subframe + j_prime;
                         vstd::arithmetic::mul::lemma_mul_nonnegative(
                             i as int,
