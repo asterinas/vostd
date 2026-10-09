@@ -52,7 +52,7 @@ use crate::mm::frame::meta::{
 };
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
+use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size, page_size_spec};
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
     specs::task::InAtomicMode,
@@ -1455,9 +1455,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.va = va;
                 proof {
                     C::lemma_paging_consts_properties();
-                    lemma_page_size_for_level_matches_page_size::<C>(
-                        (self.level + 1) as PagingLevel,
-                    );
                     // At level == NR_LEVELS the quantifier in set_va_in_node is vacuous.
                     if self.level < NR_LEVELS as PagingLevel {
                         lemma_same_node_pte_indices_match::<C>(va, old_va, node_start, self.level);
@@ -1567,7 +1564,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             C::lemma_paging_consts_properties();
             owner0.lemma_va_plus_page_size_no_overflow(start_level);
             lemma_page_size_ge_page_size(start_level);
-            lemma_page_size_for_level_matches_page_size::<C>(start_level);
             vstd_extra::arithmetic::lemma_nat_align_down_sound(
                 va as nat,
                 page_size::<PagingConsts>(start_level) as nat,
@@ -1591,8 +1587,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 C::NR_LEVELS() == NR_LEVELS,
                 owner.va == va,
                 owner0.va == va,
-                va < next_va <= va + page_size_for_level_spec::<C>(self.level),
-                next_va % page_size_for_level_spec::<C>(self.level) == 0,
+                va < next_va <= va + page_size_spec::<C>(self.level),
+                next_va % page_size_spec::<C>(self.level) == 0,
                 owner.in_locked_range(),
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),

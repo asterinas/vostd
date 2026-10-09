@@ -33,11 +33,11 @@ use crate::specs::{
             },
             lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
             lemma_page_size_for_level_divides, lemma_page_size_for_level_is_pow2,
-            lemma_page_size_for_level_matches_page_size, lemma_page_size_for_level_next,
+            lemma_page_size_for_level_next,
             lemma_pte_index_bound, lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down,
             owners::*,
-            page_size_for_level_spec, page_table_vaddr_bits_spec, pte_index_bit_offset_spec,
+            page_table_vaddr_bits_spec, pte_index_bit_offset_spec,
             pte_index_spec, vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
             vaddr_upper_part_spec,
         },
@@ -55,7 +55,7 @@ use crate::mm::{
     kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::PageProperty,
-    page_size,
+    page_size, page_size_spec,
     page_table::*,
 };
 use core::{marker::PhantomData, ops::Range};
@@ -1213,7 +1213,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// The guard-level slot containing the numeric prefix, with its end excluded.
     pub open spec fn locked_range(self) -> Range<Vaddr> {
-        let size = page_size_for_level_spec::<C>(self.guard_level) as nat;
+        let size = page_size_spec::<C>(self.guard_level) as nat;
         let start = nat_align_down(self.prefix as nat, size);
         Range { start: start as Vaddr, end: (start + size) as Vaddr }
     }
@@ -1254,7 +1254,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         lemma_vaddr_path_aligned::<C>(path, self.prefix);
         lemma_vaddr_path_aligned::<C>(path, self.va);
-        lemma_page_size_for_level_matches_page_size::<C>(gl);
         lemma_page_size_ge_page_size(gl);
         lemma_nat_align_down_sound(self.va as nat, page_size::<PagingConsts>(gl) as nat);
     }
@@ -1350,7 +1349,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
     {
         C::lemma_paging_consts_properties();
-        lemma_page_size_for_level_matches_page_size::<C>(self.guard_level);
         self.lemma_prefix_aligned_to_guard_level();
         self.lemma_prefix_plus_ps_no_overflow();
         lemma_page_size_ge_page_size(self.guard_level);
@@ -1368,7 +1366,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         C::lemma_paging_consts_properties();
         lemma_lower_indices_aligned::<C>(self.prefix, self.guard_level);
-        lemma_page_size_for_level_matches_page_size::<C>(self.guard_level);
     }
 
     /// At the top guard level, the node determined by the cursor's upper address bits
@@ -1388,8 +1385,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.lemma_locked_range_span();
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
         lemma_page_size_for_level_is_pow2::<C>(body_level);
-        lemma_page_size_for_level_matches_page_size::<C>(body_level);
-        lemma_page_size_for_level_matches_page_size::<C>(self.guard_level);
         lemma_page_size_for_level_next::<C>(self.guard_level);
         lemma_usize_shr_is_div(self_va, page_table_vaddr_bits_spec::<C>());
         lemma_fundamental_div_mod(self_va as int, node_size as int);
@@ -1421,9 +1416,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_lower_indices_aligned::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_aligned_vaddr_slack::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_page_size_for_level_next::<C>(gl);
-        lemma_page_size_for_level_matches_page_size::<C>(gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
-            page_size_for_level_spec::<C>(gl) as int,
+            page_size_spec::<C>(gl) as int,
             2,
             crate::mm::nr_subpage_per_huge::<C>() as int,
         );
@@ -1451,10 +1445,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_aligned_vaddr_slack::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_page_size_for_level_next::<C>(gl);
         lemma_page_size_for_level_divides::<C>(level, gl);
-        lemma_page_size_for_level_matches_page_size::<C>(level);
-        lemma_page_size_for_level_matches_page_size::<C>(gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
-            page_size_for_level_spec::<C>(gl) as int,
+            page_size_spec::<C>(gl) as int,
             2,
             crate::mm::nr_subpage_per_huge::<C>() as int,
         );

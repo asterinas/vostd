@@ -16,7 +16,7 @@ use crate::specs::{
             owners::*,
             page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_page_size},
         },
-        lemma_page_size_for_level_matches_page_size, lemma_pte_index_bound,
+        lemma_pte_index_bound,
         lemma_vaddr_upper_part_is_align_down,
         owners::{
             INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int,
@@ -298,7 +298,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             lemma_pte_index_bound::<C>(self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel);
         };
         lemma_vaddr_path_aligned::<C>(child_path, self.cur_va());
-        lemma_page_size_for_level_matches_page_size::<C>((lvl + 1) as PagingLevel);
         lemma_vaddr_of_eq_int::<C>(child_path);
         lemma_page_size_ge_page_size((lvl + 1) as PagingLevel);
         lemma_nat_align_down_sound(

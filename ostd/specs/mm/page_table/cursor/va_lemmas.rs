@@ -22,16 +22,16 @@ use crate::specs::{
             },
         },
         lemma_align_down_indices, lemma_inc_slot_indices,
-        lemma_page_size_for_level_matches_page_size, lemma_pte_index_bound,
+        lemma_pte_index_bound,
         lemma_same_node_pte_indices_match,
         owners::*,
-        page_size_for_level_spec, pte_index_spec, vaddr_replace_pte_index_spec,
+        pte_index_spec, vaddr_replace_pte_index_spec,
         vaddr_upper_bits_spec,
     },
 };
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_size_spec, page_table::*};
 use crate::specs::task::InAtomicMode;
 use core::ops::Range;
 
@@ -47,7 +47,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Self {
             va: nat_align_down(
                 self.va as nat,
-                page_size_for_level_spec::<C>(self.level) as nat,
+                page_size_spec::<C>(self.level) as nat,
             ) as Vaddr,
             ..self
         }
@@ -93,7 +93,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ghost old_self = *self;
         C::lemma_paging_consts_properties();
         lemma_align_down_indices::<C>(old_self.va, old_self.level);
-        lemma_page_size_for_level_matches_page_size::<C>(old_self.level);
         self.va = old_self.zero_below_level().va;
 
         old_self.lemma_locked_range_span();
@@ -141,13 +140,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
-            self.inc_index().va == self.va + page_size_for_level_spec::<C>(self.level),
+            self.inc_index().va == self.va + page_size_spec::<C>(self.level),
     {
         C::lemma_paging_consts_properties();
         self.lemma_cur_pte_index();
         lemma_inc_slot_indices::<C>(self.va, self.level);
         reveal(vaddr_replace_pte_index_spec);
-        vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(self.level) as int);
+        vstd::arithmetic::mul::lemma_mul_basics(page_size_spec::<C>(self.level) as int);
     }
 
     /// Incrementing a nonterminal index and aligning down reaches the next slot boundary.
@@ -162,7 +161,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         C::lemma_paging_consts_properties();
         self.lemma_inc_index_va();
-        lemma_page_size_for_level_matches_page_size::<C>(self.level);
         lemma_page_size_ge_page_size(self.level);
         let ps = page_size::<PagingConsts>(self.level) as nat;
         let va = self.va as nat;
@@ -209,7 +207,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         self.lemma_locked_range_span();
         let gl = self.guard_level;
-        lemma_page_size_for_level_matches_page_size::<C>(gl);
         if gl == 1 {
             lemma_page_size_spec_values();
             let ps = C::BASE_PAGE_SIZE() as int;
