@@ -11,7 +11,7 @@ verus! {
 /// page_size(1) == PAGE_SIZE.
 pub proof fn lemma_page_size_spec_level1()
     ensures
-        page_size(1) == PAGE_SIZE,
+        page_size::<PagingConsts>(1) == PAGE_SIZE,
 {
     vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
         nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
@@ -29,18 +29,18 @@ pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
         1 <= level <= NR_LEVELS + 1,
         va % PAGE_SIZE == 0,
         exists|large_level: PagingLevel|
-            1 <= large_level <= NR_LEVELS + 1 && level <= large_level && va % page_size(large_level)
+            1 <= large_level <= NR_LEVELS + 1 && level <= large_level && va % page_size::<PagingConsts>(large_level)
                 == 0,
     ensures
-        va % page_size(level) == 0,
+        va % page_size::<PagingConsts>(level) == 0,
 {
     let large_level: PagingLevel = choose|l: PagingLevel|
-        1 <= l <= NR_LEVELS + 1 && level <= l && va % page_size(l) == 0;
+        1 <= l <= NR_LEVELS + 1 && level <= l && va % page_size::<PagingConsts>(l) == 0;
     if level == 1nat {
         lemma_page_size_spec_level1();
     } else {
-        let ps_l = page_size(level) as int;
-        let ps_ll = page_size(large_level) as int;
+        let ps_l = page_size::<PagingConsts>(level) as int;
+        let ps_ll = page_size::<PagingConsts>(large_level) as int;
         lemma_page_size_ge_page_size(level);
         lemma_page_size_ge_page_size(large_level);
         lemma_page_size_divides(level, large_level);
@@ -63,7 +63,7 @@ pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
     requires
         va % PAGE_SIZE == 0,
     ensures
-        va % page_size(1) == 0,
+        va % page_size::<PagingConsts>(1) == 0,
 {
     lemma_page_size_spec_level1();
 }
@@ -73,7 +73,7 @@ pub proof fn lemma_page_size_multiple_of_page_size(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS,
     ensures
-        page_size(level) % PAGE_SIZE == 0,
+        page_size::<PagingConsts>(level) % PAGE_SIZE == 0,
 {
     lemma_page_size_spec_values();
 }
@@ -83,7 +83,7 @@ pub proof fn lemma_page_size_ge_page_size(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,
     ensures
-        page_size(level) >= PAGE_SIZE,
+        page_size::<PagingConsts>(level) >= PAGE_SIZE,
 {
     lemma_page_size_spec_values();
 }
@@ -93,11 +93,11 @@ pub proof fn lemma_page_size_monotone(l1: PagingLevel, l2: PagingLevel)
     requires
         1 <= l1 <= l2 <= NR_LEVELS + 1,
     ensures
-        page_size(l1) <= page_size(l2),
+        page_size::<PagingConsts>(l1) <= page_size::<PagingConsts>(l2),
 {
     if l1 != l2 {
-        let ps1 = page_size(l1);
-        let ps2 = page_size(l2);
+        let ps1 = page_size::<PagingConsts>(l1);
+        let ps2 = page_size::<PagingConsts>(l2);
 
         lemma_page_size_ge_page_size(l1);
         lemma_page_size_ge_page_size(l2);
@@ -113,11 +113,11 @@ pub proof fn lemma_page_size_monotone(l1: PagingLevel, l2: PagingLevel)
 
 pub proof fn lemma_page_size_spec_values()
     ensures
-        page_size(1) == 4096,
-        page_size(2) == 2097152,
-        page_size(3) == 1073741824,
-        page_size(4) == 549755813888,
-        page_size(5) == 281474976710656,
+        page_size::<PagingConsts>(1) == 4096,
+        page_size::<PagingConsts>(2) == 2097152,
+        page_size::<PagingConsts>(3) == 1073741824,
+        page_size::<PagingConsts>(4) == 549755813888,
+        page_size::<PagingConsts>(5) == 281474976710656,
 {
     lemma_page_size_spec_level1();
     vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
@@ -132,7 +132,7 @@ pub proof fn lemma_page_size_div_mul_eq(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,
     ensures
-        (page_size(level) / PAGE_SIZE) * PAGE_SIZE == page_size(level),
+        (page_size::<PagingConsts>(level) / PAGE_SIZE) * PAGE_SIZE == page_size::<PagingConsts>(level),
 {
     lemma_page_size_spec_values();
 }
@@ -143,7 +143,7 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
     requires
         2 <= level <= NR_LEVELS + 1,
     ensures
-        NR_ENTRIES * page_size((level - 1) as PagingLevel) == page_size(level),
+        NR_ENTRIES * page_size::<PagingConsts>((level - 1) as PagingLevel) == page_size::<PagingConsts>(level),
 {
     lemma_page_size_spec_values();
     crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
@@ -164,11 +164,11 @@ pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize)
         2 <= level <= NR_LEVELS,
         0 < i < NR_ENTRIES,
     ensures
-        0 < big_j < page_size(level) / PAGE_SIZE,
-        pa + i * page_size((level - 1) as PagingLevel) == pa + big_j * PAGE_SIZE,
-        big_j == i * (page_size((level - 1) as PagingLevel) / PAGE_SIZE),
+        0 < big_j < page_size::<PagingConsts>(level) / PAGE_SIZE,
+        pa + i * page_size::<PagingConsts>((level - 1) as PagingLevel) == pa + big_j * PAGE_SIZE,
+        big_j == i * (page_size::<PagingConsts>((level - 1) as PagingLevel) / PAGE_SIZE),
 {
-    let sub_pages_per_entry: int = (page_size((level - 1) as PagingLevel) / PAGE_SIZE) as int;
+    let sub_pages_per_entry: int = (page_size::<PagingConsts>((level - 1) as PagingLevel) / PAGE_SIZE) as int;
     let big_j_int: int = i * sub_pages_per_entry;
     lemma_page_size_spec_values();
     lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
@@ -204,7 +204,7 @@ pub proof fn lemma_page_size_divides(l1: PagingLevel, l2: PagingLevel)
     requires
         1 <= l1 <= l2 <= NR_LEVELS + 1,
     ensures
-        page_size(l2) % page_size(l1) == 0,
+        page_size::<PagingConsts>(l2) % page_size::<PagingConsts>(l1) == 0,
 {
     lemma_page_size_spec_values();
     // Enumerate pairs to keep SMT context narrow.
@@ -224,7 +224,7 @@ pub proof fn lemma_pa_plus_page_size_no_overflow(pa: Paddr, level: PagingLevel)
         1 <= level <= NR_LEVELS,
         pa < MAX_PADDR,
     ensures
-        pa + page_size(level) < usize::MAX,
+        pa + page_size::<PagingConsts>(level) < usize::MAX,
 {
     lemma_page_size_spec_values();
 }

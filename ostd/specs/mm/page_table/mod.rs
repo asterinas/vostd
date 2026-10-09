@@ -141,12 +141,12 @@ pub proof fn lemma_page_size_for_level_divides<C: PagingConstsTrait>(
     vstd::arithmetic::mul::lemma_mul_basics(a);
 }
 
-/// Temporary bridge to the architecture-global `page_size` helper used by the executable code.
+/// Configured page sizes match the current architecture's paging constants.
 pub proof fn lemma_page_size_for_level_matches_page_size<C: PagingConstsTrait>(level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS() + 1,
     ensures
-        page_size_for_level_spec::<C>(level) == page_size(level),
+        page_size_for_level_spec::<C>(level) == page_size::<PagingConsts>(level),
 {
     C::lemma_paging_consts_properties();
 }

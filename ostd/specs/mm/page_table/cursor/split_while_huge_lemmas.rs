@@ -714,7 +714,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_node(),
             self.level > 1,
         ensures
-            self@.split_while_huge(page_size((self.level - 1) as PagingLevel)) == self@,
+            self@.split_while_huge(page_size::<PagingConsts>((self.level - 1) as PagingLevel)) == self@,
     {
         self.view_preserves_inv();
         if self@.present() {
@@ -745,7 +745,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_locked_range(),
         ensures
-            self@.split_while_huge(page_size(self.level as PagingLevel)) == self@,
+            self@.split_while_huge(page_size::<PagingConsts>(self.level as PagingLevel)) == self@,
     {
         self.view_preserves_inv();
         if self@.present() {
@@ -767,18 +767,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
             self@.cur_va == old_view.cur_va,
             old_view.present(),
-            old_view.query_mapping().page_size > page_size(self.level as PagingLevel),
-            old_view.query_mapping().page_size / NR_ENTRIES == page_size(self.level as PagingLevel),
-            old_view.query_mapping().page_size % page_size(self.level as PagingLevel) == 0,
+            old_view.query_mapping().page_size > page_size::<PagingConsts>(self.level as PagingLevel),
+            old_view.query_mapping().page_size / NR_ENTRIES == page_size::<PagingConsts>(self.level as PagingLevel),
+            old_view.query_mapping().page_size % page_size::<PagingConsts>(self.level as PagingLevel) == 0,
             self@.mappings =~= old_view.split_if_mapped_huge_spec(
-                page_size(self.level as PagingLevel),
+                page_size::<PagingConsts>(self.level as PagingLevel),
             ).mappings,
         ensures
             self@.mappings == old_view.split_while_huge(
-                page_size(self.level as PagingLevel),
+                page_size::<PagingConsts>(self.level as PagingLevel),
             ).mappings,
     {
-        let ps = page_size(self.level as PagingLevel);
+        let ps = page_size::<PagingConsts>(self.level as PagingLevel);
         let m = old_view.query_mapping();
         let f = old_view.mappings.filter(
             |m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end,

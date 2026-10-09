@@ -150,7 +150,7 @@ pub open spec fn sum_page_sizes_spec(elems: Seq<(Paddr, u8)>, from: int, to: int
     if from >= to {
         0nat
     } else {
-        page_size(elems[from].1) as nat + sum_page_sizes_spec(elems, from + 1, to)
+        page_size::<PagingConsts>(elems[from].1) as nat + sum_page_sizes_spec(elems, from + 1, to)
     }
 }
 
@@ -160,7 +160,7 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
         0 <= from <= to < elems.len(),
     ensures
         sum_page_sizes_spec(elems, from, to + 1) == sum_page_sizes_spec(elems, from, to)
-            + page_size(elems[to].1) as nat,
+            + page_size::<PagingConsts>(elems[to].1) as nat,
     decreases to - from,
 {
     if from < to {
@@ -205,7 +205,7 @@ proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: 
         sum_page_sizes_spec(res@, 0, res@.len() as int) == len,
         forall|i: int|
             0 <= i < res@.len() ==> (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
-                % page_size(res@[i].1) as nat == 0,
+                % page_size::<PagingConsts>(res@[i].1) as nat == 0,
         // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
         forall|i: int|
             0 <= i < res@.len() ==> (#[trigger] res@[i]).0 == pa
@@ -848,7 +848,7 @@ impl KVirtArea {
                             <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
                     forall|i: int|
                         0 <= i < it.seq().len() ==> (va_range.start as nat
-                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size(
+                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size::<PagingConsts>(
                             it.seq()[i].1,
                         ) as nat == 0,
                     forall|i: int|
@@ -932,22 +932,22 @@ impl KVirtArea {
 
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                     level_raw);
-                    let split_self = old_cursor_model.split_while_huge(page_size(level_raw));
+                    let split_self = old_cursor_model.split_while_huge(page_size::<PagingConsts>(level_raw));
 
                     CursorView::<KernelPtConfig>::lemma_split_while_huge_preserves_cur_va(
                         old_cursor_model,
-                        page_size(level_raw),
+                        page_size::<PagingConsts>(level_raw),
                     );
 
                     lemma_page_size_ge_page_size(level_raw);
 
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va as nat,
-                        page_size(level_raw) as nat,
+                        page_size::<PagingConsts>(level_raw) as nat,
                     );
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va as nat,
-                        page_size(level_raw) as nat,
+                        page_size::<PagingConsts>(level_raw) as nat,
                     );
 
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);

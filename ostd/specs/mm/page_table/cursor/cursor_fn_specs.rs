@@ -13,6 +13,7 @@ use crate::specs::{
     task::InAtomicMode,
 };
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::{
     PagingConstsTrait, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
@@ -103,9 +104,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// `node_start == nat_align_down(self.va, page_size(lv + 1))` and
     /// `node_size == page_size(lv + 1)`).
     pub open spec fn jump_node_holds(self, lv: PagingLevel, va: Vaddr) -> bool {
-        let nstart = nat_align_down(self.va as nat, page_size((lv + 1) as PagingLevel) as nat);
+        let nstart = nat_align_down(self.va as nat, page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat);
         &&& nstart <= va as nat
-        &&& (va as nat) - nstart < page_size((lv + 1) as PagingLevel) as nat
+        &&& (va as nat) - nstart < page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat
     }
 
     /// Structural (reachability) panic condition for `jump`: it diverges on a
@@ -144,8 +145,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
         ||| C::item_into_raw(item).1 >= self.0.guard_level
         ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
-        ||| self.0.va % page_size(C::item_into_raw(item).1) != 0
-        ||| self.0.va + page_size(C::item_into_raw(item).1) > self.0.barrier_va.end
+        ||| self.0.va % page_size::<PagingConsts>(C::item_into_raw(item).1) != 0
+        ||| self.0.va + page_size::<PagingConsts>(C::item_into_raw(item).1) > self.0.barrier_va.end
     }
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
@@ -158,7 +159,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
     pub open spec fn item_not_mapped(item: C::Item, regions: MetaRegionOwners) -> bool {
         let (pa, level, prop, perm) = C::item_into_raw(item);
-        let size = page_size(level);
+        let size = page_size::<PagingConsts>(level);
         let range = pa..(pa + size) as usize;
         regions.paddr_range_not_mapped(range)
     }
@@ -186,7 +187,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         &&& level > 1 ==> {
             forall|j: usize|
                 #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                0 < j < page_size(level) / PAGE_SIZE ==> {
+                0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.contains(sub_idx)
                     &&& perm@ is Some ==> regions.ref_count(sub_idx) != REF_COUNT_UNUSED
@@ -272,7 +273,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 if level > 1 {
                     assert forall|j: usize|
                         #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                        0 < j < page_size(level) / PAGE_SIZE implies {
+                        0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE implies {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions1.contains(sub_idx)
                         &&& perm@ is Some ==> regions1.ref_count(sub_idx) != REF_COUNT_UNUSED
@@ -292,7 +293,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         new_view: CursorView<C>,
     ) -> bool {
         let (pa, level, prop, _perm) = C::item_into_raw(item);
-        new_view == old_view.map_spec(pa, page_size(level), prop)
+        new_view == old_view.map_spec(pa, page_size::<PagingConsts>(level), prop)
     }
 }
 

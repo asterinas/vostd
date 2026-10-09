@@ -17,6 +17,7 @@ use crate::specs::{
 };
 
 use crate::arch::mm::current_page_table_paddr;
+use crate::arch::mm::PagingConsts;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::untyped::UFrame,
@@ -735,9 +736,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& 1 <= level <= NR_LEVELS
         &&& level < self.pt_cursor.0.guard_level
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
-        &&& self.pt_cursor.0.va + page_size(level) <= self.pt_cursor.0.barrier_va.end
+        &&& self.pt_cursor.0.va + page_size::<PagingConsts>(level) <= self.pt_cursor.0.barrier_va.end
         &&& entry_owner.inv()
-        &&& self.pt_cursor.0.va % page_size(level) == 0
+        &&& self.pt_cursor.0.va % page_size::<PagingConsts>(level) == 0
         &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
             item,
             regions,
@@ -753,7 +754,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0, _perm) = UserPtConfig::item_into_raw(item);
-        cursor_view == old_cursor_view.map_spec(paddr, page_size(level), prop)
+        cursor_view == old_cursor_view.map_spec(paddr, page_size::<PagingConsts>(level), prop)
     }
 }
 

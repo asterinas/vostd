@@ -44,13 +44,13 @@ impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
         &&& 1 <= self.level
             <= NR_LEVELS
         // The corresponding virtual address must be aligned to the page size.
-        &&& self.map_va % (page_size(self.level) as int) == 0
+        &&& self.map_va % (page_size::<PagingConsts>(self.level) as int) == 0
     }
 }
 
 impl<C: PageTableConfig> LeafPageTableEntryView<C> {
     pub open spec fn va_end(self) -> Vaddr {
-        (self.map_va + page_size(self.level)) as Vaddr
+        (self.map_va + page_size::<PagingConsts>(self.level)) as Vaddr
     }
 }
 
@@ -71,7 +71,7 @@ impl<C: PageTableConfig> Inv for IntermediatePageTableEntryView<C> {
         // No self-loop.
         //        &&& self.map_to_pa != self.frame_pa
         // The corresponding virtual address must be aligned to the page size.
-        &&& self.map_va % (page_size(self.level) as int) == 0
+        &&& self.map_va % (page_size::<PagingConsts>(self.level) as int) == 0
     }
 }
 

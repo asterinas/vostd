@@ -310,8 +310,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             valid_frame_paddr(paddr),
             1 <= parent_level < NR_LEVELS,
-            paddr % page_size(parent_level) == 0,
-            paddr + page_size(parent_level) <= MAX_PADDR,
+            paddr % page_size::<PagingConsts>(parent_level) == 0,
+            paddr + page_size::<PagingConsts>(parent_level) <= MAX_PADDR,
             C::raw_item_well_formed((paddr, parent_level, prop, Tracked(None))),
             C::E::new_page_req(paddr, parent_level, prop),
         ensures
@@ -385,36 +385,36 @@ impl<C: PageTableConfig> EntryOwner<C> {
             1 < self.parent_level < NR_LEVELS,
             idx < NR_ENTRIES,
         ensures
-            self.frame().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)
+            self.frame().mapped_pa + idx * page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel)
                 < MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size(
+            ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) % page_size((self.parent_level - 1) as PagingLevel) == 0,
-            ((self.frame().mapped_pa + idx * page_size(
+            )) as Paddr) % page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel) == 0,
+            ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size(
+            )) as Paddr) + page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
+            ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % PAGE_SIZE == 0,
     {
         let pa = self.frame().mapped_pa;
-        let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
+        let child_pa = (pa + idx * page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel)) as Paddr;
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
-            assert(child_pa + page_size(1) <= MAX_PADDR) by {
+            assert(child_pa + page_size::<PagingConsts>(1) <= MAX_PADDR) by {
                 assert(idx * 4096 + 4096 <= 2097152);
             };
         } else {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size(2) as int);
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size::<PagingConsts>(2) as int);
             vstd::arithmetic::div_mod::lemma_add_mod_noop(
                 pa as int,
-                (idx * page_size(2)) as int,
-                page_size(2) as int,
+                (idx * page_size::<PagingConsts>(2)) as int,
+                page_size::<PagingConsts>(2) as int,
             );
         }
     }
@@ -443,7 +443,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         if self.parent_level > 1 {
             let pa = self.frame().mapped_pa;
-            let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
+            let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
             let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
             C::lemma_huge_raw_item_untracked(
                 pa,
@@ -501,7 +501,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn frame_sub_pages_valid(self, regions: MetaRegionOwners) -> bool {
         self.is_frame() && self.parent_level > 1 ==> {
             let pa = self.frame().mapped_pa;
-            let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
+            let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
             forall|j: usize|
                 #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                 0 < j < nr_pages ==> {
@@ -680,7 +680,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // hold in r1. MMIO sub-pages keep `usage == MMIO` and `rc == UNUSED`.
             self.is_frame() && self.parent_level > 1 ==> {
                 let pa = self.frame().mapped_pa;
-                let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
+                let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
                 forall|j: usize|
                     0 < j < nr_pages ==> {
                         let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -741,8 +741,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // permits — and `Mapping::inv` would reject its page_size.
             &&& 1 <= self.parent_level < NR_LEVELS
             &&& valid_frame_paddr(self.frame().mapped_pa)
-            &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
-            &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
+            &&& self.frame().mapped_pa % page_size::<PagingConsts>(self.parent_level) == 0
+            &&& self.frame().mapped_pa + page_size::<PagingConsts>(self.parent_level) <= MAX_PADDR
             &&& C::raw_item_well_formed(
                 (
                     self.frame().mapped_pa,

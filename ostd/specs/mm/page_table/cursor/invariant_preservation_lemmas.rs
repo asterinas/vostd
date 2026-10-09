@@ -30,6 +30,7 @@ use crate::specs::{
     },
 };
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::{frame::meta::REF_COUNT_UNUSED, page_size, page_table::*};
 
 verus! {
@@ -525,7 +526,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         owner_before_replace.cur_subtree_eq_filtered_mappings_path();
 
         let ghost sv = vaddr_of::<C>(removed_path) as int;
-        let ghost sz = page_size(owner_before_replace.level) as int;
+        let ghost sz = page_size::<PagingConsts>(owner_before_replace.level) as int;
         assert(sz > 0) by {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                 owner_before_replace.level,
