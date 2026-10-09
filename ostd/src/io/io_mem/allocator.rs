@@ -21,7 +21,7 @@ use vstd_extra::{
 };
 
 use crate::specs::arch::PAGE_SIZE;
-use crate::util::range_alloc::RangeAllocatorPermits;
+use crate::util::range_alloc::{FreePermit, RangeAllocatorPermits};
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -48,7 +48,7 @@ impl IoMemAllocator {
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
         with
-            Tracked(permit): Tracked<GhostSubRange<usize>>,
+            Tracked(permit): Tracked<FreePermit>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             io_mem_range_registered(range),
@@ -72,7 +72,7 @@ impl IoMemAllocator {
             use_type_invariant(self);
         }
         proof_decl! {
-            let tracked allocated: Option<GhostSubRange<usize>>;
+            let tracked allocated: FreePermit;
         }
         let result = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
         allocator.alloc_specific(&range);
@@ -99,7 +99,7 @@ impl IoMemAllocator {
     #[verifier::external_body]
     #[verus_spec(
         with
-            Tracked(allocated): Tracked<GhostSubRange<usize>>,
+            Tracked(allocated): Tracked<FreePermit>,
         requires
             range.start < range.end,
             self.covers_range(range),
@@ -266,7 +266,7 @@ impl IoMemAllocatorBuilder {
             use_type_invariant(self);
         }
         proof_decl! {
-            let tracked allocated: Option<GhostSubRange<usize>>;
+            let tracked allocated: FreePermit;
         }
 
         if let Err(err) = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
@@ -378,7 +378,7 @@ impl IoMemAllocator {
     pub closed spec fn has_allocation(self, id: Loc) -> bool {
         exists|i: int|
             #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].id() == id
+            0 <= i < self.allocators@.len() && self.allocators@[i].allocated_id() == id
     }
 
     /// Whether some window wholly covers `range`.
