@@ -18,7 +18,7 @@ use crate::specs::{
         cursor::{
             owners::{CursorContinuation, CursorOwner},
             page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+                lemma_page_size_divides, lemma_page_size_ge_base, lemma_page_size_spec_values,
             },
         },
         lemma_align_down_indices, lemma_inc_slot_indices, lemma_pte_index_bound,
@@ -91,9 +91,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va = old_self.zero_below_level().va;
 
         old_self.lemma_locked_range_span();
-        lemma_page_size_ge_page_size(old_self.level as PagingLevel);
-        lemma_page_size_ge_page_size(old_self.guard_level as PagingLevel);
-        lemma_page_size_divides(old_self.level as PagingLevel, old_self.guard_level as PagingLevel);
+        lemma_page_size_ge_base::<PagingConsts>(old_self.level as PagingLevel);
+        lemma_page_size_ge_base::<PagingConsts>(old_self.guard_level as PagingLevel);
+        lemma_page_size_divides::<PagingConsts>(
+            old_self.level as PagingLevel,
+            old_self.guard_level as PagingLevel,
+        );
         let ghost old_va_val = old_self.va as nat;
         let ghost prefix_va_val = old_self.prefix as nat;
         let ghost ps = page_size::<PagingConsts>(old_self.level as PagingLevel) as nat;
@@ -158,7 +161,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         C::lemma_paging_consts_properties();
         self.lemma_inc_index_va();
-        lemma_page_size_ge_page_size(self.level);
+        lemma_page_size_ge_base::<PagingConsts>(self.level);
         let ps = page_size::<PagingConsts>(self.level) as nat;
         let va = self.va as nat;
         vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);

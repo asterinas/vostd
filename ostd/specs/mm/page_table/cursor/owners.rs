@@ -27,18 +27,13 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping,
-            cursor::page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
-            },
-            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
-            lemma_page_size_for_level_divides, lemma_page_size_for_level_is_pow2,
-            lemma_page_size_for_level_next, lemma_pte_index_bound, lemma_vaddr_range_spec_kernel,
-            lemma_vaddr_range_spec_user, lemma_vaddr_upper_part_is_align_down,
-            owners::*,
-            page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
-            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
-            vaddr_upper_part_spec,
+            Guards, Mapping, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
+            lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
+            lemma_page_size_ge_base, lemma_page_size_is_pow2, lemma_page_size_next,
+            lemma_pte_index_bound, lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
+            lemma_vaddr_upper_part_is_align_down, owners::*, page_table_vaddr_bits_spec,
+            pte_index_bit_offset_spec, pte_index_spec, vaddr_range_spec,
+            vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -1253,7 +1248,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         lemma_vaddr_path_aligned::<C>(path, self.prefix);
         lemma_vaddr_path_aligned::<C>(path, self.va);
-        lemma_page_size_ge_page_size(gl);
+        lemma_page_size_ge_base::<PagingConsts>(gl);
         lemma_nat_align_down_sound(self.va as nat, page_size::<PagingConsts>(gl) as nat);
     }
 
@@ -1351,7 +1346,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         self.lemma_prefix_aligned_to_guard_level();
         self.lemma_prefix_plus_ps_no_overflow();
-        lemma_page_size_ge_page_size(self.guard_level);
+        lemma_page_size_ge_base::<PagingConsts>(self.guard_level);
         lemma_nat_align_down_sound(
             self.prefix as nat,
             page_size::<PagingConsts>(self.guard_level) as nat,
@@ -1387,8 +1382,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         self.lemma_locked_range_span();
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
-        lemma_page_size_for_level_is_pow2::<C>(body_level);
-        lemma_page_size_for_level_next::<C>(self.guard_level);
+        lemma_page_size_is_pow2::<C>(body_level);
+        lemma_page_size_next::<C>(self.guard_level);
         lemma_usize_shr_is_div(self_va, page_table_vaddr_bits_spec::<C>());
         lemma_fundamental_div_mod(self_va as int, node_size as int);
         lemma_mul_is_commutative(self_va as int / node_size as int, node_size as int);
@@ -1418,7 +1413,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let gl = self.guard_level;
         lemma_lower_indices_aligned::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_aligned_vaddr_slack::<C>(self.prefix, (gl + 1) as PagingLevel);
-        lemma_page_size_for_level_next::<C>(gl);
+        lemma_page_size_next::<C>(gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
             page_size::<C>(gl) as int,
             2,
@@ -1446,8 +1441,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let gl = self.guard_level;
         lemma_lower_indices_aligned::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_aligned_vaddr_slack::<C>(self.prefix, (gl + 1) as PagingLevel);
-        lemma_page_size_for_level_next::<C>(gl);
-        lemma_page_size_for_level_divides::<C>(level, gl);
+        lemma_page_size_next::<C>(gl);
+        lemma_page_size_divides::<C>(level, gl);
         vstd::arithmetic::mul::lemma_mul_left_inequality(
             page_size::<C>(gl) as int,
             2,
@@ -1464,9 +1459,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         self.lemma_locked_range_span();
         let gl = self.guard_level;
-        lemma_page_size_spec_level1();
-        lemma_page_size_ge_page_size(gl);
-        lemma_page_size_divides(1u8, gl);
+        lemma_page_size_base::<PagingConsts>();
+        lemma_page_size_ge_base::<PagingConsts>(gl);
+        lemma_page_size_divides::<PagingConsts>(1u8, gl);
         lemma_div_non_zero(page_size::<PagingConsts>(gl) as int, PAGE_SIZE as int);
         lemma_fundamental_div_mod(page_size::<PagingConsts>(gl) as int, PAGE_SIZE as int);
         vstd::arithmetic::div_mod::lemma_mod_mod(

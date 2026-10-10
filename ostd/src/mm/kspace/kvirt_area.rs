@@ -614,7 +614,7 @@ impl KVirtArea {
             proof {
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
-                lemma_va_align_page_size_level_1(cursor.0.va);
+                lemma_va_align_page_size_level_1::<PagingConsts>(cursor.0.va);
                 cursor_owner.lemma_locked_range_page_aligned();
                 let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
@@ -888,7 +888,7 @@ impl KVirtArea {
 
                 let item = MappedItem::Untracked(pa, level, prop);
                 proof {
-                    lemma_page_size_ge_page_size(level);
+                    lemma_page_size_ge_base::<PagingConsts>(level);
                 }
                 proof_decl! {
                     let tracked entry_owner =
@@ -930,8 +930,9 @@ impl KVirtArea {
                 proof {
                     let level_raw = KernelPtConfig::item_into_raw(item).1;
 
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                    level_raw);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
+                        PagingConsts,
+                    >(level_raw);
                     let split_self = old_cursor_model.split_while_huge(
                         page_size::<PagingConsts>(level_raw),
                     );
@@ -941,7 +942,7 @@ impl KVirtArea {
                         page_size::<PagingConsts>(level_raw),
                     );
 
-                    lemma_page_size_ge_page_size(level_raw);
+                    lemma_page_size_ge_base::<PagingConsts>(level_raw);
 
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va as nat,
