@@ -6,7 +6,7 @@ use vstd::{
 use vstd_extra::{cast_ptr::Repr, ownership::*};
 
 use crate::specs::{
-    arch::{MAX_PADDR, PAGE_SIZE, valid_frame_paddr},
+    arch::{ArchAddressSpaceModel, CurrentArch, MAX_PADDR, PAGE_SIZE, valid_frame_paddr},
     mm::frame::mapping::{frame_to_index, index_to_meta, max_meta_slots},
 };
 
@@ -97,6 +97,8 @@ impl MetaRegionOwners {
         ensures
             self.contains(frame_to_index(paddr)),
     {
+        CurrentArch::lemma_paging_model_requirements();
+        assert(paddr % PAGE_SIZE == 0 && paddr < MAX_PADDR);
     }
 
     /// Rertuns the `MetaSlotOwner`, indexed by frame paddr.

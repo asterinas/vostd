@@ -12,7 +12,7 @@ use vstd::{
         div_mod::{
             lemma_div_denominator, lemma_fundamental_div_mod, lemma_fundamental_div_mod_converse,
         },
-        mul::lemma_mul_inequality,
+        mul::{lemma_mul_inequality, lemma_mul_is_commutative},
         power2::{lemma_pow2_pos, pow2},
     },
     bits::{lemma_usize_low_bits_mask_is_mod, lemma_usize_shr_is_div},
@@ -65,6 +65,7 @@ pub proof fn lemma_pte_index_spec_is_div_mod<C: PagingConstsTrait>(va: Vaddr, le
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
     let bits = nr_pte_index_bits_spec::<C>();
     lemma_mul_inequality(1, C::NR_LEVELS() as int, bits as int);
+    lemma_mul_is_commutative(C::NR_LEVELS() as int, bits as int);
     lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
     lemma_usize_shr_is_div(va, pte_index_bit_offset_spec::<C>(level));
     lemma_usize_low_bits_mask_is_mod(va >> pte_index_bit_offset_spec::<C>(level), bits as nat);

@@ -576,6 +576,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 new_self.split_while_huge_refinement(size, m);
 
                 if new_self.mappings.contains(m) {
+                    self.split_if_mapped_huge_spec_refinement(new_size, m);
                 } else {
                     let p = choose|p: Mapping| #[trigger]
                         new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
@@ -583,6 +584,7 @@ impl<C: PageTableConfig> CursorView<C> {
                         p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
                             && m.property == p.property;
                     if !self.mappings.contains(p) {
+                        self.split_if_mapped_huge_spec_refinement(new_size, p);
                     }
                 }
             }

@@ -993,6 +993,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
             assert(nr_subpage_per_huge_spec::<C>() == NR_ENTRIES);
         }
 
@@ -1085,6 +1086,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 C::lemma_page_table_config_constant_properties();
                 C::lemma_paging_consts_properties();
+                C::axiom_current_paging_consts_hardcoded();
                 let ghost the_node = new_owner.value().node();
 
                 assert(0 <= i < NR_ENTRIES);
