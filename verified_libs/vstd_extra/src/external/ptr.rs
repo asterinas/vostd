@@ -1,5 +1,8 @@
 use core::marker::PointeeSized;
-use vstd::prelude::*;
+use vstd::{
+    prelude::*,
+    raw_ptr::{PtrData, ptr_mut_from_data},
+};
 
 verus! {
 
@@ -105,6 +108,53 @@ pub assume_specification<T: PointeeSized>[ <*mut T>::is_null ](ptr: *mut T) -> b
         ptr.addr() == 0,
     opens_invariants none
     no_unwind
+;
+
+/// [core::ptr::read_volatile](https://doc.rust-lang.org/std/ptr/fn.read_volatile.html)
+/// returns an unconstrained value; debug builds panic on misaligned `src`, so
+/// the alignment carries `no_unwind when`.
+pub assume_specification<T>[ core::ptr::read_volatile::<T> ](src: *const T) -> T
+    requires
+        src.addr() + size_of::<T>() <= usize::MAX,
+        src.addr() % align_of::<T>() == 0,
+    opens_invariants none
+    no_unwind when src.addr() % align_of::<T>() == 0
+;
+
+/// [core::ptr::write_volatile](https://doc.rust-lang.org/std/ptr/fn.write_volatile.html);
+/// debug builds panic on misaligned `dst`, so the alignment carries `no_unwind when`.
+pub assume_specification<T>[ core::ptr::write_volatile::<T> ](dst: *mut T, src: T)
+    requires
+        dst.addr() + size_of::<T>() <= usize::MAX,
+        dst.addr() % align_of::<T>() == 0,
+    opens_invariants none
+    no_unwind when dst.addr() % align_of::<T>() == 0
+;
+
+/// [<*mut T>::add](https://doc.rust-lang.org/std/primitive.pointer.html#method.add):
+/// advance the address by `count * size_of::<T>()` bytes, preserving provenance and
+/// metadata.
+#[verifier::inline]
+pub open spec fn ptr_mut_add_spec<T: PointeeSized + Sized>(p: *mut T, count: usize) -> *mut T {
+    ptr_mut_from_data(
+        PtrData::<T> { addr: (p.addr() + count * (size_of::<T>() as usize)) as usize, ..p@ },
+    )
+}
+
+/// [<*mut T>::add](https://doc.rust-lang.org/std/primitive.pointer.html#method.add);
+/// debug builds panic on offset overflow, so the no-overflow preconditions carry
+/// `no_unwind when`.
+#[verifier::when_used_as_spec(ptr_mut_add_spec)]
+pub assume_specification<T>[ <*mut T>::add ](p: *mut T, count: usize) -> (ret: *mut T)
+    requires
+        p.addr() + count * (size_of::<T>() as usize) <= usize::MAX,
+        count * (size_of::<T>() as usize) <= isize::MAX,
+    ensures
+        ret == ptr_mut_add_spec(p, count),
+    opens_invariants none
+    no_unwind when p.addr() + count * (size_of::<T>() as usize) <= usize::MAX && count * (size_of::<
+    T,
+>() as usize) <= isize::MAX
 ;
 
 } // verus!
