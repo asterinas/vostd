@@ -550,6 +550,8 @@ impl AtomicCpuSet {
     /// is different from the normal atomic operations. When coupled with
     /// [`Ordering::Release`], it actually performs `fetch_or(0, Release)`.
     #[verus_spec(ret =>
+        requires
+            ordering != Ordering::AcqRel,
         ensures
             ret.num_parts() == self.num_parts(),
     )]
@@ -571,7 +573,17 @@ impl AtomicCpuSet {
     /// operation, that load may return a set that contains a portion of the
     /// new value and a portion of the old value. Load on each specific
     /// word is atomic, and follows the specified ordering.
+    #[verus_spec(
+        requires
+            ordering != Ordering::Acquire,
+            ordering != Ordering::AcqRel,
+    )]
     pub fn store(&self, value: &CpuSet, ordering: Ordering) {
+        #[verus_spec(
+            invariant
+                ordering != Ordering::Acquire,
+                ordering != Ordering::AcqRel,
+        )]
         for (part, new_part) in self.bits.iter().zip(value.bits.iter()) {
             part.store(*new_part, ordering);
         }
@@ -597,7 +609,10 @@ impl AtomicCpuSet {
 
     /// Atomically checks if the set contains the specified CPU.
     #[verus_spec(ret =>
-        ensures
+        requires
+            ordering != Ordering::Release,
+            ordering != Ordering::AcqRel,
+      ensures
             cpu_id@ / 64 >= self.num_parts() ==> ret == false,
     )]
     pub fn contains(&self, cpu_id: CpuId, ordering: Ordering) -> bool {
