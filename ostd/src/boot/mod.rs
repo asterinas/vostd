@@ -39,6 +39,7 @@ pub fn boot_info() -> &'static BootInfo {
 
 static INFO: Once<BootInfo> = Once::new();
 */
+
 /// ACPI information from the bootloader.
 ///
 /// The boot crate can choose either providing the raw RSDP physical address or
