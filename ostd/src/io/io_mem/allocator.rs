@@ -1,10 +1,33 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
+//!
+//! # Verified Properties
+//!
+//! The allocatable windows are the boot-time registered MMIO windows, handed
+//! to [`IoMemAllocatorBuilder::new`] in their registered order; every
+//! allocator built from a builder inherits them. Construction returns one
+//! splittable free-address permission per window. A builder removal consumes
+//! the requested portion of the corresponding permission, proving that the
+//! underlying range allocation cannot panic. The registered-window registry
+//! is trusted boot-time data.
+use vstd::{
+    arithmetic::power2::is_pow2,
+    prelude::*,
+    resource::{Loc, set::GhostSubset},
+};
+use vstd_extra::{
+    once::OnceImpl, range::RangeExtraFns, resource::range::GhostSubRange,
+    resource_invariant::TrivialResourceInvariant,
+};
+
+use crate::specs::arch::PAGE_SIZE;
+use crate::util::range_alloc::{AllocRangePermit, FreePermit, RangeAllocatorPermits};
+
 use alloc::vec::Vec;
 use core::ops::Range;
 
 use log::{debug, info};
-use spin::Once;
+/*use spin::Once;*/
 
 use crate::{
     io::io_mem::IoMem,
@@ -13,23 +36,58 @@ use crate::{
 };
 
 /// I/O memory allocator that allocates memory I/O access to device drivers.
+#[verus_verify]
 pub struct IoMemAllocator {
     allocators: Vec<RangeAllocator>,
 }
 
+#[verus_verify]
 impl IoMemAllocator {
     /// Acquires the I/O memory access for `range`.
     ///
     /// If the range is not available, then the return value will be `None`.
+    #[verus_spec(result =>
+        with
+            Tracked(permit): Tracked<AllocRangePermit>,
+        requires
+            range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
+            io_mem_range_registered(range),
+            permit.range() == range,
+            self.has_free_permission(permit.id(), range),
+        ensures
+            result matches Some(io_mem) ==> {
+                &&& io_mem.paddr() == range.start
+                &&& io_mem.length() == range.end - range.start
+            },
+            result is Some,
+    )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
+        /* Original Rust:
         find_allocator(&self.allocators, &range)?
             .alloc_specific(&range)
             .ok()?;
+        */
+        let allocator = find_allocator(&self.allocators, &range)?;
+        proof! {
+            use_type_invariant(self);
+        }
+        proof_decl! {
+            let tracked allocated: FreePermit;
+        }
+        let result = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
+        allocator.alloc_specific(&range);
+        result.ok()?;
 
-        debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end);
+        /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
+
+        proof! {
+            // PAGE_SIZE = 4096 = 2^12: 13 unfoldings of the opaque `is_pow2`.
+            reveal_with_fuel(is_pow2, 13);
+        }
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
-        unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
+        /* Original Rust: PageFlags::RW */
+        unsafe { Some(IoMem::new(range, PageFlags::RW(), CachePolicy::Uncacheable)) }
     }
 
     /// Recycles an MMIO range.
@@ -38,10 +96,20 @@ impl IoMemAllocator {
     ///
     /// The caller must have ownership of the MMIO region through the `IoMemAllocator::get` interface.
     #[expect(dead_code)]
+    #[verifier::external_body]
+    #[verus_spec(
+        with
+            Tracked(allocated): Tracked<FreePermit>,
+        requires
+            range.start < range.end,
+            self.covers_range(range),
+            allocated.range() == range,
+            self.has_allocation(allocated.id()),
+    )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
         let allocator = find_allocator(&self.allocators, &range).unwrap();
 
-        debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end);
+        /* debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end); */
 
         allocator.free(range);
     }
@@ -51,6 +119,11 @@ impl IoMemAllocator {
     /// # Safety
     ///
     /// User must ensure the range doesn't belong to physical memory or system device I/O.
+    #[verus_spec(ret =>
+        requires
+            windows_ordered(allocators@),
+            windows_match_registered(allocators@),
+    )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }
     }
@@ -60,73 +133,346 @@ impl IoMemAllocator {
 ///
 /// The builder must contains the memory I/O regions that don't belong to the physical memory. Also, OSTD
 /// must exclude the memory I/O regions of the system device before building the `IoMemAllocator`.
+#[verus_verify]
 pub(crate) struct IoMemAllocatorBuilder {
     allocators: Vec<RangeAllocator>,
 }
 
+#[verus_verify]
 impl IoMemAllocatorBuilder {
     /// Initializes memory I/O region for devices.
     ///
     /// # Safety
     ///
     /// User must ensure the range doesn't belong to physical memory.
+    #[verus_spec(ret =>
+        with
+            -> state_out: Tracked<RangeAllocatorPermits>,
+        requires
+            usize_ranges_ordered(ranges@),
+            usize_ranges_match_registered(ranges@),
+        ensures
+            ret.type_inv(),
+            ret.state_matches(state_out@),
+    )]
     pub(crate) unsafe fn new(ranges: Vec<Range<usize>>) -> Self {
-        info!(
+        /* info!(
             "Creating new I/O memory allocator builder, ranges: {:#x?}",
             ranges
-        );
-        let mut allocators = Vec::with_capacity(ranges.len());
-        for range in ranges {
-            allocators.push(RangeAllocator::new(range));
+        ); */
+        let mut allocators: Vec<RangeAllocator> = Vec::with_capacity(ranges.len());
+        proof_decl! {
+            let tracked mut state = Seq::tracked_empty();
         }
+        #[verus_spec(it =>
+            invariant
+                allocators@.len() == it.index(),
+                forall|j: int| #![trigger it.seq()[j]] 0 <= j < it.index() ==> {
+                    &&& allocators@[j]@.start == it.seq()[j].start
+                    &&& allocators@[j]@.end == it.seq()[j].end
+                },
+                usize_ranges_ordered(it.seq()),
+                usize_ranges_match_registered(it.seq()),
+                forall|j: int| #![trigger registered_io_mem_windows()[j]] 0 <= j < it.index() ==>
+                    allocators@[j]@ == registered_io_mem_windows()[j],
+                windows_ordered(allocators@),
+                allocator_states_match(allocators@, state),
+                state.len() == it.index(),
+        )]
+        for range in ranges {
+            proof_decl! {
+                let tracked permit: GhostSubset<usize>;
+            }
+            allocators.push(
+                #[verus_spec(with => Tracked(permit))]
+                RangeAllocator::new(range),
+            );
+            proof! {
+                state.tracked_push(permit);
+                assert forall|i: int| #![trigger allocators@[i]]
+                    0 <= i < allocators@.len() - 1
+                    implies allocators@[i]@.end <= range.start by {
+                    assert(it.seq()[i].end <= it.seq()[i + 1].start);
+                }
+            }
+        }
+        proof_with!(|= Tracked(state));
         Self { allocators }
     }
 
     /// Removes access to a specific memory I/O range.
     ///
     /// All drivers in OSTD must use this method to prevent peripheral drivers from accessing illegal memory I/O range.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Safety
+    /// - No unsafe code; panics are proved impossible whenever the supplied
+    ///   permission covers the requested range ([`Self::can_remove`]).
+    ///
+    /// ## Preconditions
+    /// - The range is non-empty and registered as a boot-time MMIO window.
+    /// - The permission sequence matches this builder's allocator windows.
+    ///
+    /// ## Postconditions
+    /// - The permit sequence keeps its length and still matches every window.
+    /// - Exactly `range` is removed from its window's permission, preserving
+    ///   the permission's identity; every other window's permission is
+    ///   unchanged.
+    #[verus_spec(
+        with Tracked(state): Tracked<&mut RangeAllocatorPermits>,
+        requires
+            range.start < range.end,
+            self.can_remove(*old(state), range),
+            io_mem_range_registered(range),
+            self.state_matches(*old(state)),
+        ensures
+            self.state_matches(*final(state)),
+            final(state).len() == old(state).len(),
+            exists|window: int|
+                #![trigger final(state)[window]]
+                0 <= window < old(state).len() && {
+                    let permit = final(state)[window];
+                    let old_permit = old(state)[window];
+                    &&& permit.id() == old_permit.id()
+                    &&& permit@ == old_permit@ - range.view_set()
+                    &&& forall|j: int| 0 <= j < old(state).len() && j != window
+                        ==> final(state)[j] == old(state)[j]
+                },
+    )]
     pub(crate) fn remove(&self, range: Range<usize>) {
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
-            panic!(
+            vstd_extra::panic!(
                 "Allocator for the system device's MMIO was not found. Range: {:x?}",
                 range
             );
         };
 
-        if let Err(err) = allocator.alloc_specific(&range) {
-            panic!(
+        proof_decl! {
+            let ghost state_before = *state;
+            let ghost k = choose|k: int|
+                #![trigger self.allocators@[k]]
+                0 <= k < self.allocators@.len() && k < state_before.len() && {
+                    let candidate = self.allocators@[k];
+                    &&& candidate@.start <= range.start < range.end <= candidate@.end
+                    &&& state_before[k].id() == candidate.free_id()
+                    &&& range.view_set() <= state_before[k]@
+                };
+            let tracked mut window_permit = state.tracked_borrow_mut(k);
+            let tracked range_permit = window_permit.split(range.view_set());
+            let tracked permit = GhostSubRange::tracked_new(range_permit, range);
+        }
+        proof! {
+            use_type_invariant(self);
+        }
+        proof_decl! {
+            let tracked allocated: FreePermit;
+        }
+
+        if let Err(err) = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
+        allocator.alloc_specific(&range)
+        {
+            vstd_extra::panic!(
                 "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
-                range, err
+                range,
+                err
             );
         }
     }
 }
 
 /// The I/O Memory allocator of the system.
-pub static IO_MEM_ALLOCATOR: Once<IoMemAllocator> = Once::new();
+// Original Rust: pub static IO_MEM_ALLOCATOR: Once<IoMemAllocator> = Once::new();
+verus! {
 
+broadcast use vstd::std_specs::vec::group_vec_axioms;
+
+/// The registered MMIO windows are pairwise ordered: every window ends at or before the start
+/// of the next one, so no window can partially cover a range that is contained in another one.
+pub open spec fn windows_ordered(allocators: Seq<RangeAllocator>) -> bool {
+    forall|i: int, j: int|
+        #![trigger allocators[i], allocators[j]]
+        0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
+}
+
+/// The ranges handed to [`IoMemAllocatorBuilder::new`] are pairwise ordered.
+pub open spec fn usize_ranges_ordered(ranges: Seq<Range<usize>>) -> bool {
+    forall|i: int, j: int|
+        #![trigger ranges[i], ranges[j]]
+        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start
+}
+
+/// The abstract MMIO windows registered by platform boot code.
+pub uninterp spec fn registered_io_mem_windows() -> Seq<Range<usize>>;
+
+/// The concrete range allocators represent the abstract boot-time windows exactly.
+pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bool {
+    &&& allocators.len() == registered_io_mem_windows().len()
+    &&& forall|i: int|
+        #![trigger registered_io_mem_windows()[i]]
+        0 <= i < allocators.len() ==> allocators[i]@ == registered_io_mem_windows()[i]
+}
+
+/// The ranges passed across the unsafe builder boundary represent the abstract windows.
+pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> bool {
+    &&& ranges.len() == registered_io_mem_windows().len()
+    &&& forall|i: int|
+        #![trigger ranges[i]]
+        0 <= i < ranges.len() ==> {
+            &&& ranges[i].start <= ranges[i].end
+            &&& ranges[i].start == registered_io_mem_windows()[i].start
+            &&& ranges[i].end == registered_io_mem_windows()[i].end
+        }
+}
+
+/// Every window has a matching free-address permission.
+closed spec fn allocator_states_match(
+    allocators: Seq<RangeAllocator>,
+    state: RangeAllocatorPermits,
+) -> bool {
+    &&& state.len() == allocators.len()
+    &&& forall|i: int|
+        #![trigger allocators[i]]
+        0 <= i < allocators.len() ==> {
+            &&& state[i].id() == allocators[i].free_id()
+            &&& state[i]@ <= allocators[i]@.view_set()
+        }
+}
+
+impl IoMemAllocatorBuilder {
+    /// Whether some matching window permission covers `range`, proving that
+    /// `remove` succeeds without panicking.
+    pub closed spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
+        exists|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && i < state.len() && {
+                let allocator = self.allocators@[i];
+                &&& allocator@.start <= range.start < range.end <= allocator@.end
+                &&& state[i].id() == allocator.free_id()
+                &&& range.view_set() <= state[i]@
+            }
+    }
+
+    /// Whether every window has a permission with the matching identity.
+    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
+        allocator_states_match(self.allocators@, state)
+    }
+
+    /// The builder always holds the ordered windows handed to [`IoMemAllocatorBuilder::new`].
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        windows_ordered(self.allocators@) && windows_match_registered(self.allocators@)
+    }
+}
+
+impl IoMemAllocator {
+    /// Whether `id` is the free-permission identity of a window containing `range`.
+    pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
+        exists|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
+                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
+    }
+
+    /// Whether `id` is the allocation-token identity of one of the windows.
+    pub closed spec fn has_allocation(self, id: Loc) -> bool {
+        exists|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].allocated_id() == id
+    }
+
+    /// Whether some window wholly covers `range`.
+    pub closed spec fn covers_range(self, range: Range<usize>) -> bool {
+        exists|k: int|
+            #![trigger self.allocators@[k]]
+            0 <= k < self.allocators@.len() && {
+                let window = self.allocators@[k]@;
+                &&& window.start <= range.start
+                &&& range.end <= window.end
+            }
+    }
+
+    /// The allocator inherits the ordered windows of the builder it was built from.
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        windows_ordered(self.allocators@) && windows_match_registered(self.allocators@)
+    }
+}
+
+/// A range is registered when one abstract boot-time MMIO window contains it.
+pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
+    exists|m: int|
+        #![trigger registered_io_mem_windows()[m]]
+        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
+            <= range.start && range.end <= registered_io_mem_windows()[m].end
+}
+
+/// Whether the global I/O memory allocator has been initialized.
+pub uninterp spec fn io_mem_allocator_initialized() -> bool;
+
+pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialResourceInvariant>
+    ensures
+        IO_MEM_ALLOCATOR.wf(),
+{
+    OnceImpl::new(Ghost(TrivialResourceInvariant))
+}
+
+} // verus!
 /// Initializes the static `IO_MEM_ALLOCATOR` based on builder.
 ///
 /// # Safety
 ///
 /// User must ensure all the memory I/O regions that belong to the system device have been removed by calling the
 /// `remove` function.
+#[verifier::external_body]
+#[verus_spec(
+    ensures
+        io_mem_allocator_initialized(),
+)]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
+    proof! {
+        use_type_invariant(&io_mem_builder);
+    }
     // SAFETY: The safety is upheld by the caller.
-    IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
+    // Original Rust: IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
+    IO_MEM_ALLOCATOR.init(unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
 }
 
+#[verus_verify]
+#[verus_spec(ret =>
+    ensures
+        ret matches Some(res) ==> {
+            &&& res@.start < range.end
+            &&& res@.end > range.start
+            &&& exists|k: int| #![trigger allocators@[k]]
+                0 <= k < allocators@.len()
+                    && allocators@[k]@ == res@
+                    && allocators@[k].free_id() == res.free_id()
+        },
+        ret is None ==> forall|i: int| #![trigger allocators@[i]] 0 <= i < allocators@.len()
+            ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
+)]
 fn find_allocator<'a>(
     allocators: &'a [RangeAllocator],
     range: &Range<usize>,
 ) -> Option<&'a RangeAllocator> {
+    #[verus_spec(it => invariant
+        forall|i: int| #![trigger allocators@[i]] 0 <= i < it.index()
+            ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
+    )]
     for allocator in allocators.iter() {
         let allocator_range = allocator.fullrange();
+        /* Verus does not yet support `continue` in `for` loops.
+        Original Rust:
         if allocator_range.start >= range.end || allocator_range.end <= range.start {
             continue;
         }
 
         return Some(allocator);
+        */
+        if allocator_range.start < range.end && allocator_range.end > range.start {
+            return Some(allocator);
+        }
     }
     None
 }
