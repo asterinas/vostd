@@ -15,6 +15,7 @@ use crate::specs::{
     },
 };
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
 use core::ops::Range;
 
@@ -199,7 +200,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
     {
         if self.level == 1 {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<
+                PagingConsts,
+            >();
             lemma_nat_align_down_sound(cur_va as nat, PAGE_SIZE as nat);
             lemma_sub_mod_noop(end as int, cur_va as int, PAGE_SIZE as int);
             if end - cur_va < PAGE_SIZE {

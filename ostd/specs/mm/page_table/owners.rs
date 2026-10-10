@@ -19,12 +19,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
-        page_table::{
-            cursor::page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
-            },
-            *,
-        },
+        page_table::{cursor::page_size_lemmas::lemma_page_size_spec_values, *},
     },
 };
 
@@ -237,7 +232,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     C::lemma_paging_consts_properties();
     lemma_vaddr_strict_bound(path);
     let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
-    lemma_page_size_for_level_is_pow2::<C>(body_level);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
     lemma_page_size_spec_values();
 }
 
@@ -260,13 +255,12 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
 {
     C::lemma_paging_consts_properties();
     let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
-    lemma_page_size_for_level_is_pow2::<C>(level);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
     let size = page_size::<C>(level) as int;
     lemma_fundamental_div_mod(va as int, size);
     vstd::arithmetic::div_mod::lemma_mod_bound(va as int, size);
     vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, size);
     if path.len() == 0 {
-        assert(pte_index_bit_offset_spec::<C>(level) == page_table_vaddr_bits_spec::<C>());
         lemma_usize_shr_is_div(va, page_table_vaddr_bits_spec::<C>());
         lemma_mul_is_commutative(size, va as int / size);
     } else {
@@ -280,7 +274,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
         };
         lemma_vaddr_path_aligned::<C>(parent, va);
         PageTableOwner::<C>::lemma_vaddr_push_tail_eq(parent, index);
-        lemma_page_size_for_level_next::<C>(level);
+        lemma_page_size_next::<C>(level);
         lemma_pte_index_spec_is_div_mod::<C>(va, level);
 
         let fanout = nr_subpage_per_huge::<C>() as int;
@@ -304,31 +298,6 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
                 quotient == fanout * (va as int / parent_size) + index,
                 parent_size == size * fanout,
         ;
-    }
-}
-
-/// page_size is monotonically increasing in its argument.
-pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
-    requires
-        1 <= a <= b <= NR_LEVELS + 1,
-    ensures
-        page_size::<PagingConsts>(a) <= page_size::<PagingConsts>(b),
-{
-    if a == b {
-    } else {
-        let ps_a = page_size::<PagingConsts>(a);
-        let ps_b = page_size::<PagingConsts>(b);
-
-        lemma_page_size_ge_page_size(b);
-
-        lemma_page_size_divides(a, b);
-
-        assert(ps_a <= ps_b) by {
-            if ps_b < ps_a {
-                vstd::arithmetic::div_mod::lemma_small_mod(ps_b as nat, ps_a as nat);
-                assert(false);
-            }
-        }
     }
 }
 
@@ -1784,7 +1753,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 path.push_tail(i),
                 m,
             );
-            page_size_monotonic(
+            lemma_page_size_monotone::<PagingConsts>(
                 (INC_LEVELS - path.len() - 1) as PagingLevel,
                 (INC_LEVELS - path.len()) as PagingLevel,
             );

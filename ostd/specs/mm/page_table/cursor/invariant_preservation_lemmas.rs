@@ -528,9 +528,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ghost sv = vaddr_of::<C>(removed_path) as int;
         let ghost sz = page_size::<PagingConsts>(owner_before_replace.level) as int;
         assert(sz > 0) by {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                owner_before_replace.level,
-            );
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
+                PagingConsts,
+            >(owner_before_replace.level);
         };
         assert forall|mm: Mapping| #[trigger] self@.mappings.contains(mm) implies mm.va_range.start
             != sv by {};

@@ -1565,7 +1565,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             C::lemma_paging_consts_properties();
             owner0.lemma_va_plus_page_size_no_overflow(start_level);
-            lemma_page_size_ge_page_size(start_level);
+            lemma_page_size_ge_base::<PagingConsts>(start_level);
             vstd_extra::arithmetic::lemma_nat_align_down_sound(
                 va as nat,
                 page_size::<PagingConsts>(start_level) as nat,
@@ -1602,7 +1602,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             proof {
                 C::lemma_paging_consts_properties();
                 lemma_next_slot_pte_index::<C>(va, next_va, self.level);
-                lemma_page_size_for_level_next::<C>(self.level);
+                lemma_page_size_next::<C>(self.level);
                 owner.lemma_cur_pte_index();
                 assert(owner.index() + 1 == NR_ENTRIES);
                 assert(owner.move_forward_owner_spec()
@@ -2536,9 +2536,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.map_branch_pt(pt, rcu_guard);
 
                     proof {
-                        lemma_page_size_monotone(self.0.level, level_pre_pt);
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                        level_pre_pt);
+                        lemma_page_size_monotone::<PagingConsts>(self.0.level, level_pre_pt);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
+                            PagingConsts,
+                        >(level_pre_pt);
                         owner0.view_preserves_inv();
                         owner0@.split_while_huge_compose(
                             page_size::<PagingConsts>(level_pre_pt),
@@ -2685,9 +2686,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     proof {
                         owner_pre_push.map_branch_none_no_new_mappings(owner_pre_none);
 
-                        lemma_page_size_monotone(self.0.level, level_pre_none);
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                        level_pre_none);
+                        lemma_page_size_monotone::<PagingConsts>(self.0.level, level_pre_none);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
+                            PagingConsts,
+                        >(level_pre_none);
                         owner0.view_preserves_inv();
                         owner0@.split_while_huge_compose(
                             page_size::<PagingConsts>(level_pre_none),
@@ -2963,7 +2965,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         self.0.move_forward();
 
         proof {
-            lemma_page_size_ge_page_size(level);
+            lemma_page_size_ge_base::<PagingConsts>(level);
             lemma_nat_align_down_sound(owner2.va as nat, page_size::<PagingConsts>(level) as nat);
         }
 

@@ -758,9 +758,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         use vstd::arithmetic::div_mod::*;
 
         use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
-        lemma_page_size_ge_page_size(cur_node_level);
+        lemma_page_size_ge_base::<PagingConsts>(cur_node_level);
         lemma_page_size_spec_values();
-        lemma_nr_entries_times_sub_page_size((cur_node_level + 1) as PagingLevel);
+        lemma_page_size_next::<PagingConsts>(cur_node_level);
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
 
         // diff + ps - 1 fits in usize: both <= page_size(5) = 2^48
     }
@@ -789,7 +790,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         // Actually the simplest route: si/ai * ai = si < xi <= end_idx * ai.
         assert(start_idx < end_idx) by {
             // si = start_idx * ai (exact division since si % ai == 0)
-            lemma_page_size_divides(cur_node_level, (cur_node_level + 1) as PagingLevel);
+            lemma_page_size_divides::<PagingConsts>(
+                cur_node_level,
+                (cur_node_level + 1) as PagingLevel,
+            );
             // Prove si % ai == 0: va_range.start and cur_node_va are both multiples of ps.
             // cur_node_va % ps == 0: cur_node_va % page_size(level+1) == 0 and ps | page_size(level+1).
             let psu = page_size::<PagingConsts>((cur_node_level + 1) as PagingLevel) as int;

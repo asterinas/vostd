@@ -1123,12 +1123,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 if level - 1 > 1 {
                     let nr_subpages = page_size::<PagingConsts>((level - 1) as PagingLevel)
                         / PAGE_SIZE;
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    (level - 1) as PagingLevel);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    level);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
-                    level);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                        PagingConsts,
+                    >((level - 1) as PagingLevel);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                        PagingConsts,
+                    >(level);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_next::<
+                        PagingConsts,
+                    >((level - 1) as PagingLevel);
+                    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
                     assert forall|j_prime: usize|
                         #![trigger frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize)]
                         0 < j_prime < nr_subpages implies {

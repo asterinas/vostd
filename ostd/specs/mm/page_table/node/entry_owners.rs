@@ -405,15 +405,21 @@ impl<C: PageTableConfig> EntryOwner<C> {
         )) as Paddr;
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
+        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<
+            PagingConsts,
+        >();
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides::<
+                PagingConsts,
+            >(1, 2);
             assert(child_pa + page_size::<PagingConsts>(1) <= MAX_PADDR) by {
                 assert(idx * 4096 + 4096 <= 2097152);
             };
         } else {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size::<
+                PagingConsts,
+            >(pa, 2);
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
                 idx as int,
                 page_size::<PagingConsts>(2) as int,
@@ -478,11 +484,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 // self_idx = pa / PAGE_SIZE, and sub_idx = (pa + j*PAGE_SIZE) / PAGE_SIZE
                 //         = pa/PAGE_SIZE + j = self_idx + j > self_idx (since j >= 1).
                 let pa_plus_int: int = pa + j * PAGE_SIZE;
-                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                self.parent_level);
-                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    self.parent_level,
-                );
+                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
+                    PagingConsts,
+                >(self.parent_level);
+                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                    PagingConsts,
+                >(self.parent_level);
                 vstd::arithmetic::div_mod::lemma_div_multiples_vanish_quotient(
                     j as int,
                     pa as int,

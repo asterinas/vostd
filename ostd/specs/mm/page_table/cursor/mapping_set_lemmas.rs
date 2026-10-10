@@ -14,7 +14,7 @@ use crate::specs::{
         Mapping,
         cursor::{
             owners::*,
-            page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_page_size},
+            page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_base},
         },
         lemma_pte_index_bound, lemma_vaddr_upper_part_is_align_down,
         owners::{
@@ -309,7 +309,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         lemma_vaddr_path_aligned::<C>(child_path, self.cur_va());
         lemma_vaddr_of_eq_int::<C>(child_path);
-        lemma_page_size_ge_page_size((lvl + 1) as PagingLevel);
+        lemma_page_size_ge_base::<PagingConsts>((lvl + 1) as PagingLevel);
         lemma_nat_align_down_sound(
             self.cur_va() as nat,
             page_size::<PagingConsts>((lvl + 1) as PagingLevel) as nat,
@@ -342,7 +342,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let fine = page_size::<PagingConsts>(self.level as PagingLevel) as nat;
         let coarse = page_size::<PagingConsts>((lvl + 1) as PagingLevel) as nat;
 
-        lemma_page_size_divides(self.level as PagingLevel, (lvl + 1) as PagingLevel);
+        lemma_page_size_divides::<PagingConsts>(
+            self.level as PagingLevel,
+            (lvl + 1) as PagingLevel,
+        );
         lemma_nat_align_down_monotone(x, fine, coarse);
         lemma_nat_align_down_within_block(x, fine, coarse);
     }
@@ -526,8 +529,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         let ps_node = page_size::<PagingConsts>((level + 1) as PagingLevel) as nat;
                         let ps_anc = page_size::<PagingConsts>((i + 1) as PagingLevel) as nat;
 
-                        lemma_page_size_ge_page_size((i + 1) as PagingLevel);
-                        lemma_page_size_divides((level + 1) as PagingLevel, (i + 1) as PagingLevel);
+                        lemma_page_size_ge_base::<PagingConsts>((i + 1) as PagingLevel);
+                        lemma_page_size_divides::<PagingConsts>(
+                            (level + 1) as PagingLevel,
+                            (i + 1) as PagingLevel,
+                        );
 
                         lemma_nat_align_down_monotone(x, ps_node, ps_anc);
                         lemma_nat_align_down_within_block(x, ps_node, ps_anc);

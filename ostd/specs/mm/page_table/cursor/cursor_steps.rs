@@ -11,8 +11,8 @@ use crate::specs::{
         Guards, Mapping, MetaRegionOwners,
         frame::mapping::meta_to_index,
         page_table::{
-            cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
-            lemma_next_slot_pte_index, lemma_page_size_for_level_next, lemma_pte_index_bound,
+            cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_base},
+            lemma_next_slot_pte_index, lemma_page_size_next, lemma_pte_index_bound,
             node::EntryOwner,
             owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
             pte_index_spec,
@@ -641,7 +641,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.lemma_in_locked_range_guard_index_eq_prefix();
         self.move_forward_va_is_align_up();
         self.lemma_va_plus_page_size_no_overflow(self.level);
-        lemma_page_size_ge_page_size(self.level);
+        lemma_page_size_ge_base::<PagingConsts>(self.level);
         lemma_nat_align_down_sound(self.va as nat, page_size::<PagingConsts>(self.level) as nat);
     }
 
@@ -821,8 +821,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.lemma_cur_pte_index();
         self.lemma_va_plus_page_size_no_overflow(self.level);
-        lemma_page_size_for_level_next::<C>(self.level);
-        lemma_page_size_ge_page_size(self.level);
+        lemma_page_size_next::<C>(self.level);
+        lemma_page_size_ge_base::<PagingConsts>(self.level);
         lemma_nat_align_down_sound(self.va as nat, page_size::<PagingConsts>(self.level) as nat);
         let next = self@.align_up_spec(page_size::<PagingConsts>(self.level));
         lemma_mod_add_multiples_vanish(
