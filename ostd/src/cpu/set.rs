@@ -612,7 +612,7 @@ impl AtomicCpuSet {
         requires
             ordering != Ordering::Release,
             ordering != Ordering::AcqRel,
-      ensures
+        ensures
             cpu_id@ / 64 >= self.num_parts() ==> ret == false,
     )]
     pub fn contains(&self, cpu_id: CpuId, ordering: Ordering) -> bool {
