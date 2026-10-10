@@ -20,7 +20,7 @@ use crate::mm::{
 
 verus! {
 
-/// A configured page size is the power of two at that level's index-bit offset.
+/// A page size is the power of two at that level's `pte_index_bit_offset_spec`.
 pub proof fn lemma_page_size_is_pow2_pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS() + 1,
@@ -32,12 +32,9 @@ pub proof fn lemma_page_size_is_pow2_pte_index_bit_offset<C: PagingConstsTrait>(
 {
     C::lemma_paging_consts_properties();
     let bits = nr_pte_index_bits_spec::<C>();
-    assert(usize::BITS <= usize::MAX) by (compute_only);
     lemma_usize_is_pow2_is_ilog2_pow2(C::BASE_PAGE_SIZE());
     lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
-    assert(bits == (C::BASE_PAGE_SIZE() / C::PTE_SIZE()).ilog2());
     lemma_mul_inequality(level - 1, C::NR_LEVELS() as int, bits as int);
-    assert(C::BASE_PAGE_SIZE().ilog2() + bits * (level - 1) <= C::ADDRESS_WIDTH());
     lemma_pow2_adds(C::BASE_PAGE_SIZE().ilog2() as nat, (bits * (level - 1)) as nat);
     lemma_usize_pow2_no_overflow(pte_index_bit_offset_spec::<C>(level) as nat);
 }
@@ -66,7 +63,7 @@ pub proof fn lemma_page_size_ratio<C: PagingConstsTrait>(small: PagingLevel, lar
     lemma_pow2_pos(delta);
 }
 
-/// A parent slot contains exactly one fanout of slots at the preceding level.
+/// A parent page contains `nr_subpage_per_huge` of pages at the next level.
 pub proof fn lemma_page_size_next<C: PagingConstsTrait>(level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS(),
@@ -91,7 +88,7 @@ pub proof fn lemma_page_size_next<C: PagingConstsTrait>(level: PagingLevel)
     vstd::arithmetic::mul::lemma_mul_basics(page_size::<C>(level) as int);
 }
 
-/// Configured page sizes divide the sizes of all higher-level slots.
+/// High-level page size divides the sizes of low-level pages.
 pub proof fn lemma_page_size_divides<C: PagingConstsTrait>(small: PagingLevel, large: PagingLevel)
     requires
         1 <= small <= large <= C::NR_LEVELS() + 1,
@@ -113,7 +110,7 @@ pub proof fn lemma_page_size_divides<C: PagingConstsTrait>(small: PagingLevel, l
     vstd::arithmetic::mul::lemma_mul_basics(a);
 }
 
-/// The first configured level has the base-page size.
+/// `page_size(1)` is `BASE_PAGE_SIZE`.
 pub proof fn lemma_page_size_base<C: PagingConstsTrait>()
     ensures
         page_size::<C>(1) == C::BASE_PAGE_SIZE(),
@@ -125,7 +122,7 @@ pub proof fn lemma_page_size_base<C: PagingConstsTrait>()
     vstd::arithmetic::mul::lemma_mul_basics(C::BASE_PAGE_SIZE() as int);
 }
 
-/// Every configured level has at least the base-page size.
+/// Every page size is at least `BASE_PAGE_SIZE`.
 pub proof fn lemma_page_size_ge_base<C: PagingConstsTrait>(level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS() + 1,
@@ -189,7 +186,7 @@ pub proof fn lemma_va_align_page_size<C: PagingConstsTrait>(va: Vaddr, level: Pa
     }
 }
 
-/// Special case for level 1: base-page alignment is level-1 slot alignment.
+/// When `va` is aligned to `BASE_PAGE_SIZE`, then `va` is aligned to `page_size(1)`.
 pub proof fn lemma_va_align_page_size_level_1<C: PagingConstsTrait>(va: Vaddr)
     requires
         va % C::BASE_PAGE_SIZE() == 0,
