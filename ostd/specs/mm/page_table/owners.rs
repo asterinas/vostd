@@ -232,7 +232,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     C::lemma_paging_consts_properties();
     lemma_vaddr_strict_bound(path);
     let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
-    lemma_page_size_is_pow2::<C>(body_level);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
     lemma_page_size_spec_values();
 }
 
@@ -255,7 +255,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
 {
     C::lemma_paging_consts_properties();
     let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
-    lemma_page_size_is_pow2::<C>(level);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
     let size = page_size::<C>(level) as int;
     lemma_fundamental_div_mod(va as int, size);
     vstd::arithmetic::div_mod::lemma_mod_bound(va as int, size);

@@ -29,11 +29,12 @@ use crate::specs::{
         page_table::{
             Guards, Mapping, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
             lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
-            lemma_page_size_ge_base, lemma_page_size_is_pow2, lemma_page_size_next,
-            lemma_pte_index_bound, lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
-            lemma_vaddr_upper_part_is_align_down, owners::*, page_table_vaddr_bits_spec,
-            pte_index_bit_offset_spec, pte_index_spec, vaddr_range_spec,
-            vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
+            lemma_page_size_ge_base, lemma_page_size_is_pow2_pte_index_bit_offset,
+            lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_kernel,
+            lemma_vaddr_range_spec_user, lemma_vaddr_upper_part_is_align_down, owners::*,
+            page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
+            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
+            vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -1382,7 +1383,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         self.lemma_locked_range_span();
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
-        lemma_page_size_is_pow2::<C>(body_level);
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
         lemma_page_size_next::<C>(self.guard_level);
         lemma_usize_shr_is_div(self_va, page_table_vaddr_bits_spec::<C>());
         lemma_fundamental_div_mod(self_va as int, node_size as int);

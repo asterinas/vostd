@@ -21,7 +21,7 @@ use crate::mm::{
 verus! {
 
 /// A configured page size is the power of two at that level's index-bit offset.
-pub proof fn lemma_page_size_is_pow2<C: PagingConstsTrait>(level: PagingLevel)
+pub proof fn lemma_page_size_is_pow2_pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS() + 1,
     ensures
@@ -55,8 +55,8 @@ pub proof fn lemma_page_size_ratio<C: PagingConstsTrait>(small: PagingLevel, lar
         ),
 {
     C::lemma_paging_consts_properties();
-    lemma_page_size_is_pow2::<C>(small);
-    lemma_page_size_is_pow2::<C>(large);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(small);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(large);
     let bits = nr_pte_index_bits_spec::<C>();
     let delta = (bits * (large - small)) as nat;
     lemma_mul_is_distributive_sub(bits as int, large as int, small as int);
@@ -77,8 +77,8 @@ pub proof fn lemma_page_size_next<C: PagingConstsTrait>(level: PagingLevel)
         0 < page_size::<C>(level) <= page_size::<C>((level + 1) as PagingLevel),
 {
     C::lemma_paging_consts_properties();
-    lemma_page_size_is_pow2::<C>(level);
-    lemma_page_size_is_pow2::<C>((level + 1) as PagingLevel);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>((level + 1) as PagingLevel);
     let bits = nr_pte_index_bits_spec::<C>();
     lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
     lemma_mul_is_distributive_sub(bits as int, level as int, 1);
@@ -100,8 +100,8 @@ pub proof fn lemma_page_size_divides<C: PagingConstsTrait>(small: PagingLevel, l
         page_size::<C>(large) % page_size::<C>(small) == 0,
 {
     C::lemma_paging_consts_properties();
-    lemma_page_size_is_pow2::<C>(small);
-    lemma_page_size_is_pow2::<C>(large);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(small);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(large);
     lemma_page_size_ratio::<C>(small, large);
     let delta = (nr_pte_index_bits_spec::<C>() * (large - small)) as nat;
     lemma_pow2_pos(delta);
