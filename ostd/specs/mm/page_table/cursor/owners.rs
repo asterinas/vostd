@@ -978,6 +978,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             *final(self) == old(self).inc_index(),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_inc_slot_indices::<C>(old(self).va, old(self).level);
         old(self).lemma_inc_index_va();
         self.popped_too_high = false;
@@ -1230,6 +1231,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_span();
         let gl = self.guard_level;
         let path = TreePath::new(
@@ -1265,6 +1267,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == pte_index_spec::<C>(self.prefix, (self.guard_level - 1 + 1) as PagingLevel),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_vaddr_prefix_match(self.va);
         assert(pte_index_spec::<C>(self.va, self.guard_level) == pte_index_spec::<C>(
             self.prefix,
@@ -1345,6 +1348,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_prefix_aligned_to_guard_level();
         self.lemma_prefix_plus_ps_no_overflow();
         lemma_page_size_ge_base::<PagingConsts>(self.guard_level);
@@ -1364,6 +1368,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix as nat % page_size::<PagingConsts>(self.guard_level) as nat == 0,
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_lower_indices_aligned::<C>(self.prefix, self.guard_level);
     }
 
@@ -1381,6 +1386,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             (va as nat) - nat_align_down(self_va as nat, node_size as nat) < node_size as nat,
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_span();
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
@@ -1411,6 +1417,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix + page_size::<PagingConsts>(self.guard_level) <= usize::MAX,
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         let gl = self.guard_level;
         lemma_lower_indices_aligned::<C>(self.prefix, (gl + 1) as PagingLevel);
         lemma_aligned_vaddr_slack::<C>(self.prefix, (gl + 1) as PagingLevel);
@@ -1438,6 +1445,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.va + page_size::<PagingConsts>(level) <= usize::MAX,
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_span();
         let gl = self.guard_level;
         lemma_lower_indices_aligned::<C>(self.prefix, (gl + 1) as PagingLevel);
@@ -1485,6 +1493,34 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let cont = self.continuations[self.level - 1];
         cont.lemma_inv_children_unroll(cont.idx as int)
+    }
+
+    /// Constructs an absent subtree that fits the cursor's current slot.
+    pub proof fn tracked_new_absent_subtree(self) -> (tracked res: OwnerSubtree<C>)
+        requires
+            self.inv(),
+        ensures
+            res.inv(),
+            res.value().is_absent(),
+            res.level() == self.continuations[self.level - 1].tree_level + 1,
+            res.value().path.len() <= INC_LEVELS - 1,
+            res.value().parent_level == self.continuations[self.level
+                - 1].child().value().parent_level,
+            res.value().path == self.continuations[self.level - 1].path().push_tail(
+                self.continuations[self.level - 1].idx as int,
+            ),
+            res == OwnerSubtree::new_val(res.value(), res.level() as nat),
+    {
+        let cont = self.continuations[self.level - 1];
+        self.lemma_inv_continuation(self.level - 1);
+
+        cont.lemma_inv_children_unroll(cont.idx as int);
+        cont.lemma_inv_children_rel_unroll(cont.idx as int);
+
+        let tracked entry = EntryOwner::tracked_new_absent(self.cur_entry_owner().path, self.level);
+
+        let tracked subtree = OwnerSubtree::tracked_new_val(entry, cont.tree_level + 1);
+        subtree
     }
 
     /// If the current entry is absent, `!self@.present()`.
@@ -1858,6 +1894,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 {
     C::lemma_paging_consts_properties();
+    C::axiom_current_paging_consts_hardcoded();
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
 

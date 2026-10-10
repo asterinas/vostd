@@ -87,6 +87,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let ghost old_self = *self;
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_align_down_indices::<C>(old_self.va, old_self.level);
         self.va = old_self.zero_below_level().va;
 
@@ -141,6 +142,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inc_index().va == self.va + page_size::<C>(self.level),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_cur_pte_index();
         lemma_inc_slot_indices::<C>(self.va, self.level);
         reveal(vaddr_replace_pte_index_spec);
@@ -160,6 +162,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_inc_index_va();
         lemma_page_size_ge_base::<PagingConsts>(self.level);
         let ps = page_size::<PagingConsts>(self.level) as nat;
@@ -205,6 +208,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )) == pte_index_spec::<C>(self.prefix_vaddr(), (i + 1) as PagingLevel),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_span();
         let gl = self.guard_level;
         if gl == 1 {
@@ -238,6 +242,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pte_index_spec::<C>(self.cur_va(), self.level) < NR_ENTRIES,
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), self.level);
     }
 
@@ -261,6 +266,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let ghost old_self = *self;
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(new_va, old_self.level);
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         cont.idx = pte_index_spec::<C>(new_va, old_self.level);

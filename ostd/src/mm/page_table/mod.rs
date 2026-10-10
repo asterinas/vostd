@@ -1685,12 +1685,16 @@ pub trait PageTableEntryTrait:
     /// The physical address recorded in the PTE is either:
     /// - the physical address of the next-level page table, or
     /// - the physical address of the page that the PTE maps to.
+    ///
+    /// This getter only guarantees page alignment. `paddr < MAX_PADDR` is an
+    /// obligation of well-formed owned PTEs, not of an arbitrary encoded PTE
+    /// word.
     spec fn paddr_spec(&self) -> Paddr;
 
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            valid_frame_paddr(res),
+            res % PAGE_SIZE == 0,
         returns
             self.paddr(),
     ;

@@ -167,6 +167,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let L = self.level as int;
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), self.level);
         assert(pte_index_spec::<C>(self.va, (self.level - 1 + 1) as PagingLevel)
             == self.continuations[self.level - 1].idx);
