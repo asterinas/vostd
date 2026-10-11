@@ -75,7 +75,7 @@ impl<C: PageTableConfig> Child<C> {
     }
 
     pub open spec fn invariants(self, owner: EntryOwner<C>, regions: MetaRegionOwners) -> bool {
-        &&& owner.inv_base()
+        &&& owner.inv()
         &&& regions.inv()
         &&& self.wf(owner)
         &&& match self {

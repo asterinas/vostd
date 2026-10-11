@@ -2,18 +2,15 @@ use vstd::{prelude::*, set_lib::*};
 
 use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 
-use super::view::Mapping;
+use super::view::{Mapping, mappings_disjoint_vaddrs, mappings_well_formed};
 use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
 
 verus! {
 
 /// Well-formed mapping set: all inv(), pairwise VA-disjoint.
 pub open spec fn wf_mapping_set(s: Set<Mapping>) -> bool {
-    &&& forall|m: Mapping| #![auto] s.contains(m) ==> m.inv()
-    &&& forall|m: Mapping, n: Mapping|
-        #![auto]
-        s.contains(m) && s.contains(n) && m != n ==> m.va_range.end <= n.va_range.start
-            || n.va_range.end <= m.va_range.start
+    &&& mappings_well_formed(s)
+    &&& mappings_disjoint_vaddrs(s)
 }
 
 /// A well-formed mapping set whose VA ranges all lie within `[lo, hi)` has

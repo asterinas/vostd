@@ -288,7 +288,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub broadcast axiom fn axiom_frame_is_tracked_iff_not_mmio(entry: Self)
         requires
             entry.is_frame(),
-            entry.inv_base(),
+            entry.inv(),
         ensures
             #[trigger] entry.frame_is_tracked()
                 != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
@@ -321,7 +321,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             !res.frame_is_tracked(),
             res.parent_level == parent_level,
             res.path.inv(),
-            res.inv_base(),
+            res.inv(),
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res),
     {
         Self {
@@ -740,10 +740,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 }
 
-impl<C: PageTableConfig> EntryOwner<C> {
-    /// Structural invariant of an entry owner. This is the whole of `inv()`,
-    /// and is also used directly by `Child::invariants`.
-    pub open spec fn inv_base(self) -> bool {
+impl<C: PageTableConfig> Inv for EntryOwner<C> {
+    /// Structural invariant of an entry owner.
+    open spec fn inv(self) -> bool {
         &&& self.is_node() ==> {
             &&& self.node().inv()
             &&& self.parent_level == self.node().level() + 1
@@ -767,14 +766,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             )
             &&& C::E::new_page_req(self.frame().mapped_pa, self.parent_level, self.frame().prop)
         }
-        &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
-    }
-}
-
-impl<C: PageTableConfig> Inv for EntryOwner<C> {
-    open spec fn inv(self) -> bool {
-        self.inv_base()
     }
 }
 

@@ -319,7 +319,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let child = cont.children[j].unwrap();
                 let child_path = cont.path().push_tail(j);
                 // child.value.path == child_path (inv_children_rel) and
-                // child.value.path.inv() (EntryOwner::inv_base).
+                // child.value.path.inv() (EntryOwner::inv).
                 // L1: pt_inv ⟹ tree-wide path correctness.
                 PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.

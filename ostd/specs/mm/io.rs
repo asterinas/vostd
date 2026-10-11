@@ -601,12 +601,6 @@ impl<Fallibility> VmWriter<'_, Fallibility> {
         &&& owner.range.start == self.cursor.vaddr
         &&& owner.range.end == self.end.vaddr
         &&& owner.id == self.ghost_id@
-        &&& owner.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
-            forall|va: usize|
-                owner.range.start <= va < owner.range.end ==> {
-                    &&& #[trigger] mv.addr_transl(va) is Some
-                }
-        }
     }
 }
 
@@ -631,12 +625,6 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         &&& owner.range.start == self.cursor.vaddr
         &&& owner.range.end == self.end.vaddr
         &&& owner.id == self.ghost_id@
-        &&& owner.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
-            forall|va: usize|
-                owner.range.start <= va < owner.range.end ==> {
-                    &&& #[trigger] mv.addr_transl(va) is Some
-                }
-        }
     }
 }
 

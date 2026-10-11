@@ -1176,7 +1176,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Structural induction using the invariant that `parent_level` of each
     /// subtree equals `INC_LEVELS - tree_level`, chained through `rel_children`.
     /// At a leaf frame, `parent_level < NR_LEVELS` (from the tightened
-    /// `inv_base`) ensures the page size is one of the allowed values.
+    /// `inv`) ensures the page size is one of the allowed values.
     pub proof fn view_rec_mapping_page_size(self, path: TreePath<NR_ENTRIES>)
         requires
             self.pt_inv(),
@@ -1316,7 +1316,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Every mapping in `view_rec` satisfies `Mapping::inv()`.
     ///
     /// Structural induction on the subtree. At a leaf frame, the PA-side
-    /// clauses follow from `EntryOwner::inv_base`, the VA-size clause
+    /// clauses follow from `EntryOwner::inv`, the VA-size clause
     /// by construction, the page-size clause from the tightened
     /// `parent_level < NR_LEVELS` constraint plus the arithmetic identity
     /// `page_size(k) ∈ {4K, 2M, 1G}` for `k ∈ {1, 2, 3}`, and VA alignment

@@ -14,19 +14,9 @@ pub ghost struct TlbModel {
 
 impl Inv for TlbModel {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_vaddrs(
-                m,
-                n,
-            )
-        &&& forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_paddrs(
-                m,
-                n,
-            )
+        &&& mappings_well_formed(self.mappings)
+        &&& mappings_disjoint_vaddrs(self.mappings)
+        &&& mappings_disjoint_paddrs(self.mappings)
     }
 }
 
