@@ -83,16 +83,6 @@ impl TlbModel {
         }
     }
 
-    pub proof fn lemma_consistent_with_pt_implies_inv(self, pt: PageTableView)
-        requires
-            self.inv(),
-            self.consistent_with_pt(pt),
-            pt.inv(),
-        ensures
-            self.inv(),
-    {
-    }
-
     pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self {
         TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }

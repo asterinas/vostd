@@ -481,8 +481,7 @@ impl MemView {
 
 impl Inv for VirtPtr {
     open spec fn inv(self) -> bool {
-        &&& self.range@.start <= self.vaddr <= self.range@.end
-        &&& self.range@.end >= self.range@.start
+        self.range@.start <= self.vaddr <= self.range@.end
     }
 }
 

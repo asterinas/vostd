@@ -134,9 +134,6 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
         final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
             paddr,
         ).in_list_perm,
-        final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
-            paddr,
-        ).in_list_perm,
         old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
             paddr,
         ).ref_count() == REF_COUNT_UNUSED,
