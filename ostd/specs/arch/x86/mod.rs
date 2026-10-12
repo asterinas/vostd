@@ -132,8 +132,6 @@ pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>(
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
-    lemma_usize_pow2_ilog2(12);
-    lemma_usize_pow2_ilog2(9);
     lemma_pow2_adds(8, 39);
 }
 
