@@ -59,7 +59,6 @@ pub axiom fn frame_from_unused_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
@@ -84,7 +83,6 @@ pub axiom fn frame_from_in_use_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
@@ -159,7 +157,6 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
@@ -190,7 +187,6 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,

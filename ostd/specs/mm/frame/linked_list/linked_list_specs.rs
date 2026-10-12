@@ -190,8 +190,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
             self
         } else if self.index == self.length() {
             Self { list_own: self.list_own, index: 0 }
-        } else if self.index == self.length() - 1 {
-            Self { list_own: self.list_own, index: self.index + 1 }
         } else {
             Self { list_own: self.list_own, index: self.index + 1 }
         }
@@ -200,8 +198,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     pub open spec fn move_prev_owner_spec(self) -> Self {
         if self.length() == 0 {
             self
-        } else if self.index == self.length() {
-            Self { list_own: self.list_own, index: self.index - 1 }
         } else if self.index == 0 {
             Self { list_own: self.list_own, index: self.length() }
         } else {

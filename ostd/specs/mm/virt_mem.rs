@@ -896,7 +896,6 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
-            src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
             forall|i: usize|
                 #![trigger mem_src.addr_transl(i)]
@@ -907,7 +906,6 @@ impl VirtPtr {
                         i,
                     )->0).1 as int] is Init
                 },
-            dst.range@.start <= dst.vaddr,
             dst.vaddr + n <= dst.range@.end,
             forall|i: usize|
                 dst.vaddr <= i < dst.vaddr + n ==> {
