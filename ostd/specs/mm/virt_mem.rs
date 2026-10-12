@@ -1044,13 +1044,6 @@ impl Inv for GlobalMemView {
             #![trigger self.pt_mappings.contains(m1), self.pt_mappings.contains(m2)]
             self.pt_mappings.contains(m1) && self.pt_mappings.contains(m2) && m1 != m2
                 ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
-        &&& forall|m: Mapping|
-            forall|n: Mapping|
-                #![auto]
-                self.tlb_mappings.contains(m) ==> self.tlb_mappings.contains(n) ==> m != n
-                    ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
-                    <= m.va_range.start
-        &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()
     }
 }
@@ -1071,13 +1064,6 @@ impl GlobalMemView {
 
     pub open spec fn is_mapped(self, pa: usize) -> bool {
         exists|m: Mapping| self.pt_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
-    }
-
-    pub open spec fn pas_uniquely_mapped(self) -> bool {
-        forall|m1: Mapping, m2: Mapping|
-            #![trigger self.tlb_mappings.contains(m1), self.tlb_mappings.contains(m2)]
-            self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2
-                ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
 
     pub open spec fn unmapped_correct(self) -> bool {
