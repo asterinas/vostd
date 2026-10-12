@@ -776,7 +776,6 @@ impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.idx < NR_ENTRIES
         &&& owner.match_pte(self.pte, owner.parent_level)
-        &&& valid_frame_paddr(self.pte.paddr())
     }
 }
 

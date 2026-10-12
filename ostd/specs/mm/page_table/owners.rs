@@ -1707,29 +1707,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| { entry.path == path }
     }
 
-    pub open spec fn not_in_scope_pred() -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool {
-        |entry: EntryOwner<C>, _path: TreePath<NR_ENTRIES>| true
-    }
-
-    /// `subtree_satisfies` for the trivial `not_in_scope_pred`.
-    pub proof fn tree_not_in_scope(subtree: OwnerSubtree<C>, path: TreePath<NR_ENTRIES>)
-        requires
-            subtree.inv(),
-        ensures
-            subtree.subtree_satisfies(path, Self::not_in_scope_pred()),
-        decreases INC_LEVELS - subtree.level(),
-    {
-        // `not_in_scope_pred` is trivially `true`; recurse to discharge it.
-        if subtree.level() < INC_LEVELS - 1 {
-            assert forall|i: int|
-                0 <= i < subtree.children().len() && (
-                #[trigger] subtree.children()[i]) is Some implies subtree.children()[i].unwrap().subtree_satisfies(
-            path.push_tail(i), Self::not_in_scope_pred()) by {
-                Self::tree_not_in_scope(subtree.children()[i].unwrap(), path.push_tail(i));
-            };
-        }
-    }
-
     /// All mappings in a subtree's `view_rec` have
     /// `page_size <= page_size(INC_LEVELS - path.len())`.
     pub proof fn view_rec_page_size_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping)
