@@ -87,9 +87,9 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     }
 
     #[verifier::when_used_as_spec(into_spec)]
-    pub fn into(self) -> (res: StoredPageTablePageMeta)
-        ensures
-            res == self.into_spec(),
+    pub fn into(self) -> StoredPageTablePageMeta
+        returns
+            self.into_spec(),
     {
         StoredPageTablePageMeta {
             nr_children: self.nr_children,
@@ -112,9 +112,9 @@ impl StoredPageTablePageMeta {
     }
 
     #[verifier::when_used_as_spec(into_spec)]
-    pub fn into<C: PageTableConfig>(self) -> (res: PageTablePageMeta<C>)
-        ensures
-            res == self.into_spec::<C>(),
+    pub fn into<C: PageTableConfig>(self) -> PageTablePageMeta<C>
+        returns
+            self.into_spec::<C>(),
     {
         PageTablePageMeta::<C> {
             nr_children: self.nr_children,

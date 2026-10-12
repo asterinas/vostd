@@ -1,14 +1,12 @@
 /// CursorOwner-level preservation lemmas for transient `MetaRegionOwners`
-/// updates that affect at most one slot. Phase 3b of the `paths_in_pt`
-/// refactor, where map/unmap operations insert or remove a single tree path
-/// from a single frame slot and must show that the global
-/// `Cursor::invariants` survives the edit.
+/// updates that affect at most one slot. Map/unmap operations insert or
+/// remove a tree path from a frame slot and preserve the cursor's
+/// metadata-region soundness.
 ///
 /// Both directions are now proven: `metaregion_preserved_under_path_insert`
 /// (used by `map`, the huge-page split) and
-/// `metaregion_preserved_under_path_remove` (the foundational lemma the
-/// `unmap` `paths_in_pt.remove` rewrite — Phase 3b stages 2–4 — will use;
-/// the exec/postcondition rewrites that wire it in are still pending).
+/// `metaregion_preserved_under_path_remove` (used by the `take_next`
+/// frame-unmap preservation proof).
 ///
 /// Each lemma here lifts [`EntryOwner`]-level preservation facts (from
 /// `entry_owners.rs`) over the full cursor tree.
@@ -401,8 +399,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Preservation of the cursor-level metaregion invariants when the
     /// only change to `regions` is the **removal** of `removed_path`
     /// from the `paths_in_pt` set at a single slot. Dual of
-    /// [`Self::metaregion_preserved_under_path_insert`]; the missing
-    /// half of the deferred `paths_in_pt` refactor that `unmap` needs.
+    /// [`Self::metaregion_preserved_under_path_insert`], used by frame unmapping.
     ///
     /// Removal is *not* monotone (unlike insert): the guard
     /// [`Self::path_removable_at_idx`] is what makes it sound — no live

@@ -1057,20 +1057,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.continuations[self.level - 1].children[self.index() as int]->0
     }
 
-    /// Axiom: the item reconstructed from the current frame's physical address satisfies
-    /// `clone_requires`.
-    ///
-    /// Safety: When `metaregion_sound` holds for a frame entry, the item reconstructed via
-    /// `item_from_raw(pa, ...)` is the original frame item.  The frame's slot permission
-    /// (owned by the cursor) has the correct address, is initialised, and its ref count is in the
-    /// valid clonable range (> 0, < REF_COUNT_MAX), so `clone_requires` is satisfied.
-    ///
-    /// This is a *trait-level* axiom: `C::Item::clone_requires` is fully generic in the
-    /// `PageTableConfig` trait, so the postcondition cannot be discharged without knowing
-    /// the concrete item type.  It holds for every `PageTableConfig` used in `ostd` because
-    /// `item_from_raw` always returns a freshly-constructed `Frame<M>` handle whose
-    /// `Frame::<M>::clone_requires` unfolds to slot-address equality, initialisation, and a
-    /// bounded ref-count — all delivered by `metaregion_sound` for frame entries.
+    /// Proves `clone_requires` for the item reconstructed from the current frame entry.
+    /// Uses `metaregion_sound` and the config's `lemma_clone_requires_concrete`,
+    /// allowing ref-count saturation when `may_panic()` holds. The proof still
+    /// relies on the existing MMIO-address and frame-trackedness axioms.
     pub proof fn lemma_cur_frame_clone_requires(
         self,
         item: C::Item,

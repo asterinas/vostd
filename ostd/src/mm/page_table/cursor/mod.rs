@@ -136,26 +136,6 @@ fn path_slot_as_mut<'a, 'rcu, C: PageTableConfig>(
     path[idx].as_mut().unwrap()
 }
 
-/// Borrows a live `PageTableNode` as a `PageTableNodeRef` without requiring
-/// `raw_count == 1`.
-///
-/// ## Justification
-/// `Child::from_pte` (called inside `Entry::replace`) invokes `PageTableNode::from_raw`,
-/// which sets `regions.slot_owners[idx].raw_count = 0`.  Consequently `metaregion_sound`
-/// reports `raw_count == 0`, but
-/// `Frame::borrow` / `FrameRef::borrow_paddr` require `raw_count == 1`.
-///
-/// This function bridges that gap: we have unique ownership of the live frame `pt`
-/// (just returned from `Entry::replace`), so borrowing it as a `PageTableNodeRef`
-/// is semantically sound.  The `raw_count == 1` requirement in `borrow_paddr` is an
-/// accounting invariant designed for *forgotten* frames stored in PTEs; it does not
-/// apply to live frames held directly.
-///
-/// ## Fix path
-/// The proper fix is:
-///   1. Add `ensures old(owner).is_node() ==> regions.contains(...)` to
-///      `Entry::replace`.
-///   2. Replace this call with `pt.into_raw()` + `PageTableNodeRef::borrow_paddr()`.
 /// A fragment of a page table that can be taken out of the page table.
 pub enum PageTableFrag<C: PageTableConfig> {
     /// A mapped page table item.
@@ -1904,10 +1884,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.in_locked_range(),
             1 <= self.level <= owner.guard_level,
         ensures
-            owner.cur_va_range() == res,
             res.start <= self.va,
             res.end <= self.va + page_size::<PagingConsts>(self.level),
             res.start == self.va ==> res.end == self.va + page_size::<PagingConsts>(self.level),
+        returns
+            owner.cur_va_range(),
     )]
     fn cur_va_range(&self) -> Range<Vaddr> {
         proof {
