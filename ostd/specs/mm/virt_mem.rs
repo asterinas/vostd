@@ -228,15 +228,6 @@ impl MemView {
         }
     }
 
-    /// Whether mappings in this view are pairwise VA-disjoint.
-    pub open spec fn mappings_are_disjoint(self) -> bool {
-        forall|m1: Mapping, m2: Mapping|
-            #![trigger self.mappings.contains(m1), self.mappings.contains(m2)]
-            self.mappings.contains(m1) && self.mappings.contains(m2) && m1 != m2 ==> {
-                m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
-            }
-    }
-
     /// Specification for splitting this view at `split_end = vaddr + len`.
     ///
     /// Returns `(left, right)` where:

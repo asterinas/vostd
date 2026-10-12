@@ -9,6 +9,7 @@ use crate::specs::{
         page_table::{
             Mapping, OwnerSubtree,
             cursor::{CursorView, owners::CursorOwner},
+            mappings_disjoint_vaddrs,
             node::entry_owners::EntryOwner,
         },
         virt_mem::MemView,
@@ -187,8 +188,10 @@ impl<'a> VmSpaceOwner {
         // This requires that TotalMapping (mvv) = mv ∪ writer mappings ∪ reader mappings
         &&& self.mem_view matches Some(remaining_view) ==> self.mv_range matches Some(total_view)
             ==> {
-            &&& remaining_view.mappings_are_disjoint()
-            &&& total_view.mappings_are_disjoint()
+            &&& mappings_disjoint_vaddrs(remaining_view.mappings)
+            &&& mappings_disjoint_vaddrs(
+                total_view.mappings,
+            )
             // ======================
             // Remaining Consistency
             // ======================
