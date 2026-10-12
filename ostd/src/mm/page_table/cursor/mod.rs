@@ -39,7 +39,9 @@ use crate::specs::mm::{
         meta_owners::{FracMetadataPerm, MetaSlotOwner, PageUsage, is_mmio_paddr},
         meta_region_owners::MetaRegionOwners,
     },
-    page_table::cursor::page_size_lemmas::*,
+    page_table::{
+        cursor::page_size_lemmas::*, mapping_set_lemmas::lemma_extend_empty_mapping_range,
+    },
 };
 
 use super::{
@@ -1090,32 +1092,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 ) + cur_slot_size as nat) as Vaddr);
                                 assert(self.va <= aligned_start + cur_slot_size as usize);
 
-                                assert(owner@.mappings.filter(
-                                    |m: Mapping| old(self).va <= m.va_range.start < self.va,
-                                ) == Set::<Mapping>::empty()) by {
-                                    assert forall|m: Mapping|
-                                        !(#[trigger] old(owner)@.mappings.contains(m) && old(
-                                            self,
-                                        ).va <= m.va_range.start && m.va_range.start < self.va) by {
-                                        if old(owner)@.mappings.contains(m) && old(self).va
-                                            <= m.va_range.start && m.va_range.start < self.va {
-                                            if m.va_range.start < va_before_move {
-                                                assert(old(owner)@.mappings.filter(
-                                                    |m2: Mapping|
-                                                        old(self).va <= m2.va_range.start
-                                                            < va_before_move,
-                                                ).contains(m));
-                                            } else {
-                                                assert(old(owner)@.mappings.filter(
-                                                    |m2: Mapping|
-                                                        aligned_start <= m2.va_range.start
-                                                            < aligned_start
-                                                            + cur_slot_size as usize,
-                                                ).contains(m));
-                                            }
-                                        }
-                                    };
-                                };
+                                lemma_extend_empty_mapping_range(
+                                    old(owner)@.mappings,
+                                    old(self).va,
+                                    va_before_move,
+                                    aligned_start,
+                                    aligned_start + cur_slot_size as usize,
+                                    self.va,
+                                );
                                 if va_before_move as usize == old(self).va as usize {
                                     owner_before_move.lemma_cur_subtree_empty_not_present();
                                 }
@@ -1164,30 +1148,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             ) + cur_slot_size as nat) as Vaddr);
                             assert(self.va <= aligned_start + cur_slot_size as usize);
 
-                            assert(owner@.mappings.filter(
-                                |m: Mapping| old(self).va <= m.va_range.start < self.va,
-                            ) == Set::<Mapping>::empty()) by {
-                                assert forall|m: Mapping|
-                                    !(#[trigger] old(owner)@.mappings.contains(m) && old(self).va
-                                        <= m.va_range.start && m.va_range.start < self.va) by {
-                                    if old(owner)@.mappings.contains(m) && old(self).va
-                                        <= m.va_range.start && m.va_range.start < self.va {
-                                        if m.va_range.start < va_before_move {
-                                            assert(old(owner)@.mappings.filter(
-                                                |m2: Mapping|
-                                                    old(self).va <= m2.va_range.start
-                                                        < va_before_move,
-                                            ).contains(m));
-                                        } else {
-                                            assert(old(owner)@.mappings.filter(
-                                                |m2: Mapping|
-                                                    aligned_start <= m2.va_range.start
-                                                        < aligned_start + cur_slot_size as usize,
-                                            ).contains(m));
-                                        }
-                                    }
-                                };
-                            };
+                            lemma_extend_empty_mapping_range(
+                                old(owner)@.mappings,
+                                old(self).va,
+                                va_before_move,
+                                aligned_start,
+                                aligned_start + cur_slot_size as usize,
+                                self.va,
+                            );
                             if va_before_move as usize == old(self).va as usize {
                                 owner_before_move.lemma_cur_entry_absent_not_present();
                             }

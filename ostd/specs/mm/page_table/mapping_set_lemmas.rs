@@ -182,4 +182,41 @@ pub proof fn lemma_sub_mapping_pa_compose(m: Mapping, p: Mapping, orig: Mapping)
     assert(MAX_PADDR < usize::MAX) by (compute_only);
 }
 
+/// Extends an empty scanned range through an empty slot overlapping its endpoint.
+pub proof fn lemma_extend_empty_mapping_range(
+    mappings: Set<Mapping>,
+    start: Vaddr,
+    scanned_end: Vaddr,
+    slot_start: Vaddr,
+    slot_end: int,
+    next: Vaddr,
+)
+    requires
+        slot_start <= scanned_end,
+        next <= slot_end,
+        mappings.filter(|m: Mapping| start <= m.va_range.start < scanned_end) == Set::<
+            Mapping,
+        >::empty(),
+        mappings.filter(|m: Mapping| slot_start <= m.va_range.start < slot_end) == Set::<
+            Mapping,
+        >::empty(),
+    ensures
+        mappings.filter(|m: Mapping| start <= m.va_range.start < next) == Set::<Mapping>::empty(),
+{
+    assert forall|m: Mapping|
+        !(#[trigger] mappings.contains(m) && start <= m.va_range.start < next) by {
+        if mappings.contains(m) && start <= m.va_range.start < next {
+            if m.va_range.start < scanned_end {
+                assert(mappings.filter(
+                    |m2: Mapping| start <= m2.va_range.start < scanned_end,
+                ).contains(m));
+            } else {
+                assert(mappings.filter(
+                    |m2: Mapping| slot_start <= m2.va_range.start < slot_end,
+                ).contains(m));
+            }
+        }
+    };
+}
+
 } // verus!

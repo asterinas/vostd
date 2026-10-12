@@ -996,11 +996,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
     /// `pt_inv` (plus the root's recorded path) lifts to a full
     /// `path_correct_pred` tree predicate: every entry's `.path` field
-    /// equals its structural position.  `PageTableOwner::inv()` already
-    /// bundles this (see the `Inv` impl below) but only for *node*-rooted
-    /// trees; callers that need it for an arbitrary `pt_inv` subtree
-    /// (including the leaf/frame-rooted child subtrees of a cursor
-    /// continuation) need a standalone form not gated on `value.is_node()`.
+    /// equals its structural position. This also applies to leaf/frame-rooted
+    /// child subtrees of a cursor continuation.
     pub proof fn pt_inv_implies_path_correct(subtree: OwnerSubtree<C>, path: TreePath<NR_ENTRIES>)
         requires
             PageTableOwner(subtree).pt_inv(),
@@ -1853,7 +1850,6 @@ impl<C: PageTableConfig> Inv for PageTableOwner<C> {
         &&& self.0.value().path.len() == self.0.level()
         &&& self.0.value().parent_level == (INC_LEVELS - self.0.level()) as PagingLevel
         &&& self.0.value().node().tree_level == self.0.value().path.len()
-        &&& self.0.subtree_satisfies(self.0.value().path, Self::path_correct_pred())
     }
 }
 
