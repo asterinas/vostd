@@ -1231,11 +1231,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 match frag_ghost {
                     PageTableFrag::StrayPageTable { .. } => {
-                        assert(old_removed.disjoint(subtree)) by {
-                            assert forall|e: Mapping|
-                                old_removed.contains(e) implies !subtree.contains(e) by {};
-                        };
-                        vstd::set_lib::lemma_set_disjoint_lens(old_removed, subtree);
                         assert(removed == old_removed + subtree);
                     },
                     PageTableFrag::Mapped { .. } => {

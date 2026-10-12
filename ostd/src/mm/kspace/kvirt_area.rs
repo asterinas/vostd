@@ -764,7 +764,6 @@ impl KVirtArea {
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
-            map_offset + usize::range_len(pa_range.start, pa_range.end) <= usize::MAX,
             forall|pa: Paddr, level: PagingLevel|
                 #[trigger]
                 <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
