@@ -526,15 +526,35 @@ impl<C: PageTableConfig> CursorView<C> {
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
 
                 new_self.split_while_huge_refinement(size, m);
+                new_self.lemma_split_while_huge_preserves_inv(size);
 
                 if new_self.mappings.contains(m) {
+                    self.split_if_mapped_huge_spec_refinement(new_size, m);
                 } else {
                     let p = choose|p: Mapping| #[trigger]
                         new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
                             && m.va_range.end <= p.va_range.end && m.pa_range.start == (
                         p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
                             && m.property == p.property;
+                    self.split_if_mapped_huge_spec_refinement(new_size, p);
                     if !self.mappings.contains(p) {
+                        assert(exists|parent: Mapping| #[trigger]
+                            self.mappings.contains(parent) && parent.va_range.start
+                                <= m.va_range.start && m.va_range.end <= parent.va_range.end
+                                && m.pa_range.start == (parent.pa_range.start + (m.va_range.start
+                                - parent.va_range.start)) as Paddr && m.property == parent.property)
+                            by {
+                            let parent = qm;
+                        }
+                    } else {
+                        assert(exists|parent: Mapping| #[trigger]
+                            self.mappings.contains(parent) && parent.va_range.start
+                                <= m.va_range.start && m.va_range.end <= parent.va_range.end
+                                && m.pa_range.start == (parent.pa_range.start + (m.va_range.start
+                                - parent.va_range.start)) as Paddr && m.property == parent.property)
+                            by {
+                            let parent = p;
+                        }
                     }
                 }
             }
