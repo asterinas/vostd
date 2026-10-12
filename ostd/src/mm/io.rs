@@ -1870,18 +1870,12 @@ impl<'a> VmWriter<'a, Fallible> {
             final(self).cursor.range == old(self).cursor.range,
             final(self).cursor.vaddr >= old(self).cursor.vaddr,
             final(self).cursor.vaddr <= old(self).end.vaddr,
-            match r {
-                Ok(n) => {
-                    &&& n <= len
-                    &&& n <= old(self).avail_spec()
-                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                },
-                Err((_, n)) => {
-                    &&& n <= len
-                    &&& n <= old(self).avail_spec()
-                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                },
-            }
+            {
+                let n = match r { Ok(n) => n, Err((_, n)) => n };
+                &&& n <= len
+                &&& n <= old(self).avail_spec()
+                &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+            },
     )]
     pub fn fill_zeros(&mut self, len: usize) -> core::result::Result<usize, (Error, usize)> {
         let len_to_set = self.avail().min(len);
@@ -2076,20 +2070,13 @@ macro_rules! impl_read_fallible {
                     final(writer).cursor.range == old(writer).cursor.range,
                     final(self).inv(),
                     final(writer).inv(),
-                    match r {
-                        Ok(n) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
-                            &&& n <= old(self).remain_spec()
-                            &&& n <= old(writer).avail_spec()
-                        },
-                        Err((_, copied_len)) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
-                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + copied_len
-                            &&& copied_len <= old(self).remain_spec()
-                            &&& copied_len <= old(writer).avail_spec()
-                        },
-                    }
+                    {
+                        let n = match r { Ok(n) => n, Err((_, n)) => n };
+                        &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                        &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
+                        &&& n <= old(self).remain_spec()
+                        &&& n <= old(writer).avail_spec()
+                    },
             )]
             fn read_fallible(
                 &mut self,
@@ -2137,20 +2124,13 @@ macro_rules! impl_write_fallible {
                     final(reader).cursor.range == old(reader).cursor.range,
                     final(self).inv(),
                     final(reader).inv(),
-                    match r {
-                        Ok(n) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                            &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
-                            &&& n <= old(self).avail_spec()
-                            &&& n <= old(reader).remain_spec()
-                        },
-                        Err((_, copied_len)) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
-                            &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + copied_len
-                            &&& copied_len <= old(self).avail_spec()
-                            &&& copied_len <= old(reader).remain_spec()
-                        },
-                    }
+                    {
+                        let n = match r { Ok(n) => n, Err((_, n)) => n };
+                        &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                        &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
+                        &&& n <= old(self).avail_spec()
+                        &&& n <= old(reader).remain_spec()
+                    },
             )]
             fn write_fallible(
                 &mut self,
