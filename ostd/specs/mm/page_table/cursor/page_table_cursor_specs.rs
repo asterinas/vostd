@@ -45,6 +45,22 @@ impl<C: PageTableConfig> CursorView<C> {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).choose()
     }
 
+    /// The queried mapping belongs to the view, covers its cursor, and is well-formed.
+    pub proof fn lemma_query_mapping(self)
+        requires
+            self.inv(),
+            self.present(),
+        ensures
+            self.mappings.contains(self.query_mapping()),
+            self.query_mapping().va_range.start <= self.cur_va < self.query_mapping().va_range.end,
+            self.query_mapping().inv(),
+    {
+        let covering = self.mappings.filter(
+            |m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end,
+        );
+        vstd::set::lemma_set_choose_len(covering);
+    }
+
     pub open spec fn query(self, paddr: Paddr, size: usize, prop: PageProperty) -> bool {
         let m = self.query_mapping();
         m.pa_range.start == paddr && m.page_size == size && m.property == prop
