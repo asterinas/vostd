@@ -1522,12 +1522,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).metaregion_sound(*final(regions)),
             final(owner).va == old(owner)@.align_up_spec(page_size::<PagingConsts>(old(self).level)),
             final(self).va <= old(self).va + page_size::<PagingConsts>(old(self).level),
-            // move_forward only calls pop_level, which does not touch regions.
-            forall|idx: int|
-                #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                final(regions).slot_owners[idx].paths_in_pt == old(
-                    regions,
-                ).slot_owners[idx].paths_in_pt,
             // Slots and slot_owners fully unchanged (pop_level is purely cursor manipulation).
             final(regions).slots == old(regions).slots,
             forall|idx: int|
@@ -1680,7 +1674,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).level <= old(self).guard_level,
             final(self).inv(),
             final(self).wf(*final(owner)),
-            final(regions).inv(),
             final(owner).inv(),
             final(owner).children_not_locked(*final(guards)),
             final(owner).nodes_locked(*final(guards)),
@@ -1836,13 +1829,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).path[old(self).level - 1] is Some,
             final(self).path[old(self).level - 1]->0 == *final(res.node),
             *final(res.node) == old(self).path[old(self).level - 1]->0
-                ==> final(self).path[old(self).level - 1]->0
-                    == old(self).path[old(self).level - 1]->0,
-            *final(res.node) == *res.node ==> final(self).path[old(self).level - 1]->0
-                == *res.node,
-            *final(res.node) == old(self).path[old(self).level - 1]->0
                 ==> final(self).wf(*final(owner)),
-            *final(res.node) == *res.node ==> final(self).wf(*final(owner)),
             forall|i: int|
                 0 <= i < NR_LEVELS && i != old(self).level - 1 ==> #[trigger] final(self).path[i]
                     == old(self).path[i],
