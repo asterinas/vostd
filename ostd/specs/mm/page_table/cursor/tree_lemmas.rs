@@ -138,24 +138,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
-            reveal(CursorContinuation::map_children);
-            let cont = self.continuations[i];
-            reveal(CursorContinuation::inv_children);
-            assert forall|j: int|
-                #![trigger cont.children[j]]
-                0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-                cont.path().push_tail(j),
-                g,
-            ) by {
-                cont.lemma_inv_children_unroll(j);
-                OwnerSubtree::lemma_subtree_satisfies_implies(
-                    cont.children[j].unwrap(),
-                    cont.path().push_tail(j),
-                    f,
-                    g,
-                );
-            }
+            self.lemma_inv_continuation(i);
+            self.continuations[i].map_children_lift(f, g);
         }
     }
 

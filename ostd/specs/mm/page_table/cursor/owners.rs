@@ -30,11 +30,11 @@ use crate::specs::{
             Guards, Mapping, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
             lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
             lemma_page_size_ge_base, lemma_page_size_is_pow2_pte_index_bit_offset,
-            lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_kernel,
-            lemma_vaddr_range_spec_user, lemma_vaddr_upper_part_is_align_down,
-            mappings_disjoint_vaddrs, mappings_well_formed, owners::*, page_table_vaddr_bits_spec,
-            pte_index_bit_offset_spec, pte_index_spec, vaddr_range_spec,
-            vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
+            lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
+            lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
+            owners::*, page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
+            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
+            vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -47,7 +47,6 @@ use crate::mm::{
         Frame,
         meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     },
-    kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::PageProperty,
     page_size,
@@ -671,9 +670,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             //      OR `absent` — they share another config's sub-tree (user PT's
             //      kernel half = borrowed) or are unmapped (kernel PT's user half =
             //      absent), and either way contribute NOTHING to `view_rec`.
-            //      Preserved across cursor ops; makes both the user
-            //      (`lemma_view_in_vaddr_range_user`) and kernel
-            //      (`lemma_view_in_vaddr_range_kernel`) view bounds provable.
+            //      Preserved across cursor ops; makes the per-config view bounds
+            //      (`lemma_view_in_vaddr_range`) provable.
         &&& self.level <= NR_LEVELS - 1 ==> {
             &&& C::TOP_LEVEL_INDEX_RANGE().start <= self.continuations[NR_LEVELS - 1].idx
             &&& self.continuations[NR_LEVELS - 1].idx < C::TOP_LEVEL_INDEX_RANGE().end
@@ -1878,14 +1876,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     }
 }
 
-/// USER isolation theorem (proven, per-config): every mapping a `UserPtConfig`
-/// cursor exposes lives strictly in the user low half `[0, 2^47)`. Discharges
-/// the generic `axiom_view_in_vaddr_range` bound for `UserPtConfig`. The nested
-/// `view_mappings → continuations → view_rec` decomposition
-/// is exposed via `lemma_view_mappings_contains` (cursor + continuation forms)
-/// before each `choose`; a contributing (frame/node) root child is neither
-/// borrowed nor absent, so the cursor-inv top-level clause forces it in-range,
-/// and `view_rec_top_index_va_bound` gives the per-mapping VA bound.
+/// Every mapping in a user cursor lies in `[0, 2^47)`, specializing the
+/// generic cursor bound with the user configuration's address range.
 pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
     owner: &CursorOwner<'rcu, crate::mm::vm_space::UserPtConfig>,
 )
@@ -1899,59 +1891,8 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
                 &&& m.va_range.end <= 0x8000_0000_0000int
             },
 {
-    let end = crate::mm::vm_space::UserPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
-    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& 0 <= m.va_range.start
-        &&& m.va_range.end <= 0x8000_0000_0000int
-    } by {
-        let i = choose|i: int|
-            owner.level - 1 <= i < NR_LEVELS && (
-            #[trigger] owner.continuations[i]).view_mappings().contains(m);
-        let cont = owner.continuations[i];
-        let j = choose|j: int|
-            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
-                cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j)).contains(m);
-        let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j);
-        child.view_rec_top_index_va_bound(p, m, end);
-    }
-}
-
-/// KERNEL isolation theorem (proven, per-config): every mapping a
-/// `KernelPtConfig` cursor exposes lives in the kernel high half. Mirror of
-/// `lemma_view_in_vaddr_range_user` with `TOP_LEVEL_INDEX_RANGE == 256..512` and
-/// `LEADING_BITS == 0xffff` (canonical high-half base).
-pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, KernelPtConfig>)
-    requires
-        owner.inv(),
-    ensures
-        forall|m: Mapping|
-            #![auto]
-            owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<KernelPtConfig>().start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>().end + 1
-            },
-{
-    lemma_vaddr_range_spec_kernel();
-    let end = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
-    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<KernelPtConfig>().start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>().end + 1
-    } by {
-        let i = choose|i: int|
-            owner.level - 1 <= i < NR_LEVELS && (
-            #[trigger] owner.continuations[i]).view_mappings().contains(m);
-        let cont = owner.continuations[i];
-        let j = choose|j: int|
-            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
-                cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j)).contains(m);
-        let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j);
-        child.view_rec_top_index_va_bound(p, m, end);
-        // m.start ≥ index(0)·2^39 + lb·2^48 ≥ start·2^39 + lb·2^48 = bound.0.
-    }
+    lemma_view_in_vaddr_range(owner);
+    lemma_vaddr_range_spec_user();
 }
 
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
