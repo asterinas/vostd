@@ -1476,12 +1476,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> {
                 let idx = meta_to_index(s.0.list[i].paddr);
-                s.1.contains(idx)
-            }
-        &&& forall|i: int|
-            #![trigger s.0.list[i]]
-            0 <= i < s.0.list.len() ==> {
-                let idx = meta_to_index(s.0.list[i].paddr);
                 s.1.ref_count(idx) == REF_COUNT_UNIQUE
             }
         &&& forall|i: int|

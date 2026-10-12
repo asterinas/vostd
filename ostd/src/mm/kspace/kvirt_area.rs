@@ -901,10 +901,6 @@ impl KVirtArea {
 
                 proof {
                     cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
-
-                    // pa_range.end == pa_range.start + len (in nat) — from loop invariant.
-                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
-                    sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
@@ -944,10 +940,6 @@ impl KVirtArea {
 
                     lemma_page_size_ge_base::<PagingConsts>(level_raw);
 
-                    vstd_extra::arithmetic::lemma_nat_align_down_sound(
-                        old_cursor_owner_va as nat,
-                        page_size::<PagingConsts>(level_raw) as nat,
-                    );
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va as nat,
                         page_size::<PagingConsts>(level_raw) as nat,
