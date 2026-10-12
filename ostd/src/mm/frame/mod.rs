@@ -257,7 +257,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             Tracked(metadata_perm): Tracked<Option<&'a MetadataPerm>>,
             Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
-            self.ptr_inv(),
             {
                 self.inv() && metadata_perm is None
                 && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), *repr_perm) ||
