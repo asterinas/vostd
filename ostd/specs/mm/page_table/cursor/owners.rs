@@ -1263,16 +1263,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_pte_index_bound::<C>(self.prefix, self.guard_level);
     }
 
-    pub proof fn lemma_in_locked_range_level_le_nr_levels(self)
-        requires
-            self.inv(),
-            self.in_locked_range(),
-            !self.popped_too_high,
-        ensures
-            self.level <= NR_LEVELS,
-    {
-    }
-
     /// When the cursor is in the locked range and not popped, its top-level
     /// index is strictly less than `TOP_LEVEL_INDEX_RANGE.end` (the relaxed inv
     /// only allows `<=`, but the operational state is strict).

@@ -915,10 +915,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 split_happened ==> self.va == old(self).va,
             decreases owner.max_steps(),
         {
-            proof {
-                owner.lemma_in_locked_range_level_le_nr_levels();
-            }
-
             let ghost owner0 = *owner;
 
             let cur_va = self.va;
@@ -976,7 +972,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 if self.va as usize == old(self).va as usize {
                                     owner.split_while_huge_at_level_noop();
                                 }
-                                owner.lemma_in_locked_range_level_le_nr_levels();
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
@@ -1242,7 +1237,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 if !split_happened && self.va as usize == old(self).va as usize {
                                     owner.split_while_huge_at_level_noop();
                                 }
-                                owner.lemma_in_locked_range_level_le_nr_levels();
                             }
                         }
                         return Some(cur_va);
