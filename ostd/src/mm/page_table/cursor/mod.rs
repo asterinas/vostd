@@ -3013,65 +3013,41 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& old(owner)@.mappings.filter(|m: Mapping|
                     old(owner)@.cur_va <= m.va_range.start < (old(owner)@.cur_va + len) as Vaddr) == Set::<Mapping>::empty()
             },
-            res is Some && res->0 is Mapped ==>
-                old(owner)@.mappings.filter(|m: Mapping|
-                    old(self).0.va <= m.va_range.start < res->0->Mapped_va)
-                    == Set::<Mapping>::empty(),
-            res is Some && res->0 is StrayPageTable ==>
-                old(owner)@.mappings.filter(|m: Mapping|
-                    old(self).0.va <= m.va_range.start < res->0->StrayPageTable_va)
-                    == Set::<Mapping>::empty(),
-            res is Some && res->0 is Mapped ==> {
-                let m = CursorView::<C>::item_into_mapping(
-                    res->0->Mapped_va, res->0->Mapped_item);
-                final(owner)@.mappings.filter(|m2: Mapping|
-                    res->0->Mapped_va <= m2.va_range.start < final(self).0.va)
-                    == Set::<Mapping>::empty()
-            },
-            res is Some && res->0 is StrayPageTable ==>
-                final(owner)@.mappings.filter(|m2: Mapping|
-                    res->0->StrayPageTable_va <= m2.va_range.start < final(self).0.va)
-                    == Set::<Mapping>::empty(),
-            // F2c-stable: mappings with start in [old_va, frag_va) are unchanged.
-            // (Splits only affect the entry at frag_va; entries before it are untouched.)
-            res is Some && res->0 is Mapped ==>
-                forall |m2: Mapping|
-                    #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
-                    && m2.va_range.start < res->0->Mapped_va
-                    ==> old(owner)@.mappings.contains(m2),
-            res is Some && res->0 is StrayPageTable ==>
-                forall |m2: Mapping|
-                    #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
-                    && m2.va_range.start < res->0->StrayPageTable_va
-                    ==> old(owner)@.mappings.contains(m2),
-            res is Some && res->0 is Mapped ==>
-                res->0->Mapped_va >= old(self).0.va
-                && (res->0->Mapped_va as usize) < old(self).0.va + len,
-            res is Some && res->0 is StrayPageTable ==> {
-                &&& res->0->StrayPageTable_va >= old(self).0.va
-                &&& res->0->StrayPageTable_va + res->0->StrayPageTable_len
-                    <= old(self).0.va + len
-            },
-            res is Some && res->0 is Mapped ==> {
-                let va = res->0->Mapped_va;
-                let item = res->0->Mapped_item;
+            res matches Some(PageTableFrag::Mapped { va, item }) ==> {
                 let m = CursorView::<C>::item_into_mapping(va, item);
                 let view = CursorView::<C> {
                     cur_va: va as Vaddr,
                     mappings: old(owner)@.mappings,
                     phantom: PhantomData,
                 };
+                &&& old(owner)@.mappings.filter(|m: Mapping|
+                    old(self).0.va <= m.va_range.start < va) == Set::<Mapping>::empty()
+                &&& final(owner)@.mappings.filter(|m2: Mapping|
+                    va <= m2.va_range.start < final(self).0.va) == Set::<Mapping>::empty()
+                // Splits only affect the entry at va; entries before it are untouched.
+                &&& forall |m2: Mapping|
+                    #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
+                    && m2.va_range.start < va ==> old(owner)@.mappings.contains(m2)
+                &&& old(self).0.va <= va && (va as usize) < old(self).0.va + len
                 &&& final(owner)@.mappings == view.split_while_huge(m.page_size).mappings - set![m]
                 &&& view.split_while_huge(m.page_size).mappings.contains(m)
                 &&& m.page_size >= PAGE_SIZE
             },
-            res is Some && res->0 is StrayPageTable ==> {
-                let va = res->0->StrayPageTable_va;
-                let len_frag = res->0->StrayPageTable_len;
+            res matches Some(PageTableFrag::StrayPageTable { va, len: len_frag, num_frames, .. }) ==> {
                 let subtree = old(owner)@.mappings.filter(
                     |m: Mapping| va <= m.va_range.start < va + len_frag);
+                &&& old(owner)@.mappings.filter(|m: Mapping|
+                    old(self).0.va <= m.va_range.start < va) == Set::<Mapping>::empty()
+                &&& final(owner)@.mappings.filter(|m2: Mapping|
+                    va <= m2.va_range.start < final(self).0.va) == Set::<Mapping>::empty()
+                // Entries before the removed subtree are untouched.
+                &&& forall |m2: Mapping|
+                    #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
+                    && m2.va_range.start < va ==> old(owner)@.mappings.contains(m2)
+                &&& va >= old(self).0.va
+                &&& va + len_frag <= old(self).0.va + len
                 &&& final(owner)@.mappings == old(owner)@.mappings.difference(subtree)
-                &&& subtree.len() == (res->0->StrayPageTable_num_frames) as nat
+                &&& subtree.len() == num_frames as nat
             },
     )]
     #[verifier::spinoff_prover]
@@ -3388,21 +3364,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(owner).in_locked_range(),
             old(owner).cur_entry_owner().is_absent() ==> res is None,
             !old(owner).cur_entry_owner().is_absent() ==> res is Some,
-            res is Some && res->0 is Mapped ==> old(owner).cur_entry_owner().is_frame(),
-            res is Some && res->0 is Mapped ==> res->0->Mapped_va == old(self).0.va,
-            res is Some && res->0 is Mapped ==> {
-                let (pa, lvl, prop, _perm) = C::item_into_raw(res->0->Mapped_item);
+            res matches Some(PageTableFrag::Mapped { va, item }) ==> {
+                let (pa, lvl, prop, _perm) = C::item_into_raw(item);
+                &&& old(owner).cur_entry_owner().is_frame()
+                &&& va == old(self).0.va
                 &&& lvl == old(self).0.level
                 &&& pa == old(owner).cur_entry_owner().frame().mapped_pa
                 &&& prop == old(owner).cur_entry_owner().frame().prop
             },
-            res is Some && res->0 is StrayPageTable ==> {
-                &&& res->0->StrayPageTable_va == old(self).0.va
-                &&& res->0->StrayPageTable_len == page_size::<PagingConsts>(old(self).0.level)
+            res matches Some(PageTableFrag::StrayPageTable { va, len, num_frames, .. }) ==> {
+                &&& va == old(self).0.va
+                &&& len == page_size::<PagingConsts>(old(self).0.level)
+                &&& old(owner).cur_entry_owner().is_node()
+                &&& num_frames as nat == PageTableOwner(old(owner).cur_subtree())@.mappings.len()
             },
-            res is Some && res->0 is StrayPageTable ==> old(owner).cur_entry_owner().is_node(),
-            res is Some && res->0 is StrayPageTable ==> (res->0->StrayPageTable_num_frames) as nat
-                == PageTableOwner(old(owner).cur_subtree())@.mappings.len(),
             forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 (new_owner.value().is_absent() || idx != frame_to_index(
@@ -3417,7 +3392,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx) == old(regions).ref_count(idx),
             res is None ==> final(regions).slots == old(regions).slots,
-            res is Some && res->0 is Mapped && new_owner.value().is_absent() ==> forall|idx: int|
+            res matches Some(PageTableFrag::Mapped { .. }) && new_owner.value().is_absent() ==> forall|idx: int|
                 #![trigger final(regions).slot_owners[idx]]
                 final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
     )]
