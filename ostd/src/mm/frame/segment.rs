@@ -10,6 +10,7 @@ use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*
 use crate::specs::{
     arch::*,
     mm::frame::{
+        casts::*,
         frame_specs::FrameRawPerms,
         mapping::{frame_to_index, group_page_meta, index_to_meta},
         meta_owners::*,
@@ -107,23 +108,6 @@ proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Size
                 },
             ),
         }),
-{
-}
-
-/// Erasing a segment's metadata type is a valid transmute.
-///
-/// `Segment<M>` is a `Range<Paddr>` beside a `PhantomData<M>` and one tracked
-/// field, so erasing `M` leaves the range alone -- the same argument as
-/// [`axiom_segment_reparam`]'s, and the only route to its precondition.
-///
-/// Narrower than the frame pair: `AnyUFrameMeta` rather than `AnyFrameMeta`,
-/// because `USegment` is `Segment<dyn AnyUFrameMeta>` and that is the single
-/// erasure segments perform.
-#[cfg(feature = "dyn_supertrait")]
-#[verifier::external_body]
-proof fn axiom_segment_erase_transmutable<M: AnyUFrameMeta>(s: Segment<M>)
-    ensures
-        vstd_extra::transmute::can_transmute::<Segment<M>, Segment<dyn AnyUFrameMeta>>(s),
 {
 }
 
@@ -1407,27 +1391,6 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
                     == self.meta_id()
             }
     }
-}
-
-/// An untyped homogeneous segment may be viewed as a [`USegment`].
-///
-/// The one claim in the downcast that is not proved. Both sides are `dyn`, so this
-/// is not the sized erasure [`axiom_segment_erase_transmutable`] covers; here
-/// untypedness is a runtime fact, and the precondition is discharged by a read of
-/// the slot rather than assumed. Layout is not at issue --
-/// [`axiom_segment_reparam`] covers that -- so what is trusted is the metadata
-/// claim alone.
-///
-/// The `len() == 0` disjunct is not a weakening: an empty segment owns no frames,
-/// so there is no metadata to misinterpret.
-#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
-#[verifier::external_body]
-proof fn axiom_segment_untyped_transmutable(s: Segment<dyn AnyFrameMeta>)
-    requires
-        s.len() == 0 || s.is_untyped(),
-    ensures
-        vstd_extra::transmute::can_transmute::<Segment<dyn AnyFrameMeta>, USegment>(s),
-{
 }
 
 /// The erased-to-untyped segment downcast.

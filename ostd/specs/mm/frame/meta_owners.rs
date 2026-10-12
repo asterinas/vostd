@@ -293,51 +293,6 @@ pub tracked struct MetadataPerm {
     pub ghost meta_type_id: MetaTypeId,
 }
 
-/// How a permission is reinterpreted when a handle is reparameterized from
-/// metadata type `A` to metadata type `B`. Uninterpreted and axiomatized
-/// for individual pairs `A` and `B`.
-pub uninterp spec fn reparam_perm<A: ?Sized, B: ?Sized, P>(p: P) -> P;
-
-// ---------------------------------------------------------------------------
-// Effect of reparameterization on permissions
-// ---------------------------------------------------------------------------
-
-/// Erasing a sized metadata type leaves the permission alone.
-pub axiom fn axiom_reparam_perm_erase<M: AnyFrameMeta>(p: FracMetadataPerm)
-    ensures
-        reparam_perm::<M, dyn AnyFrameMeta, FracMetadataPerm>(p) == p,
-;
-
-/// Recovering a metadata type from an erased handle leaves the permission alone.
-pub axiom fn axiom_reparam_perm_recover<M: AnyFrameMeta>(p: FracMetadataPerm)
-    ensures
-        reparam_perm::<dyn AnyFrameMeta, M, FracMetadataPerm>(p) == p,
-;
-
-/// Reparameterizing between two sized metadata types also converts the permission.
-pub axiom fn axiom_reparam_perm_between<A: AnyFrameMeta, B: AnyFrameMeta>(p: MetadataPerm)
-    ensures
-        reparam_perm::<A, B, MetadataPerm>(p) == (MetadataPerm {
-            storage_perm: p.storage_perm,
-            vtable_ptr_perm: p.vtable_ptr_perm,
-            meta_type_id: recorded_meta_id::<B>(),
-        }),
-;
-
-/// Erasing an *untyped* metadata type leaves the permission alone.
-#[cfg(feature = "dyn_supertrait")]
-pub axiom fn axiom_reparam_perm_erase_untyped<M: AnyUFrameMeta>(p: Seq<FrameRawPerms>)
-    ensures
-        reparam_perm::<M, dyn AnyUFrameMeta, Seq<FrameRawPerms>>(p) == p,
-;
-
-/// Narrowing an erased handle to the untyped erasure leaves the permission alone.
-#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
-pub axiom fn axiom_reparam_perm_narrow_untyped(p: Seq<FrameRawPerms>)
-    ensures
-        reparam_perm::<dyn AnyFrameMeta, dyn AnyUFrameMeta, Seq<FrameRawPerms>>(p) == p,
-;
-
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;
 
 /// Fractional metadata permission.
