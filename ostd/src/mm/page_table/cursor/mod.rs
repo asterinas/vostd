@@ -43,8 +43,8 @@ use crate::specs::mm::{
 };
 
 use super::{
-    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
+    Child, ChildRef, Entry, EntryOwner, PageTable, PageTableConfig, PageTableError, PageTableGuard,
+    PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
 };
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::{

@@ -9,7 +9,7 @@ use crate::specs::{
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{node::entry_view::*, *},
+        page_table::*,
     },
 };
 

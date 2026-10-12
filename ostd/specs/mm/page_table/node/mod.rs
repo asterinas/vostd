@@ -1,5 +1,4 @@
 pub mod entry_owners;
-pub mod entry_view;
 pub mod owners;
 
 use vstd::prelude::*;
@@ -13,7 +12,6 @@ use crate::mm::{
 };
 use core::marker::PhantomData;
 pub use entry_owners::*;
-pub use entry_view::*;
 pub use owners::*;
 
 verus! {
