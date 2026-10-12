@@ -1573,11 +1573,11 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// - `self` must satisfy its invariant.
     /// ## Postconditions
     /// - The returned value equals [`Self::remain_spec`].
-    #[verus_spec(r =>
+    #[verus_spec(
         requires
             self.inv(),
-        ensures
-            r == self.remain_spec(),
+        returns
+            self.remain_spec(),
     )]
     #[verifier::when_used_as_spec(remain_spec)]
     pub fn remain(&self) -> usize {
@@ -1707,11 +1707,11 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     /// ## Postconditions
     /// - The returned value equals [`Self::avail_spec`].
     #[inline]
-    #[verus_spec(r =>
+    #[verus_spec(
         requires
             self.inv(),
-        ensures
-            r == self.avail_spec(),
+        returns
+            self.avail_spec(),
     )]
     #[verifier::when_used_as_spec(avail_spec)]
     pub fn avail(&self) -> usize {

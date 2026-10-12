@@ -139,7 +139,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         transmuted: UniqueFrame<M1>,
     ) -> bool {
         &&& transmuted.ptr.addr() == self.ptr.addr()
-        &&& transmuted._marker == PhantomData::<M1>
         &&& transmuted.tracked_slot_perm@ == self.tracked_slot_perm@
         &&& transmuted.tracked_metadata_perm@ == self.tracked_metadata_perm@
     }

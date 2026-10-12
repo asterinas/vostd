@@ -224,9 +224,10 @@ pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
     requires
         1 <= level <= C::NR_LEVELS() + 1,
     ensures
-        ret == page_size_spec::<C>(level),
         is_pow2(ret as int),
         ret >= C::BASE_PAGE_SIZE(),
+    returns
+        page_size_spec::<C>(level),
 {
     proof {
         let index_bits: usize = nr_subpage_per_huge::<C>().ilog2() as usize;
@@ -258,9 +259,9 @@ pub open spec fn nr_subpage_per_huge_spec<C: PagingConstsTrait>() -> usize {
 
 /// The number of sub pages in a huge page.
 #[verifier::when_used_as_spec(nr_subpage_per_huge_spec)]
-pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
-    ensures
-        res == nr_subpage_per_huge_spec::<C>(),
+pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> usize
+    returns
+        nr_subpage_per_huge_spec::<C>(),
 {
     proof {
         C::lemma_paging_consts_properties();

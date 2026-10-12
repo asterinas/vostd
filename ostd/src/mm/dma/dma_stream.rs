@@ -1237,9 +1237,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
 
             assert(reader_own.inv());
             assert(writer_own.inv());
-            assert((*writer_own).inv());
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
-            assert((*writer_own).mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
             assert(reader.remain_spec() >= len);

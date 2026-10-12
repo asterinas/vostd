@@ -477,9 +477,9 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized> Clone for DmaCoherent<M> {
-    #[verus_spec(r =>
-        ensures
-            r == self,
+    #[verus_spec(
+        returns
+            self,
     )]
     fn clone(&self) -> Self {
         DmaCoherent { inner: self.inner.clone() }

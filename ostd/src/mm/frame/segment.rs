@@ -311,7 +311,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 range.start <= range.start + i * PAGE_SIZE <= range.end,
                 range.end == range.start + addr_len * PAGE_SIZE,
                 addr_len == (range.end - range.start) / PAGE_SIZE as int,
-                i <= addr_len,
                 forall|paddr_in: Paddr|
                     (range.start + i * PAGE_SIZE <= paddr_in < range.end && paddr_in % PAGE_SIZE
                         == 0) ==> {
