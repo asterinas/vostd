@@ -165,26 +165,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub proof fn max_steps_partial_inv(self, other: Self, level: usize)
-        requires
-            self.inv(),
-            other.inv(),
-            self.level == other.level,
-            self.level <= level <= NR_LEVELS + 1,
-            forall|i: int|
-                #![trigger self.continuations[i].idx]
-                #![trigger other.continuations[i].idx]
-                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].idx
-                    == other.continuations[i].idx,
-        ensures
-            self.max_steps_partial(level) == other.max_steps_partial(level),
-        decreases NR_LEVELS + 1 - level,
-    {
-        if level <= NR_LEVELS {
-            self.max_steps_partial_inv(other, (level + 1) as usize);
-        }
-    }
-
     pub open spec fn push_level_owner(self, guard: PageTableGuard<'rcu, C>) -> Self {
         let cont = self.continuations[self.level - 1];
         let (child, cont) = cont.make_cont(

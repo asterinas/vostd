@@ -1308,7 +1308,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         );
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
-                        owner0.max_steps_partial_inv(*owner, owner.level as usize);
+                        owner0.max_steps_partial_eq(*owner, owner.level as usize);
                         owner.cur_entry_node_implies_level_gt_1();
                     }
 
