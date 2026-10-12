@@ -210,7 +210,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
         &&& self.frame_permission.frac() == 1
-        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()

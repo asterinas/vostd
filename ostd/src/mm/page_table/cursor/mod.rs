@@ -3126,7 +3126,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         hide(<MetaRegionOwners as Inv>::inv);
         hide(CursorContinuation::inv_children);
         hide(CursorOwner::map_full_tree);
-        hide(CursorOwner::map_only_children);
         hide(CursorOwner::nodes_locked);
         hide(TreeNode::inv);
         let find_result = #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]

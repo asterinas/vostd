@@ -31,10 +31,10 @@ use crate::specs::{
             lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
             lemma_page_size_ge_base, lemma_page_size_is_pow2_pte_index_bit_offset,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_kernel,
-            lemma_vaddr_range_spec_user, lemma_vaddr_upper_part_is_align_down, owners::*,
-            page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
-            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
-            vaddr_upper_part_spec,
+            lemma_vaddr_range_spec_user, lemma_vaddr_upper_part_is_align_down,
+            mappings_disjoint_vaddrs, mappings_well_formed, owners::*, page_table_vaddr_bits_spec,
+            pte_index_bit_offset_spec, pte_index_spec, vaddr_range_spec,
+            vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -865,17 +865,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= i < NR_LEVELS ==> { self.continuations[i].map_children(f) }
     }
 
-    pub open spec fn map_only_children(
-        self,
-        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
-    ) -> bool {
-        forall|i: int|
-            #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(f)
-    }
-
     pub open spec fn children_not_locked(self, guards: Guards) -> bool {
-        self.map_only_children(Self::node_unlocked(guards))
+        self.map_full_tree(Self::node_unlocked(guards))
     }
 
     pub proof fn lemma_children_not_locked_unroll(self, guards: Guards)
@@ -891,7 +882,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn only_current_locked(self, guards: Guards) -> bool {
-        self.map_only_children(
+        self.map_full_tree(
             Self::node_unlocked_except(guards, self.cur_entry_owner().node().slot_vaddr()),
         )
     }
@@ -1814,10 +1805,9 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping|
-            #![auto]
-            self.mappings.contains(m)
-                ==> m.inv()
+        &&& mappings_well_formed(
+            self.mappings,
+        )
         // Config-aware VA range: user page tables live in `[0, 2^47)`,
         // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
         // `vaddr_range_spec<C>` gives inclusive `(start, end_inclusive)`
@@ -1837,10 +1827,7 @@ impl<C: PageTableConfig> CursorView<C> {
     /// Mappings in the view are non-overlapping. This is a consequence of the
     /// page table tree structure: distinct paths map to disjoint VA ranges.
     pub open spec fn non_overlapping(self) -> bool {
-        forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings.contains(m) ==> self.mappings.contains(n) ==> m != n ==> m.va_range.end
-                <= n.va_range.start || n.va_range.end <= m.va_range.start
+        mappings_disjoint_vaddrs(self.mappings)
     }
 }
 
