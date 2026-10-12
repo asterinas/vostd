@@ -1355,7 +1355,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
 
         #[verus_spec(with
-            Tracked(&*frame_own) => Tracked(frame_metadata_perm)
+            => Tracked(frame_metadata_perm)
         )]
         let _ = frame.into_raw();
 

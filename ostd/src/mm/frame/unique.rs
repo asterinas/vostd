@@ -414,8 +414,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// Converts this frame into a raw physical address.
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
-                -> metadata_perms: Tracked<MetadataPerm>,
+            -> metadata_perms: Tracked<MetadataPerm>,
         requires
             self.inv(),
         ensures
