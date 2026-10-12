@@ -316,10 +316,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ==> final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt,
-            forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
-                    k,
-                ),
             forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx) == old(
@@ -333,17 +329,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(regions).slots == old(regions).slots,
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
-                &&& final(regions).slots == old(regions).slots
                 &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
             },
-            // When old child is absent and new child is not a node: slots values unchanged.
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
-                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
-                    == #[trigger] final(regions).slots[k],
             Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
     )]
     #[verifier::spinoff_prover]
@@ -1554,8 +1545,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     ==> final(regions).slot_owners[slot].paths_in_pt == old(
                     regions,
                 ).slot_owners[slot].paths_in_pt,
-            forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].ref_count()]
                 final(regions).ref_count(slot) == old(
@@ -1568,16 +1557,12 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 ),
             final(regions).slots == old(regions).slots,
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
-                &&& final(regions).slots == old(regions).slots
                 &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
             },
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
-                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
-                    == #[trigger] final(regions).slots[k],
             Entry::<C>::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
             *final(self) == *old(self),
     )]

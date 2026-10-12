@@ -1304,7 +1304,6 @@ impl<C: PageTableConfig> PageTable<C> {
             final(owner)@ is Some,
             final(owner)@->0.inv(),
             (final(owner)@->0).0.value().is_node(),
-            (final(owner)@->0).0.value().is_node(),
             r.root.ptr.addr() == (final(owner)@->0).0.value().node().slot_vaddr(),
             (final(owner)@->0).0.value().metaregion_sound(*final(regions)),
             final(regions).inv(),
@@ -1326,7 +1325,6 @@ impl<C: PageTableConfig> PageTable<C> {
                 i != crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
-            forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,

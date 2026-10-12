@@ -875,7 +875,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.inv(),
                 self.wf(*owner),
                 regions.inv(),
-                self.inv(),
                 old(owner)@.inv(),
                 owner.in_locked_range() || self.va >= end,
                 self.va >= old(self).va,
@@ -894,9 +893,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 old_owner_cur_va == old(self).va,
                 // Mapping preservation: if no split happened, mappings are unchanged.
                 !split_happened ==> owner@.mappings == old(owner)@.mappings,
-                !split_happened ==> owner@.mappings.filter(
-                    |m: Mapping| old(self).va <= m.va_range.start < self.va,
-                ) == Set::<Mapping>::empty(),
                 old(owner)@.mappings.filter(|m: Mapping| old(self).va <= m.va_range.start < self.va)
                     == Set::<Mapping>::empty(),
                 split_happened ==> owner.cur_entry_owner().is_frame(),
