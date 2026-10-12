@@ -60,24 +60,6 @@ use core::ops::Range;
 
 verus! {
 
-proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usize)
-    requires
-        align > 0,
-        start % align == 0,
-        len % align == 0,
-    ensures
-        (start + i * len) % align as int == 0,
-{
-    let a = align as int;
-    let q_start = start as int / a;
-    let q_len = len as int / a;
-    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
-    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
-    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
-    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
-    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i * q_len, a);
-}
-
 /// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a
 /// multiple of `align_of::<T>()`.
 pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
@@ -491,7 +473,17 @@ impl<'a> VmWriter<'a, Infallible> {
             cursor_i = cursor_i.wrapping_add(len);
             i = i + 1;
             proof {
-                lemma_add_aligned_stride(start, i, len, core::mem::align_of::<T>());
+                assert((start + i * len) % core::mem::align_of::<T>() as int == 0) by {
+                    let a = core::mem::align_of::<T>() as int;
+                    let q_start = start as int / a;
+                    let q_len = len as int / a;
+                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
+                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
+                    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a)
+                        by (nonlinear_arith);
+                    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
+                    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i * q_len, a);
+                }
             }
         }
 
