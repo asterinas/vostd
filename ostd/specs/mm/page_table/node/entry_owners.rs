@@ -748,10 +748,8 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.parent_level == self.node().level() + 1
         }
         &&& self.is_frame() ==> {
-            // Architectural constraint: frames only exist at PT levels that the
-            // ISA actually supports as leaves (4K, 2M, 1G on x86). `parent_level
-            // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
-            // permits — and `Mapping::inv` would reject its page_size.
+            // The current mapping model supports 4K, 2M and 1G leaves. A level-4
+            // leaf spans 512 GiB, exceeding the modeled physical-address bound.
             &&& 1 <= self.parent_level < NR_LEVELS
             &&& valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size::<PagingConsts>(self.parent_level) == 0

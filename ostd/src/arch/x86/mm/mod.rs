@@ -156,6 +156,7 @@ impl PagingConstsTrait for PagingConsts {
     {
         assert(Self::BASE_PAGE_SIZE() == PAGE_SIZE) by (compute_only);
         assert(Self::NR_LEVELS() == NR_LEVELS as PagingLevel) by (compute_only);
+        assert(Self::HIGHEST_TRANSLATION_LEVEL() == HIGHEST_TRANSLATION_LEVEL) by (compute_only);
         assert(Self::PTE_SIZE() == PTE_SIZE) by (compute_only);
         assert(Self::ADDRESS_WIDTH() == ADDRESS_WIDTH) by (compute_only);
         lemma_pow2_is_pow2_to64();

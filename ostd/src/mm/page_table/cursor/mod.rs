@@ -1668,7 +1668,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 parent,
             ).remove(owner.level - 1));
             owner.level = (owner.level + 1) as u8;
-            if owner.level >= owner.guard_level {
+            if owner.level > owner.guard_level {
                 owner.popped_too_high = true;
             }
             guard
@@ -2318,7 +2318,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            level < old(self).0.guard_level,
+            level <= old(self).0.guard_level,
             level >= 1,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -2368,7 +2368,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.0.inv(),
                 self.0.guard_level == guard_level,
                 self.0.barrier_va == barrier_va,
-                level < self.0.guard_level,
+                level <= self.0.guard_level,
                 level >= 1,
                 owner.in_locked_range(),
                 owner.children_not_locked(*guards),
@@ -2702,8 +2702,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
-    /// - **Safety**: the cursor must be within the locked range, below the
-    ///   guard level, and before the barrier end ([`Self::map_cursor_requires`]).
+    /// - **Safety**: the mapped range must stay within the locked range and
+    ///   end no later than the barrier end ([`Self::map_panic_conditions`]).
     /// - **Correctness**: the entry owner must be valid and the item's level must
     ///   fit within the guard level ([`Self::item_wf`]).
     /// - **Safety**: the item's metadata slot must exist in the region
@@ -2715,7 +2715,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// - **Correctness**: the abstract cursor view is updated by exactly the
     ///   `map_spec` operation — a single mapping is inserted at the current VA.
     /// - **Correctness**: if the cursor is still before the barrier end, it
-    ///   remains ready for further map operations ([`Self::map_cursor_requires`]).
     /// - **Correctness**: if the old entry was absent, the result is `Ok(())`.
     /// - **Correctness**: `paths_in_pt` is preserved for all metadata slots
     ///   other than the newly mapped frame.
@@ -2788,21 +2787,37 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             C::lemma_paging_consts_properties();
             C::axiom_current_paging_consts_hardcoded();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
+            lemma_page_size_spec_values();
         }
         assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
-        assert!(level < self.0.guard_level);
-        if !C::TOP_LEVEL_CAN_UNMAP() {
-            assert!(level < NR_LEVELS as u8);
-        }
         let size = page_size::<C>(level);
         assert_eq!(self.0.va % size, 0);
 
         proof {
             assert(owner.in_locked_range());
-            owner.lemma_va_plus_page_size_no_overflow(level);
+            owner.lemma_locked_range_vaddr_prefix_match(owner.va);
+            lemma_inc_slot_indices::<C>(owner.va, NR_LEVELS as PagingLevel);
+            lemma_page_size_monotone::<C>(level, NR_LEVELS as PagingLevel);
         }
         let end = self.0.va + size;
         assert!(end <= self.0.barrier_va.end);
+
+        proof {
+            owner.lemma_locked_range_span();
+            if level > self.0.guard_level {
+                let gl = self.0.guard_level;
+                lemma_page_size_next::<C>(gl);
+                lemma_page_size_monotone::<C>((gl + 1) as PagingLevel, level);
+                assert(page_size::<C>(gl) < size) by (nonlinear_arith)
+                    requires
+                        0 < page_size::<C>(gl),
+                        page_size::<C>((gl + 1) as PagingLevel) == page_size::<C>(gl) * NR_ENTRIES,
+                        page_size::<C>((gl + 1) as PagingLevel) <= size,
+                        NR_ENTRIES > 1,
+                ;
+            }
+            assert(level <= self.0.guard_level);
+        }
 
         assert(!self.map_panic_conditions(item));
         assert(!old(self).map_panic_conditions(item));

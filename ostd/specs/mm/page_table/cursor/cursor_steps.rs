@@ -550,7 +550,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1,
         );
         let new_level = (self.level + 1) as u8;
-        let popped_too_high = if new_level >= self.guard_level {
+        let popped_too_high = if new_level > self.guard_level {
             true
         } else {
             false

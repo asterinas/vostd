@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use crate::specs::{
-    arch::{NR_LEVELS, PAGE_SIZE},
+    arch::PAGE_SIZE,
     mm::{
         frame::{
             mapping::frame_to_index,
@@ -136,18 +136,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
 // ─── CursorMut specs ──────────────────────────────────────────────────────────
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
-    // TODO: trace the `level >= guard_level` panic to its actual location in `pop_level`
-    // (unwrap of None path entry). The lock treatment of the invariant has now been
-    // fixed (`Cursor::wf` and `CursorOwner::nodes_locked` are gated on `guard_level`
-    // rather than hardcoding `NR_LEVELS`, so `path[i]`/continuations above
-    // `guard_level` are unlocked/`None`), which is the prerequisite for expressing
-    // the `level >= guard_level` pop as a precondition violation. What remains is
-    // routing that `path[level-1] is None` fact into `pop_level`'s panic precondition.
+    /// Runtime checks for mapping an item, matching the source's range and alignment checks.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.0.va >= self.0.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
-        ||| C::item_into_raw(item).1 >= self.0.guard_level
-        ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
         ||| self.0.va % page_size::<PagingConsts>(C::item_into_raw(item).1) != 0
         ||| self.0.va + page_size::<PagingConsts>(C::item_into_raw(item).1) > self.0.barrier_va.end
     }

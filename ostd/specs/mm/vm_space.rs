@@ -713,15 +713,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
-    pub open spec fn map_cursor_requires(
-        self,
-        cursor_owner: CursorOwner<'a, UserPtConfig>,
-    ) -> bool {
-        &&& cursor_owner.in_locked_range()
-        &&& self.pt_cursor.0.level < self.pt_cursor.0.guard_level
-        &&& self.pt_cursor.0.va < self.pt_cursor.0.barrier_va.end
-    }
-
     pub open spec fn item_wf(
         self,
         frame: UFrame,
