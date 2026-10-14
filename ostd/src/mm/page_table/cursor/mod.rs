@@ -2714,7 +2714,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// - **Safety Invariants**: the global safety invariants hold after the call.
     /// - **Correctness**: the abstract cursor view is updated by exactly the
     ///   `map_spec` operation — a single mapping is inserted at the current VA.
-    /// - **Correctness**: if the cursor is still before the barrier end, it
     /// - **Correctness**: if the old entry was absent, the result is `Ok(())`.
     /// - **Correctness**: `paths_in_pt` is preserved for all metadata slots
     ///   other than the newly mapped frame.

@@ -163,6 +163,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
             0 < Self::NR_LEVELS() < PagingLevel::MAX,
+            1 <= Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS(),
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
             0 < Self::ADDRESS_WIDTH() < usize::BITS,
