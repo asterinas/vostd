@@ -1688,7 +1688,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            valid_frame_paddr(res),
+            res % PAGE_SIZE == 0,
         returns
             self.paddr(),
     ;

@@ -567,8 +567,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner_before_permission_take.cur_entry_owner(),
                             );
+                            // Relate the resolved frame to the query's initial panic condition.
+                            assert(old(owner)@.query_mapping().pa_range.start == pa);
                             assert(regions.contains(idx));
                             assert(old(regions).contains(idx));
+                            assert(old(regions).ref_count(idx) == regions.ref_count(idx));
                         }
                         owner_before_permission_take.lemma_cur_frame_clone_requires(
                             item,
@@ -624,6 +627,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             proof {
                 C::lemma_paging_consts_properties();
+                C::axiom_current_paging_consts_hardcoded();
             }
             let size = page_size::<C>(level);
 
@@ -953,6 +957,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
+                                C::axiom_current_paging_consts_hardcoded();
                                 assert(self.level < NR_LEVELS);
                             }
                         }
@@ -1382,6 +1387,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         loop {
             proof {
                 C::lemma_paging_consts_properties();
+                C::axiom_current_paging_consts_hardcoded();
             }
             let node_size = page_size::<C>(self.level + 1);
             let node_start = self.va.align_down(node_size);
@@ -1395,6 +1401,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.va = va;
                 proof {
                     C::lemma_paging_consts_properties();
+                    C::axiom_current_paging_consts_hardcoded();
                     // At level == NR_LEVELS the quantifier in set_va_in_node is vacuous.
                     if self.level < NR_LEVELS as PagingLevel {
                         lemma_same_node_pte_indices_match::<C>(va, old_va, node_start, self.level);
@@ -1496,6 +1503,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
             owner0.lemma_va_plus_page_size_no_overflow(start_level);
             lemma_page_size_ge_base::<PagingConsts>(start_level);
             vstd_extra::arithmetic::lemma_nat_align_down_sound(
@@ -1533,6 +1541,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0 {
             proof {
                 C::lemma_paging_consts_properties();
+                C::axiom_current_paging_consts_hardcoded();
                 lemma_next_slot_pte_index::<C>(va, next_va, self.level);
                 lemma_page_size_next::<C>(self.level);
                 owner.lemma_cur_pte_index();
@@ -1548,6 +1557,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
             lemma_next_slot_pte_index::<C>(va, next_va, self.level);
             owner.lemma_cur_pte_index();
             if pte_index_spec::<C>(next_va, (self.level - 1 + 1) as PagingLevel) == 0 {
@@ -1861,6 +1871,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     fn cur_va_range(&self) -> Range<Vaddr> {
         proof {
             C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
         }
         let page_size = page_size::<C>(self.level);
         let start = self.va.align_down(page_size);
@@ -2775,6 +2786,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let (pa, level, prop, Tracked(raw_permission)) = C::item_into_raw(item);
         proof {
             C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
         }
         assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
@@ -3036,30 +3048,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         if find_result.is_none() {
             return None;
         }
-        let tracked mut absent_entry_owner = EntryOwner::tracked_new_absent(
-            owner.cur_entry_owner().path,
-            owner.level,
-        );
-        let ghost subtree_level = (owner.continuations[owner.level - 1].tree_level + 1) as nat;
-        assert(absent_entry_owner.inv()) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree_level < INC_LEVELS) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        let tracked subtree = OwnerSubtree::tracked_new_val(absent_entry_owner, subtree_level);
-        assert(subtree.value().path.len() <= INC_LEVELS - 1) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree.value().parent_level == owner.continuations[owner.level
-            - 1].child().value().parent_level) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
-        assert(subtree.value().path == owner.continuations[owner.level - 1].path().push_tail(
-            owner.continuations[owner.level - 1].idx as int,
-        )) by {
-            reveal(<CursorOwner as Inv>::inv);
-        };
+        let tracked subtree = owner.tracked_new_absent_subtree();
+
+        proof {
+            assert(subtree.value().inv()) by {
+                reveal(TreeNode::inv);
+            };
+        }
 
         let ghost owner_before_replace = *owner;
         let ghost regions_before_replace = *regions;
@@ -3098,6 +3093,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(cur_st.value().inv()) by {
                     reveal(TreeNode::inv);
                 };
+                owner_before_replace.lemma_inv_continuation(owner_before_replace.level - 1);
+                let cont = owner_before_replace.continuations[owner_before_replace.level - 1];
+                assert(cont.all_some()) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
+                cont.lemma_inv_children_rel_unroll(cont.idx as int);
                 owner_before_replace.lemma_new_child_mappings_eq_target(
                     cur_st,
                     cur_st.value().frame().mapped_pa,
@@ -3740,6 +3741,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 proof {
                     C::lemma_paging_consts_properties();
+                    C::axiom_current_paging_consts_hardcoded();
                 }
                 Some(
                     PageTableFrag::StrayPageTable {

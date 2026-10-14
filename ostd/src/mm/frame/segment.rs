@@ -1027,6 +1027,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             if paddr >= self.range.end {
                 break;
             }
+            proof {
+                assert(valid_frame_paddr(paddr));
+            }
             let tracked perm = raw_perms.tracked_pop_front();
             let frame = unsafe {
                 #[verus_spec(with Tracked(perm))]

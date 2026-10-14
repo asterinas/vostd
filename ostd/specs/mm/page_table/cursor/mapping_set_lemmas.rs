@@ -299,6 +299,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_vaddr_upper_part_is_align_down::<C>(self.cur_va());
         let cont = self.continuations[lvl];
         let child_path = cont.path().push_tail(cont.idx as int);

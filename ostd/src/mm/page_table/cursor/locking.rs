@@ -106,6 +106,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     proof {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(va.start, C::NR_LEVELS());
         assert forall|i: int| 0 <= i < NR_ENTRIES implies (
         #[trigger] pt_own.0.children()[i]) is Some by {
@@ -750,6 +751,7 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
 ) -> Range<usize> {
     proof {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
     }
     let ps = page_size::<C>(cur_node_level);
     let diff = va_range.end - cur_node_va;

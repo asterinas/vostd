@@ -1,7 +1,7 @@
 use vstd::{
     arithmetic::{
         div_mod::lemma_fundamental_div_mod,
-        mul::{lemma_mul_inequality, lemma_mul_is_distributive_sub},
+        mul::{lemma_mul_inequality, lemma_mul_is_commutative, lemma_mul_is_distributive_sub},
         power2::{lemma_pow2_adds, lemma_pow2_pos, pow2},
     },
     bits::lemma_usize_pow2_no_overflow,
@@ -32,9 +32,16 @@ pub proof fn lemma_page_size_is_pow2_pte_index_bit_offset<C: PagingConstsTrait>(
 {
     C::lemma_paging_consts_properties();
     let bits = nr_pte_index_bits_spec::<C>();
+    assert(usize::BITS <= usize::MAX) by (compute_only);
     lemma_usize_is_pow2_is_ilog2_pow2(C::BASE_PAGE_SIZE());
     lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
+    assert(bits == (C::BASE_PAGE_SIZE() / C::PTE_SIZE()).ilog2());
     lemma_mul_inequality(level - 1, C::NR_LEVELS() as int, bits as int);
+    lemma_mul_is_commutative(level - 1, bits as int);
+    lemma_mul_is_commutative(C::NR_LEVELS() as int, bits as int);
+    assert(C::BASE_PAGE_SIZE().ilog2() + bits * (level - 1) <= C::ADDRESS_WIDTH());
+    assert(pte_index_bit_offset_spec::<C>(level) == C::BASE_PAGE_SIZE().ilog2() + bits * (level
+        - 1));
     lemma_pow2_adds(C::BASE_PAGE_SIZE().ilog2() as nat, (bits * (level - 1)) as nat);
     lemma_usize_pow2_no_overflow(pte_index_bit_offset_spec::<C>(level) as nat);
 }
