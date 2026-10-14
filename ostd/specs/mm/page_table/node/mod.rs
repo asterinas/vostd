@@ -1,13 +1,21 @@
 pub mod entry_owners;
+pub mod metadata_permissions;
 pub mod owners;
 
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
+use vstd_extra::{cast_ptr::Repr, drop_tracking::*, ownership::Inv};
 
-use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
+use crate::specs::mm::frame::{
+    frame_specs::FrameRawPerms,
+    mapping::frame_to_index,
+    meta_owners::{MetaSlotStorage, StoredPageTablePageMeta},
+    meta_region_owners::MetaRegionOwners,
+};
 
 use crate::mm::{
+    Paddr,
     frame::Frame,
+    frame::meta::{REF_COUNT_UNUSED, mapping::meta_to_frame},
     page_table::{PageTableConfig, PageTableGuard, PageTablePageMeta},
 };
 use core::marker::PhantomData;
@@ -15,6 +23,38 @@ pub use entry_owners::*;
 pub use owners::*;
 
 verus! {
+
+/// Distributed counts owned by raw page-table entries, not structural owners
+/// or the metadata-region authority. Live frames keep their counts in `Frame`.
+pub type RawNodeMetadataPerms = Map<Paddr, FrameRawPerms>;
+pub type NodeMetadataPartition<'a> = metadata_permissions::MetadataPermissionPartition<
+    'a, Paddr, FrameRawPerms,
+>;
+pub type NodeMetadataLoans<'a> = metadata_permissions::MetadataPermissionLoans<
+    'a, Paddr, FrameRawPerms,
+>;
+pub type NodeMetadataLoan<'a> = metadata_permissions::MetadataPermissionLoan<
+    'a, Paddr, FrameRawPerms,
+>;
+
+/// Every stored count refers to an allocated raw page-table node. In
+/// particular, an allocator's UNUSED slot cannot already occur in this map.
+pub open spec fn raw_node_metadata_wf(
+    permissions: RawNodeMetadataPerms,
+    regions: MetaRegionOwners,
+) -> bool {
+    forall|paddr: Paddr| #[trigger] permissions.contains_key(paddr) ==> {
+        let raw = permissions[paddr];
+        let idx = frame_to_index(paddr);
+        &&& raw.inv()
+        &&& paddr == meta_to_frame(raw.slot_vaddr())
+        &&& regions.contains(idx)
+        &&& regions.ref_count(idx) != REF_COUNT_UNUSED
+        &&& raw.slot_perm == regions.slots[idx]
+        &&& raw.metadata_perm.id() == regions.slot_owners[idx].metadata_perm.id()
+        &&& regions.slot_owners[idx].usage is PageTable
+    }
+}
 
 pub tracked struct Guards {
     /// The set of node addresses that are currently guarded (locked).

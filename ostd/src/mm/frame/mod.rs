@@ -452,8 +452,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.inv(),
         ensures
             res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inv(),
+            res.inner@.tracked_slot_perm@ == self.tracked_slot_perm@,
+            **res.tracked_metadata_perm == self.frac_metadata_perm(),
     )]
-    pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
+    pub fn borrow<'a>(&'a self) -> FrameRef<'a, M> {
         let tracked slot_perm = *self.tracked_slot_perm.borrow();
         let tracked metadata_perm = self.tracked_metadata_perm.borrow().tracked_borrow();
         // SAFETY: Both the lifetime and the type matches `self`.
@@ -463,12 +466,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         }
     }
 
-    /// Borrows a frame whose owning handle is represented by an external
-    /// counting permission, as is the case for page-table nodes stored raw in
-    /// PTEs.
+    /// Borrows a frame using the counted token held by its handle or by the
+    /// independent raw-PTE permission store.
     #[verus_spec(res =>
         with
-            Tracked(frame_permission): Tracked<&FracMetadataPerm>,
+            Tracked(frame_permission): Tracked<&'a FracMetadataPerm>,
             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             self.ptr_inv(),
@@ -481,6 +483,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             ),
         ensures
             res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inv(),
+            **res.tracked_metadata_perm == *frame_permission,
             res.inner@.ptr_inv(),
             res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
             res.inner@.tracked_metadata_perm@ is None,
@@ -523,6 +527,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         ensures
             r == self.start_paddr_spec(),
             raw_permission@.inv(),
+            raw_permission@.slot_perm == self.tracked_slot_perm@,
+            raw_permission@.metadata_perm == self.frac_metadata_perm(),
     )]
     pub(in crate::mm) fn into_raw(mut self) -> Paddr {
         broadcast use group_page_meta;

@@ -280,23 +280,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    /// The frame's `is_tracked` flag is pinned to its paddr's range membership:
-    /// tracked frames map regular RAM (non-MMIO paddrs); untracked frames map
-    /// MMIO. Combined with `axiom_mmio_usage_iff_mmio_paddr`, this lets proofs
-    /// translate between the derived frame trackedness and `usage == MMIO`
-    /// on the corresponding meta slot.
-    pub broadcast axiom fn axiom_frame_is_tracked_iff_not_mmio(entry: Self)
-        requires
-            entry.is_frame(),
-            entry.inv(),
-        ensures
-            #[trigger] entry.frame_is_tracked()
-                != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
-    ;
-
-    /// Creates a ghost entry owner for mapping an untracked (device memory) frame.
-    /// Unlike `new_frame`, this does not consume a slot permission from the meta region,
-    /// since device memory PAs are outside the tracked frame allocator.
+    /// Creates a ghost entry owner for an untracked physical mapping.
+    /// It consumes no counted metadata permission, whether the physical
+    /// address belongs to ordinary RAM or MMIO.
     /// The actual mapping correctness is guaranteed by the caller's `unsafe` contract.
     ///
     /// The `requires` reflect properties established by `collect_largest_pages` and the page-table
@@ -504,8 +490,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
     ///
     /// When a frame at this entry has `parent_level > 1`, it is a huge page covering
     /// `page_size(parent_level)` bytes. Every 4KB sub-page within this range (excluding
-    /// the j = 0 case which coincides with the frame's own slot) must be allocated
-    /// (in the free pool) with `rc != UNUSED`.
+    /// the j = 0 case which coincides with the frame's own slot) must have a
+    /// metadata slot. Count constraints apply only to tracked mappings.
     ///
     /// The fine-grained form (over `j * PAGE_SIZE` rather than `j * page_size(L-1)`) is
     /// what enables the recursive split case in `split_if_mapped_huge`: when splitting a
@@ -552,16 +538,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots[idx].addr() == index_to_meta(idx)
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
-            &&& regions.slot_owners[idx].usage !is PageTable
-            // Tracked vs MMIO discriminator is the slot's `usage`. MMIO slots
-            // stay in the free pool with `rc == UNUSED`; tracked slots have
-            // `rc > 0`. The slot's `usage == MMIO` is pinned by the paddr's
-            // range membership via `axiom_mmio_usage_iff_mmio_paddr`.
-            &&& regions.slot_owners[idx].usage !is MMIO ==> {
-                // A mapped (tracked) frame is SHARED.
+            // Raw physical mappings do not own allocator references, even
+            // when they map ordinary RAM rather than MMIO.
+            &&& self.frame_is_tracked() ==> {
+                &&& regions.slot_owners[idx].usage !is PageTable
                 &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
+                &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             }
-            &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             &&& self.frame_sub_pages_valid(regions)
             &&& C::perm_well_formed_with_region(
                 self.frame().mapped_pa,
@@ -606,9 +589,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    /// Only owning entries exclude another entry's metadata slot; a raw
+    /// physical mapping can alias that address without owning its metadata.
     pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
-        self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
-            ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
+        !(self.is_frame() && !self.frame_is_tracked()) ==> {
+            self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
+                ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
+        }
     }
 
     /// `metaregion_sound` transfers when `slot_owners` matches and `slots` is a superset.

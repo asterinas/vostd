@@ -316,6 +316,12 @@ impl<C: PageTableConfig> CursorView<C> {
             } else {
             }
         };
+        assert(m.page_size % new_size == 0) by {
+            if m.page_size == 2097152 {
+            } else {
+                assert(m.page_size == 1073741824);
+            }
+        };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         self.split_if_mapped_huge_spec(new_size).split_while_huge_compose(s1, s2);

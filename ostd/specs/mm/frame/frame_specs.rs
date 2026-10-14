@@ -53,6 +53,15 @@ impl FrameRawPerms {
     pub open spec fn slot_vaddr(self) -> Vaddr {
         self.slot_perm.pptr().addr()
     }
+
+    /// Lends the distributed count without taking another reference or
+    /// borrowing any recursive page-table structure.
+    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> (tracked permission: &FracMetadataPerm)
+        returns
+            self.metadata_perm,
+    {
+        &self.metadata_perm
+    }
 }
 
 impl Inv for FrameRawPerms {

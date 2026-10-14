@@ -15,7 +15,7 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::frame_to_index,
-            meta_owners::{MetaSlotStorage, PageUsage, is_mmio_paddr},
+            meta_owners::{MetaSlotStorage, PageUsage},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
@@ -231,6 +231,8 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
         final(kernel_owner)@->0.inv(),
         (final(kernel_owner)@->0).0.value().is_node(),
         res.root.ptr.addr() == (final(kernel_owner)@->0).0.value().node().slot_vaddr(),
+        res.root.inv(),
+        (final(kernel_owner)@->0).0.value().node().permission_matches(res.root.frac_metadata_perm()),
         old(kernel_owner)@ is Some ==> final(kernel_owner)@ == old(kernel_owner)@,
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
             (final(kernel_owner)@->0).0.value().node(),
@@ -358,24 +360,22 @@ impl KVirtArea {
     ///  - `addr` is outside the area's range (the diverging `assert!` at
     ///    the top), or
     ///  - the kernel-page-table leaf at `addr.align_down(PAGE_SIZE)` is a
-    ///    **tracked** frame (non-MMIO) and *that specific slot* is at
+    ///    **tracked** frame (its owner carries a permission) and that slot is at
     ///    `REF_COUNT_MAX`, so the inner `Cursor::query`'s clone would
-    ///    overflow. The leaf is resolved via `owner.cursor_view_at(addr)`,
-    ///    which exactly matches the inner cursor's `query_panic_condition`
-    ///    slot — bridged through `lock_range`'s new Frame-slot
-    ///    preservation ensures (`slot.usage matches PageUsage::Frame ==>
-    ///    refcount preserved exactly`).
+    ///    overflow. `query_leaf` retains the actual leaf permission; a raw
+    ///    physical mapping does not clone a counted frame, even in RAM.
     pub open spec fn query_panic_condition(
         self,
         owner: KVirtAreaOwner,
         addr: Vaddr,
         regions: MetaRegionOwners,
     ) -> bool {
-        let v = owner.cursor_view_at(addr);
-        let pa = v.query_mapping().pa_range.start;
-        let idx = frame_to_index(pa);
         ||| !(self.range.start <= addr < self.range.end)
-        ||| (v.present() && !is_mmio_paddr(pa) && regions.ref_count(idx) >= REF_COUNT_MAX)
+        ||| owner.pt_owner.query_leaf(addr) matches Some(entry) && {
+            &&& entry.is_frame()
+            &&& entry.frame_is_tracked()
+            &&& regions.ref_count(frame_to_index(entry.frame().mapped_pa)) >= REF_COUNT_MAX
+        }
     }
 
     pub fn start(&self) -> Vaddr
@@ -461,6 +461,7 @@ impl KVirtArea {
              Tracked(entry_owners): Tracked<&mut Map<Paddr, EntryOwner<KernelPtConfig>>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
+             Tracked(metadata): Tracked<NodeMetadataLoans<'a>>,
         requires
             Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())
                 ==> may_panic(),
@@ -469,6 +470,9 @@ impl KVirtArea {
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
+            metadata.remainder is Some,
+            owner.pt_owner.raw_metadata_covers(metadata.permissions()),
+            raw_node_metadata_wf(metadata.permissions(), *old(regions)),
             // For each frame, the map contains an appropriate owner keyed by
             // that frame's paddr. Duplicates in `frames` share the same owner.
             forall|i: int|
@@ -519,6 +523,7 @@ impl KVirtArea {
             // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
             // tightened bound still satisfies lemma_kernel_range_valid's precondition.
             if cursor_range.start < cursor_range.end {
+                assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
                 lemma_kernel_range_valid(cursor_range);
             }
         }
@@ -534,7 +539,7 @@ impl KVirtArea {
 
         let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
-        #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
+        #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards), Tracked(metadata))]
         let cursor_res = page_table.cursor_mut(preempt_guard, &cursor_range);
 
         assert!(cursor_res.is_ok());
@@ -558,7 +563,7 @@ impl KVirtArea {
                 0 <= it.index() <= frames.len(),
                 cursor.0.barrier_va.start == range.start + map_offset,
                 cursor.0.barrier_va.end == range.end,
-                cursor.0.guard_level == NR_LEVELS as u8,
+                1 <= cursor.0.guard_level <= NR_LEVELS,
                 cursor.0.va <= cursor.0.barrier_va.end,
                 range.end - range.start == area_size,
                 cursor.0.va == range.start + map_offset + it.index() * PAGE_SIZE,
@@ -753,6 +758,7 @@ impl KVirtArea {
              Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
+             Tracked(metadata): Tracked<NodeMetadataLoans<'a>>,
         requires
     // **Precise form** (post Phases A/B/C). Bounds are caller-
     // provable; OOM uses the implication form.
@@ -763,6 +769,9 @@ impl KVirtArea {
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
+            metadata.remainder is Some,
+            owner.pt_owner.raw_metadata_covers(metadata.permissions()),
+            raw_node_metadata_wf(metadata.permissions(), *old(regions)),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             forall|pa: Paddr, level: PagingLevel|
                 #[trigger]
@@ -814,7 +823,7 @@ impl KVirtArea {
             // Save regions state before cursor_mut so postcondition trigger can fire.
             let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
-            #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards), Tracked(metadata))]
             let cursor_res = page_table.cursor_mut(preempt_guard, &va_range);
 
             let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
@@ -864,7 +873,7 @@ impl KVirtArea {
                     cursor.0.barrier_va.end == va_range.start + len,
                     // `pa_range.end == pa_range.start + len` so pa + page_size(level) stays bounded.
                     pa_range.end as nat == pa_range.start as nat + len as nat,
-                    cursor.0.guard_level == NR_LEVELS as u8,
+                    1 <= cursor.0.guard_level <= NR_LEVELS,
                     pa_range.end <= MAX_PADDR,
                     // Slot facts for the remaining PAs are preserved across iterations.
                     // Initially established by the function precondition; each iteration's

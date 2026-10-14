@@ -27,7 +27,7 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
+            Guards, Mapping, NodeMetadataLoans, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
             lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
             lemma_page_size_ge_base, lemma_page_size_is_pow2_pte_index_bit_offset,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
@@ -627,6 +627,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 }
 
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
+    pub metadata: NodeMetadataLoans<'rcu>,
     pub ghost level: PagingLevel,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
     pub ghost va: Vaddr,
@@ -637,6 +638,7 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
+        &&& self.metadata.remainder is Some
         &&& self.va % C::BASE_PAGE_SIZE() == 0
         &&& 1 <= self.level <= NR_LEVELS
         &&& 1 <= self.guard_level
@@ -867,6 +869,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.map_full_tree(Self::node_unlocked(guards))
     }
 
+    /// Applies a predicate to both the movable subtrees and the decomposed
+    /// continuation entries, so descent cannot lose a raw-node obligation.
+    pub open spec fn tree_satisfies(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    ) -> bool {
+        &&& self.map_full_tree(f)
+        &&& forall|i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS ==>
+                f(self.continuations[i].entry_own, self.continuations[i].path())
+    }
+
+    /// Covers all raw nodes, including nodes temporarily decomposed into
+    /// continuations. The root Frame keeps its own counted token.
+    pub open spec fn raw_metadata_covers(self) -> bool {
+        self.tree_satisfies(PageTableOwner::<C>::raw_metadata_pred(
+            self.metadata.permissions(), self.continuations[NR_LEVELS - 1].path(),
+        ))
+    }
+
     pub proof fn lemma_children_not_locked_unroll(self, guards: Guards)
         requires
             self.children_not_locked(guards),
@@ -1060,7 +1082,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Proves `clone_requires` for the item reconstructed from the current frame entry.
     /// Uses `metaregion_sound` and the config's `lemma_clone_requires_concrete`,
     /// allowing ref-count saturation when `may_panic()` holds. The proof still
-    /// relies on the existing MMIO-address and frame-trackedness axioms.
+    /// uses the counted permission to distinguish tracked from raw mappings.
     pub proof fn lemma_cur_frame_clone_requires(
         self,
         item: C::Item,
@@ -1091,7 +1113,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
-        EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
         let cont = self.continuations[self.level - 1];
         cont.lemma_map_children_unroll(
             PageTableOwner::<C>::metaregion_sound_pred(regions),
@@ -1721,10 +1742,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         owner_subtree: OwnerSubtree<C>,
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
+        metadata: NodeMetadataLoans<'rcu>,
     ) -> Self {
         let va = (C::LEADING_BITS_spec() as int * pow2(page_table_vaddr_bits_spec::<C>() as nat)
             + idx * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat)) as Vaddr;
         Self {
+            metadata,
             level: C::NR_LEVELS(),
             continuations: Map::empty().insert(
                 C::NR_LEVELS() - 1,
@@ -1741,9 +1764,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
+        tracked metadata: NodeMetadataLoans<'rcu>,
     ) -> tracked Self
         returns
-            Self::new(owner_subtree, idx, guard),
+            Self::new(owner_subtree, idx, guard, metadata),
     {
         let ghost va = (C::LEADING_BITS_spec() as int * pow2(
             page_table_vaddr_bits_spec::<C>() as nat,
@@ -1752,6 +1776,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let tracked mut continuations = Map::tracked_empty();
         continuations.tracked_insert(C::NR_LEVELS() - 1, continuation);
         Self {
+            metadata,
             level: C::NR_LEVELS(),
             continuations,
             va,

@@ -126,12 +126,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             if entry.meta_slot_paddr() is Some && entry.is_node() {
                 EntryOwner::<C>::lemma_active_entry_not_in_free_pool(entry, regions0, new_idx);
             }
-            // Frame entries colliding at new_idx are ruled out: either the
-            // slot's `usage != MMIO` (then `metaregion_sound` requires
-            // `rc != UNUSED`, contradicting the precondition), or the slot's
-            // `usage == MMIO` (then by axiom the paddr is MMIO, contradicting
-            // the allocator's non-MMIO guarantee).
-
+            // Only counted frame owners must be disjoint from an UNUSED
+            // allocation slot. A raw physical mapping owns no metadata.
+            assert(entry.meta_slot_paddr_neq(old_child));
+            assert(entry.meta_slot_paddr_neq(new_child));
         };
     }
 

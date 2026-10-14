@@ -533,6 +533,60 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
     rebase_freshly_allocated_children_at(owner, new_path, 0);
 }
 
+/// Rebase an allocated empty node and its children without registering a PTE path.
+pub proof fn rebase_allocated_empty_node<C: PageTableConfig>(
+    tracked owner: &mut OwnerSubtree<C>,
+    path: TreePath<NR_ENTRIES>,
+)
+    requires
+        allocated_empty_node_owner(*old(owner), old(owner).value().node().level()),
+        allocated_empty_node_grandchildren_none(*old(owner)),
+        path.inv(),
+    ensures
+        final(owner).inv(),
+        final(owner).value() == (EntryOwner { path, ..old(owner).value() }),
+        final(owner).level() == old(owner).level(),
+        allocated_empty_node_grandchildren_none(*final(owner)),
+        forall|i: int| #![trigger final(owner).children()[i]] 0 <= i < NR_ENTRIES ==> {
+            &&& final(owner).has_child(i)
+            &&& final(owner).child(i).value()
+                == (EntryOwner { path: path.push_tail(i), ..old(owner).child(i).value() })
+            &&& final(owner).child(i).value().is_absent()
+            &&& final(owner).child(i).value().parent_level == final(owner).value().node().level()
+            &&& final(owner).child(i).value().match_pte(
+                final(owner).value().node().children_perm.value()[i],
+                final(owner).child(i).value().parent_level,
+            )
+        },
+{
+    let ghost initial = *owner;
+    owner.tracked_borrow_mut_value().path = path;
+    assert forall|i: int| 0 <= i < NR_ENTRIES implies
+        (#[trigger] owner.children()[i]) is Some by {
+        assert(initial.has_child(i));
+    };
+    rebase_freshly_allocated_children(owner, path);
+    assert forall|i: int| #![trigger owner.children()[i]] 0 <= i < NR_ENTRIES implies {
+        &&& owner.child(i).inv()
+        &&& owner.child(i).level() == owner.level() + 1
+        &&& owner.child(i).value().is_absent()
+        &&& owner.child(i).value().parent_level == owner.value().node().level()
+        &&& owner.child(i).value().match_pte(
+            owner.value().node().children_perm.value()[i],
+            owner.child(i).value().parent_level,
+        )
+        &&& forall|j: int| 0 <= j < NR_ENTRIES ==> !#[trigger] owner.child(i).has_child(j)
+    } by {
+        assert(initial.has_child(i));
+        assert(initial.child(i).inv());
+        assert(owner.child(i).children() == initial.child(i).children());
+        assert forall|j: int| 0 <= j < NR_ENTRIES implies
+            !#[trigger] owner.child(i).has_child(j) by {
+            assert(!initial.child(i).has_child(j));
+        };
+    };
+}
+
 /// `subtree_satisfies` for a freshly-allocated node grafted into the cursor:
 /// every child is a `new_val`-shaped node (all grandchildren `None`), so each
 /// child's `subtree_satisfies` reduces to `f` at that child
@@ -577,6 +631,26 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
+    /// Resolves the actual leaf owner, retaining its tracked/untracked identity.
+    #[verifier::opaque]
+    pub open spec fn query_leaf(self, va: Vaddr) -> Option<EntryOwner<C>>
+        decreases INC_LEVELS - self.0.level(),
+        when self.0.inv()
+    {
+        if self.0.value().is_frame() {
+            Some(self.0.value())
+        } else if self.0.value().is_node() && self.0.level() < INC_LEVELS - 1 {
+            let idx = pte_index_spec::<C>(va, self.0.value().node().level());
+            if 0 <= idx < NR_ENTRIES && self.0.has_child(idx as int) {
+                PageTableOwner(self.0.child(idx as int)).query_leaf(va)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.has_child(i)
@@ -706,13 +780,31 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             PageTableOwner(owner).pt_inv(),
     {
+        Self::node_with_leaf_children_pt_inv(owner);
+    }
+
+    /// A node with valid edges and non-node children satisfies the page-table invariant.
+    pub proof fn node_with_leaf_children_pt_inv(owner: OwnerSubtree<C>)
+        requires
+            owner.inv(),
+            owner.value().is_node(),
+            forall|i: int| 0 <= i < NR_ENTRIES ==> {
+                &&& #[trigger] owner.has_child(i)
+                &&& Self::pt_edge_at(owner, i)
+                &&& !owner.child(i).value().is_node()
+            },
+            allocated_empty_node_grandchildren_none(owner),
+        ensures
+            PageTableOwner(owner).pt_inv(),
+    {
         reveal(PageTableOwner::pt_inv_at_depth);
         let depth = (INC_LEVELS - owner.level()) as nat;
+        assert(depth > 0);
         // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
         // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
-        assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] owner.has_child(i)
-            && Self::pt_edge_at(owner, i) && PageTableOwner(owner.child(i)).pt_inv_at_depth(
+        assert forall|i: int| #![trigger owner.has_child(i)] 0 <= i < NR_ENTRIES implies
+            Self::pt_edge_at(owner, i) && PageTableOwner(owner.child(i)).pt_inv_at_depth(
             (depth - 1) as nat,
         ) by {
             let child = owner.child(i);
@@ -1436,6 +1528,25 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
     }
 
+    /// A node whose children are all absent contributes no mappings.
+    pub proof fn view_rec_children_absent_empty(self, path: TreePath<NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            self.0.value().is_node(),
+            path.len() < INC_LEVELS - 1,
+            forall|i: int| 0 <= i < self.0.children().len() && #[trigger] self.0.has_child(i)
+                ==> self.0.child(i).value().is_absent(),
+        ensures
+            self.view_rec(path) == set![],
+    {
+        self.lemma_view_rec_contains(path);
+        assert forall|m: Mapping| self.view_rec(path).contains(m) implies false by {
+            let i = self.view_rec_contains_choose(path, m);
+            assert(self.0.has_child(i));
+            PageTableOwner(self.0.child(i)).view_rec_absent_empty(path.push_tail(i));
+        };
+    }
+
     /// A node with `nr_children == 0` has no present PTEs, so all children are
     /// absent and the subtree contributes no mappings.
     ///
@@ -1484,6 +1595,23 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
             };
         }
+    }
+
+    /// Every owned raw node below this root has its counted permission in
+    /// stable storage. The root itself is an owning Frame, not a raw PTE.
+    pub open spec fn raw_metadata_covers(self, permissions: RawNodeMetadataPerms) -> bool {
+        self.0.subtree_satisfies(
+            self.0.value().path,
+            Self::raw_metadata_pred(permissions, self.0.value().path),
+        )
+    }
+
+    pub open spec fn raw_metadata_pred(
+        permissions: RawNodeMetadataPerms,
+        root_path: TreePath<NR_ENTRIES>,
+    ) -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool {
+        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            path == root_path || entry.raw_node_token_in_store(permissions)
     }
 
     pub open spec fn metaregion_sound_pred(regions: MetaRegionOwners) -> (spec_fn(
@@ -1768,7 +1896,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// Entries in a subtree whose structural path is disjoint from `old_entry.path`
-    /// have different physical addresses from `old_entry`.
+    /// do not own `old_entry`'s metadata slot. Raw mappings may still alias it.
     pub proof fn neq_old_from_path_disjoint(
         subtree: OwnerSubtree<C>,
         path_j: TreePath<NR_ENTRIES>,
@@ -1802,7 +1930,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(f_sound(subtree.value(), path_j));
             assert(f_path(subtree.value(), path_j));
             let entry = subtree.value();
-            if entry.meta_slot_paddr() is Some && entry.meta_slot_paddr()->0
+            if (entry.is_node() || (entry.is_frame() && entry.frame_is_tracked()))
+                && entry.meta_slot_paddr() is Some && entry.meta_slot_paddr()->0
                 == old_entry.meta_slot_paddr()->0 {
                 let idx = frame_to_index(entry.meta_slot_paddr()->0);
                 let old_idx = frame_to_index(old_entry.meta_slot_paddr()->0);

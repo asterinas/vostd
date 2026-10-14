@@ -13,6 +13,7 @@ use crate::specs::{
 
 use crate::mm::frame::{
     MetaSlot,
+    meta::mapping::meta_to_frame,
     meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
 use crate::mm::page_table::*;
@@ -32,9 +33,13 @@ broadcast use group_ghost_tree_lemmas;
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
         Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(guards): Tracked<&mut Guards>
+        Tracked(guards): Tracked<&mut Guards>,
+        Tracked(metadata): Tracked<NodeMetadataLoans<'rcu>>,
     requires
         pt.relates_owner(pt_own, *old(regions)),
+        metadata.remainder is Some,
+        pt_own.raw_metadata_covers(metadata.permissions()),
+        raw_node_metadata_wf(metadata.permissions(), *old(regions)),
         pt_own.0.value().node().relate_guard(root_guard),
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.has_child(i),
         va.start < va.end,
@@ -45,7 +50,6 @@ broadcast use group_ghost_tree_lemmas;
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
         ret.0.level == ret.0.guard_level,
-        ret.0.guard_level == NR_LEVELS,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
@@ -106,6 +110,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     proof {
         C::lemma_paging_consts_properties();
+        CursorOwner::new_preserves_raw_metadata_coverage(pt_own.0, start_idx, root_guard, metadata);
         lemma_pte_index_bound::<C>(va.start, C::NR_LEVELS());
         assert forall|i: int| 0 <= i < NR_ENTRIES implies (
         #[trigger] pt_own.0.children()[i]) is Some by {
@@ -117,12 +122,33 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         pt_own.0,
         start_idx,
         root_guard,
+        metadata,
     );
 
     // Retry if the candidate subtree became stray before we acquired its lock.
     let mut subtree_root = None;
     #[verus_spec(
         invariant
+            cursor_own.metadata.remainder is Some,
+            cursor_own.raw_metadata_covers(),
+            raw_node_metadata_wf(cursor_own.metadata.permissions(), *regions),
+            subtree_root is None ==> *regions == *old(regions),
+            forall|idx: int| #![trigger regions.slot_owners[idx].paths_in_pt]
+                old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
+                    regions.slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
+            forall|idx: int| #![trigger regions.slot_owners[idx]]
+                old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
+                    regions.ref_count(idx) == old(regions).ref_count(idx)
+                        && regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage,
+            forall|idx: int| #![trigger regions.slot_owners[idx].ref_count()]
+                regions.ref_count(idx) >= REF_COUNT_MAX ==>
+                    old(regions).ref_count(idx) == regions.ref_count(idx),
+            forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
+                old(regions).ref_count(idx) >= REF_COUNT_MAX ==>
+                    regions.ref_count(idx) == old(regions).ref_count(idx),
+            forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
+                CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
+                    CursorMut::<C, A>::item_not_mapped(item, *regions),
             subtree_root is None ==> {
                 &&& cursor_own.level == NR_LEVELS
                 &&& cursor_own.continuations.dom().contains(NR_LEVELS - 1)
@@ -173,8 +199,12 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     }
     let cur_node_va = va.start.align_down(page_size::<C>(guard_level + 1));
 
-    #[verus_spec(with Tracked(cont.entry_own), Tracked(guards), Tracked(regions))]
+    #[verus_spec(with Tracked(&cont.entry_own), Tracked(guards), Tracked(regions))]
     dfs_acquire_lock(guard, &mut subtree_root, cur_node_va, va.clone());
+
+    proof {
+        cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
+    }
 
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
@@ -196,7 +226,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     // are superseded by the CortenMM version. They should be merged, first
     // at the spec level, then the code.
     proof {
-        assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
+        assume(res.0.structural_invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
             && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
         *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
             == pt_own.0.value().path);
@@ -248,11 +278,28 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         Tracked(guards): Tracked<&mut Guards>
     requires
         old(cursor_own).level == NR_LEVELS,
+        old(cursor_own).metadata.remainder is Some,
+        old(cursor_own).raw_metadata_covers(),
+        raw_node_metadata_wf(old(cursor_own).metadata.permissions(), *old(regions)),
         old(cursor_own).continuations.dom().contains(NR_LEVELS - 1),
         old(cursor_own).continuations[NR_LEVELS - 1].all_some(),
     ensures
+        // Trusted locking boundary: existing counts are retained; only actual
+        // fresh-node allocations may extend the raw-token store.
+        final(cursor_own).metadata.remainder is Some,
+        final(cursor_own).raw_metadata_covers(),
+        raw_node_metadata_wf(final(cursor_own).metadata.permissions(), *final(regions)),
+        forall|paddr: Paddr| #[trigger] old(cursor_own).metadata.permissions().contains_key(paddr) ==>
+            final(cursor_own).metadata.permissions().contains_key(paddr)
+                && final(cursor_own).metadata.permissions()[paddr]
+                    == old(cursor_own).metadata.permissions()[paddr],
         r is None ==> {
-            &&& *final(cursor_own) == *old(cursor_own)
+            // Borrowing may populate the session's loan cache even on retry;
+            // that does not change the stored counts or the structural owner.
+            &&& *final(cursor_own) == (CursorOwner {
+                metadata: final(cursor_own).metadata, ..*old(cursor_own)
+            })
+            &&& final(cursor_own).metadata.permissions() == old(cursor_own).metadata.permissions()
             &&& *final(regions) == *old(regions)
             &&& *final(guards) == *old(guards)
         },
@@ -326,7 +373,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
 )]
 #[verifier::external_body]
 fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>(
-    pt: &PageTable<C>,
+    pt: &'rcu PageTable<C>,
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> Option<PageTableGuard<'rcu, C>> {
@@ -386,8 +433,14 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             let tracked cont = cursor_own.continuations.tracked_borrow(cursor_own.level - 1);
             let tracked node_owner = cont.entry_own.tracked_borrow_node();
             let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
+            let tracked metadata_permission = if node_owner.slot_vaddr() == pt.root.ptr.addr() {
+                pt.root.tracked_metadata_perm.borrow().tracked_borrow()
+            } else {
+                let tracked raw = cursor_own.metadata.tracked_borrow(meta_to_frame(node_owner.slot_vaddr()));
+                raw.tracked_borrow_metadata_perm()
+            };
             let node_ref = unsafe {
-                #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
+                #[verus_spec(with Tracked(slot_perm), Tracked(metadata_permission))]
                 PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr)
             };
             node_ref.lock(guard)
@@ -396,8 +449,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.tracked_borrow_node();
         #[verus_spec(with
-            Tracked(node_owner.tracked_borrow_metadata_perm()),
-            Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
         let stray = pt_guard.stray_mut();
@@ -471,8 +522,14 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let tracked cont = cursor_own.continuations.tracked_borrow(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.tracked_borrow_node();
         let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
+        let tracked metadata_permission = if node_owner.slot_vaddr() == pt.root.ptr.addr() {
+            pt.root.tracked_metadata_perm.borrow().tracked_borrow()
+        } else {
+            let tracked raw = cursor_own.metadata.tracked_borrow(meta_to_frame(node_owner.slot_vaddr()));
+            raw.tracked_borrow_metadata_perm()
+        };
         let node_ref = unsafe {
-            #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
+            #[verus_spec(with Tracked(slot_perm), Tracked(metadata_permission))]
             PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr)
         };
         node_ref.lock(guard)
@@ -481,8 +538,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.tracked_borrow_node();
     #[verus_spec(with
-        Tracked(node_owner.tracked_borrow_metadata_perm()),
-        Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]
     let stray = pt_guard.stray_mut();
@@ -505,7 +560,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 ///
 /// The function will forget all the [`PageTableGuard`] objects in the sub-tree.
 #[verus_spec(
-    with Tracked(entry_own): Tracked<EntryOwner<C>>,
+    with Tracked(entry_own): Tracked<&EntryOwner<C>>,
         Tracked(guards): Tracked<&mut Guards>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>
     requires
@@ -531,6 +586,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             !#[trigger] final(guards).guards.contains(addr),
         // regions preserved
         final(regions).inv(),
+        final(regions).slots == old(regions).slots,
         final(regions).slot_owners == old(regions).slot_owners,
 )]
 #[verifier::external_body]
@@ -624,7 +680,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// This function must not be called upon a shared node, e.g., the second-
 /// top level nodes that the kernel space and user space share.
 #[verus_spec(res =>
-    with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>,
+    with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
         Tracked(guards): Tracked<&mut Guards>,
         Ghost(locked_addr): Ghost<usize>,
         Ghost(subtree_mappings_count): Ghost<nat>
@@ -666,7 +722,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         forall |addr: usize| addr != locked_addr && old(guards).lock_held(addr) ==> final(guards).lock_held(addr),
 )]
 #[verifier::external_body]
-pub unsafe fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
+pub unsafe fn dfs_mark_stray_and_unlock<'a, 'rcu, C: PageTableConfig, A: InAtomicMode>(
     rcu_guard: &A,
     sub_tree: &PageTableGuard<'a, C>,
 ) -> usize {

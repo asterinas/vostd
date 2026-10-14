@@ -224,8 +224,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
              Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
+             Tracked(metadata): Tracked<NodeMetadataLoans<'rcu>>,
         requires
             pt.relates_owner(pt_own, *old(regions)),
+            metadata.remainder is Some,
+            pt_own.raw_metadata_covers(metadata.permissions()),
+            raw_node_metadata_wf(metadata.permissions(), *old(regions)),
             pt_own.0.value().node().relate_guard(root_guard),
             // Per-config tightening: e.g. `KernelPtConfig` overrides
             // `LOCKED_END_BOUND_spec` to `FRAME_METADATA_BASE_VADDR`. Callers
@@ -240,7 +244,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.level == r.unwrap().0.guard_level
-                &&& r.unwrap().0.guard_level == NR_LEVELS as PagingLevel
                 &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
                 &&& r.unwrap().0.va == va.start
                 &&& r.unwrap().0.barrier_va == *va
@@ -308,7 +311,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
 
         Ok(
-            #[verus_spec(with Tracked(pt_own), Ghost(root_guard), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(pt_own), Ghost(root_guard), Tracked(regions), Tracked(guards), Tracked(metadata))]
             locking::lock_range(pt, guard, va),
         )
     }
@@ -389,6 +392,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.barrier_va == old(self).barrier_va,
                 old(owner)@.mappings == owner@.mappings,
                 old(owner)@.cur_va == owner@.cur_va,
+                PageTableOwner(owner.cur_subtree()).query_leaf(self.va)
+                    == PageTableOwner(old(owner).cur_subtree()).query_leaf(old(self).va),
                 forall|i: int|
                     #![trigger regions.slot_owners[i]]
                     old(regions).contains(i)
@@ -433,6 +438,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             proof {
                 owner.lemma_cont_entry_metaregion_at(*regions, owner.level - 1);
+                owner.lemma_cur_metadata_covered();
                 let cont = owner.continuations[owner.level - 1];
                 cont.lemma_map_children_unroll(
                     PageTableOwner::<C>::metaregion_sound_pred(*regions),
@@ -448,7 +454,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             let cur_child = {
                 let tracked child_value = child_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(child_value), Tracked(&parent_owner), Tracked(regions))]
+                #[verus_spec(with Tracked(child_value), Tracked(&parent_owner), Tracked(regions), Tracked(&mut owner.metadata))]
                 entry.to_ref()
             };
 
@@ -508,17 +514,35 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.push_level(guard);
 
+                    proof {
+                        assert(PageTableOwner(owner_before_push.cur_subtree()).query_leaf(cur_va)
+                            == PageTableOwner(owner.cur_subtree()).query_leaf(cur_va)) by {
+                            reveal(PageTableOwner::query_leaf);
+                            owner_before_push.lemma_cur_subtree_inv();
+                            assert(owner_before_push.cur_subtree().has_child(
+                                pte_index_spec::<C>(cur_va, (level - 1) as PagingLevel) as int,
+                            ));
+                        };
+                    }
+
                     continue;
                 },
                 ChildRef::None => {
                     proof {
                         owner.lemma_cur_entry_absent_not_present();
+                        assert(PageTableOwner(owner.cur_subtree()).query_leaf(cur_va) is None) by {
+                            reveal(PageTableOwner::query_leaf);
+                        };
                     }
                     None
                 },
                 ChildRef::Frame(pa, ch_level, prop) => {
                     proof {
                         owner.lemma_cur_entry_frame_present();
+                        assert(PageTableOwner(owner.cur_subtree()).query_leaf(cur_va)
+                            == Some(owner.cur_entry_owner())) by {
+                            reveal(PageTableOwner::query_leaf);
+                        };
                     }
                     let ghost owner_before_permission_take = *owner;
                     let ghost continuation_before_permission_take = owner.continuations[owner.level
@@ -564,9 +588,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(old(regions).contains(idx));
                         if C::item_into_raw(item).3@ is Some && regions.ref_count(idx)
                             >= REF_COUNT_MAX {
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner_before_permission_take.cur_entry_owner(),
-                            );
                             assert(regions.contains(idx));
                             assert(old(regions).contains(idx));
                         }
@@ -582,17 +603,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(regions), Ghost(pa))]
                     let cloned = Self::clone_item(&item);
 
-                    proof {
-                        let idx = frame_to_index(pa);
-                        if C::item_into_raw(item).3@ is Some {
-                            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner_before_permission_take.cur_entry_owner(),
-                            );
-                        }
-                    }
-
                     let (_pa, _level, _prop, Tracked(restored_permission)) = C::item_into_raw(item);
                     proof {
                         let tracked child_value = child_owner.tracked_borrow_mut_value();
@@ -606,15 +616,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
                         if C::item_into_raw(item).3@ is Some {
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner(),
-                            );
                             owner.lemma_clone_item_preserves_invariants(old_regions, *regions, idx);
-                        }
-                        if C::item_into_raw(item).3@ is None {
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner(),
-                            );
                         }
                     }
 
@@ -870,6 +872,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
+                owner.raw_metadata_covers(),
+                raw_node_metadata_wf(owner.metadata.permissions(), *regions),
                 !owner.popped_too_high,
                 old_owner_cur_va == old(owner)@.cur_va,
                 old_owner_cur_va == old(self).va,
@@ -902,6 +906,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             proof {
                 owner.lemma_cont_entry_metaregion_at(*regions, owner.level - 1);
+                owner.lemma_cur_metadata_covered();
                 owner.lemma_children_not_locked_unroll(*guards);
                 let cont = owner.continuations[owner.level - 1];
                 cont.lemma_inv_children_unroll(cont.idx as int);
@@ -929,7 +934,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             let cur_child = {
                 let tracked child_value = child_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(child_value), Tracked(&node_owner), Tracked(regions))]
+                #[verus_spec(with Tracked(child_value), Tracked(&node_owner), Tracked(regions), Tracked(&mut owner.metadata))]
                 cur_entry.to_ref()
             };
 
@@ -938,7 +943,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 assert(continuation.children == cont0.children);
                 owner.continuations.tracked_insert(owner.level - 1, continuation);
                 assert(owner.continuations == owner0.continuations);
+                assert(owner.metaregion_sound(regions_before_ref)) by {
+                    reveal(CursorOwner::path_metaregion_sound);
+                };
                 owner.lemma_metaregion_slot_owners_preserved(regions_before_ref, *regions);
+                owner.max_steps_partial_eq(owner0, owner.level as usize);
+                assert(owner.max_steps() == owner0.max_steps());
             }
 
             match cur_child {
@@ -1007,6 +1017,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(cont0.children == continuation.children);
                         owner.continuations.tracked_insert(self.level - 1, continuation);
                         assert(owner.continuations == owner0.continuations);
+                        owner.max_steps_partial_eq(owner0, owner.level as usize);
+                        assert(owner.max_steps() == owner0.max_steps());
 
                         owner.map_children_implies(
                             CursorOwner::node_unlocked(guards0),
@@ -1213,7 +1225,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     }
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(continuation.entry_own.tracked_borrow_mut_node()), Tracked(regions),
-                        Tracked(guards))]
+                        Tracked(guards), Tracked(&mut owner.metadata))]
                     cur_entry.split_if_mapped_huge(rcu_guard)).expect(
                         "The entry must be a huge page",
                     );
@@ -1363,6 +1375,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
+                owner.raw_metadata_covers(),
+                raw_node_metadata_wf(owner.metadata.permissions(), *regions),
+                owner.metadata.permissions() == old(owner).metadata.permissions(),
+                *regions == *old(regions),
                 self.barrier_va.start <= va < self.barrier_va.end,
                 va % PAGE_SIZE == 0,
                 old(self).jump_panic_condition(va) ==> may_panic(),
@@ -1407,6 +1423,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         reveal(CursorContinuation::map_children);
                         reveal(CursorOwner::path_metaregion_sound);
                     };
+                    assert(owner.raw_metadata_covers()) by {
+                        reveal(CursorContinuation::map_children);
+                    };
+                    assert(raw_node_metadata_wf(owner.metadata.permissions(), *regions));
                 }
 
                 return Ok(());
@@ -1460,6 +1480,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).inv(),
             final(regions).inv(),
             *final(owner) == old(owner).move_forward_owner_spec(),
+            old(owner).raw_metadata_covers() ==> final(owner).raw_metadata_covers(),
+            final(owner).metadata.permissions() == old(owner).metadata.permissions(),
             final(owner).max_steps() < old(owner).max_steps(),
             final(self).barrier_va == old(self).barrier_va,
             final(self).guard_level == old(self).guard_level,
@@ -1517,6 +1539,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.guard_level == guard_level,
                 self.barrier_va == barrier_va,
                 owner.move_forward_owner_spec() == owner0.move_forward_owner_spec(),
+                owner.metadata.permissions() == old(owner).metadata.permissions(),
                 1 <= start_level <= self.level <= self.guard_level <= NR_LEVELS,
                 C::NR_LEVELS() == NR_LEVELS,
                 owner.va == va,
@@ -1527,6 +1550,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
+                old(owner).raw_metadata_covers() ==> owner.raw_metadata_covers(),
                 *regions == regions0,
             decreases self.guard_level - self.level,
         )]
@@ -1578,6 +1602,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 reveal(CursorContinuation::map_children);
                 reveal(CursorOwner::path_metaregion_sound);
             };
+            if owner0.raw_metadata_covers() {
+                assert(owner.raw_metadata_covers()) by {
+                    reveal(CursorContinuation::map_children);
+                };
+            }
             if owner.level < owner.guard_level {
                 owner.lemma_prefix_in_locked_range();
             }
@@ -1634,6 +1663,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // ascent — e.g. `jump`'s structural panic condition.)
             final(self).va == old(self).va,
             *final(owner) == old(owner).pop_level_owner().0,
+            old(owner).raw_metadata_covers() ==> final(owner).raw_metadata_covers(),
             final(owner).va == old(owner).va,
             final(owner).prefix == old(owner).prefix,
             final(owner).guard_level == old(owner).guard_level,
@@ -1646,6 +1676,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             let ghost child_cont = owner.continuations[owner.level - 1];
             owner.pop_level_owner_preserves_invs(*guards, *regions);
+            if owner.raw_metadata_covers() {
+                owner.pop_level_preserves_tree_predicate(PageTableOwner::<C>::raw_metadata_pred(
+                    owner.metadata.permissions(), owner.continuations[NR_LEVELS - 1].path(),
+                ));
+            }
         }
         let ghost guard = {
             let ghost owner_before_pop = *owner;
@@ -1733,6 +1768,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).level == old(self).level - 1,
             final(self).va == old(self).va,
             *final(owner) == old(owner).push_level_owner(child_pt),
+            old(owner).raw_metadata_covers() ==> final(owner).raw_metadata_covers(),
             final(owner).max_steps() < old(owner).max_steps(),
             old(owner)@.mappings == final(owner)@.mappings,
     )]
@@ -1746,6 +1782,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             owner.push_level_owner_preserves_invs(child_pt, *regions, *guards);
+            if owner.raw_metadata_covers() {
+                owner.push_level_preserves_tree_predicate(child_pt, PageTableOwner::<C>::raw_metadata_pred(
+                    owner.metadata.permissions(), owner.continuations[NR_LEVELS - 1].path(),
+                ));
+            }
             owner.push_level_owner_decreases_steps(child_pt);
             owner.push_level_owner_preserves_mappings(child_pt);
             owner.tracked_push_level_owner(child_pt);
@@ -1983,6 +2024,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 child_owner.value().path,
                 PageTableOwner::<C>::metaregion_sound_pred(*regions),
             ));
+            let f_metadata = PageTableOwner::<C>::raw_metadata_pred(
+                owner0.metadata.permissions(), owner0.continuations[NR_LEVELS - 1].path(),
+            );
+            assert(child_owner.subtree_satisfies(child_owner.value().path, f_metadata));
             continuation.tracked_put_child(child_owner);
             continuation.entry_own.tracked_put_node(parent_owner);
             cont0.take_put_child();
@@ -2004,6 +2049,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
             assert(owner.continuations[owner.level - 1].entry_own.metaregion_sound(*regions));
             owner0.protect_preserves_cursor_inv_metaregion(*owner, *regions);
+            assert(owner.tree_satisfies(f_metadata)) by {
+                assert forall|i: int| #![trigger owner.continuations[i]]
+                    owner.level - 1 <= i < NR_LEVELS implies
+                        owner.continuations[i].map_children(f_metadata) by {
+                    if i == owner.level - 1 {
+                        owner.continuations[i].map_children_lift_skip_idx(
+                            cont0, cont0.idx as int, f_metadata, f_metadata,
+                        );
+                    }
+                };
+            };
             assert(owner.children_not_locked(*guards)) by {
                 reveal(CursorContinuation::map_children);
             };
@@ -2020,8 +2076,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
+             Tracked(metadata): Tracked<NodeMetadataLoans<'rcu>>,
         requires
             pt.relates_owner(pt_own, *old(regions)),
+            metadata.remainder is Some,
+            pt_own.raw_metadata_covers(metadata.permissions()),
+            raw_node_metadata_wf(metadata.permissions(), *old(regions)),
             pt_own.0.value().node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
@@ -2031,7 +2091,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.0.level == r.unwrap().0.0.guard_level
-                &&& r.unwrap().0.0.guard_level == NR_LEVELS as PagingLevel
                 &&& r.unwrap().0.0.va < r.unwrap().0.0.barrier_va.end
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
@@ -2065,7 +2124,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         PageTableError,
     > {
         let res =
-            #[verus_spec(with Tracked(pt_own), Ghost(root_guard), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(pt_own), Ghost(root_guard), Tracked(regions), Tracked(guards), Tracked(metadata))]
         Cursor::new(pt, guard, va);
         match res {
             Ok((inner_cursor, tracked_owner)) => {
@@ -2307,7 +2366,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            level < old(self).0.guard_level,
+            level <= old(self).0.guard_level,
             level >= 1,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -2357,12 +2416,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.0.inv(),
                 self.0.guard_level == guard_level,
                 self.0.barrier_va == barrier_va,
-                level < self.0.guard_level,
+                level <= self.0.guard_level,
                 level >= 1,
                 owner.in_locked_range(),
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
+                owner.raw_metadata_covers(),
+                raw_node_metadata_wf(owner.metadata.permissions(), *regions),
                 !owner.popped_too_high,
                 owner@ == owner0@.split_while_huge(page_size::<PagingConsts>(self.0.level)),
                 forall|item: C::Item|
@@ -2395,6 +2456,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 proof {
                     owner_pre_pop.pop_level_owner_preserves_mappings();
+                    // Landing exactly at the guard is still a usable cursor.
+                    // No index or token changes when clearing this transient flag.
+                    let ghost popped = *owner;
+                    owner.popped_too_high = false;
+                    assert(owner.inv()) by {
+                        reveal(<CursorOwner as Inv>::inv);
+                    };
+                    assert(owner.nodes_locked(*guards)) by {
+                        reveal(CursorOwner::nodes_locked);
+                    };
+                    popped.lemma_metaregion_preserved(*owner, *regions, *regions);
+                    assert(owner@ == popped@) by {
+                        reveal(CursorOwner::view_mappings);
+                    };
                     owner.split_while_huge_at_level_noop();
                 }
                 continue;
@@ -2407,6 +2482,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 proof {
                     reveal(<CursorOwner as Inv>::inv);
                     owner.lemma_cont_entry_metaregion_at(*regions, owner.level - 1);
+                    owner.lemma_cur_metadata_covered();
                     let cont = owner.continuations[owner.level - 1];
                     cont.lemma_inv_children_unroll(cont.idx as int);
                     cont.lemma_inv_children_rel_unroll(cont.idx as int);
@@ -2430,7 +2506,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let cur_child = {
                     let tracked child_value = child_owner.tracked_borrow_value();
                     #[verus_spec(with Tracked(child_value), Tracked(&parent_owner),
-                        Tracked(regions))]
+                        Tracked(regions), Tracked(&mut owner.metadata))]
                     cur_entry.to_ref()
                 };
 
@@ -2440,10 +2516,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     owner.continuations.tracked_insert(owner.level - 1, continuation);
 
                     assert(owner.continuations == owner_entry.continuations);
-                    owner_entry.lemma_metaregion_slot_owners_preserved(
+                    assert(owner.metaregion_sound(regions_before_ref)) by {
+                        reveal(CursorOwner::path_metaregion_sound);
+                    };
+                    owner.lemma_metaregion_slot_owners_preserved(
                         regions_before_ref,
                         *regions,
                     );
+                    assert(owner.nodes_locked(*guards)) by {
+                        reveal(CursorOwner::nodes_locked);
+                    };
+                    assert(owner@ == owner_entry@) by {
+                        reveal(CursorOwner::view_mappings);
+                    };
                     let cont = owner.continuations[owner.level - 1];
                 }
 
@@ -2502,7 +2587,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     let child_guard = {
                         let node = path_slot_as_mut(&mut self.0.path, self.0.level as usize - 1);
 
-                        #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions), Tracked(guards))]
+                        #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions), Tracked(guards), Tracked(&mut owner.metadata))]
                         node.alloc_absent_child(entry_idx, rcu_guard)
                     };
 
@@ -2515,6 +2600,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     let ghost child_owner_children = child_owner.children();
 
                     proof {
+                        let root_path = owner_pre_none.continuations[NR_LEVELS - 1].path();
+                        let f_metadata = PageTableOwner::<C>::raw_metadata_pred(
+                            owner_pre_none.metadata.permissions(), root_path,
+                        );
+                        let g_metadata = PageTableOwner::<C>::raw_metadata_pred(
+                            owner.metadata.permissions(), root_path,
+                        );
+                        let raw_covered = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                            entry.raw_node_token_in_store(owner.metadata.permissions());
+                        assert(OwnerSubtree::implies(raw_covered, g_metadata));
+                        child_owner.lemma_subtree_satisfies_implies(
+                            child_owner.value().path, raw_covered, g_metadata,
+                        );
                         let ghost reconstructed_entry_own = EntryOwner {
                             kind: EntryOwnerKind::Node(parent_owner),
                             ..cont_pre_alloc.entry_own
@@ -2598,6 +2696,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         };
                         owner_pre_none.lemma_cur_pte_index();
                         owner.map_branch_none_inv_holds(owner_pre_none);
+                        assert(OwnerSubtree::implies(f_metadata, g_metadata));
+                        assert(owner.tree_satisfies(g_metadata)) by {
+                            assert forall|i: int| #![trigger owner.continuations[i]]
+                                owner.level - 1 <= i < NR_LEVELS implies
+                                    owner.continuations[i].map_children(g_metadata) by {
+                                if i == owner.level - 1 {
+                                    cont_final.map_children_lift_skip_idx(
+                                        cont_pre_alloc, idx, f_metadata, g_metadata,
+                                    );
+                                } else {
+                                    owner_pre_none.continuations[i].map_children_lift(
+                                        f_metadata, g_metadata,
+                                    );
+                                }
+                            };
+                        };
                     }
 
                     let ghost owner_pre_push = *owner;
@@ -2653,8 +2767,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
-                            Tracked(guards))]
+                            Tracked(guards), Tracked(&mut owner.metadata))]
                     cur_entry.split_if_mapped_huge(rcu_guard)).unwrap();
+
+                    proof {
+                        continuation.entry_own.tracked_put_node(parent_owner);
+                        continuation.tracked_put_child(child_owner);
+                        owner.continuations.tracked_insert(owner.level - 1, continuation);
+                    }
 
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.0.push_level(split_child);
@@ -2691,7 +2811,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
-    /// - **Safety**: the cursor must be within the locked range, below the
+    /// - **Safety**: the cursor must be within the locked range, at or below the
     ///   guard level, and before the barrier end ([`Self::map_cursor_requires`]).
     /// - **Correctness**: the entry owner must be valid and the item's level must
     ///   fit within the guard level ([`Self::item_wf`]).
@@ -2778,7 +2898,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
         }
         assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
-        assert!(level < self.0.guard_level);
         if !C::TOP_LEVEL_CAN_UNMAP() {
             assert!(level < NR_LEVELS as u8);
         }
@@ -2787,10 +2906,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         proof {
             assert(owner.in_locked_range());
-            owner.lemma_va_plus_page_size_no_overflow(level);
+            if level <= self.0.guard_level {
+                owner.lemma_va_plus_page_size_no_overflow(level);
+            } else {
+                assert(self.map_panic_conditions(item));
+                assert(may_panic());
+            }
         }
         let end = self.0.va + size;
         assert!(end <= self.0.barrier_va.end);
+
+        proof {
+            owner.lemma_locked_range_span();
+            if level > self.0.guard_level {
+                lemma_page_size_monotone::<PagingConsts>((self.0.guard_level + 1) as PagingLevel, level);
+                lemma_page_size_next::<PagingConsts>(self.0.guard_level);
+                assert(false);
+            }
+        }
 
         assert(!self.map_panic_conditions(item));
         assert(!old(self).map_panic_conditions(item));
@@ -2835,16 +2968,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let ghost pa_idx_install = frame_to_index(pa);
             let ghost new_frame_path = new_owner.value().path;
-            let tracked pa_slot_install = regions.tracked_borrow_mut_slot_owner(pa);
-            pa_slot_install.paths_in_pt = pa_slot_install.paths_in_pt.insert(new_frame_path);
+            if raw_permission is Some {
+                let tracked pa_slot_install = regions.tracked_borrow_mut_slot_owner(pa);
+                pa_slot_install.paths_in_pt = pa_slot_install.paths_in_pt.insert(new_frame_path);
 
-            owner1.no_node_at_idx_from_slot_key(regions_before_new_child, pa_idx_install);
-            owner1.metaregion_preserved_under_path_insert(
-                regions_before_new_child,
-                *regions,
-                pa_idx_install,
-                new_frame_path,
-            );
+                owner1.no_node_at_idx_from_slot_key(regions_before_new_child, pa_idx_install);
+                owner1.metaregion_preserved_under_path_insert(
+                    regions_before_new_child,
+                    *regions,
+                    pa_idx_install,
+                    new_frame_path,
+                );
+            }
 
             C::lemma_perm_well_formed_with_region_preserved(
                 pa,
@@ -2858,7 +2993,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 reveal(MetaSlotOwner::vtable_ptr_perm);
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
-                EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(new_owner.value());
             };
 
             assert(regions.inv()) by {
@@ -3147,23 +3281,27 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(regions_pre_remove.slots.contains_key(removed_idx)) by {
                     reveal(<MetaRegionOwners as Inv>::inv);
                 };
-                let tracked mut so_rm = regions.tracked_borrow_mut_slot_owner(
-                    cur_st.value().frame().mapped_pa,
-                );
-                so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
+                if cur_st.value().frame_is_tracked() {
+                    let tracked mut so_rm = regions.tracked_borrow_mut_slot_owner(
+                        cur_st.value().frame().mapped_pa,
+                    );
+                    so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
+                }
                 let ghost owner_final = *owner;
                 let ghost obr_subtree = PageTableOwner(
                     owner_before_replace.cur_subtree(),
                 )@.mappings;
                 assert(owner_final@.mappings == owner_before_replace@.mappings - obr_subtree);
-                owner_final.take_next_remove_path_preserves_metaregion(
-                    owner_before_replace,
-                    regions_pre_remove,
-                    *regions,
-                    removed_idx,
-                    removed_path,
-                    target,
-                );
+                if cur_st.value().frame_is_tracked() {
+                    owner_final.take_next_remove_path_preserves_metaregion(
+                        owner_before_replace,
+                        regions_pre_remove,
+                        *regions,
+                        removed_idx,
+                        removed_path,
+                        target,
+                    );
+                }
                 assert(regions.inv()) by {
                     reveal(<MetaRegionOwners as Inv>::inv);
                 };
@@ -3378,6 +3516,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         hide(<MetaRegionOwners as Inv>::inv);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
+        proof {
+            assert(owner.metadata.remainder is Some) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
+            owner.lemma_cur_metadata_covered();
+        }
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
         let ghost guards_initial = *guards;
@@ -3447,6 +3591,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 Tracked(old_child_value),
                 Tracked(new_value),
                 Tracked(continuation.entry_own.tracked_borrow_mut_node()),
+                Tracked(&mut owner.metadata),
             )]
             node.replace_child(entry_idx, new_child)
         };
@@ -3631,7 +3776,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let ghost regions_before_borrow = *regions;
 
                 #[verus_spec(with
-                    Tracked(&old_node_owner.frame_permission),
+                    Tracked(pt.tracked_metadata_perm.borrow().tracked_borrow()),
                     Tracked(regions)
                 )]
                 let borrow_pt = pt.borrow_with_permission();

@@ -16,7 +16,7 @@ use crate::specs::{
 };
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -119,6 +119,119 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
 // ─── Tree predicate lifting (CursorOwner) ──────────────────────────
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+    /// Initial decomposition retains every raw-node count below the root.
+    pub proof fn new_preserves_raw_metadata_coverage(
+        subtree: OwnerSubtree<C>,
+        idx: usize,
+        guard: PageTableGuard<'rcu, C>,
+        metadata: NodeMetadataLoans<'rcu>,
+    )
+        requires
+            C::NR_LEVELS() == NR_LEVELS,
+            PageTableOwner(subtree).inv(),
+            PageTableOwner(subtree).raw_metadata_covers(metadata.permissions()),
+        ensures
+            Self::new(subtree, idx, guard, metadata).raw_metadata_covers(),
+    {
+        broadcast use group_ghost_tree_lemmas;
+        reveal(CursorContinuation::map_children);
+        let next = Self::new(subtree, idx, guard, metadata);
+        let f = PageTableOwner::<C>::raw_metadata_pred(metadata.permissions(), subtree.value().path);
+        assert(subtree.level() < INC_LEVELS - 1);
+        assert forall|j: int| 0 <= j < subtree.children().len()
+            && #[trigger] subtree.children()[j] is Some implies
+                subtree.child(j).subtree_satisfies(subtree.value().path.push_tail(j), f) by {
+            subtree.lemma_subtree_satisfies_unroll_once(subtree.value().path, f, j);
+        };
+        assert(next.continuations[NR_LEVELS - 1].map_children(f));
+    }
+
+    /// The current raw entry is covered even when its ancestors are decomposed.
+    pub proof fn lemma_cur_metadata_covered(self)
+        requires
+            self.inv(),
+            self.raw_metadata_covers(),
+        ensures
+            self.cur_entry_owner().raw_node_token_in_store(self.metadata.permissions()),
+    {
+        self.lemma_inv_continuation(self.level - 1);
+        self.lemma_cur_subtree_inv();
+        let cont = self.continuations[self.level - 1];
+        let f = PageTableOwner::<C>::raw_metadata_pred(
+            self.metadata.permissions(), self.continuations[NR_LEVELS - 1].path(),
+        );
+        cont.lemma_map_children_unroll(f, cont.idx as int);
+        cont.lemma_inv_children_rel_unroll(cont.idx as int);
+    }
+
+    /// Decomposing a child into a continuation preserves every tree predicate;
+    /// the moved structural owner need not contain the borrowed count.
+    pub proof fn push_level_preserves_tree_predicate(
+        self,
+        guard: PageTableGuard<'rcu, C>,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    )
+        requires
+            self.inv(),
+            self.level > 1,
+            self.tree_satisfies(f),
+        ensures
+            self.push_level_owner(guard).tree_satisfies(f),
+    {
+        reveal(CursorContinuation::map_children);
+        self.lemma_inv_continuation(self.level - 1);
+        let cont = self.continuations[self.level - 1];
+        cont.lemma_inv_children_unroll(cont.idx as int);
+        cont.lemma_map_children_unroll(f, cont.idx as int);
+        let subtree = cont.child();
+        let path = cont.path().push_tail(cont.idx as int);
+        let next = self.push_level_owner(guard);
+        assert forall|i: int| #![trigger next.continuations[i]]
+            next.level - 1 <= i < NR_LEVELS implies
+                next.continuations[i].map_children(f) by {
+            if i == self.level - 2 {
+                assert forall|j: int| #![trigger subtree.children()[j]]
+                    0 <= j < subtree.children().len() && subtree.has_child(j) implies
+                        subtree.child(j).subtree_satisfies(path.push_tail(j), f) by {
+                    subtree.lemma_subtree_satisfies_unroll_once(path, f, j);
+                };
+            }
+        };
+    }
+
+    /// Restoring a decomposed node to its parent preserves the same predicate.
+    pub proof fn pop_level_preserves_tree_predicate(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    )
+        requires
+            self.inv(),
+            self.level < NR_LEVELS,
+            self.tree_satisfies(f),
+        ensures
+            self.pop_level_owner().0.tree_satisfies(f),
+    {
+        broadcast use group_ghost_tree_lemmas;
+        reveal(CursorContinuation::map_children);
+        let child = self.continuations[self.level - 1];
+        let parent = self.continuations[self.level as int];
+        self.lemma_inv_continuation(self.level - 1);
+        child.as_page_table_owner_preserves_view_mappings();
+        assert(f(child.entry_own, child.path()));
+        assert(child.map_children(f));
+        assert forall|j: int| 0 <= j < child.children.len()
+            && #[trigger] child.as_subtree().has_child(j) implies
+                child.as_subtree().child(j).subtree_satisfies(child.path().push_tail(j), f) by {
+            child.lemma_map_children_unroll(f, j);
+        };
+        assert(child.as_subtree().subtree_satisfies(child.path(), f));
+        let next = self.pop_level_owner().0;
+        assert forall|i: int| #![trigger next.continuations[i]]
+            next.level - 1 <= i < NR_LEVELS implies
+                next.continuations[i].map_children(f) by {
+        };
+    }
+
     pub proof fn map_children_implies(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,

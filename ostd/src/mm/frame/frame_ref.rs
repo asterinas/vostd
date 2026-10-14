@@ -3,14 +3,14 @@ use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
 };
-use vstd_extra::{cast_ptr::Repr, prelude::*};
+use vstd_extra::{cast_ptr::Repr, ownership::OwnerOf, prelude::*};
 
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
         frame_specs::FrameRawPerms,
         mapping::meta_to_index,
-        meta_owners::{FracMetadataPerm, MetaSlotStorage},
+        meta_owners::{FracMetadataPerm, MetaSlotStorage, typed_meta_value, typed_meta_wf},
         meta_region_owners::MetaRegionOwners,
     },
 };
@@ -30,10 +30,22 @@ verus! {
 pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
     pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
+    /// One fractional permission for the currently installed metadata.
+    #[cfg(verus_keep_ghost_body)]
+    pub tracked_metadata_perm: Tracked<&'a FracMetadataPerm>,
+}
+
+impl<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Inv for FrameRef<'a, M> {
+    open spec fn inv(self) -> bool {
+        &&& self.inner@.ptr_inv()
+        &&& self.inner@.tracked_metadata_perm@ is None
+        &&& self.tracked_metadata_perm.frac() == 1
+        &&& MetaSlot::perms_related(self.inner@.slot_perm(), self.tracked_metadata_perm.resource())
+    }
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Safety
@@ -42,18 +54,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     #[verus_spec(r =>
         with
             Tracked(slot_perm): Tracked<&'static PointsTo<MetaSlot>>,
-            Tracked(metadata_perm): Tracked<&FracMetadataPerm>
+            Tracked(metadata_perm): Tracked<&'a FracMetadataPerm>,
         requires
             valid_frame_paddr(raw),
+            metadata_perm.frac() == 1,
             MetaSlot::perms_related(*slot_perm,metadata_perm.resource()),
             slot_perm.pptr().addr() == frame_to_meta(raw),
             slot_perm.is_init(),
         ensures
             r.inner@.ptr.addr() == frame_to_meta(raw),
-            r.inner@.ptr_inv(),
-            r.inner@.tracked_slot_perm@ == slot_perm,
-            r.inner@.tracked_metadata_perm@ is None,
-            MetaSlot::perms_related(r.inner@.slot_perm(), metadata_perm.resource()),
+            r.inv(),
+            r.inner@.slot_perm() == *slot_perm,
+            **r.tracked_metadata_perm == *metadata_perm,
+            forall|repr_perm: M::ReprPerm|
+                typed_meta_wf::<M>(*slot_perm, metadata_perm.resource(), repr_perm)
+                    ==> r.inner@.external_meta_wf(metadata_perm.resource(), repr_perm),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None)}
@@ -64,7 +79,29 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
 
         let inner = ManuallyDrop::new(frame);
 
+        proof_with!{ tracked_metadata_perm: Tracked(metadata_perm) }
         Self { inner, _marker: PhantomData }
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> FrameRef<'_, M> {
+    /// Reads metadata using the permission retained by this reference.
+    ///
+    /// # Verified Properties
+    /// The caller supplies only the representation witness, not a metadata permission.
+    #[verus_spec(ret =>
+        with Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
+        requires
+            self.inv(),
+            typed_meta_wf::<M>(self.inner@.slot_perm(), self.tracked_metadata_perm.resource(), *repr_perm),
+        ensures
+            ret == typed_meta_value::<M>(self.tracked_metadata_perm.resource(), *repr_perm),
+    )]
+    pub fn meta<'a>(&'a self) -> &'a M {
+        let tracked metadata_perm = (*self.tracked_metadata_perm.borrow()).tracked_borrow();
+        #[verus_spec(with Tracked(Some(metadata_perm)), Tracked(repr_perm))]
+        self.inner.meta()
     }
 }
 
@@ -150,7 +187,11 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     ///
     /// The original pointer must outlive the lifetime parameter `'a`, and during `'a`
     /// no mutable references to the pointer will exist.
-    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>) -> Self::Ref<'a>;
+    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>, perm: Tracked<&'a Self::Permission>) -> Self::Ref<'a>
+        requires
+            Self::ptr_perm_match(raw, *perm@),
+            perm@.inv(),
+    ;
 
     /// Converts a shared reference to a raw pointer.
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target>;
@@ -200,18 +241,22 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         }
     }
 
-    #[verifier::external_body]
-    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>) -> Self::Ref<'a> {
+    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>, Tracked(perm): Tracked<&'a Self::Permission>) -> Self::Ref<'a> {
         let frame = Frame::<M> {
             ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
-            tracked_slot_perm: Tracked::assume_new(),
+            tracked_slot_perm: Tracked(perm.slot_perm),
             #[cfg(verus_keep_ghost_body)]
             tracked_metadata_perm: Tracked(None),
         };
         let dropped = ManuallyDrop::<Frame<M>>::new(frame);
-        Self::Ref { inner: dropped, _marker: PhantomData }
+        Self::Ref {
+            inner: dropped,
+            _marker: PhantomData,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_metadata_perm: Tracked(&perm.metadata_perm),
+        }
     }
 
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target> {

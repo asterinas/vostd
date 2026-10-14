@@ -37,6 +37,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
             other.cur_entry_owner().is_frame(),
             other.cur_entry_owner().inv(),
+            other.metadata.remainder is Some,
             // protect preserves PA, path, parent_level
             other.cur_entry_owner().frame().mapped_pa == self.cur_entry_owner().frame().mapped_pa,
             other.cur_entry_owner().path == self.cur_entry_owner().path,
@@ -128,6 +129,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_inv_holds(self, owner0: Self)
         requires
             owner0.inv(),
+            self.metadata.remainder is Some,
             // The map happens in the locked range and changes only the current
             // continuation's slot at `idx` (a real, in-range slot). With this +
             // "higher continuations unchanged", the root continuation's
