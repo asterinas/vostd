@@ -297,7 +297,7 @@ impl<M: AnyFrameMeta + OwnerOf> RCClone for Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Segment<M> {
     /// Creates a new [`Segment`] from unused frames.
     ///
     /// The caller must provide a closure to initialize metadata for all the frames.

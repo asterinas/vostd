@@ -43,8 +43,10 @@ pub trait Repr<R: Sized>: Sized {
     /// project the same in-place representation as `from_borrowed` and keep
     /// the representation permission synchronized with mutations through the
     /// returned reference.
-    fn from_borrowed_mut<'a>(r: &'a mut R, Tracked(perm): Tracked<&'a mut Self::ReprPerm>) -> (res:
-        &'a mut Self)
+    fn from_borrowed_mut<'a, 'b>(
+        r: &'a mut R,
+        Tracked(perm): Tracked<&'b mut Self::ReprPerm>,
+    ) -> (res: &'a mut Self)
         requires
             Self::wf(*old(r), *old(perm)),
         ensures

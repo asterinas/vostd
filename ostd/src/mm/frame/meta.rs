@@ -522,7 +522,7 @@ impl MetaSlot {
                 )
             },
     )]
-    pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
@@ -858,7 +858,7 @@ impl MetaSlot {
             ) == metadata,
             final(metadata_perm).meta_type_id == recorded_meta_id::<M>(),
     )]
-    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf>(
         &self,
         metadata: M,
     ) {

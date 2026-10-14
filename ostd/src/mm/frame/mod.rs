@@ -187,7 +187,7 @@ impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Frame<M> {
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -276,7 +276,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         requires
             {
                 self.inv() && metadata_perm is None
-                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), *repr_perm) ||
+                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm()) ||
                 metadata_perm is Some
                 && self.external_meta_wf(*metadata_perm->0, *repr_perm)
             },
@@ -284,7 +284,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             {
                 let metadata_perm = if metadata_perm is Some {*metadata_perm -> 0} else
                     { self.metadata_perm() };
-                ret == typed_meta_value::<M>(metadata_perm, *repr_perm)
+                ret == typed_meta_value::<M>(metadata_perm)
             },
     )]
     pub fn meta<'a>(&'a self) -> &'a M {

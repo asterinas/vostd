@@ -105,7 +105,7 @@ impl MetaSlot {
 
     /// The complete successful result of claiming an unused slot, including
     /// the fraction returned to the new frame handle.
-    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
         paddr: Paddr,
         metadata: M,
         as_unique: bool,

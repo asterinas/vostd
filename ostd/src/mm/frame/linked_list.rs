@@ -1361,11 +1361,10 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
         self.list.size = self.list.size + 1;
 
         proof {
-            let tracked frame_repr_perm = frame_own.repr_perm.tracked_take();
             CursorOwner::<M>::tracked_list_insert(
                 owner,
                 &mut frame_own.meta_own,
-                frame_repr_perm,
+                (),
                 frame_metadata_perm,
                 list_id,
             );

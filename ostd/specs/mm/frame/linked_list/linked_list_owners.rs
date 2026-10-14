@@ -222,9 +222,9 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Repr<MetaSlotStorage> for Link
     }
 
     #[verifier::external_body]
-    fn from_borrowed_mut<'a>(
+    fn from_borrowed_mut<'a, 'b>(
         r: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
+        Tracked(perm): Tracked<&'b mut ()>,
     ) -> &'a mut Self {
         unimplemented!()
     }
@@ -359,12 +359,12 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
 
     pub open spec fn meta_wf_at(self, regions: MetaRegionOwners, i: int) -> bool {
         let idx = meta_to_index(self.list[i].paddr);
-        typed_meta_wf::<Link<M>>(*regions.slots[idx], self.metadata_perms[i], self.repr_perms[i])
+        typed_meta_wf::<Link<M>>(*regions.slots[idx], self.metadata_perms[i])
     }
 
     pub open spec fn meta_value_at(self, regions: MetaRegionOwners, i: int) -> Link<M> {
         let idx = meta_to_index(self.list[i].paddr);
-        typed_meta_value::<Link<M>>(self.metadata_perms[i], self.repr_perms[i])
+        typed_meta_value::<Link<M>>(self.metadata_perms[i])
     }
 
     /// The per-link invariant expressed directly over the region-owned slot and
@@ -672,10 +672,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
                     } else {
                         p - 1
                     };
-                    let fp = typed_meta_value::<Link<M>>(
-                        new.metadata_perms[np],
-                        new.repr_perms[np],
-                    );
+                    let fp = typed_meta_value::<Link<M>>(new.metadata_perms[np]);
                     &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].paddr
                     &&& fr.slots[i].pptr() == r0.slots[i].pptr()
@@ -687,11 +684,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
                     &&& new.metadata_perms[np].vtable_ptr_perm.is_init()
                     &&& fr.slot_owners[i].usage is Frame
                     &&& fr.slot_owners[i].in_list_perm.value() == new.list_id
-                    &&& typed_meta_wf::<Link<M>>(
-                        *fr.slots[i],
-                        new.metadata_perms[np],
-                        new.repr_perms[np],
-                    )
+                    &&& typed_meta_wf::<Link<M>>(*fr.slots[i], new.metadata_perms[np])
                     &&& fr.slots[i].addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fr.slots[i].addr()
                         < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
@@ -809,7 +802,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
         } else {
             p + 1
         };
-        let fp = typed_meta_value::<Link<M>>(self.metadata_perms[np], self.repr_perms[np]);
+        let fp = typed_meta_value::<Link<M>>(self.metadata_perms[np]);
         &&& fr.contains(i)
         &&& fr.slots[i].is_init()
         &&& fr.slots[i].addr() == old.list[p].paddr

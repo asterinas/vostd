@@ -208,9 +208,9 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
         slot
     }
 
-    fn from_borrowed_mut<'a>(
+    fn from_borrowed_mut<'a, 'b>(
         slot: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
+        Tracked(perm): Tracked<&'b mut ()>,
     ) -> &'a mut Self {
         slot
     }
@@ -338,25 +338,27 @@ impl MetaSlotOwner {
 }
 
 /// Well-formedness of a concrete metadata representation.
-pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+/// No perm parameter: every `Repr<MetaSlotStorage>` impl in the tree now has
+/// `ReprPerm = ()`, so the argument carried no information. Passing `()` inline
+/// keeps the `Repr::wf` call until the move to `ByteRepr` replaces it with a
+/// decode check.
+pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
     slot_perm: vstd::simple_pptr::PointsTo<MetaSlot>,
     metadata_perm: MetadataPerm,
-    repr_perm: M::ReprPerm,
 ) -> bool {
     &&& slot_perm.is_init()
     &&& MetaSlot::perms_related(slot_perm, metadata_perm)
-    &&& M::wf(metadata_perm.storage_perm.value(), repr_perm)
+    &&& M::wf(metadata_perm.storage_perm.value(), ())
 }
 
 /// The value of a concrete metadata.
-pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
     metadata_perm: MetadataPerm,
-    repr_perm: M::ReprPerm,
 ) -> M {
-    M::from_repr_spec(metadata_perm.storage_perm.value(), repr_perm)
+    M::from_repr_spec(metadata_perm.storage_perm.value(), ())
 }
 
-pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(metadata_perm): Tracked<&'a MetadataPerm>,
@@ -364,27 +366,27 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
 ) -> &'a M
     requires
         ptr.addr() == slot_perm.addr(),
-        typed_meta_wf::<M>(*slot_perm, *metadata_perm, *repr_perm),
+        typed_meta_wf::<M>(*slot_perm, *metadata_perm),
     returns
-        typed_meta_value::<M>(*metadata_perm, *repr_perm),
+        typed_meta_value::<M>(*metadata_perm),
 {
     let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
     M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perm.storage_perm)), Tracked(repr_perm))
 }
 
-pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub fn borrow_meta_mut<'a, 'b, M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(metadata_perms): Tracked<&'a mut MetadataPerm>,
-    Tracked(repr_perm): Tracked<&'a mut M::ReprPerm>,
+    Tracked(repr_perm): Tracked<&'b mut M::ReprPerm>,
 ) -> (res: &'a mut M)
     requires
         ptr.addr() == slot_perm.addr(),
-        typed_meta_wf::<M>(*slot_perm, *old(metadata_perms), *old(repr_perm)),
+        typed_meta_wf::<M>(*slot_perm, *old(metadata_perms)),
     ensures
-        *res == typed_meta_value::<M>(*old(metadata_perms), *old(repr_perm)),
-        *final(res) == typed_meta_value::<M>(*final(metadata_perms), *final(repr_perm)),
-        typed_meta_wf::<M>(*slot_perm, *final(metadata_perms), *final(repr_perm)),
+        *res == typed_meta_value::<M>(*old(metadata_perms)),
+        *final(res) == typed_meta_value::<M>(*final(metadata_perms)),
+        typed_meta_wf::<M>(*slot_perm, *final(metadata_perms)),
 {
     let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
     M::from_borrowed_mut(
@@ -436,7 +438,7 @@ impl OwnerOf for MetaSlot {
 
 /// Writes `metadata` into the byte storage and establishes its direct
 /// `Repr<MetaSlotStorage>` interpretation.
-pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
     cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
     Tracked(metadata_perms): Tracked<&mut MetadataPerm>,
     Tracked(repr_perm): Tracked<&mut M::ReprPerm>,

@@ -112,7 +112,7 @@ impl<M: ?Sized> Frame<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + ?Sized> Frame<M> {
     /// Relates an externally stored metadata permission to this frame's slot permission.
     pub open spec fn external_meta_wf(
         self,
@@ -121,7 +121,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     ) -> bool {
         &&& self.ptr_inv()
         &&& self.tracked_metadata_perm@ is None
-        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm, repr_perm)
+        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm)
     }
 }
 

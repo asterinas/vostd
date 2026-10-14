@@ -492,10 +492,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Ghost(stray_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.external_meta_wf(*metadata_perms, *repr_perm),
-            typed_meta_value::<PageTablePageMeta<C>>(
-                *metadata_perms,
-                *repr_perm,
-            ).stray.id()
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms).stray.id()
                 == stray_id,
         ensures
             res.id() == stray_id,
@@ -605,10 +602,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Ghost(nr_children_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.external_meta_wf(*metadata_perms, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(
-                *metadata_perms,
-                (),
-            ).nr_children.id()
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms).nr_children.id()
                 == nr_children_id,
         ensures
             res.id() == nr_children_id,

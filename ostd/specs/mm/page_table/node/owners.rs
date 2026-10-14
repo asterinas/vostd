@@ -247,12 +247,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
         typed_meta_wf::<PageTablePageMeta<C>>(
             *regions.slots[self.slot_index],
             self.frame_permission.resource(),
-            (),
         )
     }
 
     pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
-        typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
+        typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource())
     }
 
     pub open spec fn level(self) -> PagingLevel {
