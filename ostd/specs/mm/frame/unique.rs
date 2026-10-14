@@ -1,5 +1,6 @@
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
+use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::{ownership::*, prelude::*};
 
 use crate::specs::{
     arch::MAX_NR_PAGES,
@@ -20,7 +21,7 @@ use crate::mm::frame::{
 
 verus! {
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
     pub open spec fn start_paddr_spec(self) -> Paddr {
         meta_to_frame(self.ptr.addr())
     }
@@ -48,7 +49,7 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> 
     }
 }
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Inv for UniqueFrame<M> {
+impl<M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Inv for UniqueFrame<M> {
     open spec fn inv(self) -> bool {
         &&& self.ptr_inv()
         &&& self.tracked_metadata_perm@ is Some
@@ -57,19 +58,19 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> 
 }
 
 //FIXME: why do we need a index here?
-pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> {
+pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf> {
     pub meta_own: M::Owner,
     pub ghost slot_index: int,
 }
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Inv for UniqueFrameOwner<M> {
+impl<M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
         &&& 0 <= self.slot_index < MAX_NR_PAGES
         &&& self.slot_index < max_meta_slots()
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> OwnerOf for UniqueFrame<M> {
+impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> OwnerOf for UniqueFrame<M> {
     type Owner = UniqueFrameOwner<M>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
@@ -77,7 +78,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> OwnerOf f
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
     pub open spec fn meta_wf(self, owner: UniqueFrameOwner<M>) -> bool {
         typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm())
     }
@@ -104,7 +105,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> UniqueFra
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> UniqueFrameOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrameOwner<M> {
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<M>(
             *regions.slots[self.slot_index],

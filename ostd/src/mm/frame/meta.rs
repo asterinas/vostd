@@ -14,6 +14,7 @@
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
 use vstd::prelude::*;
+use vstd_extra::typing::tagged::ByteRepr;
 
 verus! {
 
@@ -83,7 +84,6 @@ use vstd::{
     simple_pptr::{PPtr, PointsTo},
 };
 use vstd_extra::{
-    cast_ptr::{Repr, ReprPtr},
     ownership::*,
     panic::{may_panic, panic_diverge},
     prelude::*,
@@ -497,7 +497,6 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             -> permissions: Tracked<Option<Sum<FracMetadataPerm, MetadataPerm>>>
         requires
             old(regions).inv(),
@@ -517,12 +516,11 @@ impl MetaSlot {
                     as_unique_ptr,
                     *old(regions),
                     *final(regions),
-                    *final(repr_perm),
                     permissions@->0,
                 )
             },
     )]
-    pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf>(
+    pub(super) fn get_from_unused<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
@@ -580,10 +578,7 @@ impl MetaSlot {
         // SAFETY: The slot now has a reference count of `0`, other threads will
         // not access the metadata slot so it is safe to have a mutable reference.
         unsafe {
-            #[verus_spec(with
-                Tracked(&mut metadata_perm),
-                Tracked(repr_perm)
-            )]
+            #[verus_spec(with Tracked(&mut metadata_perm))]
             slot.write_meta(metadata)
         };
 
@@ -837,7 +832,6 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(metadata_perm): Tracked<&mut MetadataPerm>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             self.storage.id() == old(metadata_perm).storage_perm.id(),
             self.vtable_ptr == old(metadata_perm).vtable_ptr_perm.pptr(),
@@ -848,17 +842,11 @@ impl MetaSlot {
             final(metadata_perm).vtable_ptr_perm.pptr() == old(metadata_perm).vtable_ptr_perm.pptr(),
             final(metadata_perm).vtable_ptr_perm.is_init(),
             final(metadata_perm).vtable_ptr_perm.value() == metadata.vtable_ptr(),
-            <M as Repr<MetaSlotStorage>>::wf(
-                final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
-            ),
-            M::from_repr_spec(
-                final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
-            ) == metadata,
+            final(metadata_perm).storage_perm.value().holds::<M>(),
+            final(metadata_perm).storage_perm.value().value::<M>() == metadata,
             final(metadata_perm).meta_type_id == recorded_meta_id::<M>(),
     )]
-    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf>(
         &self,
         metadata: M,
     ) {
@@ -873,12 +861,7 @@ impl MetaSlot {
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
         // unsafe { ptr.cast::<M>().write(metadata) };
-        write_metadata_into_storage(
-            &self.storage,
-            Tracked(metadata_perm),
-            Tracked(repr_perm),
-            metadata,
-        );
+        write_metadata_into_storage(&self.storage, Tracked(metadata_perm), metadata);
 
         // Record which type went in. After the storage write, not before:
         // `write_metadata_into_storage` takes the permission `&mut` and its

@@ -329,7 +329,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& guard.inner.inner@.wf(self)
-        &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
+        &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource())
     }
 }
 

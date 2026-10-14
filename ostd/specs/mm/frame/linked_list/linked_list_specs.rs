@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::*, ownership::*, prelude::*, typing::tagged::ByteRepr};
+use vstd_extra::{ownership::*, prelude::*, typing::tagged::ByteRepr};
 
 use super::linked_list_owners::*;
 use crate::mm::{

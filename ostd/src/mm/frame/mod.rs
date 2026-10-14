@@ -37,7 +37,8 @@ use vstd::{
     simple_pptr::{self, PPtr},
     std_specs::cmp::PartialEqSpecImpl,
 };
-use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
+use vstd_extra::{ownership::*, panic::may_panic};
+use vstd_extra::typing::tagged::ByteRepr;
 #[cfg(feature = "type_id")]
 use vstd::std_specs::convert::TryFromSpecImpl;
 #[cfg(feature = "type_id")]
@@ -187,7 +188,7 @@ impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -209,7 +210,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Frame<M> 
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
         requires
             old(regions).inv(),
         ensures
@@ -231,10 +231,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Frame<M> 
             r is Err ==> *final(regions) == *old(regions)
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
-        #[verus_spec(with
-            Tracked(regions),
-            Tracked(repr_perm) => Tracked(permissions)
-        )]
+        #[verus_spec(with Tracked(regions) => Tracked(permissions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
             Err(err)
@@ -272,13 +269,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Frame<M> 
     #[verus_spec(ret =>
         with
             Tracked(metadata_perm): Tracked<Option<&'a MetadataPerm>>,
-            Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
             {
                 self.inv() && metadata_perm is None
                 && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm()) ||
                 metadata_perm is Some
-                && self.external_meta_wf(*metadata_perm->0, *repr_perm)
+                && self.external_meta_wf(*metadata_perm->0)
             },
         ensures
             {
@@ -299,10 +295,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()> + OwnerOf> Frame<M> 
             };
         }
         borrow_meta(
-            ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
+            PPtr::<MetaSlotStorage>::from_addr(self.ptr.addr()),
             Tracked(slot_perm),
             Tracked(metadata_perm),
-            Tracked(repr_perm),
         )
     }
 }
@@ -772,8 +767,8 @@ impl<M: ?Sized> Frame<M> {
 /// Identity of an erased frame's metadata.
 ///
 /// A separate impl block because the surrounding one is bounded by
-/// `Repr<MetaSlotStorage>`, which `dyn AnyFrameMeta` does not satisfy -- and it is
-/// exactly the erased case these two are for.
+/// `ByteRepr<META_STORAGE_SIZE>`, which `dyn AnyFrameMeta` does not satisfy --
+/// and it is exactly the erased case these two are for.
 impl Frame<dyn AnyFrameMeta> {
     /// Gets the dynamically-typed metadata of this frame.
     ///

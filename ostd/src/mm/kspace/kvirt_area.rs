@@ -4,7 +4,6 @@ use vstd::{prelude::*, set_lib::FiniteRange};
 use vstd_extra::{
     arithmetic::nat_align_down,
     assert,
-    cast_ptr::Repr,
     ownership::{InvView, OwnerOf},
     panic::may_panic,
     prelude::Inv,

@@ -1,5 +1,7 @@
 use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
-use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
+use vstd_extra::typing::tagged::ByteRepr;
+use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
+use vstd_extra::{ownership::*, sum::Sum};
 
 use crate::specs::{
     arch::*,
@@ -105,13 +107,12 @@ impl MetaSlot {
 
     /// The complete successful result of claiming an unused slot, including
     /// the fraction returned to the new frame handle.
-    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + Repr<MetaSlotStorage, ReprPerm = ()>>(
+    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
         paddr: Paddr,
         metadata: M,
         as_unique: bool,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-        repr_perm: M::ReprPerm,
         permission: Sum<FracMetadataPerm, MetadataPerm>,
     ) -> bool {
         let idx = frame_to_index(paddr);
@@ -127,8 +128,8 @@ impl MetaSlot {
             &&& permission->Left_0.id() == post.slot_owners[idx].metadata_perm.id()
         }
         &&& Self::perms_related(*post.slots[idx], metadata_perms)
-        &&& <M as Repr<MetaSlotStorage>>::wf(metadata_perms.storage_perm.value(), repr_perm)
-        &&& M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm) == metadata
+        &&& metadata_perms.storage_perm.value().holds::<M>()
+        &&& metadata_perms.storage_perm.value().value::<M>() == metadata
         // The recorded identity, beside the value it identifies. `write_meta` stamps
         // this when it installs the metadata; stating it here is what carries it out
         // through `get_from_unused` to callers that aggregate frames.

@@ -3,7 +3,7 @@ use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
 };
-use vstd_extra::{cast_ptr::Repr, prelude::*};
+use vstd_extra::prelude::*;
 
 use crate::specs::{
     arch::valid_frame_paddr,

@@ -22,7 +22,6 @@
 //! `UniqueFrame` have `pub` fields, which is why their counterparts could move.
 use vstd::prelude::*;
 use vstd_extra::{
-    cast_ptr::Repr,
     ownership::OwnerOf,
     transmute::{can_transmute, transmuted},
 };

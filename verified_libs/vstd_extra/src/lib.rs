@@ -24,7 +24,6 @@ pub mod atomic_data;
 pub mod atomic_irc11;
 pub mod auxiliary;
 pub mod bits;
-pub mod cast_ptr;
 pub mod drop_tracking;
 pub mod external;
 pub mod function_properties;

@@ -44,7 +44,7 @@
 //! and checks it back in on drop ([`ListStore::step_cursor_drop`]).
 use vstd::prelude::*;
 use vstd_extra::{
-    cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_has_unused,
+    ownership::*, set_extra::lemma_finite_int_set_has_unused,
     typing::tagged::ByteRepr,
 };
 
@@ -207,16 +207,13 @@ pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE
     LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
-        res.repr_perms =~= Seq::<()>::empty(),
         res.metadata_perms =~= Seq::<MetadataPerm>::empty(),
         res.list_id == 0,
 {
     let tracked list = Seq::<LinkOwner>::tracked_empty();
-    let tracked repr_perms = Seq::<()>::tracked_empty();
     let tracked metadata_perms = Seq::<MetadataPerm>::tracked_empty();
     let tracked res = LinkedListOwner::<M> {
         list,
-        repr_perms,
         metadata_perms,
         list_id: 0,
         _marker: core::marker::PhantomData,

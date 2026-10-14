@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::Repr, ownership::Inv, prelude::*};
+use vstd_extra::{ownership::Inv, prelude::*};
 
 use crate::specs::mm::frame::{meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners};
 
