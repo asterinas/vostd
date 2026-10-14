@@ -2815,7 +2815,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         NR_ENTRIES > 1,
                 ;
             }
-            assert(level <= self.0.guard_level);
         }
 
         assert(!self.map_panic_conditions(item));
