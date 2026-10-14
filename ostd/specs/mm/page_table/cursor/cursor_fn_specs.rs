@@ -243,8 +243,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|
-                regions0.ref_count(idx) != REF_COUNT_UNUSED ==> #[trigger] regions1.slot_owners[idx]
-                    == regions0.slot_owners[idx],
+                regions0.ref_count(idx) != REF_COUNT_UNUSED ==> {
+                    &&& (#[trigger] regions1.slot_owners[idx]).same_permissions(
+                        regions0.slot_owners[idx],
+                    )
+                    &&& regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage
+                    &&& regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr
+                },
             forall|idx: int|
                 regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED
                     ==> #[trigger] regions1.slots[idx] == regions0.slots[idx],

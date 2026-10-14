@@ -212,6 +212,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
+        // The PTE array is accessed through its linear-mapping virtual address.
         &&& self.children_perm.addr() == paddr_to_vaddr(
             meta_to_frame(index_to_meta(self.slot_index)),
         )
@@ -222,7 +223,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
-        &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
     }
 }
 
@@ -270,6 +270,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
         &&& regions.contains(idx)
+        &&& 0 < regions.ref_count(idx) <= crate::mm::frame::meta::REF_COUNT_MAX
         &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
         &&& self.meta_value().wf(

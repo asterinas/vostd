@@ -7,8 +7,9 @@ use crate::specs::{
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
         page_table::{
-            Mapping,
+            CursorView, Mapping,
             cursor::owners::{CursorContinuation, CursorOwner},
+            cursor::page_size_lemmas::lemma_page_size_next,
             lemma_pte_index_bound, nat_align_down,
             owners::*,
             pte_index_spec,
@@ -16,7 +17,7 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -24,7 +25,162 @@ verus! {
 broadcast use group_ghost_tree_lemmas;
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    pub proof fn protect_preserves_cursor_inv_metaregion(
+    /// Restore a tree predicate after replacing only the current child subtree.
+    pub proof fn replaced_child_preserves_map_full_tree(
+        self,
+        old: Self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    )
+        requires
+            self.inv(),
+            old.inv(),
+            self.level == old.level,
+            old.map_full_tree(f),
+            OwnerSubtree::implies(f, g),
+            forall|i: int|
+                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                    == old.continuations[i],
+            self.continuations[self.level - 1].path() == old.continuations[old.level - 1].path(),
+            self.index() == old.index(),
+            forall|j: int|
+                0 <= j < NR_ENTRIES && j != old.index() ==> #[trigger] self.continuations[self.level
+                    - 1].children[j] == old.continuations[old.level - 1].children[j],
+            self.cur_subtree().subtree_satisfies(self.cur_entry_owner().path, g),
+        ensures
+            self.map_full_tree(g),
+    {
+        assert forall|i: int|
+            self.level - 1 <= i < NR_LEVELS implies #[trigger] self.continuations[i].map_children(
+            g,
+        ) by {
+            if i == self.level - 1 {
+                self.continuations[i].map_children_lift_skip_idx(
+                    old.continuations[i],
+                    self.index() as int,
+                    f,
+                    g,
+                );
+            } else {
+                old.continuations[i].map_children_lift(f, g);
+            }
+        };
+    }
+
+    /// Replace the huge current mapping with the proven view of its split subtree.
+    pub proof fn split_current_mappings(self, old: Self)
+        requires
+            self.inv(),
+            old.inv(),
+            self.in_locked_range(),
+            old.in_locked_range(),
+            self.level == old.level,
+            self.va == old.va,
+            old.cur_entry_owner().is_frame(),
+            self.cur_entry_owner().is_node(),
+            self.index() == old.index(),
+            self.continuations[self.level - 1].path() == old.continuations[old.level - 1].path(),
+            forall|i: int|
+                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                    == old.continuations[i],
+            forall|j: int|
+                0 <= j < NR_ENTRIES && j != old.index() ==> #[trigger] self.continuations[self.level
+                    - 1].children[j] == old.continuations[old.level - 1].children[j],
+            1 < old.level < NR_LEVELS,
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_entry_owner().path) == Set::<
+                int,
+            >::range(0, NR_ENTRIES as int).map(
+                |i: int|
+                    CursorView::<C>::split_index(
+                        PageTableOwner(old.cur_subtree()).view_rec(
+                            old.cur_entry_owner().path,
+                        ).choose(),
+                        page_size::<PagingConsts>((old.level - 1) as PagingLevel),
+                        i as usize,
+                    ),
+            ),
+        ensures
+            self@ == old@.split_if_mapped_huge_spec(
+                page_size::<PagingConsts>((old.level - 1) as PagingLevel),
+            ),
+            old@.inv(),
+            old@.present(),
+            old@.query_mapping().page_size == page_size::<PagingConsts>(old.level),
+    {
+        hide(CursorOwner::view_mappings);
+        hide(CursorContinuation::view_mappings);
+        broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
+
+        old.view_preserves_inv();
+        old.lemma_cur_subtree_inv();
+        old.cur_va_in_subtree_range();
+        old.lemma_cur_entry_frame_present();
+        let old_subtree = old.cur_subtree();
+        let path = old.cur_entry_owner().path;
+        let m = old@.query_mapping();
+        old.query_mapping_from_subtree(m);
+        assert(PageTableOwner(old_subtree).view_rec(path) == set![m]);
+        vstd::set::lemma_set_choose_len(set![m]);
+        let size = page_size::<PagingConsts>((old.level - 1) as PagingLevel);
+        lemma_page_size_next::<PagingConsts>((old.level - 1) as PagingLevel);
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
+        assert(m.page_size == page_size::<PagingConsts>(old.level));
+        assert(m.page_size == size * NR_ENTRIES);
+        assert(m.page_size / size == NR_ENTRIES) by (nonlinear_arith)
+            requires
+                size > 0,
+                m.page_size == size * NR_ENTRIES,
+        ;
+        let cont0 = old.continuations[old.level - 1];
+        let cont1 = self.continuations[self.level - 1];
+        cont0.view_mappings_take_child();
+        cont1.view_mappings_take_child();
+        let siblings0 = cont0.take_child().1;
+        let siblings1 = cont1.take_child().1;
+        assert(siblings0.view_mappings() == siblings1.view_mappings()) by {
+            assert forall|j: int| 0 <= j < NR_ENTRIES implies (#[trigger] siblings0.children[j])
+                == siblings1.children[j] by {};
+            assert(siblings0.path() == siblings1.path());
+            assert forall|e: Mapping|
+                siblings0.view_mappings().contains(e) implies siblings1.view_mappings().contains(
+                e,
+            ) by {
+                let j = choose|j: int|
+                    0 <= j < NR_ENTRIES && (#[trigger] siblings0.children[j]) is Some
+                        && PageTableOwner(siblings0.children[j]->0).view_rec(
+                        siblings0.path().push_tail(j),
+                    ).contains(e);
+                siblings1.lemma_view_mappings_intro(e, j);
+            };
+            assert forall|e: Mapping|
+                siblings1.view_mappings().contains(e) implies siblings0.view_mappings().contains(
+                e,
+            ) by {
+                let j = choose|j: int|
+                    0 <= j < NR_ENTRIES && (#[trigger] siblings1.children[j]) is Some
+                        && PageTableOwner(siblings1.children[j]->0).view_rec(
+                        siblings1.path().push_tail(j),
+                    ).contains(e);
+                siblings0.lemma_view_mappings_intro(e, j);
+            };
+        };
+        let new_subtree = self.cur_subtree();
+        siblings1.view_mappings_put_child(new_subtree);
+        assert(siblings1.put_child(new_subtree).view_mappings() == cont1.view_mappings());
+        Self::view_mappings_replace_lowest(old, self, cont0, cont1);
+        assert(cont0.view_mappings().subset_of(old.view_mappings())) by {
+            assert forall|e: Mapping|
+                cont0.view_mappings().contains(e) implies old.view_mappings().contains(e) by {
+                old.lemma_view_mappings_intro(e, old.level - 1);
+            };
+        };
+        assert(self.view_mappings() =~= old.view_mappings() - set![m] + PageTableOwner(
+            new_subtree,
+        ).view_rec(self.cur_entry_owner().path));
+    }
+
+    /// Restoring a changed child and parent PTE preserves cursor and metadata invariants.
+    pub proof fn replace_preserves_cursor_inv_metaregion(
         self,
         other: Self,
         regions: MetaRegionOwners,
@@ -34,13 +190,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             !self.popped_too_high,
             self.metaregion_sound(regions),
-            self.cur_entry_owner().is_frame(),
-            other.cur_entry_owner().is_frame(),
-            other.cur_entry_owner().inv(),
-            // protect preserves PA, path, parent_level
-            other.cur_entry_owner().frame().mapped_pa == self.cur_entry_owner().frame().mapped_pa,
-            other.cur_entry_owner().path == self.cur_entry_owner().path,
-            other.cur_entry_owner().parent_level == self.cur_entry_owner().parent_level,
             // cursor level and structural fields unchanged
             self.level == other.level,
             self.guard_level == other.guard_level,

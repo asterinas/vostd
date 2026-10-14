@@ -237,6 +237,7 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
         ),
         (final(kernel_owner)@->0).0.value().metaregion_sound(*regions),
         final(kernel_owner)@->0.metaregion_sound(*regions),
+        res.relates_owner(*final(kernel_owner)@->0, *regions),
         guards.unlocked((final(kernel_owner)@->0).0.value().node().slot_vaddr()),
 )]
 pub(crate) fn get_kernel_page_table<'rcu>() -> &'static PageTable<KernelPtConfig> {
@@ -519,6 +520,7 @@ impl KVirtArea {
             // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
             // tightened bound still satisfies lemma_kernel_range_valid's precondition.
             if cursor_range.start < cursor_range.end {
+                assert(FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR) by (compute_only);
                 lemma_kernel_range_valid(cursor_range);
             }
         }

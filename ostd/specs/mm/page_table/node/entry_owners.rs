@@ -648,6 +648,49 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    /// Updating frame paths preserves metadata access and node ownership paths.
+    pub proof fn metaregion_sound_frame_paths_changed(
+        self,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            self.metaregion_sound(r0),
+            r0.inv(),
+            r1.inv(),
+            r0.slots == r1.slots,
+            forall|i: int|
+                #![trigger r1.slot_owners[i]]
+                r0.slot_owners.contains_key(i) ==> {
+                    &&& r1.slot_owners[i].same_permissions(r0.slot_owners[i])
+                    &&& r1.slot_owners[i].usage == r0.slot_owners[i].usage
+                    &&& r1.slot_owners[i].slot_vaddr == r0.slot_owners[i].slot_vaddr
+                    &&& r0.slot_owners[i].paths_in_pt.subset_of(r1.slot_owners[i].paths_in_pt)
+                    &&& r0.slot_owners[i].usage is PageTable ==> r1.slot_owners[i].paths_in_pt
+                        == r0.slot_owners[i].paths_in_pt
+                },
+        ensures
+            self.metaregion_sound(r1),
+    {
+        if self.is_frame() {
+            C::lemma_perm_well_formed_with_region_preserved(
+                self.frame().mapped_pa,
+                Tracked(self.frame_permission()),
+                r0,
+                r1,
+            );
+            if self.parent_level > 1 {
+                C::lemma_huge_raw_item_untracked(
+                    self.frame().mapped_pa,
+                    self.parent_level,
+                    self.frame().prop,
+                    Tracked(self.frame_permission()),
+                );
+            }
+        }
+    }
+
     /// Changing only a leaf PTE's page properties preserves its relationship
     /// to the metadata region. The counting permission, physical address and
     /// page-table path remain unchanged.

@@ -656,7 +656,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// `page_size <= page_size(self.level - 1)`.  Therefore `split_while_huge` at
     /// `page_size(self.level - 1)` does not split anything and is a no-op on the abstract view.
     /// When present, the query_mapping is from the current subtree's view_rec.
-    proof fn query_mapping_from_subtree(self, qm: Mapping)
+    pub proof fn query_mapping_from_subtree(self, qm: Mapping)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -746,9 +746,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 page_size::<PagingConsts>(self.level as PagingLevel),
             ).mappings,
         ensures
-            self@.mappings == old_view.split_while_huge(
+            self@ == old_view.split_while_huge(
                 page_size::<PagingConsts>(self.level as PagingLevel),
-            ).mappings,
+            ),
     {
         let ps = page_size::<PagingConsts>(self.level as PagingLevel);
         let m = old_view.query_mapping();
@@ -757,6 +757,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         old_view.split_while_huge_one_step(ps);
+        old_view.lemma_split_while_huge_preserves_cur_va(ps);
     }
 }
 

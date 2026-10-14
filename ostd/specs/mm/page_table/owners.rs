@@ -11,6 +11,7 @@ use vstd::{
     prelude::*,
     seq::*,
     seq_lib::*,
+    set::lemma_set_choose_len,
     set_lib::*,
 };
 use vstd_extra::{
@@ -380,10 +381,12 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
 )
     requires
         i <= NR_ENTRIES,
+        old(owner).inv(),
         old(owner).children().len() == NR_ENTRIES,
         new_path.inv(),
         forall|j: int| i <= j < NR_ENTRIES ==> (#[trigger] old(owner).children()[j]) is Some,
     ensures
+        final(owner).inv(),
         final(owner).value() == old(owner).value(),
         final(owner).level() == old(owner).level(),
         final(owner).children().len() == NR_ENTRIES,
@@ -397,14 +400,32 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
                 &&& c_new.value() == EntryOwner { path: new_path.push_tail(j), ..c_old.value() }
                 &&& c_new.level() == c_old.level()
                 &&& c_new.children() == c_old.children()
+                &&& c_new.value().is_absent() == c_old.value().is_absent()
             },
     decreases NR_ENTRIES - i,
 {
     if i < NR_ENTRIES {
-        let tracked mut child_value = owner.tracked_borrow_mut_child(
-            i as int,
-        ).tracked_borrow_mut_value();
-        child_value.path = new_path.push_tail(i as int);
+        {
+            let tracked child = owner.tracked_borrow_mut_child(i as int);
+            let before = *child;
+            assert(before.inv());
+            {
+                let tracked child_value = child.tracked_borrow_mut_value();
+                child_value.path = new_path.push_tail(i as int);
+            }
+            assert(child.value().inv());
+            assert(child.inv_node());
+            assert(child.inv_children());
+            assert forall|j: int|
+                0 <= j < NR_ENTRIES && (#[trigger] child.children()[j]) is Some implies child.child(
+                j,
+            ).inv() by {
+                assert(before.children()[j] is Some);
+                assert(before.child(j).inv());
+            };
+            assert(child.inv());
+        }
+        assert(owner.inv());
         rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
     }
 }
@@ -423,10 +444,12 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
     new_path: TreePath<NR_ENTRIES>,
 )
     requires
+        old(owner).inv(),
         old(owner).children().len() == NR_ENTRIES,
         new_path.inv(),
         forall|i: int| 0 <= i < NR_ENTRIES ==> (#[trigger] old(owner).children()[i]) is Some,
     ensures
+        final(owner).inv(),
         final(owner).value() == old(owner).value(),
         final(owner).level() == old(owner).level(),
         final(owner).children().len() == NR_ENTRIES,
@@ -438,9 +461,21 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
                 &&& c_new.value() == EntryOwner { path: new_path.push_tail(i), ..c_old.value() }
                 &&& c_new.level() == c_old.level()
                 &&& c_new.children() == c_old.children()
+                &&& c_new.value().is_absent() == c_old.value().is_absent()
             },
+        allocated_empty_node_grandchildren_none(*old(owner))
+            ==> allocated_empty_node_grandchildren_none(*final(owner)),
 {
     rebase_freshly_allocated_children_at(owner, new_path, 0);
+    if allocated_empty_node_grandchildren_none(*old(owner)) {
+        assert forall|i: int, j: int|
+            0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES implies !#[trigger] owner.child(i).has_child(
+            j,
+        ) by {
+            assert(!old(owner).child(i).has_child(j));
+            assert(owner.child(i).children() == old(owner).child(i).children());
+        };
+    }
 }
 
 /// `subtree_satisfies` for a freshly-allocated node grafted into the cursor:
@@ -573,7 +608,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
-    /// all `None`. Used by `allocated_empty_node_pt_inv` for the absent
+    /// all `None`. Used by `fresh_node_pt_inv` for the absent
     /// children of a freshly-allocated PT node.
     pub proof fn non_node_pt_inv_at_depth(self, depth: nat)
         requires
@@ -586,16 +621,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         reveal(PageTableOwner::pt_inv_at_depth);
     }
 
-    /// `pt_inv` for a freshly-allocated PT node after `alloc_if_none`'s rebase.
-    ///
-    /// Discharges the long-standing `assume` that blocked closing
-    /// `lemma_continuation_inv_holds_after_child_restore`: combines the per-edge
-    /// facts threaded through `alloc_if_none`'s ensures (paths rebased,
-    /// `match_pte`, `parent_level`) with `allocated_empty_node_grandchildren_none`
-    /// to drive `pt_inv_at_depth` to its non-node base case at every absent
-    /// child.
+    /// A fresh node with correctly rebased absent or frame children satisfies `pt_inv`.
     #[verifier::spinoff_prover]
-    pub proof fn allocated_empty_node_pt_inv(owner: OwnerSubtree<C>)
+    pub proof fn fresh_node_pt_inv(owner: OwnerSubtree<C>)
         requires
             owner.inv(),
             owner.value().is_node(),
@@ -603,7 +631,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             forall|i: int|
                 0 <= i < NR_ENTRIES ==> {
                     &&& #[trigger] owner.has_child(i)
-                    &&& owner.child(i).value().is_absent()
+                    &&& !owner.child(i).value().is_node()
                     &&& owner.child(i).value().path.len() == owner.value().node().tree_level + 1
                     &&& owner.child(i).value().match_pte(
                         owner.value().node().children_perm.value()[i],
@@ -628,6 +656,109 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let child = owner.child(i);
             assert(owner.has_child(i));
             PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
+        };
+    }
+
+    /// The frames produced by a huge-page split have exactly the split mapping view.
+    pub proof fn split_node_view(self, old: Self)
+        requires
+            self.0.inv(),
+            old.0.inv(),
+            self.0.value().is_node(),
+            old.0.value().is_frame(),
+            self.0.value().path == old.0.value().path,
+            old.0.value().path.len() == old.0.level(),
+            old.0.level() + old.0.value().parent_level == INC_LEVELS,
+            1 < old.0.value().parent_level < NR_LEVELS,
+            forall|i: int|
+                0 <= i < NR_ENTRIES ==> {
+                    let child = self.0.child(i).value();
+                    &&& #[trigger] self.0.has_child(i)
+                    &&& child.is_frame()
+                    &&& child.path == old.0.value().path.push_tail(i)
+                    &&& child.parent_level == old.0.value().parent_level - 1
+                    &&& child.frame().prop == old.0.value().frame().prop
+                    &&& child.frame().mapped_pa == old.0.value().frame().mapped_pa + i
+                        * page_size::<PagingConsts>((old.0.value().parent_level - 1) as PagingLevel)
+                },
+        ensures
+            self.view_rec(self.0.value().path) == Set::<int>::range(0, NR_ENTRIES as int).map(
+                |i: int|
+                    CursorView::<C>::split_index(
+                        old.view_rec(old.0.value().path).choose(),
+                        page_size::<PagingConsts>((old.0.value().parent_level - 1) as PagingLevel),
+                        i as usize,
+                    ),
+            ),
+    {
+        let path = old.0.value().path;
+        let level = old.0.value().parent_level;
+        let size = page_size::<PagingConsts>((level - 1) as PagingLevel);
+        let huge = Mapping {
+            va_range: vaddr_of::<C>(path) as int..vaddr_of::<C>(path) + page_size::<PagingConsts>(
+                level,
+            ),
+            pa_range: old.0.value().frame().mapped_pa..(old.0.value().frame().mapped_pa
+                + page_size::<PagingConsts>(level)) as usize,
+            page_size: page_size::<PagingConsts>(level),
+            property: old.0.value().frame().prop,
+        };
+        assert(old.view_rec(path) == set![huge]);
+        lemma_set_choose_len(set![huge]);
+        assert(old.view_rec(path).choose() == huge);
+        let pieces = Set::<int>::range(0, NR_ENTRIES as int).map(
+            |i: int| CursorView::<C>::split_index(huge, size, i as usize),
+        );
+        self.lemma_view_rec_contains(path);
+        assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] PageTableOwner(
+            self.0.child(i),
+        ).view_rec(path.push_tail(i))
+            == set![CursorView::<C>::split_index(huge, size, i as usize)] by {
+            assert(self.0.has_child(i));
+            assert(self.0.child(i).inv());
+            assert(self.0.child(i).value().is_frame());
+            Self::lemma_vaddr_push_tail_eq(path, i);
+            lemma_vaddr_of_eq_int::<C>(path);
+            lemma_vaddr_of_eq_int::<C>(path.push_tail(i));
+            assert(vaddr_of::<C>(path.push_tail(i)) == vaddr_of::<C>(path) + i * size);
+            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int, i, 1);
+            let child = self.0.child(i);
+            let piece = CursorView::<C>::split_index(huge, size, i as usize);
+            assert(child.value().path == path.push_tail(i));
+            assert(child.value().frame().mapped_pa == huge.pa_range.start + i * size);
+            assert(child.value().frame().prop == huge.property);
+            let child_mapping = Mapping {
+                va_range: vaddr_of::<C>(path.push_tail(i)) as int..vaddr_of::<C>(path.push_tail(i))
+                    + size,
+                pa_range: child.value().frame().mapped_pa..(child.value().frame().mapped_pa
+                    + size) as usize,
+                page_size: size,
+                property: child.value().frame().prop,
+            };
+            assert(PageTableOwner(child).view_rec(path.push_tail(i)) == set![child_mapping]);
+            assert(child_mapping.va_range.start == piece.va_range.start);
+            assert(child_mapping.va_range.end == piece.va_range.end);
+            assert(child_mapping.va_range == piece.va_range);
+            assert(child_mapping.pa_range == piece.pa_range);
+            assert(child_mapping == piece);
+        };
+        assert forall|m: Mapping| self.view_rec(path).contains(m) implies pieces.contains(m) by {
+            let i = self.view_rec_contains_choose(path, m);
+            assert(self.0.has_child(i));
+            assert(m == CursorView::<C>::split_index(huge, size, i as usize));
+            assert(Set::<int>::range(0, NR_ENTRIES as int).contains(i));
+            assert(pieces.contains(CursorView::<C>::split_index(huge, size, i as usize)));
+        };
+        assert forall|m: Mapping| pieces.contains(m) implies self.view_rec(path).contains(m) by {
+            let i = choose|i: int|
+                0 <= i < NR_ENTRIES && m == #[trigger] CursorView::<C>::split_index(
+                    huge,
+                    size,
+                    i as usize,
+                );
+            assert(self.0.has_child(i));
+            assert(PageTableOwner(self.0.child(i)).view_rec(path.push_tail(i)).contains(m));
+            self.lemma_view_rec_contains_intro(path, m, i);
         };
     }
 
@@ -1644,6 +1775,7 @@ proof fn lemma_vaddr_make_eq_page_size(idx: int, offset: int)
     let parent_size = page_size::<PagingConsts>((INC_LEVELS - idx) as PagingLevel) as int;
     lemma_page_size_next::<PagingConsts>((NR_LEVELS - idx) as PagingLevel);
     lemma_nr_subpage_per_huge_eq_nr_entries();
+    vstd::arithmetic::mul::lemma_mul_is_commutative(NR_ENTRIES as int, entry_size);
     assert(offset * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
         requires
             0 <= offset <= NR_ENTRIES,

@@ -452,6 +452,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.inv(),
         ensures
             res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.ptr_inv(),
+            res.inner@.slot_perm() == self.slot_perm(),
+            res.inner@.tracked_metadata_perm@ is None,
+            MetaSlot::perms_related(res.inner@.slot_perm(), self.metadata_perm()),
+            forall|repr_perm: M::ReprPerm|
+                #[trigger] typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), repr_perm)
+                ==> res.inner@.external_meta_wf(self.metadata_perm(), repr_perm),
     )]
     pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
         let tracked slot_perm = *self.tracked_slot_perm.borrow();
@@ -485,6 +492,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
             res.inner@.tracked_metadata_perm@ is None,
             MetaSlot::perms_related(res.inner@.slot_perm(), frame_permission.resource()),
+            forall|repr_perm: M::ReprPerm|
+                #[trigger] typed_meta_wf::<M>(self.slot_perm(), frame_permission.resource(), repr_perm)
+                ==> res.inner@.external_meta_wf(frame_permission.resource(), repr_perm),
     )]
     pub(in crate::mm) fn borrow_with_permission<'a>(&self) -> FrameRef<'a, M> {
         unsafe {

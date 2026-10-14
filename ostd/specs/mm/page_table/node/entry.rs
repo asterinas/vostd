@@ -14,6 +14,53 @@ use crate::mm::{frame::meta::REF_COUNT_UNUSED, page_table::*};
 verus! {
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
+    /// Claiming one unused slot preserves entries that refer to other slots.
+    pub proof fn allocated_node_preserves_disjoint_entries(
+        old_child: EntryOwner<C>,
+        new_child: EntryOwner<C>,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+    )
+        requires
+            old_child.is_absent(),
+            new_child.is_node(),
+            new_child.inv(),
+            r0.inv(),
+            r1.inv(),
+            r0.slots == r1.slots,
+            forall|i: int|
+                #![trigger r1.slot_owners[i]]
+                i != frame_to_index(new_child.meta_slot_paddr()->0) ==> {
+                    &&& r1.slot_owners[i].same_permissions(r0.slot_owners[i])
+                    &&& r1.slot_owners[i].usage == r0.slot_owners[i].usage
+                    &&& r1.slot_owners[i].slot_vaddr == r0.slot_owners[i].slot_vaddr
+                    &&& r0.slot_owners[i].paths_in_pt.subset_of(r1.slot_owners[i].paths_in_pt)
+                    &&& r0.slot_owners[i].usage is PageTable ==> r1.slot_owners[i].paths_in_pt
+                        == r0.slot_owners[i].paths_in_pt
+                },
+            r1.contains(frame_to_index(new_child.meta_slot_paddr()->0)),
+            0 < r1.ref_count(frame_to_index(new_child.meta_slot_paddr()->0))
+                <= crate::mm::frame::meta::REF_COUNT_MAX,
+        ensures
+            Self::metaregion_sound_neq_preserved(old_child, new_child, r0, r1),
+    {
+        broadcast use crate::specs::mm::frame::mapping::lemma_frame_to_index_injective;
+
+        let idx = frame_to_index(new_child.meta_slot_paddr()->0);
+        assert forall|entry: EntryOwner<C>|
+            entry.inv() && entry.meta_slot_paddr_neq(new_child) && entry.metaregion_sound(
+                r0,
+            ) implies #[trigger] entry.metaregion_sound(r1) by {
+            let intermediate = r0.insert_slot_owner(
+                new_child.meta_slot_paddr()->0,
+                r1.slot_owners[idx],
+            );
+            assert(intermediate.inv());
+            entry.metaregion_sound_one_slot_changed(r0, intermediate, idx);
+            entry.metaregion_sound_frame_paths_changed(intermediate, r1);
+        };
+    }
+
     pub open spec fn invariants(self, owner: EntryOwner<C>, regions: MetaRegionOwners) -> bool {
         &&& owner.inv()
         &&& regions.inv()

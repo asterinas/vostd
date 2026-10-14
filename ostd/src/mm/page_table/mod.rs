@@ -960,6 +960,7 @@ impl PageTable<KernelPtConfig> {
             !Self::create_user_pt_panic_condition(kernel_owner.0.value().node()),
             // The kernel page table's root frame matches the tracked owner.
             self.root.ptr.addr() == kernel_owner.0.value().node().slot_vaddr(),
+            self.relates_owner(*kernel_owner, *old(regions)),
             // The kernel root entry is sound with respect to the meta regions.
             kernel_owner.0.value().metaregion_sound(*old(regions)),
             // The whole kernel page-table tree is sound: every entry's metaregion
@@ -1004,7 +1005,7 @@ impl PageTable<KernelPtConfig> {
             assert(kern_idx != new_idx);
             assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
             assert(kernel_owner.metaregion_sound(*regions));
-            assert(!regions.contains(new_idx));
+            assert(regions.contains(new_idx));
         }
 
         proof_decl! {
@@ -1025,105 +1026,25 @@ impl PageTable<KernelPtConfig> {
             assert(kernel_owner.0.value().is_node());
             assert(kernel_owner.0.value().metaregion_sound(*regions));
         }
-        let ghost regions_before_self_borrow: MetaRegionOwners = *regions;
         let mut root_node = {
-            let root_ref = self.root.borrow();
+            /* The root's counting permission is held by NodeOwner; borrowing
+             * with that external permission preserves the pointer and refcount.
+             * Origin Rust: let root_ref = self.root.borrow();
+             */
+            #[verus_spec(with Tracked(&root_owner.frame_permission), Tracked(&*regions))]
+            let root_ref = self.root.borrow_with_permission();
             #[verus_spec(with Tracked(root_owner), Tracked(guards))]
             root_ref.lock(preempt_guard)
         };
-        let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
         let mut new_node: PageTableGuard<'rcu, UserPtConfig> = {
-            let new_ref = new_root.borrow();
+            /* The fresh root's permission is held by new_node_owner.
+             * Origin Rust: let new_ref = new_root.borrow();
+             */
+            #[verus_spec(with Tracked(&new_node_owner.frame_permission), Tracked(&*regions))]
+            let new_ref = new_root.borrow_with_permission();
             #[verus_spec(with Tracked(&new_node_owner), Tracked(guards))]
             new_ref.lock(preempt_guard)
         };
-        proof {
-            let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
-                kernel_owner.0.value().meta_slot_paddr().unwrap(),
-            );
-            assert(regions_before_self_borrow.slot_owners
-                == regions_after_kroot_borrow.slot_owners);
-            assert forall|k: int|
-                regions_before_self_borrow.contains(k) implies regions_before_self_borrow.slots[k]
-                == #[trigger] regions_after_kroot_borrow.slots[k] by {
-                if k == kern_idx {
-                    crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
-                        KernelPtConfig,
-                    >::lemma_active_entry_not_in_free_pool(
-                        kernel_owner.0.value(),
-                        regions_before_self_borrow,
-                        k,
-                    );
-                }
-            };
-            kernel_owner.metaregion_sound_preserved_slot_owners_eq(
-                regions_before_self_borrow,
-                regions_after_kroot_borrow,
-            );
-
-            let new_idx = new_idx_g;
-            assert(regions_before_alloc.contains(new_idx));
-            assert(kern_idx != new_idx) by {
-                crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
-                    KernelPtConfig,
-                >::lemma_active_entry_not_in_free_pool(
-                    kernel_owner.0.value(),
-                    regions_before_alloc,
-                    new_idx,
-                );
-            };
-
-            assert(!regions_before_self_borrow.contains(new_idx));
-            assert(!regions_after_kroot_borrow.contains(new_idx));
-            assert forall|k: int|
-                regions_after_kroot_borrow.contains(k) implies regions_after_kroot_borrow.slots[k]
-                == #[trigger] regions.slots[k] by {};
-            assert(kernel_owner.metaregion_sound(regions_before_alloc));
-
-            kernel_owner.0.lemma_subtree_satisfies_implies(
-                kernel_owner.0.value().path,
-                |
-                    e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
-                    p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>,
-                |
-                    e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size::<PagingConsts>(e.parent_level) / PAGE_SIZE;
-                        forall|j: usize|
-                            0 < j < nr_pages ==> {
-                                let sub_idx =
-                                    #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * PAGE_SIZE) as usize,
-                                );
-                                sub_idx != new_idx
-                            }
-                    },
-                |
-                    e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
-                    p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>,
-                |
-                    e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size::<PagingConsts>(e.parent_level) / PAGE_SIZE;
-                        forall|j: usize|
-                            0 < j < nr_pages ==> {
-                                let sub_idx =
-                                    #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * PAGE_SIZE) as usize,
-                                );
-                                sub_idx != new_idx || (regions.contains(sub_idx)
-                                    && regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                                    && regions.ref_count(sub_idx) > 0 && regions.ref_count(sub_idx)
-                                    <= REF_COUNT_MAX)
-                            }
-                    },
-            );
-            kernel_owner.metaregion_sound_preserved_one_slot_changed(
-                regions_after_kroot_borrow,
-                *regions,
-                new_idx,
-            );
-        }
         let mut i: usize = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start;
         while i < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end
             invariant
@@ -1274,6 +1195,8 @@ impl PageTable<KernelPtConfig> {
 #[verus_verify]
 impl<C: PageTableConfig> PageTable<C> {
     /// Relates this executable page-table handle to its tracked ownership tree.
+    /// The root's counting permission is held by the node owner, so its frame
+    /// uses `external_meta_wf` to identify the matching typed metadata.
     pub open spec fn relates_owner(
         &self,
         owner: PageTableOwner<C>,
@@ -1281,6 +1204,12 @@ impl<C: PageTableConfig> PageTable<C> {
     ) -> bool {
         &&& owner.inv()
         &&& self.root.ptr.addr() == owner.0.value().node().slot_vaddr()
+        &&& self.root.external_meta_wf(owner.0.value().node().frame_permission.resource(), ())
+        &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
+        &&& owner.0.value().node().level() == NR_LEVELS
+        &&& owner.0.value().path == vstd_extra::ghost_tree::TreePath::<NR_ENTRIES>::new(
+            Seq::empty(),
+        )
         &&& owner.metaregion_sound(regions)
     }
 
@@ -1293,6 +1222,13 @@ impl<C: PageTableConfig> PageTable<C> {
     }
 
     /// Create a new empty page table together with its tracked ownership.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The metadata region invariant holds.
+    /// ## Postconditions
+    /// - The root frame and its typed metadata match the returned ownership tree.
+    /// - The root claims an unused slot, retains it in the metadata table, and registers its root path.
     #[verifier::external_body]
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut Option<PageTableOwner<C>>>,
@@ -1306,6 +1242,7 @@ impl<C: PageTableConfig> PageTable<C> {
             (final(owner)@->0).0.value().is_node(),
             r.root.ptr.addr() == (final(owner)@->0).0.value().node().slot_vaddr(),
             (final(owner)@->0).0.value().metaregion_sound(*final(regions)),
+            r.relates_owner(final(owner)@->0, *final(regions)),
             final(regions).inv(),
             final(guards).unlocked((final(owner)@->0).0.value().node().slot_vaddr()),
             // Allocating a fresh node does not change the lock set, so any node
@@ -1315,9 +1252,9 @@ impl<C: PageTableConfig> PageTable<C> {
             old(regions).contains(
                 crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
-            // After the alloc, the slot is removed from the free pool (now owned
-            // by the new pt's NodeOwner).
-            !final(regions).contains(
+            // The metadata table retains live slots; refcounts distinguish
+            // allocation from membership in the table.
+            final(regions).contains(
                 crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // Other slots and lock state are preserved.
@@ -1325,7 +1262,11 @@ impl<C: PageTableConfig> PageTable<C> {
                 i != crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            final(regions).slots == old(regions).slots,
+            old(regions).ref_count((final(owner)@->0).0.value().node().slot_index) == REF_COUNT_UNUSED,
+            final(regions).ref_count((final(owner)@->0).0.value().node().slot_index) == 1,
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+                idx != (final(owner)@->0).0.value().node().slot_index ==>
                 final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
             // Allocation preserves the soundness of the kernel page-table tree:
