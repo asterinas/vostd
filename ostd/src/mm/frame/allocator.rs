@@ -82,7 +82,7 @@ impl FrameAllocOptions {
             }
     )]
     #[verifier::external_body]
-    pub fn alloc_frame_with<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, metadata: M) -> Result<
+    pub fn alloc_frame_with<M: AnyFrameMeta>(&self, metadata: M) -> Result<
         Frame<M>,
         Error,
     > {

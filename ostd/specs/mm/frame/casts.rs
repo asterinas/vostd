@@ -171,8 +171,8 @@ pub proof fn axiom_frame_recover_transmutable<M: AnyFrameMeta>(f: Frame<dyn AnyF
 /// not make -- `UniqueFrame::transmute_requires` is where that lives.
 #[verifier::external_body]
 pub proof fn axiom_unique_frame_reparam<
-    A: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
-    B: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
+    A: AnyFrameMeta + OwnerOf,
+    B: AnyFrameMeta + OwnerOf,
 >(f: UniqueFrame<A>)
     requires
         can_transmute::<UniqueFrame<A>, UniqueFrame<B>>(f),
@@ -203,8 +203,8 @@ pub proof fn axiom_unique_frame_reparam<
 /// reparameterization being useful at the wrong one.
 #[verifier::external_body]
 pub proof fn axiom_unique_frame_transmutable<
-    A: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
-    B: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf,
+    A: AnyFrameMeta + OwnerOf,
+    B: AnyFrameMeta + OwnerOf,
 >(f: UniqueFrame<A>)
     ensures
         can_transmute::<UniqueFrame<A>, UniqueFrame<B>>(f),

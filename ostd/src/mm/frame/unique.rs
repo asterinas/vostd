@@ -32,7 +32,7 @@ use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
 verus! {
 
-pub struct UniqueFrame<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
+pub struct UniqueFrame<M: AnyFrameMeta + ?Sized> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
     /// The permission to access the `MetaSlot` fields.

@@ -65,6 +65,27 @@ pub exec fn borrow_as<'a, const SIZE: usize, T: ByteRepr<SIZE>>(data: &'a [u8; S
     unimplemented!()
 }
 
+/// AXIOM: the mutable counterpart of [`borrow_as`].
+///
+/// The third postcondition is the one that carries weight: writing through the
+/// returned `&mut T` must leave the bytes decodable. That holds because the bytes
+/// *are* the `T`, in place -- whatever valid `T` is written there decodes to itself
+/// by [`ByteRepr::round_trip`] -- but it is an obligation on this axiom rather than
+/// something the signature gives for free.
+#[verifier::external_body]
+pub exec fn borrow_as_mut<'a, const SIZE: usize, T: ByteRepr<SIZE>>(
+    data: &'a mut [u8; SIZE],
+) -> (r: &'a mut T)
+    requires
+        T::try_from_spec(*old(data)) is Ok,
+    ensures
+        *r == T::try_from_spec(*old(data))->Ok_0,
+        T::try_from_spec(*final(data)) is Ok,
+        *final(r) == T::try_from_spec(*final(data))->Ok_0,
+{
+    unimplemented!()
+}
+
 /// The type of a recorded type identity.
 ///
 /// `core::any::TypeId` where the toolchain supports it, and an opaque `int` otherwise
@@ -130,6 +151,21 @@ impl<const SIZE: usize> TaggedArray<SIZE> {
             *r == self.value::<T>(),
     {
         borrow_as::<SIZE, T>(&self.data)
+    }
+
+    /// Mutate the stored value in place.
+    ///
+    /// The recorded id is untouched, so [`Self::holds`] survives: mutation reaches
+    /// only `data`, and the decode half is what [`borrow_as_mut`] preserves.
+    pub exec fn borrow_mut<'a, T: ByteRepr<SIZE>>(&'a mut self) -> (r: &'a mut T)
+        requires
+            old(self).holds::<T>(),
+        ensures
+            *r == old(self).value::<T>(),
+            final(self).holds::<T>(),
+            *final(r) == final(self).value::<T>(),
+    {
+        borrow_as_mut::<SIZE, T>(&mut self.data)
     }
 }
 

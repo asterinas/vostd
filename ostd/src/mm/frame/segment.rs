@@ -171,7 +171,7 @@ impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
 /// [`From<Segment<M>>`](Segment) for the conversion that produces one.
 pub type USegment = Segment<dyn AnyUFrameMeta>;
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> RCClone for Segment<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         &&& self.inv()
         &&& perm.inv()
@@ -735,7 +735,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> Segment<M> {
     /// Splits the frames into two at the given byte offset from the start.
     ///
     /// The resulting frames cannot be empty. So the offset cannot be neither
@@ -1026,7 +1026,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment<M> {
+impl<M: AnyFrameMeta> FromSpecImpl<Frame<M>> for Segment<M> {
     open spec fn obeys_from_spec() -> bool {
         true
     }
@@ -1050,7 +1050,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
+impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
     fn from(frame: Frame<M>) -> Self {
         assume(frame.inv());
 
@@ -1081,7 +1081,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> Iterator for Segment<M> {
     type Item = Frame<M>;
 
     #[verifier::rlimit(200)]
@@ -1117,7 +1117,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> IteratorSpecImpl for Segment<M> {
     open spec fn obeys_prophetic_iter_laws(&self) -> bool {
         true
     }
@@ -1161,7 +1161,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
+impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires

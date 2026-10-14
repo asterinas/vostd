@@ -97,7 +97,7 @@ verus! {
 /// ## Verification Design
 /// The linked list is abstractly represented by a [`LinkedListOwner`]:
 /// ```rust
-/// tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+/// tracked struct LinkedListOwner<M: AnyFrameMeta> {
 ///     pub list: Seq<LinkOwner>,
 ///     pub list_id: u64,
 /// }

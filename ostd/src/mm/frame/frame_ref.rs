@@ -165,7 +165,7 @@ pub unsafe trait NonNullPtr: 'static + Sized {
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
-unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Frame<M> {
+unsafe impl<M: AnyFrameMeta + 'static> NonNullPtr for Frame<M> {
     type Target = PhantomData<Self>;
 
     type Permission = FrameRawPerms;

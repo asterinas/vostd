@@ -159,7 +159,7 @@ impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
 
 verus!{
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEqSpecImpl for Frame<M>{
+impl<M: AnyFrameMeta + ?Sized> PartialEqSpecImpl for Frame<M>{
     open spec fn obeys_eq_spec() -> bool { true }
 
     open spec fn eq_spec(&self, other: &Self) -> bool {
@@ -170,7 +170,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEqSpecImpl for Fra
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEq for Frame<M> {
+impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
     fn eq(&self, other: &Self) -> bool {
         proof!{
             //FIXME: Add `ptr_inv` as type invariant when we fix visibility.
@@ -182,7 +182,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> PartialEq for Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Eq for Frame<M> {
+impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {
 
 }
 
@@ -308,7 +308,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
+impl<M: AnyFrameMeta> Frame<M> {
     /// Gets a dynamically typed [`Frame`] from a raw, in-use page.
     ///
     /// If the provided frame is not in use at the moment, it will return an error.
@@ -973,8 +973,114 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) -> (permission: Tr
     Tracked(frame_permission)
 }
 
-/// A dynamically-typed frame is represented by a frame of the underlying metadata type,
-/// which can be cast from any other type.
-pub type DynFrame = Frame<MetaSlotStorage>;
+/// A frame whose metadata type is erased.
+///
+/// `Frame<M: ?Sized>` carries no trait bound, so this needs neither a supertrait
+/// impl nor a feature gate -- unlike `USegment`.
+pub type DynFrame = Frame<dyn AnyFrameMeta>;
+
+/// [`RCClone`]'s spec functions for `Frame<M>`, restated as their conjuncts.
+///
+/// Verus will not unfold a trait-impl spec function at a `dyn` type argument, and
+/// `RCClone for Frame<M>` is an impl -- so `clone_requires` and `clone_ensures` are
+/// opaque to any holder of a `Frame<dyn AnyFrameMeta>`, `open` notwithstanding.
+/// Proved here where `M` is still a parameter, and called at the `dyn` type. Same
+/// shape as `Segment::lemma_inv_parts`.
+impl<M: AnyFrameMeta + ?Sized> Frame<M> {
+    /// [`Inv::inv`] for `Frame<M>`, restated as its conjuncts.
+    ///
+    /// `Inv for Frame<M>` is a trait impl too, so `inv()` is opaque at `dyn` for the
+    /// same reason -- and folding `clone_requires` needs it, which is why one lemma
+    /// pair is never enough on its own.
+    pub proof fn lemma_inv_parts(self)
+        requires
+            self.inv(),
+        ensures
+            self.ptr_inv(),
+            self.tracked_metadata_perm@ is Some,
+            self.frac_metadata_perm().frac() == 1,
+            MetaSlot::perms_related(self.slot_perm(), self.metadata_perm()),
+    {
+    }
+
+    pub proof fn lemma_inv_from_parts(self)
+        requires
+            self.ptr_inv(),
+            self.tracked_metadata_perm@ is Some,
+            self.frac_metadata_perm().frac() == 1,
+            MetaSlot::perms_related(self.slot_perm(), self.metadata_perm()),
+        ensures
+            self.inv(),
+    {
+    }
+
+    pub proof fn lemma_clone_requires_parts(self, regions: MetaRegionOwners)
+        requires
+            self.clone_requires(regions),
+        ensures
+            self.inv(),
+            regions.inv(),
+            self.wf_with_region(regions),
+            regions.slot_owner(self.start_paddr_spec()).ref_count() > 0,
+            regions.slot_owner(self.start_paddr_spec()).ref_count() != REF_COUNT_UNUSED,
+            regions.slot_owner(self.start_paddr_spec()).ref_count() >= REF_COUNT_MAX
+                ==> may_panic(),
+    {
+    }
+
+    pub proof fn lemma_clone_requires_from_parts(self, regions: MetaRegionOwners)
+        requires
+            self.inv(),
+            regions.inv(),
+            self.wf_with_region(regions),
+            regions.slot_owner(self.start_paddr_spec()).ref_count() > 0,
+            regions.slot_owner(self.start_paddr_spec()).ref_count() != REF_COUNT_UNUSED,
+            regions.slot_owner(self.start_paddr_spec()).ref_count() >= REF_COUNT_MAX
+                ==> may_panic(),
+        ensures
+            self.clone_requires(regions),
+    {
+    }
+
+    pub proof fn lemma_clone_ensures_parts(
+        self,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+        res: Self,
+    )
+        requires
+            self.clone_ensures(pre, post, res),
+        ensures
+            pre.inc_frame_reference_region_spec(self.start_paddr_spec(), post),
+            post.inv(),
+            res.tracked_metadata_perm@ is Some,
+            res.tracked_metadata_perm@->0.frac() == 1,
+            res.tracked_metadata_perm@->0.id()
+                == post.slot_owners[self.index()].metadata_perm.id(),
+            res.tracked_slot_perm@ == post.slots[self.index()],
+            res.ptr == self.ptr,
+    {
+    }
+
+    pub proof fn lemma_clone_ensures_from_parts(
+        self,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+        res: Self,
+    )
+        requires
+            pre.inc_frame_reference_region_spec(self.start_paddr_spec(), post),
+            post.inv(),
+            res.tracked_metadata_perm@ is Some,
+            res.tracked_metadata_perm@->0.frac() == 1,
+            res.tracked_metadata_perm@->0.id()
+                == post.slot_owners[self.index()].metadata_perm.id(),
+            res.tracked_slot_perm@ == post.slots[self.index()],
+            res.ptr == self.ptr,
+        ensures
+            self.clone_ensures(pre, post, res),
+    {
+    }
+}
 
 } // verus!

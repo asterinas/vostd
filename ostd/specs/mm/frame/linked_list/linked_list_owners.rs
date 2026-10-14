@@ -145,41 +145,26 @@ impl ByteRepr<{ META_STORAGE_SIZE }> for StoredLink {
 }
 
 
-/// The ghost pointers a link's stored addresses correspond to.
-///
-/// No `storage` field: the inner metadata is now bytes with a [`ByteRepr`], which
-/// carries no permission, where the previous `ByteRepr<LINK_INNER_SIZE>` had an
-/// associated `ReprPerm`.
-pub tracked struct LinkInnerPerms<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
-    pub ghost next_ptr: Option<PPtr<MetaSlotStorage>>,
-    pub ghost prev_ptr: Option<PPtr<MetaSlotStorage>>,
-    pub ghost _m: core::marker::PhantomData<M>,
-}
-
 impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Repr<MetaSlotStorage> for Link<M> {
-    type ReprPerm = LinkInnerPerms<M>;
+    type ReprPerm = ();
 
     /// The slot's bytes are tagged as a link, agree with that tag, and decode to a
-    /// link whose stored addresses match the permission's pointers and whose inner
-    /// bytes decode as an `M`.
-    open spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> bool {
+    /// link whose inner bytes decode as an `M`.
+    ///
+    /// No ghost witness for the neighbour pointers. A `ReprPtr` is a `PPtr` beside a
+    /// `PhantomData`, and a `PPtr<V>` is `PPtr(usize, PhantomData<V>)` -- so a
+    /// pointer is *determined by its address*, and `StoredLink` already holds the
+    /// addresses. The old `LinkInnerPerms` carried nothing the bytes did not, which
+    /// is why its agreement conjuncts were tautologies and are gone.
+    open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
         &&& r.holds::<StoredLink>()
         &&& match frame_link_decode(r.0.data) {
-            Ok(link) => {
-                &&& M::try_from_spec(link.slot) is Ok
-                &&& (link.next is Some) == (perm.next_ptr is Some)
-                &&& (link.prev is Some) == (perm.prev_ptr is Some)
-                &&& link.next is Some ==> link.next->0 == perm.next_ptr->0.addr()
-                &&& link.prev is Some ==> link.prev->0 == perm.prev_ptr->0.addr()
-            },
+            Ok(link) => M::try_from_spec(link.slot) is Ok,
             Err(_) => false,
         }
     }
 
-    open spec fn to_repr_spec(self, perm: LinkInnerPerms<M>) -> (
-        MetaSlotStorage,
-        LinkInnerPerms<M>,
-    ) {
+    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
         (
             MetaSlotStorage::tagged::<StoredLink>(
                 frame_link_encode(
@@ -196,34 +181,25 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Repr<MetaSlotStorage> for Link
                     },
                 ),
             ),
-            LinkInnerPerms {
-                next_ptr: match self.next {
-                    Some(ptr) => Some(ptr.ptr),
-                    None => None,
-                },
-                prev_ptr: match self.prev {
-                    Some(ptr) => Some(ptr.ptr),
-                    None => None,
-                },
-                _m: core::marker::PhantomData,
-            },
+            (),
         )
     }
 
     #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut LinkInnerPerms<M>>) -> MetaSlotStorage {
+    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    open spec fn from_repr_spec(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> Self {
+    open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
         match frame_link_decode(r.0.data) {
             Ok(link) => Link {
+                // Rebuilt from the stored address rather than read off a witness.
                 next: match link.next {
-                    Some(_) => Some(ReprPtr { ptr: perm.next_ptr->0, _T: PhantomData }),
+                    Some(addr) => Some(ReprPtr { ptr: PPtr(addr, PhantomData), _T: PhantomData }),
                     None => None,
                 },
                 prev: match link.prev {
-                    Some(_) => Some(ReprPtr { ptr: perm.prev_ptr->0, _T: PhantomData }),
+                    Some(addr) => Some(ReprPtr { ptr: PPtr(addr, PhantomData), _T: PhantomData }),
                     None => None,
                 },
                 meta: M::try_from_spec(link.slot)->Ok_0,
@@ -233,14 +209,14 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Repr<MetaSlotStorage> for Link
     }
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&LinkInnerPerms<M>>) -> Self {
+    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
     fn from_borrowed<'a>(
         r: &'a MetaSlotStorage,
-        Tracked(perm): Tracked<&'a LinkInnerPerms<M>>,
+        Tracked(perm): Tracked<&'a ()>,
     ) -> &'a Self {
         unimplemented!()
     }
@@ -248,19 +224,19 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Repr<MetaSlotStorage> for Link
     #[verifier::external_body]
     fn from_borrowed_mut<'a>(
         r: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut LinkInnerPerms<M>>,
+        Tracked(perm): Tracked<&'a mut ()>,
     ) -> &'a mut Self {
         unimplemented!()
     }
 
     /// Both levels round-trip: the link's own encoding, and the inner metadata's.
-    proof fn from_to_repr(self, perm: LinkInnerPerms<M>) {
+    proof fn from_to_repr(self, perm: ()) {
         broadcast use axiom_frame_link_round_trip;
 
         self.meta.round_trip();
     }
 
-    proof fn to_repr_wf(self, perm: LinkInnerPerms<M>) {
+    proof fn to_repr_wf(self, perm: ()) {
         broadcast use axiom_frame_link_round_trip;
 
         self.meta.round_trip();
@@ -343,7 +319,7 @@ impl Inv for LinkedListModel {
 
 pub tracked struct LinkedListOwner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub list: Seq<LinkOwner>,
-    pub repr_perms: Seq<LinkInnerPerms<M>>,
+    pub repr_perms: Seq<()>,
     /// Exclusive metadata permissions for the unique frames stored in the
     /// list.
     pub metadata_perms: Seq<MetadataPerm>,
@@ -1059,7 +1035,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
         ensures
             res == *old(owner),
             final(owner).list == Seq::<LinkOwner>::empty(),
-            final(owner).repr_perms == Seq::<LinkInnerPerms<M>>::empty(),
+            final(owner).repr_perms == Seq::<()>::empty(),
             final(owner).metadata_perms == Seq::<MetadataPerm>::empty(),
             final(owner).inv(),
     {
@@ -1077,7 +1053,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
     pub proof fn tracked_destroy_empty(tracked self)
         requires
             self.list =~= Seq::<LinkOwner>::empty(),
-            self.repr_perms =~= Seq::<LinkInnerPerms<M>>::empty(),
+            self.repr_perms =~= Seq::<()>::empty(),
             self.metadata_perms =~= Seq::<MetadataPerm>::empty(),
     {
         unimplemented!()
@@ -1221,7 +1197,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorOwner<M> {
     pub open spec fn list_insert(
         cursor: Self,
         link: LinkOwner,
-        repr_perm: LinkInnerPerms<M>,
+        repr_perm: (),
         metadata_perms: MetadataPerm,
         list_id: u64,
     ) -> (Self, LinkOwner) {
@@ -1255,7 +1231,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorOwner<M> {
     pub proof fn tracked_list_insert(
         tracked cursor: &mut Self,
         tracked link: &mut LinkOwner,
-        tracked repr_perm: LinkInnerPerms<M>,
+        tracked repr_perm: (),
         tracked metadata_perms: MetadataPerm,
         list_id: u64,
     )
