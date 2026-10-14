@@ -162,8 +162,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         ensures
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
-            0 < Self::NR_LEVELS() < PagingLevel::MAX,
-            1 <= Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS(),
+            0 < Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS() < PagingLevel::MAX,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
             0 < Self::ADDRESS_WIDTH() < usize::BITS,
@@ -187,8 +186,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             // so that we only need to call this lemma in proofs.
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
-            0 < Self::NR_LEVELS() < PagingLevel::MAX,
-            1 <= Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS(),
+            0 < Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS() < PagingLevel::MAX,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
             0 < Self::ADDRESS_WIDTH() < usize::BITS,
