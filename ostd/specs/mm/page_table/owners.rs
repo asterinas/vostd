@@ -608,7 +608,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
-    /// all `None`. Used by `fresh_node_pt_inv` for the absent
     /// all `None`. Used by `lemma_fresh_node_pt_inv` for the absent
     /// children of a freshly-allocated PT node.
     pub proof fn non_node_pt_inv_at_depth(self, depth: nat)
