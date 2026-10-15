@@ -649,7 +649,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     /// Updating frame paths preserves metadata access and node ownership paths.
-    pub proof fn metaregion_sound_frame_paths_changed(
+    pub proof fn lemma_metaregion_sound_frame_paths_changed(
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,

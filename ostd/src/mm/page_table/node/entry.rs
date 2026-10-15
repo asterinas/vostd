@@ -768,7 +768,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
                 let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
                 let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
-                Entry::<C>::allocated_node_preserves_disjoint_entries(
+                Entry::<C>::lemma_allocated_node_preserves_disjoint_entries(
                     old_owner_val,
                     owner.value(),
                     *old(regions),
@@ -1372,7 +1372,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert forall|j: int| 0 <= j < i implies #[trigger] new_owner_before_update.child(
                     j,
                 ).value().metaregion_sound(*regions) by {
-                    new_owner_before_update.child(j).value().metaregion_sound_frame_paths_changed(
+                    new_owner_before_update.child(j).value().lemma_metaregion_sound_frame_paths_changed(
                         regions_before_path_insert,
                         *regions,
                     );
@@ -1556,7 +1556,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value().path,
                 owner.value().parent_level,
             );
-            Entry::<C>::allocated_node_preserves_disjoint_entries(
+            Entry::<C>::lemma_allocated_node_preserves_disjoint_entries(
                 absent,
                 owner.value(),
                 *old(regions),
@@ -2273,7 +2273,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
             let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
             let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
-            Entry::<C>::allocated_node_preserves_disjoint_entries(
+            Entry::<C>::lemma_allocated_node_preserves_disjoint_entries(
                 old_owner_val,
                 owner.value(),
                 *old(regions),

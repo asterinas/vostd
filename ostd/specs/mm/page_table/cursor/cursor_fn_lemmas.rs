@@ -26,7 +26,7 @@ broadcast use group_ghost_tree_lemmas;
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Restore a tree predicate after replacing only the current child subtree.
-    pub proof fn replaced_child_preserves_map_full_tree(
+    pub proof fn lemma_replaced_child_preserves_map_full_tree(
         self,
         old: Self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -68,7 +68,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Replace the huge current mapping with the proven view of its split subtree.
-    pub proof fn split_current_mappings(self, old: Self)
+    pub proof fn lemma_split_current_mappings(self, old: Self)
         requires
             self.inv(),
             old.inv(),
@@ -124,8 +124,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let size = page_size::<PagingConsts>((old.level - 1) as PagingLevel);
         lemma_page_size_next::<PagingConsts>((old.level - 1) as PagingLevel);
         crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-        assert(m.page_size == page_size::<PagingConsts>(old.level));
-        assert(m.page_size == size * NR_ENTRIES);
         assert(m.page_size / size == NR_ENTRIES) by (nonlinear_arith)
             requires
                 size > 0,
@@ -140,7 +138,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(siblings0.view_mappings() == siblings1.view_mappings()) by {
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (#[trigger] siblings0.children[j])
                 == siblings1.children[j] by {};
-            assert(siblings0.path() == siblings1.path());
             assert forall|e: Mapping|
                 siblings0.view_mappings().contains(e) implies siblings1.view_mappings().contains(
                 e,
@@ -180,7 +177,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Restoring a changed child and parent PTE preserves cursor and metadata invariants.
-    pub proof fn replace_preserves_cursor_inv_metaregion(
+    pub proof fn lemma_replace_preserves_cursor_inv_metaregion(
         self,
         other: Self,
         regions: MetaRegionOwners,

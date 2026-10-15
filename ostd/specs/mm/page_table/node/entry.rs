@@ -15,7 +15,7 @@ verus! {
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// Claiming one unused slot preserves entries that refer to other slots.
-    pub proof fn allocated_node_preserves_disjoint_entries(
+    pub proof fn lemma_allocated_node_preserves_disjoint_entries(
         old_child: EntryOwner<C>,
         new_child: EntryOwner<C>,
         r0: MetaRegionOwners,
@@ -57,7 +57,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
             assert(intermediate.inv());
             entry.metaregion_sound_one_slot_changed(r0, intermediate, idx);
-            entry.metaregion_sound_frame_paths_changed(intermediate, r1);
+            entry.lemma_metaregion_sound_frame_paths_changed(intermediate, r1);
         };
     }
 

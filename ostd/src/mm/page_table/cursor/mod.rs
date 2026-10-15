@@ -1263,8 +1263,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
                         owner0.lemma_metaregion_preserved(owner0, regions_pre_split, *regions);
-                        owner0.replace_preserves_cursor_inv_metaregion(*owner, *regions);
-                        owner.replaced_child_preserves_map_full_tree(
+                        owner0.lemma_replace_preserves_cursor_inv_metaregion(*owner, *regions);
+                        owner.lemma_replaced_child_preserves_map_full_tree(
                             owner0,
                             CursorOwner::node_unlocked(guards_pre_split),
                             CursorOwner::node_unlocked_except(
@@ -1273,7 +1273,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             ),
                         );
                         assert(owner.nodes_locked(*guards));
-                        owner.split_current_mappings(owner0);
+                        owner.lemma_split_current_mappings(owner0);
                         assert(*cur_entry.node == cursor0.path[owner0.level - 1]->0);
                         assert forall|i: int| 0 <= i < NR_LEVELS implies (#[trigger] self.path[i])
                             == cursor0.path[i] by {
@@ -2037,7 +2037,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 );
             };
             assert(owner.continuations[owner.level - 1].entry_own.metaregion_sound(*regions));
-            owner0.replace_preserves_cursor_inv_metaregion(*owner, *regions);
+            owner0.lemma_replace_preserves_cursor_inv_metaregion(*owner, *regions);
             assert(owner.children_not_locked(*guards)) by {
                 reveal(CursorContinuation::map_children);
             };
@@ -2729,11 +2729,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             regions_before_split,
                             *regions,
                         );
-                        owner_before_frame.replace_preserves_cursor_inv_metaregion(
+                        owner_before_frame.lemma_replace_preserves_cursor_inv_metaregion(
                             *owner,
                             *regions,
                         );
-                        owner.replaced_child_preserves_map_full_tree(
+                        owner.lemma_replaced_child_preserves_map_full_tree(
                             owner_before_frame,
                             CursorOwner::node_unlocked(guards_before_split),
                             CursorOwner::node_unlocked_except(
@@ -2744,7 +2744,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(owner.nodes_locked(*guards)) by {
                             reveal(CursorOwner::nodes_locked);
                         };
-                        owner.split_current_mappings(owner_before_frame);
+                        owner.lemma_split_current_mappings(owner_before_frame);
                         assert forall|i: int| 0 <= i < NR_LEVELS implies (#[trigger] self.0.path[i])
                             == cursor_before_frame.path[i] by {};
                         assert forall|i: int| owner.level - 1 <= i < NR_LEVELS implies (
