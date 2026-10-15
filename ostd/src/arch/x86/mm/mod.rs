@@ -654,6 +654,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     proof fn lemma_page_table_entry_properties() {
+        Self::lemma_layout();
         lemma_page_property_flag_constants();
         lemma_auxiliary_bit_properties(0);
 

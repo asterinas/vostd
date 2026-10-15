@@ -228,6 +228,7 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
     reveal(VmStore::accounting_inv);
     let paddr = s.frames[fid].paddr;
     let idx = frame_to_index(paddr);
+    s.regions.lemma_contains_valid_frame_paddr(paddr);
     assert(s.regions.ref_count(idx) == s.regions.slot_owners[idx].ref_count_perm.value());
 
     assert(s.frames.dom().filter(
