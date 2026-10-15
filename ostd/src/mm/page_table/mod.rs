@@ -1195,8 +1195,6 @@ impl PageTable<KernelPtConfig> {
 #[verus_verify]
 impl<C: PageTableConfig> PageTable<C> {
     /// Relates this executable page-table handle to its tracked ownership tree.
-    /// The root's counting permission is held by the node owner, so its frame
-    /// uses `external_meta_wf` to identify the matching typed metadata.
     pub open spec fn relates_owner(
         &self,
         owner: PageTableOwner<C>,
@@ -1222,13 +1220,6 @@ impl<C: PageTableConfig> PageTable<C> {
     }
 
     /// Create a new empty page table together with its tracked ownership.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The metadata region invariant holds.
-    /// ## Postconditions
-    /// - The root frame and its typed metadata match the returned ownership tree.
-    /// - The root claims an unused slot, retains it in the metadata table, and registers its root path.
     #[verifier::external_body]
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut Option<PageTableOwner<C>>>,
