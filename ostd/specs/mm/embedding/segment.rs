@@ -255,7 +255,6 @@ pub proof fn segment_next_embedded(
     requires
         old(regions).inv(),
         valid_frame_paddr(paddr),
-        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owner(paddr)
                 .ref_count() >= 1,
         old(regions).slot_owner(paddr)

@@ -879,7 +879,6 @@ impl MetaSlot {
             final(metadata_perm).vtable_ptr_perm.pptr()
                 == old(metadata_perm).vtable_ptr_perm.pptr(),
     )]
-    #[verifier::external_body]
     pub(super) unsafe fn drop_meta_in_place(&self) {
         let paddr = self.frame_paddr();
 

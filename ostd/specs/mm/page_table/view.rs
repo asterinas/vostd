@@ -47,14 +47,12 @@ impl Mapping {
     pub open spec fn inv(self) -> bool {
         &&& set![4096, 2097152, 1073741824].contains(self.page_size)
         &&& self.pa_range.start % self.page_size == 0
-        &&& self.pa_range.end % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
-        &&& self.pa_range.start <= self.pa_range.end <= MAX_PADDR
+        &&& self.pa_range.end <= MAX_PADDR
         &&& self.va_range.start % self.page_size as int == 0
-        &&& self.va_range.end % self.page_size as int == 0
         &&& self.va_range.start + self.page_size as int == self.va_range.end
-        &&& 0 <= self.va_range.start
-            <= self.va_range.end
+        &&& 0
+            <= self.va_range.start
         // VA range fits in the 64-bit addressable space. `va_range.end` may
         // equal `pow2(64)` for a kernel mapping at the top of the canonical
         // high half; `va_range.start` is strictly less than `pow2(64)`
@@ -69,19 +67,31 @@ impl Mapping {
     }
 }
 
-/// In addition to requiring that individual mappings be well-formed, a valid `PageTableView` must
-/// not have any overlapping mappings, in the physical or virtual address space.
-/// The virtual ranges not overlapping is a consequence of the structure of the page table.
-/// The physical ranges not overlapping must be maintained by the page table implementation.
+/// Every mapping in the set satisfies its intrinsic invariant.
+pub open spec fn mappings_well_formed(mappings: Set<Mapping>) -> bool {
+    forall|m: Mapping| #[trigger] mappings.contains(m) ==> m.inv()
+}
+
+/// Distinct mappings in the set have disjoint virtual address ranges.
+pub open spec fn mappings_disjoint_vaddrs(mappings: Set<Mapping>) -> bool {
+    forall|m: Mapping, n: Mapping|
+        #![trigger mappings.contains(m), mappings.contains(n)]
+        mappings.contains(m) && mappings.contains(n) && m != n ==> Mapping::disjoint_vaddrs(m, n)
+}
+
+/// Distinct mappings in the set have disjoint physical address ranges.
+pub open spec fn mappings_disjoint_paddrs(mappings: Set<Mapping>) -> bool {
+    forall|m: Mapping, n: Mapping|
+        #![trigger mappings.contains(m), mappings.contains(n)]
+        mappings.contains(m) && mappings.contains(n) && m != n ==> Mapping::disjoint_paddrs(m, n)
+}
+
+/// A valid view contains well-formed mappings with disjoint VA and PA ranges.
 impl PageTableView {
     pub open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![trigger self.mappings.contains(m)] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n: Mapping|
-            #![trigger self.mappings.contains(m), self.mappings.contains(n)]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> {
-                &&& m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
-                &&& m.pa_range.end <= n.pa_range.start || n.pa_range.end <= m.pa_range.start
-            }
+        &&& mappings_well_formed(self.mappings)
+        &&& mappings_disjoint_vaddrs(self.mappings)
+        &&& mappings_disjoint_paddrs(self.mappings)
     }
 }
 

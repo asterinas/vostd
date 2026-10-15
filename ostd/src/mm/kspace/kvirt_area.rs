@@ -150,7 +150,7 @@ pub open spec fn sum_page_sizes_spec(elems: Seq<(Paddr, u8)>, from: int, to: int
     if from >= to {
         0nat
     } else {
-        page_size(elems[from].1) as nat + sum_page_sizes_spec(elems, from + 1, to)
+        page_size::<PagingConsts>(elems[from].1) as nat + sum_page_sizes_spec(elems, from + 1, to)
     }
 }
 
@@ -160,7 +160,7 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
         0 <= from <= to < elems.len(),
     ensures
         sum_page_sizes_spec(elems, from, to + 1) == sum_page_sizes_spec(elems, from, to)
-            + page_size(elems[to].1) as nat,
+            + page_size::<PagingConsts>(elems[to].1) as nat,
     decreases to - from,
 {
     if from < to {
@@ -205,7 +205,7 @@ proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: 
         sum_page_sizes_spec(res@, 0, res@.len() as int) == len,
         forall|i: int|
             0 <= i < res@.len() ==> (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
-                % page_size(res@[i].1) as nat == 0,
+                % page_size::<PagingConsts>(res@[i].1) as nat == 0,
         // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
         forall|i: int|
             0 <= i < res@.len() ==> (#[trigger] res@[i]).0 == pa
@@ -614,7 +614,7 @@ impl KVirtArea {
             proof {
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
-                lemma_va_align_page_size_level_1(cursor.0.va);
+                lemma_va_align_page_size_level_1::<PagingConsts>(cursor.0.va);
                 cursor_owner.lemma_locked_range_page_aligned();
                 let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
@@ -764,7 +764,6 @@ impl KVirtArea {
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
-            map_offset + usize::range_len(pa_range.start, pa_range.end) <= usize::MAX,
             forall|pa: Paddr, level: PagingLevel|
                 #[trigger]
                 <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
@@ -848,9 +847,9 @@ impl KVirtArea {
                             <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
                     forall|i: int|
                         0 <= i < it.seq().len() ==> (va_range.start as nat
-                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size(
-                            it.seq()[i].1,
-                        ) as nat == 0,
+                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size::<
+                            PagingConsts,
+                        >(it.seq()[i].1) as nat == 0,
                     forall|i: int|
                         #![auto]
                         0 <= i < it.seq().len() ==> it.seq()[i].0 == pa_range.start
@@ -888,7 +887,7 @@ impl KVirtArea {
 
                 let item = MappedItem::Untracked(pa, level, prop);
                 proof {
-                    lemma_page_size_ge_page_size(level);
+                    lemma_page_size_ge_base::<PagingConsts>(level);
                 }
                 proof_decl! {
                     let tracked entry_owner =
@@ -901,10 +900,6 @@ impl KVirtArea {
 
                 proof {
                     cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
-
-                    // pa_range.end == pa_range.start + len (in nat) — from loop invariant.
-                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
-                    sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
@@ -930,24 +925,23 @@ impl KVirtArea {
                 proof {
                     let level_raw = KernelPtConfig::item_into_raw(item).1;
 
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                    level_raw);
-                    let split_self = old_cursor_model.split_while_huge(page_size(level_raw));
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
+                        PagingConsts,
+                    >(level_raw);
+                    let split_self = old_cursor_model.split_while_huge(
+                        page_size::<PagingConsts>(level_raw),
+                    );
 
                     CursorView::<KernelPtConfig>::lemma_split_while_huge_preserves_cur_va(
                         old_cursor_model,
-                        page_size(level_raw),
+                        page_size::<PagingConsts>(level_raw),
                     );
 
-                    lemma_page_size_ge_page_size(level_raw);
+                    lemma_page_size_ge_base::<PagingConsts>(level_raw);
 
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va as nat,
-                        page_size(level_raw) as nat,
-                    );
-                    vstd_extra::arithmetic::lemma_nat_align_down_sound(
-                        old_cursor_owner_va as nat,
-                        page_size(level_raw) as nat,
+                        page_size::<PagingConsts>(level_raw) as nat,
                     );
 
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);

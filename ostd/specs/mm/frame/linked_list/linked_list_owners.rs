@@ -907,38 +907,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         }
     }
 
-    pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel>
-        decreases owners.len(),
-    {
-        if owners.len() == 0 {
-            Seq::<LinkModel>::empty()
-        } else {
-            seq![owners[0].view()].add(Self::view_helper(owners.remove(0)))
-        }
-    }
-
-    pub proof fn lemma_view_preserves_len(owners: Seq<LinkOwner>)
-        ensures
-            Self::view_helper(owners).len() == owners.len(),
-        decreases owners.len(),
-    {
-        if owners.len() > 0 {
-            Self::lemma_view_preserves_len(owners.remove(0))
-        }
-    }
-
-    /// Proves that view_helper preserves indexing: view_helper(s)[i] == s[i].view()
-    pub proof fn lemma_view_helper_index(owners: Seq<LinkOwner>, i: int)
-        requires
-            0 <= i < owners.len(),
-        ensures
-            Self::view_helper(owners)[i] == owners[i].view(),
-        decreases owners.len(),
-    {
-        Self::lemma_view_preserves_len(owners);
-        if i > 0 {
-            Self::lemma_view_helper_index(owners.remove(0), i - 1);
-        }
+    pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel> {
+        owners.map_values(|owner: LinkOwner| owner@)
     }
 
     /// Proves that view_helper commutes with insert:
@@ -949,22 +919,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         ensures
             Self::view_helper(owners.insert(i, v)) == Self::view_helper(owners).insert(i, v.view()),
     {
-        Self::lemma_view_preserves_len(owners);
-        Self::lemma_view_preserves_len(owners.insert(i, v));
         assert forall|j: int|
             0 <= j < Self::view_helper(
                 owners.insert(i, v),
             ).len() implies #[trigger] Self::view_helper(owners.insert(i, v))[j]
-            == Self::view_helper(owners).insert(i, v.view())[j] by {
-            Self::lemma_view_helper_index(owners.insert(i, v), j);
-            if j < i {
-                Self::lemma_view_helper_index(owners, j);
-            } else if j == i {
-                // owners.insert(i, v)[i] == v, and view_helper(owners).insert(i, v@)[i] == v@
-            } else {
-                Self::lemma_view_helper_index(owners, j - 1);
-            }
-        };
+            == Self::view_helper(owners).insert(i, v.view())[j] by {};
     }
 }
 

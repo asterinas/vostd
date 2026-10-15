@@ -18,18 +18,17 @@ use crate::specs::{
         cursor::{
             owners::{CursorContinuation, CursorOwner},
             page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+                lemma_page_size_divides, lemma_page_size_ge_base, lemma_page_size_spec_values,
             },
         },
-        lemma_align_down_indices, lemma_inc_slot_indices,
-        lemma_page_size_for_level_matches_page_size, lemma_pte_index_bound,
+        lemma_align_down_indices, lemma_inc_slot_indices, lemma_pte_index_bound,
         lemma_same_node_pte_indices_match,
         owners::*,
-        page_size_for_level_spec, pte_index_spec, vaddr_replace_pte_index_spec,
-        vaddr_upper_bits_spec,
+        pte_index_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
     },
 };
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use crate::specs::task::InAtomicMode;
 use core::ops::Range;
@@ -44,10 +43,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             1 <= self.level <= C::NR_LEVELS(),
     {
         Self {
-            va: nat_align_down(
-                self.va as nat,
-                page_size_for_level_spec::<C>(self.level) as nat,
-            ) as Vaddr,
+            va: nat_align_down(self.va as nat, page_size::<C>(self.level) as nat) as Vaddr,
             ..self
         }
     }
@@ -61,7 +57,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn cur_va_range(self) -> Range<Vaddr> {
-        let size = page_size(self.level);
+        let size = page_size::<PagingConsts>(self.level);
         let start = nat_align_down(self.cur_va() as nat, size as nat) as Vaddr;
         Range { start, end: (start + size) as Vaddr }
     }
@@ -91,18 +87,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let ghost old_self = *self;
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_align_down_indices::<C>(old_self.va, old_self.level);
-        lemma_page_size_for_level_matches_page_size::<C>(old_self.level);
         self.va = old_self.zero_below_level().va;
 
         old_self.lemma_locked_range_span();
-        lemma_page_size_ge_page_size(old_self.level as PagingLevel);
-        lemma_page_size_ge_page_size(old_self.guard_level as PagingLevel);
-        lemma_page_size_divides(old_self.level as PagingLevel, old_self.guard_level as PagingLevel);
+        lemma_page_size_ge_base::<PagingConsts>(old_self.level as PagingLevel);
+        lemma_page_size_ge_base::<PagingConsts>(old_self.guard_level as PagingLevel);
+        lemma_page_size_divides::<PagingConsts>(
+            old_self.level as PagingLevel,
+            old_self.guard_level as PagingLevel,
+        );
         let ghost old_va_val = old_self.va as nat;
         let ghost prefix_va_val = old_self.prefix as nat;
-        let ghost ps = page_size(old_self.level as PagingLevel) as nat;
-        let ghost guard_ps = page_size(old_self.guard_level as PagingLevel) as nat;
+        let ghost ps = page_size::<PagingConsts>(old_self.level as PagingLevel) as nat;
+        let ghost guard_ps = page_size::<PagingConsts>(old_self.guard_level as PagingLevel) as nat;
         let ghost start = old_self.locked_range().start as nat;
 
         vstd_extra::arithmetic::lemma_nat_align_down_monotone(prefix_va_val, ps, guard_ps);
@@ -140,13 +139,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
-            self.inc_index().va == self.va + page_size_for_level_spec::<C>(self.level),
+            self.inc_index().va == self.va + page_size::<C>(self.level),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_cur_pte_index();
         lemma_inc_slot_indices::<C>(self.va, self.level);
         reveal(vaddr_replace_pte_index_spec);
-        vstd::arithmetic::mul::lemma_mul_basics(page_size_for_level_spec::<C>(self.level) as int);
+        vstd::arithmetic::mul::lemma_mul_basics(page_size::<C>(self.level) as int);
     }
 
     /// Incrementing a nonterminal index and aligning down reaches the next slot boundary.
@@ -157,13 +157,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.index() + 1 < NR_ENTRIES,
         ensures
             self.inc_index().zero_below_level().va > self.va,
-            self.inc_index().zero_below_level().va == self@.align_up_spec(page_size(self.level)),
+            self.inc_index().zero_below_level().va == self@.align_up_spec(
+                page_size::<PagingConsts>(self.level),
+            ),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_inc_index_va();
-        lemma_page_size_for_level_matches_page_size::<C>(self.level);
-        lemma_page_size_ge_page_size(self.level);
-        let ps = page_size(self.level) as nat;
+        lemma_page_size_ge_base::<PagingConsts>(self.level);
+        let ps = page_size::<PagingConsts>(self.level) as nat;
         let va = self.va as nat;
         vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);
         vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(va as int, ps as int);
@@ -178,10 +180,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             vaddr_of::<C>(self.cur_subtree().value().path) <= self.cur_va() < vaddr_of::<C>(
                 self.cur_subtree().value().path,
-            ) + page_size(self.level),
+            ) + page_size::<PagingConsts>(self.level),
             vaddr_of::<C>(self.cur_subtree().value().path) == nat_align_down(
                 self.cur_va() as nat,
-                page_size(self.level) as nat,
+                page_size::<PagingConsts>(self.level) as nat,
             ),
     {
         self.cur_va_in_cont_child_range(self.level - 1);
@@ -206,9 +208,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )) == pte_index_spec::<C>(self.prefix_vaddr(), (i + 1) as PagingLevel),
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_span();
         let gl = self.guard_level;
-        lemma_page_size_for_level_matches_page_size::<C>(gl);
         if gl == 1 {
             lemma_page_size_spec_values();
             let ps = C::BASE_PAGE_SIZE() as int;
@@ -240,6 +242,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pte_index_spec::<C>(self.cur_va(), self.level) < NR_ENTRIES,
     {
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), self.level);
     }
 
@@ -263,6 +266,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let ghost old_self = *self;
         C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(new_va, old_self.level);
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         cont.idx = pte_index_spec::<C>(new_va, old_self.level);

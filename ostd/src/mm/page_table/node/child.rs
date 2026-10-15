@@ -63,7 +63,7 @@ impl<C: PageTableConfig> Child<C> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut EntryOwner<C>>,
         requires
-            old(owner).inv_base(),
+            old(owner).inv(),
             self.wf(*old(owner)),
             self matches Child::Frame(paddr, level, prop) ==> C::E::new_page_req(paddr, level, prop),
         ensures

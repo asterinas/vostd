@@ -525,7 +525,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bound.
-    #[verus_spec(pte =>
+    #[verus_spec(
         with Tracked(owner): Tracked<&NodeOwner<C>>,
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
@@ -533,8 +533,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             regions.inv(),
             regions.contains(owner.slot_index),
             idx < NR_ENTRIES,
-        ensures
-            pte == owner.children_perm.value()[idx as int],
+        returns
+            owner.children_perm.value()[idx as int],
     )]
     pub unsafe fn read_pte(&self, idx: usize) -> C::E {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());

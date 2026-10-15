@@ -14,19 +14,9 @@ pub ghost struct TlbModel {
 
 impl Inv for TlbModel {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_vaddrs(
-                m,
-                n,
-            )
-        &&& forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_paddrs(
-                m,
-                n,
-            )
+        &&& mappings_well_formed(self.mappings)
+        &&& mappings_disjoint_vaddrs(self.mappings)
+        &&& mappings_disjoint_paddrs(self.mappings)
     }
 }
 
@@ -91,16 +81,6 @@ impl TlbModel {
             assert(filtered.contains(m));
             assert(pt.mappings.contains(m));
         }
-    }
-
-    pub proof fn lemma_consistent_with_pt_implies_inv(self, pt: PageTableView)
-        requires
-            self.inv(),
-            self.consistent_with_pt(pt),
-            pt.inv(),
-        ensures
-            self.inv(),
-    {
     }
 
     pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self {

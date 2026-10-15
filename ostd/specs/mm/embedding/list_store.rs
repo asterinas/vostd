@@ -139,7 +139,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid].inv()
                 &&& self.loose[lid].global_inv(self.regions)
                 &&& self.loose[lid].frame_link_inv(self.regions)
-                &&& self.regions.slot_owners[self.loose[lid].slot_index].in_list_perm.value() == 0
             }
             // Distinct lists carry distinct *nonzero* ids.
         &&& forall|id1: ListId, id2: ListId|
@@ -258,7 +257,6 @@ pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         old(frame_own).inv(),
         old(frame_own).global_inv(*old(regions)),
         old(frame_own).frame_link_inv(*old(regions)),
-        old(regions).slot_owners[old(frame_own).slot_index].in_list_perm.value() == 0,
     ensures
         final(regions).inv(),
         final(owner).inv(),
@@ -373,7 +371,6 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         old(frame_own).inv(),
         old(frame_own).global_inv(*old(regions)),
         old(frame_own).frame_link_inv(*old(regions)),
-        old(regions).slot_owners[old(frame_own).slot_index].in_list_perm.value() == 0,
     ensures
         final(regions).inv(),
         final(owner).inv(),
@@ -496,7 +493,6 @@ pub axiom fn axiom_insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmal
         old(frame_own).inv(),
         old(frame_own).global_inv(*old(regions)),
         old(frame_own).frame_link_inv(*old(regions)),
-        old(regions).slot_owners[old(frame_own).slot_index].in_list_perm.value() == 0,
         0 <= n <= old(owner).list.len(),
     ensures
         final(regions).inv(),

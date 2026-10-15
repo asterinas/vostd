@@ -176,6 +176,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         use crate::mm::nr_subpage_per_huge;
         Self::C::lemma_paging_consts_properties();
+        Self::C::axiom_current_paging_consts_hardcoded();
         PageTableEntry::lemma_layout();
         lemma2_to64();
         lemma2_to64_rest();

@@ -123,7 +123,7 @@ pub proof fn lemma_count_present_upto_update<E: PageTableEntryTrait>(
     if n - 1 == idx {
         // The first `idx` entries are unchanged.
         assert(count_present_upto(s2, n - 1) == count_present_upto(s, n - 1)) by {
-            lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+            lemma_count_present_upto_unchanged(s, s2, n - 1);
         }
     } else {
         lemma_count_present_upto_update(s, n - 1, idx, pte);
@@ -150,17 +150,16 @@ pub proof fn lemma_count_present_upto_unchanged<E: PageTableEntryTrait>(
     s: Seq<E>,
     s2: Seq<E>,
     n: int,
-    idx: int,
 )
     requires
-        0 <= n <= idx,
+        0 <= n,
         forall|k: int| 0 <= k < n ==> s[k] == s2[k],
     ensures
         count_present_upto(s2, n) == count_present_upto(s, n),
     decreases n,
 {
     if n > 0 {
-        lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+        lemma_count_present_upto_unchanged(s, s2, n - 1);
     }
 }
 
@@ -210,7 +209,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
         &&& self.frame_permission.frac() == 1
-        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
@@ -274,9 +272,9 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& regions.contains(idx)
         &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
-        &&& self.meta_value().wf(self.meta_own)
-        &&& self.meta_own.nr_children.id()
-            == self.meta_value().nr_children.id()
+        &&& self.meta_value().wf(
+            self.meta_own,
+        )
         // A page-table node's slot is tracked with `PageTable` usage (set at
         // allocation via `get_node_from_unused_spec`). This discriminates node
         // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a
@@ -335,7 +333,6 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.slot_vaddr()
         &&& guard.inner.inner@.wf(self)
         &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
     }

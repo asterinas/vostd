@@ -2,10 +2,11 @@ use vstd::prelude::*;
 use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 
 use crate::specs::{
-    arch::{MAX_NR_PAGES, valid_frame_paddr},
+    arch::MAX_NR_PAGES,
     mm::{
         Paddr,
         frame::{
+            frame_specs::valid_slot_vaddr,
             mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
@@ -13,15 +14,12 @@ use crate::specs::{
 };
 
 use super::meta_owners::*;
-use crate::mm::{
-    frame::{
-        meta::{
-            META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-            mapping::{frame_to_meta, meta_to_frame},
-        },
-        *,
+use crate::mm::frame::{
+    meta::{
+        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
     },
-    kspace::FRAME_METADATA_RANGE,
+    *,
 };
 
 verus! {
@@ -48,10 +46,7 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> 
 
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
-        &&& valid_frame_paddr(self.start_paddr_spec())
-        &&& self.ptr.addr() % META_SLOT_SIZE == 0
-        &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
-            + MAX_NR_PAGES * META_SLOT_SIZE
+        &&& valid_slot_vaddr(self.ptr.addr())
         &&& self.slot_perm().pptr() == self.ptr
         &&& self.slot_perm().is_init()
     }

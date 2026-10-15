@@ -107,8 +107,8 @@ verus! {
 ///    &&& self.mem_view matches Some(remaining_view)
 ///        ==> self.mv_range@ matches Some(total_view)
 ///        ==> {
-///        &&& remaining_view.mappings_are_disjoint()
-///        &&& total_view.mappings_are_disjoint()
+///        &&& mappings_disjoint_vaddrs(remaining_view.mappings)
+///        &&& mappings_disjoint_vaddrs(total_view.mappings)
 ///        // ======================
 ///        // Remaining Consistency
 ///        // ======================
@@ -1231,11 +1231,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 match frag_ghost {
                     PageTableFrag::StrayPageTable { .. } => {
-                        assert(old_removed.disjoint(subtree)) by {
-                            assert forall|e: Mapping|
-                                old_removed.contains(e) implies !subtree.contains(e) by {};
-                        };
-                        vstd::set_lib::lemma_set_disjoint_lens(old_removed, subtree);
                         assert(removed == old_removed + subtree);
                     },
                     PageTableFrag::Mapped { .. } => {

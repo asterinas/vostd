@@ -19,10 +19,7 @@ use crate::{
         Paddr,
         dma::{Daddr, DmaType, dma_type},
         frame::{AnyFrameMeta, Segment, untyped::AnyUFrameMeta},
-        io::{
-            FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader, VmWriter,
-            axiom_kernel_mem_view,
-        },
+        io::{FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader, VmWriter},
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,
     },
@@ -247,10 +244,6 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     proof_with!(Ghost(id) => Tracked(reader_perm));
                                     VmReader::from_kernel_space(ptr, self.len)
                                 };
-                                proof {
-                                    let tracked mem_view = axiom_kernel_mem_view(range);
-                                    reader_perm.mem_view = Some(VmIoMemView::ReadView(mem_view));
-                                }
                                 proof_with!(|= Tracked(Some(reader_perm)));
                                 Ok(reader)
                             },
@@ -334,10 +327,6 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     proof_with!(Ghost(id), Tracked(false) => Tracked(writer_perm));
                                     VmWriter::from_kernel_space(ptr, self.len)
                                 };
-                                proof {
-                                    let tracked mem_view = axiom_kernel_mem_view(range);
-                                    writer_perm.mem_view = Some(VmIoMemView::WriteView(mem_view));
-                                }
                                 proof_with!(|= Tracked(Some(writer_perm)));
                                 Ok(writer)
                             },
@@ -619,10 +608,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             proof_with!(Ghost(id) => Tracked(reader_owner));
             VmReader::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
-        }
         proof_with!(|= Tracked(reader_owner));
         reader
     }
@@ -678,10 +663,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             proof_with!(Ghost(id), Tracked(false) => Tracked(writer_owner));
             VmWriter::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
-        }
         proof_with!(|= Tracked(writer_owner));
         writer
     }
@@ -1237,9 +1218,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
 
             assert(reader_own.inv());
             assert(writer_own.inv());
-            assert((*writer_own).inv());
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
-            assert((*writer_own).mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
             assert(reader.remain_spec() >= len);

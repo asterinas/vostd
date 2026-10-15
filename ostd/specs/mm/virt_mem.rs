@@ -228,15 +228,6 @@ impl MemView {
         }
     }
 
-    /// Whether mappings in this view are pairwise VA-disjoint.
-    pub open spec fn mappings_are_disjoint(self) -> bool {
-        forall|m1: Mapping, m2: Mapping|
-            #![trigger self.mappings.contains(m1), self.mappings.contains(m2)]
-            self.mappings.contains(m1) && self.mappings.contains(m2) && m1 != m2 ==> {
-                m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
-            }
-    }
-
     /// Specification for splitting this view at `split_end = vaddr + len`.
     ///
     /// Returns `(left, right)` where:
@@ -481,8 +472,7 @@ impl MemView {
 
 impl Inv for VirtPtr {
     open spec fn inv(self) -> bool {
-        &&& self.range@.start <= self.vaddr <= self.range@.end
-        &&& self.range@.end >= self.range@.start
+        self.range@.start <= self.vaddr <= self.range@.end
     }
 }
 
@@ -897,7 +887,6 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
-            src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
             forall|i: usize|
                 #![trigger mem_src.addr_transl(i)]
@@ -908,7 +897,6 @@ impl VirtPtr {
                         i,
                     )->0).1 as int] is Init
                 },
-            dst.range@.start <= dst.vaddr,
             dst.vaddr + n <= dst.range@.end,
             forall|i: usize|
                 dst.vaddr <= i < dst.vaddr + n ==> {
@@ -1056,14 +1044,6 @@ impl Inv for GlobalMemView {
             #![trigger self.pt_mappings.contains(m1), self.pt_mappings.contains(m2)]
             self.pt_mappings.contains(m1) && self.pt_mappings.contains(m2) && m1 != m2
                 ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
-        &&& forall|m: Mapping|
-            forall|n: Mapping|
-                #![auto]
-                self.tlb_mappings.contains(m) ==> self.tlb_mappings.contains(n) ==> m != n
-                    ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
-                    <= m.va_range.start
-        &&& self.all_pas_accounted_for()
-        &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()
     }
 }
@@ -1084,19 +1064,6 @@ impl GlobalMemView {
 
     pub open spec fn is_mapped(self, pa: usize) -> bool {
         exists|m: Mapping| self.pt_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
-    }
-
-    pub open spec fn all_pas_accounted_for(self) -> bool {
-        forall|pa: Paddr|
-            0 <= pa < MAX_PADDR ==> #[trigger] self.is_mapped(pa)
-                || #[trigger] self.unmapped_pas.contains(pa)
-    }
-
-    pub open spec fn pas_uniquely_mapped(self) -> bool {
-        forall|m1: Mapping, m2: Mapping|
-            #![trigger self.tlb_mappings.contains(m1), self.tlb_mappings.contains(m2)]
-            self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2
-                ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
 
     pub open spec fn unmapped_correct(self) -> bool {

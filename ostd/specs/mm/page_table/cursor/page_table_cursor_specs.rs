@@ -21,7 +21,7 @@ verus! {
 impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn item_into_mapping(va: Vaddr, item: C::Item) -> Mapping {
         let (paddr, level, prop, _perm) = C::item_into_raw(item);
-        let size = page_size(level);
+        let size = page_size::<PagingConsts>(level);
         Mapping {
             va_range: va as int..va + size,
             pa_range: paddr..(paddr + size) as Paddr,
@@ -43,6 +43,22 @@ impl<C: PageTableConfig> CursorView<C> {
             self.present(),
     {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).choose()
+    }
+
+    /// The queried mapping belongs to the view, covers its cursor, and is well-formed.
+    pub proof fn lemma_query_mapping(self)
+        requires
+            self.inv(),
+            self.present(),
+        ensures
+            self.mappings.contains(self.query_mapping()),
+            self.query_mapping().va_range.start <= self.cur_va < self.query_mapping().va_range.end,
+            self.query_mapping().inv(),
+    {
+        let covering = self.mappings.filter(
+            |m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end,
+        );
+        vstd::set::lemma_set_choose_len(covering);
     }
 
     pub open spec fn query(self, paddr: Paddr, size: usize, prop: PageProperty) -> bool {
@@ -69,7 +85,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.present(),
     {
         let (paddr, level, prop, _perm) = C::item_into_raw_spec(item);
-        let size = page_size(level);
+        let size = page_size::<PagingConsts>(level);
         if self.query(paddr, size, prop) {
             let r = self.query_range();
             Some(r.start as Vaddr..r.end as Vaddr)

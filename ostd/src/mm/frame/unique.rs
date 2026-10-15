@@ -139,7 +139,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         transmuted: UniqueFrame<M1>,
     ) -> bool {
         &&& transmuted.ptr.addr() == self.ptr.addr()
-        &&& transmuted._marker == PhantomData::<M1>
         &&& transmuted.tracked_slot_perm@ == self.tracked_slot_perm@
         &&& transmuted.tracked_metadata_perm@ == self.tracked_metadata_perm@
     }
@@ -415,8 +414,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// Converts this frame into a raw physical address.
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
-                -> metadata_perms: Tracked<MetadataPerm>,
+            -> metadata_perms: Tracked<MetadataPerm>,
         requires
             self.inv(),
         ensures

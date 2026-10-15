@@ -83,7 +83,6 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
     requires
         old(regions).inv(),
         valid_frame_paddr(paddr),
-        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owner(paddr).usage is Unused,
         old(regions).slot_owner(paddr).ref_count() == REF_COUNT_UNUSED,
     ensures

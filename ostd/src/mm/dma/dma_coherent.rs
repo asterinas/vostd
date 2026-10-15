@@ -18,7 +18,7 @@ use crate::{
         frame::{Segment, untyped::AnyUFrameMeta},
         io::{
             FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoMemView, VmIoOnce,
-            VmIoOwner, VmReader, VmWriter, axiom_kernel_mem_view,
+            VmIoOwner, VmReader, VmWriter,
         },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,
@@ -288,10 +288,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             proof_with!(Ghost(id) => Tracked(reader_owner));
             VmReader::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
-        }
         proof_with!(|= Tracked(reader_owner));
         reader
     }
@@ -339,10 +335,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             proof_with!(Ghost(id), Tracked(false) => Tracked(writer_owner));
             VmWriter::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
-        }
         proof_with!(|= Tracked(writer_owner));
         writer
     }
@@ -477,9 +469,9 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized> Clone for DmaCoherent<M> {
-    #[verus_spec(r =>
-        ensures
-            r == self,
+    #[verus_spec(
+        returns
+            self,
     )]
     fn clone(&self) -> Self {
         DmaCoherent { inner: self.inner.clone() }

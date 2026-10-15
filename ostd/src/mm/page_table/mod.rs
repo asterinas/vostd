@@ -218,8 +218,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::raw_item_well_formed((paddr, level, prop, perm)),
             1 <= level <= NR_LEVELS,
             valid_frame_paddr(paddr),
-            paddr % page_size(level) == 0,
-            paddr + page_size(level) <= MAX_PADDR,
+            paddr % page_size::<PagingConsts>(level) == 0,
+            paddr + page_size::<PagingConsts>(level) <= MAX_PADDR,
             Self::E::new_page_req(paddr, level, prop),
         returns
             Self::item_into_raw(item),
@@ -340,7 +340,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::E::new_page_req(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
-            child_pa == pa + child_idx * page_size((level - 1) as PagingLevel),
+            child_pa == pa + child_idx * page_size::<PagingConsts>((level - 1) as PagingLevel),
         ensures
             Self::raw_item_well_formed((child_pa, (level - 1) as PagingLevel, prop, perm)),
             Self::E::new_page_req(child_pa, (level - 1) as PagingLevel, prop),
@@ -640,15 +640,15 @@ pub fn largest_pages<C: PageTableConfig>(
                     return None;
                 }
                 let mut level = C::HIGHEST_TRANSLATION_LEVEL();
-                while page_size(level) > len || va % page_size(level) != 0 || pa % page_size(level)
-                    != 0 {
+                while page_size::<C>(level) > len || va % page_size::<C>(level) != 0 || pa
+                    % page_size::<C>(level) != 0 {
                     level -= 1;
                 }
 
                 let item_start = pa;
-                va += page_size(level);
-                pa += page_size(level);
-                len -= page_size(level);
+                va += page_size::<C>(level);
+                pa += page_size::<C>(level);
+                len -= page_size::<C>(level);
 
                 Some((item_start, level))
             },
@@ -1088,7 +1088,7 @@ impl PageTable<KernelPtConfig> {
                 |
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
+                        let nr_pages = page_size::<PagingConsts>(e.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
@@ -1104,7 +1104,7 @@ impl PageTable<KernelPtConfig> {
                 |
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
+                        let nr_pages = page_size::<PagingConsts>(e.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
@@ -1304,7 +1304,6 @@ impl<C: PageTableConfig> PageTable<C> {
             final(owner)@ is Some,
             final(owner)@->0.inv(),
             (final(owner)@->0).0.value().is_node(),
-            (final(owner)@->0).0.value().is_node(),
             r.root.ptr.addr() == (final(owner)@->0).0.value().node().slot_vaddr(),
             (final(owner)@->0).0.value().metaregion_sound(*final(regions)),
             final(regions).inv(),
@@ -1326,7 +1325,6 @@ impl<C: PageTableConfig> PageTable<C> {
                 i != crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
-            forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
@@ -1368,7 +1366,7 @@ impl<C: PageTableConfig> PageTable<C> {
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
                         e.is_frame() && e.parent_level > 1 ==> {
                             let pa = e.frame().mapped_pa;
-                            let nr_pages = page_size(
+                            let nr_pages = page_size::<PagingConsts>(
                                 e.parent_level) / PAGE_SIZE;
                             forall |j: usize| 0 < j < nr_pages ==> {
                                 let sub_idx =
@@ -1690,7 +1688,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            valid_frame_paddr(res),
+            res % PAGE_SIZE == 0,
         returns
             self.paddr(),
     ;

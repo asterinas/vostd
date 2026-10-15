@@ -11,7 +11,7 @@ use vstd::{
 };
 use vstd_extra::ownership::Inv;
 
-use crate::specs::mm::virt_mem::MemView;
+use crate::specs::mm::{page_table::mappings_disjoint_vaddrs, virt_mem::MemView};
 
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
@@ -51,7 +51,7 @@ pub axiom fn axiom_slice_in_kernel(slice: &[u8])
 /// [`axiom_slice_in_kernel`].
 pub axiom fn axiom_kernel_mem_view(range: Range<usize>) -> (tracked mv: MemView)
     ensures
-        mv.mappings_are_disjoint(),
+        mappings_disjoint_vaddrs(mv.mappings),
         forall|va: usize|
             #![trigger mv.addr_transl(va)]
             range.start <= va < range.end ==> {
@@ -117,14 +117,14 @@ impl Inv for VmIoOwner {
         &&& self.inv_wf()
         &&& match self.mem_view {
             Some(VmIoMemView::WriteView(mv)) => {
-                &&& mv.mappings_are_disjoint()
+                &&& mappings_disjoint_vaddrs(mv.mappings)
                 &&& forall|va: usize|
                     self.range.start <= va < self.range.end ==> {
                         &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
             Some(VmIoMemView::ReadView(mv)) => {
-                &&& mv.mappings_are_disjoint()
+                &&& mappings_disjoint_vaddrs(mv.mappings)
                 &&& forall|va: usize|
                     self.range.start <= va < self.range.end ==> {
                         &&& #[trigger] mv.addr_transl(va) is Some
@@ -298,7 +298,7 @@ impl VmIoOwner {
                 let ghost view_g = view;
                 let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
-                assert(right.mappings_are_disjoint()) by {
+                assert(mappings_disjoint_vaddrs(right.mappings)) by {
                     assert(right.mappings <= view_g.mappings);
                 };
                 assert forall|va: usize|
@@ -314,7 +314,7 @@ impl VmIoOwner {
                 let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
                 MemView::lemma_split_preserves_read(view_g, old_start, nbytes, left, right);
-                assert(right.mappings_are_disjoint()) by {
+                assert(mappings_disjoint_vaddrs(right.mappings)) by {
                     assert(right.mappings <= view_g.mappings);
                 };
                 assert forall|va: usize|
@@ -416,7 +416,7 @@ impl VmIoOwner {
                 let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
                 // Prove both halves preserve mappings invariants and translation.
-                assert(left.mappings_are_disjoint()) by {
+                assert(mappings_disjoint_vaddrs(left.mappings)) by {
                     assert(left.mappings <= view_g.mappings);
                 };
                 assert forall|va: usize|
@@ -424,7 +424,7 @@ impl VmIoOwner {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == left.addr_transl(va));
                 };
-                assert(right.mappings_are_disjoint()) by {
+                assert(mappings_disjoint_vaddrs(right.mappings)) by {
                     assert(right.mappings <= view_g.mappings);
                 };
                 assert forall|va: usize|
@@ -439,7 +439,7 @@ impl VmIoOwner {
                 let ghost view_g = view;
                 let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
-                assert(left.mappings_are_disjoint()) by {
+                assert(mappings_disjoint_vaddrs(left.mappings)) by {
                     assert(left.mappings <= view_g.mappings);
                 };
                 assert forall|va: usize|
@@ -447,7 +447,7 @@ impl VmIoOwner {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == left.addr_transl(va));
                 };
-                assert(right.mappings_are_disjoint()) by {
+                assert(mappings_disjoint_vaddrs(right.mappings)) by {
                     assert(right.mappings <= view_g.mappings);
                 };
                 assert forall|va: usize|
@@ -601,12 +601,6 @@ impl<Fallibility> VmWriter<'_, Fallibility> {
         &&& owner.range.start == self.cursor.vaddr
         &&& owner.range.end == self.end.vaddr
         &&& owner.id == self.ghost_id@
-        &&& owner.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
-            forall|va: usize|
-                owner.range.start <= va < owner.range.end ==> {
-                    &&& #[trigger] mv.addr_transl(va) is Some
-                }
-        }
     }
 }
 
@@ -631,12 +625,6 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         &&& owner.range.start == self.cursor.vaddr
         &&& owner.range.end == self.end.vaddr
         &&& owner.id == self.ghost_id@
-        &&& owner.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
-            forall|va: usize|
-                owner.range.start <= va < owner.range.end ==> {
-                    &&& #[trigger] mv.addr_transl(va) is Some
-                }
-        }
     }
 }
 

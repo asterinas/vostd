@@ -10,7 +10,9 @@ use crate::specs::{
             mapping::{frame_to_index, group_page_meta, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{INC_LEVELS, PageTableOwner},
+        page_table::{
+            INC_LEVELS, PageTableOwner, cursor::page_size_lemmas::lemma_split_sub_page_big_j,
+        },
     },
     task::InAtomicMode,
 };
@@ -316,10 +318,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ==> final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt,
-            forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
-                    k,
-                ),
             forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].ref_count()]
                 final(regions).ref_count(idx) == old(
@@ -333,17 +331,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(regions).slots == old(regions).slots,
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
-                &&& final(regions).slots == old(regions).slots
                 &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
             },
-            // When old child is absent and new child is not a node: slots values unchanged.
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
-                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
-                    == #[trigger] final(regions).slots[k],
             Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
     )]
     #[verifier::spinoff_prover]
@@ -948,7 +941,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             let new_idx = meta_to_index(new_owner_meta_addr);
             let new_paddr = meta_to_frame(new_owner_meta_addr);
-            let nr_pages = page_size(level) / PAGE_SIZE;
+            let nr_pages = page_size::<PagingConsts>(level) / PAGE_SIZE;
 
             // The huge frame's own slot (j = 0): `usage != PageTable` from the
             // precondition's `metaregion_sound` (frame arm), preserved across
@@ -993,6 +986,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
             assert(nr_subpage_per_huge_spec::<C>() == NR_ENTRIES);
         }
 
@@ -1009,8 +1003,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value().frame_permission() is None,
                 pa == old(owner).value().frame().mapped_pa,
                 level == old(parent_owner).level(),
-                pa % page_size(level) == 0,
-                pa + page_size(level) <= MAX_PADDR,
+                pa % page_size::<PagingConsts>(level) == 0,
+                pa + page_size::<PagingConsts>(level) <= MAX_PADDR,
                 regions.inv(),
                 // Canonical model: the freshly-allocated node carries its
                 // pending-Drop obligation across the per-child `replace`
@@ -1057,7 +1051,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 forall|j: usize|
                     #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
-                    0 < j < page_size(level) / PAGE_SIZE ==> {
+                    0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE ==> {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage !is PageTable
@@ -1085,6 +1079,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 C::lemma_page_table_config_constant_properties();
                 C::lemma_paging_consts_properties();
+                C::axiom_current_paging_consts_hardcoded();
                 let ghost the_node = new_owner.value().node();
 
                 assert(0 <= i < NR_ENTRIES);
@@ -1095,7 +1090,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
             }
 
-            let small_pa = pa + i * page_size(level - 1);
+            let small_pa = pa + i * page_size::<C>(level - 1);
 
             let tracked mut child_owner = EntryOwner::tracked_new_frame(
                 small_pa,
@@ -1115,19 +1110,24 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             proof {
                 let idx = frame_to_index(small_pa);
-                if i != 0 {
-                    let ghost big_j =
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
-                    pa, level, i);
-                }
+                let big_j = if i != 0 {
+                    lemma_split_sub_page_big_j(pa, level, i)
+                } else {
+                    0usize
+                };
                 if level - 1 > 1 {
-                    let nr_subpages = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    (level - 1) as PagingLevel);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    level);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
-                    level);
+                    let nr_subpages = page_size::<PagingConsts>((level - 1) as PagingLevel)
+                        / PAGE_SIZE;
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                        PagingConsts,
+                    >((level - 1) as PagingLevel);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                        PagingConsts,
+                    >(level);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_next::<
+                        PagingConsts,
+                    >((level - 1) as PagingLevel);
+                    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
                     assert forall|j_prime: usize|
                         #![trigger frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize)]
                         0 < j_prime < nr_subpages implies {
@@ -1139,8 +1139,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                         }
                     } by {
-                        let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
-                            / PAGE_SIZE;
+                        let sub_pages_per_subframe = page_size::<PagingConsts>(
+                            (level - 1) as PagingLevel,
+                        ) / PAGE_SIZE;
                         let big_j_int: int = i * sub_pages_per_subframe + j_prime;
                         vstd::arithmetic::mul::lemma_mul_nonnegative(
                             i as int,
@@ -1184,15 +1185,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     }
                 }
                 if i == 0 {
-                    assert(i * page_size((level - 1) as PagingLevel) == 0) by {
+                    assert(i * page_size::<PagingConsts>((level - 1) as PagingLevel) == 0) by {
                         vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
-                            page_size((level - 1) as PagingLevel) as int,
+                            page_size::<PagingConsts>((level - 1) as PagingLevel) as int,
                         );
                     }
                 } else {
-                    let ghost big_j =
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
-                    pa, level, i);
                     assert(regions.slots.contains_key(
                         frame_to_index((pa + big_j * PAGE_SIZE) as usize),
                     ));
@@ -1202,15 +1200,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let tracked mut small_slot = regions.tracked_borrow_mut_slot_owner(small_pa);
                 small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
 
-                if (level - 1) > 1 {
-                }
                 let ghost target_idx = frame_to_index(small_pa);
-                if i != 0 {
-                    let ghost _ =
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
-                    pa, level, i);
-
-                }
                 C::lemma_raw_item_well_formed_split(
                     pa,
                     level,
@@ -1548,8 +1538,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     ==> final(regions).slot_owners[slot].paths_in_pt == old(
                     regions,
                 ).slot_owners[slot].paths_in_pt,
-            forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].ref_count()]
                 final(regions).ref_count(slot) == old(
@@ -1562,16 +1550,12 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 ),
             final(regions).slots == old(regions).slots,
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
-                &&& final(regions).slots == old(regions).slots
                 &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
             },
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
-                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
-                    == #[trigger] final(regions).slots[k],
             Entry::<C>::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
             *final(self) == *old(self),
     )]

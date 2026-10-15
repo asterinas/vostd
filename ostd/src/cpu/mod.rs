@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU-related definitions.
-use vstd::prelude::*;
+use vstd::{prelude::*, std_specs::convert::TryFromSpecImpl};
 
 // pub mod local;
 pub mod set;
@@ -49,12 +49,22 @@ impl CpuId {
 
 /// The error type returned when converting an out-of-range integer to [`CpuId`].
 #[derive(Debug, Clone, Copy)]
+#[verus_verify]
 pub struct CpuIdFromIntError;
 
+#[verus_verify]
 impl TryFrom<usize> for CpuId {
     type Error = CpuIdFromIntError;
 
+    #[verus_spec(ret =>
+        ensures
+            ret matches Ok(id) ==> id@ == value && cpu_count() > value,
+            cpu_count() > value ==> ret is Ok,
+    )]
     fn try_from(value: usize) -> Result<Self, Self::Error> {
+        proof! {
+            broadcast use { axiom_cpu_count_bounds };
+        }
         if value < num_cpus() {
             Ok(CpuId(value as u32))
         } else {
@@ -136,8 +146,46 @@ pub broadcast axiom fn axiom_cpu_count_bounds()
 impl CpuId {
     /// A CPU id is always in the range of CPUs present in the system.
     #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
+    pub closed spec fn type_inv(self) -> bool {
         0 <= self@ < cpu_count()
+    }
+}
+
+/// The `CpuId` at numeric index `i`.
+pub closed spec fn cpu_id_from_index(i: int) -> CpuId {
+    CpuId(i as u32)
+}
+
+/// Re-exposes the range fact of a `CpuId` beyond the closed `type_inv`.
+pub broadcast proof fn lemma_type_inv_range(cpu_id: CpuId)
+    requires
+        CpuId::type_inv(cpu_id),
+    ensures
+        #![trigger cpu_id@]
+        0 <= cpu_id@ < cpu_count(),
+{
+}
+
+/// `as_usize` and its `u32` re-encoding equal the numeric view of a `CpuId`.
+pub broadcast proof fn lemma_cpu_id_model(cpu_id: CpuId)
+    ensures
+        #![trigger cpu_id.as_usize()]
+        cpu_id.as_usize() == cpu_id@,
+        (cpu_id.as_usize() as u32) == cpu_id@,
+{
+}
+
+impl TryFromSpecImpl<usize> for CpuId {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(v: usize) -> Result<Self, Self::Error> {
+        if cpu_count() > v {
+            Ok(cpu_id_from_index(v as int))
+        } else {
+            Err(arbitrary())
+        }
     }
 }
 

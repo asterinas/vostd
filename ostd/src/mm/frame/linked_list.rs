@@ -216,9 +216,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             s == owner@.list.len(),
     )]
     pub fn size(&self) -> usize {
-        proof {
-            LinkedListOwner::<M>::lemma_view_preserves_len(owner.list);
-        }
         self.size
     }
 
@@ -716,7 +713,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         };
 
         proof {
-            LinkedListOwner::<M>::lemma_view_preserves_len(owner.list_own.list);
             assert(owner.move_next_owner_spec()@.fore == owner@.move_next_spec().fore);
             assert(owner.move_next_owner_spec()@.rear == owner@.move_next_spec().rear);
         }
@@ -779,8 +775,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         };
 
         proof {
-            LinkedListOwner::<M>::lemma_view_preserves_len(owner.list_own.list);
-
             if owner@.list_model.list.len() > 0 {
                 if owner@.fore.len() > 0 {
                     assert(owner.move_prev_owner_spec()@.fore == owner@.move_prev_spec().fore);
@@ -1361,7 +1355,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
 
         #[verus_spec(with
-            Tracked(&*frame_own) => Tracked(frame_metadata_perm)
+            => Tracked(frame_metadata_perm)
         )]
         let _ = frame.into_raw();
 
@@ -1478,12 +1472,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& forall|i: int|
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> s.1.contains(meta_to_index(s.0.list[i].paddr))
-        &&& forall|i: int|
-            #![trigger s.0.list[i]]
-            0 <= i < s.0.list.len() ==> {
-                let idx = meta_to_index(s.0.list[i].paddr);
-                s.1.contains(idx)
-            }
         &&& forall|i: int|
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> {
