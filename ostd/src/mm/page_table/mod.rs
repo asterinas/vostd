@@ -986,12 +986,12 @@ impl PageTable<KernelPtConfig> {
         PageTable::empty_with_owner());
         let new_root = new_pt.root;
         // Capture new_idx as a ghost BEFORE the tracked_take below empties new_pt_owner.
-        let ghost new_idx_g: int = crate::specs::mm::frame::mapping::frame_to_index(
+        let ghost new_idx_g: int = frame_to_index(
             new_pt_owner@.unwrap().0.value().meta_slot_paddr().unwrap(),
         );
         let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
         proof {
-            let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
+            let kern_idx = frame_to_index(
                 kernel_owner.0.value().meta_slot_paddr().unwrap(),
             );
             let new_idx = new_idx_g;
@@ -1241,16 +1241,16 @@ impl<C: PageTableConfig> PageTable<C> {
             final(guards).guards == old(guards).guards,
             // The newly allocated slot was in the free pool before the call.
             old(regions).contains(
-                crate::specs::mm::frame::mapping::frame_to_index(
+                frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // The metadata table retains live slots; refcounts distinguish
             // allocation from membership in the table.
             final(regions).contains(
-                crate::specs::mm::frame::mapping::frame_to_index(
+                frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // Other slots and lock state are preserved.
             forall |i: int| #![trigger final(regions).slot_owners[i]]
-                i != crate::specs::mm::frame::mapping::frame_to_index(
+                i != frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
             final(regions).slots == old(regions).slots,
@@ -1281,9 +1281,9 @@ impl<C: PageTableConfig> PageTable<C> {
                     |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
                         e.meta_slot_paddr() is Some
-                            ==> crate::specs::mm::frame::mapping::frame_to_index(
+                            ==> frame_to_index(
                                 e.meta_slot_paddr()->0) !=
-                                crate::specs::mm::frame::mapping::frame_to_index(
+                                frame_to_index(
                                     (final(owner)@->0).0.value().meta_slot_paddr()->0),
                 ),
             // Sub-page freshness: for any huge frame entry in any pre-existing
@@ -1302,9 +1302,9 @@ impl<C: PageTableConfig> PageTable<C> {
                                 e.parent_level) / PAGE_SIZE;
                             forall |j: usize| 0 < j < nr_pages ==> {
                                 let sub_idx =
-                                    #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
+                                    #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize);
-                                sub_idx != crate::specs::mm::frame::mapping::frame_to_index(
+                                sub_idx != frame_to_index(
                                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                             }
                         },
