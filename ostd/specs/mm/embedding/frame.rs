@@ -68,7 +68,6 @@ pub axiom fn frame_from_unused_embedded(
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
@@ -167,7 +166,6 @@ pub(super) proof fn from_unused_step(
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]

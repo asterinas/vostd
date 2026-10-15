@@ -129,20 +129,6 @@ impl MetaSlot {
         &&& M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm) == metadata
     }
 
-    /// Permission-location clause for the static `MetaSlot` permissions.
-    /// Only the slot at `paddr` is changed.
-    pub open spec fn slot_perm_reparked_spec(
-        paddr: Paddr,
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool {
-        let idx = frame_to_index(paddr);
-        &&& post.slots.dom() =~= pre.slots.dom()
-        &&& forall|k: int|
-            #![trigger post.slots[k]]
-            k != idx && pre.contains(k) ==> post.slots[k] == pre.slots[k]
-    }
-
     pub open spec fn inc_ref_count_panic_cond(rc_perm: PermissionU64) -> bool {
         rc_perm.value() >= REF_COUNT_MAX
     }
