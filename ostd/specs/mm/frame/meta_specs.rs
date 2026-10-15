@@ -71,7 +71,7 @@ impl MetaSlot {
     }
 
     /// The metadata region transition of claiming an unused slot.
-    pub open spec fn get_from_unused_region_spec(
+    pub open spec fn claim_unused_slot_region_spec(
         paddr: Paddr,
         as_unique: bool,
         pre: MetaRegionOwners,
@@ -83,11 +83,22 @@ impl MetaSlot {
         {
             &&& pre_owner.ref_count() == REF_COUNT_UNUSED
             &&& MetaSlot::get_from_unused_owner_spec(as_unique, post_owner)
-            &&& post_owner.usage is Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
-            &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
             &&& post =~= pre.insert_slot_owner(paddr, post_owner)
         }
+    }
+
+    /// The metadata region transition of claiming an unused slot for a frame.
+    pub open spec fn get_from_unused_region_spec(
+        paddr: Paddr,
+        as_unique: bool,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool {
+        let idx = frame_to_index(paddr);
+        &&& Self::claim_unused_slot_region_spec(paddr, as_unique, pre, post)
+        &&& post.slot_owners[idx].usage is Frame
+        &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
     }
 
     /// The complete successful result of claiming an unused slot, including
@@ -127,15 +138,9 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool {
         let idx = frame_to_index(paddr);
-        {
-            &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
-            &&& MetaSlot::get_from_unused_owner_spec(false, post.slot_owners[idx])
-            &&& post.slot_owners[idx].usage is PageTable
-            &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
-            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: int| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
-            &&& pre.slot_owners[idx].ref_count() == REF_COUNT_UNUSED
-        }
+        &&& Self::claim_unused_slot_region_spec(paddr, false, pre, post)
+        &&& post.slot_owners[idx].usage is PageTable
+        &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
     }
 
     /// Permission-location clause for the static `MetaSlot` permissions.

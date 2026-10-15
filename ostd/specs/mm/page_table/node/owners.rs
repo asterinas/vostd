@@ -20,7 +20,7 @@ use crate::specs::{
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::meta::{META_SLOT_SIZE, REF_COUNT_MAX, MetaSlot, mapping::meta_to_frame},
+    frame::meta::{META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
     kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
     page_table::{PageTableGuard, *},

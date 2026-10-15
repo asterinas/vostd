@@ -991,13 +991,9 @@ impl PageTable<KernelPtConfig> {
         );
         let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
         proof {
-            let kern_idx = frame_to_index(
-                kernel_owner.0.value().meta_slot_paddr().unwrap(),
-            );
+            let kern_idx = frame_to_index(kernel_owner.0.value().meta_slot_paddr().unwrap());
             let new_idx = new_idx_g;
-            crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
-                KernelPtConfig,
-            >::lemma_active_entry_not_in_free_pool(
+            EntryOwner::<KernelPtConfig>::lemma_active_entry_not_in_free_pool(
                 kernel_owner.0.value(),
                 regions_before_alloc,
                 new_idx,
@@ -1239,46 +1235,31 @@ impl<C: PageTableConfig> PageTable<C> {
             // Allocating a fresh node does not change the lock set, so any node
             // that was (un)locked before remains so.
             final(guards).guards == old(guards).guards,
-            // The newly allocated slot was in the free pool before the call.
             old(regions).contains(
                 frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
-            // The metadata table retains live slots; refcounts distinguish
-            // allocation from membership in the table.
             final(regions).contains(
                 frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
-            // Other slots and lock state are preserved.
-            forall |i: int| #![trigger final(regions).slot_owners[i]]
-                i != frame_to_index(
-                    (final(owner)@->0).0.value().meta_slot_paddr()->0)
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
-            final(regions).slots == old(regions).slots,
-            old(regions).ref_count((final(owner)@->0).0.value().node().slot_index) == REF_COUNT_UNUSED,
-            final(regions).ref_count((final(owner)@->0).0.value().node().slot_index) == 1,
-            forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                idx != (final(owner)@->0).0.value().node().slot_index ==>
-                final(regions).slot_owners[idx].paths_in_pt
-                    == old(regions).slot_owners[idx].paths_in_pt,
+            MetaSlot::claim_unused_slot_region_spec(
+                (final(owner)@->0).0.value().meta_slot_paddr()->0,
+                false, *old(regions), *final(regions)),
             // Allocation preserves the soundness of the kernel page-table tree:
             // a fresh allocation cannot collide with any active node or frame entry
-            // (the allocator returns a slot that wasn't in use). Stated as a
-            // postcondition because deriving it requires a freshness axiom on the
-            // underlying frame allocator.
+            // (the allocator returns a slot that wasn't in use).
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*final(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions))
                 ==> kt.metaregion_sound(*final(regions)),
             // Freshness: the new PT's slot index is not used (as a primary slot
             // or huge-frame sub-page slot) by any entry in any KernelPtConfig PT
-            // tree that was sound before the alloc. Used to discharge the borrow
-            // step that mutates `slot_owners[new_idx]`.
+            // tree that was sound before the alloc.
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*old(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions)) ==>
                 kt.0.subtree_satisfies(
                     kt.0.value().path,
-                    |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
+                    |e: EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
                         e.meta_slot_paddr() is Some
                             ==> frame_to_index(
@@ -1294,7 +1275,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 kt.inv() && kt.metaregion_sound(*old(regions)) ==>
                 kt.0.subtree_satisfies(
                     kt.0.value().path,
-                    |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
+                    |e: EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
                         e.is_frame() && e.parent_level > 1 ==> {
                             let pa = e.frame().mapped_pa;
