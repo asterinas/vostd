@@ -3258,12 +3258,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             < owner_before_replace@.cur_va + m.page_size,
                 ).contains(target));
                 let ghost removed_idx = frame_to_index(cur_st.value().frame().mapped_pa);
-                assert(target == m);
-                assert(old_cur_subtree_mappings == set![m]);
-                assert(owner@.mappings == view.split_while_huge(m.page_size).mappings - set![m]);
-                assert(view.split_while_huge(m.page_size).mappings.contains(m));
-                assert(m.page_size >= PAGE_SIZE);
-                assert(old(self).0.va <= va < old(self).0.va + len);
                 assert(old(owner)@.mappings.filter(
                     |m2: Mapping| old(self).0.va <= m2.va_range.start < va,
                 ).is_empty());
