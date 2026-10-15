@@ -78,8 +78,10 @@ impl FrameAllocOptions {
                     vstd_extra::sum::Sum::Left(frame.frac_metadata_perm()),
                 )
             },
-            res is Err ==> *final(regions) == *old(regions),
-            res is Err ==> *final(repr_perm) == *old(repr_perm),
+            res is Err ==> {
+                &&& *final(regions) == *old(regions)
+                &&& *final(repr_perm) == *old(repr_perm)
+            }
     )]
     #[verifier::external_body]
     pub fn alloc_frame_with<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, metadata: M) -> Result<
