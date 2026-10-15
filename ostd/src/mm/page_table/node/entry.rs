@@ -631,7 +631,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
             }
 
-            #[verus_spec(with Tracked(parent_owner), Tracked(regions), Tracked(guards), Ghost(self.idx) => Tracked(new_node_owner))]
+            #[verus_spec(with Tracked(regions), Tracked(guards) => Tracked(new_node_owner))]
             let new_page = PageTableNode::<C>::alloc(level - 1);
             let ghost fresh_children = new_node_owner.children();
             proof {
@@ -983,7 +983,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         // alloc takes the NEW NODE level (level - 1, one below the cursor's
         // level which is `level`). Convention: alloc(M) produces node.level=M.
-        #[verus_spec(with Tracked(parent_owner), Tracked(regions), Tracked(guards), Ghost(self.idx) => Tracked(new_owner))]
+        #[verus_spec(with Tracked(regions), Tracked(guards) => Tracked(new_owner))]
         let new_page = PageTableNode::<C>::alloc(level - 1);
         let ghost fresh_children = new_owner.children();
         proof {
@@ -2145,7 +2145,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
         }
 
-        #[verus_spec(with Tracked(parent_owner), Tracked(regions), Tracked(guards), Ghost(idx) => Tracked(new_node_owner))]
+        #[verus_spec(with Tracked(regions), Tracked(guards) => Tracked(new_node_owner))]
         let new_page = PageTableNode::<C>::alloc(level - 1);
         let ghost fresh_children = new_node_owner.children();
 

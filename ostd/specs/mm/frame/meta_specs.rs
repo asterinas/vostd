@@ -129,20 +129,6 @@ impl MetaSlot {
         &&& M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm) == metadata
     }
 
-    /// Variant of [`get_from_unused_region_spec`] for allocating a page-table *node*
-    /// (always non-unique). Identical except the claimed slot becomes
-    /// `PageUsage::PageTable` rather than `PageUsage::Frame`.
-    pub open spec fn get_node_from_unused_spec(
-        paddr: Paddr,
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool {
-        let idx = frame_to_index(paddr);
-        &&& Self::claim_unused_slot_region_spec(paddr, false, pre, post)
-        &&& post.slot_owners[idx].usage is PageTable
-        &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-    }
-
     /// Permission-location clause for the static `MetaSlot` permissions.
     /// Only the slot at `paddr` is changed.
     pub open spec fn slot_perm_reparked_spec(

@@ -275,9 +275,9 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.meta_value().wf(
             self.meta_own,
         )
-        // A page-table node's slot is tracked with `PageTable` usage (set at
-        // allocation via `get_node_from_unused_spec`). This discriminates node
-        // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a
+        // A page-table node's slot is tracked with `PageTable` usage (guaranteed
+        // by `PageTableNode::alloc`). This discriminates node slots from
+        // data-frame slots (`Frame`/MMIO) by `usage` alone, so a
         // freshly-allocated node (whose slot was `UNUSED`) can't collide with an
         // existing live node — giving `alloc_if_none`/`split` the parent≠child
         // slot distinctness without a PointsTo-linearity axiom.
