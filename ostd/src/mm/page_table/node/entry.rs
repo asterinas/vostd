@@ -1550,8 +1550,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 );
             };
             assert(owner.value().metaregion_sound(*regions));
-            PageTableOwner::<C>::fresh_node_pt_inv(*owner);
-            PageTableOwner(*owner).split_node_view(PageTableOwner(*old(owner)));
+            PageTableOwner::<C>::lemma_fresh_node_pt_inv(*owner);
+            PageTableOwner(*owner).lemma_split_node_view(PageTableOwner(*old(owner)));
             let absent = EntryOwner::<C>::new_absent(
                 owner.value().path,
                 owner.value().parent_level,

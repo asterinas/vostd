@@ -609,6 +609,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
     /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
     /// all `None`. Used by `fresh_node_pt_inv` for the absent
+    /// all `None`. Used by `lemma_fresh_node_pt_inv` for the absent
     /// children of a freshly-allocated PT node.
     pub proof fn non_node_pt_inv_at_depth(self, depth: nat)
         requires
@@ -623,7 +624,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
     /// A fresh node with correctly rebased absent or frame children satisfies `pt_inv`.
     #[verifier::spinoff_prover]
-    pub proof fn fresh_node_pt_inv(owner: OwnerSubtree<C>)
+    pub proof fn lemma_fresh_node_pt_inv(owner: OwnerSubtree<C>)
         requires
             owner.inv(),
             owner.value().is_node(),
@@ -660,7 +661,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// The frames produced by a huge-page split have exactly the split mapping view.
-    pub proof fn split_node_view(self, old: Self)
+    pub proof fn lemma_split_node_view(self, old: Self)
         requires
             self.0.inv(),
             old.0.inv(),

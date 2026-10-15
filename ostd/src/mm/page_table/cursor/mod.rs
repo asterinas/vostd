@@ -2636,7 +2636,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             // pt_inv for the freshly-allocated child: closed by
                             // combining alloc_if_none's path-rebased ensures with
                             // `allocated_empty_node_grandchildren_none`.
-                            PageTableOwner::<C>::fresh_node_pt_inv(
+                            PageTableOwner::<C>::lemma_fresh_node_pt_inv(
                                 cont_new.children[cont_new.idx as int].unwrap(),
                             );
                             cont_new.lemma_continuation_inv_holds_after_child_restore(
