@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for the free comparison functions missing from `vstd`.
-use vstd::{prelude::*, std_specs::cmp::OrdSpec};
+use vstd::{
+    prelude::*,
+    std_specs::cmp::{OrdSpec, PartialOrdSpec},
+};
 
 use core::cmp::Ordering;
 
