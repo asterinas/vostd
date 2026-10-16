@@ -726,7 +726,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let piece = CursorView::<C>::split_index(huge, size, i as usize);
             assert(child.value().path == path.push_tail(i));
             assert(child.value().frame().mapped_pa == huge.pa_range.start + i * size);
-            assert(child.value().frame().prop == huge.property);
             let child_mapping = Mapping {
                 va_range: vaddr_of::<C>(path.push_tail(i)) as int..vaddr_of::<C>(path.push_tail(i))
                     + size,
@@ -736,11 +735,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 property: child.value().frame().prop,
             };
             assert(PageTableOwner(child).view_rec(path.push_tail(i)) == set![child_mapping]);
-            assert(child_mapping.va_range.start == piece.va_range.start);
-            assert(child_mapping.va_range.end == piece.va_range.end);
-            assert(child_mapping.va_range == piece.va_range);
-            assert(child_mapping.pa_range == piece.pa_range);
-            assert(child_mapping == piece);
         };
         assert forall|m: Mapping| self.view_rec(path).contains(m) implies pieces.contains(m) by {
             let i = self.view_rec_contains_choose(path, m);
