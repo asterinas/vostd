@@ -1062,7 +1062,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         proof {
                             assert(*owner == owner_before_move.move_forward_owner_spec());
-                            owner_before_move.move_forward_owner_preserves_mappings();
+                            owner_before_move.lemma_move_forward_owner_preserves_mappings();
                             if !split_happened {
                                 assert(owner@.mappings == old(owner)@.mappings);
                                 let ghost aligned_start = nat_align_down(
@@ -1121,7 +1121,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         assert(*owner == owner_before_move.move_forward_owner_spec());
-                        owner_before_move.move_forward_owner_preserves_mappings();
+                        owner_before_move.lemma_move_forward_owner_preserves_mappings();
                         if !split_happened {
                             assert(owner@.mappings == old(owner)@.mappings);
                             let ghost aligned_start = nat_align_down(
@@ -1486,7 +1486,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost regions0 = *regions;
         proof {
             owner.lemma_in_locked_range_guard_index_eq_prefix();
-            owner.move_forward_owner_decreases_steps();
+            owner.lemma_move_forward_owner_decreases_steps();
             old(owner).lemma_move_forward_not_popped_too_high();
         }
 
@@ -1580,7 +1580,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.do_inc_index();
             owner.zero_preserves_all_but_va();
             owner.do_zero_below_level();
-            owner0.move_forward_va_is_align_up();
+            owner0.lemma_move_forward_va_is_align_up();
             assert(owner.children_not_locked(*guards) && owner.metaregion_sound(*regions)) by {
                 reveal(CursorContinuation::map_children);
                 reveal(CursorOwner::path_metaregion_sound);
@@ -2339,8 +2339,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& old(regions).slot_owners[idx].usage is PageTable
                         ==> final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt
                 },
-            // `regions.slots` is monotonic — PT-node allocation removes-and-re-inserts
-            // each slot it touches, so all old keys are preserved.
             forall|idx: int| #![trigger final(regions).slots.contains_key(idx)]
                 old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
     )]
@@ -2416,7 +2414,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.0.pop_level();
 
                 proof {
-                    owner_pre_pop.pop_level_owner_preserves_mappings();
+                    owner_pre_pop.lemma_pop_level_owner_preserves_mappings();
                     owner.split_while_huge_at_level_noop();
                 }
                 continue;
@@ -2993,7 +2991,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         proof {
             owner1.lemma_cur_subtree_eq_filtered_mappings();
-            owner.move_forward_owner_preserves_mappings();
+            owner.lemma_move_forward_owner_preserves_mappings();
         }
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -3174,7 +3172,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         proof {
             old(owner).view_preserves_inv();
 
-            owner_before_move.move_forward_owner_preserves_mappings();
+            owner_before_move.lemma_move_forward_owner_preserves_mappings();
 
             let ghost old_cur_subtree_mappings = PageTableOwner(
                 owner_before_replace.cur_subtree(),
