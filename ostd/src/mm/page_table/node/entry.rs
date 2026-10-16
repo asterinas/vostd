@@ -540,6 +540,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(owner).value().node().relate_guard(res->0)
                 &&& final(owner).value().path == old(owner).value().path
                 &&& final(owner).value().metaregion_sound(*final(regions))
+                &&& MetaSlot::claim_unused_slot_region_spec(
+                    final(owner).value().meta_slot_paddr()->0,
+                    false, *old(regions), *final(regions))
                 &&& OwnerSubtree::implies(
                     CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
                     CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().slot_vaddr()))
@@ -564,20 +567,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     (#[trigger] final(owner).child(i)).value().match_pte(
                         final(owner).value().node().children_perm.value()[i],
                         final(owner).child(i).value().parent_level)
-                &&& forall|i: int| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
-                    (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
-                &&& forall|i: int| old(regions).slots.contains_key(i)
-                    ==> (#[trigger] final(regions).slots.contains_key(i))
-                &&& forall|i: int| #![trigger final(regions).slots[i]]
-                    i != frame_to_index(final(owner).value().meta_slot_paddr()->0)
-                        && old(regions).slots.contains_key(i)
-                    ==> final(regions).slots[i] == old(regions).slots[i]
-                // The new PT node's ref_count is not UNUSED (was set to 1 by get_from_unused).
-                &&& final(regions).slot_owner(final(owner).value().meta_slot_paddr()->0)
-                    .ref_count() != REF_COUNT_UNUSED
-                // The allocated slot had ref_count == UNUSED before allocation (from get_from_unused).
-                &&& old(regions).slot_owner(final(owner).value().meta_slot_paddr().unwrap())
-                    .ref_count() == REF_COUNT_UNUSED
                 // Allocator pool is disjoint from MMIO ranges (from `PageTableNode::alloc`).
                 &&& !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                     final(owner).value().meta_slot_paddr().unwrap())
@@ -594,7 +583,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         PageTableGuard<'rcu, C>,
     > {
         let entry_is_present = self.pte.is_present();
-        // For restoring `count_consistent` after adding the child below.
         let ghost cp0 = parent_owner.children_perm.value();
 
         #[verus_spec(with Tracked(&*parent_owner))]
@@ -1355,7 +1343,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert forall|j: int| 0 <= j < i implies #[trigger] new_owner_before_update.child(
                     j,
                 ).value().metaregion_sound(*regions) by {
-                    new_owner_before_update.child(j).value().lemma_metaregion_sound_frame_paths_changed(
+                    new_owner_before_update.child(
+                        j,
+                    ).value().lemma_metaregion_sound_frame_paths_changed(
                         regions_before_path_insert,
                         *regions,
                     );
