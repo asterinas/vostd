@@ -927,7 +927,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             pt_ref.lock(guard)
         };
 
-        let ghost children_perm = new_owner.value().node().children_perm;
         let ghost new_owner_path = new_owner.value().path;
         let ghost new_owner_meta_addr = new_owner.value().node().slot_vaddr();
 
@@ -940,17 +939,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let new_paddr = meta_to_frame(new_owner_meta_addr);
             let nr_pages = page_size::<PagingConsts>(level) / PAGE_SIZE;
             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(owner.value());
-            let pa_idx = frame_to_index(pa);
-            assert(pa_idx != new_idx) by {
-                if old(regions).slot_owners[pa_idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO {
-                    old(regions).lemma_contains_valid_frame_paddr(pa);
-                } else {
-                    // metaregion_sound frame arm: non-MMIO ⟹ rc != UNUSED.
-                }
-            };
 
-            // Sub-pages (j > 0): `frame_sub_pages_valid` facts, preserved.
             assert forall|j: usize|
                 #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                 0 < j < nr_pages implies {
