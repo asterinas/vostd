@@ -669,8 +669,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_node_value.parent_level = level as PagingLevel;
                 new_node_value.path = old_path;
                 *owner = new_node_owner;
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies (
-                #[trigger] owner.children()[i]) is Some by {};
                 crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(owner, old_path);
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(new_paddr);
@@ -713,11 +711,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 );
                 let pt = PageTableOwner(*owner);
                 pt.lemma_view_rec_contains(old_path);
-                assert forall|m: crate::specs::mm::page_table::Mapping|
-                    pt.view_rec(old_path).contains(m) implies false by {
-                    let i = pt.view_rec_contains_choose(old_path, m);
-                    PageTableOwner(owner.child(i)).view_rec_absent_empty(old_path.push_tail(i));
-                };
                 assert(pt.view_rec(old_path) == set![]);
             }
             Some(pt_lock_guard)
