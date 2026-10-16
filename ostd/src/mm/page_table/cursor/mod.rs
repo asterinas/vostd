@@ -2608,12 +2608,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             reveal(CursorOwner::nodes_locked);
                         };
                         owner.lemma_split_current_mappings(owner_before_frame);
-                        assert forall|i: int| 0 <= i < NR_LEVELS implies (#[trigger] self.0.path[i])
-                            == cursor_before_frame.path[i] by {};
-                        assert forall|i: int| owner.level - 1 <= i < NR_LEVELS implies (
-                        #[trigger] owner.continuations[i]).guard
-                            == owner_before_frame.continuations[i].guard by {};
-                        assert(self.0.wf(*owner));
                     }
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.0.push_level(split_child);
