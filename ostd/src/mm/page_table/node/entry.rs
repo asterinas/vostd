@@ -692,9 +692,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (
                 #[trigger] owner.children()[i]) is Some by {};
                 crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
-                assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
-                    *owner,
-                ));
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
                     i,
                 )).value().is_absent() by {
@@ -715,8 +712,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
-                let ghost new_node_addr = owner.value().node().slot_vaddr();
-                let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
+                let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value().node().slot_vaddr());
                 let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
                 let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
                 Entry::<C>::lemma_allocated_node_preserves_disjoint_entries(
@@ -753,7 +749,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 };
                 assert(pt.view_rec(old_path) == set![]);
                 let idx = frame_to_index(owner.value().meta_slot_paddr()->0);
-                assert(old(regions).slot_owners[idx].paths_in_pt.is_empty());
                 assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.inv() && PageTableOwner::<C>::path_tracked_pred(*old(regions))(
                         entry,
