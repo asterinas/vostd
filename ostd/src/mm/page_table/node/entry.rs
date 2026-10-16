@@ -621,7 +621,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ));
                     assert(!new_node_owner.child(i).has_child(j));
                 };
-                C::E::lemma_page_table_entry_properties();
             }
 
             let paddr = new_page.start_paddr();
@@ -633,8 +632,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             };
             self.pte = new_pte;
 
-            let tracked new_node_value = new_node_owner.tracked_borrow_value();
-            let tracked new_node = new_node_value.tracked_borrow_node();
+            let tracked new_node = new_node_owner.tracked_borrow_value().tracked_borrow_node();
             let tracked slot_perm = *regions.slots.tracked_borrow(new_node.slot_index);
             let pt_ref = unsafe {
                 #[verus_spec(with Tracked(slot_perm), Tracked(&new_node.frame_permission))]
@@ -643,8 +641,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             // Lock before writing the PTE, so no one else can operate on it.
             let mut pt_lock_guard = {
-                let tracked new_node_value = new_node_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(new_node_value.tracked_borrow_node()), Tracked(guards))]
+                #[verus_spec(with Tracked(new_node_owner.tracked_borrow_value().tracked_borrow_node()), Tracked(guards))]
                 pt_ref.lock(guard)
             };
 
