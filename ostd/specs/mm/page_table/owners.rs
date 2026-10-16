@@ -370,11 +370,7 @@ pub open spec fn allocated_empty_node_grandchildren_none<C: PageTableConfig>(
         0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES ==> !#[trigger] owner.child(i).has_child(j)
 }
 
-/// Recursive worker for `rebase_freshly_allocated_children`. Rebases
-/// `owner.children[i..NR_ENTRIES]` and leaves `owner.children[0..i]`
-/// untouched. Verus disallows `while` in proof code, so the loop is
-/// expressed as tail recursion on `i`.
-pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
+proof fn lemma_rebase_freshly_allocated_children_at<C: PageTableConfig>(
     tracked owner: &mut OwnerSubtree<C>,
     new_path: TreePath<NR_ENTRIES>,
     i: usize,
@@ -426,7 +422,7 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
             assert(child.inv());
         }
         assert(owner.inv());
-        rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
+        lemma_rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
     }
 }
 
@@ -439,7 +435,7 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
 /// stale `[i]` paths. This helper walks the children seq and rewrites each
 /// child's `value.path` to `new_path.push_tail(i)`, producing a subtree
 /// whose `pt_edge_at(_, i)` clauses can be discharged.
-pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
+pub proof fn lemma_rebase_freshly_allocated_children<C: PageTableConfig>(
     tracked owner: &mut OwnerSubtree<C>,
     new_path: TreePath<NR_ENTRIES>,
 )
@@ -466,7 +462,7 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
         allocated_empty_node_grandchildren_none(*old(owner))
             ==> allocated_empty_node_grandchildren_none(*final(owner)),
 {
-    rebase_freshly_allocated_children_at(owner, new_path, 0);
+    lemma_rebase_freshly_allocated_children_at(owner, new_path, 0);
     if allocated_empty_node_grandchildren_none(*old(owner)) {
         assert forall|i: int, j: int|
             0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES implies !#[trigger] owner.child(i).has_child(

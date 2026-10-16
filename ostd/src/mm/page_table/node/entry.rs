@@ -685,13 +685,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 *owner = new_node_owner;
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (
                 #[trigger] owner.children()[i]) is Some by {};
-                crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
-                    i,
-                )).value().is_absent() by {
-                    assert(fresh_children[i]->0.value().is_absent());
-                };
-
+                crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(owner, old_path);
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(new_paddr);
                 let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
@@ -739,7 +733,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     PageTableOwner(owner.child(i)).view_rec_absent_empty(old_path.push_tail(i));
                 };
                 assert(pt.view_rec(old_path) == set![]);
-                let idx = frame_to_index(owner.value().meta_slot_paddr()->0);
             }
             Some(pt_lock_guard)
         }
@@ -947,7 +940,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
                 new_owner,
             ));
-            crate::specs::mm::page_table::rebase_freshly_allocated_children(
+            crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(
                 &mut new_owner,
                 owner.value().path,
             );
@@ -2178,7 +2171,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             }
             *owner = new_node_owner;
             assert(owner.children() == fresh_children);
-            crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
+            crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(owner, old_path);
             assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*owner));
             assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
                 i,
