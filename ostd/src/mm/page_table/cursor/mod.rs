@@ -1017,7 +1017,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     if (nr_children != 0) {
                         proof {
-                            owner.cur_entry_node_implies_level_gt_1();
+                            owner.lemma_cur_entry_node_implies_level_gt_1();
                         }
 
                         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -1171,7 +1171,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         "The entry must be a huge page",
                     );
                     proof {
-                        assert(cur_entry.idx == cont0.idx);
                         let ghost reconstructed_entry_own = EntryOwner {
                             kind: EntryOwnerKind::Node(continuation.entry_own.node()),
                             ..cont0.entry_own
@@ -1202,21 +1201,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 owner.cur_entry_owner().node().slot_vaddr(),
                             ),
                         );
-                        assert(owner.nodes_locked(*guards));
                         owner.lemma_split_current_mappings(owner0);
-                        assert(*cur_entry.node == cursor0.path[owner0.level - 1]->0);
                         assert forall|i: int| 0 <= i < NR_LEVELS implies (#[trigger] self.path[i])
                             == cursor0.path[i] by {
                             if i == owner0.level - 1 {
                                 assert(self.path[i] == Some(cursor0.path[i]->0));
                             }
                         };
-                        assert forall|i: int| owner.level - 1 <= i < NR_LEVELS implies (
-                        #[trigger] owner.continuations[i]).guard
-                            == owner0.continuations[i].guard by {};
-                        assert(self.wf(*owner));
-                        owner0.max_steps_partial_eq(*owner, owner.level as usize);
-                        owner.cur_entry_node_implies_level_gt_1();
+                        owner0.lemma_max_steps_partial_eq(*owner, owner.level as usize);
+                        owner.lemma_cur_entry_node_implies_level_gt_1();
                     }
 
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]

@@ -144,7 +144,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     // ─── Tree entry level constraints ──────────────────────────
-    pub proof fn cur_entry_node_implies_level_gt_1(self)
+    pub proof fn lemma_cur_entry_node_implies_level_gt_1(self)
         requires
             self.inv(),
             self.cur_entry_owner().is_node(),

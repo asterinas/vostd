@@ -150,7 +150,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Two owners with the same idx values from `start` upward have the same max_steps_partial.
-    pub proof fn max_steps_partial_eq(self, other: Self, start: usize)
+    pub proof fn lemma_max_steps_partial_eq(self, other: Self, start: usize)
         requires
             1 <= start <= NR_LEVELS + 1,
             forall|k: int|
@@ -161,7 +161,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS + 1 - start,
     {
         if start <= NR_LEVELS {
-            self.max_steps_partial_eq(other, (start + 1) as usize);
+            self.lemma_max_steps_partial_eq(other, (start + 1) as usize);
         }
     }
 
@@ -194,7 +194,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let l = self.level as usize;
         let lm1 = (self.level - 1) as usize;
         // Continuations agree at indices [l-1, NR_LEVELS): only [l-2] changed.
-        new_self.max_steps_partial_eq(self, l);
+        new_self.lemma_max_steps_partial_eq(self, l);
         // va.index[l-2] < NR_ENTRIES (from va.inv()).
         assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
         let new_child = new_self.continuations[lm1 - 1];
@@ -670,7 +670,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             let new_state = inc.zero_below_level();
 
-            new_state.max_steps_partial_eq(self, (self.level + 1) as usize);
+            new_state.lemma_max_steps_partial_eq(self, (self.level + 1) as usize);
             let self_idx = self.continuations[self.level - 1].idx as int;
             vstd::arithmetic::mul::lemma_mul_is_distributive_add(
                 st_l,
@@ -681,7 +681,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else if self.level < NR_LEVELS {
             let popped2 = self.pop_level_owner().0;
             let lp1 = (self.level + 1) as usize;
-            popped2.max_steps_partial_eq(self, lp1);
+            popped2.lemma_max_steps_partial_eq(self, lp1);
 
             assert(Self::max_steps_subtree(l) * 0nat == 0) by (nonlinear_arith);
             popped2.lemma_move_forward_owner_popped_too_high_decreases();
@@ -714,7 +714,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             let new_state = inc.zero_below_level();
 
-            new_state.max_steps_partial_eq(self, (self.level + 1) as usize);
+            new_state.lemma_max_steps_partial_eq(self, (self.level + 1) as usize);
             let self_idx = self.continuations[self.level - 1].idx as int;
             let tail = self.max_steps_partial((self.level + 1) as usize) as int;
             vstd::arithmetic::mul::lemma_mul_is_distributive_add(
@@ -726,7 +726,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else if self.level < NR_LEVELS {
             let popped = self.pop_level_owner().0;
             let lp1 = (self.level + 1) as usize;
-            popped.max_steps_partial_eq(self, lp1);
+            popped.lemma_max_steps_partial_eq(self, lp1);
 
             assert(Self::max_steps_subtree(l) * 0nat == 0) by (nonlinear_arith);
 
