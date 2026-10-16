@@ -301,7 +301,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     /// `nr_children < NR_ENTRIES`. Proven (no longer axiomatized) from the
     /// `count_consistent` invariant: `nr_children` counts present PTEs, and an
     /// absent slot means not all `NR_ENTRIES` slots are present.
-    pub proof fn nr_children_absent_slot_bound(self, idx: usize)
+    pub proof fn lemma_nr_children_absent_slot_bound(self, idx: usize)
         requires
             self.inv(),
             self.count_consistent(),
@@ -315,7 +315,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     /// If a slot in `children_perm` holds a present PTE, then `nr_children > 0`.
-    /// Dual of [`Self::nr_children_absent_slot_bound`]; proven from
+    /// Dual of [`Self::lemma_nr_children_absent_slot_bound`]; proven from
     /// `count_consistent`.
     pub proof fn nr_children_present_slot_bound(self, idx: usize)
         requires

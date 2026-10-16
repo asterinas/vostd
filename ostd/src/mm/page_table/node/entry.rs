@@ -381,7 +381,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let nr_children = self.node.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
-                parent_owner.nr_children_absent_slot_bound(self.idx);
+                parent_owner.lemma_nr_children_absent_slot_bound(self.idx);
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
@@ -595,7 +595,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let ghost old_owner_val = owner.value();
 
             proof {
-                parent_owner.nr_children_absent_slot_bound(self.idx);
+                parent_owner.lemma_nr_children_absent_slot_bound(self.idx);
             }
 
             proof_decl! {
@@ -1714,7 +1714,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             let nr_children = self.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
-                parent_owner.nr_children_absent_slot_bound(idx);
+                parent_owner.lemma_nr_children_absent_slot_bound(idx);
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
@@ -1932,7 +1932,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // `nr_children` id-clause can be framed across `alloc`/`write_pte`,
         // which momentarily break `count_consistent`.
         proof {
-            parent_owner.nr_children_absent_slot_bound(idx);
+            parent_owner.lemma_nr_children_absent_slot_bound(idx);
         }
         let ghost regions_pre = *regions;
         // Snapshot the parent's PTE array for restoring `count_consistent`
@@ -2142,7 +2142,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let nr_children = self.nr_children_mut();
         let old_nr_children = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
         proof {
-            parent_owner.nr_children_absent_slot_bound(idx);
+            parent_owner.lemma_nr_children_absent_slot_bound(idx);
         }
         nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), old_nr_children + 1);
 
