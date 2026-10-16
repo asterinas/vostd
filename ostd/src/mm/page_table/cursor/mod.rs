@@ -804,6 +804,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& final(self).va < old(self).va + len
             },
             res is Some ==> !final(owner).cur_entry_owner().is_absent(),
+            !split_huge ==> final(owner)@.mappings == old(owner)@.mappings,
             res is Some && split_huge ==> {
                 &&& final(owner)@.mappings == (CursorView { cur_va: final(self).va, ..old(owner)@ }).split_while_huge(page_size::<PagingConsts>(final(self).level)).mappings
                 &&& final(self).va + page_size::<PagingConsts>(final(self).level) <= old(self).va + len
@@ -855,7 +856,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost old_owner_cur_va: Vaddr = owner@.cur_va;
 
         // Track whether a split occurred during the loop.
-        // If a split occurred, the next iteration returns Some (never None).
         let ghost mut split_happened: bool = false;
 
         while self.va < end
@@ -880,7 +880,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 !owner.popped_too_high,
                 old_owner_cur_va == old(owner)@.cur_va,
                 old_owner_cur_va == old(self).va,
-                // Mapping preservation: if no split happened, mappings are unchanged.
+                !split_huge ==> !split_happened,
                 !split_happened ==> owner@.mappings == old(owner)@.mappings,
                 old(owner)@.mappings.filter(|m: Mapping| old(self).va <= m.va_range.start < self.va)
                     == Set::<Mapping>::empty(),
