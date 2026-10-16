@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides accessors to the page table entries in a node.
-use vstd::prelude::*;
+use vstd::{arithmetic::div_mod::lemma_mod_multiples_vanish, prelude::*};
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -11,7 +11,8 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            INC_LEVELS, PageTableOwner, cursor::page_size_lemmas::lemma_split_sub_page_big_j,
+            INC_LEVELS, PageTableOwner,
+            cursor::page_size_lemmas::{lemma_page_size_div_mul_eq, lemma_split_sub_page_big_j},
         },
     },
     task::InAtomicMode,
@@ -669,7 +670,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_node_value.parent_level = level as PagingLevel;
                 new_node_value.path = old_path;
                 *owner = new_node_owner;
-                crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(owner, old_path);
+                crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(
+                    owner,
+                    old_path,
+                );
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(new_paddr);
                 let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
@@ -684,7 +688,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
-                let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value().node().slot_vaddr());
+                let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(
+                    *guards,
+                    owner.value().node().slot_vaddr(),
+                );
                 let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
                 let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
                 Entry::<C>::lemma_allocated_node_preserves_disjoint_entries(
@@ -939,6 +946,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let new_paddr = meta_to_frame(new_owner_meta_addr);
             let nr_pages = page_size::<PagingConsts>(level) / PAGE_SIZE;
             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(owner.value());
+            lemma_page_size_div_mul_eq::<PagingConsts>(level);
 
             assert forall|j: usize|
                 #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
@@ -954,6 +962,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                 }
             } by {
+                lemma_mod_multiples_vanish(j as int, pa as int, PAGE_SIZE as int);
+                regions.lemma_contains_valid_frame_paddr((pa + j * PAGE_SIZE) as Paddr);
                 crate::specs::mm::frame::meta_owners::axiom_mmio_paddr_huge_page_closed(
                     pa,
                     page_size::<PagingConsts>(level),
@@ -1093,7 +1103,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 C::lemma_page_table_config_constant_properties();
                 C::lemma_paging_consts_properties();
                 C::axiom_current_paging_consts_hardcoded();
-              
+
                 assert(new_owner.inv_children());
                 assert(new_owner.child(i as int).inv());
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);

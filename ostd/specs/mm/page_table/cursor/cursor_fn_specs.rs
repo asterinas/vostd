@@ -163,7 +163,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         item: C::Item,
         regions: MetaRegionOwners,
     ) -> bool {
-        let (pa, level, prop, perm) = C::item_into_raw(item);
+        let (pa, _level, _prop, perm) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
@@ -176,23 +176,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
         // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
         // inv clause vacuous.
-        &&& perm@ is Some ==> regions.ref_count(idx)
-            <= REF_COUNT_MAX
-        // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
-        &&& level > 1 ==> {
-            forall|j: usize|
-                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE ==> {
-                    let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                    &&& regions.contains(sub_idx)
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx)
-                        > 0
-                    // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
-                    // into the mapped huge frame's `lemma_frame_sub_pages_valid`.
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx) <= REF_COUNT_MAX
-                }
-        }
+        &&& perm@ is Some ==> regions.ref_count(idx) <= REF_COUNT_MAX
     }
 
     pub closed spec fn item_slot_in_regions(item: C::Item, regions: MetaRegionOwners) -> bool {
@@ -266,22 +250,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 item,
                 regions0,
             ) implies #[trigger] Self::item_slot_in_regions(item, regions1) by {
-            let (pa, level, _prop, perm) = C::item_into_raw(item);
+            let (pa, _level, _prop, _perm) = C::item_into_raw(item);
             let idx = frame_to_index(pa);
             assert(regions0.ref_count(idx) != REF_COUNT_UNUSED);
-            assert(Self::item_slot_in_regions_except_perm(item, regions1)) by {
-                if level > 1 {
-                    assert forall|j: usize|
-                        #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                        0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE implies {
-                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        &&& regions1.contains(sub_idx)
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) != REF_COUNT_UNUSED
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) > 0
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) <= REF_COUNT_MAX
-                    } by {};
-                }
-            };
             Self::item_slot_in_regions_preserved(item, regions0, regions1);
         };
     }

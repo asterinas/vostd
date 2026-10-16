@@ -1163,9 +1163,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         assert(child_owner.value().metaregion_sound(*regions));
-                        if child_owner.value().is_frame() {
-                            assert(child_owner.value().lemma_frame_sub_pages_valid(*regions));
-                        }
                     }
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(continuation.entry_own.tracked_borrow_mut_node()), Tracked(regions),

@@ -470,11 +470,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if cont_entry.meta_slot_paddr() is Some {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
                 if eidx != changed_idx {
-                    cont_entry.lemma_metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
-                } else {
-                    if cont_entry.is_frame() {
-                        cont_entry.lemma_frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
-                    }
+                    cont_entry.lemma_metaregion_sound_one_slot_changed(
+                        regions0,
+                        regions1,
+                        changed_idx,
+                    );
                 }
             }
         };
