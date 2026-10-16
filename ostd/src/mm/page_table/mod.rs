@@ -1117,16 +1117,6 @@ impl PageTable<KernelPtConfig> {
                         assert(Self::create_user_pt_panic_condition(kern_node));
                     }
                 }
-                // entry_owner.match_pte(pte, parent_level) + (present && !is_last)
-                // ⟹ entry_owner.is_node().
-                assert(entry_owner.is_node());
-                // ChildRef::invariants(entry_owner, regions) gives child.wf(entry_owner).
-                // For the Frame and None variants, wf requires is_frame() or is_absent(),
-                // contradicting is_node(). Hence child must be PageTable.
-                assert(child is PageTable);
-                // to_ref's borrow_paddr preserves slot_owners exactly and only
-                // grows `slots` (existing keys preserved). Use the tree-wide
-                // preservation lemma.
                 kernel_owner.metaregion_sound_preserved_slot_owners_eq(
                     pre_to_ref_regions,
                     *regions,
