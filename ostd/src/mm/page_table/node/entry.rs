@@ -1220,7 +1220,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let ghost regions_before_path_insert = *regions;
                 let tracked mut small_slot = regions.tracked_borrow_mut_slot_owner(small_pa);
                 small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
-                assert(regions.inv());
                 assert forall|j: int| 0 <= j < i implies #[trigger] new_owner_before_update.child(
                     j,
                 ).value().metaregion_sound(*regions) by {
@@ -1262,8 +1261,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     *new_owner_child,
                     new_owner_child_before_update.set_value(child_owner),
                 );
-                assert(new_owner_child.inv());
-
                 {
                     let tracked new_owner_value = new_owner.tracked_borrow_mut_value();
                     new_owner_value.tracked_put_node(new_owner_node);
@@ -1275,19 +1272,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     i as int,
                     Some(*new_owner_child),
                 );
-                assert(new_owner.children() == new_owner_before_update.children().remove(
-                    i as int,
-                ).insert(i as int, Some(*new_owner_child)));
-                assert(owner_with_updated_value.insert(i as int, *new_owner_child).children()
-                    == new_owner_before_update.children().update(i as int, Some(*new_owner_child)));
-                assert(new_owner.children() =~= owner_with_updated_value.insert(
-                    i as int,
-                    *new_owner_child,
-                ).children());
-                assert(new_owner.children() == owner_with_updated_value.insert(
-                    i as int,
-                    *new_owner_child,
-                ).children());
                 OwnerSubtree::lemma_ext_equal(
                     new_owner,
                     owner_with_updated_value.insert(i as int, *new_owner_child),
@@ -1301,7 +1285,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         ).children()[j] == owner_with_updated_value.children()[j]);
                     }
                 };
-                assert(new_owner.inv());
                 assert forall|j: int, k: int|
                     0 <= j < NR_ENTRIES && 0 <= k < NR_ENTRIES implies !#[trigger] new_owner.child(
                     j,
