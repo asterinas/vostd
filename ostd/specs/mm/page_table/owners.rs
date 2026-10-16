@@ -729,14 +729,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             };
             assert(PageTableOwner(child).view_rec(path.push_tail(i)) == set![child_mapping]);
         };
-        assert forall|m: Mapping| self.view_rec(path).contains(m) implies pieces.contains(m) by {
+        assert forall|m: Mapping|
+            self.view_rec(path).contains(m) implies #[trigger] pieces.contains(m) by {
             let i = self.view_rec_contains_choose(path, m);
             assert(self.0.has_child(i));
             assert(m == CursorView::<C>::split_index(huge, size, i as usize));
             assert(Set::<int>::range(0, NR_ENTRIES as int).contains(i));
             assert(pieces.contains(CursorView::<C>::split_index(huge, size, i as usize)));
         };
-        assert forall|m: Mapping| pieces.contains(m) implies self.view_rec(path).contains(m) by {
+        assert forall|m: Mapping| #[trigger] pieces.contains(m) implies self.view_rec(
+            path,
+        ).contains(m) by {
             let i = choose|i: int|
                 0 <= i < NR_ENTRIES && m == #[trigger] CursorView::<C>::split_index(
                     huge,

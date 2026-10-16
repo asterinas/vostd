@@ -167,16 +167,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
-        &&& regions.ref_count(idx)
-            != REF_COUNT_UNUSED
-        // Tracked items hold a refcount; untracked (MMIO) don't.
-        &&& perm@ is Some ==> regions.ref_count(idx)
-            > 0
-        // A tracked (mapped) item is a SHARED frame, never the UNIQUE sentinel:
-        // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
-        // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
-        // inv clause vacuous.
-        &&& perm@ is Some ==> regions.ref_count(idx) <= REF_COUNT_MAX
+        &&& regions.ref_count(idx) != REF_COUNT_UNUSED
+        &&& perm@ is Some ==> 0 < regions.ref_count(idx) <= REF_COUNT_MAX
     }
 
     pub closed spec fn item_slot_in_regions(item: C::Item, regions: MetaRegionOwners) -> bool {
@@ -223,7 +215,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         );
     }
 
-    pub proof fn lemma_all_item_slots_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners)
+    pub proof fn lemma_all_item_slots_preserved(
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+    )
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|
