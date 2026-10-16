@@ -714,7 +714,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     /// If `metaregion_sound(r0)` holds and `r1` differs from `r0` only at one slot index
     /// that this entry does not reference, then `metaregion_sound(r1)` also holds.
-    pub proof fn metaregion_sound_one_slot_changed(
+    pub proof fn lemma_metaregion_sound_one_slot_changed(
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,

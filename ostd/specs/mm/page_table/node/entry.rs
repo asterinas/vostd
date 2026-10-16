@@ -56,7 +56,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 r1.slot_owners[idx],
             );
             assert(intermediate.inv());
-            entry.metaregion_sound_one_slot_changed(r0, intermediate, idx);
+            entry.lemma_metaregion_sound_one_slot_changed(r0, intermediate, idx);
             entry.lemma_metaregion_sound_frame_paths_changed(intermediate, r1);
         };
     }

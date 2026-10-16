@@ -1371,12 +1371,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             ).value().metaregion_sound(*regions) by {
                 assert(owner.child(j).value().is_frame());
                 assert(owner.child(j).value().metaregion_sound(regions_before_registration));
-                let child_idx = frame_to_index(owner.child(j).value().meta_slot_paddr()->0);
-                let node_idx = frame_to_index(owner.value().meta_slot_paddr()->0);
-                assert(regions_before_registration.slot_owners[child_idx].usage !is PageTable);
-                assert(regions_before_registration.slot_owners[node_idx].usage is PageTable);
-                assert(child_idx != node_idx);
-                owner.child(j).value().metaregion_sound_one_slot_changed(
+                owner.child(j).value().lemma_metaregion_sound_one_slot_changed(
                     regions_before_registration,
                     *regions,
                     frame_to_index(owner.value().meta_slot_paddr()->0),
