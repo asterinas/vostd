@@ -223,7 +223,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         );
     }
 
-    pub proof fn all_item_slots_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners)
+    pub proof fn lemma_all_item_slots_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners)
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|

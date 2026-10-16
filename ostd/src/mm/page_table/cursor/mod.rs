@@ -2396,7 +2396,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             page_size::<PagingConsts>(self.0.level),
                         );
                         owner_pre_pt.split_while_huge_node_noop();
-                        Self::all_item_slots_preserved(regions0, *regions);
+                        Self::lemma_all_item_slots_preserved(regions0, *regions);
                     }
 
                     continue;
@@ -2538,14 +2538,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         owner_pre_none.split_while_huge_absent_noop(
                             page_size::<PagingConsts>(self.0.level),
                         );
-                    }
-
-                    proof {
                         assert forall|idx: int|
                             regions0.contains(idx) implies #[trigger] regions.contains(idx) by {
                             reveal(<MetaRegionOwners as Inv>::inv);
                         };
-                        Self::all_item_slots_preserved(regions0, *regions);
+                        Self::lemma_all_item_slots_preserved(regions0, *regions);
                     }
 
                     continue;
@@ -2639,7 +2636,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             regions0.contains(idx) implies #[trigger] regions.contains(idx) by {
                             reveal(<MetaRegionOwners as Inv>::inv);
                         };
-                        Self::all_item_slots_preserved(regions0, *regions);
+                        Self::lemma_all_item_slots_preserved(regions0, *regions);
                     }
 
                     continue;
