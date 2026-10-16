@@ -740,19 +740,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 };
                 assert(pt.view_rec(old_path) == set![]);
                 let idx = frame_to_index(owner.value().meta_slot_paddr()->0);
-                assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.inv() && PageTableOwner::<C>::path_tracked_pred(*old(regions))(
-                        entry,
-                        path,
-                    ) implies #[trigger] PageTableOwner::<C>::path_tracked_pred(*regions)(
-                    entry,
-                    path,
-                ) by {
-                    if entry.is_node() && frame_to_index(entry.meta_slot_paddr()->0) == idx {
-                        assert(old(regions).slot_owners[idx].paths_in_pt == set![entry.path]);
-                        assert(false);
-                    }
-                };
             }
             Some(pt_lock_guard)
         }
