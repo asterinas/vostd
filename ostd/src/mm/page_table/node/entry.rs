@@ -1349,9 +1349,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         //  1. The index is within the bounds.
         //  2. The new PTE is a child in `C` and at the correct paging level.
         //  3. The ownership of the child is passed to the page table node.
-        proof {
-            assert(parent_owner.metaregion_sound_node(*regions));
-        }
         unsafe {
             #[verus_spec(with Tracked(parent_owner), Tracked(&*regions))]
             self.node.write_pte(self.idx, self.pte)
@@ -1365,7 +1362,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 self.idx as int,
                 self.pte,
             );
-            assert(parent_owner.count_consistent());
             let tracked new_slot = regions.tracked_borrow_mut_slot_owner(
                 owner.value().meta_slot_paddr().unwrap(),
             );
