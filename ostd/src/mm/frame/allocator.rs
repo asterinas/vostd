@@ -52,8 +52,6 @@ impl FrameAllocOptions {
         self.alloc_frame_with(())
     }*/
     /// Allocates a single frame with additional metadata.
-    /// On success the frame owns one counted reference and its metadata has
-    /// the supplied typed value; allocation leaves every other slot unchanged.
     ///
     /// # Verified Properties
     /// ## Preconditions
