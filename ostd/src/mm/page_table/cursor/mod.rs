@@ -1219,8 +1219,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         lemma_page_size_divides::<PagingConsts>(self.level, owner0.level);
                         owner.find_next_split_push_equals_split_while_huge(owner0@);
                         let baseline = CursorView { cur_va: self.va, ..old(owner)@ };
-                        assert(baseline.inv());
-                        baseline.split_while_huge_compose(
+                        baseline.lemma_split_while_huge_compose(
                             page_size::<PagingConsts>(owner0.level),
                             page_size::<PagingConsts>(self.level),
                         );
@@ -1230,27 +1229,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     continue;
                 },
             }
-        }
-
-        assert(self.va >= end);
-
-        proof {
-            assert(old(owner)@.mappings.filter(
-                |m: Mapping| old(self).va <= m.va_range.start < old(self).va + len,
-            ) == Set::<Mapping>::empty()) by {
-                assert(owner@.mappings == old(owner)@.mappings);
-                let scanned = owner@.mappings.filter(
-                    |m: Mapping| old(self).va <= m.va_range.start < self.va,
-                );
-                let target = old(owner)@.mappings.filter(
-                    |m: Mapping| old(self).va <= m.va_range.start < old(self).va + len,
-                );
-                assert forall|m: Mapping| target.contains(m) implies scanned.contains(m) by {
-                    assert(old(self).va <= m.va_range.start < old(self).va + len);
-                    assert(old(self).va + len <= self.va);
-                    assert(m.va_range.start < self.va);
-                };
-            };
         }
 
         None
@@ -2432,7 +2410,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             PagingConsts,
                         >(level_pre_pt);
                         owner0.view_preserves_inv();
-                        owner0@.split_while_huge_compose(
+                        owner0@.lemma_split_while_huge_compose(
                             page_size::<PagingConsts>(level_pre_pt),
                             page_size::<PagingConsts>(self.0.level),
                         );
@@ -2582,7 +2560,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             PagingConsts,
                         >(level_pre_none);
                         owner0.view_preserves_inv();
-                        owner0@.split_while_huge_compose(
+                        owner0@.lemma_split_while_huge_compose(
                             page_size::<PagingConsts>(level_pre_none),
                             page_size::<PagingConsts>(self.0.level),
                         );
@@ -2682,7 +2660,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         owner0.view_preserves_inv();
                         lemma_page_size_ge_base::<PagingConsts>(level_before_frame);
                         lemma_page_size_ge_base::<PagingConsts>(self.0.level);
-                        owner0@.split_while_huge_compose(
+                        owner0@.lemma_split_while_huge_compose(
                             page_size::<PagingConsts>(level_before_frame),
                             page_size::<PagingConsts>(self.0.level),
                         );

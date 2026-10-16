@@ -288,7 +288,7 @@ impl<C: PageTableConfig> CursorView<C> {
     /// Composition law for `split_while_huge`:
     /// splitting to a finer target `s2 <= s1` is the same as first splitting to `s1` and then
     /// further splitting to `s2`.
-    pub proof fn split_while_huge_compose(self, s1: usize, s2: usize)
+    pub proof fn lemma_split_while_huge_compose(self, s1: usize, s2: usize)
         requires
             self.inv(),
             s1 >= PAGE_SIZE,
@@ -318,7 +318,7 @@ impl<C: PageTableConfig> CursorView<C> {
         };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
-        self.split_if_mapped_huge_spec(new_size).split_while_huge_compose(s1, s2);
+        self.split_if_mapped_huge_spec(new_size).lemma_split_while_huge_compose(s1, s2);
     }
 
     /// When `split_while_huge(size)` is a no-op and the view is `present()`,
