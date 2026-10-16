@@ -851,7 +851,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             owner.view_preserves_inv();
         }
-        let ghost old_owner_cur_va: Vaddr = owner@.cur_va;
 
         // Track whether a split occurred during the loop.
         let ghost mut split_happened: bool = false;
@@ -875,8 +874,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
                 !owner.popped_too_high,
-                old_owner_cur_va == old(owner)@.cur_va,
-                old_owner_cur_va == old(self).va,
+                old(owner)@.cur_va == old(self).va,
                 !split_huge ==> !split_happened,
                 !split_happened ==> owner@.mappings == old(owner)@.mappings,
                 old(owner)@.mappings.filter(|m: Mapping| old(self).va <= m.va_range.start < self.va)
