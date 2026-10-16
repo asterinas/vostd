@@ -1459,66 +1459,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    /// `PageTableOwner::metaregion_sound` is preserved across a single
-    /// `slot_owner` change at index `changed_idx`, provided no entry in the
-    /// tree references `changed_idx` (neither as its primary slot nor as a
-    /// huge-frame sub-page slot). This is the right shape for `borrow`-style
-    /// operations that bump `raw_count` at one slot.
-    pub proof fn metaregion_sound_preserved_one_slot_changed(
-        self,
-        r0: MetaRegionOwners,
-        r1: MetaRegionOwners,
-        changed_idx: int,
-    )
-        requires
-            self.inv(),
-            self.metaregion_sound(r0),
-            forall|i: int|
-                #![trigger r1.slot_owners[i]]
-                i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
-            r0.slot_owners.dom() == r1.slot_owners.dom(),
-            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
-            // No tree entry's primary slot is at changed_idx.
-            self.0.subtree_satisfies(
-                self.0.value().path,
-                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                    e.meta_slot_paddr() is Some ==> frame_to_index(e.meta_slot_paddr()->0)
-                        != changed_idx,
-            ),
-            // For huge-frame entries, none of their sub-page slots is at changed_idx
-            // either; provided as a separate condition because the per-entry lemma
-            // requires it.
-            self.0.subtree_satisfies(
-                self.0.value().path,
-                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                    e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size::<PagingConsts>(e.parent_level) / PAGE_SIZE;
-                        forall|j: usize|
-                            0 < j < nr_pages ==> {
-                                let sub_idx = #[trigger] frame_to_index(
-                                    (pa + j * PAGE_SIZE) as usize,
-                                );
-                                sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
-                                    && r1.ref_count(sub_idx) != REF_COUNT_UNUSED && r1.ref_count(
-                                    sub_idx,
-                                ) > 0 && r1.ref_count(sub_idx) <= REF_COUNT_MAX)
-                            }
-                    },
-            ),
-        ensures
-            self.metaregion_sound(r1),
-    {
-        Self::metaregion_sound_preserved_one_slot_changed_subtree(
-            self.0,
-            self.0.value().path,
-            r0,
-            r1,
-            changed_idx,
-        );
-    }
-
     pub proof fn metaregion_sound_preserved_one_slot_changed_subtree(
         subtree: OwnerSubtree<C>,
         path: TreePath<NR_ENTRIES>,
