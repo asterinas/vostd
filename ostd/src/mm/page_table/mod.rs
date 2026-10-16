@@ -958,14 +958,9 @@ impl PageTable<KernelPtConfig> {
             old(regions).inv(),
             kernel_owner.0.value().is_node(),
             !Self::create_user_pt_panic_condition(kernel_owner.0.value().node()),
-            // The kernel page table's root frame matches the tracked owner.
             self.root.ptr.addr() == kernel_owner.0.value().node().slot_vaddr(),
             self.relates_owner(*kernel_owner, *old(regions)),
-            // The kernel root entry is sound with respect to the meta regions.
             kernel_owner.0.value().metaregion_sound(*old(regions)),
-            // The whole kernel page-table tree is sound: every entry's metaregion
-            // bookkeeping matches `old(regions)`. Needed to derive each child's
-            // soundness inside the loop body.
             kernel_owner.metaregion_sound(*old(regions)),
             // The kernel root is not currently locked.
             old(guards).unlocked(kernel_owner.0.value().node().slot_vaddr()),
