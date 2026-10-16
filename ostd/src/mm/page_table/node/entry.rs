@@ -965,21 +965,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
                 }
             } by {
-                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 crate::specs::mm::frame::meta_owners::axiom_mmio_paddr_huge_page_closed(
                     pa,
                     page_size::<PagingConsts>(level),
                     (j * PAGE_SIZE) as usize,
                 );
-                assert(sub_idx != new_idx) by {
-                    if old(regions).slot_owners[sub_idx].usage
-                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO {
-                        old(regions).lemma_contains_valid_frame_paddr(
-                            (pa + j * PAGE_SIZE) as usize,
-                        );
-                    } else {
-                    }
-                };
             };
         }
 
@@ -1017,10 +1007,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa % page_size::<PagingConsts>(level) == 0,
                 pa + page_size::<PagingConsts>(level) <= MAX_PADDR,
                 regions.inv(),
-                // Canonical model: the freshly-allocated node carries its
-                // pending-Drop obligation across the per-child `replace`
-                // calls (each net-zero on the ledger), discharging the
-                // `into_pte` consume after the loop.
                 regions.slots == old(regions).slots,
                 forall|k: int|
                     #![trigger regions.slot_owners[k]]
