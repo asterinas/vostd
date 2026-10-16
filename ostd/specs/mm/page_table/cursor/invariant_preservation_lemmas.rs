@@ -520,7 +520,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         self.no_node_at_idx_from_slot_key(regions0, removed_idx);
 
-        owner_before_replace.cur_subtree_eq_filtered_mappings_path();
+        owner_before_replace.lemma_cur_subtree_eq_filtered_mappings_path();
 
         let ghost sv = vaddr_of::<C>(removed_path) as int;
         let ghost sz = page_size::<PagingConsts>(owner_before_replace.level) as int;

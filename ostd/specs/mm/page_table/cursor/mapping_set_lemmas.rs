@@ -156,7 +156,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// The current subtree's mappings equal the filter over [subtree_va, subtree_va + page_size(level))
     /// where subtree_va = vaddr(cur_subtree path).
-    pub proof fn cur_subtree_eq_filtered_mappings_path(self)
+    pub proof fn lemma_cur_subtree_eq_filtered_mappings_path(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -250,7 +250,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// Version using nat_align_down(cur_va, page_size(level)) in the filter.
     /// Uses the shared canonical subtree boundary rather than reconstructing the VA path.
-    pub proof fn cur_subtree_eq_filtered_mappings(self)
+    pub proof fn lemma_cur_subtree_eq_filtered_mappings(self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -266,7 +266,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )
             }),
     {
-        self.cur_subtree_eq_filtered_mappings_path();
+        self.lemma_cur_subtree_eq_filtered_mappings_path();
         self.cur_va_in_subtree_range();
     }
 

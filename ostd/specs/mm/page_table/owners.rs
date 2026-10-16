@@ -1334,7 +1334,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// `view_rec`. (At the top level the `borrowed` edge disjunct is ruled out:
     /// `borrowed_match_pte` needs a *present* PTE, which `count_present == 0`
     /// denies.)
-    pub proof fn view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
+    pub proof fn lemma_view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
         requires
             self.pt_inv(),
             self.0.value().is_node(),

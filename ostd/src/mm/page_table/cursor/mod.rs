@@ -1048,10 +1048,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.continuations[owner.level - 1].lemma_pt_inv_children_unroll(
                                 owner.index() as int,
                             );
-                            PageTableOwner(subtree).view_rec_nr_children_zero_empty(
+                            PageTableOwner(subtree).lemma_view_rec_nr_children_zero_empty(
                                 subtree.value().path,
                             );
-                            owner.cur_subtree_eq_filtered_mappings();
+                            owner.lemma_cur_subtree_eq_filtered_mappings();
                         }
 
                         let ghost cur_slot_size = page_size::<PagingConsts>(self.level);
@@ -1111,7 +1111,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.lemma_move_forward_not_popped_too_high();
                         let ghost subtree = owner.cur_subtree();
                         PageTableOwner(subtree).view_rec_absent_empty(subtree.value().path);
-                        owner.cur_subtree_eq_filtered_mappings();
+                        owner.lemma_cur_subtree_eq_filtered_mappings();
                     }
 
                     let ghost owner_before_move = *owner;
@@ -2992,7 +2992,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost regions_after_replace = *regions;
 
         proof {
-            owner1.cur_subtree_eq_filtered_mappings();
+            owner1.lemma_cur_subtree_eq_filtered_mappings();
             owner.move_forward_owner_preserves_mappings();
         }
 
@@ -3218,7 +3218,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(owner_before_replace@ == view.split_while_huge(
                     page_size::<PagingConsts>(level_after_find),
                 ));
-                owner_before_replace.cur_subtree_eq_filtered_mappings();
+                owner_before_replace.lemma_cur_subtree_eq_filtered_mappings();
                 let ghost target = Mapping {
                     va_range: owner_before_replace@.cur_slot_range(m.page_size),
                     pa_range: cur_st.value().frame().mapped_pa..(cur_st.value().frame().mapped_pa
@@ -3303,7 +3303,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
             }
             let ghost ps = page_size::<PagingConsts>(level_after_find);
-            owner_before_replace.cur_subtree_eq_filtered_mappings();
+            owner_before_replace.lemma_cur_subtree_eq_filtered_mappings();
             let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
         }
 
