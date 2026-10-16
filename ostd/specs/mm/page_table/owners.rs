@@ -370,7 +370,7 @@ pub open spec fn allocated_empty_node_grandchildren_none<C: PageTableConfig>(
         0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES ==> !#[trigger] owner.child(i).has_child(j)
 }
 
-proof fn lemma_rebase_freshly_allocated_children_at<C: PageTableConfig>(
+proof fn tracked_rebase_freshly_allocated_children_at<C: PageTableConfig>(
     tracked owner: &mut OwnerSubtree<C>,
     new_path: TreePath<NR_ENTRIES>,
     i: usize,
@@ -416,13 +416,12 @@ proof fn lemma_rebase_freshly_allocated_children_at<C: PageTableConfig>(
                 0 <= j < NR_ENTRIES && (#[trigger] child.children()[j]) is Some implies child.child(
                 j,
             ).inv() by {
-                assert(before.children()[j] is Some);
                 assert(before.child(j).inv());
             };
             assert(child.inv());
         }
         assert(owner.inv());
-        lemma_rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
+        tracked_rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
     }
 }
 
@@ -435,7 +434,7 @@ proof fn lemma_rebase_freshly_allocated_children_at<C: PageTableConfig>(
 /// stale `[i]` paths. This helper walks the children seq and rewrites each
 /// child's `value.path` to `new_path.push_tail(i)`, producing a subtree
 /// whose `pt_edge_at(_, i)` clauses can be discharged.
-pub proof fn lemma_rebase_freshly_allocated_children<C: PageTableConfig>(
+pub proof fn tracked_rebase_freshly_allocated_children<C: PageTableConfig>(
     tracked owner: &mut OwnerSubtree<C>,
     new_path: TreePath<NR_ENTRIES>,
 )
@@ -462,7 +461,7 @@ pub proof fn lemma_rebase_freshly_allocated_children<C: PageTableConfig>(
         allocated_empty_node_grandchildren_none(*old(owner))
             ==> allocated_empty_node_grandchildren_none(*final(owner)),
 {
-    lemma_rebase_freshly_allocated_children_at(owner, new_path, 0);
+    tracked_rebase_freshly_allocated_children_at(owner, new_path, 0);
     if allocated_empty_node_grandchildren_none(*old(owner)) {
         assert forall|i: int, j: int|
             0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES implies !#[trigger] owner.child(i).has_child(
@@ -482,7 +481,7 @@ pub proof fn lemma_rebase_freshly_allocated_children<C: PageTableConfig>(
 /// `node_unlocked_except` / `metaregion_sound_pred` / `path_tracked_pred`
 /// predicates over the fresh node (all of which hold trivially at the absent
 /// children).
-pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
+pub proof fn lemma_fresh_node_subtree_satisfies<C: PageTableConfig>(
     node: OwnerSubtree<C>,
     path: TreePath<NR_ENTRIES>,
     f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -503,8 +502,6 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
         0 <= i < node.children().len() && #[trigger] node.has_child(i) implies node.child(
         i,
     ).subtree_satisfies(path.push_tail(i), f) by {
-        // Each child has all-`None` grandchildren, so its `subtree_satisfies`
-        // unfolds to `f` at the child (the grandchild forall is vacuous).
         assert(node.child(i).inv());
     };
 }

@@ -667,7 +667,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_node_value.parent_level = level as PagingLevel;
                 new_node_value.path = old_path;
                 *owner = new_node_owner;
-                crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(
+                crate::specs::mm::page_table::tracked_rebase_freshly_allocated_children(
                     owner,
                     old_path,
                 );
@@ -698,17 +698,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     *regions,
                 );
 
-                crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+                crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
                     f_nu,
                 );
-                crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+                crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
                     f_ms,
                 );
-                crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+                crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
                     f_pt,
@@ -904,7 +904,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             };
             let tracked new_value = new_owner.tracked_borrow_mut_value();
             new_value.path = owner.value().path;
-            crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(
+            crate::specs::mm::page_table::tracked_rebase_freshly_allocated_children(
                 &mut new_owner,
                 owner.value().path,
             );
@@ -1254,7 +1254,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 *old(regions),
                 *regions,
             );
-            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+            crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 CursorOwner::<'rcu, C>::node_unlocked_except(
@@ -1262,7 +1262,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     owner.value().node().slot_vaddr(),
                 ),
             );
-            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+            crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 PageTableOwner::<C>::metaregion_sound_pred(*regions),
@@ -1896,7 +1896,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 new_node_value.path = old_path;
             }
             *owner = new_node_owner;
-            crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(owner, old_path);
+            crate::specs::mm::page_table::tracked_rebase_freshly_allocated_children(owner, old_path);
             assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*owner));
             assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
                 i,
@@ -1921,17 +1921,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *regions,
             );
 
-            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+            crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 f_nu,
             );
-            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+            crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 f_ms,
             );
-            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
+            crate::specs::mm::page_table::lemma_fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 f_pt,
