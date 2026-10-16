@@ -1377,7 +1377,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     frame_to_index(owner.value().meta_slot_paddr()->0),
                 );
             };
-            assert(owner.value().metaregion_sound(*regions));
             PageTableOwner::<C>::lemma_fresh_node_pt_inv(*owner);
             PageTableOwner(*owner).lemma_split_node_view(PageTableOwner(*old(owner)));
             let absent = EntryOwner::<C>::new_absent(
@@ -1409,14 +1408,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value().path,
                 PageTableOwner::<C>::metaregion_sound_pred(*regions),
             );
-
-        }
-
-        proof {
-            assert(owner.level() == old(owner).level());
-            assert(*final(self.node) == *final(old(self).node));
-            assert(parent_owner.relate_guard(*self.node));
-            assert(owner.value().node().relate_guard(pt_lock_guard));
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (
             #[trigger] owner.children()[j])->0.value().frame().mapped_pa == old(
                 owner,
