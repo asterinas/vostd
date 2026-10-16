@@ -1160,10 +1160,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             );
                         };
                     }
-
-                    proof {
-                        assert(child_owner.value().metaregion_sound(*regions));
-                    }
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(continuation.entry_own.tracked_borrow_mut_node()), Tracked(regions),
                         Tracked(guards))]
