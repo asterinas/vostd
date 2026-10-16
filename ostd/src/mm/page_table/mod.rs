@@ -998,10 +998,6 @@ impl PageTable<KernelPtConfig> {
                 regions_before_alloc,
                 new_idx,
             );
-            assert(kern_idx != new_idx);
-            assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
-            assert(kernel_owner.metaregion_sound(*regions));
-            assert(regions.contains(new_idx));
         }
 
         proof_decl! {
