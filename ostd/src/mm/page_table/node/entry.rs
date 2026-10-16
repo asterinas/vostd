@@ -1974,7 +1974,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 ));
                 assert(new_node_owner.has_child(i));
             };
-            C::E::lemma_page_table_entry_properties();
         }
 
         let paddr = new_page.start_paddr();
@@ -1984,11 +1983,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             #[verus_spec(with Tracked(new_node_value))]
             Child::PageTable(new_page).into_pte()
         };
-
-        proof {
-            broadcast use group_page_meta;
-
-        }
 
         let tracked new_node_value = new_node_owner.tracked_borrow_value();
         let tracked new_node = new_node_value.tracked_borrow_node();
@@ -2009,13 +2003,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.write_pte(idx, new_pte)
         };
 
-        // `count_consistent` is momentarily broken between `alloc` and the
-        // `+ 1` below, but the `nr_children` id-clause that `read`/`write` need
-        // is framed from the pre-`alloc` snapshot: `meta_own` is preserved by
-        // `set_children_perm`/`write_pte`, and the parent slot perm is untouched
-        // (`alloc` allocates a different slot, `write_pte` leaves regions
-        // immutable).
-
         #[verus_spec(with
             Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
                 &parent_owner.frame_permission,
@@ -2027,26 +2014,18 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), old_nr_children + 1);
 
         proof {
-            // Restore the parent's `count_consistent`: slot `idx` went
-            // absent → present (the new PT node) and `nr_children` was
-            // incremented by 1, so `count_present(children_perm)` rises by 1
-            // in lockstep.
             crate::specs::mm::page_table::node::owners::lemma_count_present_upto_update(
                 cp0,
                 NR_ENTRIES as int,
                 idx as int,
                 new_pte,
             );
-        }
-
-        proof {
             {
                 let tracked new_node_value = new_node_owner.tracked_borrow_mut_value();
                 new_node_value.parent_level = level as PagingLevel;
                 new_node_value.path = old_path;
             }
             *owner = new_node_owner;
-            assert(owner.children() == fresh_children);
             crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(owner, old_path);
             assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*owner));
             assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
@@ -2059,9 +2038,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             regions.lemma_contains_valid_frame_paddr(new_paddr);
             let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
             new_meta_slot.paths_in_pt = set![owner.value().path];
-        }
-
-        proof {
             broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
             let ghost new_node_addr = owner.value().node().slot_vaddr();
@@ -2074,8 +2050,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *old(regions),
                 *regions,
             );
-
-            // Root predicates.
 
             crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                 *owner,
@@ -2092,9 +2066,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 owner.value().path,
                 f_pt,
             );
-        }
-
-        proof {
             let pt = PageTableOwner(*owner);
             pt.lemma_view_rec_contains(old_path);
             assert forall|m: crate::specs::mm::page_table::Mapping|
@@ -2161,7 +2132,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         level: PagingLevel,
         prop: PageProperty,
     ) {
-        // For restoring `count_consistent` after the absent→frame install.
         let ghost cp0 = parent_owner.children_perm.value();
         #[verus_spec(with
             Tracked(NodeOwner::<C>::tracked_borrow_frame_metadata_perm(
