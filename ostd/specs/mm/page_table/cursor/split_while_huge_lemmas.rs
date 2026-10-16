@@ -706,7 +706,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.lemma_cur_entry_absent_not_present();
     }
 
-    pub proof fn split_while_huge_at_level_noop(self)
+    pub proof fn lemma_split_while_huge_at_level_noop(self)
         requires
             self.inv(),
             self.in_locked_range(),

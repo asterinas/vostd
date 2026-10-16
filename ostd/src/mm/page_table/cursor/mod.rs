@@ -904,7 +904,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 baseline_view.lemma_split_while_huge_preserves_cur_va(
                     page_size::<PagingConsts>(owner0.level),
                 );
-                owner0.split_while_huge_at_level_noop();
+                owner0.lemma_split_while_huge_at_level_noop();
             }
 
             let cur_va = self.va;
@@ -959,7 +959,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         proof {
                             if split_huge {
                                 if !split_happened {
-                                    owner.split_while_huge_at_level_noop();
+                                    owner.lemma_split_while_huge_at_level_noop();
                                 }
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
@@ -1174,7 +1174,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         proof {
                             if split_huge {
                                 if !split_happened {
-                                    owner.split_while_huge_at_level_noop();
+                                    owner.lemma_split_while_huge_at_level_noop();
                                 }
                             }
                         }
@@ -2357,7 +2357,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost barrier_va = self.0.barrier_va;
         let ghost owner0 = *owner;
         proof {
-            owner0.split_while_huge_at_level_noop();
+            owner0.lemma_split_while_huge_at_level_noop();
         }
 
         #[verus_spec(
@@ -2415,7 +2415,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 proof {
                     owner_pre_pop.lemma_pop_level_owner_preserves_mappings();
-                    owner.split_while_huge_at_level_noop();
+                    owner.lemma_split_while_huge_at_level_noop();
                 }
                 continue;
             }
