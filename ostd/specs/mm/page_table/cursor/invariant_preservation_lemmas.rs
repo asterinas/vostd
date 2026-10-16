@@ -128,7 +128,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 e.meta_slot_paddr().unwrap(),
             ) != changed_idx;
 
-        self.map_children_implies(msp, target);
+        self.lemma_map_children_implies(msp, target);
 
         assert forall|i: int|
             #![trigger self.continuations[i]]
@@ -207,7 +207,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        self.map_children_implies(f_strong, g);
+        self.lemma_map_children_implies(f_strong, g);
 
         reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
@@ -379,7 +379,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Pointwise: nn(e) && nf(e) ==> r(e).
         // map_full_tree halves -> combined -> r.
         self.and_map_full_tree(nn, nf);
-        self.map_children_implies(
+        self.lemma_map_children_implies(
             |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p),
             r,
         );
@@ -459,7 +459,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        self.map_children_implies(f_strong, g);
+        self.lemma_map_children_implies(f_strong, g);
 
         reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|

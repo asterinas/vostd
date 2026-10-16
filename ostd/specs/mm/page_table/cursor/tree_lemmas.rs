@@ -119,7 +119,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
 // ─── Tree predicate lifting (CursorOwner) ──────────────────────────
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    pub proof fn map_children_implies(
+    pub proof fn lemma_map_children_implies(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
         g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,

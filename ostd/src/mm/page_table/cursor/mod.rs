@@ -500,7 +500,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         continuation.tracked_put_child(child_owner);
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
-                        owner.map_children_implies(
+                        owner.lemma_map_children_implies(
                             CursorOwner::node_unlocked(guards0),
                             CursorOwner::node_unlocked_except(*guards, child_node.slot_vaddr()),
                         );
@@ -905,9 +905,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     page_size::<PagingConsts>(owner0.level),
                 );
                 owner0.split_while_huge_at_level_noop();
-                assert(owner0@ == baseline_view.split_while_huge(
-                    page_size::<PagingConsts>(owner0.level),
-                ));
             }
 
             let cur_va = self.va;
@@ -933,7 +930,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             }
             #[verus_spec(with Tracked(owner), Tracked(regions))]
             let mut cur_entry = self.cur_entry();
-            assert(cur_entry.idx == owner0.index());
 
             let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
             let ghost cont0 = continuation;
@@ -974,7 +970,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         }
                         return Some(cur_va);
                     }
-                    assert(owner.children_not_locked(*guards));
                     proof {
                         owner.lemma_children_not_locked_unroll(*guards);
                     }
@@ -1002,14 +997,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(&mut child_node_owner))]
                     let nr_children = pt_guard.nr_children();
 
-                    // `nr_children()` requires `child_node_owner.metaregion_sound_node`,
-                    // so `count_consistent` holds for this node. Capture it as a ghost
-                    // before the node is moved back into the cursor tree.
                     let ghost cur_node_owner = child_node_owner;
-                    proof {
-                        assert(cur_node_owner.count_consistent());
-                    }
-
                     proof {
                         {
                             let tracked child_value = child_owner.tracked_borrow_mut_value();
@@ -1019,12 +1007,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         continuation.tracked_put_child(child_owner);
                         cont0.take_put_child();
                         continuation.entry_own.tracked_put_node(parent_node_owner);
-                        assert(continuation == cont0);
-                        assert(cont0.children == continuation.children);
-                        owner.continuations.tracked_insert(self.level - 1, continuation);
-                        assert(owner.continuations == owner0.continuations);
 
-                        owner.map_children_implies(
+                        owner.continuations.tracked_insert(self.level - 1, continuation);
+
+                        owner.lemma_map_children_implies(
                             CursorOwner::node_unlocked(guards0),
                             CursorOwner::node_unlocked_except(
                                 *guards,
@@ -1032,8 +1018,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             ),
                         );
                     }
-
-                    assert(owner.only_current_locked(*guards));
 
                     if (nr_children != 0) {
                         proof {
@@ -1053,22 +1037,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let _ = vstd_extra::drop_tracking::ManuallyDrop::new(pt_guard);
 
                         proof {
-                            owner.map_children_implies(
+                            owner.lemma_map_children_implies(
                                 CursorOwner::node_unlocked_except(guards_before_drop, locked_addr),
                                 CursorOwner::node_unlocked(*guards),
                             );
-                            owner.move_forward_increases_va();
-                            owner.move_forward_not_popped_too_high();
+                            owner.lemma_move_forward_increases_va();
+                            owner.lemma_move_forward_not_popped_too_high();
                             let ghost subtree = owner.cur_subtree();
-                            // `pt_inv` for the current subtree, from the current
-                            // continuation's `pt_inv_children`.
                             owner.lemma_inv_continuation(owner.level - 1);
                             owner.continuations[owner.level - 1].lemma_pt_inv_children_unroll(
                                 owner.index() as int,
                             );
-                            // The subtree's node is the one just read by `nr_children`,
-                            // carrying `count_consistent`.
-                            assert(subtree.value().node() == cur_node_owner);
                             PageTableOwner(subtree).view_rec_nr_children_zero_empty(
                                 subtree.value().path,
                             );
@@ -1128,8 +1107,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 ChildRef::None => {
                     let ghost cur_slot_size = page_size::<PagingConsts>(self.level);
                     proof {
-                        owner.move_forward_increases_va();
-                        owner.move_forward_not_popped_too_high();
+                        owner.lemma_move_forward_increases_va();
+                        owner.lemma_move_forward_not_popped_too_high();
                         let ghost subtree = owner.cur_subtree();
                         PageTableOwner(subtree).view_rec_absent_empty(subtree.value().path);
                         owner.cur_subtree_eq_filtered_mappings();
@@ -1508,7 +1487,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             owner.lemma_in_locked_range_guard_index_eq_prefix();
             owner.move_forward_owner_decreases_steps();
-            old(owner).move_forward_not_popped_too_high();
+            old(owner).lemma_move_forward_not_popped_too_high();
         }
 
         let ghost start_level = self.level;
@@ -2318,7 +2297,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.continuations.tracked_insert(owner.level - 1, continuation);
             assert(owner.continuations == old(owner).continuations);
 
-            owner.map_children_implies(
+            owner.lemma_map_children_implies(
                 CursorOwner::node_unlocked(guards0),
                 CursorOwner::node_unlocked_except(*guards, child_node.slot_vaddr()),
             );
@@ -3185,7 +3164,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost regions_after_replace = *regions;
 
         proof {
-            owner.move_forward_increases_va();
+            owner.lemma_move_forward_increases_va();
         }
         let ghost owner_before_move = *owner;
 
@@ -3807,7 +3786,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
 
                 proof {
-                    owner.map_children_implies(
+                    owner.lemma_map_children_implies(
                         CursorOwner::node_unlocked(guards0),
                         CursorOwner::node_unlocked_except(*guards, old_node_owner.slot_vaddr()),
                     );
@@ -3846,7 +3825,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     ) by {
                         reveal(CursorContinuation::map_children);
                     };
-                    owner.map_children_implies(
+                    owner.lemma_map_children_implies(
                         CursorOwner::node_unlocked_except(guards1, locked_addr),
                         CursorOwner::node_unlocked(*guards),
                     );

@@ -906,7 +906,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
 
-        self.map_children_implies(f, g);
+        self.lemma_map_children_implies(f, g);
     }
 
     /// After a `protect` operation that only modifies `frame.prop` of the current entry,
@@ -921,7 +921,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// checked by `inv` and `metaregion_sound`; the structural identity of other continuations
     /// is trusted to hold from the tracked restore operations in the caller.
     // protect_preserves_cursor_inv_metaregion moved to cursor_fn_lemmas.rs.
-    // map_children_implies moved to tree_lemmas.rs.
+    // lemma_map_children_implies moved to tree_lemmas.rs.
     pub open spec fn nodes_locked(self, guards: Guards) -> bool {
         // Only the subtree rooted at `guard_level` and its descendants down to
         // `level` are actually locked (see `locking.rs`). The ghost
