@@ -1966,8 +1966,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 ));
                 assert(!new_node_owner.child(i).has_child(j));
             };
-        }
-        proof {
             assert forall|i: int| 0 <= i < NR_ENTRIES implies (
             #[trigger] fresh_children[i]) is Some by {
                 assert(crate::specs::mm::page_table::allocated_empty_node_owner(
@@ -1976,10 +1974,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 ));
                 assert(new_node_owner.has_child(i));
             };
-        }
-
-        proof {
-            let pte = C::E::new_pt_spec(meta_to_frame(new_node_owner.value().node().slot_vaddr()));
             C::E::lemma_page_table_entry_properties();
         }
 
