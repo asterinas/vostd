@@ -902,17 +902,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 ));
                 assert(new_owner.has_child(i));
             };
-        }
-
-        proof {
-            {
-                let tracked new_value = new_owner.tracked_borrow_mut_value();
-                new_value.path = owner.value().path;
-            }
-            assert(new_owner.children() == fresh_children);
-            assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
-                new_owner,
-            ));
+            let tracked new_value = new_owner.tracked_borrow_mut_value();
+            new_value.path = owner.value().path;
             crate::specs::mm::page_table::lemma_rebase_freshly_allocated_children(
                 &mut new_owner,
                 owner.value().path,
@@ -923,13 +914,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
         let paddr = new_page.start_paddr();
 
-        proof {
-            broadcast use group_page_meta;
-
-        }
-
-        let tracked new_owner_value = new_owner.tracked_borrow_value();
-        let tracked new_node = new_owner_value.tracked_borrow_node();
+        let tracked new_node = new_owner.tracked_borrow_value().tracked_borrow_node();
         let tracked slot_perm = *regions.slots.tracked_borrow(new_node.slot_index);
         let pt_ref = unsafe {
             #[verus_spec(with Tracked(slot_perm), Tracked(&new_node.frame_permission))]
@@ -938,8 +923,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         // Lock before writing the PTE, so no one else can operate on it.
         let mut pt_lock_guard = {
-            let tracked new_owner_value = new_owner.tracked_borrow_value();
-            #[verus_spec(with Tracked(new_owner_value.tracked_borrow_node()), Tracked(guards))]
+            #[verus_spec(with Tracked(new_owner.tracked_borrow_value().tracked_borrow_node()), Tracked(guards))]
             pt_ref.lock(guard)
         };
 
@@ -956,10 +940,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let new_paddr = meta_to_frame(new_owner_meta_addr);
             let nr_pages = page_size::<PagingConsts>(level) / PAGE_SIZE;
             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(owner.value());
-
-            // The huge frame's own slot (j = 0): `usage != PageTable` from the
-            // precondition's `metaregion_sound` (frame arm), preserved across
-            // `alloc` because `frame_to_index(pa) != new_idx`.
             let pa_idx = frame_to_index(pa);
             assert(pa_idx != new_idx) by {
                 if old(regions).slot_owners[pa_idx].usage
