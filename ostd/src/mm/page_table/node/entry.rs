@@ -1414,13 +1414,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(owner.child(j).value().frame().prop == prop);
                 assert(prop == old(owner).value().frame().prop);
             };
-            assert(OwnerSubtree::implies(
-                CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
-                CursorOwner::<'rcu, C>::node_unlocked_except(
-                    *guards,
-                    owner.value().node().slot_vaddr(),
-                ),
-            ));
         }
         Some(pt_lock_guard)
     }
