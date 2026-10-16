@@ -228,14 +228,6 @@ impl<C: PageTableConfig> PageTableNode<C> {
     }
 
     /// Allocates a new empty page table node.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The node level and metadata region are valid.
-    /// ## Postconditions
-    /// - The returned frame uses the counting permission held by the new node owner.
-    /// - The node is detached: allocation leaves the parent PTEs and ownership paths unchanged.
-    ///   Its path is registered when the caller installs its PTE.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&Guards>,
