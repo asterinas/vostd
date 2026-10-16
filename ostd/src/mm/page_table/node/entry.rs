@@ -751,11 +751,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(owner).level() + old(parent_owner).level() == INC_LEVELS,
             old(self).node_matching(old(owner).value(), *old(parent_owner), *old(self).node),
             old(parent_owner).metaregion_sound_node(*old(regions)),
-            // Frame entries being split must have `metaregion_sound` for
-            // their slot — provides `regions.slots.contains_key(pa_idx)` and
-            // ref_count facts at the parent slot itself (j = 0 case in the
-            // split loop's invariant). Without this, those facts can't be
-            // re-established after alloc.
             old(owner).value().is_frame() && old(parent_owner).level() > 1 ==>
                 old(owner).value().metaregion_sound(*old(regions)),
         ensures
@@ -774,7 +769,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             page_size::<PagingConsts>((old(parent_owner).level() - 1) as PagingLevel),
                             i as usize))
                 &&& final(guards).lock_held(res->0.inner.inner@.ptr.addr())
-                // All children of the new node subtree are frames with the same prop (from the split loop).
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] final(owner).children()[j])->0.value().is_frame()
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
