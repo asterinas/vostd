@@ -57,7 +57,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     /// Lift map_children from f to g when siblings (j != idx) come from
     /// cont0 which had map_children(f), and the child at idx (if present)
     /// already satisfies g.
-    pub proof fn map_children_lift_skip_idx(
+    pub proof fn lemma_map_children_lift_skip_idx(
         self,
         cont0: Self,
         idx: int,

@@ -267,7 +267,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         reveal(CursorContinuation::map_children);
     }
 
-    // map_children_lift, map_children_lift_skip_idx, as_subtree_restore
+    // map_children_lift, lemma_map_children_lift_skip_idx, as_subtree_restore
     // have been moved to tree_lemmas.rs.
     pub open spec fn level(self) -> PagingLevel {
         self.entry_own.node().level()

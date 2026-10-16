@@ -2409,10 +2409,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         self.0.lemma_pte_index_matches_owner(owner_pre_none);
                     }
                     let entry_idx = pte_index::<C>(self.0.va, self.0.level);
-                    proof {
-                        assert(entry_idx == owner_pre_none.continuations[owner_pre_none.level
-                            - 1].idx);
-                    }
                     let ghost cur_path_guard = self.0.path[cur_level - 1]->0;
 
                     let tracked mut continuation = owner.continuations.tracked_remove(
@@ -2480,13 +2476,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             owner_pre_none.continuations[i].map_children_lift(f_sound, g_sound);
                         };
 
-                        cont_final.map_children_lift_skip_idx(
+                        cont_final.lemma_map_children_lift_skip_idx(
                             cont_pre_alloc,
                             idx,
                             f_unlocked,
                             g_unlocked,
                         );
-                        cont_final.map_children_lift_skip_idx(
+                        cont_final.lemma_map_children_lift_skip_idx(
                             cont_pre_alloc,
                             idx,
                             f_sound,
@@ -3602,10 +3598,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     reveal(CursorContinuation::map_children);
                 };
             } else {
-                final_cont.map_children_lift_skip_idx(cont0, idx as int, f_sound, g_sound);
+                final_cont.lemma_map_children_lift_skip_idx(cont0, idx as int, f_sound, g_sound);
             }
 
-            final_cont.map_children_lift_skip_idx(cont0, idx as int, f_unlocked, f_unlocked);
+            final_cont.lemma_map_children_lift_skip_idx(cont0, idx as int, f_unlocked, f_unlocked);
 
             assert(owner.path_metaregion_sound(*regions)) by {
                 reveal(CursorOwner::path_metaregion_sound);

@@ -55,7 +55,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             g,
         ) by {
             if i == self.level - 1 {
-                self.continuations[i].map_children_lift_skip_idx(
+                self.continuations[i].lemma_map_children_lift_skip_idx(
                     old.continuations[i],
                     self.index() as int,
                     f,
