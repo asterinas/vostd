@@ -1968,15 +1968,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& r.unwrap().0.0.barrier_va == *va
             },
             !Cursor::<C, A>::cursor_new_success_conditions(*va) ==> r is Err,
-            // cursor_mut only acquires locks on page-table node slots; it does not
-            // set paths_in_pt for data-frame slots. Any frame that was item_not_mapped
-            // before the call remains item_not_mapped after.
             forall |item: C::Item| #![trigger Self::item_not_mapped(item, *old(regions))]
                 Self::item_not_mapped(item, *old(regions)) ==>
                 Self::item_not_mapped(item, *final(regions)),
-            // CursorMut::new inherits the weakened Cursor::new preservation:
-            // PT-node allocations come from UNUSED slots, so any slot that
-            // was already in use keeps its paths_in_pt.
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
@@ -2000,11 +1994,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         Cursor::new(pt, guard, va);
         match res {
             Ok((inner_cursor, tracked_owner)) => {
-                proof {
-                    // In the Ok branch, cursor_new_success_conditions(va) holds
-                    // (from !conditions ==> Err, contrapositive gives Ok ==> conditions).
-                    // Therefore the success-case ensures apply, giving us invariants.
-                }
                 Ok((Self(inner_cursor), tracked_owner))
             },
             Err(e) => Err(e),
@@ -2048,8 +2037,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            // Delegates to `Cursor::find_next`, which diverges on the
-            // find-next panic condition.
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
         ensures
             !old(self).0.find_next_panic_condition(len),
@@ -2144,11 +2131,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            // `in_locked_range` not required — delegates to the relaxed
-            // `Cursor::query`, which handles out-of-range with `Err`. The
-            // sole panic is cloning the resolved leaf frame when *that
-            // specific slot* is saturated — precisely propagated from
-            // `Cursor::query_panic_condition`.
             old(self).0.query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -2387,7 +2369,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         regions_before_ref,
                         *regions,
                     );
-                    let cont = owner.continuations[owner.level - 1];
                 }
 
                 cur_child
