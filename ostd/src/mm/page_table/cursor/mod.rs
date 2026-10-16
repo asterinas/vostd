@@ -3013,9 +3013,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(300)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
-        // This proof touches several cursor snapshots. Keep their quantified invariants
-        // opaque by default, then reveal only the concrete facts needed below. Leaving
-        // them all open creates matching loops across the snapshots and dominates `make`.
         hide(<CursorOwner as Inv>::inv);
         hide(<MetaRegionOwners as Inv>::inv);
         hide(CursorContinuation::inv_children);
@@ -3093,14 +3090,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     mappings: old(owner)@.mappings,
                     phantom: PhantomData,
                 };
-                assert(view.inv());
                 lemma_page_size_ge_base::<PagingConsts>(level_after_find);
                 view.lemma_split_while_huge_preserves_cur_va(
                     page_size::<PagingConsts>(level_after_find),
                 );
-                assert(owner_before_replace@ == view.split_while_huge(
-                    page_size::<PagingConsts>(level_after_find),
-                ));
                 owner_before_replace.lemma_cur_subtree_eq_filtered_mappings();
                 let ghost target = Mapping {
                     va_range: owner_before_replace@.cur_slot_range(m.page_size),
@@ -3115,12 +3108,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             < owner_before_replace@.cur_va + m.page_size,
                 ).contains(target));
                 let ghost removed_idx = frame_to_index(cur_st.value().frame().mapped_pa);
-                assert(old(owner)@.mappings.filter(
-                    |m2: Mapping| old(self).0.va <= m2.va_range.start < va,
-                ).is_empty());
-                assert(owner@.mappings.filter(
-                    |m2: Mapping| va <= m2.va_range.start < self.0.va,
-                ).is_empty());
                 owner.view_preserves_inv();
                 assert forall|m2: Mapping|
                     owner@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
@@ -3187,7 +3174,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
             let ghost ps = page_size::<PagingConsts>(level_after_find);
             owner_before_replace.lemma_cur_subtree_eq_filtered_mappings();
-            let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
         }
 
         frag
