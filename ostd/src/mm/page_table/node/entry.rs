@@ -1104,13 +1104,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 C::lemma_page_table_config_constant_properties();
                 C::lemma_paging_consts_properties();
                 C::axiom_current_paging_consts_hardcoded();
-                let ghost the_node = new_owner.value().node();
-
-                assert(0 <= i < NR_ENTRIES);
-                assert(new_owner.has_child(i as int));
+              
                 assert(new_owner.inv_children());
                 assert(new_owner.child(i as int).inv());
-                assert(new_owner.child(i as int).level() == new_owner.level() + 1);
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
             }
 
