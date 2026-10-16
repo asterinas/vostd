@@ -189,7 +189,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& perm@ is Some ==> regions.ref_count(sub_idx)
                         > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
-                    // into the mapped huge frame's `frame_sub_pages_valid`.
+                    // into the mapped huge frame's `lemma_frame_sub_pages_valid`.
                     &&& perm@ is Some ==> regions.ref_count(sub_idx) <= REF_COUNT_MAX
                 }
         }

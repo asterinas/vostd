@@ -473,7 +473,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont_entry.lemma_metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                 } else {
                     if cont_entry.is_frame() {
-                        cont_entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
+                        cont_entry.lemma_frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                     }
                 }
             }

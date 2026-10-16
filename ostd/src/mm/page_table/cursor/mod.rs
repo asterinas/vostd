@@ -962,7 +962,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
                                 C::axiom_current_paging_consts_hardcoded();
-                                assert(self.level < NR_LEVELS);
                             }
                         }
                         return Some(cur_va);
@@ -1058,7 +1057,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         self.move_forward();
 
                         proof {
-                            assert(*owner == owner_before_move.move_forward_owner_spec());
                             owner_before_move.lemma_move_forward_owner_preserves_mappings();
                             if !split_happened {
                                 assert(owner@.mappings == old(owner)@.mappings);
@@ -1066,11 +1064,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     va_before_move as nat,
                                     cur_slot_size as nat,
                                 ) as Vaddr;
-                                assert(old(owner)@.mappings.filter(
-                                    |m: Mapping|
-                                        aligned_start <= m.va_range.start < aligned_start
-                                            + cur_slot_size as usize,
-                                ) == Set::<Mapping>::empty());
                                 lemma_nat_align_down_sound(
                                     va_before_move as nat,
                                     cur_slot_size as nat,
@@ -1078,12 +1071,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 owner_before_move.lemma_va_plus_page_size_no_overflow(
                                     owner_before_move.level,
                                 );
-                                assert(self.va == (nat_align_down(
-                                    va_before_move as nat,
-                                    cur_slot_size as nat,
-                                ) + cur_slot_size as nat) as Vaddr);
-                                assert(self.va <= aligned_start + cur_slot_size as usize);
-
                                 lemma_extend_empty_mapping_range(
                                     old(owner)@.mappings,
                                     old(self).va,
@@ -1092,7 +1079,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     aligned_start + cur_slot_size as usize,
                                     self.va,
                                 );
-                                if va_before_move as usize == old(self).va as usize {
+                                if va_before_move == old(self).va {
                                     owner_before_move.lemma_cur_subtree_empty_not_present();
                                 }
                             }
@@ -1117,7 +1104,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     self.move_forward();
 
                     proof {
-                        assert(*owner == owner_before_move.move_forward_owner_spec());
                         owner_before_move.lemma_move_forward_owner_preserves_mappings();
                         if !split_happened {
                             assert(owner@.mappings == old(owner)@.mappings);
@@ -1125,20 +1111,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 va_before_move as nat,
                                 cur_slot_size as nat,
                             ) as Vaddr;
-                            assert(old(owner)@.mappings.filter(
-                                |m: Mapping|
-                                    aligned_start <= m.va_range.start < aligned_start
-                                        + cur_slot_size as usize,
-                            ) == Set::<Mapping>::empty());
                             lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
                             owner_before_move.lemma_va_plus_page_size_no_overflow(
                                 owner_before_move.level,
                             );
-                            assert(self.va == (nat_align_down(
-                                va_before_move as nat,
-                                cur_slot_size as nat,
-                            ) + cur_slot_size as nat) as Vaddr);
-                            assert(self.va <= aligned_start + cur_slot_size as usize);
 
                             lemma_extend_empty_mapping_range(
                                 old(owner)@.mappings,
@@ -1148,7 +1124,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 aligned_start + cur_slot_size as usize,
                                 self.va,
                             );
-                            if va_before_move as usize == old(self).va as usize {
+                            if va_before_move == old(self).va {
                                 owner_before_move.lemma_cur_entry_absent_not_present();
                             }
                         }
@@ -1157,17 +1133,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 },
                 ChildRef::Frame(_, _, _) => {
                     if cur_entry_fits_range || !split_huge {
-                        assert(!find_unmap_subtree && old(owner).cur_entry_owner().is_frame()
-                            ==> owner.cur_entry_owner().frame().prop == old(
-                            owner,
-                        ).cur_entry_owner().frame().prop) by {
-                            if !find_unmap_subtree && old(owner).cur_entry_owner().is_frame() {
-                                if !split_happened {
-                                    assert(owner.continuations == owner0.continuations);
-                                    assert(owner.level == owner0.level);
-                                }
-                            }
-                        };
                         proof {
                             if split_huge {
                                 if !split_happened {
@@ -1188,9 +1153,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         assert(continuation.entry_own.node().level() > 1) by {
-                            assert(cur_entry_fits_range == (cur_va == owner0.cur_va_range().start
-                                && owner0.cur_va_range().end <= end));
-                            assert(cur_va == owner0.cur_va()) by {};
                             owner0.frame_not_fits_implies_level_gt_1(
                                 cur_entry_fits_range,
                                 cur_va,
@@ -1202,7 +1164,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         assert(child_owner.value().metaregion_sound(*regions));
                         if child_owner.value().is_frame() {
-                            assert(child_owner.value().frame_sub_pages_valid(*regions));
+                            assert(child_owner.value().lemma_frame_sub_pages_valid(*regions));
                         }
                     }
                     let split_child = (

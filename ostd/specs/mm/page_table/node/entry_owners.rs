@@ -434,7 +434,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     /// Helper: sub-page validity is preserved when the only slot that changed is the
     /// frame's own slot (and slots map and other slot owners are unchanged).
-    pub proof fn frame_sub_pages_valid_preserved_at_own_slot(
+    pub proof fn lemma_frame_sub_pages_valid_preserved_at_own_slot(
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
@@ -444,7 +444,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r0.inv(),
             self.is_frame(),
             self.parent_level <= NR_LEVELS,
-            self.frame_sub_pages_valid(r0),
+            self.lemma_frame_sub_pages_valid(r0),
             r0.slots == r1.slots,
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             forall|i: int|
@@ -452,7 +452,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
                     ==> r0.slot_owners[i] == r1.slot_owners[i],
         ensures
-            self.frame_sub_pages_valid(r1),
+            self.lemma_frame_sub_pages_valid(r1),
     {
         if self.parent_level > 1 {
             let pa = self.frame().mapped_pa;
@@ -479,7 +479,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 assert(r0.slots.contains_key(sub_idx));
                 assert(r1.slots.contains_key(sub_idx));
-                // From frame_sub_pages_valid(r0): slot existence is unconditional.
+                // From lemma_frame_sub_pages_valid(r0): slot existence is unconditional.
                 // sub_idx != self_idx by arithmetic: pa is PAGE_SIZE-aligned, so
                 // self_idx = pa / PAGE_SIZE, and sub_idx = (pa + j*PAGE_SIZE) / PAGE_SIZE
                 //         = pa/PAGE_SIZE + j = self_idx + j > self_idx (since j >= 1).
@@ -512,7 +512,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// 1GB frame into 2MB sub-frames, each 2MB sub-frame's own sub-page validity (over
     /// its 511 4KB sub-sub-pages) follows from the 1GB frame's fine-grained validity over
     /// the corresponding subrange of indices.
-    pub open spec fn frame_sub_pages_valid(self, regions: MetaRegionOwners) -> bool {
+    pub open spec fn lemma_frame_sub_pages_valid(self, regions: MetaRegionOwners) -> bool {
         self.is_frame() && self.parent_level > 1 ==> {
             let pa = self.frame().mapped_pa;
             let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
@@ -562,7 +562,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
             }
             &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
-            &&& self.frame_sub_pages_valid(regions)
+            &&& self.lemma_frame_sub_pages_valid(regions)
             &&& C::perm_well_formed_with_region(
                 self.frame().mapped_pa,
                 Tracked(self.frame_permission()),
