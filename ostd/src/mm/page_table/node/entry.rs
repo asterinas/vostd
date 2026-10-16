@@ -12,7 +12,7 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            cursor::page_size_lemmas::lemma_page_size_spec_values, PageTableOwner, INC_LEVELS,
+            INC_LEVELS, PageTableOwner, cursor::page_size_lemmas::lemma_page_size_spec_values,
         },
     },
     task::InAtomicMode,
@@ -21,7 +21,7 @@ use crate::specs::{
 use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{meta::REF_COUNT_UNUSED, Frame, FrameRef};
+use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::{
@@ -1896,7 +1896,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 new_node_value.path = old_path;
             }
             *owner = new_node_owner;
-            crate::specs::mm::page_table::tracked_rebase_freshly_allocated_children(owner, old_path);
+            crate::specs::mm::page_table::tracked_rebase_freshly_allocated_children(
+                owner,
+                old_path,
+            );
             assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*owner));
             assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
                 i,

@@ -1993,9 +1993,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             #[verus_spec(with Tracked(pt_own), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         Cursor::new(pt, guard, va);
         match res {
-            Ok((inner_cursor, tracked_owner)) => {
-                Ok((Self(inner_cursor), tracked_owner))
-            },
+            Ok((inner_cursor, tracked_owner)) => { Ok((Self(inner_cursor), tracked_owner)) },
             Err(e) => Err(e),
         }
     }

@@ -14,7 +14,7 @@ use crate::specs::mm::page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    nr_subpage_per_huge, page_size, PagingConstsTrait, PagingLevel, Vaddr, KERNEL_VADDR_RANGE,
+    KERNEL_VADDR_RANGE, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,
 };
 
 verus! {
