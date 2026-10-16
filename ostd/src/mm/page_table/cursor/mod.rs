@@ -2491,9 +2491,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                         assert(owner.path_metaregion_sound(*regions)) by {
                             reveal(CursorOwner::path_metaregion_sound);
-                            let new_pt_idx = frame_to_index(
-                                new_child_value.meta_slot_paddr().unwrap(),
-                            );
                             assert forall|i: int|
                                 #![trigger owner.continuations[i]]
                                 owner.level - 1 <= i
@@ -2505,9 +2502,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         };
                         assert(owner.continuations[owner.level - 1].inv()) by {
                             let cont_new = owner.continuations[owner.level - 1];
-                            // pt_inv for the freshly-allocated child: closed by
-                            // combining alloc_if_none's path-rebased ensures with
-                            // `allocated_empty_node_grandchildren_none`.
                             PageTableOwner::<C>::lemma_fresh_node_pt_inv(
                                 cont_new.children[cont_new.idx as int].unwrap(),
                             );
@@ -2517,7 +2511,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             );
                         };
                         owner_pre_none.lemma_cur_pte_index();
-                        owner.map_branch_none_inv_holds(owner_pre_none);
+                        owner.lemma_map_branch_none_inv_holds(owner_pre_none);
                     }
 
                     let ghost owner_pre_push = *owner;

@@ -228,7 +228,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.metaregion_sound(regions),
     {
         self.lemma_cur_pte_index();
-        other.map_branch_none_inv_holds(self);
+        other.lemma_map_branch_none_inv_holds(self);
 
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let L = self.level as int;
@@ -271,7 +271,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
-    pub proof fn map_branch_none_inv_holds(self, owner0: Self)
+    pub proof fn lemma_map_branch_none_inv_holds(self, owner0: Self)
         requires
             owner0.inv(),
             // The map happens in the locked range and changes only the current
