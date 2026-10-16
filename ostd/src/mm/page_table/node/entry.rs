@@ -519,10 +519,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(owner).value().path.len() == old(owner).level(),
             old(self).node_matching(old(owner).value(), *old(parent_owner), *old(self).node),
             old(owner).level() < INC_LEVELS - 1,
-            // The cursor entry's ghost-tree level is its DEPTH
-            // (`INC_LEVELS - parent_PT_level`), tying it to the freshly-
-            // allocated node's depth (`new_node_owner.level`) so we can prove
-            // `final(owner).inv()`'s `child.level == self.level + 1`.
             old(owner).level() + old(parent_owner).level() == INC_LEVELS,
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
@@ -555,23 +551,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
                 &&& final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions)))
                 &&& PageTableOwner(*final(owner)).view_rec(final(owner).value().path) == set![]
-                // All children of the newly allocated node are absent (empty PT node).
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
                     #[trigger] final(owner).children()[i] is Some && final(owner).children()[i]->0.value().is_absent()
-                // Children's paths are rebased onto the cursor path. Required by
-                // `pt_edge_at` for the freshly-allocated node, since the bare
-                // `allocated_empty_node_owner` from `PageTableNode::alloc` uses
-                // an empty parent path and `alloc_if_none` rewrites that path to
-                // the cursor path; without rebasing the children, their paths
-                // would be `[i]` rather than `cursor_path.push_tail(i)`.
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
                     (#[trigger] final(owner).children()[i])->0.value().path
                         == final(owner).value().path.push_tail(i)
-                // Grandchildren are all None (from `PageTableNode::alloc`'s
-                // `allocated_empty_node_grandchildren_none` ensures; the path
-                // rebasing leaves grandchildren untouched).
                 &&& crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*final(owner))
-                // Other child fields preserved from `allocated_empty_node_owner`.
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
                     (#[trigger] final(owner).child(i)).value().parent_level
                         == final(owner).value().node().level()
@@ -579,10 +564,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     (#[trigger] final(owner).child(i)).value().match_pte(
                         final(owner).value().node().children_perm.value()[i],
                         final(owner).child(i).value().parent_level)
-                // Allocation preserves permissions; splitting may add paths to data-frame slots.
                 &&& forall|i: int| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
-                // slots keys: the new PT node was removed then re-inserted, so all old keys preserved.
                 &&& forall|i: int| old(regions).slots.contains_key(i)
                     ==> (#[trigger] final(regions).slots.contains_key(i))
                 &&& forall|i: int| #![trigger final(regions).slots[i]]
