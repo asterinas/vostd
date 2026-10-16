@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides accessors to the page table entries in a node.
-use vstd::{arithmetic::div_mod::lemma_mod_multiples_vanish, prelude::*};
+use vstd::prelude::*;
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
     mm::{
         frame::{
-            mapping::{frame_to_index, group_page_meta, meta_to_index},
+            mapping::{frame_to_index, meta_to_index},
+            meta_owners::{axiom_mmio_paddr_huge_page_closed, axiom_mmio_usage_iff_mmio_paddr},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            INC_LEVELS, PageTableOwner,
-            cursor::page_size_lemmas::{lemma_page_size_div_mul_eq, lemma_split_sub_page_big_j},
+            cursor::page_size_lemmas::lemma_page_size_spec_values, PageTableOwner, INC_LEVELS,
         },
     },
     task::InAtomicMode,
@@ -21,10 +21,7 @@ use crate::specs::{
 use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{
-    Frame, FrameRef,
-    meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
-};
+use crate::mm::frame::{meta::REF_COUNT_UNUSED, Frame, FrameRef};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::{
@@ -833,12 +830,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         &&& old(regions).slot_owners[i].usage is PageTable
                             ==> final(regions).slot_owners[i].paths_in_pt == old(regions).slot_owners[i].paths_in_pt
                     }
-                // slots keys preserved (alloc removes then borrow re-inserts).
-                &&& forall|i: int| old(regions).slots.contains_key(i)
-                    ==> (#[trigger] final(regions).slots.contains_key(i))
-                // The new PT node's ref_count is not UNUSED.
-                &&& final(regions).slot_owners[meta_to_index(final(owner).value().node().slot_vaddr())]
-                    .ref_count() != REF_COUNT_UNUSED
+                &&& MetaSlot::get_from_unused_owner_spec(false,
+                    final(regions).slot_owner(final(owner).value().meta_slot_paddr()->0))
                 // The allocated slot had ref_count == UNUSED before allocation.
                 &&& old(regions).slot_owners[meta_to_index(final(owner).value().node().slot_vaddr())]
                     .ref_count() == REF_COUNT_UNUSED
@@ -938,41 +931,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let ghost new_owner_meta_addr = new_owner.value().node().slot_vaddr();
 
         proof {
-            broadcast use crate::specs::mm::frame::mapping::lemma_frame_to_index_injective;
-            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-            broadcast use group_page_meta;
-
-            let new_idx = meta_to_index(new_owner_meta_addr);
-            let new_paddr = meta_to_frame(new_owner_meta_addr);
-            let nr_pages = page_size::<PagingConsts>(level) / PAGE_SIZE;
-            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(owner.value());
-            lemma_page_size_div_mul_eq::<PagingConsts>(level);
-
-            assert forall|j: usize|
-                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                0 < j < nr_pages implies {
-                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                &&& regions.slots.contains_key(sub_idx)
-                &&& regions.slot_owners[sub_idx].usage
-                    != crate::specs::mm::frame::meta_owners::PageUsage::PageTable
-                &&& regions.slot_owners[sub_idx].usage
-                    != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
-                    &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                    &&& regions.ref_count(sub_idx) > 0
-                    &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
-                }
-            } by {
-                lemma_mod_multiples_vanish(j as int, pa as int, PAGE_SIZE as int);
-                regions.lemma_contains_valid_frame_paddr((pa + j * PAGE_SIZE) as Paddr);
-                crate::specs::mm::frame::meta_owners::axiom_mmio_paddr_huge_page_closed(
-                    pa,
-                    page_size::<PagingConsts>(level),
-                    (j * PAGE_SIZE) as usize,
-                );
-            };
-        }
-
-        proof {
             C::lemma_paging_consts_properties();
             C::axiom_current_paging_consts_hardcoded();
             assert(nr_subpage_per_huge_spec::<C>() == NR_ENTRIES);
@@ -1069,34 +1027,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
                         &&& new_owner.children()[j].unwrap().value().is_frame()
                     },
-                // Sub-page slots (4KB-grained, j > 0): slots.contains_key is unconditional;
-                // rc constraints apply only to non-MMIO sub-pages (MMIO sub-pages keep
-                // `usage == MMIO` and `rc == UNUSED`).
-                forall|j: usize|
-                    #![trigger frame_to_index(
-                    (pa + j * PAGE_SIZE) as usize)]
-                    0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE ==> {
-                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        &&& regions.slots.contains_key(sub_idx)
-                        &&& regions.slot_owners[sub_idx].usage !is PageTable
-                        &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                            &&& regions.ref_count(sub_idx) > 0
-                            &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
-                        }
-                    },
-                regions.slots.contains_key(frame_to_index(pa)),
-                regions.slot_owner(pa).usage !is PageTable,
-                regions.slot_owner(pa).usage !is MMIO ==> {
-                    &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
-                    &&& 0 < regions.slot_owner(pa).ref_count() <= REF_COUNT_MAX
-                },
                 new_page.ptr.addr() == new_owner_meta_addr,
                 new_owner.value().node().metaregion_sound_node(*regions),
-                regions.slot_owners[meta_to_index(new_owner_meta_addr)].ref_count()
-                    != REF_COUNT_UNUSED,
-                0 < regions.slot_owners[meta_to_index(new_owner_meta_addr)].ref_count()
-                    <= REF_COUNT_MAX,
+                MetaSlot::get_from_unused_owner_spec(
+                    false,
+                    regions.slot_owners[meta_to_index(new_owner_meta_addr)],
+                ),
+                old(regions).slot_owners[meta_to_index(new_owner_meta_addr)].ref_count()
+                    == REF_COUNT_UNUSED,
                 regions.slot_owners[meta_to_index(new_owner_meta_addr)].paths_in_pt.is_empty(),
         {
             proof {
@@ -1128,93 +1066,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let ghost new_owner_child_before_update = *new_owner_child;
 
             proof {
-                let idx = frame_to_index(small_pa);
-                let big_j = if i != 0 {
-                    lemma_split_sub_page_big_j(pa, level, i)
-                } else {
-                    0usize
-                };
-                if level - 1 > 1 {
-                    let nr_subpages = page_size::<PagingConsts>((level - 1) as PagingLevel)
-                        / PAGE_SIZE;
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
-                        PagingConsts,
-                    >((level - 1) as PagingLevel);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
-                        PagingConsts,
-                    >(level);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_next::<
-                        PagingConsts,
-                    >((level - 1) as PagingLevel);
-                    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-                    assert forall|j_prime: usize|
-                        #![trigger frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize)]
-                        0 < j_prime < nr_subpages implies {
-                        let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
-                        &&& regions.slots.contains_key(sub_idx)
-                        &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                            &&& regions.ref_count(sub_idx) > 0
-                            &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
-                        }
-                    } by {
-                        let sub_pages_per_subframe = page_size::<PagingConsts>(
-                            (level - 1) as PagingLevel,
-                        ) / PAGE_SIZE;
-                        let big_j_int: int = i * sub_pages_per_subframe + j_prime;
-                        vstd::arithmetic::mul::lemma_mul_nonnegative(
-                            i as int,
-                            sub_pages_per_subframe as int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_inequality(
-                            i + 1,
-                            NR_ENTRIES as int,
-                            sub_pages_per_subframe as int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            sub_pages_per_subframe as int,
-                            i as int,
-                            1int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_is_associative(
-                            NR_ENTRIES as int,
-                            sub_pages_per_subframe as int,
-                            PAGE_SIZE as int,
-                        );
-                        vstd::arithmetic::div_mod::lemma_div_by_multiple(
-                            NR_ENTRIES * sub_pages_per_subframe,
-                            PAGE_SIZE as int,
-                        );
-                        let big_j: usize = big_j_int as usize;
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            PAGE_SIZE as int,
-                            i * sub_pages_per_subframe,
-                            j_prime as int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_is_associative(
-                            i as int,
-                            sub_pages_per_subframe as int,
-                            PAGE_SIZE as int,
-                        );
-                        assert((small_pa + j_prime * PAGE_SIZE) as usize == (pa + big_j
-                            * PAGE_SIZE) as usize);
-                        assert(regions.slots.contains_key(
-                            frame_to_index((pa + big_j * PAGE_SIZE) as usize),
-                        ));
-                    }
-                }
-                if i == 0 {
-                    assert(i * page_size::<PagingConsts>((level - 1) as PagingLevel) == 0) by {
-                        vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
-                            page_size::<PagingConsts>((level - 1) as PagingLevel) as int,
-                        );
-                    }
-                } else {
-                    assert(regions.slots.contains_key(
-                        frame_to_index((pa + big_j * PAGE_SIZE) as usize),
-                    ));
-                }
+                broadcast use axiom_mmio_usage_iff_mmio_paddr;
 
+                EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(owner.value());
+                lemma_page_size_spec_values();
+                axiom_mmio_paddr_huge_page_closed(
+                    pa,
+                    page_size::<PagingConsts>(level),
+                    (small_pa - pa) as usize,
+                );
                 regions.lemma_contains_valid_frame_paddr(small_pa);
                 let ghost regions_before_path_insert = *regions;
                 let tracked mut small_slot = regions.tracked_borrow_mut_slot_owner(small_pa);
