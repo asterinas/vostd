@@ -2155,9 +2155,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         };
 
         proof {
-            // Restore the parent's `count_consistent`: slot `idx` went
-            // absent → present (the new frame) and `nr_children` was
-            // incremented by 1.
             crate::specs::mm::page_table::node::owners::lemma_count_present_upto_update(
                 cp0,
                 NR_ENTRIES as int,
