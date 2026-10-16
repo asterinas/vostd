@@ -685,20 +685,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
 
             proof {
-                // For `final(owner).inv()`'s `child.level == self.level + 1`:
-                // the grafted children carry `new_node_owner.level + 1`, and
-                // `owner.level` is unchanged. The fresh node's depth equals
-                // `owner.level` (from `allocated_empty_node_owner` + the
-                // `owner.level + parent_owner.level == INC_LEVELS` precond), so
-                // the grafted children's levels line up with `owner.level + 1`.
                 let tracked new_node_value = new_node_owner.tracked_borrow_mut_value();
                 new_node_value.parent_level = level as PagingLevel;
                 new_node_value.path = old_path;
                 *owner = new_node_owner;
-                // Rebase children's paths from `[i]` (rooted at empty) onto
-                // the cursor path `old_path` so `pt_edge_at`'s
-                // `child.path == parent.path.push_tail(i)` holds.
-                assert(owner.children() == fresh_children);
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (
                 #[trigger] owner.children()[i]) is Some by {};
                 crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
@@ -716,9 +706,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
                 new_meta_slot.paths_in_pt = set![owner.value().path];
 
-                // Restore the parent's `count_consistent`: the slot at `self.idx`
-                // went absent → present (the new PT node) and `nr_children` was
-                // incremented by 1.
                 crate::specs::mm::page_table::node::owners::lemma_count_present_upto_update(
                     cp0,
                     NR_ENTRIES as int,
@@ -726,14 +713,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     self.pte,
                 );
 
-                // Discharge the region-preservation + fresh-node
-                // `subtree_satisfies` conjuncts of the big `is_absent` ensures
-                // block.
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-                // `subtree_satisfies` over the fresh node: each predicate
-                // holds at the node root and trivially at the absent children
-                // (which have `None` grandchildren), via
-                // `fresh_node_subtree_satisfies`.
 
                 let ghost new_node_addr = owner.value().node().slot_vaddr();
                 let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
