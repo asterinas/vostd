@@ -621,9 +621,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ));
                     assert(!new_node_owner.child(i).has_child(j));
                 };
-            }
-
-            proof {
                 assert forall|i: int| 0 <= i < NR_ENTRIES implies (
                 #[trigger] fresh_children[i]) is Some by {
                     assert(crate::specs::mm::page_table::allocated_empty_node_owner(
@@ -632,9 +629,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ));
                     assert(new_node_owner.has_child(i));
                 };
-            }
-
-            proof {
                 let pte = C::E::new_pt_spec(
                     meta_to_frame(new_node_owner.value().node().slot_vaddr()),
                 );
@@ -737,9 +731,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     owner.value().path,
                     f_pt,
                 );
-            }
-
-            proof {
                 let pt = PageTableOwner(*owner);
                 pt.lemma_view_rec_contains(old_path);
                 assert forall|m: crate::specs::mm::page_table::Mapping|
