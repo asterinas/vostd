@@ -846,8 +846,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let end = self.va + len;
 
-        let ghost barrier_va = self.barrier_va;
-
         let rcu_guard = self.rcu_guard;
 
         proof {
@@ -871,8 +869,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 end % PAGE_SIZE == 0,
                 end <= self.barrier_va.end,
                 !old(self).find_next_panic_condition(len),
-                self.barrier_va == barrier_va,
-                barrier_va == old(self).barrier_va,
+                self.barrier_va == old(self).barrier_va,
                 self.guard_level == old(self).guard_level,
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
