@@ -899,12 +899,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let ghost cursor0 = *self;
             let ghost baseline_view = CursorView { cur_va: owner0.va, ..old(owner)@ };
             proof {
-                assert(baseline_view.inv());
                 lemma_page_size_ge_base::<PagingConsts>(owner0.level);
                 baseline_view.lemma_split_while_huge_preserves_cur_va(
                     page_size::<PagingConsts>(owner0.level),
                 );
-                owner0.lemma_split_while_huge_at_level_noop();
             }
 
             let cur_va = self.va;
@@ -939,8 +937,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let ghost regions_before_ref = *regions;
 
             let cur_child = {
-                let tracked child_value = child_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(child_value), Tracked(&node_owner), Tracked(regions))]
+                #[verus_spec(with Tracked(child_owner.tracked_borrow_value()), Tracked(&node_owner), Tracked(regions))]
                 cur_entry.to_ref()
             };
 
