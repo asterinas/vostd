@@ -621,17 +621,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ));
                     assert(!new_node_owner.child(i).has_child(j));
                 };
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies (
-                #[trigger] fresh_children[i]) is Some by {
-                    assert(crate::specs::mm::page_table::allocated_empty_node_owner(
-                        new_node_owner,
-                        (level - 1) as PagingLevel,
-                    ));
-                    assert(new_node_owner.has_child(i));
-                };
-                let pte = C::E::new_pt_spec(
-                    meta_to_frame(new_node_owner.value().node().slot_vaddr()),
-                );
                 C::E::lemma_page_table_entry_properties();
             }
 
