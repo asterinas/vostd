@@ -3214,13 +3214,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// ## Safety
     /// - It is safe to call this function, but depending on the details of `op`, it may be necessary
     ///   to flush the TLB afterward. We do not model the behavior of `op`.
-    ///
-    /// Note: a previous version of this function had a postcondition asserting that the
-    /// modified frame's mapping appears in `owner@.mappings` with the new property. That
-    /// postcondition was structurally inconsistent with the split case (when find_next_impl
-    /// splits a huge mapping, the resulting cursor frame is a sub-mapping NOT in the original
-    /// `old(owner)@.mappings`), so it has been removed. A correct postcondition would
-    /// reference `old(owner)@.split_while_huge(...).mappings` rather than `old(owner)@.mappings`.
     #[verifier::rlimit(200)]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
