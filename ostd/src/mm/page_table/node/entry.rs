@@ -8,12 +8,9 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::{frame_to_index, meta_to_index},
-            meta_owners::{axiom_mmio_paddr_huge_page_closed, axiom_mmio_usage_iff_mmio_paddr},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{
-            INC_LEVELS, PageTableOwner, cursor::page_size_lemmas::lemma_page_size_spec_values,
-        },
+        page_table::{PageTableOwner, INC_LEVELS},
     },
     task::InAtomicMode,
 };
@@ -21,7 +18,7 @@ use crate::specs::{
 use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
+use crate::mm::frame::{meta::REF_COUNT_UNUSED, Frame, FrameRef};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::{
@@ -413,10 +410,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         proof {
             // Install new entry's path into its slot's paths_in_pt.
             // Nodes: singleton overwrite (tree enforces unique node path).
-            // Frames: their path is installed by the caller BEFORE calling replace,
-            //   so that `new_child.invariants` — which now requires
-            //   `paths_in_pt.contains(new.path)` for the frame arm — is satisfied on
-            //   entry. See the huge-page split and `replace_cur_entry` caller sites.
+            // Callers register tracked frame paths before replacement.
+            // Untracked physical mappings carry no counted ownership path.
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.lemma_contains_valid_frame_paddr(paddr);
@@ -461,9 +456,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 *regions,
             )) by {
                 let f = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.meta_slot_paddr_neq(initial_owner) && entry.meta_slot_paddr_neq(
-                        *new_owner,
-                    ) && entry.metaregion_sound(initial_regions);
+                    entry.owned_meta_slot_paddr_neq(initial_owner)
+                        && entry.owned_meta_slot_paddr_neq(*new_owner) && entry.metaregion_sound(
+                        initial_regions,
+                    );
                 let g = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.metaregion_sound(*regions);
                 assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -683,6 +679,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     self.pte,
                 );
 
+                // The allocator's non-MMIO slot had no ownership path while UNUSED.
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
                 let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(
@@ -819,23 +816,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i)
                 && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
-            // Allocation preserves permissions; splitting may add paths to data-frame slots.
-            old(owner).value().is_frame() && old(parent_owner).level() > 1 ==> {
-                &&& forall|i: int| i != meta_to_index(final(owner).value().node().slot_vaddr()) ==>
-                    {
-                        &&& (#[trigger] final(regions).slot_owners[i]).same_permissions(old(regions).slot_owners[i])
-                        &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
-                        &&& final(regions).slot_owners[i].slot_vaddr == old(regions).slot_owners[i].slot_vaddr
-                        &&& old(regions).slot_owners[i].paths_in_pt.subset_of(final(regions).slot_owners[i].paths_in_pt)
-                        &&& old(regions).slot_owners[i].usage is PageTable
-                            ==> final(regions).slot_owners[i].paths_in_pt == old(regions).slot_owners[i].paths_in_pt
-                    }
-                &&& MetaSlot::get_from_unused_owner_spec(false,
-                    final(regions).slot_owner(final(owner).value().meta_slot_paddr()->0))
-                // The allocated slot had ref_count == UNUSED before allocation.
-                &&& old(regions).slot_owners[meta_to_index(final(owner).value().node().slot_vaddr())]
-                    .ref_count() == REF_COUNT_UNUSED
-            },
+            old(owner).value().is_frame() && old(parent_owner).level() > 1 ==>
+                MetaSlot::claim_unused_slot_region_spec(
+                    final(owner).value().meta_slot_paddr()->0,
+                    false, *old(regions), *final(regions)),
             // Parent's other PTEs are preserved: only the entry at self.idx
             // is overwritten (with the new PT pointer). Lets callers re-derive
             // `inv_children_rel` for the unchanged children when restoring the
@@ -964,23 +948,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa % page_size::<PagingConsts>(level) == 0,
                 pa + page_size::<PagingConsts>(level) <= MAX_PADDR,
                 regions.inv(),
-                regions.slots == old(regions).slots,
-                forall|k: int|
-                    #![trigger regions.slot_owners[k]]
-                    k != meta_to_index(new_owner_meta_addr) ==> {
-                        &&& regions.slot_owners[k].same_permissions(old(regions).slot_owners[k])
-                        &&& regions.slot_owners[k].usage == old(regions).slot_owners[k].usage
-                        &&& regions.slot_owners[k].slot_vaddr == old(
-                            regions,
-                        ).slot_owners[k].slot_vaddr
-                        &&& old(regions).slot_owners[k].paths_in_pt.subset_of(
-                            regions.slot_owners[k].paths_in_pt,
-                        )
-                        &&& old(regions).slot_owners[k].usage is PageTable
-                            ==> regions.slot_owners[k].paths_in_pt == old(
-                            regions,
-                        ).slot_owners[k].paths_in_pt
-                    },
+                MetaSlot::claim_unused_slot_region_spec(
+                    meta_to_frame(new_owner_meta_addr),
+                    false,
+                    *old(regions),
+                    *regions,
+                ),
                 crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(new_owner),
                 forall|j: int|
                     0 <= j < i ==> #[trigger] new_owner.child(j).value().metaregion_sound(*regions),
@@ -1029,12 +1002,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     },
                 new_page.ptr.addr() == new_owner_meta_addr,
                 new_owner.value().node().metaregion_sound_node(*regions),
-                MetaSlot::get_from_unused_owner_spec(
-                    false,
-                    regions.slot_owners[meta_to_index(new_owner_meta_addr)],
-                ),
-                old(regions).slot_owners[meta_to_index(new_owner_meta_addr)].ref_count()
-                    == REF_COUNT_UNUSED,
                 regions.slot_owners[meta_to_index(new_owner_meta_addr)].paths_in_pt.is_empty(),
         {
             proof {
@@ -1066,30 +1033,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let ghost new_owner_child_before_update = *new_owner_child;
 
             proof {
-                broadcast use axiom_mmio_usage_iff_mmio_paddr;
-
-                EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(owner.value());
-                lemma_page_size_spec_values();
-                axiom_mmio_paddr_huge_page_closed(
-                    pa,
-                    page_size::<PagingConsts>(level),
-                    (small_pa - pa) as usize,
-                );
-                regions.lemma_contains_valid_frame_paddr(small_pa);
-                let ghost regions_before_path_insert = *regions;
-                let tracked mut small_slot = regions.tracked_borrow_mut_slot_owner(small_pa);
-                small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
-                assert forall|j: int| 0 <= j < i implies #[trigger] new_owner_before_update.child(
-                    j,
-                ).value().metaregion_sound(*regions) by {
-                    new_owner_before_update.child(
-                        j,
-                    ).value().lemma_metaregion_sound_frame_paths_changed(
-                        regions_before_path_insert,
-                        *regions,
-                    );
-                };
-
                 C::lemma_raw_item_well_formed_split(
                     pa,
                     level,
@@ -1098,7 +1041,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     i,
                     Tracked(owner.value().frame_permission()),
                 );
-                C::lemma_none_perm_well_formed(small_pa, *regions);
+                child_owner.lemma_untracked_frame_metaregion_sound(*regions);
             }
 
             {
@@ -1665,9 +1608,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *regions,
             )) by {
                 let f = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.meta_slot_paddr_neq(initial_owner) && entry.meta_slot_paddr_neq(
-                        *new_owner,
-                    ) && entry.metaregion_sound(initial_regions);
+                    entry.owned_meta_slot_paddr_neq(initial_owner)
+                        && entry.owned_meta_slot_paddr_neq(*new_owner) && entry.metaregion_sound(
+                        initial_regions,
+                    );
                 let g = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.metaregion_sound(*regions);
                 assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -1911,9 +1855,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             regions.lemma_contains_valid_frame_paddr(new_paddr);
             let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
             new_meta_slot.paths_in_pt = set![owner.value().path];
-            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
             let ghost new_node_addr = owner.value().node().slot_vaddr();
+            // The allocator's non-MMIO slot had no ownership path while UNUSED.
+            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
+
             let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
             let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
             let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);

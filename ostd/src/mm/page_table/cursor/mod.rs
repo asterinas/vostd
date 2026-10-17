@@ -36,7 +36,7 @@ use vstd_extra::{
 use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
-        meta_owners::{FracMetadataPerm, MetaSlotOwner, PageUsage, is_mmio_paddr},
+        meta_owners::{FracMetadataPerm, MetaSlotOwner},
         meta_region_owners::MetaRegionOwners,
     },
     page_table::{
@@ -45,16 +45,16 @@ use crate::specs::mm::{
 };
 
 use super::{
-    Child, ChildRef, Entry, EntryOwner, PageTable, PageTableConfig, PageTableError, PageTableGuard,
-    PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
+    pte_index, Child, ChildRef, Entry, EntryOwner, PageTable, PageTableConfig, PageTableError,
+    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel,
 };
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::{
-    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
+    mapping::frame_to_meta, META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
 };
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
+use crate::mm::{page_size, Paddr, Vaddr, MAX_PADDR};
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
     specs::task::InAtomicMode,
@@ -389,6 +389,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.barrier_va == old(self).barrier_va,
                 old(owner)@.mappings == owner@.mappings,
                 old(owner)@.cur_va == owner@.cur_va,
+                PageTableOwner(owner.cur_subtree()).query_leaf(self.va)
+                    == PageTableOwner(old(owner).cur_subtree()).query_leaf(old(self).va),
                 forall|i: int|
                     #![trigger regions.slot_owners[i]]
                     old(regions).contains(i)
@@ -508,17 +510,33 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.push_level(guard);
 
+                    proof {
+                        assert(PageTableOwner(owner_before_push.cur_subtree()).query_leaf(cur_va)
+                            == PageTableOwner(owner.cur_subtree()).query_leaf(cur_va)) by {
+                            reveal(PageTableOwner::query_leaf);
+                            owner_before_push.lemma_cur_subtree_inv();
+                            assert(owner_before_push.cur_subtree().has_child(
+                                pte_index_spec::<C>(cur_va, (level - 1) as PagingLevel) as int,
+                            ));
+                        };
+                    }
                     continue;
                 },
                 ChildRef::None => {
                     proof {
                         owner.lemma_cur_entry_absent_not_present();
+                        reveal(PageTableOwner::query_leaf);
                     }
                     None
                 },
                 ChildRef::Frame(pa, ch_level, prop) => {
                     proof {
                         owner.lemma_cur_entry_frame_present();
+                        assert(PageTableOwner(owner.cur_subtree()).query_leaf(cur_va) == Some(
+                            owner.cur_entry_owner(),
+                        )) by {
+                            reveal(PageTableOwner::query_leaf);
+                        };
                     }
                     let ghost owner_before_permission_take = *owner;
                     let ghost continuation_before_permission_take = owner.continuations[owner.level
@@ -564,11 +582,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(old(regions).contains(idx));
                         if C::item_into_raw(item).3@ is Some && regions.ref_count(idx)
                             >= REF_COUNT_MAX {
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner_before_permission_take.cur_entry_owner(),
-                            );
-                            // Relate the resolved frame to the query's initial panic condition.
-                            assert(old(owner)@.query_mapping().pa_range.start == pa);
+                            // The descent preserves the resolved leaf and its counted permission.
                             assert(regions.contains(idx));
                             assert(old(regions).contains(idx));
                             assert(old(regions).ref_count(idx) == regions.ref_count(idx));
@@ -585,17 +599,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(regions), Ghost(pa))]
                     let cloned = Self::clone_item(&item);
 
-                    proof {
-                        let idx = frame_to_index(pa);
-                        if C::item_into_raw(item).3@ is Some {
-                            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner_before_permission_take.cur_entry_owner(),
-                            );
-                        }
-                    }
-
                     let (_pa, _level, _prop, Tracked(restored_permission)) = C::item_into_raw(item);
                     proof {
                         let tracked child_value = child_owner.tracked_borrow_mut_value();
@@ -606,18 +609,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         let idx = frame_to_index(pa);
-                        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
                         if C::item_into_raw(item).3@ is Some {
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner(),
-                            );
                             owner.lemma_clone_item_preserves_invariants(old_regions, *regions, idx);
-                        }
-                        if C::item_into_raw(item).3@ is None {
-                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner(),
-                            );
                         }
                     }
 
@@ -2825,31 +2819,25 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let ghost pa_idx_install = frame_to_index(pa);
             let ghost new_frame_path = new_owner.value().path;
-            let tracked pa_slot_install = regions.tracked_borrow_mut_slot_owner(pa);
-            pa_slot_install.paths_in_pt = pa_slot_install.paths_in_pt.insert(new_frame_path);
+            if raw_permission is Some {
+                let tracked pa_slot_install = regions.tracked_borrow_mut_slot_owner(pa);
+                pa_slot_install.paths_in_pt = pa_slot_install.paths_in_pt.insert(new_frame_path);
 
-            owner1.no_node_at_idx_from_slot_key(regions_before_new_child, pa_idx_install);
-            owner1.metaregion_preserved_under_path_insert(
-                regions_before_new_child,
-                *regions,
-                pa_idx_install,
-                new_frame_path,
-            );
+                owner1.no_node_at_idx_from_slot_key(regions_before_new_child, pa_idx_install);
+                owner1.metaregion_preserved_under_path_insert(
+                    regions_before_new_child,
+                    *regions,
+                    pa_idx_install,
+                    new_frame_path,
+                );
 
+            }
             C::lemma_perm_well_formed_with_region_preserved(
                 pa,
                 Tracked(raw_permission),
                 regions_before_new_child,
                 *regions,
             );
-
-            assert(new_owner.value().metaregion_sound(*regions)) by {
-                reveal(MetaSlotOwner::storage_perm);
-                reveal(MetaSlotOwner::vtable_ptr_perm);
-                broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
-                EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(new_owner.value());
-            };
 
             assert(regions.inv()) by {
                 assert forall|i: int| #[trigger] regions.slots.contains_key(i) implies {
@@ -2864,6 +2852,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     reveal(MetaSlotOwner::vtable_ptr_perm);
                 };
             };
+            regions.lemma_contains_valid_frame_paddr(pa);
+            if raw_permission is None {
+                new_owner.value().lemma_untracked_frame_metaregion_sound(*regions);
+            }
+            assert(new_owner.value().metaregion_sound(*regions));
         }
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
@@ -2887,10 +2880,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         proof {
             let ghost pa_idx2 = frame_to_index(C::item_into_raw(item).0);
+            assert(old(regions).inv());
+            assert(regions.inv());
 
             assert forall|idx: int| old(regions).contains(idx) implies #[trigger] regions.contains(
                 idx,
-            ) by {};
+            ) by {
+                reveal(<MetaRegionOwners as Inv>::inv);
+                assert(old(regions).slot_owners.contains_key(idx));
+                assert(regions.slot_owners.contains_key(idx));
+                assert(regions.slots.contains_key(idx));
+            };
         }
 
         if let Some(frag) = frag {
@@ -3149,23 +3149,27 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(regions_pre_remove.slots.contains_key(removed_idx)) by {
                     reveal(<MetaRegionOwners as Inv>::inv);
                 };
-                let tracked mut so_rm = regions.tracked_borrow_mut_slot_owner(
-                    cur_st.value().frame().mapped_pa,
-                );
-                so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
+                if cur_st.value().frame_is_tracked() {
+                    let tracked mut so_rm = regions.tracked_borrow_mut_slot_owner(
+                        cur_st.value().frame().mapped_pa,
+                    );
+                    so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
+                }
                 let ghost owner_final = *owner;
                 let ghost obr_subtree = PageTableOwner(
                     owner_before_replace.cur_subtree(),
                 )@.mappings;
                 assert(owner_final@.mappings == owner_before_replace@.mappings - obr_subtree);
-                owner_final.take_next_remove_path_preserves_metaregion(
-                    owner_before_replace,
-                    regions_pre_remove,
-                    *regions,
-                    removed_idx,
-                    removed_path,
-                    target,
-                );
+                if cur_st.value().frame_is_tracked() {
+                    owner_final.take_next_remove_path_preserves_metaregion(
+                        owner_before_replace,
+                        regions_pre_remove,
+                        *regions,
+                        removed_idx,
+                        removed_path,
+                        target,
+                    );
+                }
                 assert(regions.inv()) by {
                     reveal(<MetaRegionOwners as Inv>::inv);
                 };
@@ -3269,8 +3273,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///   with the owner in the locked range and not `popped_too_high`.
     /// - **New entry validity**: `new_owner` must be a valid ownership subtree at the
     ///   correct tree level and path, with `new_child.wf(new_owner.value)`.
-    /// - **Disjointness**: every existing entry in the cursor's tree must have a
-    ///   different physical metadata address than `new_owner.value`.
     /// - **Region tracking**: `new_owner.value` must already satisfy `metaregion_sound`.
     /// ## Postconditions
     /// - **Safety Invariants**: the global safety invariants hold after the call.
@@ -3483,7 +3485,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let idx = cont0.idx as int;
 
             let f_neq_old = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.meta_slot_paddr_neq(old_child_pre_replace);
+                entry.owned_meta_slot_paddr_neq(old_child_pre_replace);
             let f_sound = PageTableOwner::<C>::metaregion_sound_pred(regions0);
             let g_sound = PageTableOwner::<C>::metaregion_sound_pred(*regions);
             let f_unlocked = CursorOwner::node_unlocked(guards_initial);

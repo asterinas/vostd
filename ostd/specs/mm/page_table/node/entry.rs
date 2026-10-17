@@ -48,7 +48,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let idx = frame_to_index(new_child.meta_slot_paddr()->0);
         assert forall|entry: EntryOwner<C>|
-            entry.inv() && entry.meta_slot_paddr_neq(new_child) && entry.metaregion_sound(
+            entry.inv() && entry.owned_meta_slot_paddr_neq(new_child) && entry.metaregion_sound(
                 r0,
             ) implies #[trigger] entry.metaregion_sound(r1) by {
             let intermediate = r0.insert_slot_owner(
@@ -111,17 +111,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         OwnerSubtree::implies(
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.meta_slot_paddr_neq(old_entry_owner) && entry.meta_slot_paddr_neq(
+                entry.owned_meta_slot_paddr_neq(old_entry_owner) && entry.owned_meta_slot_paddr_neq(
                     new_entry_owner,
                 ) && entry.metaregion_sound(regions0),
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions1),
         )
     }
 
-    /// When the new child is NOT a node, `into_pte` doesn't modify `raw_count`.
-    /// Only `paths_in_pt` changes at `new_idx`, which `metaregion_sound` doesn't inspect.
-    /// So entries with `paddr_neq(old_child)` preserve `metaregion_sound` — no
-    /// `paddr_neq(new_child)` needed.
+    /// Preservation for entries whose counted slot is disjoint from the old entry.
+    /// Untracked physical aliases impose no counted-metadata exclusion.
     pub open spec fn metaregion_sound_neq_old_preserved(
         old_entry_owner: EntryOwner<C>,
         regions0: MetaRegionOwners,
@@ -129,7 +127,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         OwnerSubtree::implies(
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.meta_slot_paddr_neq(old_entry_owner) && entry.metaregion_sound(regions0),
+                entry.owned_meta_slot_paddr_neq(old_entry_owner) && entry.metaregion_sound(
+                    regions0,
+                ),
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions1),
         )
     }
@@ -137,8 +137,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// When `alloc_if_none` allocates a new node from an absent slot, all existing entries'
     /// `metaregion_sound` is preserved in the new regions.
     ///
-    /// Justification: `metaregion_sound_neq_preserved` gives preservation for entries whose paddr
-    /// differs from both old_child and new_child. Old_child is absent (paddr_neq trivially true).
+    /// Counted entries cannot occupy the newly claimed unused slot, and raw
+    /// physical aliases impose no counted-metadata exclusion.
     pub proof fn alloc_if_none_metaregion_sound_preserved(
         old_child: EntryOwner<C>,
         new_child: EntryOwner<C>,
@@ -152,16 +152,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             regions0.inv(),
             regions0.contains(frame_to_index(new_child.meta_slot_paddr()->0)),
             regions0.slot_owner(new_child.meta_slot_paddr()->0).ref_count() == REF_COUNT_UNUSED,
-            // Allocator-pool / MMIO disjointness: the freshly-allocated node's
-            // paddr is non-MMIO. Rules out an MMIO-frame entry sitting at the
-            // same idx as the new node (delivered by `PageTableNode::alloc`).
-            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(new_child.meta_slot_paddr()->0),
             Self::metaregion_sound_neq_preserved(old_child, new_child, regions0, regions1),
         ensures
             Self::metaregion_sound_preserved(regions0, regions1),
     {
-        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
         let new_idx = frame_to_index(new_child.meta_slot_paddr().unwrap());
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);

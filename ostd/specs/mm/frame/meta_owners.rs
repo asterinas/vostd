@@ -10,15 +10,15 @@ use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners:
 
 use super::*;
 use crate::mm::{
-    Paddr, PagingLevel, Vaddr,
     frame::{
-        AnyFrameMeta,
         meta::{
-            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-            mapping::meta_to_frame,
+            mapping::meta_to_frame, MetaSlot, META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED,
         },
+        AnyFrameMeta,
     },
     kspace::FRAME_METADATA_RANGE,
+    Paddr, PagingLevel, Vaddr,
 };
 
 verus! {
@@ -68,20 +68,6 @@ pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
         (#[trigger] slot.usage == PageUsage::MMIO) <==> is_mmio_paddr(
             meta_to_frame(slot.slot_vaddr),
         ),
-;
-
-/// MMIO ranges are aligned to (and closed under) huge-page granularities:
-/// every sub-paddr within a huge frame inherits the huge frame's MMIO-ness.
-/// This is a hardware-layout convention — MMIO BARs are mapped at huge-page
-/// boundaries, and the verified `split_if_mapped_huge` relies on it to
-/// transfer MMIO-ness from a huge frame to its 4KB sub-pages. Non-broadcast:
-/// callers invoke this explicitly with the relevant `page_size`.
-pub axiom fn axiom_mmio_paddr_huge_page_closed(pa: Paddr, page_size: usize, offset: usize)
-    requires
-        pa % page_size == 0,
-        offset < page_size,
-    ensures
-        is_mmio_paddr((pa + offset) as Paddr) == is_mmio_paddr(pa),
 ;
 
 pub struct StoredPageTablePageMeta {
@@ -175,8 +161,8 @@ pub tracked struct MetaSlotOwner {
     pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
-    /// location the frame is currently mapped — allowing a single frame to be
-    /// mapped at multiple addresses.
+    /// counted mapping of the frame. Untracked physical mappings do not
+    /// register ownership paths.
     pub ghost paths_in_pt: Set<TreePath<NR_ENTRIES>>,
 }
 
@@ -275,9 +261,7 @@ impl Inv for MetaSlotOwner {
             &&& self.metadata_perm.is_full()
             &&& self.storage_perm().is_uninit()
             &&& self.vtable_ptr_perm().is_uninit()
-            &&& self.in_list_perm.value()
-                == 0
-            // A managed slot at `REF_COUNT_UNUSED` has no live PTE mapping.
+            &&& self.in_list_perm.value() == 0
             &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
         }
         &&& self.ref_count() == REF_COUNT_UNIQUE ==> {

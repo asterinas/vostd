@@ -27,14 +27,14 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
-            lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
-            lemma_page_size_ge_base, lemma_page_size_is_pow2_pte_index_bit_offset,
-            lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
+            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
+            lemma_page_size_base, lemma_page_size_divides, lemma_page_size_ge_base,
+            lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_next,
+            lemma_pte_index_bound, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
             owners::*, page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
             vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
-            vaddr_upper_part_spec,
+            vaddr_upper_part_spec, Guards, Mapping,
         },
     },
     task::InAtomicMode,
@@ -42,15 +42,15 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::{
-        Frame,
         meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        Frame,
     },
     nr_subpage_per_huge,
     page_prop::PageProperty,
     page_size,
     page_table::*,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
 };
 use core::{marker::PhantomData, ops::Range};
 
@@ -1041,8 +1041,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// Proves `clone_requires` for the item reconstructed from the current frame entry.
     /// Uses `metaregion_sound` and the config's `lemma_clone_requires_concrete`,
-    /// allowing ref-count saturation when `may_panic()` holds. The proof still
-    /// relies on the existing MMIO-address and frame-trackedness axioms.
+    /// allowing ref-count saturation when `may_panic()` holds, according to
+    /// the counted permission carried by the resolved leaf.
     pub proof fn lemma_cur_frame_clone_requires(
         self,
         item: C::Item,
@@ -1069,11 +1069,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             item.clone_requires(regions),
     {
-        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
-        let entry = self.cur_entry_owner();
-        let idx = frame_to_index(pa);
-        EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
         let cont = self.continuations[self.level - 1];
         cont.lemma_map_children_unroll(
             PageTableOwner::<C>::metaregion_sound_pred(regions),

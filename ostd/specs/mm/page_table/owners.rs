@@ -31,10 +31,10 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     page_size, page_size_spec,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
 };
 use core::ops::{Deref, Range};
 
@@ -515,6 +515,26 @@ pub proof fn lemma_fresh_node_subtree_satisfies<C: PageTableConfig>(
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
+    /// Resolves the actual leaf owner, retaining its tracked/untracked identity.
+    #[verifier::opaque]
+    pub open spec fn query_leaf(self, va: Vaddr) -> Option<EntryOwner<C>>
+        decreases INC_LEVELS - self.0.level(),
+        when self.0.inv()
+    {
+        if self.0.value().is_frame() {
+            Some(self.0.value())
+        } else if self.0.value().is_node() && self.0.level() < INC_LEVELS - 1 {
+            let idx = pte_index_spec::<C>(va, self.0.value().node().level());
+            if 0 <= idx < NR_ENTRIES && self.0.has_child(idx as int) {
+                PageTableOwner(self.0.child(idx as int)).query_leaf(va)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.has_child(i)
@@ -1471,24 +1491,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     e.meta_slot_paddr() is Some ==> frame_to_index(e.meta_slot_paddr()->0)
                         != changed_idx,
             ),
-            subtree.subtree_satisfies(
-                path,
-                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                    e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size::<PagingConsts>(e.parent_level) / PAGE_SIZE;
-                        forall|j: usize|
-                            0 < j < nr_pages ==> {
-                                let sub_idx = #[trigger] frame_to_index(
-                                    (pa + j * PAGE_SIZE) as usize,
-                                );
-                                sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
-                                    && r1.ref_count(sub_idx) != REF_COUNT_UNUSED && r1.ref_count(
-                                    sub_idx,
-                                ) > 0 && r1.ref_count(sub_idx) <= REF_COUNT_MAX)
-                            }
-                    },
-            ),
         ensures
             subtree.subtree_satisfies(path, Self::metaregion_sound_pred(r1)),
         decreases INC_LEVELS - subtree.level(),
@@ -1618,19 +1620,20 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             subtree.subtree_satisfies(
                 path_j,
-                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry),
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.owned_meta_slot_paddr_neq(old_entry),
             ),
         decreases INC_LEVELS - subtree.level(),
     {
         let f_sound = Self::metaregion_sound_pred(regions);
         let f_path = Self::path_correct_pred();
-        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry);
+        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.owned_meta_slot_paddr_neq(old_entry);
 
         assert(g(subtree.value(), path_j)) by {
             assert(f_sound(subtree.value(), path_j));
             assert(f_path(subtree.value(), path_j));
             let entry = subtree.value();
-            if entry.meta_slot_paddr() is Some && entry.meta_slot_paddr()->0
+            if (entry.is_node() || (entry.is_frame() && entry.frame_is_tracked()))
+                && entry.meta_slot_paddr() is Some && entry.meta_slot_paddr()->0
                 == old_entry.meta_slot_paddr()->0 {
                 let idx = frame_to_index(entry.meta_slot_paddr()->0);
                 let old_idx = frame_to_index(old_entry.meta_slot_paddr()->0);
