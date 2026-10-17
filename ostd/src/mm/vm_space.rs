@@ -13,7 +13,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            meta_owners::{FracMetadataPerm, MetaSlotStorage},
+            frame_specs::FrameRawPerms, meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
@@ -1616,7 +1616,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type Item = MappedItem;
 
-    type Perm = (&'static vstd::simple_pptr::PointsTo<MetaSlot>, FracMetadataPerm);
+    type Perm = FrameRawPerms;
 
     open spec fn perm_well_formed_with_region(
         pa: Paddr,
@@ -1626,10 +1626,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         perm@ is Some ==> {
             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
             let frame_perm = perm@->0;
-            &&& frame_perm.0 == regions.slots[idx]
-            &&& frame_perm.1.frac() == 1
-            &&& frame_perm.1.id() == regions.slot_owners[idx].metadata_perm.id()
-            &&& MetaSlot::perms_related(*frame_perm.0, frame_perm.1.resource())
+            &&& frame_perm.slot_perm == regions.slots[idx]
+            &&& frame_perm.metadata_perm.frac() == 1
+            &&& frame_perm.metadata_perm.id() == regions.slot_owners[idx].metadata_perm.id()
+            &&& MetaSlot::perms_related(*frame_perm.slot_perm, frame_perm.metadata_perm.resource())
         }
     }
 
@@ -1646,7 +1646,14 @@ unsafe impl PageTableConfig for UserPtConfig {
             item.frame.start_paddr_spec(),
             1,
             item.prop,
-            Tracked(Some((item.frame.tracked_slot_perm@, item.frame.tracked_metadata_perm@->0))),
+            Tracked(
+                Some(
+                    FrameRawPerms {
+                        slot_perm: item.frame.tracked_slot_perm@,
+                        metadata_perm: item.frame.tracked_metadata_perm@->0,
+                    },
+                ),
+            ),
         )
     }
 
@@ -1658,16 +1665,13 @@ unsafe impl PageTableConfig for UserPtConfig {
         Tracked<Option<Self::Perm>>,
     )) {
         proof_decl! {
-            let tracked frame_permission: FracMetadataPerm;
+            let tracked raw_perm: FrameRawPerms;
         }
         let MappedItem { frame, prop } = item;
-        proof_decl! {
-            let tracked slot_perm = *frame.tracked_slot_perm;
-        }
         let level = frame.map_level();
         let paddr = frame.into_raw();
-        proof_with!(=> Tracked(frame_permission));
-        (paddr, level, prop, Tracked(Some((slot_perm, frame_permission))))
+        proof_with!(=> Tracked(raw_perm));
+        (paddr, level, prop, Tracked(Some(raw_perm)))
     }
 
     open spec fn item_from_raw_spec(
@@ -1684,9 +1688,9 @@ unsafe impl PageTableConfig for UserPtConfig {
                 ),
                 _marker: PhantomData,
                 #[cfg(verus_keep_ghost_body)]
-                tracked_slot_perm: Tracked((perm@->0).0),
+                tracked_slot_perm: Tracked((perm@->0).slot_perm),
                 #[cfg(verus_keep_ghost_body)]
-                tracked_metadata_perm: Tracked(Some((perm@->0).1)),
+                tracked_metadata_perm: Tracked(Some((perm@->0).metadata_perm)),
             },
             prop,
         }
@@ -1699,8 +1703,9 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         Tracked(perm): Tracked<Option<Self::Perm>>,
     ) -> Self::Item {
-        let tracked (slot_perm, frame_permission) = perm.tracked_unwrap();
-        proof_with!(Tracked(slot_perm), Tracked(frame_permission));
+        let tracked raw_perm = perm.tracked_unwrap();
+        // SAFETY: The caller ensures safety.
+        proof_with!(Tracked(raw_perm));
         let frame = unsafe { UFrame::from_raw(paddr) };
         MappedItem { frame, prop }
     }
@@ -1742,10 +1747,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         let (pa, level, _prop, perm) = item;
         &&& level == 1
         &&& perm@ is Some
-        &&& (perm@->0).0.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
-        &&& (perm@->0).0.is_init()
-        &&& (perm@->0).1.frac() == 1
-        &&& MetaSlot::perms_related(*(perm@->0).0, (perm@->0).1.resource())
+        &&& (perm@->0).slot_perm.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
+        &&& (perm@->0).slot_perm.is_init()
+        &&& (perm@->0).metadata_perm.frac() == 1
+        &&& MetaSlot::perms_related(*(perm@->0).slot_perm, (perm@->0).metadata_perm.resource())
     }
 
     proof fn lemma_perm_well_formed_with_region_preserved(
@@ -1754,15 +1759,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
     ) {
-        if perm@ is Some {
-            let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
-            let frame_perm = perm@->0;
-            assert(frame_perm == perm@->0);
-            assert(frame_perm.0 == old_regions.slots[idx]);
-            assert(frame_perm.0 == new_regions.slots[idx]);
-            assert(frame_perm.1.id() == old_regions.slot_owners[idx].metadata_perm.id());
-            assert(frame_perm.1.id() == new_regions.slot_owners[idx].metadata_perm.id());
-        }
     }
 
     proof fn lemma_raw_item_well_formed_preserved(

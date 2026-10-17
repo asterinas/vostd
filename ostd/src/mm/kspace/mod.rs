@@ -41,8 +41,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::group_page_meta,
-            meta_owners::{FracMetadataPerm, MetaSlotStorage},
+            frame_specs::FrameRawPerms, mapping::group_page_meta, meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
@@ -214,7 +213,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     type Item = MappedItem;
 
-    type Perm = (&'static vstd::simple_pptr::PointsTo<MetaSlot>, FracMetadataPerm);
+    type Perm = FrameRawPerms;
 
     open spec fn perm_well_formed_with_region(
         pa: Paddr,
@@ -224,10 +223,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
         perm@ is Some ==> {
             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
             let frame_perm = perm@->0;
-            &&& frame_perm.0 == regions.slots[idx]
-            &&& frame_perm.1.frac() == 1
-            &&& frame_perm.1.id() == regions.slot_owners[idx].metadata_perm.id()
-            &&& MetaSlot::perms_related(*frame_perm.0, frame_perm.1.resource())
+            &&& frame_perm.slot_perm == regions.slots[idx]
+            &&& frame_perm.metadata_perm.frac() == 1
+            &&& frame_perm.metadata_perm.id() == regions.slot_owners[idx].metadata_perm.id()
+            &&& MetaSlot::perms_related(*frame_perm.slot_perm, frame_perm.metadata_perm.resource())
         }
     }
 
@@ -245,7 +244,14 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr()),
                 1,
                 Self::encode_tracked_prop(prop),
-                Tracked(Some((frame.tracked_slot_perm@, frame.tracked_metadata_perm@->0))),
+                Tracked(
+                    Some(
+                        FrameRawPerms {
+                            slot_perm: frame.tracked_slot_perm@,
+                            metadata_perm: frame.tracked_metadata_perm@->0,
+                        },
+                    ),
+                ),
             ),
             MappedItem::Untracked(pa, level, prop) => (
                 pa,
@@ -266,17 +272,14 @@ unsafe impl PageTableConfig for KernelPtConfig {
         match item {
             MappedItem::Tracked(frame, mut prop) => {
                 proof_decl! {
-                    let tracked frame_permission: FracMetadataPerm;
+                    let tracked raw_perm: FrameRawPerms;
                 }
                 debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
                 prop.flags = prop.flags | PageFlags::AVAIL1();
-                proof_decl! {
-                    let tracked slot_perm = *frame.tracked_slot_perm;
-                }
                 let level = frame.map_level();
                 let paddr = frame.into_raw();
-                proof_with!(=> Tracked(frame_permission));
-                (paddr, level, prop, Tracked(Some((slot_perm, frame_permission))))
+                proof_with!(=> Tracked(raw_perm));
+                (paddr, level, prop, Tracked(Some(raw_perm)))
             },
             MappedItem::Untracked(pa, level, mut prop) => {
                 debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
@@ -298,9 +301,9 @@ unsafe impl PageTableConfig for KernelPtConfig {
                     ptr: vstd::simple_pptr::PPtr(mapping::frame_to_meta(paddr), PhantomData),
                     _marker: PhantomData,
                     #[cfg(verus_keep_ghost_body)]
-                    tracked_slot_perm: Tracked((perm@->0).0),
+                    tracked_slot_perm: Tracked((perm@->0).slot_perm),
                     #[cfg(verus_keep_ghost_body)]
-                    tracked_metadata_perm: Tracked(Some((perm@->0).1)),
+                    tracked_metadata_perm: Tracked(Some((perm@->0).metadata_perm)),
                 },
                 Self::decode_tracked_prop(prop),
             )
@@ -321,9 +324,9 @@ unsafe impl PageTableConfig for KernelPtConfig {
             // [KNOWN] BUG FOUND BY FV: forgotting to clean `AVAIL1`. https://github.com/asterinas/vostd/issues/625
             let mut item_prop = prop;
             item_prop.flags = item_prop.flags - PageFlags::AVAIL1();
+            let tracked raw_perm = perm.tracked_unwrap();
             // SAFETY: The caller ensures safety.
-            let tracked (slot_perm, frame_permission) = perm.tracked_unwrap();
-            proof_with!(Tracked(slot_perm), Tracked(frame_permission));
+            proof_with!(Tracked(raw_perm));
             let frame = unsafe { Frame::<MetaSlotStorage>::from_raw(paddr) };
             MappedItem::Tracked(frame, item_prop)
         } else {
@@ -388,10 +391,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
         &&& (prop.flags.contains(PageFlags::AVAIL1()) <==> perm@ is Some)
         &&& prop.flags.contains(PageFlags::AVAIL1()) ==> {
             &&& level == 1
-            &&& (perm@->0).0.addr() == mapping::frame_to_meta(pa)
-            &&& (perm@->0).0.is_init()
-            &&& (perm@->0).1.frac() == 1
-            &&& MetaSlot::perms_related(*(perm@->0).0, (perm@->0).1.resource())
+            &&& (perm@->0).slot_perm.addr() == mapping::frame_to_meta(pa)
+            &&& (perm@->0).slot_perm.is_init()
+            &&& (perm@->0).metadata_perm.frac() == 1
+            &&& MetaSlot::perms_related(*(perm@->0).slot_perm, (perm@->0).metadata_perm.resource())
         }
     }
 
