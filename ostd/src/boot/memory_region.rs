@@ -271,6 +271,7 @@ impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
         Self::new()
     }
 }
+
 #[verus_verify]
 impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
     type Target = [MemoryRegion];

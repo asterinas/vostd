@@ -11,7 +11,7 @@ pub enum BusProbeError {
     ConfigurationSpaceError,
 }
 
-/// Initializes the bus
+/*/// Initializes the bus
 pub(crate) fn init() {
     pci::init();
-}
+}*/
