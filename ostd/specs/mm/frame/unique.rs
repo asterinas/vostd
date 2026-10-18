@@ -4,20 +4,20 @@ use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::{
+        Paddr,
         frame::{
             frame_specs::valid_slot_vaddr,
             mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
-        Paddr,
     },
 };
 
 use super::meta_owners::*;
 use crate::mm::frame::{
     meta::{
-        mapping::{frame_to_meta, meta_to_frame},
         REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
     },
     *,
 };

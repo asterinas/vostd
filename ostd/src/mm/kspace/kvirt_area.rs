@@ -31,19 +31,19 @@ use super::{
     VMALLOC_VADDR_RANGE,
 };
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::frame::DynFrame;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
 use crate::mm::{
-    frame::{untyped::AnyUFrameMeta, Frame, Segment},
+    PAGE_SIZE, Paddr, Vaddr,
+    frame::{Frame, Segment, untyped::AnyUFrameMeta},
     kspace::{KernelPtConfig, MappedItem},
     largest_pages,
     page_prop::PageProperty,
     page_size,
     page_table::{Child, CursorMut, PageTable, PageTableConfig},
-    Paddr, Vaddr, PAGE_SIZE,
 };
 use crate::mm::{PagingConstsTrait, PagingLevel};
 use core::marker::PhantomData;

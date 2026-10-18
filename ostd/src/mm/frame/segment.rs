@@ -19,13 +19,13 @@ use crate::specs::{
 };
 
 use super::{
+    Frame, Paddr,
     meta::mapping::frame_to_meta,
     meta::{AnyFrameMeta, GetFrameError},
-    Frame, Paddr,
 };
 use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 use crate::mm::page_table::RCClone;
-use crate::mm::{frame::MetaSlot, paddr_to_vaddr, PagingLevel, Vaddr};
+use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 verus! {

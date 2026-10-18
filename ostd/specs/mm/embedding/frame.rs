@@ -37,14 +37,14 @@ use crate::specs::{
     },
 };
 
-use super::{tracked_frame_entry_new, FrameEntry};
+use super::{FrameEntry, tracked_frame_entry_new};
 use crate::mm::{
+    Paddr,
     frame::{
-        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
         MetaSlot,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     },
     vm_space::UserPtConfig,
-    Paddr,
 };
 
 verus! {

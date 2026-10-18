@@ -57,15 +57,15 @@ use crate::specs::{
     },
 };
 
-use super::{tracked_cursor_entry_new, CursorEntry, CursorKind, VmSpaceId};
+use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
 use crate::mm::{
+    Paddr, Vaddr,
     frame::{
-        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
         UFrame,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     },
     page_prop::PageProperty,
-    vm_space::{vm_space_specs::VmSpaceOwner, UserPtConfig},
-    Paddr, Vaddr,
+    vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
 };
 use core::ops::Range;
 

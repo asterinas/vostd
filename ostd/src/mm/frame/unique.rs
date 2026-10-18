@@ -10,16 +10,16 @@ use crate::specs::{
     arch::*,
     mm::frame::{
         mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
-        meta_owners::{borrow_meta, borrow_meta_mut, MetaSlotStorage, MetadataPerm},
+        meta_owners::{MetaSlotStorage, MetadataPerm, borrow_meta, borrow_meta_mut},
         meta_region_owners::MetaRegionOwners,
         unique::*,
     },
 };
 
 use super::{
+    AnyFrameMeta, Frame, MetaSlot,
     mapping::{frame_to_meta, meta_to_frame},
     meta::{GetFrameError, META_SLOT_SIZE, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    AnyFrameMeta, Frame, MetaSlot,
 };
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
