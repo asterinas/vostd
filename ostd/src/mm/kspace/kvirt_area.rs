@@ -157,7 +157,7 @@ pub open spec fn sum_page_sizes_spec(elems: Seq<(Paddr, u8)>, from: int, to: int
 }
 
 /// `sum(from, to+1) == sum(from, to) + page_size(elems[to])`.
-proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int)
+proof fn lemma_sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int)
     requires
         0 <= from <= to < elems.len(),
     ensures
@@ -166,7 +166,7 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
     decreases to - from,
 {
     if from < to {
-        sum_page_sizes_extend_right(elems, from + 1, to);
+        lemma_sum_page_sizes_extend_right(elems, from + 1, to);
         // Help Verus: unfold sum_page_sizes_spec(elems, from, to) and (from, to+1)
     } else {
         // from == to; explicitly unfold both sides
@@ -175,7 +175,7 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
 }
 
 /// `sum(from, to1) <= sum(from, to2)` when `to1 <= to2`.
-proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: int)
+proof fn lemma_sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: int)
     requires
         0 <= from <= to1 <= to2 <= elems.len(),
     ensures
@@ -183,8 +183,8 @@ proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: 
     decreases to2 - to1,
 {
     if to1 < to2 {
-        sum_page_sizes_extend_right(elems, from, to2 - 1);
-        sum_page_sizes_mono(elems, from, to1, to2 - 1);
+        lemma_sum_page_sizes_extend_right(elems, from, to2 - 1);
+        lemma_sum_page_sizes_mono(elems, from, to1, to2 - 1);
     }
 }
 
@@ -257,24 +257,9 @@ pub axiom fn kvirt_alloc_range_bounds(
     ensures
         kvirt_alloc_spec(area_size) == Ok::<core::ops::Range<Vaddr>, RangeAllocError>(r) ==> r.start
             <= r.end
-        // **Phase C: tightened to equality.** Page-aligned `area_size`
-        // requests get back exactly `area_size` bytes — the kvirt
-        // allocator does not over-allocate. This pins
-        // `cursor.barrier_va.end - cursor.barrier_va.start = area_size`
-        // so the per-iteration capacity check
-        // `cursor.0.va < cursor.0.barrier_va.end` in `map_frames` is
-        // soundly bridged to a caller-side
-        // `map_offset + frames·PAGE_SIZE <= area_size` precondition.
          && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start + map_offset
             <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0 && KERNEL_BASE_VADDR
             <= r.start
-        // The allocator draws from `VMALLOC_VADDR_RANGE = [VMALLOC_BASE_VADDR,
-        // FRAME_METADATA_BASE_VADDR)`, so `r.end` is bounded by
-        // `FRAME_METADATA_BASE_VADDR` — not the much looser
-        // `KERNEL_END_VADDR`. This leaves a large safety margin
-        // (~64 GB) below `KERNEL_END_VADDR`, so any one-page cursor
-        // open at `[end, end + PAGE_SIZE)` stays within the
-        // kernel-managed range.
          && r.end <= FRAME_METADATA_BASE_VADDR,
 ;
 
@@ -879,8 +864,8 @@ impl KVirtArea {
                 let pos: Ghost<int> = Ghost(it.index() as int);
 
                 proof {
-                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
-                    sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
+                    lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
+                    lemma_sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
@@ -906,8 +891,8 @@ impl KVirtArea {
                 proof {
                     assert(cursor.0.va + page_size::<PagingConsts>(level)
                         <= cursor.0.barrier_va.end) by {
-                        sum_page_sizes_extend_right(it.seq(), 0, pos@);
-                        sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
+                        lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
+                        lemma_sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                     };
                 }
 
@@ -949,7 +934,7 @@ impl KVirtArea {
                         page_size::<PagingConsts>(level_raw) as nat,
                     );
 
-                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
+                    lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
 
                     let pa_next_nat = pa_range.start as nat + sum_page_sizes_spec(
                         it.seq(),
