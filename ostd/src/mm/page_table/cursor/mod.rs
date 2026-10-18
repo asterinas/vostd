@@ -2876,12 +2876,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 PageTableOwner::<C>::metaregion_sound_pred(*regions),
                 cont.idx as int,
             );
-            assert(owner.cur_entry_owner().metaregion_sound(*regions));
-            if owner.cur_entry_owner().is_node() {
-                let idx = owner.cur_entry_owner().node().slot_index;
-                assert(0 < regions.ref_count(idx) <= REF_COUNT_MAX);
-                assert(regions.slot_owners[idx].usage is PageTable);
-            }
         }
 
         let ghost regions_before_replace = *regions;
