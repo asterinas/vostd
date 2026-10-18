@@ -9,6 +9,7 @@ use crate::specs::{
         page_table::{
             Mapping, OwnerSubtree,
             cursor::{CursorView, owners::CursorOwner},
+            mappings_disjoint_vaddrs,
             node::entry_owners::EntryOwner,
         },
         virt_mem::MemView,
@@ -16,6 +17,7 @@ use crate::specs::{
     task::InAtomicMode,
 };
 
+use crate::arch::mm::PagingConsts;
 use crate::arch::mm::current_page_table_paddr;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
@@ -186,8 +188,10 @@ impl<'a> VmSpaceOwner {
         // This requires that TotalMapping (mvv) = mv ∪ writer mappings ∪ reader mappings
         &&& self.mem_view matches Some(remaining_view) ==> self.mv_range matches Some(total_view)
             ==> {
-            &&& remaining_view.mappings_are_disjoint()
-            &&& total_view.mappings_are_disjoint()
+            &&& mappings_disjoint_vaddrs(remaining_view.mappings)
+            &&& mappings_disjoint_vaddrs(
+                total_view.mappings,
+            )
             // ======================
             // Remaining Consistency
             // ======================
@@ -709,15 +713,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
-    pub open spec fn map_cursor_requires(
-        self,
-        cursor_owner: CursorOwner<'a, UserPtConfig>,
-    ) -> bool {
-        &&& cursor_owner.in_locked_range()
-        &&& self.pt_cursor.0.level < self.pt_cursor.0.guard_level
-        &&& self.pt_cursor.0.va < self.pt_cursor.0.barrier_va.end
-    }
-
     pub open spec fn item_wf(
         self,
         frame: UFrame,
@@ -735,9 +730,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& 1 <= level <= NR_LEVELS
         &&& level < self.pt_cursor.0.guard_level
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
-        &&& self.pt_cursor.0.va + page_size(level) <= self.pt_cursor.0.barrier_va.end
+        &&& self.pt_cursor.0.va + page_size::<PagingConsts>(level)
+            <= self.pt_cursor.0.barrier_va.end
         &&& entry_owner.inv()
-        &&& self.pt_cursor.0.va % page_size(level) == 0
+        &&& self.pt_cursor.0.va % page_size::<PagingConsts>(level) == 0
         &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
             item,
             regions,
@@ -753,7 +749,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0, _perm) = UserPtConfig::item_into_raw(item);
-        cursor_view == old_cursor_view.map_spec(paddr, page_size(level), prop)
+        cursor_view == old_cursor_view.map_spec(paddr, page_size::<PagingConsts>(level), prop)
     }
 }
 

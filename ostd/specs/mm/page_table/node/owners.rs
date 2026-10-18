@@ -20,7 +20,7 @@ use crate::specs::{
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::meta::{META_SLOT_SIZE, MetaSlot, mapping::meta_to_frame},
+    frame::meta::{META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
     kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
     page_table::{PageTableGuard, *},
@@ -123,7 +123,7 @@ pub proof fn lemma_count_present_upto_update<E: PageTableEntryTrait>(
     if n - 1 == idx {
         // The first `idx` entries are unchanged.
         assert(count_present_upto(s2, n - 1) == count_present_upto(s, n - 1)) by {
-            lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+            lemma_count_present_upto_unchanged(s, s2, n - 1);
         }
     } else {
         lemma_count_present_upto_update(s, n - 1, idx, pte);
@@ -150,17 +150,16 @@ pub proof fn lemma_count_present_upto_unchanged<E: PageTableEntryTrait>(
     s: Seq<E>,
     s2: Seq<E>,
     n: int,
-    idx: int,
 )
     requires
-        0 <= n <= idx,
+        0 <= n,
         forall|k: int| 0 <= k < n ==> s[k] == s2[k],
     ensures
         count_present_upto(s2, n) == count_present_upto(s, n),
     decreases n,
 {
     if n > 0 {
-        lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+        lemma_count_present_upto_unchanged(s, s2, n - 1);
     }
 }
 
@@ -210,7 +209,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
         &&& self.frame_permission.frac() == 1
-        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
@@ -224,7 +222,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
-        &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
     }
 }
 
@@ -272,14 +269,15 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
         &&& regions.contains(idx)
+        &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
         &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
-        &&& self.meta_value().wf(self.meta_own)
-        &&& self.meta_own.nr_children.id()
-            == self.meta_value().nr_children.id()
-        // A page-table node's slot is tracked with `PageTable` usage (set at
-        // allocation via `get_node_from_unused_spec`). This discriminates node
-        // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a
+        &&& self.meta_value().wf(
+            self.meta_own,
+        )
+        // A page-table node's slot is tracked with `PageTable` usage (guaranteed
+        // by `PageTableNode::alloc`). This discriminates node slots from
+        // data-frame slots (`Frame`) by `usage` alone, so a
         // freshly-allocated node (whose slot was `UNUSED`) can't collide with an
         // existing live node — giving `alloc_if_none`/`split` the parent≠child
         // slot distinctness without a PointsTo-linearity axiom.
@@ -303,7 +301,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     /// `nr_children < NR_ENTRIES`. Proven (no longer axiomatized) from the
     /// `count_consistent` invariant: `nr_children` counts present PTEs, and an
     /// absent slot means not all `NR_ENTRIES` slots are present.
-    pub proof fn nr_children_absent_slot_bound(self, idx: usize)
+    pub proof fn lemma_nr_children_absent_slot_bound(self, idx: usize)
         requires
             self.inv(),
             self.count_consistent(),
@@ -317,7 +315,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     /// If a slot in `children_perm` holds a present PTE, then `nr_children > 0`.
-    /// Dual of [`Self::nr_children_absent_slot_bound`]; proven from
+    /// Dual of [`Self::lemma_nr_children_absent_slot_bound`]; proven from
     /// `count_consistent`.
     pub proof fn nr_children_present_slot_bound(self, idx: usize)
         requires
@@ -335,7 +333,6 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.slot_vaddr()
         &&& guard.inner.inner@.wf(self)
         &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
     }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for the free comparison functions missing from `vstd`.
-use vstd::{prelude::*, std_specs::cmp::OrdSpec};
+use vstd::{
+    prelude::*,
+    std_specs::cmp::{OrdSpec, PartialOrdSpec},
+};
 
 use core::cmp::Ordering;
 
@@ -29,7 +32,11 @@ pub open spec fn spec_ord_max<T: Ord>(x: T, y: T) -> T {
 #[verifier::when_used_as_spec(spec_ord_min)]
 pub assume_specification<T: Ord>[ core::cmp::min ](x: T, y: T) -> (ret: T)
     ensures
-        T::obeys_cmp_spec() ==> ret == spec_ord_min(x, y),
+        ({
+            &&& T::obeys_cmp_spec()
+            &&& T::obeys_partial_cmp_spec()
+            &&& y.partial_cmp_spec(&x) == Some(y.cmp_spec(&x))
+        }) ==> ret == spec_ord_min(x, y),
 ;
 
 /// Returns the maximum, choosing the second argument when they compare equal.
@@ -37,7 +44,11 @@ pub assume_specification<T: Ord>[ core::cmp::min ](x: T, y: T) -> (ret: T)
 #[verifier::when_used_as_spec(spec_ord_max)]
 pub assume_specification<T: Ord>[ core::cmp::max ](x: T, y: T) -> (ret: T)
     ensures
-        T::obeys_cmp_spec() ==> ret == spec_ord_max(x, y),
+        ({
+            &&& T::obeys_cmp_spec()
+            &&& T::obeys_partial_cmp_spec()
+            &&& y.partial_cmp_spec(&x) == Some(y.cmp_spec(&x))
+        }) ==> ret == spec_ord_max(x, y),
 ;
 
 } // verus!

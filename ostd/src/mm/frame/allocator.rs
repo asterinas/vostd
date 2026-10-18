@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::Repr, prelude::*};
+use vstd_extra::{cast_ptr::Repr, ownership::Inv, prelude::*};
 
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::frame::{meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners};
 
 use super::{Frame, meta::AnyFrameMeta, segment::Segment};
 use crate::{
@@ -29,6 +29,7 @@ impl Default for FrameAllocOptions {
     }
 }
 
+#[verus_verify]
 impl FrameAllocOptions {
     /// Creates new options for allocating the specified number of frames.
     pub fn new() -> Self {
@@ -51,6 +52,35 @@ impl FrameAllocOptions {
         self.alloc_frame_with(())
     }*/
     /// Allocates a single frame with additional metadata.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The metadata region invariant holds.
+    /// ## Postconditions
+    /// - A successful allocation returns a valid frame and matching typed metadata permissions.
+    /// - Failure preserves both the region and the representation permission.
+    #[verus_spec(res =>
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+             Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
+        requires
+            old(regions).inv(),
+        ensures
+            final(regions).inv(),
+            res matches Ok(frame) ==> {
+                &&& frame.inv()
+                &&& frame.wf_with_region(*final(regions))
+                &&& *final(repr_perm) == metadata.to_repr_spec(*old(repr_perm)).1
+                &&& super::meta::MetaSlot::get_from_unused_spec::<M>(
+                    frame.start_paddr_spec(), metadata, false,
+                    *old(regions), *final(regions), *final(repr_perm),
+                    vstd_extra::sum::Sum::Left(frame.frac_metadata_perm()),
+                )
+            },
+            res is Err ==> {
+                &&& *final(regions) == *old(regions)
+                &&& *final(repr_perm) == *old(repr_perm)
+            }
+    )]
     #[verifier::external_body]
     pub fn alloc_frame_with<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, metadata: M) -> Result<
         Frame<M>,

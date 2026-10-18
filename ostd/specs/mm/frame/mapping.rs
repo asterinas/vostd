@@ -107,24 +107,12 @@ pub broadcast proof fn lemma_frame_to_meta_soundness(page: Paddr)
 {
 }
 
-pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
-    requires
-        meta % META_SLOT_SIZE == 0,
-        FRAME_METADATA_RANGE.start <= meta && meta < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
-            * META_SLOT_SIZE,
-    ensures
-        #[trigger] meta_to_frame(meta) % PAGE_SIZE == 0,
-        meta_to_frame(meta) < MAX_PADDR,
-{
-}
-
 pub broadcast group group_page_meta {
     lemma_index_to_frame_biinjective,
     lemma_paddr_to_meta_biinjective,
     lemma_meta_to_paddr_biinjective,
     lemma_meta_to_frame_soundness,
     lemma_frame_to_meta_soundness,
-    lemma_meta_to_frame_alignment,
 }
 
 } // verus!

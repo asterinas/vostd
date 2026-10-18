@@ -438,10 +438,6 @@ impl MetaSlot {
         };
 
         let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
-        proof {
-            axiom_mmio_usage_iff_mmio_paddr(*slot_own);
-        }
-
         // `Acquire` pairs with the `Release` in `drop_last_in_place` and ensures the metadata
         // initialization won't be reordered before this memory compare-and-exchange.
         let last_ref_cnt = slot.ref_count.compare_exchange(
@@ -481,8 +477,7 @@ impl MetaSlot {
         };
 
         proof {
-            slot_own.usage = PageUsage::Frame;
-            axiom_mmio_usage_iff_mmio_paddr(*slot_own);
+            slot_own.usage = metadata_perm.usage();
             slot_own.metadata_perm.put_resource(metadata_perm);
         }
 
@@ -879,7 +874,6 @@ impl MetaSlot {
             final(metadata_perm).vtable_ptr_perm.pptr()
                 == old(metadata_perm).vtable_ptr_perm.pptr(),
     )]
-    #[verifier::external_body]
     pub(super) unsafe fn drop_meta_in_place(&self) {
         let paddr = self.frame_paddr();
 

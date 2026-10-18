@@ -206,7 +206,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             final(regions).inv(),
             r matches Ok(res) ==> {
-                &&& MetaSlot::get_from_unused_region_spec(paddr, false, *old(regions), *final(regions))
+                &&& MetaSlot::get_from_unused_region_spec(
+                    paddr, false, res.metadata_perm().usage(),
+                    *old(regions), *final(regions))
+                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm(), *final(repr_perm))
+                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value(), *final(repr_perm)) == metadata
                 &&& res.inv()
                 &&& res.start_paddr_spec() == paddr
                 &&& res.wf_with_region(*final(regions))
@@ -257,7 +261,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             Tracked(metadata_perm): Tracked<Option<&'a MetadataPerm>>,
             Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
-            self.ptr_inv(),
             {
                 self.inv() && metadata_perm is None
                 && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), *repr_perm) ||
@@ -453,6 +456,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.inv(),
         ensures
             res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.ptr_inv(),
+            res.inner@.slot_perm() == self.slot_perm(),
+            res.inner@.tracked_metadata_perm@ is None,
+            MetaSlot::perms_related(res.inner@.slot_perm(), self.metadata_perm()),
+            forall|repr_perm: M::ReprPerm|
+                #[trigger] typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), repr_perm)
+                ==> res.inner@.external_meta_wf(self.metadata_perm(), repr_perm),
     )]
     pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
         let tracked slot_perm = *self.tracked_slot_perm.borrow();
@@ -486,6 +496,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
             res.inner@.tracked_metadata_perm@ is None,
             MetaSlot::perms_related(res.inner@.slot_perm(), frame_permission.resource()),
+            forall|repr_perm: M::ReprPerm|
+                #[trigger] typed_meta_wf::<M>(self.slot_perm(), frame_permission.resource(), repr_perm)
+                ==> res.inner@.external_meta_wf(frame_permission.resource(), repr_perm),
     )]
     pub(in crate::mm) fn borrow_with_permission<'a>(&self) -> FrameRef<'a, M> {
         unsafe {
@@ -525,18 +538,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             r == self.start_paddr_spec(),
             raw_permission@.inv(),
     )]
-    pub(in crate::mm) fn into_raw(self) -> Paddr {
+    pub(in crate::mm) fn into_raw(mut self) -> Paddr {
         broadcast use group_page_meta;
 
-        let mut this = self;
         proof_decl!{
             let tracked perm = FrameRawPerms {
-                slot_perm: &*this.tracked_slot_perm,
-                metadata_perm: this.tracked_metadata_perm.tracked_take(),
+                slot_perm: &*self.tracked_slot_perm,
+                metadata_perm: self.tracked_metadata_perm.tracked_take(),
             };
         }
 
-        let this = ManuallyDrop::new(this);
+        let this = ManuallyDrop::new(self);
         proof_with!(|= Tracked(perm));
         this.start_paddr()
     }
@@ -688,21 +700,20 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
 }*/
 
 impl<M: ?Sized> Frame<M> {
-    pub fn drop(self, Tracked(regions): Tracked<&mut MetaRegionOwners>)
+    pub fn drop(mut self, Tracked(regions): Tracked<&mut MetaRegionOwners>)
         requires
             self.drop_requires(*old(regions)),
         ensures
             self.drop_ensures(*old(regions), *final(regions)),
     {
-        let mut this = self;
         proof_decl!{
-            let ghost idx = this.index();
+            let ghost idx = self.index();
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(self.start_paddr_spec());
-            let tracked frame_permission = this.tracked_metadata_perm.tracked_take();
+            let tracked frame_permission = self.tracked_metadata_perm.tracked_take();
             slot_own.metadata_perm.combine(frame_permission);
         }
 
-        let last_ref_cnt = this.slot().ref_count.fetch_sub(
+        let last_ref_cnt = self.slot().ref_count.fetch_sub(
             Tracked(&mut slot_own.ref_count_perm),
             1,
         );
@@ -714,7 +725,7 @@ impl<M: ?Sized> Frame<M> {
             // SAFETY: this is the last reference and is about to be dropped.
             unsafe {
                 #[verus_spec(with Tracked(slot_own))]
-                this.slot().drop_last_in_place()
+                self.slot().drop_last_in_place()
             };
 
             // TODO: return page to allocator

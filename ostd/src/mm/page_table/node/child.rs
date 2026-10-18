@@ -63,7 +63,7 @@ impl<C: PageTableConfig> Child<C> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut EntryOwner<C>>,
         requires
-            old(owner).inv_base(),
+            old(owner).inv(),
             self.wf(*old(owner)),
             self matches Child::Frame(paddr, level, prop) ==> C::E::new_page_req(paddr, level, prop),
         ensures
@@ -180,6 +180,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             level == entry_owner.parent_level,
         ensures
             res.invariants(*entry_owner, *final(regions)),
+            final(regions).slots == old(regions).slots,
             final(regions).slot_owners == old(regions).slot_owners,
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(

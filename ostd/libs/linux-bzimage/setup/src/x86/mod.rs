@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use core::arch::global_asm;
 
 cfg_if::cfg_if! {

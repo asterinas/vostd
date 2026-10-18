@@ -17,8 +17,8 @@
 //!
 //! - **Generic `M: AnyFrameMeta`**: `Frame::from_unused` takes a
 //!   `metadata: M` parameter and threads it through the slot's typed storage permission.
-//!   We don't model the metadata type, so this layer uses
-//!   `get_from_unused_region_spec` and hides the returned fraction.
+//!   This embedding specializes allocation to non-page-table metadata. It uses
+//!   `get_from_unused_region_spec` with `Frame` usage and hides the fraction.
 //! - **Drop-last-in-place teardown**: when `ref_count == 1`, dropping
 //!   the handle invokes the metadata destructor (which may require
 //!   `storage.is_init`, `in_list.value() == 0`). We model this by
@@ -59,17 +59,16 @@ pub axiom fn frame_from_unused_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
         res is Some ==> MetaSlot::get_from_unused_region_spec(
             paddr,
             false,
+            PageUsage::Frame,
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
@@ -84,7 +83,6 @@ pub axiom fn frame_from_in_use_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
@@ -134,9 +132,6 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
         final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
             paddr,
         ).in_list_perm,
-        final(regions).slot_owner(paddr).in_list_perm == old(regions).slot_owner(
-            paddr,
-        ).in_list_perm,
         old(regions).slot_owner(paddr).ref_count() == 1 ==> final(regions).slot_owner(
             paddr,
         ).ref_count() == REF_COUNT_UNUSED,
@@ -162,7 +157,6 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
@@ -170,10 +164,10 @@ pub(super) proof fn from_unused_step(
         res is Some ==> MetaSlot::get_from_unused_region_spec(
             paddr,
             false,
+            PageUsage::Frame,
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
@@ -193,7 +187,6 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,

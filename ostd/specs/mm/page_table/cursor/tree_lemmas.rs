@@ -1,7 +1,10 @@
 //! Tree-predicate lifting, tree entry level constraints, and tree membership
 //! lemmas for `CursorContinuation` and `CursorOwner`.
-use vstd::prelude::*;
-use vstd_extra::{ghost_tree::*, ownership::*};
+use vstd::{
+    arithmetic::div_mod::{lemma_small_mod, lemma_sub_mod_noop},
+    prelude::*,
+};
+use vstd_extra::{arithmetic::lemma_nat_align_down_sound, ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
@@ -12,6 +15,7 @@ use crate::specs::{
     },
 };
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
 use core::ops::Range;
 
@@ -53,7 +57,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     /// Lift map_children from f to g when siblings (j != idx) come from
     /// cont0 which had map_children(f), and the child at idx (if present)
     /// already satisfies g.
-    pub proof fn map_children_lift_skip_idx(
+    pub proof fn lemma_map_children_lift_skip_idx(
         self,
         cont0: Self,
         idx: int,
@@ -115,7 +119,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
 // ─── Tree predicate lifting (CursorOwner) ──────────────────────────
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    pub proof fn map_children_implies(
+    pub proof fn lemma_map_children_implies(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
         g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -134,29 +138,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
-            reveal(CursorContinuation::map_children);
-            let cont = self.continuations[i];
-            reveal(CursorContinuation::inv_children);
-            assert forall|j: int|
-                #![trigger cont.children[j]]
-                0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-                cont.path().push_tail(j),
-                g,
-            ) by {
-                cont.lemma_inv_children_unroll(j);
-                OwnerSubtree::lemma_subtree_satisfies_implies(
-                    cont.children[j].unwrap(),
-                    cont.path().push_tail(j),
-                    f,
-                    g,
-                );
-            }
+            self.lemma_inv_continuation(i);
+            self.continuations[i].map_children_lift(f, g);
         }
     }
 
     // ─── Tree entry level constraints ──────────────────────────
-    pub proof fn cur_entry_node_implies_level_gt_1(self)
+    pub proof fn lemma_cur_entry_node_implies_level_gt_1(self)
         requires
             self.inv(),
             self.cur_entry_owner().is_node(),
@@ -187,25 +175,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // cur_va is the cursor's current VA (from the call site: cur_va == self.va).
             cur_va == self.cur_va(),
             // Definition: cur_entry_fits_range iff cur_va is at start of entry AND entry end <= end.
-            cur_entry_fits_range == (cur_va == self.cur_va_range().start.to_vaddr()
-                && self.cur_va_range().end.to_vaddr() <= end),
+            cur_entry_fits_range == (cur_va == self.cur_va_range().start && self.cur_va_range().end
+                <= end),
             // cur_va and end are PAGE_SIZE-aligned
             cur_va as nat % PAGE_SIZE as nat == 0,
             end as nat % PAGE_SIZE as nat == 0,
         ensures
             self.level > 1,
     {
-        // At level 1, page_size(1) == PAGE_SIZE. cursor inv gives va.offset == 0,
-        // so align_down(va, PAGE_SIZE) == va. The range is [va, va + PAGE_SIZE).
-        // cur_va == va (precondition) and cur_va + PAGE_SIZE <= end (from alignment
-        // and cur_va < end). Hence cur_entry_fits_range == true, contradicting
-        // !cur_entry_fits_range.
         if self.level == 1 {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
-            self.va.align_down_concrete(1);
-            // cur_va is PAGE_SIZE-aligned and cur_va < end, so cur_va + PAGE_SIZE <= end <= usize::MAX.
-            self.va.aligned_align_up_advances(1);
-            // align_up(1).to_vaddr() == self.va.to_vaddr() + PAGE_SIZE.
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<
+                PagingConsts,
+            >();
+            lemma_nat_align_down_sound(cur_va as nat, PAGE_SIZE as nat);
+            lemma_sub_mod_noop(end as int, cur_va as int, PAGE_SIZE as int);
+            if end - cur_va < PAGE_SIZE {
+                lemma_small_mod((end - cur_va) as nat, PAGE_SIZE as nat);
+                assert(false);
+            }
         }
     }
 }

@@ -218,8 +218,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::raw_item_well_formed((paddr, level, prop, perm)),
             1 <= level <= NR_LEVELS,
             valid_frame_paddr(paddr),
-            paddr % page_size(level) == 0,
-            paddr + page_size(level) <= MAX_PADDR,
+            paddr % page_size::<PagingConsts>(level) == 0,
+            paddr + page_size::<PagingConsts>(level) <= MAX_PADDR,
             Self::E::new_page_req(paddr, level, prop),
         returns
             Self::item_into_raw(item),
@@ -340,7 +340,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::E::new_page_req(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
-            child_pa == pa + child_idx * page_size((level - 1) as PagingLevel),
+            child_pa == pa + child_idx * page_size::<PagingConsts>((level - 1) as PagingLevel),
         ensures
             Self::raw_item_well_formed((child_pa, (level - 1) as PagingLevel, prop, perm)),
             Self::E::new_page_req(child_pa, (level - 1) as PagingLevel, prop),
@@ -640,15 +640,15 @@ pub fn largest_pages<C: PageTableConfig>(
                     return None;
                 }
                 let mut level = C::HIGHEST_TRANSLATION_LEVEL();
-                while page_size(level) > len || va % page_size(level) != 0 || pa % page_size(level)
-                    != 0 {
+                while page_size::<C>(level) > len || va % page_size::<C>(level) != 0 || pa
+                    % page_size::<C>(level) != 0 {
                     level -= 1;
                 }
 
                 let item_start = pa;
-                va += page_size(level);
-                pa += page_size(level);
-                len -= page_size(level);
+                va += page_size::<C>(level);
+                pa += page_size::<C>(level);
+                len -= page_size::<C>(level);
 
                 Some((item_start, level))
             },
@@ -856,27 +856,12 @@ fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
 /// The index of a VA's PTE in a page table node at the given level.
 fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
-        1 <= level <= NR_LEVELS,
-    ensures
-        res == AbstractVaddr::from_vaddr(va).index[level - 1],
+        1 <= level <= C::NR_LEVELS(),
+    returns
+        pte_index_spec::<C>(va, level),
 {
     proof {
-        let offset = pte_index_bit_offset_spec::<C>(level);
         C::lemma_paging_consts_properties();
-        lemma_arch_specific_consts_properties::<C>();
-        assert(0 <= offset < usize::BITS) by (nonlinear_arith)
-            requires
-                1 <= level <= 4,
-                offset == 12 + 9 * (level - 1),
-        ;
-        lemma2_to64();
-        lemma2_to64_rest();
-        vstd::bits::lemma_usize_shr_is_div(va, pte_index_bit_offset_spec::<C>(level));
-        vstd::bits::lemma_low_bits_mask_values();
-        vstd::bits::lemma_usize_low_bits_mask_is_mod(
-            va >> pte_index_bit_offset_spec::<C>(level),
-            9,
-        );
     }
     (va >> pte_index_bit_offset::<C>(level)) & (nr_subpage_per_huge::<C>() - 1)
 }
@@ -888,17 +873,21 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
 fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
-        1 <= level <= NR_LEVELS,
+        1 <= level <= C::NR_LEVELS(),
+    ensures
+        pte_index_bit_offset_spec::<C>(level) < usize::BITS,
     returns
         pte_index_bit_offset_spec::<C>(level),
 {
     proof {
         C::lemma_paging_consts_properties();
-        lemma_arch_specific_consts_properties::<C>();
-        assert(12 + 9 * (level - 1) <= 39) by (nonlinear_arith)
+        assert(C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)
+            < usize::BITS) by (nonlinear_arith)
             requires
-                1 <= level <= NR_LEVELS,
-                NR_LEVELS == 4,
+                level <= C::NR_LEVELS(),
+                C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * C::NR_LEVELS()
+                    <= C::ADDRESS_WIDTH(),
+                C::ADDRESS_WIDTH() < usize::BITS,
         ;
     }
     C::BASE_PAGE_SIZE().ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)
@@ -969,13 +958,9 @@ impl PageTable<KernelPtConfig> {
             old(regions).inv(),
             kernel_owner.0.value().is_node(),
             !Self::create_user_pt_panic_condition(kernel_owner.0.value().node()),
-            // The kernel page table's root frame matches the tracked owner.
             self.root.ptr.addr() == kernel_owner.0.value().node().slot_vaddr(),
-            // The kernel root entry is sound with respect to the meta regions.
+            self.relates_owner(*kernel_owner, *old(regions)),
             kernel_owner.0.value().metaregion_sound(*old(regions)),
-            // The whole kernel page-table tree is sound: every entry's metaregion
-            // bookkeeping matches `old(regions)`. Needed to derive each child's
-            // soundness inside the loop body.
             kernel_owner.metaregion_sound(*old(regions)),
             // The kernel root is not currently locked.
             old(guards).unlocked(kernel_owner.0.value().node().slot_vaddr()),
@@ -996,26 +981,18 @@ impl PageTable<KernelPtConfig> {
         PageTable::empty_with_owner());
         let new_root = new_pt.root;
         // Capture new_idx as a ghost BEFORE the tracked_take below empties new_pt_owner.
-        let ghost new_idx_g: int = crate::specs::mm::frame::mapping::frame_to_index(
+        let ghost new_idx_g: int = frame_to_index(
             new_pt_owner@.unwrap().0.value().meta_slot_paddr().unwrap(),
         );
         let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
         proof {
-            let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
-                kernel_owner.0.value().meta_slot_paddr().unwrap(),
-            );
+            let kern_idx = frame_to_index(kernel_owner.0.value().meta_slot_paddr().unwrap());
             let new_idx = new_idx_g;
-            crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
-                KernelPtConfig,
-            >::lemma_active_entry_not_in_free_pool(
+            EntryOwner::<KernelPtConfig>::lemma_active_entry_not_in_free_pool(
                 kernel_owner.0.value(),
                 regions_before_alloc,
                 new_idx,
             );
-            assert(kern_idx != new_idx);
-            assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
-            assert(kernel_owner.metaregion_sound(*regions));
-            assert(!regions.contains(new_idx));
         }
 
         proof_decl! {
@@ -1036,105 +1013,25 @@ impl PageTable<KernelPtConfig> {
             assert(kernel_owner.0.value().is_node());
             assert(kernel_owner.0.value().metaregion_sound(*regions));
         }
-        let ghost regions_before_self_borrow: MetaRegionOwners = *regions;
         let mut root_node = {
-            let root_ref = self.root.borrow();
+            /* The root's counting permission is held by NodeOwner; borrowing
+             * with that external permission preserves the pointer and refcount.
+             * Origin Rust: let root_ref = self.root.borrow();
+             */
+            #[verus_spec(with Tracked(&root_owner.frame_permission), Tracked(&*regions))]
+            let root_ref = self.root.borrow_with_permission();
             #[verus_spec(with Tracked(root_owner), Tracked(guards))]
             root_ref.lock(preempt_guard)
         };
-        let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
         let mut new_node: PageTableGuard<'rcu, UserPtConfig> = {
-            let new_ref = new_root.borrow();
+            /* The fresh root's permission is held by new_node_owner.
+             * Origin Rust: let new_ref = new_root.borrow();
+             */
+            #[verus_spec(with Tracked(&new_node_owner.frame_permission), Tracked(&*regions))]
+            let new_ref = new_root.borrow_with_permission();
             #[verus_spec(with Tracked(&new_node_owner), Tracked(guards))]
             new_ref.lock(preempt_guard)
         };
-        proof {
-            let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
-                kernel_owner.0.value().meta_slot_paddr().unwrap(),
-            );
-            assert(regions_before_self_borrow.slot_owners
-                == regions_after_kroot_borrow.slot_owners);
-            assert forall|k: int|
-                regions_before_self_borrow.contains(k) implies regions_before_self_borrow.slots[k]
-                == #[trigger] regions_after_kroot_borrow.slots[k] by {
-                if k == kern_idx {
-                    crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
-                        KernelPtConfig,
-                    >::lemma_active_entry_not_in_free_pool(
-                        kernel_owner.0.value(),
-                        regions_before_self_borrow,
-                        k,
-                    );
-                }
-            };
-            kernel_owner.metaregion_sound_preserved_slot_owners_eq(
-                regions_before_self_borrow,
-                regions_after_kroot_borrow,
-            );
-
-            let new_idx = new_idx_g;
-            assert(regions_before_alloc.contains(new_idx));
-            assert(kern_idx != new_idx) by {
-                crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
-                    KernelPtConfig,
-                >::lemma_active_entry_not_in_free_pool(
-                    kernel_owner.0.value(),
-                    regions_before_alloc,
-                    new_idx,
-                );
-            };
-
-            assert(!regions_before_self_borrow.contains(new_idx));
-            assert(!regions_after_kroot_borrow.contains(new_idx));
-            assert forall|k: int|
-                regions_after_kroot_borrow.contains(k) implies regions_after_kroot_borrow.slots[k]
-                == #[trigger] regions.slots[k] by {};
-            assert(kernel_owner.metaregion_sound(regions_before_alloc));
-
-            kernel_owner.0.lemma_subtree_satisfies_implies(
-                kernel_owner.0.value().path,
-                |
-                    e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
-                    p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>,
-                |
-                    e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
-                        forall|j: usize|
-                            0 < j < nr_pages ==> {
-                                let sub_idx =
-                                    #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * PAGE_SIZE) as usize,
-                                );
-                                sub_idx != new_idx
-                            }
-                    },
-                |
-                    e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
-                    p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>,
-                |
-                    e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
-                        forall|j: usize|
-                            0 < j < nr_pages ==> {
-                                let sub_idx =
-                                    #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * PAGE_SIZE) as usize,
-                                );
-                                sub_idx != new_idx || (regions.contains(sub_idx)
-                                    && regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                                    && regions.ref_count(sub_idx) > 0 && regions.ref_count(sub_idx)
-                                    <= REF_COUNT_MAX)
-                            }
-                    },
-            );
-            kernel_owner.metaregion_sound_preserved_one_slot_changed(
-                regions_after_kroot_borrow,
-                *regions,
-                new_idx,
-            );
-        }
         let mut i: usize = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start;
         while i < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end
             invariant
@@ -1220,16 +1117,6 @@ impl PageTable<KernelPtConfig> {
                         assert(Self::create_user_pt_panic_condition(kern_node));
                     }
                 }
-                // entry_owner.match_pte(pte, parent_level) + (present && !is_last)
-                // ⟹ entry_owner.is_node().
-                assert(entry_owner.is_node());
-                // ChildRef::invariants(entry_owner, regions) gives child.wf(entry_owner).
-                // For the Frame and None variants, wf requires is_frame() or is_absent(),
-                // contradicting is_node(). Hence child must be PageTable.
-                assert(child is PageTable);
-                // to_ref's borrow_paddr preserves slot_owners exactly and only
-                // grows `slots` (existing keys preserved). Use the tree-wide
-                // preservation lemma.
                 kernel_owner.metaregion_sound_preserved_slot_owners_eq(
                     pre_to_ref_regions,
                     *regions,
@@ -1292,6 +1179,12 @@ impl<C: PageTableConfig> PageTable<C> {
     ) -> bool {
         &&& owner.inv()
         &&& self.root.ptr.addr() == owner.0.value().node().slot_vaddr()
+        &&& self.root.external_meta_wf(owner.0.value().node().frame_permission.resource(), ())
+        &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
+        &&& owner.0.value().node().level() == NR_LEVELS
+        &&& owner.0.value().path == vstd_extra::ghost_tree::TreePath::<NR_ENTRIES>::new(
+            Seq::empty(),
+        )
         &&& owner.metaregion_sound(regions)
     }
 
@@ -1315,80 +1208,40 @@ impl<C: PageTableConfig> PageTable<C> {
             final(owner)@ is Some,
             final(owner)@->0.inv(),
             (final(owner)@->0).0.value().is_node(),
-            (final(owner)@->0).0.value().is_node(),
             r.root.ptr.addr() == (final(owner)@->0).0.value().node().slot_vaddr(),
             (final(owner)@->0).0.value().metaregion_sound(*final(regions)),
+            r.relates_owner(final(owner)@->0, *final(regions)),
             final(regions).inv(),
             final(guards).unlocked((final(owner)@->0).0.value().node().slot_vaddr()),
             // Allocating a fresh node does not change the lock set, so any node
             // that was (un)locked before remains so.
             final(guards).guards == old(guards).guards,
-            // The newly allocated slot was in the free pool before the call.
             old(regions).contains(
-                crate::specs::mm::frame::mapping::frame_to_index(
+                frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
-            // After the alloc, the slot is removed from the free pool (now owned
-            // by the new pt's NodeOwner).
-            !final(regions).contains(
-                crate::specs::mm::frame::mapping::frame_to_index(
+            final(regions).contains(
+                frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
-            // Other slots and lock state are preserved.
-            forall |i: int| #![trigger final(regions).slot_owners[i]]
-                i != crate::specs::mm::frame::mapping::frame_to_index(
-                    (final(owner)@->0).0.value().meta_slot_paddr()->0)
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
-            forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
-            forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                final(regions).slot_owners[idx].paths_in_pt
-                    == old(regions).slot_owners[idx].paths_in_pt,
+            MetaSlot::claim_unused_slot_region_spec(
+                (final(owner)@->0).0.value().meta_slot_paddr()->0,
+                false, *old(regions), *final(regions)),
             // Allocation preserves the soundness of the kernel page-table tree:
             // a fresh allocation cannot collide with any active node or frame entry
-            // (the allocator returns a slot that wasn't in use). Stated as a
-            // postcondition because deriving it requires a freshness axiom on the
-            // underlying frame allocator.
+            // (the allocator returns a slot that wasn't in use).
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*final(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions))
                 ==> kt.metaregion_sound(*final(regions)),
-            // Freshness: the new PT's slot index is not used (as a primary slot
-            // or huge-frame sub-page slot) by any entry in any KernelPtConfig PT
-            // tree that was sound before the alloc. Used to discharge the borrow
-            // step that mutates `slot_owners[new_idx]`.
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*old(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions)) ==>
                 kt.0.subtree_satisfies(
                     kt.0.value().path,
-                    |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
+                    |e: EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
-                        e.meta_slot_paddr() is Some
-                            ==> crate::specs::mm::frame::mapping::frame_to_index(
-                                e.meta_slot_paddr()->0) !=
-                                crate::specs::mm::frame::mapping::frame_to_index(
-                                    (final(owner)@->0).0.value().meta_slot_paddr()->0),
-                ),
-            // Sub-page freshness: for any huge frame entry in any pre-existing
-            // sound KernelPtConfig tree, the new PT's slot index isn't a sub-page
-            // slot of the huge frame either. Same allocator-freshness rationale.
-            forall |kt: PageTableOwner<KernelPtConfig>|
-                #![trigger kt.metaregion_sound(*old(regions))]
-                kt.inv() && kt.metaregion_sound(*old(regions)) ==>
-                kt.0.subtree_satisfies(
-                    kt.0.value().path,
-                    |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
-                     p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
-                        e.is_frame() && e.parent_level > 1 ==> {
-                            let pa = e.frame().mapped_pa;
-                            let nr_pages = page_size(
-                                e.parent_level) / PAGE_SIZE;
-                            forall |j: usize| 0 < j < nr_pages ==> {
-                                let sub_idx =
-                                    #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                        (pa + j * PAGE_SIZE) as usize);
-                                sub_idx != crate::specs::mm::frame::mapping::frame_to_index(
-                                    (final(owner)@->0).0.value().meta_slot_paddr()->0)
-                            }
-                        },
+                        e.is_node() || (e.is_frame() && e.frame_is_tracked()) ==>
+                            frame_to_index(e.meta_slot_paddr()->0) !=
+                            frame_to_index((final(owner)@->0).0.value().meta_slot_paddr()->0),
                 ),
     )]
     pub fn empty_with_owner<'rcu>() -> Self {
@@ -1447,12 +1300,15 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
+            final(regions).slots == old(regions).slots,
+            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
+                old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
+                    final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
             Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.0.level == r.unwrap().0.0.guard_level
-                &&& r.unwrap().0.0.guard_level == NR_LEVELS as PagingLevel
                 &&& r.unwrap().0.0.va < r.unwrap().0.0.barrier_va.end
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
@@ -1465,7 +1321,7 @@ impl<C: PageTableConfig> PageTable<C> {
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).ref_count(idx)
+                old(regions).contains(idx) && old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
@@ -1503,6 +1359,10 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
+            final(regions).slots == old(regions).slots,
+            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
+                old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
+                    final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
             Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
@@ -1516,7 +1376,7 @@ impl<C: PageTableConfig> PageTable<C> {
             },
             !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).ref_count(idx)
+                old(regions).contains(idx) && old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
@@ -1701,7 +1561,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            valid_frame_paddr(res),
+            res % PAGE_SIZE == 0,
         returns
             self.paddr(),
     ;

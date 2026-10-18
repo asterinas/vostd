@@ -3,7 +3,7 @@ name: Format and Verify VOSTD (Main)
 # One verification run feeds everything: a verify leg runs with
 # --time-expanded and uploads the log, `perf` parses it (never re-verifies),
 # `doc` builds the docs in parallel, and `doc-deploy` merges those docs with
-# the gh-pages benchmark before deploying. `format` needs no Verus.
+# the gh-pages benchmark before deploying. `format` delegates to `cargo verus fmt`.
 
 on:
   push:
@@ -29,7 +29,7 @@ defaults:
     shell: bash
 
 jobs:
-  format-and-verify:
+  verify:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -120,8 +120,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   format:
-    # Needs no Verus build: only rustfmt/verusfmt and the Verus sources for
-    # the vstd path dependency (fetched below).
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -135,15 +133,7 @@ jobs:
       - name: Set up toolchain and caches
         uses: ./.github/actions/setup-verus
         with:
-          verus: 'false'
           install-verusfmt: 'true'
-
-      - name: Fetch Verus sources for the vstd path dependency
-        run: |
-          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
-          mkdir -p tools/verus
-          curl -Ls "https://github.com/asterinas/verus/archive/${VERUS_COMMIT}.tar.gz" | tar xz -C tools/verus --strip-components=1
-          test -f tools/verus/source/vstd/Cargo.toml
 
       - name: Run format
         run: make fmt
@@ -173,11 +163,11 @@ jobs:
     # Every event: parses the verify leg's log and computes the verification
     # cost compared to the measurement from last main. The comparison lands
     # in the job summary and the report artifact.
-    needs: [format-and-verify]
+    needs: [verify]
     if: >
       always() &&
       !cancelled() &&
-      needs.format-and-verify.result != 'cancelled'
+      needs.verify.result != 'cancelled'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -326,14 +316,14 @@ jobs:
 
   doc-deploy:
     # Pushes only: merge the doc artifact with the gh-pages benchmark chart
-    # (pushed by `perf`) and deploy. Needs format-and-verify so a failed
+    # (pushed by `perf`) and deploy. Needs verify so a failed
     # verification can't deploy docs.
-    needs: [doc, perf, format-and-verify]
+    needs: [doc, perf, verify]
     if: >
       always() &&
       !cancelled() &&
       github.event_name != 'pull_request' &&
-      needs.format-and-verify.result == 'success' &&
+      needs.verify.result == 'success' &&
       needs.doc.result == 'success' &&
       (needs.perf.result == 'success' || needs.perf.result == 'skipped')
     runs-on: ubuntu-latest

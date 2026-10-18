@@ -13,7 +13,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            meta_owners::{FracMetadataPerm, MetaSlotStorage},
+            frame_specs::FrameRawPerms, meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
@@ -107,8 +107,8 @@ verus! {
 ///    &&& self.mem_view matches Some(remaining_view)
 ///        ==> self.mv_range@ matches Some(total_view)
 ///        ==> {
-///        &&& remaining_view.mappings_are_disjoint()
-///        &&& total_view.mappings_are_disjoint()
+///        &&& mappings_disjoint_vaddrs(remaining_view.mappings)
+///        &&& mappings_disjoint_vaddrs(total_view.mappings)
 ///        // ======================
 ///        // Remaining Consistency
 ///        // ======================
@@ -921,6 +921,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards>,
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
+            // Large unmaps may clone a removed subtree root before deferred reclamation.
+            len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
             old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
@@ -933,7 +935,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verifier::spinoff_prover]
     pub fn unmap(&mut self, len: usize) -> usize {
         proof {
-            cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
             cursor_owner.view_preserves_inv();
         }
 
@@ -966,6 +967,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         #[verus_spec(
             invariant
+                len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
+                end_va == start_va + len,
                 self.pt_cursor.0.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
                 end_va <= 0x0000_8000_0000_0000usize,
@@ -1026,7 +1029,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             let ghost prev_view_inv: bool = cursor_owner@.inv();
             proof {
-                cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
                 cursor_owner.view_preserves_inv();
                 // Per-config VA bound on prev_mappings — needed for
                 // preserving the `removed`-end-bound loop invariant. The user
@@ -1046,7 +1048,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.take_next(end_va - self.virt_addr())
             }) else {
                 proof {
-                    cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
                     // At break: take_next returned None, so no mappings in [prev_va, end_va).
                     // Any m with start >= prev_va leads to contradiction via the empty filter.
                     assert forall|m: Mapping|
@@ -1074,10 +1075,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             let ghost old_adjusted = adjusted_base;
             let ghost old_removed = removed;
-
-            proof {
-                cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
-            }
 
             let ghost frag_ghost = frag;
 
@@ -1238,11 +1235,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 match frag_ghost {
                     PageTableFrag::StrayPageTable { .. } => {
-                        assert(old_removed.disjoint(subtree)) by {
-                            assert forall|e: Mapping|
-                                old_removed.contains(e) implies !subtree.contains(e) by {};
-                        };
-                        vstd::set_lib::lemma_set_disjoint_lens(old_removed, subtree);
                         assert(removed == old_removed + subtree);
                     },
                     PageTableFrag::Mapped { .. } => {
@@ -1440,8 +1432,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             }
         }
         proof {
-            cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
-
             let old_view = old(cursor_owner)@;
             let new_view = cursor_owner@;
 
@@ -1630,7 +1620,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type Item = MappedItem;
 
-    type Perm = (&'static vstd::simple_pptr::PointsTo<MetaSlot>, FracMetadataPerm);
+    type Perm = FrameRawPerms;
 
     open spec fn perm_well_formed_with_region(
         pa: Paddr,
@@ -1640,10 +1630,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         perm@ is Some ==> {
             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
             let frame_perm = perm@->0;
-            &&& frame_perm.0 == regions.slots[idx]
-            &&& frame_perm.1.frac() == 1
-            &&& frame_perm.1.id() == regions.slot_owners[idx].metadata_perm.id()
-            &&& MetaSlot::perms_related(*frame_perm.0, frame_perm.1.resource())
+            &&& frame_perm.slot_perm == regions.slots[idx]
+            &&& frame_perm.metadata_perm.frac() == 1
+            &&& frame_perm.metadata_perm.id() == regions.slot_owners[idx].metadata_perm.id()
+            &&& MetaSlot::perms_related(*frame_perm.slot_perm, frame_perm.metadata_perm.resource())
         }
     }
 
@@ -1660,7 +1650,14 @@ unsafe impl PageTableConfig for UserPtConfig {
             item.frame.start_paddr_spec(),
             1,
             item.prop,
-            Tracked(Some((item.frame.tracked_slot_perm@, item.frame.tracked_metadata_perm@->0))),
+            Tracked(
+                Some(
+                    FrameRawPerms {
+                        slot_perm: item.frame.tracked_slot_perm@,
+                        metadata_perm: item.frame.tracked_metadata_perm@->0,
+                    },
+                ),
+            ),
         )
     }
 
@@ -1672,16 +1669,13 @@ unsafe impl PageTableConfig for UserPtConfig {
         Tracked<Option<Self::Perm>>,
     )) {
         proof_decl! {
-            let tracked frame_permission: FracMetadataPerm;
+            let tracked raw_perm: FrameRawPerms;
         }
         let MappedItem { frame, prop } = item;
-        proof_decl! {
-            let tracked slot_perm = *frame.tracked_slot_perm;
-        }
         let level = frame.map_level();
         let paddr = frame.into_raw();
-        proof_with!(=> Tracked(frame_permission));
-        (paddr, level, prop, Tracked(Some((slot_perm, frame_permission))))
+        proof_with!(=> Tracked(raw_perm));
+        (paddr, level, prop, Tracked(Some(raw_perm)))
     }
 
     open spec fn item_from_raw_spec(
@@ -1698,9 +1692,9 @@ unsafe impl PageTableConfig for UserPtConfig {
                 ),
                 _marker: PhantomData,
                 #[cfg(verus_keep_ghost_body)]
-                tracked_slot_perm: Tracked((perm@->0).0),
+                tracked_slot_perm: Tracked((perm@->0).slot_perm),
                 #[cfg(verus_keep_ghost_body)]
-                tracked_metadata_perm: Tracked(Some((perm@->0).1)),
+                tracked_metadata_perm: Tracked(Some((perm@->0).metadata_perm)),
             },
             prop,
         }
@@ -1713,8 +1707,9 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         Tracked(perm): Tracked<Option<Self::Perm>>,
     ) -> Self::Item {
-        let tracked (slot_perm, frame_permission) = perm.tracked_unwrap();
-        proof_with!(Tracked(slot_perm), Tracked(frame_permission));
+        let tracked raw_perm = perm.tracked_unwrap();
+        // SAFETY: The caller ensures safety.
+        proof_with!(Tracked(raw_perm));
         let frame = unsafe { UFrame::from_raw(paddr) };
         MappedItem { frame, prop }
     }
@@ -1756,10 +1751,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         let (pa, level, _prop, perm) = item;
         &&& level == 1
         &&& perm@ is Some
-        &&& (perm@->0).0.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
-        &&& (perm@->0).0.is_init()
-        &&& (perm@->0).1.frac() == 1
-        &&& MetaSlot::perms_related(*(perm@->0).0, (perm@->0).1.resource())
+        &&& (perm@->0).slot_perm.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
+        &&& (perm@->0).slot_perm.is_init()
+        &&& (perm@->0).metadata_perm.frac() == 1
+        &&& MetaSlot::perms_related(*(perm@->0).slot_perm, (perm@->0).metadata_perm.resource())
     }
 
     proof fn lemma_perm_well_formed_with_region_preserved(
@@ -1768,15 +1763,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
     ) {
-        if perm@ is Some {
-            let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
-            let frame_perm = perm@->0;
-            assert(frame_perm == perm@->0);
-            assert(frame_perm.0 == old_regions.slots[idx]);
-            assert(frame_perm.0 == new_regions.slots[idx]);
-            assert(frame_perm.1.id() == old_regions.slot_owners[idx].metadata_perm.id());
-            assert(frame_perm.1.id() == new_regions.slot_owners[idx].metadata_perm.id());
-        }
     }
 
     proof fn lemma_raw_item_well_formed_preserved(

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use core::mem::MaybeUninit;
 
 use xmas_elf::program::{ProgramHeader, SegmentData};
