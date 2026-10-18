@@ -515,9 +515,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             == PageTableOwner(owner.cur_subtree()).query_leaf(cur_va)) by {
                             reveal(PageTableOwner::query_leaf);
                             owner_before_push.lemma_cur_subtree_inv();
-                            assert(owner_before_push.cur_subtree().has_child(
-                                pte_index_spec::<C>(cur_va, (level - 1) as PagingLevel) as int,
-                            ));
                         };
                     }
                     continue;
@@ -582,7 +579,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(old(regions).contains(idx));
                         if C::item_into_raw(item).3@ is Some && regions.ref_count(idx)
                             >= REF_COUNT_MAX {
-                            // The descent preserves the resolved leaf and its counted permission.
                             assert(regions.contains(idx));
                             assert(old(regions).contains(idx));
                             assert(old(regions).ref_count(idx) == regions.ref_count(idx));
@@ -605,9 +601,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         child_value.tracked_put_frame_permission(restored_permission);
                         continuation.tracked_put_child(child_owner);
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
-                    }
-
-                    proof {
                         let idx = frame_to_index(pa);
 
                         if C::item_into_raw(item).3@ is Some {
