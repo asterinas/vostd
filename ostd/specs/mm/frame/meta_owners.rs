@@ -37,7 +37,7 @@ pub ghost enum PageUsage {
     Unused,
     /// The page is reserved or unusable. The kernel should not touch it.
     Reserved,
-    /// The page carries non-page-table metadata.
+    /// The page is used as a frame, i.e., a page of untyped memory.
     Frame,
     /// The page is used by a page table.
     PageTable,
