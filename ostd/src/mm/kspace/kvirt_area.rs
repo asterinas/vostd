@@ -256,11 +256,9 @@ pub axiom fn kvirt_alloc_range_bounds(
 )
     ensures
         kvirt_alloc_spec(area_size) == Ok::<core::ops::Range<Vaddr>, RangeAllocError>(r) ==> r.start
-            <= r.end
-         && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start + map_offset
-            <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0 && KERNEL_BASE_VADDR
-            <= r.start
-         && r.end <= FRAME_METADATA_BASE_VADDR,
+            <= r.end && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start
+            + map_offset <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0
+            && KERNEL_BASE_VADDR <= r.start && r.end <= FRAME_METADATA_BASE_VADDR,
 ;
 
 /// Kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR] with alignment are valid for
@@ -827,11 +825,14 @@ impl KVirtArea {
                     forall|i: int|
                         0 <= i < it.seq().len() ==> {
                             &&& (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0
-                            &&& it.seq()[i].0
-                                % page_size::<PagingConsts>(it.seq()[i].1) == 0
+                            &&& it.seq()[i].0 % page_size::<PagingConsts>(it.seq()[i].1) == 0
                             &&& 1 <= it.seq()[i].1 <= NR_LEVELS
                             &&& it.seq()[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
-                            &&& it.seq()[i].0 == pa_range.start + sum_page_sizes_spec(it.seq(), 0, i)
+                            &&& it.seq()[i].0 == pa_range.start + sum_page_sizes_spec(
+                                it.seq(),
+                                0,
+                                i,
+                            )
                         },
                     forall|i: int|
                         0 <= i < it.seq().len() ==> (va_range.start as nat
@@ -902,7 +903,10 @@ impl KVirtArea {
                 // `item_slot_in_regions` for the current `(pa, level)` follows from the
                 // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
-                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(item, *regions);
+                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(
+                        item,
+                        *regions,
+                    );
                     regions.lemma_contains_valid_frame_paddr(pa);
                     KernelPtConfig::lemma_none_perm_well_formed(pa, *regions);
                 }
