@@ -2890,7 +2890,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
 
         let ghost owner2 = *owner;
-        let ghost regions_after_replace = *regions;
 
         proof {
             owner1.lemma_cur_subtree_eq_filtered_mappings();
@@ -2903,12 +2902,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         proof {
             lemma_page_size_ge_base::<PagingConsts>(level);
             lemma_nat_align_down_sound(owner2.va as nat, page_size::<PagingConsts>(level) as nat);
-        }
-
-        proof {
-            let ghost pa_idx2 = frame_to_index(C::item_into_raw(item).0);
-            assert(old(regions).inv());
-            assert(regions.inv());
 
             assert forall|idx: int| old(regions).contains(idx) implies #[trigger] regions.contains(
                 idx,
@@ -2917,24 +2910,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(old(regions).slot_owners.contains_key(idx));
                 assert(regions.slot_owners.contains_key(idx));
                 assert(regions.slots.contains_key(idx));
-            };
-            assert forall|idx: int|
-                old(regions).contains(idx) && old(regions).ref_count(idx)
-                    != REF_COUNT_UNUSED implies {
-                &&& #[trigger] regions.ref_count(idx) != REF_COUNT_UNUSED
-                &&& regions.ref_count(idx) == old(regions).ref_count(idx) || (old(
-                    regions,
-                ).slot_owners[idx].usage is PageTable && regions.ref_count(idx) == old(
-                    regions,
-                ).ref_count(idx) + 1)
-            } by {
-                assert(regions_before_new_child.slot_owners[idx].same_permissions(
-                    old(regions).slot_owners[idx],
-                ));
-                if entry_before_replace.is_node() && idx == entry_before_replace.node().slot_index {
-                    assert(regions_before_replace.slot_owners[idx].usage is PageTable);
-                    assert(regions_before_replace.ref_count(idx) <= REF_COUNT_MAX);
-                }
             };
         }
 
