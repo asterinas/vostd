@@ -360,12 +360,11 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
     let mut cur_pt_addr = pt.root.start_paddr();
 
-    let end = C::NR_LEVELS();
-    for cur_level in 0..end {
-        let start_idx = pte_index::<C>(va.start, end - cur_level + 1);
+    for cur_level in (1..=C::NR_LEVELS()).rev() {
+        let start_idx = pte_index::<C>(va.start, cur_level);
         let level_too_high = {
-            let end_idx = pte_index::<C>(va.end - 1, end - cur_level + 1);
-            (end - cur_level + 1) > 1 && start_idx == end_idx
+            let end_idx = pte_index::<C>(va.end - 1, cur_level);
+            cur_level > 1 && start_idx == end_idx
         };
         if !level_too_high {
             break;
@@ -379,16 +378,13 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let cur_pte = unsafe { load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire) };
 
         if cur_pte.is_present() {
-            if cur_pte.is_last(end - cur_level + 1) {
+            if cur_pte.is_last(cur_level) {
                 break;
             }
             cur_pt_addr = cur_pte.paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(
-                    va.start,
-                    (end - cur_level) as PagingLevel,
-                ) as usize;
+                let ghost next_idx = pte_index::<C>(va.start, (cur_level - 1) as PagingLevel);
                 proof_decl! {
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
@@ -444,10 +440,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = allocated_guard.start_paddr();
             cur_node_guard = Some(allocated_guard);
             proof {
-                let ghost next_idx = pte_index::<C>(
-                    va.start,
-                    (end - cur_level) as PagingLevel,
-                ) as usize;
+                let ghost next_idx = pte_index::<C>(va.start, (cur_level - 1) as PagingLevel);
                 proof_decl! {
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
@@ -469,10 +462,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = pt.start_paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(
-                    va.start,
-                    (end - cur_level) as PagingLevel,
-                ) as usize;
+                let ghost next_idx = pte_index::<C>(va.start, (cur_level - 1) as PagingLevel);
                 proof_decl! {
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
