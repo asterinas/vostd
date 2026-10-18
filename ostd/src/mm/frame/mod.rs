@@ -74,16 +74,16 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::page_table::RCClone;
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::{
-    MAX_PADDR, Paddr, Vaddr,
     frame::meta::{
-        META_SLOT_SIZE,
         mapping::{frame_to_meta, meta_to_frame},
+        META_SLOT_SIZE,
     },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
+    Paddr, Vaddr, MAX_PADDR,
 };
 pub use linked_list::{CursorMut, Link, LinkedList};
+use meta::{mapping, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
-use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
 pub use segment::Segment;
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};
@@ -206,7 +206,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             final(regions).inv(),
             r matches Ok(res) ==> {
-                &&& MetaSlot::get_from_unused_region_spec(paddr, false, *old(regions), *final(regions))
+                &&& MetaSlot::get_from_unused_region_spec(
+                    paddr, false, res.metadata_perm().storage_perm.value().usage(),
+                    *old(regions), *final(regions))
+                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm(), *final(repr_perm))
+                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value(), *final(repr_perm)) == metadata
                 &&& res.inv()
                 &&& res.start_paddr_spec() == paddr
                 &&& res.wf_with_region(*final(regions))

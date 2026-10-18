@@ -10,15 +10,15 @@ use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners:
 
 use super::*;
 use crate::mm::{
-    Paddr, PagingLevel, Vaddr,
     frame::{
-        AnyFrameMeta,
         meta::{
-            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-            mapping::meta_to_frame,
+            mapping::meta_to_frame, MetaSlot, META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED,
         },
+        AnyFrameMeta,
     },
     kspace::FRAME_METADATA_RANGE,
+    Paddr, PagingLevel, Vaddr,
 };
 
 verus! {
@@ -33,12 +33,11 @@ pub ghost enum MetaSlotStatus {
 }
 
 pub ghost enum PageUsage {
-    // The zero variant is reserved for the unused type. Only an unused page
-    // can be designated for one of the other purposes.
+    /// Initial purpose before metadata is installed. Reuse is governed by refcount.
     Unused,
     /// The page is reserved or unusable. The kernel should not touch it.
     Reserved,
-    /// The page is used as a frame, i.e., a page of untyped memory.
+    /// The page carries non-page-table metadata.
     Frame,
     /// The page is used by a page table.
     PageTable,
@@ -46,29 +45,7 @@ pub ghost enum PageUsage {
     Meta,
     /// The page stores the kernel such as kernel code, data, etc.
     Kernel,
-    /// The page maps memory-mapped I/O (MMIO). Untracked: no refcount, slot
-    /// stays in the free pool, but distinguishable from `Unused` so the
-    /// kernel allocator never collides with an MMIO mapping.
-    MMIO,
 }
-
-/// Whether `pa` falls in an MMIO physical-address range. Uninterpreted at the
-/// spec level — concrete arch- and machine-specific MMIO range layouts are
-/// outside the verification surface, but the kernel allocator (which picks
-/// slots with `PageUsage::Unused`) is guaranteed disjoint from MMIO mappings.
-pub uninterp spec fn is_mmio_paddr(pa: Paddr) -> bool;
-
-/// Connects a slot's `PageUsage::MMIO` discriminant to its paddr's range
-/// membership. Used to derive disjointness between MMIO mappings and the
-/// regular allocator pool: a slot can be `MMIO` iff its paddr is in MMIO
-/// range, so a slot with `usage != MMIO` (e.g. `Unused`) cannot share an idx
-/// with any MMIO mapping.
-pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
-    ensures
-        (#[trigger] slot.usage == PageUsage::MMIO) <==> is_mmio_paddr(
-            meta_to_frame(slot.slot_vaddr),
-        ),
-;
 
 pub struct StoredPageTablePageMeta {
     pub nr_children: pcell_maybe_uninit::PCell<u16>,
@@ -82,6 +59,17 @@ pub enum MetaSlotStorage {
     Untyped,
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
+}
+
+impl MetaSlotStorage {
+    /// The purpose established by the installed metadata representation.
+    pub open spec fn usage(self) -> PageUsage {
+        if self is PTNode {
+            PageUsage::PageTable
+        } else {
+            PageUsage::Frame
+        }
+    }
 }
 
 /// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
@@ -158,6 +146,7 @@ pub tracked struct MetaSlotOwner {
     pub ref_count_perm: PermissionU64,
     pub in_list_perm: PermissionU64,
     pub ghost slot_vaddr: Vaddr,
+    /// Purpose of the installed metadata, retained after release.
     pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
@@ -262,11 +251,11 @@ impl Inv for MetaSlotOwner {
             &&& self.storage_perm().is_uninit()
             &&& self.vtable_ptr_perm().is_uninit()
             &&& self.in_list_perm.value() == 0
-            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
+            &&& self.paths_in_pt.is_empty()
         }
         &&& self.ref_count() == REF_COUNT_UNIQUE ==> {
             &&& self.metadata_perm.is_resource_vacant()
-            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
+            &&& self.paths_in_pt.is_empty()
         }
         &&& 0 < self.ref_count() <= REF_COUNT_MAX ==> {
             &&& self.metadata_perm.frac() + self.ref_count() == REF_COUNT_MAX

@@ -21,9 +21,8 @@
 //! # Model gaps
 //!
 //! - **Generic `M: AnyFrameMeta`** + the `metadata_fn` closure: the
-//!   embedding doesn't carry the per-frame metadata. The axioms commit
-//!   only to `usage is Frame` (matching the exec
-//!   `Segment::from_unused` contract).
+//!   embedding specializes to non-page-table metadata and commits to
+//!   `usage is Frame`; generic segments derive usage from each frame's metadata.
 //! - **Split / slice / next / clone / into_raw / from_raw**: deferred
 //!   to follow-up; the base `from_unused` + drop pair is enough to
 //!   exercise the Shape-B `raw_count == segment_cover_count`

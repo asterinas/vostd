@@ -92,6 +92,7 @@ impl MetaSlot {
     pub open spec fn get_from_unused_region_spec(
         paddr: Paddr,
         as_unique: bool,
+        usage: PageUsage,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
     ) -> bool {

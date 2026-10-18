@@ -4,20 +4,20 @@ use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::{
-        Paddr,
         frame::{
             frame_specs::valid_slot_vaddr,
             mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
+        Paddr,
     },
 };
 
 use super::meta_owners::*;
 use crate::mm::frame::{
     meta::{
-        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
         mapping::{frame_to_meta, meta_to_frame},
+        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
     },
     *,
 };
@@ -105,7 +105,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         &&& self.meta_value(owner).wf(owner.meta_own)
         &&& so.metadata_perm.is_resource_vacant()
         &&& so.ref_count() == REF_COUNT_UNIQUE
-        &&& so.usage is Frame
+        &&& so.usage == self.metadata_perm().storage_perm.value().usage()
         &&& so.paths_in_pt.is_empty()
     }
 }
@@ -139,7 +139,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[self.slot_index].metadata_perm.resource().vtable_ptr_perm.is_init()
         &&& regions.slot_owners[self.slot_index].slot_vaddr == index_to_meta(self.slot_index)
         &&& regions.ref_count(self.slot_index) == REF_COUNT_UNIQUE
-        &&& regions.slot_owners[self.slot_index].usage is Frame
+        &&& regions.slot_owners[self.slot_index].usage
+            == regions.slot_owners[self.slot_index].storage_perm().value().usage()
     }
 
     pub open spec fn from_unused_owner(

@@ -39,32 +39,32 @@ use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
         meta_owners::{
-            FracMetadataPerm, MetaSlotOwner, MetadataPerm, typed_meta_value, typed_meta_wf,
+            typed_meta_value, typed_meta_wf, FracMetadataPerm, MetaSlotOwner, MetadataPerm,
         },
         meta_region_owners::MetaRegionOwners,
     },
     page_table::node::owners::*,
 };
 
-use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
+use super::{nr_subpage_per_huge, PageTableConfig, PageTableEntryTrait};
 use crate::mm::frame::{
     allocator::FrameAllocOptions,
     meta::{
-        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX,
         mapping::{frame_to_meta, meta_to_frame},
+        MetaSlot, META_SLOT_SIZE, REF_COUNT_MAX,
     },
 };
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr};
 use crate::{
     mm::{
-        PagingConstsTrait,
-        PagingLevel,
         //        FrameAllocOptions, Infallible,
         //        VmReader,
-        frame::{Frame, FrameRef, meta::AnyFrameMeta},
+        frame::{meta::AnyFrameMeta, Frame, FrameRef},
         paddr_to_vaddr,
         page_table::{load_pte, store_pte},
+        PagingConstsTrait,
+        PagingLevel,
     },
     specs::task::InAtomicMode,
 };
@@ -249,8 +249,6 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
             old(regions).contains(meta_to_index(owner@.value().node().slot_vaddr())),
 
-            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value().node().slot_vaddr())),
             final(regions).slot_owners[owner@.value().node().slot_index].paths_in_pt.is_empty(),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())), (level + 1) as PagingLevel),
             final(regions).contains(owner@.value().node().slot_index),

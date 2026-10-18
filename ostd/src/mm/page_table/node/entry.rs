@@ -10,7 +10,7 @@ use crate::specs::{
             mapping::{frame_to_index, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{INC_LEVELS, PageTableOwner},
+        page_table::{PageTableOwner, INC_LEVELS},
     },
     task::InAtomicMode,
 };
@@ -18,7 +18,7 @@ use crate::specs::{
 use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
+use crate::mm::frame::{meta::REF_COUNT_UNUSED, Frame, FrameRef};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::{
@@ -560,9 +560,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     (#[trigger] final(owner).child(i)).value().match_pte(
                         final(owner).value().node().children_perm.value()[i],
                         final(owner).child(i).value().parent_level)
-                // Allocator pool is disjoint from MMIO ranges (from `PageTableNode::alloc`).
-                &&& !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                    final(owner).value().meta_slot_paddr().unwrap())
             },
             !old(owner).value().is_absent() ==> {
                 &&& res is None
@@ -677,9 +674,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     self.idx as int,
                     self.pte,
                 );
-
-                // The allocator's non-MMIO slot had no ownership path while UNUSED.
-                broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
                 let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(
                     *guards,
@@ -1714,8 +1708,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 .ref_count() != REF_COUNT_UNUSED,
             old(regions).slot_owner(final(owner).value().meta_slot_paddr().unwrap())
                 .ref_count() == REF_COUNT_UNUSED,
-            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                final(owner).value().meta_slot_paddr().unwrap()),
             final(regions).inv(),
             final(parent_owner).inv(),
             final(parent_owner).level() == old(parent_owner).level(),
@@ -1855,9 +1847,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             new_meta_slot.paths_in_pt = set![owner.value().path];
 
             let ghost new_node_addr = owner.value().node().slot_vaddr();
-            // The allocator's non-MMIO slot had no ownership path while UNUSED.
-            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
             let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
             let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
             let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);

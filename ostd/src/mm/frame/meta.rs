@@ -114,16 +114,16 @@ use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        /*VmReader,*/
-        /*Infallible,*/ Paddr,
-        PagingLevel,
-        //Segment,
-        Vaddr,
         kspace::FRAME_METADATA_RANGE,
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
         paddr_to_vaddr,
         //        page_table::boot_pt,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+        /*VmReader,*/
+        /*Infallible,*/ Paddr,
+        PagingLevel,
+        //Segment,
+        Vaddr,
     },
     //    panic::abort,
     //    util::ops::range_difference,
@@ -438,10 +438,6 @@ impl MetaSlot {
         };
 
         let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
-        proof {
-            axiom_mmio_usage_iff_mmio_paddr(*slot_own);
-        }
-
         // `Acquire` pairs with the `Release` in `drop_last_in_place` and ensures the metadata
         // initialization won't be reordered before this memory compare-and-exchange.
         let last_ref_cnt = slot.ref_count.compare_exchange(
@@ -481,8 +477,7 @@ impl MetaSlot {
         };
 
         proof {
-            slot_own.usage = PageUsage::Frame;
-            axiom_mmio_usage_iff_mmio_paddr(*slot_own);
+            slot_own.usage = metadata_perm.storage_perm.value().usage();
             slot_own.metadata_perm.put_resource(metadata_perm);
         }
 

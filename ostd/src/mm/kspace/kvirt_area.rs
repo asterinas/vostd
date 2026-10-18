@@ -15,7 +15,7 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::frame_to_index,
-            meta_owners::{MetaSlotStorage, PageUsage, is_mmio_paddr},
+            meta_owners::{MetaSlotStorage, PageUsage},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
@@ -31,19 +31,19 @@ use super::{
     VMALLOC_VADDR_RANGE,
 };
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::DynFrame;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::mm::frame::DynFrame;
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
 use crate::mm::{
-    PAGE_SIZE, Paddr, Vaddr,
-    frame::{Frame, Segment, untyped::AnyUFrameMeta},
+    frame::{untyped::AnyUFrameMeta, Frame, Segment},
     kspace::{KernelPtConfig, MappedItem},
     largest_pages,
     page_prop::PageProperty,
     page_size,
     page_table::{Child, CursorMut, PageTable, PageTableConfig},
+    Paddr, Vaddr, PAGE_SIZE,
 };
 use crate::mm::{PagingConstsTrait, PagingLevel};
 use core::marker::PhantomData;
@@ -355,28 +355,20 @@ impl Inv for KVirtAreaOwner {
 
 #[verus_verify]
 impl KVirtArea {
-    /// Precise panic condition for [`Self::query`]. `query` diverges iff:
-    ///  - `addr` is outside the area's range (the diverging `assert!` at
-    ///    the top), or
-    ///  - the kernel-page-table leaf at `addr.align_down(PAGE_SIZE)` is a
-    ///    **tracked** frame (non-MMIO) and *that specific slot* is at
-    ///    `REF_COUNT_MAX`, so the inner `Cursor::query`'s clone would
-    ///    overflow. The leaf is resolved via `owner.cursor_view_at(addr)`,
-    ///    which exactly matches the inner cursor's `query_panic_condition`
-    ///    slot — bridged through `lock_range`'s new Frame-slot
-    ///    preservation ensures (`slot.usage matches PageUsage::Frame ==>
-    ///    refcount preserved exactly`).
+    /// Query panics outside the area or when cloning the resolved counted leaf overflows.
     pub open spec fn query_panic_condition(
         self,
         owner: KVirtAreaOwner,
         addr: Vaddr,
         regions: MetaRegionOwners,
     ) -> bool {
-        let v = owner.cursor_view_at(addr);
-        let pa = v.query_mapping().pa_range.start;
-        let idx = frame_to_index(pa);
+        let va = nat_align_down(addr as nat, PAGE_SIZE as nat) as Vaddr;
         ||| !(self.range.start <= addr < self.range.end)
-        ||| (v.present() && !is_mmio_paddr(pa) && regions.ref_count(idx) >= REF_COUNT_MAX)
+        ||| owner.pt_owner.query_leaf(va) matches Some(entry) && {
+            &&& entry.is_frame()
+            &&& entry.frame_is_tracked()
+            &&& regions.ref_count(frame_to_index(entry.frame().mapped_pa)) >= REF_COUNT_MAX
+        }
     }
 
     pub fn start(&self) -> Vaddr

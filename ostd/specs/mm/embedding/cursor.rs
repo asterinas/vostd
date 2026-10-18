@@ -57,15 +57,15 @@ use crate::specs::{
     },
 };
 
-use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
+use super::{tracked_cursor_entry_new, CursorEntry, CursorKind, VmSpaceId};
 use crate::mm::{
-    Paddr, Vaddr,
     frame::{
-        UFrame,
         meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        UFrame,
     },
     page_prop::PageProperty,
-    vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
+    vm_space::{vm_space_specs::VmSpaceOwner, UserPtConfig},
+    Paddr, Vaddr,
 };
 use core::ops::Range;
 
@@ -430,11 +430,6 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
                 ).slot_owners[i].paths_in_pt.len()
                 &&& final(regions).ref_count(i) != 0
             },
-        // MMIO slots untouched.*
-        forall|i: int|
-            #![trigger final(regions).slot_owners[i]]
-            old(regions).slot_owners[i].usage == PageUsage::MMIO ==> final(regions).slot_owners[i]
-                == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -749,10 +744,6 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
                 ).slot_owners[i].paths_in_pt.len()
                 &&& final(regions).ref_count(i) != 0
             },
-        forall|i: int|
-            #![trigger final(regions).slot_owners[i]]
-            old(regions).slot_owners[i].usage == PageUsage::MMIO ==> final(regions).slot_owners[i]
-                == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
