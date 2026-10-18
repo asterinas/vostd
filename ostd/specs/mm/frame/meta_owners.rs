@@ -153,7 +153,6 @@ pub tracked struct MetaSlotOwner {
     pub ref_count_perm: PermissionU64,
     pub in_list_perm: PermissionU64,
     pub ghost slot_vaddr: Vaddr,
-    /// Purpose of the installed metadata, retained after release.
     pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
