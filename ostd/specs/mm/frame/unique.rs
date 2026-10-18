@@ -105,7 +105,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         &&& self.meta_value(owner).wf(owner.meta_own)
         &&& so.metadata_perm.is_resource_vacant()
         &&& so.ref_count() == REF_COUNT_UNIQUE
-        &&& so.usage == self.metadata_perm().storage_perm.value().usage()
+        &&& so.usage == self.metadata_perm().usage()
         &&& so.paths_in_pt.is_empty()
     }
 }
@@ -140,7 +140,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[self.slot_index].slot_vaddr == index_to_meta(self.slot_index)
         &&& regions.ref_count(self.slot_index) == REF_COUNT_UNIQUE
         &&& regions.slot_owners[self.slot_index].usage
-            == regions.slot_owners[self.slot_index].storage_perm().value().usage()
+            == regions.slot_owners[self.slot_index].metadata_perm().usage()
     }
 
     pub open spec fn from_unused_owner(

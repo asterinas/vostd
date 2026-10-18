@@ -156,7 +156,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                         &&& perm.ref_count(idx) <= REF_COUNT_MAX
                         &&& perm.slot_owners[idx].paths_in_pt.is_empty()
                         &&& perm.slot_owners[idx].usage
-                            == raw_perms[i].metadata_perm.resource().storage_perm.value().usage()
+                            == raw_perms[i].metadata_perm.resource().usage()
                     }),
                 self.range.start <= paddr <= self.range.end,
                 paddr % PAGE_SIZE == 0,
@@ -339,7 +339,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             == regions.slot_owners[idx].metadata_perm.id()
                         &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                         &&& regions.slot_owners[idx].usage
-                            == segment.tracked_perms@->0[j].metadata_perm.resource().storage_perm.value().usage()
+                            == segment.tracked_perms@->0[j].metadata_perm.resource().usage()
                         &&& paddr % PAGE_SIZE == 0
                         &&& paddr < MAX_PADDR
                     },
@@ -388,7 +388,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                                     &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                                     &&& regions.slot_owners[idx].usage
                                         == segment.tracked_perms@->0[j
-                                        - k].metadata_perm.resource().storage_perm.value().usage()
+                                        - k].metadata_perm.resource().usage()
                                     &&& paddr % PAGE_SIZE == 0
                                     &&& paddr < MAX_PADDR
                                 },
@@ -456,7 +456,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.ref_count(idx) <= REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage
-                    == segment.tracked_perms@->0[i].metadata_perm.resource().storage_perm.value().usage()
+                    == segment.tracked_perms@->0[i].metadata_perm.resource().usage()
             } by {
                 assert(addr_at(i) == (segment.range.start + i * PAGE_SIZE) as usize);
             }
@@ -725,7 +725,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& regions.ref_count(idx) <= REF_COUNT_MAX
                         &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                         &&& regions.slot_owners[idx].usage
-                            == raw_perms[j].metadata_perm.resource().storage_perm.value().usage()
+                            == raw_perms[j].metadata_perm.resource().usage()
                     },
                 paddr == (start + i * PAGE_SIZE) as usize,
                 paddr <= end,

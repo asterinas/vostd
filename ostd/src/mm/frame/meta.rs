@@ -477,7 +477,7 @@ impl MetaSlot {
         };
 
         proof {
-            slot_own.usage = metadata_perm.storage_perm.value().usage();
+            slot_own.usage = metadata_perm.usage();
             slot_own.metadata_perm.put_resource(metadata_perm);
         }
 

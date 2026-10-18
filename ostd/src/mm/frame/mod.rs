@@ -207,7 +207,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             final(regions).inv(),
             r matches Ok(res) ==> {
                 &&& MetaSlot::get_from_unused_region_spec(
-                    paddr, false, res.metadata_perm().storage_perm.value().usage(),
+                    paddr, false, res.metadata_perm().usage(),
                     *old(regions), *final(regions))
                 &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm(), *final(repr_perm))
                 &&& M::from_repr_spec(res.metadata_perm().storage_perm.value(), *final(repr_perm)) == metadata

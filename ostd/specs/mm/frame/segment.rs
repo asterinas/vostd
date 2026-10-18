@@ -41,7 +41,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage
-                    == self.raw_perms()[i].metadata_perm.resource().storage_perm.value().usage()
+                    == self.raw_perms()[i].metadata_perm.resource().usage()
             }
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range().start + i * PAGE_SIZE) as usize),

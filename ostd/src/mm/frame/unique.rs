@@ -215,7 +215,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         };
 
         proof {
-            slot_own.usage = metadata_perm.storage_perm.value().usage();
+            slot_own.usage = metadata_perm.usage();
         }
         proof_decl!{
         let tracked new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(

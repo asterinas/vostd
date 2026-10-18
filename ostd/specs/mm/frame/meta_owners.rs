@@ -129,6 +129,13 @@ pub tracked struct MetadataPerm {
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
 }
 
+impl MetadataPerm {
+    /// The purpose of the metadata described by this permission.
+    pub open spec fn usage(self) -> PageUsage {
+        self.storage_perm.value().usage()
+    }
+}
+
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;
 
 /// Fractional metadata permission.
