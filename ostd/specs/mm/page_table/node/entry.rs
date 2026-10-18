@@ -136,9 +136,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
     /// When `alloc_if_none` allocates a new node from an absent slot, all existing entries'
     /// `metaregion_sound` is preserved in the new regions.
-    ///
-    /// Counted entries cannot occupy the newly claimed unused slot, and raw
-    /// physical aliases impose no counted-metadata exclusion.
     pub proof fn alloc_if_none_metaregion_sound_preserved(
         old_child: EntryOwner<C>,
         new_child: EntryOwner<C>,
