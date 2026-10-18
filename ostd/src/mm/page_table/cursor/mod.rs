@@ -3527,15 +3527,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         let ghost regions_after_replace = *regions;
         proof {
-            assert forall|idx: int| regions0.contains(idx) implies {
-                &&& (#[trigger] regions.slot_owners[idx]).metadata_perm.id()
-                    == regions0.slot_owners[idx].metadata_perm.id()
-                &&& regions.slot_owners[idx].usage == regions0.slot_owners[idx].usage
-            } by {
-                assert(regions.slot_owners[idx].ref_count_perm
-                    == regions0.slot_owners[idx].ref_count_perm);
-                assert(regions.slot_owners[idx].same_permissions(regions0.slot_owners[idx]));
-            };
             continuation.tracked_put_child(new_owner);
             cont1.view_mappings_put_child(new_owner);
 
