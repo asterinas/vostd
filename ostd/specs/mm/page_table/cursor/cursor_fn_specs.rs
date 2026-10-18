@@ -225,10 +225,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     )
                     &&& regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage
                     &&& regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr
+                    &&& regions1.slots[idx] == regions0.slots[idx]
                 },
-            forall|idx: int|
-                regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED
-                    ==> #[trigger] regions1.slots[idx] == regions0.slots[idx],
         ensures
             forall|item: C::Item|
                 #![trigger Self::item_slot_in_regions(item, regions0)]

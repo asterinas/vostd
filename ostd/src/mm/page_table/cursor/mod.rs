@@ -3833,10 +3833,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 {
                     pt.tracked_metadata_perm = Tracked(Some(frame_permission));
                 }
-                /* Restore the clone omitted during migration. The original RcuDrop
-                 * retains its reference until deferred reclamation.
-                 * Origin Rust: pt: (*pt).clone().into(),
-                 */
+                /// Origin Rust: pt: (*pt).clone().into(),
                 let cloned_pt = pt.clone(Tracked(regions));
                 proof {
                     assert(regions.ref_count(pt.index()) <= REF_COUNT_MAX) by {
