@@ -161,8 +161,8 @@ pub tracked struct MetaSlotOwner {
     pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
-    /// counted mapping of the frame. Untracked physical mappings do not
-    /// register ownership paths.
+    /// location the frame is currently mapped — allowing a single frame to be
+    /// mapped at multiple addresses.
     pub ghost paths_in_pt: Set<TreePath<NR_ENTRIES>>,
 }
 

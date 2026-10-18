@@ -51,15 +51,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// Panic condition for [`Self::query`]. `query` diverges *only* via the
     /// Arc-style refcount-saturation abort when it clones the **specific**
     /// frame the cursor resolves to. That happens iff:
-    ///  - the cursor is in range (out-of-range returns `Err` *before* any
-    ///    clone — the early `self.va >= barrier_va.end` exit), and
-    ///  - a mapping is present at the cursor (`owner@.present()`), and
-    ///  - the resolved leaf owner carries a counted permission, so cloning
-    ///    it bumps its slot's refcount (raw RAM/MMIO mappings never bump), and
+    ///  - the cursor is in range,
+    ///  - the resolved leaf owner carries a permission, so cloning
+    ///    it bumps its slot's refcount (raw RAM/MMIO mappings never bump),
     ///  - that slot's refcount is already at `REF_COUNT_MAX`, so the
     ///    `inc_ref_count` in `clone_item` would overflow and abort.
-    /// `query_leaf` follows the same PTE indices as cursor descent and retains
-    /// the leaf's actual permission instead of inferring tracking from its PA.
     pub open spec fn query_panic_condition(
         self,
         owner: CursorOwner<'rcu, C>,
