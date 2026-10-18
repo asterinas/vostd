@@ -809,7 +809,6 @@ impl KVirtArea {
                     let idx = frame_to_index(pa);
                     &&& regions.contains(idx)
                 } by {
-                    let idx = frame_to_index(pa);
                     regions.lemma_contains_valid_frame_paddr(pa);
                 };
             }
