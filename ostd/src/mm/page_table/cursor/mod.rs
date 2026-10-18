@@ -3811,11 +3811,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         *regions,
                         pt.index(),
                     );
-                    assert forall|idx: int| regions0.contains(idx) implies {
-                        &&& (#[trigger] regions.slot_owners[idx]).metadata_perm.id()
-                            == regions0.slot_owners[idx].metadata_perm.id()
-                        &&& regions.slot_owners[idx].usage == regions0.slot_owners[idx].usage
-                    } by {};
                 }
                 Some(
                     PageTableFrag::StrayPageTable {
