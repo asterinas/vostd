@@ -199,22 +199,17 @@ proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: 
 #[verifier::external_body]
 #[verus_spec(res =>
     ensures
-        forall|i: int| 0 <= i < res@.len() ==> (#[trigger] res@[i]).0 % PAGE_SIZE == 0,
-        forall|i: int| 0 <= i < res@.len() ==>
-            (#[trigger] res@[i]).0 % page_size::<PagingConsts>(res@[i].1) == 0,
-        forall|i: int| 0 <= i < res@.len() ==> 1 <= (#[trigger] res@[i]).1 <= NR_LEVELS,
-        forall|i: int|
-            0 <= i < res@.len() ==> (#[trigger] res@[i]).1
-                <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+        forall|i: int| 0 <= i < res@.len() ==> {
+            &&& (#[trigger] res@[i]).0 % PAGE_SIZE == 0
+            &&&  res@[i].0 % page_size::<PagingConsts>(res@[i].1) == 0
+            &&& 1 <= res@[i].1 <= NR_LEVELS
+            &&& res@[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
+            &&& res@[i].0 == pa + sum_page_sizes_spec(res@, 0, i)
+        },
         sum_page_sizes_spec(res@, 0, res@.len() as int) == len,
         forall|i: int|
             0 <= i < res@.len() ==> (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
                 % page_size::<PagingConsts>(res@[i].1) as nat == 0,
-        // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
-        forall|i: int|
-            0 <= i < res@.len() ==> (#[trigger] res@[i]).0 == pa
-                + sum_page_sizes_spec(res@, 0, i),
-
 )]
 fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(Paddr, u8)> {
     largest_pages::<KernelPtConfig>(va, pa, len).collect()
