@@ -3485,7 +3485,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let idx = cont0.idx as int;
 
             let f_neq_old = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.owned_meta_slot_paddr_neq(old_child_pre_replace);
+                entry.meta_slot_paddr_neq(old_child_pre_replace);
             let f_sound = PageTableOwner::<C>::metaregion_sound_pred(regions0);
             let g_sound = PageTableOwner::<C>::metaregion_sound_pred(*regions);
             let f_unlocked = CursorOwner::node_unlocked(guards_initial);

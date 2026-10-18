@@ -48,7 +48,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let idx = frame_to_index(new_child.meta_slot_paddr()->0);
         assert forall|entry: EntryOwner<C>|
-            entry.inv() && entry.owned_meta_slot_paddr_neq(new_child) && entry.metaregion_sound(
+            entry.inv() && entry.meta_slot_paddr_neq(new_child) && entry.metaregion_sound(
                 r0,
             ) implies #[trigger] entry.metaregion_sound(r1) by {
             let intermediate = r0.insert_slot_owner(
@@ -111,7 +111,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         OwnerSubtree::implies(
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.owned_meta_slot_paddr_neq(old_entry_owner) && entry.owned_meta_slot_paddr_neq(
+                entry.meta_slot_paddr_neq(old_entry_owner) && entry.meta_slot_paddr_neq(
                     new_entry_owner,
                 ) && entry.metaregion_sound(regions0),
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions1),
@@ -127,9 +127,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         OwnerSubtree::implies(
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.owned_meta_slot_paddr_neq(old_entry_owner) && entry.metaregion_sound(
-                    regions0,
-                ),
+                entry.meta_slot_paddr_neq(old_entry_owner) && entry.metaregion_sound(regions0),
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions1),
         )
     }

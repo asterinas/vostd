@@ -456,10 +456,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 *regions,
             )) by {
                 let f = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.owned_meta_slot_paddr_neq(initial_owner)
-                        && entry.owned_meta_slot_paddr_neq(*new_owner) && entry.metaregion_sound(
-                        initial_regions,
-                    );
+                    entry.meta_slot_paddr_neq(initial_owner) && entry.meta_slot_paddr_neq(
+                        *new_owner,
+                    ) && entry.metaregion_sound(initial_regions);
                 let g = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.metaregion_sound(*regions);
                 assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -1608,10 +1607,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *regions,
             )) by {
                 let f = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.owned_meta_slot_paddr_neq(initial_owner)
-                        && entry.owned_meta_slot_paddr_neq(*new_owner) && entry.metaregion_sound(
-                        initial_regions,
-                    );
+                    entry.meta_slot_paddr_neq(initial_owner) && entry.meta_slot_paddr_neq(
+                        *new_owner,
+                    ) && entry.metaregion_sound(initial_regions);
                 let g = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.metaregion_sound(*regions);
                 assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|

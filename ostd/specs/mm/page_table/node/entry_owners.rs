@@ -480,15 +480,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
-        self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
-            ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
-    }
-
     /// Physical-slot exclusion for owning entries; raw mappings impose no exclusion.
-    pub open spec fn owned_meta_slot_paddr_neq(self, other: Self) -> bool {
+    pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
         (self.is_node() || (self.is_frame() && self.frame_is_tracked())) && (other.is_node() || (
-        other.is_frame() && other.frame_is_tracked())) ==> self.meta_slot_paddr_neq(other)
+        other.is_frame() && other.frame_is_tracked())) ==> {
+            self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
+                ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
+        }
     }
 
     /// An untracked mapping needs no counted ownership of its physical slot.

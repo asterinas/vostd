@@ -1620,13 +1620,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             subtree.subtree_satisfies(
                 path_j,
-                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.owned_meta_slot_paddr_neq(old_entry),
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry),
             ),
         decreases INC_LEVELS - subtree.level(),
     {
         let f_sound = Self::metaregion_sound_pred(regions);
         let f_path = Self::path_correct_pred();
-        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.owned_meta_slot_paddr_neq(old_entry);
+        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry);
 
         assert(g(subtree.value(), path_j)) by {
             assert(f_sound(subtree.value(), path_j));
