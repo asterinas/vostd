@@ -640,11 +640,11 @@ impl KVirtArea {
                     *regions,
                 ) by {
                     let remaining = MappedItem::Tracked(it.seq()[i], prop);
-                    CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions_facts(
+                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(
                         remaining,
                         regions_before_map,
                     );
-                    CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions_preserved(
+                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_preserved(
                         remaining,
                         regions_before_map,
                         *regions,
@@ -924,7 +924,7 @@ impl KVirtArea {
                 // `item_slot_in_regions` for the current `(pa, level)` follows from the
                 // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
-                    CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions_facts(item, *regions);
+                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(item, *regions);
                     regions.lemma_contains_valid_frame_paddr(pa);
                     KernelPtConfig::lemma_none_perm_well_formed(pa, *regions);
                 }

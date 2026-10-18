@@ -170,7 +170,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         &&& C::perm_well_formed_with_region(pa, perm, regions)
     }
 
-    pub proof fn item_slot_in_regions_facts(item: C::Item, regions: MetaRegionOwners)
+    pub proof fn lemma_item_slot_in_regions_facts(item: C::Item, regions: MetaRegionOwners)
         ensures
             Self::item_slot_in_regions(item, regions) <==> {
                 &&& Self::item_slot_in_regions_except_perm(item, regions)
@@ -183,7 +183,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     {
     }
 
-    pub proof fn item_slot_in_regions_preserved(
+    pub proof fn lemma_item_slot_in_regions_preserved(
         item: C::Item,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
@@ -242,7 +242,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ) implies #[trigger] Self::item_slot_in_regions(item, regions1) by {
             let (pa, _level, _prop, _perm) = C::item_into_raw(item);
             if C::item_into_raw(item).3@ is Some {
-                Self::item_slot_in_regions_preserved(item, regions0, regions1);
+                Self::lemma_item_slot_in_regions_preserved(item, regions0, regions1);
             } else {
                 C::lemma_none_perm_well_formed(pa, regions1);
             }

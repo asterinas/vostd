@@ -2810,7 +2810,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost regions_before_new_child = *regions;
 
         proof {
-            Self::item_slot_in_regions_facts(item, regions_before_new_child);
+            Self::lemma_item_slot_in_regions_facts(item, regions_before_new_child);
         }
 
         let ghost is_tracked = raw_permission is Some;
