@@ -1040,9 +1040,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Proves `clone_requires` for the item reconstructed from the current frame entry.
-    /// Uses `metaregion_sound` and the config's `lemma_clone_requires_concrete`,
-    /// allowing ref-count saturation when `may_panic()` holds, according to
-    /// the counted permission carried by the resolved leaf.
     pub proof fn lemma_cur_frame_clone_requires(
         self,
         item: C::Item,
