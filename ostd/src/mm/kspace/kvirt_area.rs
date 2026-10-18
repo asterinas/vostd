@@ -841,25 +841,19 @@ impl KVirtArea {
                     cursor.0.invariants(cursor_owner, *regions, *guards),
                     // Level bounds / alignment from `collect_largest_pages` postconditions.
                     forall|i: int|
-                        0 <= i < it.seq().len() ==> (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0,
-                    forall|i: int|
-                        0 <= i < it.seq().len() ==> (#[trigger] it.seq()[i]).0 % page_size::<
-                            PagingConsts,
-                        >(it.seq()[i].1) == 0,
-                    forall|i: int|
-                        0 <= i < it.seq().len() ==> 1 <= (#[trigger] it.seq()[i]).1 <= NR_LEVELS,
-                    forall|i: int|
-                        0 <= i < it.seq().len() ==> (#[trigger] it.seq()[i]).1
-                            <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+                        0 <= i < it.seq().len() ==> {
+                            &&& (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0
+                            &&& it.seq()[i].0
+                                % page_size::<PagingConsts>(it.seq()[i].1) == 0
+                            &&& 1 <= it.seq()[i].1 <= NR_LEVELS
+                            &&& it.seq()[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
+                            &&& it.seq()[i].0 == pa_range.start + sum_page_sizes_spec(it.seq(), 0, i)
+                        },
                     forall|i: int|
                         0 <= i < it.seq().len() ==> (va_range.start as nat
                             + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size::<
                             PagingConsts,
                         >(it.seq()[i].1) as nat == 0,
-                    forall|i: int|
-                        #![auto]
-                        0 <= i < it.seq().len() ==> it.seq()[i].0 == pa_range.start
-                            + sum_page_sizes_spec(it.seq(), 0, i),
                     sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len,
                     // VA tracking: cursor has advanced past sum of processed pages.
                     cursor.0.va as nat == va_range.start as nat + sum_page_sizes_spec(
