@@ -748,6 +748,7 @@ impl KVirtArea {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
+            pa_range.end - pa_range.start >= page_size::<PagingConsts>(2) ==> may_panic(),
     // **Precise form** (post Phases A/B/C). Bounds are caller-
     // provable; OOM uses the implication form.
 

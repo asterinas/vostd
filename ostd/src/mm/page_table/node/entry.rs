@@ -143,6 +143,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             parent_owner.metaregion_sound_node(*old(regions)),
         ensures
             res.invariants(*owner, *final(regions)),
+            final(regions).slots == old(regions).slots,
             final(regions).slot_owners == old(regions).slot_owners,
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
@@ -281,6 +282,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
+            res matches Child::PageTable(node) ==> {
+                &&& node.tracked_slot_perm@ == final(regions).slots[final(owner).node().slot_index]
+                &&& node.tracked_metadata_perm@ is None
+            },
             final(self).invariants(*final(new_owner), *final(regions)),
             res.invariants(*final(owner), *final(regions)),
             final(self).node_matching(*final(new_owner), *final(parent_owner), *final(self).node),
@@ -319,11 +324,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     regions,
                 ).ref_count(idx),
             forall|idx: int|
-                #![trigger final(regions).slot_owners[idx].ref_count_perm]
+                #![trigger final(regions).slot_owners[idx]]
                 final(regions).slot_owners[idx].same_permissions(
                     old(regions).slot_owners[idx],
                 ),
             final(regions).slots == old(regions).slots,
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].usage]
+                old(regions).contains(idx) ==>
+                    final(regions).slot_owners[idx].usage == old(regions).slot_owners[idx].usage,
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& forall|i: int|
@@ -515,6 +523,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(owner).level() + old(parent_owner).level() == INC_LEVELS,
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
+            final(regions).slots == old(regions).slots,
             final(self).invariants(final(owner).value(), *final(regions)),
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner)),
             final(self).idx == old(self).idx,
@@ -1413,6 +1422,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             },
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
+            res matches Child::PageTable(node) ==> {
+                &&& node.tracked_slot_perm@ == final(regions).slots[final(owner).node().slot_index]
+                &&& node.tracked_metadata_perm@ is None
+            },
             res.invariants(*final(owner), *final(regions)),
             final(new_owner).inv(),
             final(new_owner).metaregion_sound(*final(regions)),
@@ -1460,11 +1473,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     regions,
                 ).ref_count(slot),
             forall|slot: int|
-                #![trigger final(regions).slot_owners[slot].ref_count_perm]
+                #![trigger final(regions).slot_owners[slot]]
                 final(regions).slot_owners[slot].same_permissions(
                     old(regions).slot_owners[slot],
                 ),
             final(regions).slots == old(regions).slots,
+            forall|slot: int| #![trigger final(regions).slot_owners[slot].usage]
+                old(regions).contains(slot) ==>
+                    final(regions).slot_owners[slot].usage == old(regions).slot_owners[slot].usage,
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
@@ -1654,6 +1670,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(regions).inv(),
             old(regions).slots.contains_key(old(parent_owner).slot_index),
         ensures
+            final(regions).slots == old(regions).slots,
             final(owner).inv(),
             final(owner).value().is_node(),
             final(owner).level() == old(owner).level(),

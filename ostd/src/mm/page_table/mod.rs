@@ -1232,9 +1232,6 @@ impl<C: PageTableConfig> PageTable<C> {
                 #![trigger kt.metaregion_sound(*final(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions))
                 ==> kt.metaregion_sound(*final(regions)),
-            // Freshness: the new PT's slot index is not used (as a primary slot
-            // or huge-frame sub-page slot) by any entry in any KernelPtConfig PT
-            // tree that was sound before the alloc.
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*old(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions)) ==>
@@ -1242,34 +1239,9 @@ impl<C: PageTableConfig> PageTable<C> {
                     kt.0.value().path,
                     |e: EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
-                        e.meta_slot_paddr() is Some
-                            ==> frame_to_index(
-                                e.meta_slot_paddr()->0) !=
-                                frame_to_index(
-                                    (final(owner)@->0).0.value().meta_slot_paddr()->0),
-                ),
-            // Sub-page freshness: for any huge frame entry in any pre-existing
-            // sound KernelPtConfig tree, the new PT's slot index isn't a sub-page
-            // slot of the huge frame either. Same allocator-freshness rationale.
-            forall |kt: PageTableOwner<KernelPtConfig>|
-                #![trigger kt.metaregion_sound(*old(regions))]
-                kt.inv() && kt.metaregion_sound(*old(regions)) ==>
-                kt.0.subtree_satisfies(
-                    kt.0.value().path,
-                    |e: EntryOwner<KernelPtConfig>,
-                     p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
-                        e.is_frame() && e.parent_level > 1 ==> {
-                            let pa = e.frame().mapped_pa;
-                            let nr_pages = page_size::<PagingConsts>(
-                                e.parent_level) / PAGE_SIZE;
-                            forall |j: usize| 0 < j < nr_pages ==> {
-                                let sub_idx =
-                                    #[trigger] frame_to_index(
-                                        (pa + j * PAGE_SIZE) as usize);
-                                sub_idx != frame_to_index(
-                                    (final(owner)@->0).0.value().meta_slot_paddr()->0)
-                            }
-                        },
+                        e.is_node() || (e.is_frame() && e.frame_is_tracked()) ==>
+                            frame_to_index(e.meta_slot_paddr()->0) !=
+                            frame_to_index((final(owner)@->0).0.value().meta_slot_paddr()->0),
                 ),
     )]
     pub fn empty_with_owner<'rcu>() -> Self {
@@ -1328,12 +1300,15 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
+            final(regions).slots == old(regions).slots,
+            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
+                old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
+                    final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
             Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.0.level == r.unwrap().0.0.guard_level
-                &&& r.unwrap().0.0.guard_level == NR_LEVELS as PagingLevel
                 &&& r.unwrap().0.0.va < r.unwrap().0.0.barrier_va.end
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
@@ -1346,7 +1321,7 @@ impl<C: PageTableConfig> PageTable<C> {
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
             forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).ref_count(idx)
+                old(regions).contains(idx) && old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
@@ -1384,6 +1359,10 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
+            final(regions).slots == old(regions).slots,
+            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
+                old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
+                    final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
             Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
@@ -1397,7 +1376,7 @@ impl<C: PageTableConfig> PageTable<C> {
             },
             !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                old(regions).ref_count(idx)
+                old(regions).contains(idx) && old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,

@@ -921,6 +921,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards>,
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
+            // Large unmaps may clone a removed subtree root before deferred reclamation.
+            len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
             old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
@@ -965,6 +967,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         #[verus_spec(
             invariant
+                len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
+                end_va == start_va + len,
                 self.pt_cursor.0.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
                 end_va <= 0x0000_8000_0000_0000usize,

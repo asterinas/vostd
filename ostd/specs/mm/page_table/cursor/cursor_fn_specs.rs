@@ -171,15 +171,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     }
 
     pub proof fn item_slot_in_regions_facts(item: C::Item, regions: MetaRegionOwners)
-        requires
-            Self::item_slot_in_regions(item, regions),
         ensures
-            Self::item_slot_in_regions_except_perm(item, regions),
-            C::perm_well_formed_with_region(
-                C::item_into_raw(item).0,
-                C::item_into_raw(item).3,
-                regions,
-            ),
+            Self::item_slot_in_regions(item, regions) <==> {
+                &&& Self::item_slot_in_regions_except_perm(item, regions)
+                &&& C::perm_well_formed_with_region(
+                    C::item_into_raw(item).0,
+                    C::item_into_raw(item).3,
+                    regions,
+                )
+            },
     {
     }
 
@@ -219,7 +219,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|
-                regions0.ref_count(idx) != REF_COUNT_UNUSED ==> {
+                regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED ==> {
                     &&& (#[trigger] regions1.slot_owners[idx]).same_permissions(
                         regions0.slot_owners[idx],
                     )
