@@ -12,6 +12,9 @@
 //! retire permission grants access to the allocation or permission to reclaim it.
 //! A registered object can retain a client-defined linear resource, whose meaning
 //! remains the client's responsibility.
+//!
+//! With the `irc11` feature, [`root`] tracks allocation identities across root
+//! publications and [`owned_root`] retains typed identities and client resources.
 use crate::ownership::Inv;
 use vstd::{
     prelude::*,
@@ -20,6 +23,11 @@ use vstd::{
         map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo},
     },
 };
+
+#[cfg(feature = "irc11")]
+pub mod owned_root;
+#[cfg(feature = "irc11")]
+pub mod root;
 
 verus! {
 

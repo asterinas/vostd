@@ -13,14 +13,15 @@
 //!
 //! Resolving a historical message returns identity only. Reader protection and
 //! permission to reclaim an allocation belong to the surrounding RCU protocol.
-use vstd::{prelude::*, resource::Loc};
-use vstd_extra::{
+use crate::{
     atomic_irc11::{AtomicHistory, ThreadView},
     ownership::Inv,
-    rcu_objects::{RcuBlockInfo, RcuOwnedObject, RcuRegistration},
+    rcu_objects::{
+        RcuBlockInfo, RcuOwnedObject, RcuRegistration,
+        root::{RcuRootGhost, current_registration_matches, rcu_root_history_inv},
+    },
 };
-
-use super::root::{RcuRootGhost, current_registration_matches, rcu_root_history_inv};
+use vstd::{prelude::*, resource::Loc};
 
 verus! {
 
