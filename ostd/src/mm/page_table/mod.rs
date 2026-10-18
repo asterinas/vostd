@@ -1296,6 +1296,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards>
         requires
             self.relates_owner(owner, *old(regions)),
+            Cursor::<C, G>::cursor_range_wf(*va),
             owner.0.value().node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
@@ -1355,6 +1356,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards>
         requires
             self.relates_owner(owner, *old(regions)),
+            Cursor::<C, G>::cursor_range_wf(*va),
             owner.0.value().node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),

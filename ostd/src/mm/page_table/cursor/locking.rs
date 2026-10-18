@@ -38,6 +38,8 @@ broadcast use group_ghost_tree_lemmas;
         pt_own.0.value().node().relate_guard(root_guard),
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.has_child(i),
         va.start < va.end,
+        Cursor::<C, A>::cursor_new_success_conditions(*va),
+        Cursor::<C, A>::cursor_range_wf(*va),
         // Per-config tightening; see `Cursor::new`. Pulled through to the
         // cursor's `LOCKED_END_BOUND_spec` invariant.
         va.end <= C::LOCKED_END_BOUND_spec(),
@@ -119,7 +121,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
-        start_idx,
+        va.start,
         root_guard,
     );
 
@@ -127,6 +129,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let mut subtree_root = None;
     #[verus_spec(
         invariant
+            cursor_own.va == va.start,
             regions.slots == old(regions).slots,
             forall|idx: int| #![trigger regions.slot_owners[idx]]
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
@@ -145,12 +148,17 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 &&& cursor_own.level == NR_LEVELS
                 &&& cursor_own.continuations.dom().contains(NR_LEVELS - 1)
                 &&& cursor_own.continuations[NR_LEVELS - 1].all_some()
+                &&& cursor_own.continuations[NR_LEVELS - 1].level() == NR_LEVELS
             },
             subtree_root is Some ==> {
+                &&& va.end - va.start < page_size::<C>((cursor_own.level + 1) as PagingLevel)
+                &&& nat_align_down(va.start as nat, page_size::<C>((cursor_own.level + 1) as PagingLevel) as nat)
+                    + page_size::<C>((cursor_own.level + 1) as PagingLevel) >= va.end
                 &&& regions.inv()
                 &&& 1 <= cursor_own.level <= NR_LEVELS
                 &&& cursor_own.continuations.dom().contains(cursor_own.level - 1)
                 &&& cursor_own.continuations[cursor_own.level - 1].inv()
+                &&& cursor_own.continuations[cursor_own.level - 1].level() == cursor_own.level
                 &&& cursor_own.continuations[cursor_own.level - 1].guard == subtree_root->0
                 &&& cursor_own.continuations[cursor_own.level - 1].entry_own.is_node()
                 &&& cursor_own.continuations[cursor_own.level - 1].entry_own.inv()
@@ -190,6 +198,9 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         cursor_own.guard_level = guard_level;
     }
     let cur_node_va = va.start.align_down(page_size::<C>(guard_level + 1));
+    proof {
+        cursor_own.prefix = cur_node_va;
+    }
 
     #[verus_spec(with Tracked(&cont.entry_own), Tracked(guards), Tracked(regions))]
     dfs_acquire_lock(guard, &mut subtree_root, cur_node_va, va.clone());
@@ -218,6 +229,11 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     // are superseded by the CortenMM version. They should be merged, first
     // at the spec level, then the code.
     proof {
+        assert(res.1.va == res.0.va);
+        assert(res.0.inv());
+        assert(res.1.level == res.0.level);
+        assert(res.1.locked_range().start <= res.0.barrier_va.start);
+        assert(res.0.barrier_va.end <= res.1.locked_range().end);
         assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
             && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
         *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
@@ -272,6 +288,10 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         old(cursor_own).level == NR_LEVELS,
         old(cursor_own).continuations.dom().contains(NR_LEVELS - 1),
         old(cursor_own).continuations[NR_LEVELS - 1].all_some(),
+        old(cursor_own).continuations[NR_LEVELS - 1].level() == NR_LEVELS,
+        old(cursor_own).va == va.start,
+        Cursor::<C, A>::cursor_new_success_conditions(*va),
+        Cursor::<C, A>::cursor_range_wf(*va),
     ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -283,6 +303,9 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& *final(guards) == *old(guards)
         },
         r is Some ==> {
+            &&& va.end - va.start < page_size::<C>((final(cursor_own).level + 1) as PagingLevel)
+            &&& nat_align_down(va.start as nat, page_size::<C>((final(cursor_own).level + 1) as PagingLevel) as nat)
+                + page_size::<C>((final(cursor_own).level + 1) as PagingLevel) >= va.end
             &&& final(cursor_own).va == old(cursor_own).va
             &&& final(cursor_own).prefix == old(cursor_own).prefix
             &&& final(cursor_own).view_mappings() == old(cursor_own).view_mappings()
@@ -290,6 +313,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& 1 <= final(cursor_own).level <= NR_LEVELS
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
             &&& final(cursor_own).continuations[final(cursor_own).level - 1].inv()
+            &&& final(cursor_own).continuations[final(cursor_own).level - 1].level() == final(cursor_own).level
             &&& final(cursor_own).continuations[final(cursor_own).level - 1].guard == r->0
         },
         // The subtree root's entry_own is a valid node with matching guard.
@@ -364,7 +388,11 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let start_idx = pte_index::<C>(va.start, cur_level);
         let level_too_high = {
             let end_idx = pte_index::<C>(va.end - 1, cur_level);
-            cur_level > 1 && start_idx == end_idx
+            /* Keep a complete slot at its parent so a same-level mapping can replace it.
+             * Origin Rust: cur_level > 1 && start_idx == end_idx
+             */
+            cur_level > 1 && start_idx == end_idx && !(va.start % page_size::<C>(cur_level) == 0
+                && va.end - va.start == page_size::<C>(cur_level))
         };
         if !level_too_high {
             break;
@@ -534,6 +562,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         old(regions).inv(),
     ensures
         // The root node is still lock_held (not ManuallyDrop'd by this fn).
+        *final(cur_node) == *old(cur_node),
         final(guards).lock_held(entry_own.node().slot_vaddr()),
         // All other locks are preserved: addresses not in this subtree are unchanged.
         forall |addr: usize|

@@ -239,6 +239,10 @@ impl<'a> VmSpace<'a> {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
+        proof {
+            lemma_vaddr_range_spec_user();
+            lemma_page_size_spec_values();
+        }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             self.pt.cursor(guard, va)
@@ -295,6 +299,10 @@ impl<'a> VmSpace<'a> {
     > {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
+        }
+        proof {
+            lemma_vaddr_range_spec_user();
+            lemma_page_size_spec_values();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -495,7 +503,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
-            old(owner).in_locked_range() ==> r is Ok,
+            old(self).0.va < old(self).0.barrier_va.end ==> r is Ok,
             r matches Ok(state) ==>
                 final(self).0.query_some_condition(*final(owner)) ==>
                 final(self).0.query_some_ensures(*final(owner), state),
@@ -670,7 +678,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions)),
-            old(owner).in_locked_range() ==> res is Ok,
+            old(self).pt_cursor.0.va < old(self).pt_cursor.0.barrier_va.end ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).pt_cursor.0.query_some_condition(*final(owner)) ==>
                 final(self).pt_cursor.0.query_some_ensures(*final(owner), state),
@@ -958,9 +966,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let ghost mut removed: Set<Mapping> = Set::empty();
 
         proof {
-            // end_va <= barrier_va.end == locked_range().end. The cursor invariant
-            // bounds locked_range().end by `vaddr_range_spec::<C>().1 + 1`,
-            // and for UserPtConfig that evaluates to 2^47.
             lemma_vaddr_range_spec_user();
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
         }
@@ -1018,7 +1023,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         && m.property == parent.property,
             invariant_except_break
                 self.pt_cursor.0.va <= end_va,
-                self.pt_cursor.0.va < end_va ==> cursor_owner.in_locked_range(),
             ensures
                 self.pt_cursor.0.va >= end_va,
             decreases end_va - self.pt_cursor.0.va

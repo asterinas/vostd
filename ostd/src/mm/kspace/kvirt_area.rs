@@ -511,6 +511,10 @@ impl KVirtArea {
 
         let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
+        proof {
+            lemma_page_size_spec_values();
+            assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
+        }
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         let cursor_res = page_table.cursor_mut(preempt_guard, &cursor_range);
 
@@ -795,6 +799,19 @@ impl KVirtArea {
             // Save regions state before cursor_mut so postcondition trigger can fire.
             let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
+            proof {
+                lemma_page_size_spec_values();
+                KernelPtConfig::axiom_current_paging_consts_hardcoded();
+                assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
+                assert(va_range.end <= FRAME_METADATA_BASE_VADDR);
+                assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
+                assert(KernelPtConfig::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES
+                    - 1) * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
+                    == 0xffff_ff80_0000_0000int);
+                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
+                    va_range,
+                ));
+            }
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             let cursor_res = page_table.cursor_mut(preempt_guard, &va_range);
 

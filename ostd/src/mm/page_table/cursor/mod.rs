@@ -226,6 +226,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             pt.relates_owner(pt_own, *old(regions)),
+            Self::cursor_range_wf(*va),
             pt_own.0.value().node().relate_guard(root_guard),
             // Per-config tightening: e.g. `KernelPtConfig` overrides
             // `LOCKED_END_BOUND_spec` to `FRAME_METADATA_BASE_VADDR`. Callers
@@ -358,7 +359,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).query_panic_condition(*old(owner), *old(regions)),
-            old(owner).in_locked_range() ==> res is Ok,
+            old(self).va < old(self).barrier_va.end ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).query_some_condition(*final(owner)) ==>
                 final(self).query_some_ensures(*final(owner), state),
@@ -373,6 +374,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
             return Err(PageTableError::InvalidVaddr(self.va));
+        }
+        proof {
+            self.lemma_barrier_va_is_locked(*owner, self.va);
         }
         let rcu_guard = self.rcu_guard;
 
@@ -852,7 +856,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.wf(*owner),
                 regions.inv(),
                 old(owner)@.inv(),
-                owner.in_locked_range() || self.va >= end,
                 self.va >= old(self).va,
                 end == old(self).va + len,
                 end % PAGE_SIZE == 0,
@@ -886,6 +889,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             decreases owner.max_steps(),
         {
             let ghost owner0 = *owner;
+            proof {
+                self.lemma_barrier_va_is_locked(*owner, self.va);
+            }
             let ghost cursor0 = *self;
             let ghost baseline_view = CursorView { cur_va: owner0.va, ..old(owner)@ };
             proof {
@@ -1305,6 +1311,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             if self.level <= self.guard_level && node_start <= va && va - node_start < node_size {
                 proof {
                     assert(old(self).jump_node_holds(self.level, va));
+                    self.lemma_barrier_va_is_locked(*owner, va);
+                    owner.lemma_locked_range_span();
+                    lemma_page_size_ge_base::<C>((self.level + 1) as PagingLevel);
+                    lemma_page_size_divides::<C>(
+                        (self.level + 1) as PagingLevel,
+                        (self.guard_level + 1) as PagingLevel,
+                    );
+                    lemma_nat_align_down_monotone(
+                        owner.prefix as nat,
+                        node_size as nat,
+                        page_size::<C>((self.guard_level + 1) as PagingLevel) as nat,
+                    );
+                    lemma_mod_0_add(
+                        owner.prefix as int,
+                        page_size::<C>((self.guard_level + 1) as PagingLevel) as int,
+                        node_size as int,
+                    );
+                    lemma_nat_align_down_sound(self.va as nat, node_size as nat);
+                    assert(owner.locked_range().end % (node_size as int) == 0);
+                    assert(owner.in_guard_node());
                 }
                 let ghost owner0 = *owner;
                 let ghost old_va = self.va;
@@ -1398,7 +1424,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
         proof {
-            owner.lemma_in_locked_range_guard_index_eq_prefix();
             owner.lemma_move_forward_owner_decreases_steps();
             old(owner).lemma_move_forward_not_popped_too_high();
         }
@@ -1472,16 +1497,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.lemma_cur_pte_index();
             if pte_index_spec::<C>(next_va, (self.level - 1 + 1) as PagingLevel) == 0 {
                 assert(self.level == self.guard_level);
-                owner.lemma_in_locked_range_guard_index_eq_prefix();
-                lemma_pte_index_bound::<C>(owner.va, owner.level);
+                assert(owner.index() + 1 == NR_ENTRIES);
+            } else {
                 assert(owner.index() + 1 < NR_ENTRIES);
             }
-            assert(owner.index() + 1 < NR_ENTRIES);
         }
 
         self.va = next_va;
 
         proof {
+            let ghost before_advance = *owner;
+            owner0.lemma_move_forward_va_is_align_up();
+            assert(owner.move_forward_owner_spec().va == next_va);
             if owner.level == NR_LEVELS {
                 owner0.lemma_in_locked_range_top_index_lt_top_end();
                 lemma_pte_index_bound::<C>(va, NR_LEVELS as PagingLevel);
@@ -1490,17 +1517,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 assert(owner.continuations[owner.level - 1].idx + 1
                     <= C::TOP_LEVEL_INDEX_RANGE().end);
             }
-            owner.do_inc_index();
-            owner.zero_preserves_all_but_va();
-            owner.do_zero_below_level();
+            if owner.index() + 1 == NR_ENTRIES {
+                owner.lemma_move_forward_guard_end();
+                owner.va = next_va;
+                owner.popped_too_high = false;
+            } else {
+                owner.do_inc_index();
+                owner.zero_preserves_all_but_va();
+                owner.do_zero_below_level();
+            }
+            assert(*owner == before_advance.move_forward_owner_spec());
             owner0.lemma_move_forward_va_is_align_up();
             assert(owner.children_not_locked(*guards) && owner.metaregion_sound(*regions)) by {
                 reveal(CursorContinuation::map_children);
                 reveal(CursorOwner::path_metaregion_sound);
             };
-            if owner.level < owner.guard_level {
-                owner.lemma_prefix_in_locked_range();
-            }
         }
     }
 
@@ -1943,6 +1974,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             pt.relates_owner(pt_own, *old(regions)),
+            Cursor::<C, A>::cursor_range_wf(*va),
             pt_own.0.value().node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
@@ -2126,7 +2158,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
-            old(owner).in_locked_range() ==> res is Ok,
+            old(self).0.va < old(self).0.barrier_va.end ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).0.query_some_condition(*final(owner)) ==>
                 final(self).0.query_some_ensures(*final(owner), state),
@@ -2763,6 +2795,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert_eq!(self.0.va % size, 0);
 
         proof {
+            self.0.lemma_barrier_va_is_locked(*owner, self.0.va);
             assert(owner.in_locked_range());
             owner.lemma_locked_range_vaddr_prefix_match(owner.va);
             lemma_inc_slot_indices::<C>(owner.va, NR_LEVELS as PagingLevel);
