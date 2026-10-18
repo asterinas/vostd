@@ -720,9 +720,9 @@ impl KVirtArea {
     ) -> bool {
         &&& pa_range.end <= MAX_PADDR
         &&& forall|pa: Paddr|
-            #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
+            #![trigger frame_to_index(pa)]
             pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> regions.contains(
-                crate::specs::mm::frame::mapping::frame_to_index(pa),
+                frame_to_index(pa),
             )
     }
 
@@ -819,12 +819,12 @@ impl KVirtArea {
 
             proof {
                 assert forall|pa: Paddr|
-                    #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
+                    #![trigger frame_to_index(pa)]
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
-                    let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
+                    let idx = frame_to_index(pa);
                     &&& regions.contains(idx)
                 } by {
-                    let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
+                    let idx = frame_to_index(pa);
                     regions.lemma_contains_valid_frame_paddr(pa);
                 };
             }
@@ -876,9 +876,9 @@ impl KVirtArea {
                     // `cursor.map` only touches the slot at its own mapped PA — see the
                     // focused assume in the loop body.
                     forall|pa: Paddr|
-                        #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
+                        #![trigger frame_to_index(pa)]
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
-                            let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
+                            let idx = frame_to_index(pa);
                             &&& regions.contains(idx)
                         },
             {
