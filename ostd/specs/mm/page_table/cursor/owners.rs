@@ -27,14 +27,14 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
-            lemma_page_size_base, lemma_page_size_divides, lemma_page_size_ge_base,
-            lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_next,
-            lemma_pte_index_bound, lemma_vaddr_range_spec_user,
+            Guards, Mapping, lemma_aligned_vaddr_slack, lemma_inc_slot_indices,
+            lemma_lower_indices_aligned, lemma_page_size_base, lemma_page_size_divides,
+            lemma_page_size_ge_base, lemma_page_size_is_pow2_pte_index_bit_offset,
+            lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
             owners::*, page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
             vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
-            vaddr_upper_part_spec, Guards, Mapping,
+            vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -42,15 +42,15 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::{
-        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
         Frame,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     },
     nr_subpage_per_huge,
     page_prop::PageProperty,
     page_size,
     page_table::*,
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
 };
 use core::{marker::PhantomData, ops::Range};
 

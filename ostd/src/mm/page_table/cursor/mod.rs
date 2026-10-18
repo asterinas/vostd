@@ -45,16 +45,16 @@ use crate::specs::mm::{
 };
 
 use super::{
-    pte_index, Child, ChildRef, Entry, EntryOwner, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel,
+    Child, ChildRef, Entry, EntryOwner, PageTable, PageTableConfig, PageTableError, PageTableGuard,
+    PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
 };
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::{
-    mapping::frame_to_meta, META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
 };
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{page_size, Paddr, Vaddr, MAX_PADDR};
+use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
     specs::task::InAtomicMode,

@@ -15,12 +15,12 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{
-        mapping::meta_to_frame, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::meta_to_frame,
     },
     page_prop::PageProperty,
     page_table::*,
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
 };
 use core::marker::PhantomData;
 

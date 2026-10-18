@@ -11,9 +11,9 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
+    PagingConstsTrait, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
     page_table::*,
-    PagingConstsTrait, Vaddr,
 };
 use core::ops::Range;
 
