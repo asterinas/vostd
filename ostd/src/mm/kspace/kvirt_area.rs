@@ -513,7 +513,13 @@ impl KVirtArea {
 
         proof {
             lemma_page_size_spec_values();
+            KernelPtConfig::axiom_current_paging_consts_hardcoded();
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
+            assert(cursor_range.end <= FRAME_METADATA_BASE_VADDR);
+            assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
+            assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
+                cursor_range,
+            ));
         }
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         let cursor_res = page_table.cursor_mut(preempt_guard, &cursor_range);
@@ -904,7 +910,7 @@ impl KVirtArea {
                 }
 
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
-                // Valid because the cursor is `in_locked_range` here (required by `cursor.map`).
+                // Valid because the cursor is `in_barrier_range` here (required by `cursor.map`).
                 proof {
                     assert(cursor.0.va + page_size::<PagingConsts>(level)
                         <= cursor.0.barrier_va.end) by {

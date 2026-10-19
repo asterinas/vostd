@@ -503,7 +503,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
-            old(self).0.va < old(self).0.barrier_va.end ==> r is Ok,
+            old(owner).in_barrier_range() ==> r is Ok,
             r matches Ok(state) ==>
                 final(self).0.query_some_condition(*final(owner)) ==>
                 final(self).0.query_some_ensures(*final(owner), state),
@@ -558,7 +558,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             res is Some ==> {
                 &&& res->0 == final(self).0.va
                 &&& final(owner).level <= final(owner).guard_level
-                &&& final(owner).in_locked_range()
+                &&& final(owner).in_barrier_range()
             },
     )]
     pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
@@ -678,7 +678,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions)),
-            old(self).pt_cursor.0.va < old(self).pt_cursor.0.barrier_va.end ==> res is Ok,
+            old(owner).in_barrier_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).pt_cursor.0.query_some_condition(*final(owner)) ==>
                 final(self).pt_cursor.0.query_some_ensures(*final(owner), state),
@@ -728,7 +728,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             res is Some ==> {
                 &&& res->0 == final(self).pt_cursor.0.va
                 &&& final(owner).level <= final(owner).guard_level
-                &&& final(owner).in_locked_range()
+                &&& final(owner).in_barrier_range()
             },
     )]
     pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {

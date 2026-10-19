@@ -152,17 +152,14 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::TOP_LEVEL_CAN_UNMAP(),
     ;
 
-    /// VERIFICATION only: Upper bound on `locked_range().end` for cursors of this config.
+    /// VERIFICATION only: Upper bound on `barrier_va.end` for cursors of this config.
+    /// Traversal also stops at this bound; the complete guard node may extend beyond it.
     ///
     /// May be tighter than the structural `vaddr_range_spec().1 + 1`
     /// when the actual sources of cursor ranges (e.g. the kvirt allocator
     /// for `KernelPtConfig`) draw from a sub-window of the configured VA
     /// range. `KernelPtConfig` overrides this to `FRAME_METADATA_BASE_VADDR`,
-    /// which the `kvirt_alloc_range_bounds` axiom enforces. This bound is
-    /// what allows the cursor's `move_forward` proof to discharge
-    /// `prefix.idx[NR_LEVELS - 1] + 1 < NR_ENTRIES` at the top-level
-    /// boundary — the structural bound only gives `<= NR_ENTRIES` for
-    /// configurations whose `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`.
+    /// which the `kvirt_alloc_range_bounds` axiom enforces.
     ///
     /// Default: `usize::MAX + 1` (no tightening over the structural bound).
     open spec fn LOCKED_END_BOUND_spec() -> int {
@@ -1308,7 +1305,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
-                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().1.in_barrier_range()
                 &&& r.unwrap().0.0.level == r.unwrap().0.0.guard_level
                 &&& r.unwrap().0.0.va < r.unwrap().0.0.barrier_va.end
                 &&& r.unwrap().0.0.va == va.start
@@ -1368,7 +1365,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
-                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().1.in_barrier_range()
                 &&& r.unwrap().0.level == r.unwrap().0.guard_level
                 &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
                 &&& r.unwrap().0.va == va.start

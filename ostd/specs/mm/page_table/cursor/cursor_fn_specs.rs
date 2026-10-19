@@ -19,35 +19,25 @@ use core::ops::Range;
 
 verus! {
 
-// ─── Cursor specs ─────────────────────────────────────────────────────────────
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    /// The model reserves the final top-level slot for the cursor's end sentinel.
-    pub open spec fn cursor_range_wf(va: Range<Vaddr>) -> bool {
-        Self::cursor_new_success_conditions(va) ==> va.end <= C::LEADING_BITS_spec() as int
-            * 0x1_0000_0000_0000int + (crate::mm::NR_ENTRIES - 1) * page_size::<C>(C::NR_LEVELS())
-    }
-
-    /// A page-aligned address inside the barrier belongs to the locked node and config.
-    pub proof fn lemma_barrier_va_is_locked(self, owner: CursorOwner<'rcu, C>, va: Vaddr)
+impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+    /// Request addresses lie inside the locked node and satisfy configuration bounds.
+    pub proof fn lemma_barrier_va_bounds(self, va: Vaddr)
         requires
             self.inv(),
-            owner.inv(),
-            self.wf(owner),
             self.barrier_va.start <= va < self.barrier_va.end,
             va % C::BASE_PAGE_SIZE() == 0,
         ensures
-            owner.set_va_in_node(va).in_locked_range(),
+            self.locked_range().start <= va < self.locked_range().end,
+            va < C::LOCKED_END_BOUND_spec(),
+            C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
+                < C::TOP_LEVEL_INDEX_RANGE().end,
+            pte_index_spec::<C>(va, C::NR_LEVELS()) + 1 < crate::mm::NR_ENTRIES,
     {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         C::lemma_page_table_config_constant_properties();
-        owner.lemma_locked_range_span();
-        lemma_same_node_vaddr_upper_bits_match::<C>(
-            va,
-            owner.prefix,
-            owner.prefix,
-            owner.guard_level,
-        );
+        self.lemma_locked_range_span();
+        lemma_same_node_vaddr_upper_bits_match::<C>(va, self.prefix, self.prefix, self.guard_level);
         CursorOwner::<'rcu, C>::lemma_vaddr_top_cell(va);
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(
             (C::NR_LEVELS() + 1) as crate::mm::PagingLevel,
@@ -92,6 +82,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 va < base + (pte_index_spec::<C>(va, C::NR_LEVELS()) + 1) * size,
                 size > 0,
         ;
+    }
+}
+
+// ─── Cursor specs ─────────────────────────────────────────────────────────────
+impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
+    /// The model reserves the final top-level slot for the cursor's end sentinel.
+    pub open spec fn cursor_range_wf(va: Range<Vaddr>) -> bool {
+        Self::cursor_new_success_conditions(va) ==> va.end <= C::LEADING_BITS_spec() as int
+            * 0x1_0000_0000_0000int + (crate::mm::NR_ENTRIES - 1) * page_size::<C>(C::NR_LEVELS())
     }
 
     pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {

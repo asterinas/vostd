@@ -49,7 +49,7 @@ broadcast use group_ghost_tree_lemmas;
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
                     final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
-        (*ret.1).in_locked_range(),
+        (*ret.1).in_barrier_range(),
         ret.0.level == ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
@@ -121,7 +121,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
-        va.start,
+        *va,
         root_guard,
     );
 
@@ -130,6 +130,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     #[verus_spec(
         invariant
             cursor_own.va == va.start,
+            cursor_own.barrier_va == *va,
             regions.slots == old(regions).slots,
             forall|idx: int| #![trigger regions.slot_owners[idx]]
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
@@ -230,14 +231,15 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     // at the spec level, then the code.
     proof {
         assert(res.1.va == res.0.va);
+        assert(res.1.barrier_va == res.0.barrier_va);
+        assert(res.1.in_barrier_range());
         assert(res.0.inv());
         assert(res.1.level == res.0.level);
         assert(res.1.locked_range().start <= res.0.barrier_va.start);
         assert(res.0.barrier_va.end <= res.1.locked_range().end);
-        assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
-            && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
-        *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
-            == pt_own.0.value().path);
+        assume(res.0.invariants(*res.1, *regions, *guards) && res.0.level == res.0.guard_level
+            && res.0.va < res.0.barrier_va.end && (*res.1).as_page_table_owner() == pt_own && (
+        *res.1).continuations[3].path() == pt_own.0.value().path);
         assume((forall|i: int|
             #![trigger old(regions).slot_owners[i]]
             old(regions).contains(i) && old(regions).ref_count(i) != REF_COUNT_UNUSED ==> old(
@@ -290,6 +292,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         old(cursor_own).continuations[NR_LEVELS - 1].all_some(),
         old(cursor_own).continuations[NR_LEVELS - 1].level() == NR_LEVELS,
         old(cursor_own).va == va.start,
+        old(cursor_own).barrier_va == *va,
         Cursor::<C, A>::cursor_new_success_conditions(*va),
         Cursor::<C, A>::cursor_range_wf(*va),
     ensures
@@ -307,6 +310,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& nat_align_down(va.start as nat, page_size::<C>((final(cursor_own).level + 1) as PagingLevel) as nat)
                 + page_size::<C>((final(cursor_own).level + 1) as PagingLevel) >= va.end
             &&& final(cursor_own).va == old(cursor_own).va
+            &&& final(cursor_own).barrier_va == old(cursor_own).barrier_va
             &&& final(cursor_own).prefix == old(cursor_own).prefix
             &&& final(cursor_own).view_mappings() == old(cursor_own).view_mappings()
             &&& final(cursor_own).popped_too_high == false
@@ -686,6 +690,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         final(owner).guard_level == old(owner).guard_level,
         final(owner).level == old(owner).level,
         final(owner).va == old(owner).va,
+        final(owner).barrier_va == old(owner).barrier_va,
         final(owner).prefix == old(owner).prefix,
         final(owner).popped_too_high == old(owner).popped_too_high,
         // Preserve the guard for each continuation level

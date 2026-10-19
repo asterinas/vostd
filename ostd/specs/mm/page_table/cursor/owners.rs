@@ -631,6 +631,7 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
     pub ghost level: PagingLevel,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
     pub ghost va: Vaddr,
+    pub ghost barrier_va: Range<Vaddr>,
     pub ghost guard_level: PagingLevel,
     pub ghost prefix: Vaddr,
     pub ghost popped_too_high: bool,
@@ -651,16 +652,32 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         )
         // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
         // sentinel meaning the cursor has been advanced past the very last in-range
-        // top-level slot. In this state the cursor is `above_locked_range`.
+        // top-level slot. In this state the cursor is `at_or_past_barrier_end`.
         &&& pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
             <= C::TOP_LEVEL_INDEX_RANGE().end
-        // The cursor's VA is always at or above the start of the locked range.
-        &&& self.in_locked_range()
-            || self.above_locked_range()
-        // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
-        // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
+        &&& self.barrier_va.start < self.barrier_va.end
+        &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
+        &&& self.barrier_va.end % C::BASE_PAGE_SIZE() == 0
+        &&& self.locked_range().start <= self.barrier_va.start
+        &&& self.barrier_va.end <= self.locked_range().end
+        &&& is_valid_range_spec::<C>(self.barrier_va)
+        &&& self.barrier_va.end <= C::LOCKED_END_BOUND_spec()
+        &&& self.barrier_va.end <= C::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES - 1)
+            * page_size::<C>(
+            C::NR_LEVELS(),
+        )
+        // These bounds describe valid request addresses, independently of node coverage.
+        &&& self.in_barrier_range() ==> {
+            &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
+                self.va,
+                NR_LEVELS as PagingLevel,
+            ) < C::TOP_LEVEL_INDEX_RANGE().end
+            &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) + 1 < NR_ENTRIES
+        }
+        // End states may retain a cursor level above the guard.
         &&& self.popped_too_high ==> self.level >= self.guard_level
-        &&& !self.popped_too_high ==> self.level <= self.guard_level || self.above_locked_range()
+        &&& !self.popped_too_high ==> self.level <= self.guard_level
+            || self.at_or_past_barrier_end()
         &&& self.continuations[self.level - 1].all_some()
         &&& forall|i: int|
             self.level <= i < NR_LEVELS ==> {
@@ -720,7 +737,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // OR strictly below guard_level. The wrap branch of
         // `move_forward_owner_spec` (level == guard_level && idx+1 ==
         // NR_ENTRIES) advances `va` past the prefix's chunk; that state has
-        // `level == guard_level` and `above_locked_range`, and is excluded
+        // `level == guard_level` and `at_or_past_barrier_end`, and is excluded
         // from this clause.
         &&& !self.popped_too_high && (self.in_locked_range() || self.level < self.guard_level)
             ==> forall|i: int|
@@ -737,7 +754,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[3].entry_own.parent_level
                 == 5
             // After leaving the guard node, its continuations retain their old indices.
-            &&& self.in_guard_node() ==> pte_index_spec::<C>(self.va, (3 + 1) as PagingLevel)
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (3 + 1) as PagingLevel)
                 == self.continuations[3].idx
         }
         &&& self.level <= 3 ==> {
@@ -745,7 +762,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[2].inv()
             &&& self.continuations[2].level() == 3
             &&& self.continuations[2].entry_own.parent_level == 4
-            &&& self.in_guard_node() ==> pte_index_spec::<C>(self.va, (2 + 1) as PagingLevel)
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (2 + 1) as PagingLevel)
                 == self.continuations[2].idx
             &&& self.continuations[2].guard.inner.inner@.ptr.addr()
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
@@ -768,7 +785,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[1].inv()
             &&& self.continuations[1].level() == 2
             &&& self.continuations[1].entry_own.parent_level == 3
-            &&& self.in_guard_node() ==> pte_index_spec::<C>(self.va, (1 + 1) as PagingLevel)
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (1 + 1) as PagingLevel)
                 == self.continuations[1].idx
             &&& self.continuations[1].guard.inner.inner@.ptr.addr()
                 != self.continuations[2].guard.inner.inner@.ptr.addr()
@@ -793,7 +810,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[0].inv()
             &&& self.continuations[0].level() == 1
             &&& self.continuations[0].entry_own.parent_level == 2
-            &&& self.in_guard_node() ==> pte_index_spec::<C>(self.va, (0 + 1) as PagingLevel)
+            &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, (0 + 1) as PagingLevel)
                 == self.continuations[0].idx
             &&& self.continuations[0].guard.inner.inner@.ptr.addr()
                 != self.continuations[1].guard.inner.inner@.ptr.addr()
@@ -922,7 +939,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             old(self).level <= old(self).guard_level,
-            old(self).in_locked_range(),
+            old(self).in_barrier_range(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == NR_LEVELS ==> (old(self).continuations[old(self).level - 1].idx + 1)
                 <= C::TOP_LEVEL_INDEX_RANGE().end,
@@ -940,7 +957,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va = old(self).inc_index().va;
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
-
+        if self.in_barrier_range() {
+            old(self).lemma_barrier_va_bounds(self.va);
+        }
     }
 
     pub proof fn lemma_inv_continuation(self, i: int)
@@ -1121,7 +1140,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             level == self.level,
             new_subtree.inv(),
             new_subtree.value().is_frame(),
@@ -1142,38 +1161,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_va_in_subtree_range();
     }
 
-    /// The complete guard node; integer endpoints also represent the end of the address space.
+    /// VA interval covered by the locked node at `guard_level`, starting at `prefix`.
+    /// Integer endpoints can represent the end of the address space.
     pub open spec fn locked_range(self) -> Range<int> {
         let size = page_size::<C>((self.guard_level + 1) as PagingLevel) as int;
         Range { start: self.prefix as int, end: self.prefix as int + size }
     }
 
-    pub open spec fn in_guard_node(self) -> bool {
+    /// Whether the current VA lies in the guard node's VA interval.
+    pub open spec fn in_locked_range(self) -> bool {
         self.locked_range().start <= self.va < self.locked_range().end
     }
 
-    pub open spec fn in_locked_range(self) -> bool {
-        &&& self.in_guard_node()
-        &&& self.va < C::LOCKED_END_BOUND_spec()
-        &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
-        &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
-            self.va,
-            NR_LEVELS as PagingLevel,
-        )
-        &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) + 1 < NR_ENTRIES
+    /// Whether the current VA belongs to the range requested when creating the cursor.
+    pub open spec fn in_barrier_range(self) -> bool {
+        self.barrier_va.start <= self.va < self.barrier_va.end
     }
 
-    pub open spec fn above_locked_range(self) -> bool {
-        ||| self.va >= self.locked_range().end
-        ||| self.va >= C::LOCKED_END_BOUND_spec()
-        ||| pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) >= C::TOP_LEVEL_INDEX_RANGE().end
-        ||| pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) + 1 >= NR_ENTRIES
+    /// Whether the current VA has reached or passed the requested range's end.
+    pub open spec fn at_or_past_barrier_end(self) -> bool {
+        self.va >= self.barrier_va.end
     }
 
-    pub proof fn lemma_in_locked_range_top_index_lt_top_end(self)
+    pub proof fn lemma_in_barrier_range_top_index_lt_top_end(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             !self.popped_too_high,
         ensures
             pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
@@ -1181,10 +1194,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
     }
 
-    pub proof fn lemma_in_locked_range_level_le_guard_level(self)
+    pub proof fn lemma_in_barrier_range_level_le_guard_level(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             !self.popped_too_high,
         ensures
             self.level <= self.guard_level,
@@ -1256,7 +1269,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_va_plus_page_size_no_overflow(self, level: PagingLevel)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             1 <= level <= self.guard_level,
         ensures
             self.va + page_size::<PagingConsts>(level) <= usize::MAX,
@@ -1334,7 +1347,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_entry_absent_not_present(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             self.cur_entry_owner().is_absent(),
         ensures
             !self@.present(),
@@ -1358,7 +1371,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_subtree_empty_not_present(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path) =~= set![],
         ensures
             !self@.present(),
@@ -1381,7 +1394,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_entry_frame_present(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             self.cur_entry_owner().is_frame(),
         ensures
             self@.present(),
@@ -1593,9 +1606,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn new(
         owner_subtree: OwnerSubtree<C>,
-        va: Vaddr,
+        barrier_va: Range<Vaddr>,
         guard: PageTableGuard<'rcu, C>,
     ) -> Self {
+        let va = barrier_va.start;
         let idx = pte_index_spec::<C>(va, C::NR_LEVELS());
         Self {
             level: C::NR_LEVELS(),
@@ -1604,6 +1618,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 CursorContinuation::new(owner_subtree, idx, guard),
             ),
             va,
+            barrier_va,
             guard_level: C::NR_LEVELS(),
             prefix: nat_align_down(
                 va as nat,
@@ -1615,12 +1630,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub proof fn tracked_new(
         tracked owner_subtree: OwnerSubtree<C>,
-        va: Vaddr,
+        barrier_va: Range<Vaddr>,
         guard: PageTableGuard<'rcu, C>,
     ) -> tracked Self
         returns
-            Self::new(owner_subtree, va, guard),
+            Self::new(owner_subtree, barrier_va, guard),
     {
+        let ghost va = barrier_va.start;
         let ghost idx = pte_index_spec::<C>(va, C::NR_LEVELS());
         let tracked continuation = CursorContinuation::tracked_new(owner_subtree, idx, guard);
         let tracked mut continuations = Map::tracked_empty();
@@ -1629,6 +1645,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             level: C::NR_LEVELS(),
             continuations,
             va,
+            barrier_va,
             guard_level: C::NR_LEVELS(),
             prefix: nat_align_down(
                 va as nat,
@@ -1824,6 +1841,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& owner.va == self.va
+        &&& owner.barrier_va == self.barrier_va
         &&& self.level == owner.level
         &&& owner.guard_level == self.guard_level
         &&& owner.locked_range().start <= self.barrier_va.start

@@ -131,6 +131,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd_extra::arithmetic::lemma_mod_0_add(start as int, guard_ps as int, ps as int);
 
         vstd_extra::arithmetic::lemma_nat_align_down_sound(old_va_val, ps);
+        if self.in_barrier_range() {
+            old_self.lemma_barrier_va_bounds(self.va);
+        }
     }
 
     pub proof fn zero_preserves_all_but_va(self)
@@ -139,6 +142,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.zero_below_level().continuations == self.continuations,
             self.zero_below_level().guard_level == self.guard_level,
             self.zero_below_level().prefix == self.prefix,
+            self.zero_below_level().barrier_va == self.barrier_va,
             self.zero_below_level().popped_too_high == self.popped_too_high,
     {
     }
@@ -147,7 +151,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_inc_index_va(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
             self.inc_index().va == self.va + page_size::<C>(self.level),
@@ -164,7 +168,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn inc_and_zero_increases_va(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
             self.inc_index().zero_below_level().va > self.va,
@@ -187,7 +191,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_va_in_subtree_range(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
         ensures
             vaddr_of::<C>(self.cur_subtree().value().path) <= self.cur_va() < vaddr_of::<C>(
                 self.cur_subtree().value().path,
@@ -233,7 +237,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_pte_index(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_range(),
         ensures
             1 <= self.level <= C::NR_LEVELS(),
             pte_index_spec::<C>(self.cur_va(), self.level) == self.continuations[self.level
@@ -258,7 +262,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     (i + 1) as PagingLevel,
                 )) == old(self).continuations[i].idx,
             old(self).locked_range().start <= new_va < old(self).locked_range().end,
-            old(self).set_va_in_node(new_va).in_locked_range(),
+            old(self).set_va_in_node(new_va).in_barrier_range(),
             old(self).level <= old(self).guard_level,
         ensures
             *final(self) == old(self).set_va_in_node(new_va),
@@ -275,6 +279,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.popped_too_high = false;
         assert(self.continuations == old_self.continuations.insert(old_self.level - 1, cont));
         old_self.lemma_locked_range_vaddr_prefix_match(new_va);
+        old_self.lemma_barrier_va_bounds(new_va);
     }
 }
 
@@ -285,7 +290,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             self.wf(owner),
             owner.inv(),
-            owner.in_locked_range(),
+            owner.in_barrier_range(),
         ensures
             1 <= self.level <= C::NR_LEVELS(),
             pte_index_spec::<C>(self.va, self.level) == owner.continuations[owner.level - 1].idx,
