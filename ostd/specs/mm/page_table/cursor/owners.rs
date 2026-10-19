@@ -653,9 +653,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
         // sentinel meaning the cursor has been advanced past the very last in-range
         // top-level slot. In this state the cursor is `at_or_past_barrier_end`.
-        &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel)
-            <= C::TOP_LEVEL_INDEX_RANGE().end
-        &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end <= self.locked_range().end
+        &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) <= C::TOP_LEVEL_INDEX_RANGE().end
+        &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end
+            <= self.locked_range().end
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
         &&& self.barrier_va.end % C::BASE_PAGE_SIZE() == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
@@ -698,14 +698,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             1 <= i <= self.guard_level ==> #[trigger] pte_index_spec::<C>(
                 self.prefix,
                 i as PagingLevel,
-            )
-                == 0
-        &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
-            self.prefix,
-            NR_LEVELS as PagingLevel,
-        ) < C::TOP_LEVEL_INDEX_RANGE().end
-        &&& pte_index_spec::<C>(self.prefix, NR_LEVELS as PagingLevel) + 1
-            < NR_ENTRIES
+            ) == 0
+        &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<
+            C,
+        >(self.prefix, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
+        &&& pte_index_spec::<C>(self.prefix, NR_LEVELS as PagingLevel) + 1 < NR_ENTRIES
         &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
         &&& vaddr_upper_bits_spec::<C>(self.prefix) == leading_bits_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
@@ -1164,8 +1161,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_barrier_va(),
             !self.popped_too_high,
         ensures
-            pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel)
-                < C::TOP_LEVEL_INDEX_RANGE().end,
+            pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end,
     {
     }
 

@@ -117,7 +117,6 @@ pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> boo
     (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
 }
 
-
 /// Page-table index selected by `va` at `level`.
 #[verifier::inline]
 pub open spec fn pte_index_spec<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize {
