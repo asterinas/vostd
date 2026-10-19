@@ -37,10 +37,6 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
         ),
         page_table_coverage_start_spec::<C>() + pow2(nr_page_table_coverage_bits_spec::<C>() as nat)
             <= pow2(usize::BITS as nat),
-        leading_bits_spec::<C>() != 0 ==> C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start
-            * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat) / pow2(
-            (C::ADDRESS_WIDTH() - 1) as nat,
-        ) as int) % 2 == 1,
         C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start * pow2(
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1
