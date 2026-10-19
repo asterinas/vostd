@@ -311,9 +311,12 @@ impl<C: PageTableConfig> CursorView<C> {
         }
         let new_size = m.page_size / NR_ENTRIES;
         self.lemma_query_mapping();
-        assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
+        assert(set![4096usize, 2097152, 1073741824].contains(new_size) && m.page_size % new_size
+            == 0) by {
             if m.page_size == 2097152 {
+                assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
             } else {
+                assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
             }
         };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);

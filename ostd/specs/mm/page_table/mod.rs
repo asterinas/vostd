@@ -88,16 +88,33 @@ pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
     }
 }
 
-/// Upper-address contribution selected by the configuration, in its original bit positions.
+/// Start of the complete page-table index coverage for the configured upper bits.
 #[verifier::inline]
-pub open spec fn leading_part_spec<C: PageTableConfig>() -> Vaddr {
+pub open spec fn page_table_coverage_start_spec<C: PageTableConfig>() -> Vaddr {
     (leading_bits_spec::<C>() * pow2(nr_page_table_coverage_bits_spec::<C>() as nat)) as Vaddr
 }
 
 /// Exclusive end of the complete page-table index coverage for the configured upper bits.
 /// This mathematical boundary may be one past `Vaddr::MAX`.
 pub open spec fn page_table_coverage_end_spec<C: PageTableConfig>() -> int {
-    leading_part_spec::<C>() as int + page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel)
+    page_table_coverage_start_spec::<C>() as int + page_size::<C>(
+        (C::NR_LEVELS() + 1) as PagingLevel,
+    )
+}
+
+/// Start of the managed virtual-address range, restricted by `TOP_LEVEL_INDEX_RANGE`.
+pub open spec fn page_table_managed_start_spec<C: PageTableConfig>() -> Vaddr {
+    (page_table_coverage_start_spec::<C>() + C::TOP_LEVEL_INDEX_RANGE().start * page_size::<C>(
+        C::NR_LEVELS(),
+    )) as Vaddr
+}
+
+/// Exclusive end of the managed virtual-address range, restricted by `TOP_LEVEL_INDEX_RANGE`.
+/// This mathematical boundary may be one past `Vaddr::MAX`.
+pub open spec fn page_table_managed_end_spec<C: PageTableConfig>() -> int {
+    page_table_coverage_start_spec::<C>() as int + C::TOP_LEVEL_INDEX_RANGE().end * page_size::<C>(
+        C::NR_LEVELS(),
+    )
 }
 
 /// Number of effective virtual-address bits used by the top-level page-table index.
@@ -109,10 +126,8 @@ pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
 /// Canonical bounds of the VA range managed by a page-table config,
 #[verusfmt::skip]
 pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Vaddr> {
-    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let base = leading_part_spec::<C>() as int;
-    let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
-    let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
+    let start = page_table_managed_start_spec::<C>();
+    let end = (page_table_managed_end_spec::<C>() - 1) as Vaddr;
     RangeInclusiveView { start, end, exhausted: false }
 }
 

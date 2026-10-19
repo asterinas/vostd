@@ -73,7 +73,7 @@ pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
 
 /// Reconstructs a path address with the configuration's derived upper-address contribution.
 pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usize {
-    (vaddr(path) + leading_part_spec::<C>()) as usize
+    (vaddr(path) + page_table_coverage_start_spec::<C>()) as usize
 }
 
 /// The positional VA of every valid path fits in the current paging address
@@ -121,7 +121,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.inv(),
         path.len() <= INC_LEVELS - 1,
     ensures
-        vaddr_of::<C>(path) == vaddr(path) + leading_part_spec::<C>(),
+        vaddr_of::<C>(path) == vaddr(path) + page_table_coverage_start_spec::<C>(),
 {
     C::lemma_page_table_config_constant_properties();
     lemma_leading_bits_properties::<C>();
@@ -972,10 +972,12 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path[0] < t,
             self.view_rec(path).contains(m),
         ensures
-            (path[0]) * page_size::<C>(C::NR_LEVELS()) + leading_part_spec::<C>()
+            (path[0]) * page_size::<C>(C::NR_LEVELS()) + page_table_coverage_start_spec::<C>()
                 <= m.va_range.start,
             m.va_range.start < m.va_range.end,
-            m.va_range.end <= t * page_size::<C>(C::NR_LEVELS()) + leading_part_spec::<C>(),
+            m.va_range.end <= t * page_size::<C>(C::NR_LEVELS()) + page_table_coverage_start_spec::<
+                C,
+            >(),
     {
         self.lemma_view_rec_vaddr_range(path, m);
         lemma_vaddr_of_eq_int::<C>(path);

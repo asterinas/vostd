@@ -27,16 +27,16 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, is_valid_range_spec, leading_bits_spec, leading_part_spec,
-            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
-            lemma_page_size_base, lemma_page_size_divides, lemma_page_size_ge_base,
+            Guards, Mapping, is_valid_range_spec, leading_bits_spec, lemma_aligned_vaddr_slack,
+            lemma_inc_slot_indices, lemma_lower_indices_aligned, lemma_page_size_base,
+            lemma_page_size_divides, lemma_page_size_ge_base,
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_leading_part_is_align_down,
             lemma_vaddr_range_spec_user, mappings_disjoint_vaddrs, mappings_well_formed,
             nr_page_table_coverage_bits_spec, owners::*, page_table_coverage_end_spec,
-            pte_index_bit_offset_spec, pte_index_spec, vaddr_leading_part_spec,
-            vaddr_range_proofs::lemma_leading_bits_properties, vaddr_range_spec,
-            vaddr_replace_pte_index_spec,
+            page_table_coverage_start_spec, pte_index_bit_offset_spec, pte_index_spec,
+            vaddr_leading_part_spec, vaddr_range_proofs::lemma_leading_bits_properties,
+            vaddr_range_spec, vaddr_replace_pte_index_spec,
         },
     },
     task::InAtomicMode,
@@ -702,7 +702,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             C,
         >(self.prefix, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
         &&& vaddr_leading_part_spec::<C>(self.va) == vaddr_leading_part_spec::<C>(self.prefix)
-        &&& vaddr_leading_part_spec::<C>(self.prefix) == leading_part_spec::<C>()
+        &&& vaddr_leading_part_spec::<C>(self.prefix) == page_table_coverage_start_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
             #![trigger self.continuations[i].idx]
             self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx == pte_index_spec::<C>(
@@ -1704,7 +1704,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     assert(nr_page_table_coverage_bits_spec::<C>() == 48);
     assert(lb < 65536);
     let coverage = pow2(nr_page_table_coverage_bits_spec::<C>() as nat);
-    let base = leading_part_spec::<C>() as int;
+    let base = page_table_coverage_start_spec::<C>() as int;
     let cell = 0x80_0000_0000int;
     let bounds = vaddr_range_spec::<C>();
 

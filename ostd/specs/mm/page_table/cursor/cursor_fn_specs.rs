@@ -31,7 +31,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             va % C::BASE_PAGE_SIZE() == 0,
         ensures
             self.locked_range().start <= va < self.locked_range().end,
-            vaddr_leading_part_spec::<C>(va) == leading_part_spec::<C>(),
+            vaddr_leading_part_spec::<C>(va) == page_table_coverage_start_spec::<C>(),
             C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
                 < C::TOP_LEVEL_INDEX_RANGE().end,
     {
@@ -56,7 +56,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd::arithmetic::power2::lemma2_to64();
         assert(nr_page_table_coverage_bits_spec::<C>() == 48);
         let coverage = pow2(nr_page_table_coverage_bits_spec::<C>() as nat);
-        let base = leading_part_spec::<C>() as int;
+        let base = page_table_coverage_start_spec::<C>() as int;
         let size = page_size::<C>(C::NR_LEVELS()) as int;
         assert(size == 549755813888);
         assert(0 <= leading_bits_spec::<C>() < 65536);
