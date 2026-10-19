@@ -746,8 +746,11 @@ impl KVirtArea {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
+            // The default cursor can descend into a node covering exactly one huge page,
             // while largest_pages selects a leaf in its unlocked parent. This is fixed in
             // the latest version.
+            forall|level: PagingLevel|
+                2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==>
                     pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
             pa_range.end - pa_range.start >= page_size::<PagingConsts>(2) ==> may_panic(),
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
