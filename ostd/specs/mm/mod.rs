@@ -114,10 +114,10 @@ impl GlobalMemOwner {
         assert forall|m1: Mapping, m2: Mapping|
             self.page_table_mappings() has m1 && self.page_table_mappings() has m2 && m1
                 != m2 implies #[trigger] Mapping::disjoint_vaddrs(m1, m2) by {
-            pt.view_rec_disjoint_vaddrs(root_path, m1, m2);
+            pt.lemma_view_rec_disjoint_vaddrs(root_path, m1, m2);
         }
 
-        pt.view_rec_mapping_inv(root_path);
+        pt.lemma_view_rec_mapping_inv(root_path);
     }
 }
 

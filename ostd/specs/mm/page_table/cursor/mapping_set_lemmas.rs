@@ -79,11 +79,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                         left.path().push_tail(i),
                     ).contains(m);
 
-                PageTableOwner(self.children[self.idx as int].unwrap()).view_rec_vaddr_range(
+                PageTableOwner(self.children[self.idx as int].unwrap()).lemma_view_rec_vaddr_range(
                     self.path().push_tail(self.idx as int),
                     m,
                 );
-                PageTableOwner(left.children[i as int].unwrap()).view_rec_vaddr_range(
+                PageTableOwner(left.children[i as int].unwrap()).lemma_view_rec_vaddr_range(
                     left.path().push_tail(i),
                     m,
                 );
@@ -187,10 +187,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Forward: subtree mappings are in the filtered set
         assert forall|m: Mapping| subtree_mappings.contains(m) implies filtered.contains(m) by {
             // m is in the current subtree's view_rec => in cont[level-1].view_mappings() => in self.view_mappings()
-            // view_rec_vaddr_range gives m.va_range.start in
+            // lemma_view_rec_vaddr_range gives m.va_range.start in
             // [vaddr_of(cur_path), vaddr_of(cur_path) + page_size(level)),
             // which is exactly our filter range.
-            PageTableOwner(cur_subtree).view_rec_vaddr_range(cur_path, m);
+            PageTableOwner(cur_subtree).lemma_view_rec_vaddr_range(cur_path, m);
         };
 
         // Reverse: filtered mappings are in the subtree
@@ -207,7 +207,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont_i.children[j].unwrap(),
                 ).view_rec(cont_i.path().push_tail(j)).contains(m);
 
-            PageTableOwner(cont_i.children[j].unwrap()).view_rec_vaddr_range(
+            PageTableOwner(cont_i.children[j].unwrap()).lemma_view_rec_vaddr_range(
                 cont_i.path().push_tail(j),
                 m,
             );
@@ -439,8 +439,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let child_j = cont_i.children[j].unwrap();
         let path_j = cont_i.path().push_tail(j);
-        PageTableOwner(child_j).view_rec_vaddr_range(path_j, m);
-        // Bridge view_rec_vaddr_range's canonical bounds to the
+        PageTableOwner(child_j).lemma_view_rec_vaddr_range(path_j, m);
+        // Bridge lemma_view_rec_vaddr_range's canonical bounds to the
         // disjointness lemmas (also canonical after the refactor).
         lemma_vaddr_of_eq_int::<C>(path_j);
 
@@ -506,7 +506,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             cont_i.children[j].unwrap(),
                         ).view_rec(cont_i.path().push_tail(j)).contains(m);
                     cont_i.lemma_inv_children_unroll(j);
-                    PageTableOwner(cont_i.children[j].unwrap()).view_rec_vaddr_range(
+                    PageTableOwner(cont_i.children[j].unwrap()).lemma_view_rec_vaddr_range(
                         cont_i.path().push_tail(j),
                         m,
                     );
@@ -517,7 +517,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             old_cont.children[k].unwrap(),
                         ).view_rec(old_cont.path().push_tail(k)).contains(m);
                     old_cont.lemma_inv_children_unroll(k);
-                    PageTableOwner(old_cont.children[k].unwrap()).view_rec_vaddr_range(
+                    PageTableOwner(old_cont.children[k].unwrap()).lemma_view_rec_vaddr_range(
                         old_cont.path().push_tail(k),
                         m,
                     );
@@ -549,7 +549,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                         old_cont.as_subtree_inv();
                         old_cont.as_page_table_owner_preserves_view_mappings();
-                        PageTableOwner(old_cont.as_subtree()).view_rec_vaddr_range(
+                        PageTableOwner(old_cont.as_subtree()).lemma_view_rec_vaddr_range(
                             old_cont.path(),
                             m,
                         );
@@ -704,7 +704,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Every mapping in the cursor view satisfies `Mapping::inv()`.
     ///
     /// Collapses the cursor view into a single-root `view_rec` and applies
-    /// `view_rec_mapping_inv`. Inherits the latter's two narrow `assume`s
+    /// `lemma_view_rec_mapping_inv`. Inherits the latter's two narrow `assume`s
     /// on `vaddr(path)` arithmetic.
     pub proof fn view_mapping_inv(self)
         requires
@@ -715,14 +715,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.as_page_table_owner_preserves_view_mappings();
         let pto = self.as_page_table_owner();
         let root_path = self.continuations[3].path();
-        pto.view_rec_mapping_inv(root_path);
+        pto.lemma_view_rec_mapping_inv(root_path);
     }
 
     /// Non-overlapping mappings in the cursor view.
     ///
     /// Collapses the union-over-continuations `view_mappings` into a single
     /// `view_rec` rooted at the reconstructed root page table, then applies
-    /// `view_rec_disjoint_vaddrs` on that single subtree.
+    /// `lemma_view_rec_disjoint_vaddrs` on that single subtree.
     /// Follows from tree structure alone.
     pub proof fn as_page_table_owner_view_non_overlapping(self)
         requires
@@ -738,7 +738,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.mappings.contains(m) && #[trigger] self@.mappings.contains(n) && m
                 != n implies m.va_range.end <= n.va_range.start || n.va_range.end
             <= m.va_range.start by {
-            pto.view_rec_disjoint_vaddrs(root_path, m, n);
+            pto.lemma_view_rec_disjoint_vaddrs(root_path, m, n);
         };
     }
 }

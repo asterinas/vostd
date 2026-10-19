@@ -1894,7 +1894,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             assert forall|m: crate::specs::mm::page_table::Mapping|
                 pt.view_rec(old_path).contains(m) implies false by {
                 let i = pt.view_rec_contains_choose(old_path, m);
-                PageTableOwner(owner.child(i)).view_rec_absent_empty(old_path.push_tail(i));
+                PageTableOwner(owner.child(i)).lemma_view_rec_absent_empty(old_path.push_tail(i));
             };
             assert(pt.view_rec(old_path) == set![]);
         }

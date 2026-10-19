@@ -274,9 +274,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// This is the standalone "lift `path_correct_pred` + uniqueness over
     /// the cursor tree" lemma the `unmap` site needs. Each continuation
     /// child subtree is `pt_inv` + path-correct (via
-    /// [`PageTableOwner::pt_inv_implies_path_correct`]), and its mappings
+    /// [`PageTableOwner::lemma_pt_inv_implies_path_correct`]), and its mappings
     /// all bubble up into `self@.mappings`; so by
-    /// [`PageTableOwner::no_frame_with_path_rec`] a frame entry carrying
+    /// [`PageTableOwner::lemma_no_frame_with_path_rec`] a frame entry carrying
     /// `removed_path` would force a mapping starting at
     /// `vaddr_of(removed_path)` into `self@.mappings` — exactly what the
     /// hypothesis forbids. Continuation *entries* are nodes, so the
@@ -319,7 +319,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // child.value.path == child_path (inv_children_rel) and
                 // child.value.path.inv() (EntryOwner::inv).
                 // L1: pt_inv ⟹ tree-wide path correctness.
-                PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
+                PageTableOwner::<C>::lemma_pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.
                 assert forall|m: Mapping|
                     #![trigger self@.mappings.contains(m)]
@@ -329,7 +329,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.lemma_view_mappings_intro(m, i);
                 };
                 // L-rec: no frame entry in this subtree carries removed_path.
-                PageTableOwner(child).no_frame_with_path_rec(
+                PageTableOwner(child).lemma_no_frame_with_path_rec(
                     child_path,
                     removed_path,
                     self@.mappings,

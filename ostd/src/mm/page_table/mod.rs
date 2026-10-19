@@ -1061,7 +1061,7 @@ impl PageTable<KernelPtConfig> {
                         assert(Self::create_user_pt_panic_condition(kern_node));
                     }
                 }
-                kernel_owner.metaregion_sound_preserved_slot_owners_eq(
+                kernel_owner.lemma_metaregion_sound_preserved_slot_owners_eq(
                     pre_to_ref_regions,
                     *regions,
                 );

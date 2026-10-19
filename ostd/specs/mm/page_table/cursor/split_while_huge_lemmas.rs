@@ -688,7 +688,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let path = subtree.value().path;
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
-            PageTableOwner(subtree).view_rec_node_page_size_bound(path, qm);
+            PageTableOwner(subtree).lemma_view_rec_node_page_size_bound(path, qm);
         }
     }
 
@@ -720,7 +720,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let path = subtree.value().path;
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
-            PageTableOwner(subtree).view_rec_page_size_bound(path, qm);
+            PageTableOwner(subtree).lemma_view_rec_page_size_bound(path, qm);
         }
     }
 

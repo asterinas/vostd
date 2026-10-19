@@ -399,7 +399,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert(cont.view_mappings() == cont0.view_mappings()) by {
             cont0.lemma_inv_children_unroll(idx);
-            PageTableOwner(cont0.children[idx].unwrap()).view_rec_absent_empty(
+            PageTableOwner(cont0.children[idx].unwrap()).lemma_view_rec_absent_empty(
                 cont0.path().push_tail(idx as int),
             );
             assert forall|m: Mapping|

@@ -1084,7 +1084,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.lemma_move_forward_increases_va();
                         owner.lemma_move_forward_not_popped_too_high();
                         let ghost subtree = owner.cur_subtree();
-                        PageTableOwner(subtree).view_rec_absent_empty(subtree.value().path);
+                        PageTableOwner(subtree).lemma_view_rec_absent_empty(subtree.value().path);
                         owner.lemma_cur_subtree_eq_filtered_mappings();
                     }
 
@@ -3568,7 +3568,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 reveal(<CursorOwner as Inv>::inv);
                 let cont = owner0.continuations[i];
                 if old_child_pre_replace.is_node() {
-                    // Old child is a node: use neq_old_from_path_disjoint + neq_old_preserved.
+                    // Old child is a node: use lemma_neq_old_from_path_disjoint + neq_old_preserved.
                     assert forall|j: int|
                         #![auto]
                         0 <= j < NR_ENTRIES
@@ -3579,8 +3579,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         let path_j = cont.path().push_tail(j);
                         cont.lemma_pt_inv_children_unroll(j);
                         cont.lemma_inv_children_rel_unroll(j);
-                        PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
-                        PageTableOwner::<C>::neq_old_from_path_disjoint(
+                        PageTableOwner::<C>::lemma_pt_inv_implies_path_correct(subtree, path_j);
+                        PageTableOwner::<C>::lemma_neq_old_from_path_disjoint(
                             subtree,
                             path_j,
                             old_child_pre_replace,
@@ -3615,8 +3615,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             let path_j = final_cont.path().push_tail(j);
                             cont0.lemma_pt_inv_children_unroll(j);
                             cont0.lemma_inv_children_rel_unroll(j);
-                            PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
-                            PageTableOwner::<C>::neq_old_from_path_disjoint(
+                            PageTableOwner::<C>::lemma_pt_inv_implies_path_correct(subtree, path_j);
+                            PageTableOwner::<C>::lemma_neq_old_from_path_disjoint(
                                 subtree,
                                 path_j,
                                 old_child_pre_replace,

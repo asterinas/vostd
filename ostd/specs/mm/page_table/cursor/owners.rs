@@ -1734,7 +1734,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
         let pidx = p[0] as int;
-        child.view_rec_top_index_va_bound(p, m, end);
+        child.lemma_view_rec_top_index_va_bound(p, m, end);
     }
 }
 
@@ -1759,7 +1759,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
 
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
-        // (1) Non-overlapping: tree collapse + view_rec_disjoint_vaddrs.
+        // (1) Non-overlapping: tree collapse + lemma_view_rec_disjoint_vaddrs.
         self.view_non_overlapping();
         // (2) Per-mapping `Mapping::inv()`: page_size ∈ {4K,2M,1G}, PA/VA
         //     alignment, PA/VA size equal page_size, and PA bound.
@@ -1774,7 +1774,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// The cursor's view has non-overlapping mappings. This follows from the
     /// tree structure alone: `as_page_table_owner_preserves_view_mappings`
     /// collapses the union-over-continuations view into a single root-rooted
-    /// `view_rec`, after which `view_rec_disjoint_vaddrs` gives pairwise
+    /// `view_rec`, after which `lemma_view_rec_disjoint_vaddrs` gives pairwise
     /// disjointness directly.
     pub proof fn view_non_overlapping(self)
         requires
