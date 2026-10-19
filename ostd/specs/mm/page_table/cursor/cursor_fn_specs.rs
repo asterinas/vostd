@@ -6,7 +6,7 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::owners::*, is_valid_range_spec,
-            vaddr_range_proofs::lemma_leading_bits_properties, *,
+            vaddr_range_proofs::lemma_page_table_upper_bits_properties, *,
         },
     },
     task::InAtomicMode,
@@ -31,14 +31,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             va % C::BASE_PAGE_SIZE() == 0,
         ensures
             self.locked_range().start <= va < self.locked_range().end,
-            vaddr_upper_part_spec::<C>(va) == leading_part_spec::<C>(),
+            vaddr_upper_part_spec::<C>(va) == page_table_upper_part_spec::<C>(),
             C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
                 < C::TOP_LEVEL_INDEX_RANGE().end,
     {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         C::lemma_page_table_config_constant_properties();
-        lemma_leading_bits_properties::<C>();
+        lemma_page_table_upper_bits_properties::<C>();
         self.lemma_locked_range_span();
         lemma_same_node_vaddr_upper_bits_match::<C>(va, self.prefix, self.prefix, self.guard_level);
         CursorOwner::<'rcu, C>::lemma_vaddr_top_cell(va);
@@ -49,21 +49,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_spec_values();
         lemma_arch_specific_consts_properties::<C>();
         vstd::arithmetic::power2::lemma2_to64();
-        assert(page_table_vaddr_bits_spec::<C>() == 48);
-        let coverage = pow2(page_table_vaddr_bits_spec::<C>() as nat);
-        let base = leading_part_spec::<C>() as int;
+        assert(nr_page_table_coverage_bits_spec::<C>() == 48);
+        let coverage = pow2(nr_page_table_coverage_bits_spec::<C>() as nat);
+        let base = page_table_upper_part_spec::<C>() as int;
         let size = page_size::<C>(C::NR_LEVELS()) as int;
         assert(size == 549755813888);
-        assert(0 <= leading_bits_spec::<C>() < 65536);
+        assert(0 <= page_table_upper_bits_spec::<C>() < 65536);
         assert(C::TOP_LEVEL_INDEX_RANGE().start < C::TOP_LEVEL_INDEX_RANGE().end <= 512);
         vstd::layout::unsigned_int_max_values();
         assert(0 <= base + C::TOP_LEVEL_INDEX_RANGE().start * size <= usize::MAX)
             by (nonlinear_arith)
             requires
                 size == 549755813888,
-                base == leading_bits_spec::<C>() * coverage,
+                base == page_table_upper_bits_spec::<C>() * coverage,
                 coverage == 281474976710656,
-                0 <= leading_bits_spec::<C>() < 65536,
+                0 <= page_table_upper_bits_spec::<C>() < 65536,
                 0 <= C::TOP_LEVEL_INDEX_RANGE().start < 512,
                 usize::MAX == 18446744073709551615,
         ;
@@ -71,9 +71,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             by (nonlinear_arith)
             requires
                 size == 549755813888,
-                base == leading_bits_spec::<C>() * coverage,
+                base == page_table_upper_bits_spec::<C>() * coverage,
                 coverage == 281474976710656,
-                0 <= leading_bits_spec::<C>() < 65536,
+                0 <= page_table_upper_bits_spec::<C>() < 65536,
                 0 < C::TOP_LEVEL_INDEX_RANGE().end <= 512,
                 usize::MAX == 18446744073709551615,
         ;

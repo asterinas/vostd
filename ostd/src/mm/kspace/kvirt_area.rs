@@ -516,7 +516,7 @@ impl KVirtArea {
             KernelPtConfig::axiom_current_paging_consts_hardcoded();
             lemma_vaddr_range_spec_kernel();
             lemma_arch_specific_consts_properties::<KernelPtConfig>();
-            assert(page_table_vaddr_bits_spec::<KernelPtConfig>() == 48);
+            assert(nr_page_table_coverage_bits_spec::<KernelPtConfig>() == 48);
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             assert(cursor_range.end <= FRAME_METADATA_BASE_VADDR);
             assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
@@ -816,13 +816,13 @@ impl KVirtArea {
                 KernelPtConfig::axiom_current_paging_consts_hardcoded();
                 lemma_vaddr_range_spec_kernel();
                 lemma_arch_specific_consts_properties::<KernelPtConfig>();
-                assert(page_table_vaddr_bits_spec::<KernelPtConfig>() == 48);
+                assert(nr_page_table_coverage_bits_spec::<KernelPtConfig>() == 48);
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
                 assert(va_range.end <= FRAME_METADATA_BASE_VADDR);
                 assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
-                assert(leading_part_spec::<KernelPtConfig>() + (NR_ENTRIES - 1) * page_size::<
-                    KernelPtConfig,
-                >(KernelPtConfig::NR_LEVELS()) == 0xffff_ff80_0000_0000int);
+                assert(page_table_upper_part_spec::<KernelPtConfig>() + (NR_ENTRIES - 1)
+                    * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
+                    == 0xffff_ff80_0000_0000int);
                 assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
                     va_range,
                 ));
@@ -848,8 +848,8 @@ impl KVirtArea {
             for (pa, level) in it: pages.into_iter()
                 invariant
                     forall|level: PagingLevel|
-                        2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==>
-                            len != page_size::<PagingConsts>(level),
+                        2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==> len
+                            != page_size::<PagingConsts>(level),
                     len >= page_size::<PagingConsts>(2) ==> may_panic(),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
                     forall|pa: Paddr, level: PagingLevel| #[trigger]
@@ -932,7 +932,8 @@ impl KVirtArea {
                     };
                     if level > cursor.0.guard_level {
                         lemma_page_size_monotone::<PagingConsts>(
-                            (cursor.0.guard_level + 1) as PagingLevel, level,
+                            (cursor.0.guard_level + 1) as PagingLevel,
+                            level,
                         );
                         assert(len == page_size::<PagingConsts>(level));
                     }

@@ -27,16 +27,17 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, is_valid_range_spec, leading_bits_spec, leading_part_spec,
-            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
-            lemma_page_size_base, lemma_page_size_divides, lemma_page_size_ge_base,
+            Guards, Mapping, is_valid_range_spec, lemma_aligned_vaddr_slack,
+            lemma_inc_slot_indices, lemma_lower_indices_aligned, lemma_page_size_base,
+            lemma_page_size_divides, lemma_page_size_ge_base,
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
-            owners::*, page_table_coverage_end_spec, page_table_vaddr_bits_spec,
-            pte_index_bit_offset_spec, pte_index_spec,
-            vaddr_range_proofs::lemma_leading_bits_properties, vaddr_range_spec,
-            vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
+            nr_page_table_coverage_bits_spec, owners::*, page_table_coverage_end_spec,
+            page_table_upper_bits_spec, page_table_upper_part_spec, pte_index_bit_offset_spec,
+            pte_index_spec, vaddr_range_proofs::lemma_page_table_upper_bits_properties,
+            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
+            vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -702,7 +703,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             C,
         >(self.prefix, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
         &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
-        &&& vaddr_upper_bits_spec::<C>(self.prefix) == leading_bits_spec::<C>()
+        &&& vaddr_upper_bits_spec::<C>(self.prefix) == page_table_upper_bits_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
             #![trigger self.continuations[i].idx]
             self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx == pte_index_spec::<C>(
@@ -1219,7 +1220,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
         lemma_page_size_next::<C>(self.guard_level);
-        lemma_usize_shr_is_div(self_va, page_table_vaddr_bits_spec::<C>());
+        lemma_usize_shr_is_div(self_va, nr_page_table_coverage_bits_spec::<C>());
         lemma_fundamental_div_mod(self_va as int, node_size as int);
         lemma_mul_is_commutative(self_va as int / node_size as int, node_size as int);
         lemma_nat_align_down_sound(self_va as nat, node_size as nat);
@@ -1229,7 +1230,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         lemma_vaddr_upper_part_is_align_down::<C>(self_va);
         lemma_lower_indices_aligned::<C>(self.prefix, body_level);
-        lemma_usize_shr_is_div(self.prefix, page_table_vaddr_bits_spec::<C>());
+        lemma_usize_shr_is_div(self.prefix, nr_page_table_coverage_bits_spec::<C>());
         lemma_fundamental_div_mod(self.prefix as int, node_size as int);
         assert(nat_align_down(self_va as nat, node_size as nat) == self.prefix);
     }
@@ -1246,7 +1247,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_leading_bits_properties::<C>();
+        lemma_page_table_upper_bits_properties::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>((C::NR_LEVELS() + 1) as PagingLevel);
         lemma_page_size_monotone::<C>(level, self.guard_level);
         vstd::arithmetic::power2::lemma2_to64();
@@ -1656,7 +1657,7 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         // Config-aware VA range: user page tables live in `[0, 2^47)`,
         // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
         // `vaddr_range_spec<C>` gives inclusive `(start, end_inclusive)`
-        // bounds derived from `leading_bits_spec` + `TOP_LEVEL_INDEX_RANGE`,
+        // bounds derived from `page_table_upper_bits_spec` + `TOP_LEVEL_INDEX_RANGE`,
         // so `Mapping::inv` can stay config-agnostic.
         &&& forall|m: Mapping|
             #![auto]
@@ -1697,13 +1698,13 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     let idx = C::TOP_LEVEL_INDEX_RANGE();
     let start = idx.start as int;
     let end = idx.end as int;
-    let lb = leading_bits_spec::<C>() as int;
-    lemma_leading_bits_properties::<C>();
+    let lb = page_table_upper_bits_spec::<C>() as int;
+    lemma_page_table_upper_bits_properties::<C>();
     vstd::arithmetic::power2::lemma2_to64();
-    assert(page_table_vaddr_bits_spec::<C>() == 48);
+    assert(nr_page_table_coverage_bits_spec::<C>() == 48);
     assert(lb < 65536);
-    let coverage = pow2(page_table_vaddr_bits_spec::<C>() as nat);
-    let base = leading_part_spec::<C>() as int;
+    let coverage = pow2(nr_page_table_coverage_bits_spec::<C>() as nat);
+    let base = page_table_upper_part_spec::<C>() as int;
     let cell = 0x80_0000_0000int;
     let bounds = vaddr_range_spec::<C>();
 

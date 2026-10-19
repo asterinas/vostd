@@ -11,7 +11,8 @@ use vstd::{
 };
 
 use crate::specs::mm::page_table::{
-    leading_bits_spec, leading_part_spec, page_table_vaddr_bits_spec, pte_index_bit_offset_spec,
+    nr_page_table_coverage_bits_spec, page_table_upper_bits_spec, page_table_upper_part_spec,
+    pte_index_bit_offset_spec,
 };
 
 use crate::mm::{PagingConstsTrait, Vaddr, page_table::PageTableConfig};
@@ -19,28 +20,28 @@ use crate::mm::{PagingConstsTrait, Vaddr, page_table::PageTableConfig};
 verus! {
 
 /// Derives the sign-extension mask and its width from the paging constants.
-pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
+pub proof fn lemma_page_table_upper_bits_properties<C: PageTableConfig>()
     ensures
-        leading_part_spec::<C>() == leading_bits_spec::<C>() * pow2(
-            page_table_vaddr_bits_spec::<C>() as nat,
+        page_table_upper_part_spec::<C>() == page_table_upper_bits_spec::<C>() * pow2(
+            nr_page_table_coverage_bits_spec::<C>() as nat,
         ),
-        leading_part_spec::<C>() + pow2(page_table_vaddr_bits_spec::<C>() as nat) <= pow2(
-            usize::BITS as nat,
-        ),
-        leading_bits_spec::<C>() != 0 ==> C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start
-            * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat) / pow2(
-            (C::ADDRESS_WIDTH() - 1) as nat,
-        ) as int) % 2 == 1,
+        page_table_upper_part_spec::<C>() + pow2(nr_page_table_coverage_bits_spec::<C>() as nat)
+            <= pow2(usize::BITS as nat),
+        page_table_upper_bits_spec::<C>() != 0 ==> C::VA_SIGN_EXT() && (
+        C::TOP_LEVEL_INDEX_RANGE().start * pow2(
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
+        ) / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1,
         C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start * pow2(
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        ) / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 ==> leading_part_spec::<C>()
-            == pow2(usize::BITS as nat) - pow2(C::ADDRESS_WIDTH() as nat),
-        leading_bits_spec::<C>() < pow2(
-            (usize::BITS - page_table_vaddr_bits_spec::<C>()) as nat,
+        ) / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 ==> page_table_upper_part_spec::<
+            C,
+        >() == pow2(usize::BITS as nat) - pow2(C::ADDRESS_WIDTH() as nat),
+        page_table_upper_bits_spec::<C>() < pow2(
+            (usize::BITS - nr_page_table_coverage_bits_spec::<C>()) as nat,
         ),
 {
     C::lemma_paging_consts_properties();
-    let bits = page_table_vaddr_bits_spec::<C>() as nat;
+    let bits = nr_page_table_coverage_bits_spec::<C>() as nat;
     let width = C::ADDRESS_WIDTH() as nat;
     assert(bits <= width < usize::BITS);
     lemma_pow2_adds((usize::BITS - bits) as nat, bits);
@@ -68,17 +69,18 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
             pow2((width - bits) as nat) * pow2(bits) == pow2(width),
     ;
     lemma_pow2_pos(bits);
-    assert(leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat));
-    assert(leading_bits_spec::<C>() * pow2(bits) < pow2(usize::BITS as nat)) by (nonlinear_arith)
+    assert(page_table_upper_bits_spec::<C>() < pow2((usize::BITS - bits) as nat));
+    assert(page_table_upper_bits_spec::<C>() * pow2(bits) < pow2(usize::BITS as nat))
+        by (nonlinear_arith)
         requires
-            leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
+            page_table_upper_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
             pow2(bits) > 0,
             pow2((usize::BITS - bits) as nat) * pow2(bits) == pow2(usize::BITS as nat),
     ;
-    assert(leading_bits_spec::<C>() * pow2(bits) + pow2(bits) <= pow2(usize::BITS as nat))
+    assert(page_table_upper_bits_spec::<C>() * pow2(bits) + pow2(bits) <= pow2(usize::BITS as nat))
         by (nonlinear_arith)
         requires
-            leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
+            page_table_upper_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
             pow2(bits) > 0,
             pow2((usize::BITS - bits) as nat) * pow2(bits) == pow2(usize::BITS as nat),
     ;
