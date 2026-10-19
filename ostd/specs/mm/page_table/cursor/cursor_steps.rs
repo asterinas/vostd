@@ -653,6 +653,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level,
     {
         reveal(PageTableOwner::pt_inv_at_depth);
+        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
+            return;
+        }
         if self.index() + 1 >= NR_ENTRIES && self.level < NR_LEVELS {
             self.pop_level_owner().0.lemma_move_forward_not_popped_too_high();
         }
@@ -713,7 +716,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level <= NR_LEVELS,
             self.in_barrier_va(),
             !self.popped_too_high,
-            self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
             self.move_forward_owner_spec().max_steps() + Self::max_steps_subtree(
                 self.level as usize,
@@ -722,6 +724,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level,
     {
         reveal(PageTableOwner::pt_inv_at_depth);
+        self.lemma_in_barrier_va_level_le_guard_level();
         let l = self.level as usize;
         let st_l = Self::max_steps_subtree(l) as int;
 
@@ -954,55 +957,29 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ;
         let next = self.move_forward_owner_spec().va;
         self.lemma_locked_range_page_aligned();
-        lemma_inc_slot_indices::<C>(self.va, C::NR_LEVELS());
-        let upper_next = (self.va + page_size::<C>(C::NR_LEVELS())) as Vaddr;
         Self::lemma_vaddr_top_cell(self.va);
-        Self::lemma_vaddr_top_cell(upper_next);
         lemma_vaddr_upper_part_is_align_down::<C>(self.va);
         let root_base = vaddr_upper_part_spec::<C>(self.va);
-        lemma_page_size_ge_base::<C>((C::NR_LEVELS() + 1) as PagingLevel);
-        lemma_nat_align_down_sound(
-            self.va as nat,
-            page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel) as nat,
-        );
-        lemma_page_size_monotone::<C>(self.level, C::NR_LEVELS());
-        lemma_pte_index_bound::<C>(upper_next, C::NR_LEVELS());
-        lemma_page_size_next::<C>(C::NR_LEVELS());
-        assert(upper_next < root_base + page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel))
-            by (nonlinear_arith)
-            requires
-                upper_next < vaddr_upper_part_spec::<C>(upper_next) + (pte_index_spec::<C>(
-                    upper_next,
-                    C::NR_LEVELS(),
-                ) + 1) * page_size::<C>(C::NR_LEVELS()),
-                vaddr_upper_part_spec::<C>(upper_next) == root_base,
-                pte_index_spec::<C>(upper_next, C::NR_LEVELS()) < NR_ENTRIES,
-                page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel) == page_size::<C>(
-                    C::NR_LEVELS(),
-                ) * NR_ENTRIES,
-        ;
+        let root_size = page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel);
+        lemma_nat_align_down_sound(self.va as nat, root_size as nat);
         lemma_same_node_vaddr_upper_bits_match::<C>(next, self.va, root_base, C::NR_LEVELS());
         Self::lemma_vaddr_top_cell(next);
+        lemma_page_size_monotone::<C>(self.level, C::NR_LEVELS());
         assert(pte_index_spec::<C>(self.va, C::NR_LEVELS()) <= pte_index_spec::<C>(
             next,
             C::NR_LEVELS(),
         ) <= pte_index_spec::<C>(self.va, C::NR_LEVELS()) + 1) by (nonlinear_arith)
             requires
-                self.va <= next <= upper_next,
+                self.va <= next <= self.va + page_size::<C>(C::NR_LEVELS()),
                 vaddr_upper_part_spec::<C>(next) == vaddr_upper_part_spec::<C>(self.va),
-                vaddr_upper_part_spec::<C>(upper_next) == vaddr_upper_part_spec::<C>(self.va),
-                pte_index_spec::<C>(upper_next, C::NR_LEVELS()) == pte_index_spec::<C>(
-                    self.va,
-                    C::NR_LEVELS(),
-                ) + 1,
                 vaddr_upper_part_spec::<C>(next) + pte_index_spec::<C>(next, C::NR_LEVELS())
                     * page_size::<C>(C::NR_LEVELS()) <= next,
                 next < vaddr_upper_part_spec::<C>(next) + (pte_index_spec::<C>(next, C::NR_LEVELS())
                     + 1) * page_size::<C>(C::NR_LEVELS()),
                 vaddr_upper_part_spec::<C>(self.va) + pte_index_spec::<C>(self.va, C::NR_LEVELS())
                     * page_size::<C>(C::NR_LEVELS()) <= self.va,
-                upper_next < vaddr_upper_part_spec::<C>(upper_next) + (pte_index_spec::<C>(
-                    upper_next,
+                self.va < vaddr_upper_part_spec::<C>(self.va) + (pte_index_spec::<C>(
+                    self.va,
                     C::NR_LEVELS(),
                 ) + 1) * page_size::<C>(C::NR_LEVELS()),
                 page_size::<C>(C::NR_LEVELS()) > 0,

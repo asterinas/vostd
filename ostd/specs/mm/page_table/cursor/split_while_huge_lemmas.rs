@@ -485,6 +485,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 0 <= k < count && #[trigger] Self::split_index(qm, new_size, k as usize) == e;
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
+            vstd::arithmetic::div_mod::lemma_div_nonincreasing(ps as int, ns);
 
             vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
         }

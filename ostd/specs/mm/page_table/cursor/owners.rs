@@ -33,7 +33,8 @@ use crate::specs::{
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
-            owners::*, page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
+            owners::*, page_table_coverage_end_spec, page_table_vaddr_bits_spec,
+            pte_index_bit_offset_spec, pte_index_spec,
             vaddr_range_proofs::lemma_leading_bits_properties, vaddr_range_spec,
             vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
         },
@@ -659,16 +660,16 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
         &&& self.barrier_va.end % C::BASE_PAGE_SIZE() == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= leading_part_spec::<C>() + (NR_ENTRIES - 1) * page_size::<C>(
-            C::NR_LEVELS(),
-        )
+        &&& self.barrier_va.end + page_size::<C>(self.guard_level)
+            <= page_table_coverage_end_spec::<
+            C,
+        >()
         // These bounds describe valid request addresses, independently of node coverage.
         &&& self.in_barrier_va() ==> {
             &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
                 self.va,
                 NR_LEVELS as PagingLevel,
             ) < C::TOP_LEVEL_INDEX_RANGE().end
-            &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) + 1 < NR_ENTRIES
         }
         // End states may retain a cursor level above the guard.
         &&& self.popped_too_high ==> self.level >= self.guard_level
@@ -700,7 +701,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<
             C,
         >(self.prefix, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
-        &&& pte_index_spec::<C>(self.prefix, NR_LEVELS as PagingLevel) + 1 < NR_ENTRIES
         &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
         &&& vaddr_upper_bits_spec::<C>(self.prefix) == leading_bits_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
@@ -1234,7 +1234,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(nat_align_down(self_va as nat, node_size as nat) == self.prefix);
     }
 
-    /// An active cursor reserves a top-level successor, preventing address-word wrap.
+    /// Guard-level headroom bounds active slot arithmetic without excluding the final top-level slot.
     pub proof fn lemma_va_plus_page_size_no_overflow(self, level: PagingLevel)
         requires
             self.inv(),
@@ -1242,11 +1242,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             1 <= level <= self.guard_level,
         ensures
             self.va + page_size::<PagingConsts>(level) <= usize::MAX,
+            self.va + page_size::<PagingConsts>(level) < page_table_coverage_end_spec::<C>(),
     {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_inc_slot_indices::<C>(self.va, C::NR_LEVELS());
-        lemma_page_size_monotone::<C>(level, C::NR_LEVELS());
+        lemma_leading_bits_properties::<C>();
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>((C::NR_LEVELS() + 1) as PagingLevel);
+        lemma_page_size_monotone::<C>(level, self.guard_level);
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::layout::unsigned_int_max_values();
     }
 
     pub proof fn lemma_locked_range_page_aligned(self)
@@ -1792,9 +1796,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& self.barrier_va.start % PAGE_SIZE == 0
         &&& self.barrier_va.end % PAGE_SIZE == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= leading_part_spec::<C>() + (NR_ENTRIES - 1) * page_size::<C>(
-            C::NR_LEVELS(),
-        )
+        &&& self.barrier_va.end + page_size::<C>(self.guard_level)
+            <= page_table_coverage_end_spec::<C>()
         &&& self.barrier_va.end - self.barrier_va.start <= page_size::<C>(
             (self.guard_level + 1) as PagingLevel,
         )

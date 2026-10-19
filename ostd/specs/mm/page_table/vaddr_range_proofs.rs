@@ -24,6 +24,9 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
         leading_part_spec::<C>() == leading_bits_spec::<C>() * pow2(
             page_table_vaddr_bits_spec::<C>() as nat,
         ),
+        leading_part_spec::<C>() + pow2(page_table_vaddr_bits_spec::<C>() as nat) <= pow2(
+            usize::BITS as nat,
+        ),
         leading_bits_spec::<C>() != 0 ==> C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start
             * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat) / pow2(
             (C::ADDRESS_WIDTH() - 1) as nat,
@@ -67,6 +70,13 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
     lemma_pow2_pos(bits);
     assert(leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat));
     assert(leading_bits_spec::<C>() * pow2(bits) < pow2(usize::BITS as nat)) by (nonlinear_arith)
+        requires
+            leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
+            pow2(bits) > 0,
+            pow2((usize::BITS - bits) as nat) * pow2(bits) == pow2(usize::BITS as nat),
+    ;
+    assert(leading_bits_spec::<C>() * pow2(bits) + pow2(bits) <= pow2(usize::BITS as nat))
+        by (nonlinear_arith)
         requires
             leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
             pow2(bits) > 0,

@@ -2792,7 +2792,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.lemma_barrier_va_bounds(self.0.va);
             assert(owner.in_barrier_va());
             owner.lemma_locked_range_vaddr_prefix_match(owner.va);
-            lemma_inc_slot_indices::<C>(owner.va, NR_LEVELS as PagingLevel);
+            owner.lemma_va_plus_page_size_no_overflow(level);
             lemma_page_size_monotone::<C>(level, NR_LEVELS as PagingLevel);
         }
         let end = self.0.va + size;

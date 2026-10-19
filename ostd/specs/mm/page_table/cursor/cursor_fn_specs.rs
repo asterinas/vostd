@@ -34,7 +34,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             vaddr_upper_part_spec::<C>(va) == leading_part_spec::<C>(),
             C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
                 < C::TOP_LEVEL_INDEX_RANGE().end,
-            pte_index_spec::<C>(va, C::NR_LEVELS()) + 1 < crate::mm::NR_ENTRIES,
     {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
@@ -82,12 +81,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(vaddr_range_spec::<C>().end == base + C::TOP_LEVEL_INDEX_RANGE().end * size - 1);
         assert(vaddr_upper_part_spec::<C>(va) == base);
         assert(C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
-            < C::TOP_LEVEL_INDEX_RANGE().end && pte_index_spec::<C>(va, C::NR_LEVELS()) + 1
-            < crate::mm::NR_ENTRIES) by (nonlinear_arith)
+            < C::TOP_LEVEL_INDEX_RANGE().end) by (nonlinear_arith)
             requires
                 base + C::TOP_LEVEL_INDEX_RANGE().start * size <= va,
                 va < base + C::TOP_LEVEL_INDEX_RANGE().end * size,
-                va < base + (crate::mm::NR_ENTRIES - 1) * size,
                 base + pte_index_spec::<C>(va, C::NR_LEVELS()) * size <= va,
                 va < base + (pte_index_spec::<C>(va, C::NR_LEVELS()) + 1) * size,
                 size > 0,
@@ -97,10 +94,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    /// The model reserves the final top-level slot for the cursor's end sentinel.
+    /// Leaves representable slot successors at the highest level traversal can retain.
+    /// Inside the final top-level slot, an unsupported top-level leaf forces descent,
+    /// so only lower-level headroom is needed instead of reserving that whole slot.
     pub open spec fn cursor_range_wf(va: Range<Vaddr>) -> bool {
-        Self::cursor_new_success_conditions(va) ==> va.end <= leading_part_spec::<C>() + (
-        crate::mm::NR_ENTRIES - 1) * page_size::<C>(C::NR_LEVELS())
+        let top = C::NR_LEVELS();
+        let body_end = page_table_coverage_end_spec::<C>();
+        let top_size = page_size::<C>(top);
+        Self::cursor_new_success_conditions(va) ==> {
+            ||| va.end + top_size <= body_end
+            ||| top > 1 && C::HIGHEST_TRANSLATION_LEVEL() < top && body_end - top_size <= va.start
+                && va.end + page_size::<C>((top - 1) as crate::mm::PagingLevel) <= body_end
+        }
     }
 
     pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
@@ -221,7 +226,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
         let (paddr, level, prop, _perm) = C::item_into_raw(item);
-        &&& C::item_well_formed(item)
+        &&& C::item_well_formed(
+            item,
+        )
         // Mapping may descend within the locked subtree, but cannot replace its parent PTE.
         &&& level <= self.0.guard_level
         &&& entry_owner.inv()

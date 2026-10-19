@@ -6,7 +6,10 @@ use vstd_extra::{array_ptr::*, ghost_tree::*, ownership::*};
 use crate::specs::{
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
-        page_table::node::{Guards, entry_owners::EntryOwner},
+        page_table::{
+            node::{Guards, entry_owners::EntryOwner},
+            page_table_coverage_end_spec,
+        },
     },
     task::InAtomicMode,
 };
@@ -157,6 +160,11 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 &&& cursor_own.continuations.dom().contains(cursor_own.level - 1)
                 &&& cursor_own.continuations[cursor_own.level - 1].inv()
                 &&& cursor_own.continuations[cursor_own.level - 1].level() == cursor_own.level
+                &&& (C::HIGHEST_TRANSLATION_LEVEL() < C::NR_LEVELS()
+                    && page_table_coverage_end_spec::<C>()
+                        - page_size::<C>(C::NR_LEVELS()) <= va.start
+                    && va.end < page_table_coverage_end_spec::<C>())
+                    ==> cursor_own.level < C::NR_LEVELS()
                 &&& cursor_own.continuations[cursor_own.level - 1].guard == subtree_root->0
                 &&& cursor_own.continuations[cursor_own.level - 1].entry_own.is_node()
                 &&& cursor_own.continuations[cursor_own.level - 1].entry_own.inv()
@@ -194,6 +202,19 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let guard_level = subtree_root.level();
     proof {
         cursor_own.guard_level = guard_level;
+    }
+    proof {
+        let top = C::NR_LEVELS();
+        let body_end = page_table_coverage_end_spec::<C>();
+        if va.end + page_size::<C>(top) <= body_end {
+            lemma_page_size_monotone::<C>(guard_level, top);
+        } else {
+            lemma_page_size_is_pow2_pte_index_bit_offset::<C>((top - 1) as PagingLevel);
+            assert(va.end < body_end);
+            assert(guard_level < top);
+            lemma_page_size_monotone::<C>(guard_level, (top - 1) as PagingLevel);
+        }
+        assert(va.end + page_size::<C>(guard_level) <= body_end);
     }
     let cur_node_va = va.start.align_down(page_size::<C>(guard_level + 1));
     proof {
@@ -315,6 +336,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
             &&& final(cursor_own).continuations[final(cursor_own).level - 1].inv()
             &&& final(cursor_own).continuations[final(cursor_own).level - 1].level() == final(cursor_own).level
+            // Above the highest leaf level, a single-slot request must descend.
+            &&& (C::HIGHEST_TRANSLATION_LEVEL() < C::NR_LEVELS()
+                && page_table_coverage_end_spec::<C>()
+                    - page_size::<C>(C::NR_LEVELS()) <= va.start
+                && va.end < page_table_coverage_end_spec::<C>())
+                ==> final(cursor_own).level < C::NR_LEVELS()
             &&& final(cursor_own).continuations[final(cursor_own).level - 1].guard == r->0
         },
         // The subtree root's entry_own is a valid node with matching guard.

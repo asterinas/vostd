@@ -100,6 +100,12 @@ pub open spec fn leading_part_spec<C: PageTableConfig>() -> Vaddr {
     (leading_bits_spec::<C>() * pow2(page_table_vaddr_bits_spec::<C>() as nat)) as Vaddr
 }
 
+/// Exclusive end of the complete page-table index coverage for the configured upper bits.
+/// This mathematical boundary may be one past `Vaddr::MAX`.
+pub open spec fn page_table_coverage_end_spec<C: PageTableConfig>() -> int {
+    leading_part_spec::<C>() as int + page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel)
+}
+
 /// Number of effective virtual-address bits used by the top-level page-table index.
 #[verifier::inline]
 pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
