@@ -1757,13 +1757,8 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
 
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
-        // (1) Non-overlapping: tree collapse + lemma_view_rec_disjoint_vaddrs.
         self.view_non_overlapping();
-        // (2) Per-mapping `Mapping::inv()`: page_size ∈ {4K,2M,1G}, PA/VA
-        //     alignment, PA/VA size equal page_size, and PA bound.
         self.view_mapping_inv();
-        // (4) Config-aware VA bound: every mapping's VA range is contained
-        //     in `vaddr_range_spec::<C>()`.
         lemma_view_in_vaddr_range::<C>(&self);
     }
 }
