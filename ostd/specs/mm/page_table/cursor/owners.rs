@@ -1,7 +1,7 @@
 use vstd::{
     arithmetic::{
         div_mod::{lemma_div_non_zero, lemma_fundamental_div_mod},
-        mul::lemma_mul_is_commutative,
+        mul::{lemma_mul_inequality, lemma_mul_is_commutative},
         power2::pow2,
     },
     bits::lemma_usize_shr_is_div,
@@ -33,10 +33,13 @@ use crate::specs::{
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_leading_part_is_align_down,
             lemma_vaddr_range_spec_user, mappings_disjoint_vaddrs, mappings_well_formed,
-            nr_page_table_coverage_bits_spec, owners::*, page_table_coverage_end_spec,
-            page_table_coverage_start_spec, pte_index_bit_offset_spec, pte_index_spec,
-            vaddr_leading_part_spec, vaddr_range_proofs::lemma_leading_bits_properties,
-            vaddr_range_spec, vaddr_replace_pte_index_spec,
+            nr_page_table_coverage_bits_spec,
+            owners::*,
+            page_table_coverage_end_spec, page_table_coverage_start_spec,
+            page_table_managed_end_spec, page_table_managed_start_spec, pte_index_bit_offset_spec,
+            pte_index_spec, vaddr_leading_part_spec,
+            vaddr_range_proofs::{lemma_leading_bits_properties, lemma_page_table_managed_bounds},
+            vaddr_replace_pte_index_spec,
         },
     },
     task::InAtomicMode,
@@ -1656,14 +1659,13 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         )
         // Config-aware VA range: user page tables live in `[0, 2^47)`,
         // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
-        // `vaddr_range_spec<C>` gives inclusive `(start, end_inclusive)`
-        // bounds derived from `leading_bits_spec` + `TOP_LEVEL_INDEX_RANGE`,
+        // Managed bounds account for the configured upper bits and top-level index range,
         // so `Mapping::inv` can stay config-agnostic.
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m) ==> {
-                &&& vaddr_range_spec::<C>().start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
+                &&& page_table_managed_start_spec::<C>() <= m.va_range.start
+                &&& m.va_range.end <= page_table_managed_end_spec::<C>()
             }
         &&& self.non_overlapping()
     }
@@ -1686,8 +1688,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<C>().start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
+                &&& page_table_managed_start_spec::<C>() <= m.va_range.start
+                &&& m.va_range.end <= page_table_managed_end_spec::<C>()
             },
 {
     C::lemma_paging_consts_properties();
@@ -1695,36 +1697,12 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
 
-    let idx = C::TOP_LEVEL_INDEX_RANGE();
-    let start = idx.start as int;
-    let end = idx.end as int;
-    let lb = leading_bits_spec::<C>() as int;
-    lemma_leading_bits_properties::<C>();
-    vstd::arithmetic::power2::lemma2_to64();
-    assert(nr_page_table_coverage_bits_spec::<C>() == 48);
-    assert(lb < 65536);
-    let coverage = pow2(nr_page_table_coverage_bits_spec::<C>() as nat);
-    let base = page_table_coverage_start_spec::<C>() as int;
-    let cell = 0x80_0000_0000int;
-    let bounds = vaddr_range_spec::<C>();
-
-    let end_exclusive = base + end * cell;
-    let end_pre = end_exclusive - 1;
-    vstd::layout::unsigned_int_max_values();
-    assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
-        requires
-            end_pre == lb * coverage + end * 549755813888 - 1,
-            coverage == 281474976710656,
-            0 <= lb < 65536,
-            0 < end <= 512,
-            usize::MAX == 18446744073709551615,
-    ;
-    assert(bounds.start == base + start * cell);
-    assert(bounds.end == end_pre);
+    lemma_page_table_managed_bounds::<C>();
+    let end = C::TOP_LEVEL_INDEX_RANGE().end as int;
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<C>().start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
+        &&& page_table_managed_start_spec::<C>() <= m.va_range.start
+        &&& m.va_range.end <= page_table_managed_end_spec::<C>()
     } by {
         let i = choose|i: int|
             owner.level - 1 <= i < NR_LEVELS && (
@@ -1738,6 +1716,11 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let p = cont.path().push_tail(j);
         let pidx = p[0] as int;
         child.lemma_view_rec_top_index_va_bound(p, m, end);
+        lemma_mul_inequality(
+            C::TOP_LEVEL_INDEX_RANGE().start as int,
+            pidx,
+            page_size::<C>(C::NR_LEVELS()) as int,
+        );
     }
 }
 
@@ -1753,7 +1736,9 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
             #![auto]
             owner.view_mappings().contains(m) ==> {
                 &&& 0 <= m.va_range.start
-                &&& m.va_range.end <= 0x8000_0000_0000int
+                &&& m.va_range.end <= page_table_managed_end_spec::<
+                    crate::mm::vm_space::UserPtConfig,
+                >()
             },
 {
     lemma_view_in_vaddr_range(owner);

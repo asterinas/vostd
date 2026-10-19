@@ -131,10 +131,10 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Va
     RangeInclusiveView { start, end, exhausted: false }
 }
 
-/// Models `is_valid_range`: accepts `0..0` or checks `start` and `end - 1` against the configured bounds.
+/// Models `is_valid_range` using managed bounds, including its `0..0` exception.
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
-    let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
+    (r.start == 0 && r.end == 0) || (page_table_managed_start_spec::<C>() <= r.start && r.end
+        <= page_table_managed_end_spec::<C>())
 }
 
 /// Page-table index selected by `va` at `level`.
@@ -324,6 +324,8 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
         leading_bits_spec::<UserPtConfig>() == 0,
+        page_table_managed_start_spec::<UserPtConfig>() == 0,
+        page_table_managed_end_spec::<UserPtConfig>() == 0x0000_8000_0000_0000int,
         vaddr_range_spec::<UserPtConfig>().start == 0,
         vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
@@ -336,6 +338,8 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
         leading_bits_spec::<KernelPtConfig>() == 0xffff,
+        page_table_managed_start_spec::<KernelPtConfig>() == 0xFFFF_8000_0000_0000,
+        page_table_managed_end_spec::<KernelPtConfig>() == 0x1_0000_0000_0000_0000int,
         vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
         vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
 {

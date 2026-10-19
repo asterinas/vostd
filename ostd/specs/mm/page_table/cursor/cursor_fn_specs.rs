@@ -1,12 +1,12 @@
-use vstd::{arithmetic::power2::pow2, prelude::*};
+use vstd::prelude::*;
 
 use crate::specs::{
-    arch::{PAGE_SIZE, lemma_arch_specific_consts_properties},
+    arch::PAGE_SIZE,
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::owners::*, is_valid_range_spec,
-            vaddr_range_proofs::lemma_leading_bits_properties, *,
+            vaddr_range_proofs::lemma_page_table_managed_bounds, *,
         },
     },
     task::InAtomicMode,
@@ -38,7 +38,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         C::lemma_page_table_config_constant_properties();
-        lemma_leading_bits_properties::<C>();
         self.lemma_locked_range_span();
         lemma_same_node_vaddr_leading_part_match::<C>(
             va,
@@ -47,49 +46,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.guard_level,
         );
         CursorOwner::<'rcu, C>::lemma_vaddr_top_cell(va);
-        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(
-            (C::NR_LEVELS() + 1) as crate::mm::PagingLevel,
-        );
-        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
-        lemma_page_size_spec_values();
-        lemma_arch_specific_consts_properties::<C>();
-        vstd::arithmetic::power2::lemma2_to64();
-        assert(nr_page_table_coverage_bits_spec::<C>() == 48);
-        let coverage = pow2(nr_page_table_coverage_bits_spec::<C>() as nat);
+        lemma_page_table_managed_bounds::<C>();
+        lemma_page_size_ge_base::<C>(C::NR_LEVELS());
         let base = page_table_coverage_start_spec::<C>() as int;
         let size = page_size::<C>(C::NR_LEVELS()) as int;
-        assert(size == 549755813888);
-        assert(0 <= leading_bits_spec::<C>() < 65536);
-        assert(C::TOP_LEVEL_INDEX_RANGE().start < C::TOP_LEVEL_INDEX_RANGE().end <= 512);
-        vstd::layout::unsigned_int_max_values();
-        assert(0 <= base + C::TOP_LEVEL_INDEX_RANGE().start * size <= usize::MAX)
-            by (nonlinear_arith)
-            requires
-                size == 549755813888,
-                base == leading_bits_spec::<C>() * coverage,
-                coverage == 281474976710656,
-                0 <= leading_bits_spec::<C>() < 65536,
-                0 <= C::TOP_LEVEL_INDEX_RANGE().start < 512,
-                usize::MAX == 18446744073709551615,
-        ;
-        assert(0 <= base + C::TOP_LEVEL_INDEX_RANGE().end * size - 1 <= usize::MAX)
-            by (nonlinear_arith)
-            requires
-                size == 549755813888,
-                base == leading_bits_spec::<C>() * coverage,
-                coverage == 281474976710656,
-                0 <= leading_bits_spec::<C>() < 65536,
-                0 < C::TOP_LEVEL_INDEX_RANGE().end <= 512,
-                usize::MAX == 18446744073709551615,
-        ;
-        assert(vaddr_range_spec::<C>().start == base + C::TOP_LEVEL_INDEX_RANGE().start * size);
-        assert(vaddr_range_spec::<C>().end == base + C::TOP_LEVEL_INDEX_RANGE().end * size - 1);
         assert(vaddr_leading_part_spec::<C>(va) == base);
         assert(C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
             < C::TOP_LEVEL_INDEX_RANGE().end) by (nonlinear_arith)
             requires
-                base + C::TOP_LEVEL_INDEX_RANGE().start * size <= va,
-                va < base + C::TOP_LEVEL_INDEX_RANGE().end * size,
+                page_table_managed_start_spec::<C>() <= va < page_table_managed_end_spec::<C>(),
+                page_table_managed_start_spec::<C>() == base + C::TOP_LEVEL_INDEX_RANGE().start
+                    * size,
+                page_table_managed_end_spec::<C>() == base + C::TOP_LEVEL_INDEX_RANGE().end * size,
                 base + pte_index_spec::<C>(va, C::NR_LEVELS()) * size <= va,
                 va < base + (pte_index_spec::<C>(va, C::NR_LEVELS()) + 1) * size,
                 size > 0,

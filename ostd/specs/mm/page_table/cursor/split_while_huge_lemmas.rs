@@ -3,7 +3,10 @@ use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
-    mm::page_table::{Mapping, cursor::owners::*, owners::PageTableOwner, vaddr_range_spec},
+    mm::page_table::{
+        Mapping, cursor::owners::*, owners::PageTableOwner, page_table_managed_end_spec,
+        page_table_managed_start_spec,
+    },
 };
 
 use crate::arch::mm::PagingConsts;
@@ -205,8 +208,8 @@ impl<C: PageTableConfig> CursorView<C> {
         };
 
         assert forall|m2: Mapping| #[trigger] new_self.mappings.contains(m2) implies {
-            &&& vaddr_range_spec::<C>().start <= m2.va_range.start
-            &&& m2.va_range.end <= vaddr_range_spec::<C>().end + 1
+            &&& page_table_managed_start_spec::<C>() <= m2.va_range.start
+            &&& m2.va_range.end <= page_table_managed_end_spec::<C>()
         } by {
             if v.mappings.contains(m2) && m2 != m {
             } else {

@@ -7,8 +7,10 @@ use crate::specs::{
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
-            cursor::*, is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
-            top_level_index_width_spec, vaddr_range_proofs::lemma_leading_bits_properties,
+            cursor::*,
+            is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
+            top_level_index_width_spec,
+            vaddr_range_proofs::{lemma_leading_bits_properties, lemma_page_table_managed_bounds},
             vaddr_range_spec, *,
         },
     },
@@ -780,6 +782,9 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool
     returns
         is_valid_range_spec::<C>(*r),
 {
+    proof {
+        lemma_page_table_managed_bounds::<C>();
+    }
     let va_range = vaddr_range::<C>();
     (r.start == 0 && r.end == 0) || (*va_range.start() <= r.start && r.end - 1 <= *va_range.end())
 }
