@@ -94,6 +94,12 @@ pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
     }
 }
 
+/// Upper-address contribution selected by the configuration, in its original bit positions.
+#[verifier::inline]
+pub open spec fn leading_part_spec<C: PageTableConfig>() -> Vaddr {
+    (leading_bits_spec::<C>() * pow2(page_table_vaddr_bits_spec::<C>() as nat)) as Vaddr
+}
+
 /// Number of effective virtual-address bits used by the top-level page-table index.
 #[verifier::inline]
 pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
@@ -104,8 +110,7 @@ pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
 #[verusfmt::skip]
 pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Vaddr> {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let lb = leading_bits_spec::<C>() as int;
-    let base = lb * pow2(page_table_vaddr_bits_spec::<C>() as nat);
+    let base = leading_part_spec::<C>() as int;
     let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
     let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
     RangeInclusiveView { start, end, exhausted: false }

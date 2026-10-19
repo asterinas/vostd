@@ -27,9 +27,9 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, is_valid_range_spec, leading_bits_spec, lemma_aligned_vaddr_slack,
-            lemma_inc_slot_indices, lemma_lower_indices_aligned, lemma_page_size_base,
-            lemma_page_size_divides, lemma_page_size_ge_base,
+            Guards, Mapping, is_valid_range_spec, leading_bits_spec, leading_part_spec,
+            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
+            lemma_page_size_base, lemma_page_size_divides, lemma_page_size_ge_base,
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
@@ -659,9 +659,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
         &&& self.barrier_va.end % C::BASE_PAGE_SIZE() == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= leading_bits_spec::<C>() * pow2(
-            page_table_vaddr_bits_spec::<C>() as nat,
-        ) + (NR_ENTRIES - 1) * page_size::<C>(
+        &&& self.barrier_va.end <= leading_part_spec::<C>() + (NR_ENTRIES - 1) * page_size::<C>(
             C::NR_LEVELS(),
         )
         // These bounds describe valid request addresses, independently of node coverage.
@@ -1701,7 +1699,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     assert(page_table_vaddr_bits_spec::<C>() == 48);
     assert(lb < 65536);
     let coverage = pow2(page_table_vaddr_bits_spec::<C>() as nat);
-    let base = lb * coverage;
+    let base = leading_part_spec::<C>() as int;
     let cell = 0x80_0000_0000int;
     let bounds = vaddr_range_spec::<C>();
 
@@ -1814,9 +1812,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& self.barrier_va.start % PAGE_SIZE == 0
         &&& self.barrier_va.end % PAGE_SIZE == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= leading_bits_spec::<C>() * pow2(
-            page_table_vaddr_bits_spec::<C>() as nat,
-        ) + (NR_ENTRIES - 1) * page_size::<C>(C::NR_LEVELS())
+        &&& self.barrier_va.end <= leading_part_spec::<C>() + (NR_ENTRIES - 1) * page_size::<C>(
+            C::NR_LEVELS(),
+        )
         &&& self.barrier_va.end - self.barrier_va.start < page_size::<C>(
             (self.guard_level + 1) as PagingLevel,
         )

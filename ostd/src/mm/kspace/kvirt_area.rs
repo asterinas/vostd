@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
-use vstd::{arithmetic::power2::pow2, prelude::*, set_lib::FiniteRange};
+use vstd::{prelude::*, set_lib::FiniteRange};
 use vstd_extra::{
     arithmetic::nat_align_down,
     assert,
@@ -817,10 +817,9 @@ impl KVirtArea {
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
                 assert(va_range.end <= FRAME_METADATA_BASE_VADDR);
                 assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
-                assert(leading_bits_spec::<KernelPtConfig>() * pow2(
-                    page_table_vaddr_bits_spec::<KernelPtConfig>() as nat,
-                ) + (NR_ENTRIES - 1) * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
-                    == 0xffff_ff80_0000_0000int);
+                assert(leading_part_spec::<KernelPtConfig>() + (NR_ENTRIES - 1) * page_size::<
+                    KernelPtConfig,
+                >(KernelPtConfig::NR_LEVELS()) == 0xffff_ff80_0000_0000int);
                 assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
                     va_range,
                 ));

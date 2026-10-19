@@ -693,10 +693,9 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     requires
         va < pow2(C::ADDRESS_WIDTH() as nat),
         C::ADDRESS_WIDTH() < usize::BITS,
-        leading_bits_spec::<C>() * pow2(page_table_vaddr_bits_spec::<C>() as nat)
-            == 0x1_0000_0000_0000_0000int - pow2(C::ADDRESS_WIDTH() as nat),
+        leading_part_spec::<C>() == 0x1_0000_0000_0000_0000int - pow2(C::ADDRESS_WIDTH() as nat),
     ensures
-        ret == va + leading_bits_spec::<C>() * pow2(page_table_vaddr_bits_spec::<C>() as nat),
+        ret == va + leading_part_spec::<C>(),
 {
     let address_width = C::ADDRESS_WIDTH();
     let low_bit = 1usize << address_width;
@@ -720,9 +719,7 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
             vstd::arithmetic::power2::lemma2_to64();
         };
         assert(sign_ext_mask == 0x1_0000_0000_0000_0000int - pow2(address_width as nat));
-        assert(sign_ext_mask == leading_bits_spec::<C>() * pow2(
-            page_table_vaddr_bits_spec::<C>() as nat,
-        ));
+        assert(sign_ext_mask == leading_part_spec::<C>());
 
         assert((va & sign_ext_mask) == 0usize) by (bit_vector)
             requires

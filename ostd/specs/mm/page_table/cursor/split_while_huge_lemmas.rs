@@ -480,6 +480,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
         if self.mappings.remove(qm).contains(e) {
         } else {
+            assert(new_mappings.contains(e));
             let k = choose|k: int|
                 0 <= k < count && #[trigger] Self::split_index(qm, new_size, k as usize) == e;
 
