@@ -38,28 +38,6 @@ verus! {
 broadcast use group_ghost_tree_lemmas;
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    /// Relates the numeric VA to its canonical base and top-level slot.
-    pub proof fn lemma_vaddr_top_cell(va: Vaddr)
-        ensures
-            vaddr_leading_part_spec::<C>(va) + pte_index_spec::<C>(va, NR_LEVELS as PagingLevel)
-                * page_size::<C>(NR_LEVELS as PagingLevel) <= va,
-            va < vaddr_leading_part_spec::<C>(va) + (pte_index_spec::<C>(
-                va,
-                NR_LEVELS as PagingLevel,
-            ) + 1) * page_size::<C>(NR_LEVELS as PagingLevel),
-    {
-        C::axiom_current_paging_consts_hardcoded();
-        lemma_pte_index_bound::<C>(va, C::NR_LEVELS());
-        let path = TreePath::new(seq![pte_index_spec::<C>(va, C::NR_LEVELS()) as int]);
-        lemma_vaddr_path_aligned::<C>(path, va);
-        lemma_vaddr_top_index_cell(path);
-        lemma_page_size_ge_base::<C>(C::NR_LEVELS());
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(
-            va as nat,
-            page_size::<C>(C::NR_LEVELS()) as nat,
-        );
-    }
-
     pub open spec fn zero_below_level(self) -> Self
         recommends
             1 <= self.level <= C::NR_LEVELS(),
