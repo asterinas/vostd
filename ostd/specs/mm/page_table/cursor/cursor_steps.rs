@@ -959,7 +959,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Self::lemma_vaddr_top_cell(self.va);
         Self::lemma_vaddr_top_cell(upper_next);
         lemma_vaddr_upper_part_is_align_down::<C>(self.va);
-        let root_base = vaddr_upper_part_spec::<C>(self.va) as Vaddr;
+        let root_base = vaddr_upper_part_spec::<C>(self.va);
         lemma_page_size_ge_base::<C>((C::NR_LEVELS() + 1) as PagingLevel);
         lemma_nat_align_down_sound(
             self.va as nat,

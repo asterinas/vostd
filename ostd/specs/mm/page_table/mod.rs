@@ -74,8 +74,8 @@ pub open spec fn vaddr_upper_bits_spec<C: PagingConstsTrait>(va: Vaddr) -> usize
 
 /// Contribution of the uninterpreted upper virtual-address bits to the concrete address.
 #[verifier::inline]
-pub open spec fn vaddr_upper_part_spec<C: PagingConstsTrait>(va: Vaddr) -> int {
-    vaddr_upper_bits_spec::<C>(va) * pow2(page_table_vaddr_bits_spec::<C>() as nat)
+pub open spec fn vaddr_upper_part_spec<C: PagingConstsTrait>(va: Vaddr) -> Vaddr {
+    (vaddr_upper_bits_spec::<C>(va) * pow2(page_table_vaddr_bits_spec::<C>() as nat)) as Vaddr
 }
 
 /// Upper VA bits selected by the same sign-extension rule as executable `vaddr_range`.
