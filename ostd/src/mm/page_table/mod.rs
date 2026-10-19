@@ -647,21 +647,14 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
             idx_end,
             offset,
         );
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
+        vstd::layout::unsigned_int_max_values();
         vstd::bits::lemma_usize_shl_is_mul(idx_end, offset);
     }
 
     let shifted = idx_end << offset;
     let ret = shifted.wrapping_sub(1);
 
-    proof {
-        assert(shifted == idx_end * pow2(offset as nat));
-        crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_end_wrapping_sub::<C>(
-            idx_end,
-            offset,
-            shifted,
-            ret,
-        );
-    }
     ret
 }
 

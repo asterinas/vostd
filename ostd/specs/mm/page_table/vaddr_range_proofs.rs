@@ -254,27 +254,6 @@ pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usiz
     ;
 }
 
-/// Removing the configured upper bits from the managed end describes the nonwrapping positional end.
-pub proof fn lemma_pt_va_range_end_wrapping_sub<C: PageTableConfig>(
-    idx_end: usize,
-    offset: usize,
-    shifted: usize,
-    ret: usize,
-)
-    requires
-        idx_end == C::TOP_LEVEL_INDEX_RANGE().end,
-        offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
-        shifted == idx_end * pow2(offset as nat),
-        ret == vstd::wrapping::usize_specs::wrapping_sub(shifted, 1usize),
-    ensures
-        ret == page_table_managed_end_spec::<C>() - page_table_coverage_start_spec::<C>() - 1,
-{
-    C::lemma_paging_consts_properties();
-    lemma_pt_va_range_end_shift_facts::<C>(idx_end, offset);
-    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
-    vstd::layout::unsigned_int_max_values();
-}
-
 /// Two-in-one: `start = idx.start * 2^off < 2^ADDRESS_WIDTH` and
 /// `end = (idx.end * 2^off - 1) % 2^64 < 2^ADDRESS_WIDTH`.
 ///
