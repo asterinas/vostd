@@ -659,7 +659,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn query_mapping_from_subtree(self, qm: Mapping)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self@.inv(),
             self@.present(),
             qm == self@.query_mapping(),
@@ -675,7 +675,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn split_while_huge_node_noop(self)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self.cur_entry_owner().is_node(),
             self.level > 1,
         ensures
@@ -697,7 +697,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn split_while_huge_absent_noop(self, size: usize)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self.cur_entry_owner().is_absent(),
         ensures
             self@.split_while_huge(size) == self@,
@@ -709,7 +709,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_split_while_huge_at_level_noop(self)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
         ensures
             self@.split_while_huge(page_size::<PagingConsts>(self.level as PagingLevel)) == self@,
     {

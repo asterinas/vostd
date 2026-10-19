@@ -243,7 +243,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Self::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
-                &&& r.unwrap().1.in_barrier_range()
+                &&& r.unwrap().1.lin_barrier_va()
                 &&& r.unwrap().0.level == r.unwrap().0.guard_level
                 &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
                 &&& r.unwrap().0.va == va.start
@@ -359,7 +359,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).query_panic_condition(*old(owner), *old(regions)),
-            old(owner).in_barrier_range() ==> res is Ok,
+            old(owner).lin_barrier_va() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).query_some_condition(*final(owner)) ==>
                 final(self).query_some_ensures(*final(owner), state),
@@ -387,7 +387,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 old(self).query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
                 self.invariants(*owner, *regions, *guards),
                 old(regions).inv(),
-                owner.in_barrier_range(),
+                owner.lin_barrier_va(),
                 self.va == initial_va,
                 initial_va == old(self).va,
                 // Past the early out-of-range `Err`: the cursor stays in
@@ -711,7 +711,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             res is Some ==> {
                 &&& res->0 == final(self).va
                 &&& final(owner).level <= final(owner).guard_level
-                &&& final(owner).in_barrier_range()
+                &&& final(owner).lin_barrier_va()
             },
             res is Some ==> Self::find_not_unmap_subtree_ensures(*old(owner), *final(owner)),
             res is None ==> {
@@ -794,7 +794,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             res is Some ==> {
                 &&& res->0 == final(self).va
                 &&& final(owner).level <= final(owner).guard_level
-                &&& final(owner).in_barrier_range()
+                &&& final(owner).lin_barrier_va()
                 &&& final(self).va < old(self).va + len
             },
             res is Some ==> !final(owner).cur_entry_owner().is_absent(),
@@ -1395,7 +1395,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).metaregion_sound(*old(regions)),
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             !old(owner).popped_too_high,
         ensures
             final(owner).inv(),
@@ -1407,7 +1407,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).barrier_va == old(self).barrier_va,
             final(self).guard_level == old(self).guard_level,
             !final(owner).popped_too_high,
-            final(owner).in_barrier_range() || final(owner).at_or_past_barrier_end(),
+            final(owner).lin_barrier_va() || final(owner).at_or_past_barrier_end(),
             final(owner).children_not_locked(*final(guards)),
             final(owner).nodes_locked(*final(guards)),
             final(owner).metaregion_sound(*final(regions)),
@@ -1466,7 +1466,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner0.va == va,
                 va < next_va <= va + page_size::<C>(self.level),
                 next_va % page_size::<C>(self.level) == 0,
-                owner.in_barrier_range(),
+                owner.lin_barrier_va(),
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
@@ -1510,7 +1510,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner0.lemma_move_forward_va_is_align_up();
             assert(owner.move_forward_owner_spec().va == next_va);
             if owner.level == NR_LEVELS {
-                owner0.lemma_in_barrier_range_top_index_lt_top_end();
+                owner0.lemma_lin_barrier_va_top_index_lt_top_end();
                 lemma_pte_index_bound::<C>(va, NR_LEVELS as PagingLevel);
                 assert(pte_index_spec::<C>(owner0.va, (NR_LEVELS - 1 + 1) as PagingLevel)
                     < C::TOP_LEVEL_INDEX_RANGE().end);
@@ -1588,7 +1588,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).va == old(owner).va,
             final(owner).prefix == old(owner).prefix,
             final(owner).guard_level == old(owner).guard_level,
-            old(owner).in_barrier_range() ==> final(owner).in_barrier_range(),
+            old(owner).lin_barrier_va() ==> final(owner).lin_barrier_va(),
             *final(regions) == *old(regions),
     )]
     #[verifier::spinoff_prover]
@@ -1670,7 +1670,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).nodes_locked(*guards),
             old(owner).metaregion_sound(*regions),
             !old(owner).popped_too_high,
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             guards.lock_held(child_pt.inner.inner@.ptr.addr()),
         ensures
             final(owner).inv(),
@@ -1710,7 +1710,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             old(self).inv(),
             old(owner).inv(),
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             old(self).wf(*old(owner)),
             1 <= old(self).level <= 4,
             old(self).path[old(self).level - 1] is Some,
@@ -1800,7 +1800,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             owner.inv(),
             self.wf(*owner),
-            owner.in_barrier_range(),
+            owner.lin_barrier_va(),
             1 <= self.level <= owner.guard_level,
         ensures
             res.start <= self.va,
@@ -1843,7 +1843,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             !old(owner).popped_too_high,
             old(owner).cur_entry_owner().is_frame(),
             forall |p: PageProperty| op.requires((p,)),
@@ -1862,7 +1862,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.va == old(self).0.va,
             final(self).0.level == old(self).0.level,
             final(owner).va == old(owner).va,
-            final(owner).in_barrier_range(),
+            final(owner).lin_barrier_va(),
             !final(owner).popped_too_high,
             *final(regions) == *old(regions),
             *final(guards) == *old(guards),
@@ -1986,7 +1986,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Cursor::<C, A>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
-                &&& r.unwrap().1.in_barrier_range()
+                &&& r.unwrap().1.lin_barrier_va()
                 &&& r.unwrap().0.0.level == r.unwrap().0.0.guard_level
                 &&& r.unwrap().0.0.va < r.unwrap().0.0.barrier_va.end
                 &&& r.unwrap().0.0.va == va.start
@@ -2067,7 +2067,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             res is Some ==> {
                 &&& res->0 == final(self).0.va
                 &&& final(owner).level <= final(owner).guard_level
-                &&& final(owner).in_barrier_range()
+                &&& final(owner).lin_barrier_va()
             },
     )]
     pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
@@ -2158,7 +2158,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
-            old(owner).in_barrier_range() ==> res is Ok,
+            old(owner).lin_barrier_va() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).0.query_some_condition(*final(owner)) ==>
                 final(self).0.query_some_ensures(*final(owner), state),
@@ -2178,11 +2178,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             ChildRef::PageTable(pt).wf(old(owner).cur_entry_owner())
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            final(owner).in_barrier_range(),
+            final(owner).lin_barrier_va(),
             final(owner).va == old(owner).va,
             final(self).0.level == old(self).0.level - 1,
             final(self).0.guard_level == old(self).0.guard_level,
@@ -2242,7 +2242,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             level <= old(self).0.guard_level,
             level >= 1,
         ensures
@@ -2252,7 +2252,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.guard_level == old(self).0.guard_level,
             final(self).0.barrier_va == old(self).0.barrier_va,
             final(self).0.level == level,
-            final(owner).in_barrier_range(),
+            final(owner).lin_barrier_va(),
             final(owner)@ == old(owner)@.split_while_huge(page_size::<PagingConsts>(level)),
             forall |item: C::Item| #![trigger Self::item_slot_in_regions(item, *old(regions))]
                 Self::item_slot_in_regions(item, *old(regions)) ==>
@@ -2302,7 +2302,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.0.barrier_va == barrier_va,
                 level <= self.0.guard_level,
                 level >= 1,
-                owner.in_barrier_range(),
+                owner.lin_barrier_va(),
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
@@ -2796,7 +2796,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         proof {
             owner.lemma_barrier_va_bounds(self.0.va);
-            assert(owner.in_barrier_range());
+            assert(owner.lin_barrier_va());
             owner.lemma_locked_range_vaddr_prefix_match(owner.va);
             lemma_inc_slot_indices::<C>(owner.va, NR_LEVELS as PagingLevel);
             lemma_page_size_monotone::<C>(level, NR_LEVELS as PagingLevel);
@@ -2833,7 +2833,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let rcu_guard = self.0.rcu_guard;
 
         proof {
-            owner.lemma_in_barrier_range_level_le_guard_level();
+            owner.lemma_lin_barrier_va_level_le_guard_level();
         }
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -3012,7 +3012,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.barrier_va == old(self).0.barrier_va,
             res is Some ==> final(self).0.va <= old(self).0.va + len,
             res is Some ==> final(self).0.va > old(self).0.va,
-            res is Some ==> final(owner).in_barrier_range() || final(owner).at_or_past_barrier_end(),
+            res is Some ==> final(owner).lin_barrier_va() || final(owner).at_or_past_barrier_end(),
             res is None ==> {
                 &&& final(owner)@.cur_va >= (old(owner)@.cur_va + len) as Vaddr
                 &&& final(owner)@.mappings == old(owner)@.mappings
@@ -3362,7 +3362,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner,
             ).cur_entry_owner().is_node()) ==> may_panic(),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_barrier_range(),
+            old(owner).lin_barrier_va(),
             !old(owner).popped_too_high,
             new_owner.inv(),
             !new_owner.value().is_node(),
@@ -3398,7 +3398,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.va == old(self).0.va,
             final(self).0.level == old(self).0.level,
             final(owner).guard_level == old(owner).guard_level,
-            final(owner).in_barrier_range(),
+            final(owner).lin_barrier_va(),
             old(owner).cur_entry_owner().is_absent() ==> res is None,
             !old(owner).cur_entry_owner().is_absent() ==> res is Some,
             res matches Some(PageTableFrag::Mapped { va, item }) ==> {

@@ -192,7 +192,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn push_level_owner_decreases_steps(self, guard: PageTableGuard<'rcu, C>)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self.level > 1,
         ensures
             self.push_level_owner(guard).max_steps() < self.max_steps(),
@@ -282,7 +282,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
             !self.popped_too_high,
             self.level <= self.guard_level,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             // The current entry is a node (we're descending into it)
             self.cur_entry_owner().is_node(),
             // The child node's guard relates to the new guard
@@ -367,7 +367,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
             !self.popped_too_high,
             self.level <= self.guard_level,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self.only_current_locked(guards),
             self.nodes_locked(guards),
             self.metaregion_sound(regions),
@@ -629,7 +629,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             !self.popped_too_high,
         ensures
             self.move_forward_owner_spec().va > self.va,
@@ -647,7 +647,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
         ensures
             !self.move_forward_owner_spec().popped_too_high,
         decreases NR_LEVELS - self.level,
@@ -662,7 +662,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self.popped_too_high,
             self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
@@ -711,7 +711,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             !self.popped_too_high,
             self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
@@ -767,7 +767,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             !self.popped_too_high,
         ensures
             self.move_forward_owner_spec().va == self@.align_up_spec(
@@ -822,7 +822,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
         ensures
             self.pop_level_owner().0@.mappings == self@.mappings,
     {
@@ -866,7 +866,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_move_forward_owner_preserves_mappings(self)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
         ensures
             self.move_forward_owner_spec()@.mappings == self@.mappings,
         decreases NR_LEVELS - self.level,
@@ -911,7 +911,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_move_forward_guard_end(self)
         requires
             self.inv(),
-            self.in_barrier_range(),
+            self.lin_barrier_va(),
             self.level == self.guard_level,
             self.index() + 1 == NR_ENTRIES,
         ensures

@@ -494,7 +494,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             owner_before_replace.inv(),
-            owner_before_replace.in_barrier_range(),
+            owner_before_replace.lin_barrier_va(),
             self.metaregion_sound(regions0),
             regions0.inv(),
             regions0.contains(removed_idx),

@@ -910,7 +910,7 @@ impl KVirtArea {
                 }
 
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
-                // Valid because the cursor is `in_barrier_range` here (required by `cursor.map`).
+                // Valid because the cursor is `lin_barrier_va` here (required by `cursor.map`).
                 proof {
                     assert(cursor.0.va + page_size::<PagingConsts>(level)
                         <= cursor.0.barrier_va.end) by {
