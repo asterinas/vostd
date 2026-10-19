@@ -1786,15 +1786,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
     open spec fn inv(self) -> bool {
-        // `level <= NR_LEVELS + 1` (not `<= NR_LEVELS`), mirroring the
-        // `guard_level + 1` slack below: it admits the transient "popped
-        // past the root" state without constraining anything (the
-        // weakening is zero-blast-radius). A drifted lock-from-root
-        // cursor that ascends past the root would, on the next
-        // `pop_level`, read `self.path[NR_LEVELS]` — out of bounds, a
-        // real Rust panic — which `jump` models as a sound divergence.
-        &&& 1 <= self.level <= NR_LEVELS
-            + 1
         // `level <= guard_level + 1` (not `<= guard_level`) admits the
         // transient "popped one above the guard" state: `pop_level` at
         // `level == guard_level` legitimately yields `level == guard_level
@@ -1802,10 +1793,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         // is still `Some`). The next `pop_level` on such a cursor reads a
         // `None` path slot (`level > guard_level`, by `wf`) and diverges,
         // so the state never propagates further.
-        &&& self.level <= self.guard_level + 1
-        &&& self.guard_level
-            <= NR_LEVELS
-        //        &&& forall|i: int| 0 <= i < self.guard_level - self.level ==> self.path[i] is Some
+        &&& 1 <= self.level <= self.guard_level + 1
+        &&& self.guard_level <= NR_LEVELS
         &&& self.va >= self.barrier_va.start
         &&& self.va % PAGE_SIZE == 0
         &&& self.barrier_va.start < self.barrier_va.end
