@@ -1919,7 +1919,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ) by {
                 PageTableOwner(child_owner0).pt_inv_non_node(i);
             };
-            PageTableOwner(child_owner).non_node_pt_inv_at_depth(
+            PageTableOwner(child_owner).lemma_non_node_pt_inv_at_depth(
                 (INC_LEVELS - child_owner.level()) as nat,
             );
             assert(PageTableOwner(child_owner).pt_inv());
@@ -3528,7 +3528,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let ghost final_cont = continuation;
             owner.continuations.tracked_insert(owner.level - 1, continuation);
 
-            PageTableOwner(new_owner).non_node_pt_inv_at_depth(
+            PageTableOwner(new_owner).lemma_non_node_pt_inv_at_depth(
                 (INC_LEVELS - new_owner.level()) as nat,
             );
             final_cont.lemma_continuation_inv_holds_after_child_restore(

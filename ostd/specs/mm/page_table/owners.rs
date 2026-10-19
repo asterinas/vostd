@@ -616,9 +616,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
-    /// all `None`. Used by `lemma_fresh_node_pt_inv` for the absent
-    /// children of a freshly-allocated PT node.
-    pub proof fn non_node_pt_inv_at_depth(self, depth: nat)
+    /// all `None`.
+    pub proof fn lemma_non_node_pt_inv_at_depth(self, depth: nat)
         requires
             !self.0.value().is_node(),
             forall|j: int| 0 <= j < NR_ENTRIES ==> !#[trigger] self.0.has_child(j),
@@ -663,7 +662,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ) by {
             let child = owner.child(i);
             assert(owner.has_child(i));
-            PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
+            PageTableOwner(child).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
         };
     }
 
