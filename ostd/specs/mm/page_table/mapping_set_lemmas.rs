@@ -112,11 +112,6 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
 }
 
 /// Corollary: the cardinality fits in usize.
-///
-/// The bound `0x0000_8000_0000_0000` (= 2^47) is the new upper end derived
-/// from `page_table_managed_end_spec::<UserPtConfig>` — one page looser than
-/// the old `MAX_USERSPACE_VADDR`, but still gives a comfortable
-/// `2^35 < usize::MAX`.
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
@@ -217,6 +212,7 @@ pub proof fn lemma_extend_empty_mapping_range(
                     |m2: Mapping| slot_start <= m2.va_range.start < slot_end,
                 ).contains(m));
             }
+ 
         }
     };
 }
