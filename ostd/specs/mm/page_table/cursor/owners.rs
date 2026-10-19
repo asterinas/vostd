@@ -1795,7 +1795,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& self.barrier_va.end <= leading_part_spec::<C>() + (NR_ENTRIES - 1) * page_size::<C>(
             C::NR_LEVELS(),
         )
-        &&& self.barrier_va.end - self.barrier_va.start < page_size::<C>(
+        &&& self.barrier_va.end - self.barrier_va.start <= page_size::<C>(
             (self.guard_level + 1) as PagingLevel,
         )
     }

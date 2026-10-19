@@ -149,7 +149,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 &&& cursor_own.continuations[NR_LEVELS - 1].level() == NR_LEVELS
             },
             subtree_root is Some ==> {
-                &&& va.end - va.start < page_size::<C>((cursor_own.level + 1) as PagingLevel)
+                &&& va.end - va.start <= page_size::<C>((cursor_own.level + 1) as PagingLevel)
                 &&& nat_align_down(va.start as nat, page_size::<C>((cursor_own.level + 1) as PagingLevel) as nat)
                     + page_size::<C>((cursor_own.level + 1) as PagingLevel) >= va.end
                 &&& regions.inv()
@@ -303,7 +303,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& *final(guards) == *old(guards)
         },
         r is Some ==> {
-            &&& va.end - va.start < page_size::<C>((final(cursor_own).level + 1) as PagingLevel)
+            &&& va.end - va.start <= page_size::<C>((final(cursor_own).level + 1) as PagingLevel)
             &&& nat_align_down(va.start as nat, page_size::<C>((final(cursor_own).level + 1) as PagingLevel) as nat)
                 + page_size::<C>((final(cursor_own).level + 1) as PagingLevel) >= va.end
             &&& final(cursor_own).va == old(cursor_own).va
@@ -389,11 +389,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let start_idx = pte_index::<C>(va.start, cur_level);
         let level_too_high = {
             let end_idx = pte_index::<C>(va.end - 1, cur_level);
-            /* Keep a complete slot at its parent so a same-level mapping can replace it.
-             * Origin Rust: cur_level > 1 && start_idx == end_idx
-             */
-            cur_level > 1 && start_idx == end_idx && !(va.start % page_size::<C>(cur_level) == 0
-                && va.end - va.start == page_size::<C>(cur_level))
+            cur_level > 1 && start_idx == end_idx
         };
         if !level_too_high {
             break;

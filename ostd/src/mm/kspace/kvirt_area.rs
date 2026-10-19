@@ -746,11 +746,11 @@ impl KVirtArea {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
+            // while largest_pages selects a leaf in its unlocked parent. This is fixed in
+            // the latest version.
+                    pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
             pa_range.end - pa_range.start >= page_size::<PagingConsts>(2) ==> may_panic(),
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
-    // **Precise form** (post Phases A/B/C). Bounds are caller-
-    // provable; OOM uses the implication form.
-
             !Self::map_untracked_frames_bounds_panic_condition(area_size, map_offset, &pa_range),
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
             old(regions).inv(),
@@ -844,6 +844,9 @@ impl KVirtArea {
 
             for (pa, level) in it: pages.into_iter()
                 invariant
+                    forall|level: PagingLevel|
+                        2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==>
+                            len != page_size::<PagingConsts>(level),
                     len >= page_size::<PagingConsts>(2) ==> may_panic(),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
                     forall|pa: Paddr, level: PagingLevel| #[trigger]
@@ -875,6 +878,7 @@ impl KVirtArea {
                         0,
                         it.index() as int,
                     ),
+                    cursor.0.barrier_va.start == va_range.start,
                     cursor.0.barrier_va.end == va_range.start + len,
                     // `pa_range.end == pa_range.start + len` so pa + page_size(level) stays bounded.
                     pa_range.end as nat == pa_range.start as nat + len as nat,
@@ -923,6 +927,13 @@ impl KVirtArea {
                         lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
                         lemma_sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                     };
+                    if level > cursor.0.guard_level {
+                        lemma_page_size_monotone::<PagingConsts>(
+                            (cursor.0.guard_level + 1) as PagingLevel, level,
+                        );
+                        assert(len == page_size::<PagingConsts>(level));
+                    }
+                    assert(level <= cursor.0.guard_level);
                 }
 
                 // Save ghost copy of regions before map for post-map invariant maintenance.

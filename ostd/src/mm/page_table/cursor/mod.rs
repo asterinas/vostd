@@ -2672,7 +2672,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// This function will panic if
     ///  - the virtual address range to be mapped is out of the locked range;
     ///  - the current virtual address is not aligned to the page size of the
-    ///    item to be mapped.
+    ///    item to be mapped;
+    ///  - the item's level is above the cursor's guard level.
     ///
     /// # Safety
     ///
@@ -2796,22 +2797,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
         let end = self.0.va + size;
         assert!(end <= self.0.barrier_va.end);
-
-        proof {
-            owner.lemma_locked_range_span();
-            if level > self.0.guard_level {
-                let gl = self.0.guard_level;
-                lemma_page_size_next::<C>(gl);
-                lemma_page_size_monotone::<C>((gl + 1) as PagingLevel, level);
-                assert(page_size::<C>(gl) < size) by (nonlinear_arith)
-                    requires
-                        0 < page_size::<C>(gl),
-                        page_size::<C>((gl + 1) as PagingLevel) == page_size::<C>(gl) * NR_ENTRIES,
-                        page_size::<C>((gl + 1) as PagingLevel) <= size,
-                        NR_ENTRIES > 1,
-                ;
-            }
-        }
 
         assert(!self.map_panic_conditions(item));
         assert(!old(self).map_panic_conditions(item));
