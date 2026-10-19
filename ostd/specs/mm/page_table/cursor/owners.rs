@@ -1812,7 +1812,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
         &&& owner.locked_range().start <= self.barrier_va.start
         &&& self.barrier_va.end
             <= owner.locked_range().end
-        //        &&& owner.index() == self.va % page_size(self.level)
         // `path` holds lock guards only for levels in `[self.level,
         // self.guard_level]` (see the `Cursor.path` doc comment and
         // `locking.rs`: `lock_range` only locks the subtree rooted at
