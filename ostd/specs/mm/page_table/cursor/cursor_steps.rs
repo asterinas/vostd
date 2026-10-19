@@ -198,7 +198,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard).max_steps() < self.max_steps(),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         let new_self = self.push_level_owner(guard);
@@ -206,8 +205,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let lm1 = (self.level - 1) as usize;
         // Continuations agree at indices [l-1, NR_LEVELS): only [l-2] changed.
         new_self.lemma_max_steps_partial_eq(self, l);
-        // va.index[l-2] < NR_ENTRIES (from va.inv()).
-        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
         let new_child = new_self.continuations[lm1 - 1];
 
         // subtree(l) == NR * (subtree(lm1) + 1) (from def of max_steps_subtree, l > 1).
@@ -237,9 +234,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         broadcast use {
             CursorContinuation::group_lemmas,
             CursorOwner::group_lemmas,
@@ -297,7 +292,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard).inv(),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         let new_owner = self.push_level_owner(guard);
@@ -309,8 +303,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pte_index_spec::<C>(self.cur_va(), (self.level - 1) as PagingLevel),
             guard,
         );
-
-        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         assert(child.inv_children_rel()) by {
             assert forall|j: int|
@@ -384,9 +376,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).nodes_locked(guards),
             self.push_level_owner(guard).metaregion_sound(regions),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         reveal(CursorContinuation::map_children);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
@@ -409,16 +399,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont_i = self.continuations[i];
 
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
-                let addr = cont_i.entry_own.node().slot_vaddr();
-                assert(addr == cur_entry.node().slot_vaddr());
-                let idx = meta_to_index(addr);
-                assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
-                assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
                 assert(set![cont_i.path()].contains(cur_entry_path));
 
-                assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
-                    old_cont.lemma_inv_children_rel_unroll(old_cont.idx as int);
-                };
                 assert(false);
             }
         };
@@ -521,10 +503,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *final(self) == old(self).push_level_owner(guard),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
-        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
@@ -633,9 +613,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.move_forward_owner_spec().va > self.va,
     {
-        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
-            self.lemma_move_forward_guard_end();
-        }
         self.lemma_move_forward_va_is_align_up();
         self.lemma_va_plus_page_size_no_overflow(self.level);
         lemma_page_size_ge_base::<PagingConsts>(self.level);
@@ -799,7 +776,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             popped.lemma_inc_index_va();
         }
 
-        self.lemma_cur_pte_index();
         self.lemma_va_plus_page_size_no_overflow(self.level);
         lemma_page_size_next::<C>(self.level);
         lemma_page_size_ge_base::<PagingConsts>(self.level);

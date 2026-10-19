@@ -57,7 +57,6 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
         (width - bits) as nat,
         (usize::BITS - bits) as nat,
     );
-    vstd::arithmetic::power2::lemma2_to64();
     vstd::layout::unsigned_int_max_values();
     if bits < usize::BITS {
         if bits > 0 {
@@ -73,13 +72,6 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
         requires
             pow2((usize::BITS - bits) as nat) * pow2(bits) == pow2(usize::BITS as nat),
             pow2((width - bits) as nat) * pow2(bits) == pow2(width),
-    ;
-    lemma_pow2_pos(bits);
-    assert(leading_bits_spec::<C>() * pow2(bits) < pow2(usize::BITS as nat)) by (nonlinear_arith)
-        requires
-            leading_bits_spec::<C>() < pow2((usize::BITS - bits) as nat),
-            pow2(bits) > 0,
-            pow2((usize::BITS - bits) as nat) * pow2(bits) == pow2(usize::BITS as nat),
     ;
     assert(leading_bits_spec::<C>() * pow2(bits) + pow2(bits) <= pow2(usize::BITS as nat))
         by (nonlinear_arith)
@@ -105,9 +97,7 @@ pub proof fn lemma_page_table_managed_bounds<C: PageTableConfig>()
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let aw = C::ADDRESS_WIDTH() as nat;
     lemma_pow2_adds((aw - off) as nat, off);
-    lemma_pow2_pos(off);
     lemma_pow2_strictly_increases(aw, usize::BITS as nat);
-    vstd::arithmetic::power2::lemma2_to64();
     vstd::layout::unsigned_int_max_values();
     let base = page_table_coverage_start_spec::<C>() as int;
     let size = page_size::<C>(C::NR_LEVELS()) as int;
@@ -154,8 +144,6 @@ pub proof fn lemma_page_table_managed_index_bounds<C: PageTableConfig>(va: Vaddr
     let size = page_size::<C>(top) as int;
     let body = page_size::<C>((top + 1) as PagingLevel) as int;
     let fanout = nr_subpage_per_huge::<C>() as int;
-    lemma_mod_bound(va as int, size);
-    lemma_mod_bound(va as int, body);
     lemma_mod_decreases(va as nat, body as nat);
     lemma_mod_breakdown(va as int, size, fanout);
     let base = page_table_coverage_start_spec::<C>() as int;
@@ -169,7 +157,6 @@ pub proof fn lemma_page_table_managed_index_bounds<C: PageTableConfig>(va: Vaddr
             va as int % body == size * index + va as int % size,
             0 <= va as int % size < size,
     ;
-    assert(nat_align_down(va as nat, size as nat) == base + index * size);
     assert({
         &&& (page_table_managed_start_spec::<C>() <= va) == (C::TOP_LEVEL_INDEX_RANGE().start
             <= index)
@@ -208,8 +195,6 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
     let top_w = (aw - off) as nat;
     lemma_pow2_adds(top_w, off);
     lemma_pow2_pos(off);
-    lemma_pow2_pos(top_w);
-    lemma_pow2_pos(aw);
 
     let i_start = C::TOP_LEVEL_INDEX_RANGE().start as int;
     let p_off = pow2(off) as int;
@@ -281,8 +266,6 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
     let top_w = (aw - off) as nat;
     lemma_pow2_adds(top_w, off);
     lemma_pow2_pos(off);
-    lemma_pow2_pos(top_w);
-    lemma_pow2_pos(aw);
     // Constants for clarity.
     let i_start = C::TOP_LEVEL_INDEX_RANGE().start as int;
     let i_end = C::TOP_LEVEL_INDEX_RANGE().end as int;
