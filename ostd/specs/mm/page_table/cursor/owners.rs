@@ -655,11 +655,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // top-level slot. In this state the cursor is `at_or_past_barrier_end`.
         &&& pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
             <= C::TOP_LEVEL_INDEX_RANGE().end
-        &&& self.barrier_va.start < self.barrier_va.end
+        &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end <= self.locked_range().end
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
         &&& self.barrier_va.end % C::BASE_PAGE_SIZE() == 0
-        &&& self.locked_range().start <= self.barrier_va.start
-        &&& self.barrier_va.end <= self.locked_range().end
         &&& is_valid_range_spec::<C>(self.barrier_va)
         &&& self.barrier_va.end <= leading_bits_spec::<C>() * pow2(
             page_table_vaddr_bits_spec::<C>() as nat,
@@ -683,13 +681,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             self.level <= i < NR_LEVELS ==> {
                 (#[trigger] self.continuations[i]).all_but_index_some()
             }
-            // Root-continuation top-level index stays within the config range, and
-            //  (b) its top-level children OUTSIDE the config range are `borrowed`
-            //      OR `absent` — they share another config's sub-tree (user PT's
-            //      kernel half = borrowed) or are unmapped (kernel PT's user half =
-            //      absent), and either way contribute NOTHING to `view_rec`.
-            //      Preserved across cursor ops; makes the per-config view bounds
-            //      (`lemma_view_in_vaddr_range`) provable.
         &&& self.level <= NR_LEVELS - 1 ==> {
             &&& C::TOP_LEVEL_INDEX_RANGE().start <= self.continuations[NR_LEVELS - 1].idx
             &&& self.continuations[NR_LEVELS - 1].idx < C::TOP_LEVEL_INDEX_RANGE().end
@@ -709,21 +700,12 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 i as PagingLevel,
             )
                 == 0
-            // A root node also covers top-level slots outside the configured range.
-        &&& self.guard_level < NR_LEVELS ==> pte_index_spec::<C>(
+        &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
             self.prefix,
             (NR_LEVELS - 1 + 1) as PagingLevel,
-        ) >= C::TOP_LEVEL_INDEX_RANGE().start
-        &&& self.guard_level < NR_LEVELS ==> pte_index_spec::<C>(
-            self.prefix,
-            (NR_LEVELS - 1 + 1) as PagingLevel,
-        )
-            < C::TOP_LEVEL_INDEX_RANGE().end
-        // Reserve a representable end sentinel for forward traversal.
+        ) < C::TOP_LEVEL_INDEX_RANGE().end
         &&& pte_index_spec::<C>(self.prefix, (NR_LEVELS - 1 + 1) as PagingLevel) + 1
             < NR_ENTRIES
-        // The cursor stays within the same canonical half of the address
-        // space as its prefix — so `leading_bits` agrees throughout traversal.
         &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
         &&& vaddr_upper_bits_spec::<C>(self.prefix) == leading_bits_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
@@ -732,13 +714,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.prefix,
                 (i + 1) as PagingLevel,
             )
-        // The cursor's VA shares upper indices with the prefix when the
-        // cursor hasn't popped above guard_level AND is either in_locked_range
-        // OR strictly below guard_level. The wrap branch of
-        // `move_forward_owner_spec` (level == guard_level && idx+1 ==
-        // NR_ENTRIES) advances `va` past the prefix's chunk; that state has
-        // `level == guard_level` and `at_or_past_barrier_end`, and is excluded
-        // from this clause.
         &&& !self.popped_too_high && (self.in_locked_range() || self.level < self.guard_level)
             ==> forall|i: int|
             self.guard_level <= i < NR_LEVELS ==> #[trigger] pte_index_spec::<C>(
