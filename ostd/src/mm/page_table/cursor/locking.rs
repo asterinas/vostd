@@ -827,16 +827,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         let xi = diff as int;
         let si = va_range.start - cur_node_va;
 
-        // -- start_idx < end_idx --
-        // si < xi (non-empty range), si % ai == 0 (both endpoints aligned).
-        // So si/ai < (xi + ai - 1)/ai.
-        //
-        // Proof: si + ai <= xi + ai - 1 + 1 = xi + ai, but more precisely:
-        //   si < xi ==> si <= xi - 1 (integers)
-        //   ==> si + ai - 1 <= xi - 1 + ai - 1 < xi + ai - 1
-        //   ==> (si + ai - 1)/ai <= (xi + ai - 1)/ai  (since si % ai == 0, si/ai = (si+ai-1)/ai)
-        //
-        // Actually the simplest route: si/ai * ai = si < xi <= end_idx * ai.
         assert(start_idx < end_idx) by {
             // si = start_idx * ai (exact division since si % ai == 0)
             lemma_page_size_divides::<PagingConsts>(

@@ -648,12 +648,12 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // on disjoint portions of the virtual address space.
         &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
             self.va,
-            (NR_LEVELS - 1 + 1) as PagingLevel,
+            NR_LEVELS as PagingLevel,
         )
         // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
         // sentinel meaning the cursor has been advanced past the very last in-range
         // top-level slot. In this state the cursor is `at_or_past_barrier_end`.
-        &&& pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
+        &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel)
             <= C::TOP_LEVEL_INDEX_RANGE().end
         &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end <= self.locked_range().end
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
@@ -702,9 +702,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 == 0
         &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
             self.prefix,
-            (NR_LEVELS - 1 + 1) as PagingLevel,
+            NR_LEVELS as PagingLevel,
         ) < C::TOP_LEVEL_INDEX_RANGE().end
-        &&& pte_index_spec::<C>(self.prefix, (NR_LEVELS - 1 + 1) as PagingLevel) + 1
+        &&& pte_index_spec::<C>(self.prefix, NR_LEVELS as PagingLevel) + 1
             < NR_ENTRIES
         &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
         &&& vaddr_upper_bits_spec::<C>(self.prefix) == leading_bits_spec::<C>()
@@ -1164,7 +1164,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_barrier_va(),
             !self.popped_too_high,
         ensures
-            pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
+            pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel)
                 < C::TOP_LEVEL_INDEX_RANGE().end,
     {
     }

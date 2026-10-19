@@ -56,7 +56,7 @@ pub open spec fn vaddr_replace_pte_index_spec<C: PagingConstsTrait>(
     level: PagingLevel,
     index: int,
 ) -> Vaddr {
-    (va as int + (index - pte_index_spec::<C>(va, level)) * page_size::<C>(level)) as Vaddr
+    (va + (index - pte_index_spec::<C>(va, level)) * page_size::<C>(level)) as Vaddr
 }
 
 /// Number of bits occupied by all configured page-table indices and the in-page offset.

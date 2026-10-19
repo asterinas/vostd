@@ -1489,7 +1489,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             C::axiom_current_paging_consts_hardcoded();
             lemma_next_slot_pte_index::<C>(va, next_va, self.level);
             owner.lemma_cur_pte_index();
-            if pte_index_spec::<C>(next_va, (self.level - 1 + 1) as PagingLevel) == 0 {
+            if pte_index_spec::<C>(next_va, self.level as PagingLevel) == 0 {
                 assert(self.level == self.guard_level);
                 assert(owner.index() + 1 == NR_ENTRIES);
             } else {
@@ -1506,7 +1506,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             if owner.level == NR_LEVELS {
                 owner0.lemma_in_barrier_va_top_index_lt_top_end();
                 lemma_pte_index_bound::<C>(va, NR_LEVELS as PagingLevel);
-                assert(pte_index_spec::<C>(owner0.va, (NR_LEVELS - 1 + 1) as PagingLevel)
+                assert(pte_index_spec::<C>(owner0.va, NR_LEVELS as PagingLevel)
                     < C::TOP_LEVEL_INDEX_RANGE().end);
                 assert(owner.continuations[owner.level - 1].idx + 1
                     <= C::TOP_LEVEL_INDEX_RANGE().end);
@@ -3459,7 +3459,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         assert(1 <= owner0.level <= NR_LEVELS && pte_index_spec::<C>(
             owner0.va,
-            (owner0.level - 1 + 1) as PagingLevel,
+            (owner0.level) as PagingLevel,
         ) == owner0.continuations[owner0.level - 1].idx && owner0.continuations[owner0.level
             - 1].all_some() && owner0.continuations[owner0.level - 1].level() == owner0.level
             && self.0.path[level - 1] is Some) by {

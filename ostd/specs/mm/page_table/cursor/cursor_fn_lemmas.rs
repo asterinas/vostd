@@ -306,7 +306,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == owner0.continuations[owner0.level - 1].guard.inner.inner@.ptr.addr(),
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
-            pte_index_spec::<C>(self.cur_va(), (self.level - 1 + 1) as PagingLevel)
+            pte_index_spec::<C>(self.cur_va(), self.level as PagingLevel)
                 == self.continuations[self.level - 1].idx,
             // Domain preserved: same keys as owner0.
             self.continuations.dom() =~= owner0.continuations.dom(),
@@ -317,7 +317,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), self.level);
-        assert(pte_index_spec::<C>(self.va, (self.level - 1 + 1) as PagingLevel)
+        assert(pte_index_spec::<C>(self.va, self.level as PagingLevel)
             == self.continuations[self.level - 1].idx);
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
@@ -335,7 +335,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner0.lemma_in_barrier_va_top_index_lt_top_end();
             assert(self.continuations[NR_LEVELS - 1].idx == pte_index_spec::<C>(
                 self.va,
-                (NR_LEVELS - 1 + 1) as PagingLevel,
+                NR_LEVELS as PagingLevel,
             ));
             assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
