@@ -60,6 +60,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     /// Conditions for verified construction, including representable slot successors.
+    pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
         let top = C::NR_LEVELS();
         let end = page_table_coverage_end_spec::<C>();
         // A request wholly in the last root slot must descend when root leaves are unsupported.
