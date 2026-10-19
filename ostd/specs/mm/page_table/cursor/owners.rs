@@ -1764,11 +1764,7 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    /// The cursor's view has non-overlapping mappings. This follows from the
-    /// tree structure alone: `as_page_table_owner_preserves_view_mappings`
-    /// collapses the union-over-continuations view into a single root-rooted
-    /// `view_rec`, after which `lemma_view_rec_disjoint_vaddrs` gives pairwise
-    /// disjointness directly.
+    /// The cursor's view has non-overlapping mappings.
     pub proof fn view_non_overlapping(self)
         requires
             self.inv(),
