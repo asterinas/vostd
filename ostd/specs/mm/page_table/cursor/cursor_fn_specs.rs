@@ -6,7 +6,7 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::owners::*, is_valid_range_spec,
-            vaddr_range_proofs::lemma_page_table_managed_bounds, *,
+            vaddr_range_proofs::lemma_page_table_managed_index_bounds, *,
         },
     },
     task::InAtomicMode,
@@ -45,23 +45,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix,
             self.guard_level,
         );
-        CursorOwner::<'rcu, C>::lemma_vaddr_top_cell(va);
-        lemma_page_table_managed_bounds::<C>();
-        lemma_page_size_ge_base::<C>(C::NR_LEVELS());
-        let base = page_table_coverage_start_spec::<C>() as int;
-        let size = page_size::<C>(C::NR_LEVELS()) as int;
-        assert(vaddr_leading_part_spec::<C>(va) == base);
-        assert(C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
-            < C::TOP_LEVEL_INDEX_RANGE().end) by (nonlinear_arith)
-            requires
-                page_table_managed_start_spec::<C>() <= va < page_table_managed_end_spec::<C>(),
-                page_table_managed_start_spec::<C>() == base + C::TOP_LEVEL_INDEX_RANGE().start
-                    * size,
-                page_table_managed_end_spec::<C>() == base + C::TOP_LEVEL_INDEX_RANGE().end * size,
-                base + pte_index_spec::<C>(va, C::NR_LEVELS()) * size <= va,
-                va < base + (pte_index_spec::<C>(va, C::NR_LEVELS()) + 1) * size,
-                size > 0,
-        ;
+        lemma_page_table_managed_index_bounds::<C>(va);
     }
 }
 

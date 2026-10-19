@@ -10,6 +10,7 @@ use vstd::{
     set::lemma_set_contains_len,
 };
 use vstd_extra::{
+    arithmetic::lemma_nat_align_down_within_block,
     drop_tracking::*,
     ghost_tree::*,
     ownership::*,
@@ -27,9 +28,9 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, is_valid_range_spec, leading_bits_spec, lemma_aligned_vaddr_slack,
-            lemma_inc_slot_indices, lemma_lower_indices_aligned, lemma_page_size_base,
-            lemma_page_size_divides, lemma_page_size_ge_base,
+            Guards, Mapping, is_valid_range_spec, leading_bits_spec, lemma_align_down_indices,
+            lemma_aligned_vaddr_slack, lemma_inc_slot_indices, lemma_lower_indices_aligned,
+            lemma_page_size_base, lemma_page_size_divides, lemma_page_size_ge_base,
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_leading_part_is_align_down,
             lemma_vaddr_range_spec_user, mappings_disjoint_vaddrs, mappings_well_formed,
@@ -38,7 +39,10 @@ use crate::specs::{
             page_table_coverage_end_spec, page_table_coverage_start_spec,
             page_table_managed_end_spec, page_table_managed_start_spec, pte_index_bit_offset_spec,
             pte_index_spec, vaddr_leading_part_spec,
-            vaddr_range_proofs::{lemma_leading_bits_properties, lemma_page_table_managed_bounds},
+            vaddr_range_proofs::{
+                lemma_leading_bits_properties, lemma_page_table_managed_bounds,
+                lemma_page_table_managed_index_bounds,
+            },
             vaddr_replace_pte_index_spec,
         },
     },
@@ -645,19 +649,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.va % C::BASE_PAGE_SIZE() == 0
         &&& 1 <= self.level <= NR_LEVELS
-        &&& 1 <= self.guard_level
-            <= NR_LEVELS
-        // The top-level index of the cursor's VA must be within the page table config's
-        // managed range. This ensures cursors for UserPtConfig and KernelPtConfig operate
-        // on disjoint portions of the virtual address space.
-        &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
-            self.va,
-            NR_LEVELS as PagingLevel,
-        )
-        // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
-        // sentinel meaning the cursor has been advanced past the very last in-range
-        // top-level slot. In this state the cursor is `at_or_past_barrier_end`.
-        &&& pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) <= C::TOP_LEVEL_INDEX_RANGE().end
+        &&& 1 <= self.guard_level <= NR_LEVELS
+        &&& page_table_managed_start_spec::<C>()
+            <= self.va
+        // A terminal cursor may equal the managed range's exclusive end.
+        &&& self.va <= page_table_managed_end_spec::<C>()
         &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end
             <= self.locked_range().end
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
@@ -668,12 +664,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             C,
         >()
         // These bounds describe valid request addresses, independently of node coverage.
-        &&& self.in_barrier_va() ==> {
-            &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
-                self.va,
-                NR_LEVELS as PagingLevel,
-            ) < C::TOP_LEVEL_INDEX_RANGE().end
-        }
+        &&& self.in_barrier_va() ==> page_table_managed_start_spec::<C>() <= self.va
+            < page_table_managed_end_spec::<
+            C,
+        >()
         // End states may retain a cursor level above the guard.
         &&& self.popped_too_high ==> self.level >= self.guard_level
         &&& !self.popped_too_high ==> self.level <= self.guard_level
@@ -701,9 +695,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.prefix,
                 i as PagingLevel,
             ) == 0
-        &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<
-            C,
-        >(self.prefix, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
+        &&& self.guard_level < NR_LEVELS ==> page_table_managed_start_spec::<C>() <= self.prefix
+            < page_table_managed_end_spec::<C>()
         &&& vaddr_leading_part_spec::<C>(self.va) == vaddr_leading_part_spec::<C>(self.prefix)
         &&& vaddr_leading_part_spec::<C>(self.prefix) == page_table_coverage_start_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
@@ -907,8 +900,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
+    /// Advances to the next slot boundary in one ghost update, without exposing an unaligned intermediate VA.
     #[verifier::spinoff_prover]
-    pub proof fn do_inc_index(tracked &mut self)
+    pub proof fn do_inc_index_and_zero(tracked &mut self)
         requires
             old(self).inv(),
             old(self).level <= old(self).guard_level,
@@ -918,16 +912,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 <= C::TOP_LEVEL_INDEX_RANGE().end,
         ensures
             final(self).inv(),
-            *final(self) == old(self).inc_index(),
+            *final(self) == old(self).inc_index().zero_below_level(),
     {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
+        lemma_page_table_managed_index_bounds::<C>(old(self).va);
         lemma_inc_slot_indices::<C>(old(self).va, old(self).level);
         old(self).lemma_inc_index_va();
+        old(self).inc_and_zero_increases_va();
+        lemma_align_down_indices::<C>(old(self).inc_index().va, old(self).level);
+        lemma_page_size_divides::<C>(old(self).level, C::NR_LEVELS());
+        lemma_nat_align_down_within_block(
+            old(self).va as nat,
+            page_size::<C>(old(self).level) as nat,
+            page_size::<C>(C::NR_LEVELS()) as nat,
+        );
         self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         cont.do_inc_index();
-        self.va = old(self).inc_index().va;
+        self.va = old(self).inc_index().zero_below_level().va;
+        lemma_page_table_managed_index_bounds::<C>(self.va);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
         if self.in_barrier_va() {
@@ -1156,14 +1160,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va >= self.barrier_va.end
     }
 
-    pub proof fn lemma_in_barrier_va_top_index_lt_top_end(self)
+    /// Active cursor addresses select a root entry in the configured index range.
+    pub proof fn lemma_in_barrier_va_top_index_bounds(self)
         requires
             self.inv(),
             self.in_barrier_va(),
             !self.popped_too_high,
         ensures
-            pte_index_spec::<C>(self.va, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end,
+            C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(self.va, C::NR_LEVELS())
+                < C::TOP_LEVEL_INDEX_RANGE().end,
     {
+        self.lemma_barrier_va_bounds(self.va);
     }
 
     pub proof fn lemma_in_barrier_va_level_le_guard_level(self)

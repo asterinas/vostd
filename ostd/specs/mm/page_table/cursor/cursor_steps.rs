@@ -1,6 +1,6 @@
 use vstd::{arithmetic::div_mod::lemma_mod_add_multiples_vanish, prelude::*};
 use vstd_extra::{
-    arithmetic::{lemma_nat_align_down_sound, nat_align_down},
+    arithmetic::{lemma_nat_align_down_sound, lemma_nat_align_down_within_block, nat_align_down},
     ghost_tree::*,
     ownership::*,
 };
@@ -15,12 +15,13 @@ use crate::specs::{
                 owners::*,
                 page_size_lemmas::{lemma_page_size_ge_base, lemma_page_size_monotone},
             },
-            lemma_inc_slot_indices, lemma_next_slot_pte_index, lemma_page_size_next,
-            lemma_pte_index_bound, lemma_pte_index_spec_is_div_mod,
+            lemma_inc_slot_indices, lemma_next_slot_pte_index, lemma_page_size_divides,
+            lemma_page_size_next, lemma_pte_index_bound, lemma_pte_index_spec_is_div_mod,
             lemma_same_node_vaddr_leading_part_match, lemma_vaddr_leading_part_is_align_down,
             node::EntryOwner,
             owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
             pte_index_spec, vaddr_leading_part_spec,
+            vaddr_range_proofs::lemma_page_table_managed_index_bounds,
         },
     },
 };
@@ -607,10 +608,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ..self
             }
         } else if self.index() + 1 < NR_ENTRIES {
-            // Standard advance. At the very last in-range top-level slot, this
-            // produces a "one-past-end" cursor with idx == TOP_LEVEL_INDEX_RANGE.end,
-            // which the cursor inv allows (relaxed `<= top_end`). Such a cursor is
-            // `at_or_past_barrier_end`.
+            // Advance to the next aligned slot boundary. At the end of the managed
+            // range, the resulting VA is exactly the exclusive end sentinel.
             self.inc_index().zero_below_level()
         } else if self.level < NR_LEVELS {
             self.pop_level_owner().0.move_forward_owner_spec()
@@ -957,35 +956,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ;
         let next = self.move_forward_owner_spec().va;
         self.lemma_locked_range_page_aligned();
-        Self::lemma_vaddr_top_cell(self.va);
+        lemma_page_table_managed_index_bounds::<C>(self.va);
+        lemma_page_size_divides::<C>(self.level, C::NR_LEVELS());
+        lemma_nat_align_down_within_block(
+            self.va as nat,
+            page_size::<C>(self.level) as nat,
+            page_size::<C>(C::NR_LEVELS()) as nat,
+        );
+        lemma_page_size_next::<C>(C::NR_LEVELS());
         lemma_vaddr_leading_part_is_align_down::<C>(self.va);
         let root_base = vaddr_leading_part_spec::<C>(self.va);
         let root_size = page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel);
         lemma_nat_align_down_sound(self.va as nat, root_size as nat);
         lemma_same_node_vaddr_leading_part_match::<C>(next, self.va, root_base, C::NR_LEVELS());
-        Self::lemma_vaddr_top_cell(next);
-        lemma_page_size_monotone::<C>(self.level, C::NR_LEVELS());
-        assert(pte_index_spec::<C>(self.va, C::NR_LEVELS()) <= pte_index_spec::<C>(
-            next,
-            C::NR_LEVELS(),
-        ) <= pte_index_spec::<C>(self.va, C::NR_LEVELS()) + 1) by (nonlinear_arith)
-            requires
-                self.va <= next <= self.va + page_size::<C>(C::NR_LEVELS()),
-                vaddr_leading_part_spec::<C>(next) == vaddr_leading_part_spec::<C>(self.va),
-                vaddr_leading_part_spec::<C>(next) + pte_index_spec::<C>(next, C::NR_LEVELS())
-                    * page_size::<C>(C::NR_LEVELS()) <= next,
-                next < vaddr_leading_part_spec::<C>(next) + (pte_index_spec::<C>(
-                    next,
-                    C::NR_LEVELS(),
-                ) + 1) * page_size::<C>(C::NR_LEVELS()),
-                vaddr_leading_part_spec::<C>(self.va) + pte_index_spec::<C>(self.va, C::NR_LEVELS())
-                    * page_size::<C>(C::NR_LEVELS()) <= self.va,
-                self.va < vaddr_leading_part_spec::<C>(self.va) + (pte_index_spec::<C>(
-                    self.va,
-                    C::NR_LEVELS(),
-                ) + 1) * page_size::<C>(C::NR_LEVELS()),
-                page_size::<C>(C::NR_LEVELS()) > 0,
-        ;
         assert(self.move_forward_owner_spec().inv()) by {
             reveal(<CursorOwner as Inv>::inv);
         };

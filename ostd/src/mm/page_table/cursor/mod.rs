@@ -1509,7 +1509,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner0.lemma_move_forward_va_is_align_up();
             assert(owner.move_forward_owner_spec().va == next_va);
             if owner.level == NR_LEVELS {
-                owner0.lemma_in_barrier_va_top_index_lt_top_end();
+                owner0.lemma_in_barrier_va_top_index_bounds();
                 lemma_pte_index_bound::<C>(va, NR_LEVELS as PagingLevel);
                 assert(pte_index_spec::<C>(owner0.va, NR_LEVELS as PagingLevel)
                     < C::TOP_LEVEL_INDEX_RANGE().end);
@@ -1521,9 +1521,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.va = next_va;
                 owner.popped_too_high = false;
             } else {
-                owner.do_inc_index();
-                owner.zero_preserves_all_but_va();
-                owner.do_zero_below_level();
+                owner.do_inc_index_and_zero();
             }
             assert(*owner == before_advance.move_forward_owner_spec());
             owner0.lemma_move_forward_va_is_align_up();

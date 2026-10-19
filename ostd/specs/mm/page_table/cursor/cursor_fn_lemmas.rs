@@ -332,7 +332,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // the map changed only the in-range slot `idx`, so every outside
             // child keeps `owner0`'s value; `idx` is in-range (top index in
             // [start, end), and `in_barrier_va` rules out the sentinel).
-            owner0.lemma_in_barrier_va_top_index_lt_top_end();
+            owner0.lemma_in_barrier_va_top_index_bounds();
             assert(self.continuations[NR_LEVELS - 1].idx == pte_index_spec::<C>(
                 self.va,
                 NR_LEVELS as PagingLevel,

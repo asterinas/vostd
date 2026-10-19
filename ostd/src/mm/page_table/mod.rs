@@ -612,12 +612,12 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
 
 fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
-        ret == C::TOP_LEVEL_INDEX_RANGE().start * pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        ),
+        ret == page_table_managed_start_spec::<C>() - page_table_coverage_start_spec::<C>(),
 {
     proof {
         C::lemma_paging_consts_properties();
+        lemma_page_table_managed_bounds::<C>();
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         let ghost idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
         let ghost offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS());
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_start_shift_facts::<C>(
@@ -630,16 +630,11 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     C::TOP_LEVEL_INDEX_RANGE().start << pte_index_bit_offset::<C>(C::NR_LEVELS())
 }
 
-/// Concrete positional end of the VA range (inclusive):
-/// `(idx_range.end * 2^offset) - 1`, stated modulo `2^64` to match
-/// the inclusive-end spec. The verified configs prove the pre-subtraction
-/// product fits in `usize`, so the executable path can use an ordinary
-/// left shift followed by `wrapping_sub(1)`.
+/// Inclusive positional end before sign extension, obtained from the managed end
+/// by removing the configured upper-address contribution and subtracting one.
 fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
-        ret == (C::TOP_LEVEL_INDEX_RANGE().end * pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        ) - 1) % 0x1_0000_0000_0000_0000int,
+        ret == page_table_managed_end_spec::<C>() - page_table_coverage_start_spec::<C>() - 1,
 {
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
     proof {
@@ -760,6 +755,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         lemma_leading_bits_properties::<C>();
+        lemma_page_table_managed_bounds::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma2_to64();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(

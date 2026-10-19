@@ -6,17 +6,26 @@
 //! alongside `largest_pages` (which has an `impl Iterator` return type).
 //! Same workaround pattern as the older `vaddr_range_bv_lemmas`.
 use vstd::{
-    arithmetic::power2::{lemma_pow2_adds, lemma_pow2_pos, lemma_pow2_strictly_increases, pow2},
+    arithmetic::{
+        div_mod::{lemma_mod_bound, lemma_mod_breakdown, lemma_mod_decreases},
+        power2::{lemma_pow2_adds, lemma_pow2_pos, lemma_pow2_strictly_increases, pow2},
+    },
     prelude::*,
 };
+use vstd_extra::arithmetic::nat_align_down;
 
 use crate::specs::mm::page_table::{
-    leading_bits_spec, lemma_page_size_is_pow2_pte_index_bit_offset,
+    leading_bits_spec, lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_next,
+    lemma_pte_index_spec_is_div_mod, lemma_vaddr_leading_part_is_align_down,
     nr_page_table_coverage_bits_spec, page_table_coverage_start_spec, page_table_managed_end_spec,
-    page_table_managed_start_spec, pte_index_bit_offset_spec, vaddr_range_spec,
+    page_table_managed_start_spec, pte_index_bit_offset_spec, pte_index_spec,
+    vaddr_leading_part_spec, vaddr_range_spec,
 };
 
-use crate::mm::{PagingConstsTrait, Vaddr, page_size, page_table::PageTableConfig};
+use crate::mm::{
+    PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,
+    page_table::PageTableConfig,
+};
 
 verus! {
 
@@ -128,6 +137,61 @@ pub proof fn lemma_page_table_managed_bounds<C: PageTableConfig>()
     ;
 }
 
+/// Managed address bounds are equivalent to root-index bounds when the upper address bits match.
+/// The current root slot ends within the managed range whenever the address is inside it.
+pub proof fn lemma_page_table_managed_index_bounds<C: PageTableConfig>(va: Vaddr)
+    requires
+        vaddr_leading_part_spec::<C>(va) == page_table_coverage_start_spec::<C>(),
+    ensures
+        (page_table_managed_start_spec::<C>() <= va) == (C::TOP_LEVEL_INDEX_RANGE().start
+            <= pte_index_spec::<C>(va, C::NR_LEVELS())),
+        (va < page_table_managed_end_spec::<C>()) == (pte_index_spec::<C>(va, C::NR_LEVELS())
+            < C::TOP_LEVEL_INDEX_RANGE().end),
+        va < page_table_managed_end_spec::<C>() ==> nat_align_down(
+            va as nat,
+            page_size::<C>(C::NR_LEVELS()) as nat,
+        ) + page_size::<C>(C::NR_LEVELS()) <= page_table_managed_end_spec::<C>(),
+{
+    C::lemma_paging_consts_properties();
+    lemma_page_table_managed_bounds::<C>();
+    let top = C::NR_LEVELS();
+    lemma_page_size_next::<C>(top);
+    lemma_vaddr_leading_part_is_align_down::<C>(va);
+    lemma_pte_index_spec_is_div_mod::<C>(va, top);
+    let size = page_size::<C>(top) as int;
+    let body = page_size::<C>((top + 1) as PagingLevel) as int;
+    let fanout = nr_subpage_per_huge::<C>() as int;
+    lemma_mod_bound(va as int, size);
+    lemma_mod_bound(va as int, body);
+    lemma_mod_decreases(va as nat, body as nat);
+    lemma_mod_breakdown(va as int, size, fanout);
+    let base = page_table_coverage_start_spec::<C>() as int;
+    let index = pte_index_spec::<C>(va, top) as int;
+    assert({
+        &&& base + index * size == va - va as int % size
+        &&& base + index * size <= va < base + (index + 1) * size
+    }) by (nonlinear_arith)
+        requires
+            base == va - va as int % body,
+            va as int % body == size * index + va as int % size,
+            0 <= va as int % size < size,
+    ;
+    assert(nat_align_down(va as nat, size as nat) == base + index * size);
+    assert({
+        &&& (page_table_managed_start_spec::<C>() <= va) == (C::TOP_LEVEL_INDEX_RANGE().start
+            <= index)
+        &&& (va < page_table_managed_end_spec::<C>()) == (index < C::TOP_LEVEL_INDEX_RANGE().end)
+        &&& (va < page_table_managed_end_spec::<C>() ==> base + index * size + size
+            <= page_table_managed_end_spec::<C>())
+    }) by (nonlinear_arith)
+        requires
+            size > 0,
+            base + index * size <= va < base + (index + 1) * size,
+            page_table_managed_start_spec::<C>() == base + C::TOP_LEVEL_INDEX_RANGE().start * size,
+            page_table_managed_end_spec::<C>() == base + C::TOP_LEVEL_INDEX_RANGE().end * size,
+    ;
+}
+
 /// Facts needed to turn `idx.start << offset` into
 /// `idx.start * 2^offset` for `pt_va_range_start`.
 pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
@@ -194,8 +258,7 @@ pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usiz
     ;
 }
 
-/// Connect `wrapping_sub(1)` to the modulo end-of-range spec after the
-/// shift result is known to be non-zero.
+/// Removing the configured upper bits from the managed end describes the nonwrapping positional end.
 pub proof fn lemma_pt_va_range_end_wrapping_sub<C: PageTableConfig>(
     idx_end: usize,
     offset: usize,
@@ -208,11 +271,11 @@ pub proof fn lemma_pt_va_range_end_wrapping_sub<C: PageTableConfig>(
         shifted == idx_end * pow2(offset as nat),
         ret == vstd::wrapping::usize_specs::wrapping_sub(shifted, 1usize),
     ensures
-        ret == (C::TOP_LEVEL_INDEX_RANGE().end * pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        ) - 1) % 0x1_0000_0000_0000_0000int,
+        ret == page_table_managed_end_spec::<C>() - page_table_coverage_start_spec::<C>() - 1,
 {
+    C::lemma_paging_consts_properties();
     lemma_pt_va_range_end_shift_facts::<C>(idx_end, offset);
+    lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
     vstd::layout::unsigned_int_max_values();
 }
 

@@ -99,56 +99,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub proof fn do_zero_below_level(tracked &mut self)
-        requires
-            old(self).inv(),
-            old(self).level <= old(self).guard_level,
-        ensures
-            *final(self) == old(self).zero_below_level(),
-            final(self).inv(),
-    {
-        let ghost old_self = *self;
-        C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
-        lemma_align_down_indices::<C>(old_self.va, old_self.level);
-        self.va = old_self.zero_below_level().va;
-
-        old_self.lemma_locked_range_span();
-        old_self.lemma_prefix_aligned_to_guard_level();
-        lemma_page_size_ge_base::<PagingConsts>(old_self.level as PagingLevel);
-        lemma_page_size_ge_base::<PagingConsts>((old_self.guard_level + 1) as PagingLevel);
-        lemma_page_size_divides::<PagingConsts>(
-            old_self.level as PagingLevel,
-            (old_self.guard_level + 1) as PagingLevel,
-        );
-        let ghost old_va_val = old_self.va as nat;
-        let ghost prefix_va_val = old_self.prefix as nat;
-        let ghost ps = page_size::<PagingConsts>(old_self.level as PagingLevel) as nat;
-        let ghost guard_ps = page_size::<PagingConsts>(
-            (old_self.guard_level + 1) as PagingLevel,
-        ) as nat;
-        let ghost start = old_self.locked_range().start as nat;
-
-        vstd_extra::arithmetic::lemma_nat_align_down_monotone(prefix_va_val, ps, guard_ps);
-        vstd_extra::arithmetic::lemma_mod_0_add(start as int, guard_ps as int, ps as int);
-
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(old_va_val, ps);
-        if self.in_barrier_va() {
-            old_self.lemma_barrier_va_bounds(self.va);
-        }
-    }
-
-    pub proof fn zero_preserves_all_but_va(self)
-        ensures
-            self.zero_below_level().level == self.level,
-            self.zero_below_level().continuations == self.continuations,
-            self.zero_below_level().guard_level == self.guard_level,
-            self.zero_below_level().prefix == self.prefix,
-            self.zero_below_level().barrier_va == self.barrier_va,
-            self.zero_below_level().popped_too_high == self.popped_too_high,
-    {
-    }
-
     /// Incrementing the selected nonterminal entry advances by one slot without overflow.
     pub proof fn lemma_inc_index_va(self)
         requires
