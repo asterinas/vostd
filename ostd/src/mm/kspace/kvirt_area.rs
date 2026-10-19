@@ -570,10 +570,6 @@ impl KVirtArea {
                         &&& entry_owners[pa].inv()
                         &&& frame_entry_wf(it.seq()[i], prop, entry_owners[pa])
                     },
-                // Slot facts for each remaining frame are preserved across iterations.
-                // (Initially established by the function precondition; preserved by
-                // `cursor.map`'s effect on unrelated slots — see the focused assume in
-                // the loop body.)
                 forall|i: int|
                     it.index() <= i < it.seq().len() ==> CursorMut::<
                         'a,
@@ -888,13 +884,8 @@ impl KVirtArea {
                     ),
                     cursor.0.barrier_va.start == va_range.start,
                     cursor.0.barrier_va.end == va_range.start + len,
-                    // `pa_range.end == pa_range.start + len` so pa + page_size(level) stays bounded.
-                    pa_range.end as nat == pa_range.start as nat + len as nat,
+                    pa_range.end == pa_range.start + len,
                     pa_range.end <= MAX_PADDR,
-                    // Slot facts for the remaining PAs are preserved across iterations.
-                    // Initially established by the function precondition; each iteration's
-                    // `cursor.map` only touches the slot at its own mapped PA — see the
-                    // focused assume in the loop body.
                     forall|pa: Paddr|
                         #![trigger frame_to_index(pa)]
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
