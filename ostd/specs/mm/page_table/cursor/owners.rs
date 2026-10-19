@@ -650,10 +650,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.va % C::BASE_PAGE_SIZE() == 0
         &&& 1 <= self.level <= NR_LEVELS
         &&& 1 <= self.guard_level <= NR_LEVELS
-        &&& page_table_managed_start_spec::<C>()
-            <= self.va
         // A terminal cursor may equal the managed range's exclusive end.
-        &&& self.va <= page_table_managed_end_spec::<C>()
+        &&& page_table_managed_start_spec::<C>() <= self.va <= page_table_managed_end_spec::<C>()
         &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end
             <= self.locked_range().end
         &&& self.barrier_va.start % C::BASE_PAGE_SIZE() == 0
@@ -661,11 +659,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& is_valid_range_spec::<C>(self.barrier_va)
         &&& self.barrier_va.end + page_size::<C>(self.guard_level)
             <= page_table_coverage_end_spec::<
-            C,
-        >()
-        // These bounds describe valid request addresses, independently of node coverage.
-        &&& self.in_barrier_va() ==> page_table_managed_start_spec::<C>() <= self.va
-            < page_table_managed_end_spec::<
             C,
         >()
         // End states may retain a cursor level above the guard.
