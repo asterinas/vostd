@@ -27,15 +27,15 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
-            Guards, Mapping, is_valid_range_spec, lemma_aligned_vaddr_slack,
+            Guards, Mapping, is_valid_range_spec, leading_bits_spec, lemma_aligned_vaddr_slack,
             lemma_inc_slot_indices, lemma_lower_indices_aligned, lemma_page_size_base,
             lemma_page_size_divides, lemma_page_size_ge_base,
             lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_monotone,
             lemma_page_size_next, lemma_pte_index_bound, lemma_vaddr_range_spec_user,
             lemma_vaddr_upper_part_is_align_down, mappings_disjoint_vaddrs, mappings_well_formed,
             owners::*, page_table_vaddr_bits_spec, pte_index_bit_offset_spec, pte_index_spec,
-            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
-            vaddr_upper_part_spec,
+            vaddr_range_proofs::lemma_leading_bits_properties, vaddr_range_spec,
+            vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -661,8 +661,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.locked_range().start <= self.barrier_va.start
         &&& self.barrier_va.end <= self.locked_range().end
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= C::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES - 1)
-            * page_size::<C>(
+        &&& self.barrier_va.end <= leading_bits_spec::<C>() * 0x1_0000_0000_0000int + (NR_ENTRIES
+            - 1) * page_size::<C>(
             C::NR_LEVELS(),
         )
         // These bounds describe valid request addresses, independently of node coverage.
@@ -724,7 +724,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The cursor stays within the same canonical half of the address
         // space as its prefix — so `leading_bits` agrees throughout traversal.
         &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
-        &&& vaddr_upper_bits_spec::<C>(self.prefix) == C::LEADING_BITS_spec()
+        &&& vaddr_upper_bits_spec::<C>(self.prefix) == leading_bits_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
             #![trigger self.continuations[i].idx]
             self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx == pte_index_spec::<C>(
@@ -1682,7 +1682,7 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         // Config-aware VA range: user page tables live in `[0, 2^47)`,
         // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
         // `vaddr_range_spec<C>` gives inclusive `(start, end_inclusive)`
-        // bounds derived from `LEADING_BITS_spec` + `TOP_LEVEL_INDEX_RANGE`,
+        // bounds derived from `leading_bits_spec` + `TOP_LEVEL_INDEX_RANGE`,
         // so `Mapping::inv` can stay config-agnostic.
         &&& forall|m: Mapping|
             #![auto]
@@ -1723,13 +1723,27 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     let idx = C::TOP_LEVEL_INDEX_RANGE();
     let start = idx.start as int;
     let end = idx.end as int;
-    let lb = C::LEADING_BITS_spec() as int;
+    let lb = leading_bits_spec::<C>() as int;
+    lemma_leading_bits_properties::<C>();
+    vstd::arithmetic::power2::lemma2_to64();
+    assert(page_table_vaddr_bits_spec::<C>() == 48);
+    assert(lb < 65536);
     let base = lb * 0x1_0000_0000_0000int;
     let cell = 0x80_0000_0000int;
     let bounds = vaddr_range_spec::<C>();
 
     let end_exclusive = base + end * cell;
     let end_pre = end_exclusive - 1;
+    vstd::layout::unsigned_int_max_values();
+    assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
+        requires
+            end_pre == lb * 281474976710656 + end * 549755813888 - 1,
+            0 <= lb < 65536,
+            0 < end <= 512,
+            usize::MAX == 18446744073709551615,
+    ;
+    assert(bounds.start == base + start * cell);
+    assert(bounds.end == end_pre);
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& vaddr_range_spec::<C>().start <= m.va_range.start
@@ -1826,8 +1840,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& self.barrier_va.start % PAGE_SIZE == 0
         &&& self.barrier_va.end % PAGE_SIZE == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= C::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES - 1)
-            * page_size::<C>(C::NR_LEVELS())
+        &&& self.barrier_va.end <= leading_bits_spec::<C>() * 0x1_0000_0000_0000int + (NR_ENTRIES
+            - 1) * page_size::<C>(C::NR_LEVELS())
         &&& self.barrier_va.end - self.barrier_va.start < page_size::<C>(
             (self.guard_level + 1) as PagingLevel,
         )

@@ -10,11 +10,60 @@ use vstd::{
     prelude::*,
 };
 
-use crate::specs::mm::page_table::pte_index_bit_offset_spec;
+use crate::specs::mm::page_table::{
+    leading_bits_spec, page_table_vaddr_bits_spec, pte_index_bit_offset_spec,
+};
 
 use crate::mm::{PagingConstsTrait, Vaddr, page_table::PageTableConfig};
 
 verus! {
+
+/// Derives the sign-extension mask and its width from the paging constants.
+pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
+    ensures
+        leading_bits_spec::<C>() != 0 ==> C::C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start
+            * pow2(pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat) / pow2(
+            (C::C::ADDRESS_WIDTH() - 1) as nat,
+        ) as int) % 2 == 1,
+        C::C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start * pow2(
+            pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat,
+        ) / pow2((C::C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 ==> leading_bits_spec::<C>()
+            * pow2(page_table_vaddr_bits_spec::<C::C>() as nat) == pow2(usize::BITS as nat) - pow2(
+            C::C::ADDRESS_WIDTH() as nat,
+        ),
+        leading_bits_spec::<C>() < pow2(
+            (usize::BITS as int - page_table_vaddr_bits_spec::<C::C>()) as nat,
+        ),
+{
+    C::C::lemma_paging_consts_properties();
+    let bits = page_table_vaddr_bits_spec::<C::C>() as nat;
+    let width = C::C::ADDRESS_WIDTH() as nat;
+    assert(bits <= width < usize::BITS);
+    lemma_pow2_adds((usize::BITS - bits) as nat, bits);
+    lemma_pow2_adds((width - bits) as nat, bits);
+    lemma_pow2_pos((width - bits) as nat);
+    vstd::arithmetic::power2::lemma_pow2_strictly_increases(
+        (width - bits) as nat,
+        (usize::BITS - bits) as nat,
+    );
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::layout::unsigned_int_max_values();
+    if bits < usize::BITS {
+        if bits > 0 {
+            vstd::arithmetic::power2::lemma_pow2_strictly_increases(
+                (usize::BITS - bits) as nat,
+                usize::BITS as nat,
+            );
+        }
+    }
+    assert((pow2((usize::BITS - bits) as nat) - pow2((width - bits) as nat)) * pow2(bits) == pow2(
+        usize::BITS as nat,
+    ) - pow2(width)) by (nonlinear_arith)
+        requires
+            pow2((usize::BITS - bits) as nat) * pow2(bits) == pow2(usize::BITS as nat),
+            pow2((width - bits) as nat) * pow2(bits) == pow2(width),
+    ;
+}
 
 /// Facts needed to turn `idx.start << offset` into
 /// `idx.start * 2^offset` for `pt_va_range_start`.

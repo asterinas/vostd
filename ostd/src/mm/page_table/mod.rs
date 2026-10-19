@@ -8,7 +8,8 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::*, is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
-            top_level_index_width_spec, vaddr_range_spec, *,
+            top_level_index_width_spec, vaddr_range_proofs::lemma_leading_bits_properties,
+            vaddr_range_spec, *,
         },
     },
     task::InAtomicMode,
@@ -114,28 +115,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         returns
             Self::TOP_LEVEL_INDEX_RANGE(),
     ;
-
-    /// VERIFICATION only: The leading bits `[48, 64)` of every virtual address managed by this
-    /// config.
-    ///
-    /// Concretely, a mapping `m` in this page table has
-    /// `m.va_range.start / 2^48 == LEADING_BITS_spec()`. For non-sign-extended
-    /// configurations (e.g. `UserPtConfig`) this is `0`. For x86-64 kernel
-    /// PT it is `0xffff` (sign-extended high half). The type is wide enough
-    /// to carry arbitrary bit patterns, so the model can accommodate future
-    /// configurations that place their managed range at a non-canonical
-    /// fixed offset.
-    ///
-    /// Combined with `TOP_LEVEL_INDEX_RANGE`, this fully determines
-    /// the managed VA range, computed as
-    /// [`vaddr_range_spec::<Self>`]. Callers that previously used
-    /// `VADDR_RANGE_spec()` should use `vaddr_range_spec::<C>()`
-    /// directly — the inclusive `(start, end_inclusive)` form avoids the
-    /// `end == usize::MAX + 1` overflow that plagues `Range<Vaddr>` for
-    /// sign-extended kernel configurations.
-    open spec fn LEADING_BITS_spec() -> usize {
-        0
-    }
 
     open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
         true
@@ -460,17 +439,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
             ) <= usize::MAX,
-            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && ((
-            Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-            (Self::C::VA_SIGN_EXT() && (((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
-                &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
-                    - pow2(Self::C::ADDRESS_WIDTH() as nat)
-            },
-            Self::LEADING_BITS_spec() < 0x1_0000_usize,
             // FIXME: This property does not hold in general, `ADDRESS_WIDTH` can be wider.
             pow2(
                 (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
@@ -499,17 +467,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
             ) <= usize::MAX,
-            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && ((
-            Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-            (Self::C::VA_SIGN_EXT() && (((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
-                &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
-                    - pow2(Self::C::ADDRESS_WIDTH() as nat)
-            },
-            Self::LEADING_BITS_spec() < 0x1_0000_usize,
             // FIXME: This property does not hold in general, `ADDRESS_WIDTH` can be wider.
             pow2(
                 (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
@@ -730,17 +687,16 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
 ///
 /// For any value `va` in `[0, 2^ADDRESS_WIDTH)`, the OR with
 /// `!0 ^ ((1 << ADDRESS_WIDTH) - 1)` is equivalent to adding
-/// `LEADING_BITS_spec() * 2^48`, because the mask's bits and `va`'s bits are
+/// the derived upper-address contribution, because the mask's bits and `va`'s bits are
 /// disjoint.
 fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     requires
         va < pow2(C::ADDRESS_WIDTH() as nat),
         C::ADDRESS_WIDTH() < usize::BITS,
-        C::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int - pow2(
-            C::ADDRESS_WIDTH() as nat,
-        ),
+        leading_bits_spec::<C>() * pow2(page_table_vaddr_bits_spec::<C>() as nat)
+            == 0x1_0000_0000_0000_0000int - pow2(C::ADDRESS_WIDTH() as nat),
     ensures
-        ret == va + C::LEADING_BITS_spec() * 0x1_0000_0000_0000int,
+        ret == va + leading_bits_spec::<C>() * pow2(page_table_vaddr_bits_spec::<C>() as nat),
 {
     let address_width = C::ADDRESS_WIDTH();
     let low_bit = 1usize << address_width;
@@ -764,7 +720,9 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
             vstd::arithmetic::power2::lemma2_to64();
         };
         assert(sign_ext_mask == 0x1_0000_0000_0000_0000int - pow2(address_width as nat));
-        assert(sign_ext_mask == C::LEADING_BITS_spec() * 0x1_0000_0000_0000int);
+        assert(sign_ext_mask == leading_bits_spec::<C>() * pow2(
+            page_table_vaddr_bits_spec::<C>() as nat,
+        ));
 
         assert((va & sign_ext_mask) == 0usize) by (bit_vector)
             requires
@@ -800,6 +758,8 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     proof {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
+        lemma_leading_bits_properties::<C>();
+        lemma2_to64();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
             start,
             end,
@@ -1050,6 +1010,7 @@ impl PageTable<KernelPtConfig> {
                     }
                 }
 
+                lemma_vaddr_range_spec_kernel();
                 kernel_owner.pt_inv_unroll(i as int);
                 let tracked child_subtree: &OwnerSubtree<KernelPtConfig> =
                     kernel_owner.0.tracked_borrow_child(i as int);

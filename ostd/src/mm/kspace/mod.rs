@@ -166,10 +166,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         256..512
     }
 
-    open spec fn LEADING_BITS_spec() -> usize {
-        0xffff
-    }
-
     proof fn lemma_page_table_config_constant_requirements() {
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
 
@@ -186,7 +182,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         lemma_pow2_adds(8, 39);
 
         assert((256 * pow2(39) as int) / (pow2(47) as int) == 1);
-        lemma_pow2_adds(16, 48);
     }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {

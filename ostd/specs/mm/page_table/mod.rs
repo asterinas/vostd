@@ -254,10 +254,25 @@ pub open spec fn vaddr_upper_bits_spec<C: PagingConstsTrait>(va: Vaddr) -> usize
 }
 
 /// Contribution of the uninterpreted upper virtual-address bits to the concrete address.
-/// Unlike the legacy fixed `leading_bits * 2^48` expression, the boundary is derived from `C`.
 #[verifier::inline]
 pub open spec fn vaddr_upper_part_spec<C: PagingConstsTrait>(va: Vaddr) -> int {
     vaddr_upper_bits_spec::<C>(va) as int * pow2(page_table_vaddr_bits_spec::<C>() as nat) as int
+}
+
+/// Upper VA bits selected by the same sign-extension rule as executable `vaddr_range`.
+/// The bit boundary is the complete page-table coverage, as in `vaddr_upper_bits_spec`.
+pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
+    let bits = page_table_vaddr_bits_spec::<C::C>();
+    let start = C::TOP_LEVEL_INDEX_RANGE().start * pow2(
+        pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat,
+    );
+    if C::C::VA_SIGN_EXT() && (start / pow2((C::C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 {
+        (pow2((usize::BITS as int - bits) as nat) - pow2(
+            (C::C::ADDRESS_WIDTH() - bits) as nat,
+        )) as usize
+    } else {
+        0
+    }
 }
 
 #[verifier::inline]
@@ -267,15 +282,15 @@ pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
 
 /// Canonical bounds of the VA range managed by a page-table config,
 ///
-/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
+/// Derived from `leading_bits_spec` and `TOP_LEVEL_INDEX_RANGE`. For
 /// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
 /// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
 /// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
 #[verusfmt::skip]
 pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Vaddr> {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let lb = C::LEADING_BITS_spec() as int;
-    let base = lb * 0x1_0000_0000_0000int;
+    let lb = leading_bits_spec::<C>() as int;
+    let base = lb * pow2(page_table_vaddr_bits_spec::<C>() as nat);
     let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
     let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
     RangeInclusiveView { start, end, exhausted: false }
@@ -290,20 +305,36 @@ pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> boo
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
+        leading_bits_spec::<UserPtConfig>() == 0,
         vaddr_range_spec::<UserPtConfig>().start == 0,
         vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
     lemma_arch_specific_consts_properties::<PagingConsts>();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
 }
 
 /// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
 /// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
+        leading_bits_spec::<KernelPtConfig>() == 0xffff,
         vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
         vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
 {
     lemma_arch_specific_consts_properties::<PagingConsts>();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
+    vstd::layout::unsigned_int_max_values();
+    assert(page_table_vaddr_bits_spec::<PagingConsts>() == 48);
+    vaddr_range_proofs::lemma_leading_bits_properties::<KernelPtConfig>();
+    assert(PagingConsts::VA_SIGN_EXT());
+    assert(PagingConsts::ADDRESS_WIDTH() == 48);
+    assert(usize::BITS == 64);
+    assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start == 256);
+    assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
+    assert(leading_bits_spec::<KernelPtConfig>() * pow2(48) == pow2(64) - pow2(48));
+    assert(leading_bits_spec::<KernelPtConfig>() == 0xffff);
 }
 
 /// Addresses in one aligned node select the same entries at that node and above.

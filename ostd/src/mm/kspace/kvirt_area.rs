@@ -514,6 +514,7 @@ impl KVirtArea {
         proof {
             lemma_page_size_spec_values();
             KernelPtConfig::axiom_current_paging_consts_hardcoded();
+            lemma_vaddr_range_spec_kernel();
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             assert(cursor_range.end <= FRAME_METADATA_BASE_VADDR);
             assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
@@ -808,10 +809,11 @@ impl KVirtArea {
             proof {
                 lemma_page_size_spec_values();
                 KernelPtConfig::axiom_current_paging_consts_hardcoded();
+                lemma_vaddr_range_spec_kernel();
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
                 assert(va_range.end <= FRAME_METADATA_BASE_VADDR);
                 assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
-                assert(KernelPtConfig::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES
+                assert(leading_bits_spec::<KernelPtConfig>() * 0x1_0000_0000_0000int + (NR_ENTRIES
                     - 1) * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
                     == 0xffff_ff80_0000_0000int);
                 assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(

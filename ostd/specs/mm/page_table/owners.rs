@@ -25,7 +25,10 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
-        page_table::{cursor::page_size_lemmas::lemma_page_size_spec_values, *},
+        page_table::{
+            cursor::page_size_lemmas::lemma_page_size_spec_values,
+            vaddr_range_proofs::lemma_leading_bits_properties, *,
+        },
     },
 };
 
@@ -68,23 +71,11 @@ pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
-/// Virtual address of `path` with `leading_bits` placed in bits `[48, 64)`.
-///
-/// Adds the upper-address contribution to the positional path address.
-/// For `leading_bits == 0` this reduces to
-/// `vaddr(path)`; for `leading_bits == 0xffff` and a kernel path this yields
-/// the canonical sign-extended high-half address.
-pub open spec fn vaddr_at(path: TreePath<NR_ENTRIES>, leading_bits: int) -> usize {
-    (vaddr(path) + leading_bits * 0x1_0000_0000_0000int) as usize
-}
-
-/// Config-aware `vaddr`: reads `leading_bits` from `C::LEADING_BITS_spec()`.
-///
-/// Every `Mapping` produced by a cursor on `PageTable<C>` should be built
-/// with this — not the bare `vaddr(path)` — so the VA lives in the range
-/// advertised by `C::VADDR_RANGE_spec()`.
+/// Reconstructs a path address with the configuration's derived upper-address contribution.
 pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usize {
-    vaddr_at(path, C::LEADING_BITS_spec() as int)
+    (vaddr(path) + leading_bits_spec::<C>() * pow2(
+        page_table_vaddr_bits_spec::<C>() as nat,
+    )) as usize
 }
 
 /// The positional VA of every valid path fits in the current paging address
@@ -132,15 +123,21 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.inv(),
         path.len() <= INC_LEVELS - 1,
     ensures
-        vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
-        vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * pow2(
+        vaddr_of::<C>(path) == vaddr(path) + leading_bits_spec::<C>() as int
+            * 0x1_0000_0000_0000int,
+        vaddr_of::<C>(path) == vaddr(path) + leading_bits_spec::<C>() as int * pow2(
             page_table_vaddr_bits_spec::<C>() as nat,
         ),
 {
     C::lemma_page_table_config_constant_properties();
+    lemma_leading_bits_properties::<C>();
     C::lemma_paging_consts_properties();
     C::axiom_current_paging_consts_hardcoded();
     lemma_vaddr_strict_bound(path);
+    lemma_arch_specific_consts_properties::<C>();
+    vstd::arithmetic::power2::lemma2_to64();
+    assert(page_table_vaddr_bits_spec::<C>() == 48);
+    assert(leading_bits_spec::<C>() < 65536);
     let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
     lemma_page_size_spec_values();
@@ -550,7 +547,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         &&& (parent.child(i).value().match_pte(
             parent.value().node().children_perm.value()[i],
             parent.value().node().level(),
-        ) || (parent.value().node().level() == NR_LEVELS && C::LEADING_BITS_spec() == 0
+        ) || (parent.value().node().level() == NR_LEVELS && leading_bits_spec::<C>() == 0
             && parent.child(i).value().borrowed_match_pte(
             parent.value().node().children_perm.value()[i],
             parent.value().node().level(),
@@ -980,10 +977,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path[0] < t,
             self.view_rec(path).contains(m),
         ensures
-            (path[0]) * 0x80_0000_0000int + C::LEADING_BITS_spec() * 0x1_0000_0000_0000int
+            (path[0]) * 0x80_0000_0000int + leading_bits_spec::<C>() * 0x1_0000_0000_0000int
                 <= m.va_range.start,
             m.va_range.start < m.va_range.end,
-            m.va_range.end <= t * 0x80_0000_0000int + C::LEADING_BITS_spec()
+            m.va_range.end <= t * 0x80_0000_0000int + leading_bits_spec::<C>()
                 * 0x1_0000_0000_0000int,
     {
         self.view_rec_vaddr_range(path, m);
@@ -1277,7 +1274,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
             lemma_vaddr_strict_bound(path);
-            let lb = C::LEADING_BITS_spec() as int;
+            let lb = leading_bits_spec::<C>() as int;
             lemma2_to64_rest();
             let limit = page_size::<PagingConsts>(INC_LEVELS as PagingLevel) as int;
             lemma_page_size_divides::<PagingConsts>(pt_level, INC_LEVELS as PagingLevel);

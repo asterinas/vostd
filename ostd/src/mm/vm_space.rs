@@ -1849,7 +1849,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         lemma_pow2_adds(9, 39);
         PageTableEntry::lemma_layout();
         Self::C::lemma_paging_consts_properties();
-        assert(Self::LEADING_BITS_spec() == 0usize);
     }
 }
 
