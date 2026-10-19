@@ -987,12 +987,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         lemma_vaddr_of_eq_int::<C>(path);
         lemma_vaddr_top_index_cell(path);
         lemma_page_size_spec_values();
-        // `vaddr_of(path) == vaddr(path) + LEADING_BITS*2^48` (lemma_vaddr_of_eq_int);
-        // the positional `vaddr(path)` lies in the top-index cell
-        // `[index(0)*2^39, (index(0)+1)*2^39)` (lemma_vaddr_top_index_cell), and
-        // `(index(0)+1) <= t`. Adding the `LEADING_BITS*2^48` base shifts both
-        // ends — giving the user (LB=0) low half and the kernel (LB=0xffff)
-        // high half.
     }
 
     /// `pt_inv` (plus the root's recorded path) lifts to a full
