@@ -661,8 +661,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.locked_range().start <= self.barrier_va.start
         &&& self.barrier_va.end <= self.locked_range().end
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= leading_bits_spec::<C>() * 0x1_0000_0000_0000int + (NR_ENTRIES
-            - 1) * page_size::<C>(
+        &&& self.barrier_va.end <= leading_bits_spec::<C>() * pow2(
+            page_table_vaddr_bits_spec::<C>() as nat,
+        ) + (NR_ENTRIES - 1) * page_size::<C>(
             C::NR_LEVELS(),
         )
         // These bounds describe valid request addresses, independently of node coverage.
@@ -1728,7 +1729,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     vstd::arithmetic::power2::lemma2_to64();
     assert(page_table_vaddr_bits_spec::<C>() == 48);
     assert(lb < 65536);
-    let base = lb * 0x1_0000_0000_0000int;
+    let coverage = pow2(page_table_vaddr_bits_spec::<C>() as nat);
+    let base = lb * coverage;
     let cell = 0x80_0000_0000int;
     let bounds = vaddr_range_spec::<C>();
 
@@ -1737,7 +1739,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     vstd::layout::unsigned_int_max_values();
     assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
         requires
-            end_pre == lb * 281474976710656 + end * 549755813888 - 1,
+            end_pre == lb * coverage + end * 549755813888 - 1,
+            coverage == 281474976710656,
             0 <= lb < 65536,
             0 < end <= 512,
             usize::MAX == 18446744073709551615,
@@ -1840,8 +1843,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& self.barrier_va.start % PAGE_SIZE == 0
         &&& self.barrier_va.end % PAGE_SIZE == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= leading_bits_spec::<C>() * 0x1_0000_0000_0000int + (NR_ENTRIES
-            - 1) * page_size::<C>(C::NR_LEVELS())
+        &&& self.barrier_va.end <= leading_bits_spec::<C>() * pow2(
+            page_table_vaddr_bits_spec::<C>() as nat,
+        ) + (NR_ENTRIES - 1) * page_size::<C>(C::NR_LEVELS())
         &&& self.barrier_va.end - self.barrier_va.start < page_size::<C>(
             (self.guard_level + 1) as PagingLevel,
         )

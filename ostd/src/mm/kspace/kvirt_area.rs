@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
-use vstd::{prelude::*, set_lib::FiniteRange};
+use vstd::{arithmetic::power2::pow2, prelude::*, set_lib::FiniteRange};
 use vstd_extra::{
     arithmetic::nat_align_down,
     assert,
@@ -515,6 +515,8 @@ impl KVirtArea {
             lemma_page_size_spec_values();
             KernelPtConfig::axiom_current_paging_consts_hardcoded();
             lemma_vaddr_range_spec_kernel();
+            lemma_arch_specific_consts_properties::<KernelPtConfig>();
+            assert(page_table_vaddr_bits_spec::<KernelPtConfig>() == 48);
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             assert(cursor_range.end <= FRAME_METADATA_BASE_VADDR);
             assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
@@ -810,11 +812,14 @@ impl KVirtArea {
                 lemma_page_size_spec_values();
                 KernelPtConfig::axiom_current_paging_consts_hardcoded();
                 lemma_vaddr_range_spec_kernel();
+                lemma_arch_specific_consts_properties::<KernelPtConfig>();
+                assert(page_table_vaddr_bits_spec::<KernelPtConfig>() == 48);
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
                 assert(va_range.end <= FRAME_METADATA_BASE_VADDR);
                 assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
-                assert(leading_bits_spec::<KernelPtConfig>() * 0x1_0000_0000_0000int + (NR_ENTRIES
-                    - 1) * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
+                assert(leading_bits_spec::<KernelPtConfig>() * pow2(
+                    page_table_vaddr_bits_spec::<KernelPtConfig>() as nat,
+                ) + (NR_ENTRIES - 1) * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
                     == 0xffff_ff80_0000_0000int);
                 assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
                     va_range,

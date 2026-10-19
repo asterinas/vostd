@@ -5,7 +5,7 @@ use vstd::{
             lemma_mod_equivalence, lemma_mod_multiples_basic,
         },
         mul::{lemma_mul_inequality, lemma_mul_is_associative, lemma_mul_is_commutative},
-        power2::{lemma2_to64_rest, pow2},
+        power2::{lemma2_to64, lemma2_to64_rest, pow2},
     },
     bits::lemma_usize_shr_is_div,
     prelude::*,
@@ -123,8 +123,6 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.inv(),
         path.len() <= INC_LEVELS - 1,
     ensures
-        vaddr_of::<C>(path) == vaddr(path) + leading_bits_spec::<C>() as int
-            * 0x1_0000_0000_0000int,
         vaddr_of::<C>(path) == vaddr(path) + leading_bits_spec::<C>() as int * pow2(
             page_table_vaddr_bits_spec::<C>() as nat,
         ),
@@ -962,11 +960,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    /// Any mapping in a subtree's `view_rec` has its VA range within the
-    /// `2^39`-sized cell of the subtree's top-level index `path[0]`, shifted by
-    /// the config's `LEADING_BITS` high-half base. With `path[0] < t`, the range
-    /// end is `<= t * 2^39 + LEADING_BITS * 2^48` — the per-config VA bound that
-    /// discharges the user/kernel isolation theorems.
+    /// Bounds subtree mappings by their top-level slot and the configuration's
+    /// upper-address contribution, using the configured top-level page size.
     pub proof fn view_rec_top_index_va_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping, t: int)
         requires
             self.pt_inv(),
@@ -977,16 +972,23 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path[0] < t,
             self.view_rec(path).contains(m),
         ensures
-            (path[0]) * 0x80_0000_0000int + leading_bits_spec::<C>() * 0x1_0000_0000_0000int
-                <= m.va_range.start,
+            (path[0]) * page_size::<C>(C::NR_LEVELS()) + leading_bits_spec::<C>() * pow2(
+                page_table_vaddr_bits_spec::<C>() as nat,
+            ) <= m.va_range.start,
             m.va_range.start < m.va_range.end,
-            m.va_range.end <= t * 0x80_0000_0000int + leading_bits_spec::<C>()
-                * 0x1_0000_0000_0000int,
+            m.va_range.end <= t * page_size::<C>(C::NR_LEVELS()) + leading_bits_spec::<C>() * pow2(
+                page_table_vaddr_bits_spec::<C>() as nat,
+            ),
     {
         self.view_rec_vaddr_range(path, m);
         lemma_vaddr_of_eq_int::<C>(path);
         lemma_vaddr_top_index_cell(path);
+        C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
+        lemma_arch_specific_consts_properties::<C>();
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma_page_size_spec_values();
+        lemma_mul_inequality(path[0] + 1, t, page_size::<C>(C::NR_LEVELS()) as int);
     }
 
     /// `pt_inv` (plus the root's recorded path) lifts to a full
@@ -1267,10 +1269,18 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             vstd_extra::arithmetic::lemma_mod_0_add(frame.mapped_pa as int, ps, ps);
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
+            C::lemma_paging_consts_properties();
+            C::axiom_current_paging_consts_hardcoded();
+            lemma_arch_specific_consts_properties::<C>();
+            lemma_leading_bits_properties::<C>();
+            assert(page_table_vaddr_bits_spec::<C>() == 48);
             lemma_vaddr_strict_bound(path);
             let lb = leading_bits_spec::<C>() as int;
+            lemma2_to64();
             lemma2_to64_rest();
+            assert(lb < 65536);
             let limit = page_size::<PagingConsts>(INC_LEVELS as PagingLevel) as int;
+            assert(pow2(page_table_vaddr_bits_spec::<C>() as nat) == limit);
             lemma_page_size_divides::<PagingConsts>(pt_level, INC_LEVELS as PagingLevel);
             assert(limit % ps == 0);
             lemma_fundamental_div_mod(limit, ps);

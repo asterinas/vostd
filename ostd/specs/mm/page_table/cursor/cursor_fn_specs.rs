@@ -1,7 +1,7 @@
 use vstd::{arithmetic::power2::pow2, prelude::*};
 
 use crate::specs::{
-    arch::PAGE_SIZE,
+    arch::{PAGE_SIZE, lemma_arch_specific_consts_properties},
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
@@ -50,7 +50,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma_page_size_spec_values();
-        let base = leading_bits_spec::<C>() * 0x1_0000_0000_0000int;
+        lemma_arch_specific_consts_properties::<C>();
+        vstd::arithmetic::power2::lemma2_to64();
+        assert(page_table_vaddr_bits_spec::<C>() == 48);
+        let coverage = pow2(page_table_vaddr_bits_spec::<C>() as nat);
+        let base = leading_bits_spec::<C>() * coverage;
         let size = page_size::<C>(C::NR_LEVELS()) as int;
         assert(size == 549755813888);
         assert(0 <= leading_bits_spec::<C>() < 65536);
@@ -60,7 +64,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             by (nonlinear_arith)
             requires
                 size == 549755813888,
-                base == leading_bits_spec::<C>() * 281474976710656,
+                base == leading_bits_spec::<C>() * coverage,
+                coverage == 281474976710656,
                 0 <= leading_bits_spec::<C>() < 65536,
                 0 <= C::TOP_LEVEL_INDEX_RANGE().start < 512,
                 usize::MAX == 18446744073709551615,
@@ -69,7 +74,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             by (nonlinear_arith)
             requires
                 size == 549755813888,
-                base == leading_bits_spec::<C>() * 281474976710656,
+                base == leading_bits_spec::<C>() * coverage,
+                coverage == 281474976710656,
                 0 <= leading_bits_spec::<C>() < 65536,
                 0 < C::TOP_LEVEL_INDEX_RANGE().end <= 512,
                 usize::MAX == 18446744073709551615,
@@ -96,7 +102,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// The model reserves the final top-level slot for the cursor's end sentinel.
     pub open spec fn cursor_range_wf(va: Range<Vaddr>) -> bool {
         Self::cursor_new_success_conditions(va) ==> va.end <= leading_bits_spec::<C>() as int
-            * 0x1_0000_0000_0000int + (crate::mm::NR_ENTRIES - 1) * page_size::<C>(C::NR_LEVELS())
+            * pow2(page_table_vaddr_bits_spec::<C>() as nat) + (crate::mm::NR_ENTRIES - 1)
+            * page_size::<C>(C::NR_LEVELS())
     }
 
     pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
