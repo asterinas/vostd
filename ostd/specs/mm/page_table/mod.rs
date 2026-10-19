@@ -325,10 +325,6 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     vstd::layout::unsigned_int_max_values();
     assert(page_table_vaddr_bits_spec::<PagingConsts>() == 48);
     vaddr_range_proofs::lemma_leading_bits_properties::<KernelPtConfig>();
-    assert(PagingConsts::VA_SIGN_EXT());
-    assert(PagingConsts::ADDRESS_WIDTH() == 48);
-    assert(usize::BITS == 64);
-    assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start == 256);
     assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
 }
 
