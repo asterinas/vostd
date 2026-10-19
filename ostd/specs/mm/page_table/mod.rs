@@ -68,15 +68,15 @@ pub open spec fn nr_page_table_coverage_bits_spec<C: PagingConstsTrait>() -> usi
 
 /// Contribution of the uninterpreted upper virtual-address bits to the concrete address.
 #[verifier::inline]
-pub open spec fn vaddr_upper_part_spec<C: PagingConstsTrait>(va: Vaddr) -> Vaddr {
+pub open spec fn vaddr_leading_part_spec<C: PagingConstsTrait>(va: Vaddr) -> Vaddr {
     ((va >> nr_page_table_coverage_bits_spec::<C>()) * pow2(
         nr_page_table_coverage_bits_spec::<C>() as nat,
     )) as Vaddr
 }
 
 /// Upper VA bits selected by the same sign-extension rule as executable `vaddr_range`.
-/// The bit boundary is the complete page-table coverage, as in `vaddr_upper_part_spec`.
-pub open spec fn page_table_upper_bits_spec<C: PageTableConfig>() -> usize {
+/// The bit boundary is the complete page-table coverage, as in `vaddr_leading_part_spec`.
+pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
     let bits = nr_page_table_coverage_bits_spec::<C>();
     let start = C::TOP_LEVEL_INDEX_RANGE().start * pow2(
         pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
@@ -90,16 +90,14 @@ pub open spec fn page_table_upper_bits_spec<C: PageTableConfig>() -> usize {
 
 /// Upper-address contribution selected by the configuration, in its original bit positions.
 #[verifier::inline]
-pub open spec fn page_table_upper_part_spec<C: PageTableConfig>() -> Vaddr {
-    (page_table_upper_bits_spec::<C>() * pow2(
-        nr_page_table_coverage_bits_spec::<C>() as nat,
-    )) as Vaddr
+pub open spec fn leading_part_spec<C: PageTableConfig>() -> Vaddr {
+    (leading_bits_spec::<C>() * pow2(nr_page_table_coverage_bits_spec::<C>() as nat)) as Vaddr
 }
 
 /// Exclusive end of the complete page-table index coverage for the configured upper bits.
 /// This mathematical boundary may be one past `Vaddr::MAX`.
 pub open spec fn page_table_coverage_end_spec<C: PageTableConfig>() -> int {
-    page_table_upper_part_spec::<C>() as int + page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel)
+    leading_part_spec::<C>() as int + page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel)
 }
 
 /// Number of effective virtual-address bits used by the top-level page-table index.
@@ -112,7 +110,7 @@ pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
 #[verusfmt::skip]
 pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Vaddr> {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let base = page_table_upper_part_spec::<C>() as int;
+    let base = leading_part_spec::<C>() as int;
     let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
     let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
     RangeInclusiveView { start, end, exhausted: false }
@@ -310,7 +308,7 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
 /// Sanity-check: for x86_64 user PT.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        page_table_upper_bits_spec::<UserPtConfig>() == 0,
+        leading_bits_spec::<UserPtConfig>() == 0,
         vaddr_range_spec::<UserPtConfig>().start == 0,
         vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
@@ -322,7 +320,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
 /// Sanity-check: for x86_64 kernel PT.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
-        page_table_upper_bits_spec::<KernelPtConfig>() == 0xffff,
+        leading_bits_spec::<KernelPtConfig>() == 0xffff,
         vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
         vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
 {
@@ -331,7 +329,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     vstd::arithmetic::power2::lemma2_to64_rest();
     vstd::layout::unsigned_int_max_values();
     assert(nr_page_table_coverage_bits_spec::<PagingConsts>() == 48);
-    vaddr_range_proofs::lemma_page_table_upper_bits_properties::<KernelPtConfig>();
+    vaddr_range_proofs::lemma_leading_bits_properties::<KernelPtConfig>();
     assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
 }
 
@@ -389,7 +387,7 @@ pub proof fn lemma_same_node_pte_indices_match<C: PagingConstsTrait>(
 }
 
 /// Moving within one page-table node preserves the upper virtual-address contribution.
-pub proof fn lemma_same_node_vaddr_upper_part_match<C: PagingConstsTrait>(
+pub proof fn lemma_same_node_vaddr_leading_part_match<C: PagingConstsTrait>(
     va1: Vaddr,
     va2: Vaddr,
     node_start: Vaddr,
@@ -403,7 +401,7 @@ pub proof fn lemma_same_node_vaddr_upper_part_match<C: PagingConstsTrait>(
         va2 - node_start < page_size::<C>((level + 1) as PagingLevel),
         node_start as nat % page_size::<C>((level + 1) as PagingLevel) as nat == 0,
     ensures
-        vaddr_upper_part_spec::<C>(va1) == vaddr_upper_part_spec::<C>(va2),
+        vaddr_leading_part_spec::<C>(va1) == vaddr_leading_part_spec::<C>(va2),
 {
     C::lemma_paging_consts_properties();
     let small_level = (level + 1) as PagingLevel;
@@ -426,9 +424,9 @@ pub proof fn lemma_same_node_vaddr_upper_part_match<C: PagingConstsTrait>(
 }
 
 /// Upper address bits contribute the aligned base of the complete paging body.
-pub proof fn lemma_vaddr_upper_part_is_align_down<C: PagingConstsTrait>(va: Vaddr)
+pub proof fn lemma_vaddr_leading_part_is_align_down<C: PagingConstsTrait>(va: Vaddr)
     ensures
-        vaddr_upper_part_spec::<C>(va) == nat_align_down(
+        vaddr_leading_part_spec::<C>(va) == nat_align_down(
             va as nat,
             page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel) as nat,
         ),
@@ -452,7 +450,7 @@ pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: Pa
         ({
             let aligned = nat_align_down(va as nat, page_size::<C>(level) as nat) as Vaddr;
             &&& aligned % C::BASE_PAGE_SIZE() == 0
-            &&& vaddr_upper_part_spec::<C>(aligned) == vaddr_upper_part_spec::<C>(va)
+            &&& vaddr_leading_part_spec::<C>(aligned) == vaddr_leading_part_spec::<C>(va)
             &&& forall|i: int|
                 1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(
                     aligned,
@@ -470,7 +468,7 @@ pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: Pa
     let aligned = nat_align_down(va as nat, size) as Vaddr;
     lemma_aligned_indices_zero::<C>(aligned, level);
     lemma_same_node_pte_indices_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
-    lemma_same_node_vaddr_upper_part_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
+    lemma_same_node_vaddr_leading_part_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
     assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
         aligned,
         i as PagingLevel,
@@ -499,7 +497,7 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
         ({
             let next = (va + page_size::<C>(level)) as Vaddr;
             &&& next % C::BASE_PAGE_SIZE() == va % C::BASE_PAGE_SIZE()
-            &&& vaddr_upper_part_spec::<C>(next) == vaddr_upper_part_spec::<C>(va)
+            &&& vaddr_leading_part_spec::<C>(next) == vaddr_leading_part_spec::<C>(va)
             &&& forall|i: int|
                 1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(next, i as PagingLevel)
                     == pte_index_spec::<C>(va, i as PagingLevel) + if i == level {
@@ -545,7 +543,7 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
     if level < C::NR_LEVELS() {
         lemma_same_node_pte_indices_match::<C>(va, next, start, level);
     }
-    lemma_same_node_vaddr_upper_part_match::<C>(va, next, start, level);
+    lemma_same_node_vaddr_leading_part_match::<C>(va, next, start, level);
     lemma_page_size_divides::<C>(1, level);
     lemma_page_size_base::<C>();
     vstd::arithmetic::div_mod::lemma_add_mod_noop(va as int, size, C::BASE_PAGE_SIZE() as int);

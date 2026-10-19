@@ -8,7 +8,7 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::*, is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
-            top_level_index_width_spec, vaddr_range_proofs::lemma_page_table_upper_bits_properties,
+            top_level_index_width_spec, vaddr_range_proofs::lemma_leading_bits_properties,
             vaddr_range_spec, *,
         },
     },
@@ -693,11 +693,9 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     requires
         va < pow2(C::ADDRESS_WIDTH() as nat),
         C::ADDRESS_WIDTH() < usize::BITS,
-        page_table_upper_part_spec::<C>() == 0x1_0000_0000_0000_0000int - pow2(
-            C::ADDRESS_WIDTH() as nat,
-        ),
+        leading_part_spec::<C>() == 0x1_0000_0000_0000_0000int - pow2(C::ADDRESS_WIDTH() as nat),
     ensures
-        ret == va + page_table_upper_part_spec::<C>(),
+        ret == va + leading_part_spec::<C>(),
 {
     let address_width = C::ADDRESS_WIDTH();
     let low_bit = 1usize << address_width;
@@ -721,7 +719,7 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
             vstd::arithmetic::power2::lemma2_to64();
         };
         assert(sign_ext_mask == 0x1_0000_0000_0000_0000int - pow2(address_width as nat));
-        assert(sign_ext_mask == page_table_upper_part_spec::<C>());
+        assert(sign_ext_mask == leading_part_spec::<C>());
 
         assert((va & sign_ext_mask) == 0usize) by (bit_vector)
             requires
@@ -757,7 +755,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     proof {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
-        lemma_page_table_upper_bits_properties::<C>();
+        lemma_leading_bits_properties::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma2_to64();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(

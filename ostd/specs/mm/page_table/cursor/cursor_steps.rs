@@ -17,10 +17,10 @@ use crate::specs::{
             },
             lemma_inc_slot_indices, lemma_next_slot_pte_index, lemma_page_size_next,
             lemma_pte_index_bound, lemma_pte_index_spec_is_div_mod,
-            lemma_same_node_vaddr_upper_part_match, lemma_vaddr_upper_part_is_align_down,
+            lemma_same_node_vaddr_leading_part_match, lemma_vaddr_leading_part_is_align_down,
             node::EntryOwner,
             owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
-            pte_index_spec, vaddr_upper_part_spec,
+            pte_index_spec, vaddr_leading_part_spec,
         },
     },
 };
@@ -958,11 +958,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let next = self.move_forward_owner_spec().va;
         self.lemma_locked_range_page_aligned();
         Self::lemma_vaddr_top_cell(self.va);
-        lemma_vaddr_upper_part_is_align_down::<C>(self.va);
-        let root_base = vaddr_upper_part_spec::<C>(self.va);
+        lemma_vaddr_leading_part_is_align_down::<C>(self.va);
+        let root_base = vaddr_leading_part_spec::<C>(self.va);
         let root_size = page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel);
         lemma_nat_align_down_sound(self.va as nat, root_size as nat);
-        lemma_same_node_vaddr_upper_part_match::<C>(next, self.va, root_base, C::NR_LEVELS());
+        lemma_same_node_vaddr_leading_part_match::<C>(next, self.va, root_base, C::NR_LEVELS());
         Self::lemma_vaddr_top_cell(next);
         lemma_page_size_monotone::<C>(self.level, C::NR_LEVELS());
         assert(pte_index_spec::<C>(self.va, C::NR_LEVELS()) <= pte_index_spec::<C>(
@@ -971,14 +971,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ) <= pte_index_spec::<C>(self.va, C::NR_LEVELS()) + 1) by (nonlinear_arith)
             requires
                 self.va <= next <= self.va + page_size::<C>(C::NR_LEVELS()),
-                vaddr_upper_part_spec::<C>(next) == vaddr_upper_part_spec::<C>(self.va),
-                vaddr_upper_part_spec::<C>(next) + pte_index_spec::<C>(next, C::NR_LEVELS())
+                vaddr_leading_part_spec::<C>(next) == vaddr_leading_part_spec::<C>(self.va),
+                vaddr_leading_part_spec::<C>(next) + pte_index_spec::<C>(next, C::NR_LEVELS())
                     * page_size::<C>(C::NR_LEVELS()) <= next,
-                next < vaddr_upper_part_spec::<C>(next) + (pte_index_spec::<C>(next, C::NR_LEVELS())
-                    + 1) * page_size::<C>(C::NR_LEVELS()),
-                vaddr_upper_part_spec::<C>(self.va) + pte_index_spec::<C>(self.va, C::NR_LEVELS())
+                next < vaddr_leading_part_spec::<C>(next) + (pte_index_spec::<C>(
+                    next,
+                    C::NR_LEVELS(),
+                ) + 1) * page_size::<C>(C::NR_LEVELS()),
+                vaddr_leading_part_spec::<C>(self.va) + pte_index_spec::<C>(self.va, C::NR_LEVELS())
                     * page_size::<C>(C::NR_LEVELS()) <= self.va,
-                self.va < vaddr_upper_part_spec::<C>(self.va) + (pte_index_spec::<C>(
+                self.va < vaddr_leading_part_spec::<C>(self.va) + (pte_index_spec::<C>(
                     self.va,
                     C::NR_LEVELS(),
                 ) + 1) * page_size::<C>(C::NR_LEVELS()),

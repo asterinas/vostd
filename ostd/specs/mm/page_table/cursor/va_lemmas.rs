@@ -24,7 +24,7 @@ use crate::specs::{
         lemma_align_down_indices, lemma_inc_slot_indices, lemma_pte_index_bound,
         lemma_same_node_pte_indices_match,
         owners::*,
-        pte_index_spec, vaddr_replace_pte_index_spec, vaddr_upper_part_spec,
+        pte_index_spec, vaddr_leading_part_spec, vaddr_replace_pte_index_spec,
     },
 };
 
@@ -41,10 +41,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Relates the numeric VA to its canonical base and top-level slot.
     pub proof fn lemma_vaddr_top_cell(va: Vaddr)
         ensures
-            vaddr_upper_part_spec::<C>(va) + pte_index_spec::<C>(va, NR_LEVELS as PagingLevel)
+            vaddr_leading_part_spec::<C>(va) + pte_index_spec::<C>(va, NR_LEVELS as PagingLevel)
                 * page_size::<C>(NR_LEVELS as PagingLevel) <= va,
-            va < vaddr_upper_part_spec::<C>(va) + (pte_index_spec::<C>(va, NR_LEVELS as PagingLevel)
-                + 1) * page_size::<C>(NR_LEVELS as PagingLevel),
+            va < vaddr_leading_part_spec::<C>(va) + (pte_index_spec::<C>(
+                va,
+                NR_LEVELS as PagingLevel,
+            ) + 1) * page_size::<C>(NR_LEVELS as PagingLevel),
     {
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(va, C::NR_LEVELS());
@@ -209,7 +211,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             new_va % C::BASE_PAGE_SIZE() == 0,
-            vaddr_upper_part_spec::<C>(new_va) == vaddr_upper_part_spec::<C>(self.prefix_vaddr()),
+            vaddr_leading_part_spec::<C>(new_va) == vaddr_leading_part_spec::<C>(
+                self.prefix_vaddr(),
+            ),
             self.locked_range().start <= new_va < self.locked_range().end,
         ensures
             forall|i: int|
@@ -255,7 +259,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             new_va % C::BASE_PAGE_SIZE() == 0,
-            vaddr_upper_part_spec::<C>(new_va) == vaddr_upper_part_spec::<C>(old(self).cur_va()),
+            vaddr_leading_part_spec::<C>(new_va) == vaddr_leading_part_spec::<C>(
+                old(self).cur_va(),
+            ),
             forall|i: int|
                 old(self).level <= i < C::NR_LEVELS() ==> (#[trigger] pte_index_spec::<C>(
                     new_va,
