@@ -60,10 +60,6 @@ impl Mapping {
         &&& self.va_range.end <= pow2(
             64,
         )
-        // Per-config VA range bounds are enforced by `CursorView<C>::inv`
-        // via `page_table_managed_start_spec<C>` / `page_table_managed_end_spec<C>`, not here — a single
-        // config-agnostic `Mapping::inv` cannot express them.
-
     }
 }
 
