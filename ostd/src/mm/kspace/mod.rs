@@ -201,12 +201,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         false
     }
 
-    // The kvirt allocator (the only source of kernel-PT cursor ranges) caps
-    // `range.end` at FRAME_METADATA_BASE_VADDR — see `kvirt_alloc_range_bounds`.
-    open spec fn LOCKED_END_BOUND_spec() -> int {
-        FRAME_METADATA_BASE_VADDR as int
-    }
-
     type E = PageTableEntry;
 
     type C = PagingConsts;

@@ -661,7 +661,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.locked_range().start <= self.barrier_va.start
         &&& self.barrier_va.end <= self.locked_range().end
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= C::LOCKED_END_BOUND_spec()
         &&& self.barrier_va.end <= C::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES - 1)
             * page_size::<C>(
             C::NR_LEVELS(),
@@ -1827,7 +1826,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& self.barrier_va.start % PAGE_SIZE == 0
         &&& self.barrier_va.end % PAGE_SIZE == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
-        &&& self.barrier_va.end <= C::LOCKED_END_BOUND_spec()
         &&& self.barrier_va.end <= C::LEADING_BITS_spec() * 0x1_0000_0000_0000int + (NR_ENTRIES - 1)
             * page_size::<C>(C::NR_LEVELS())
         &&& self.barrier_va.end - self.barrier_va.start < page_size::<C>(

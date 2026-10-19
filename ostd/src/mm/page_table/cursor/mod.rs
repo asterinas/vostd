@@ -228,13 +228,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             pt.relates_owner(pt_own, *old(regions)),
             Self::cursor_range_wf(*va),
             pt_own.0.value().node().relate_guard(root_guard),
-            // Per-config tightening: e.g. `KernelPtConfig` overrides
-            // `LOCKED_END_BOUND_spec` to `FRAME_METADATA_BASE_VADDR`. Callers
-            // for `KernelPtConfig` (KVirtArea, etc.) discharge this from the
-            // `kvirt_alloc_range_bounds` axiom; default-config callers
-            // (UserPtConfig) get this for free since the default bound is
-            // `usize::MAX + 1`.
-            0 < va.end <= C::LOCKED_END_BOUND_spec(),
+            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -1976,8 +1970,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             pt.relates_owner(pt_own, *old(regions)),
             Cursor::<C, A>::cursor_range_wf(*va),
             pt_own.0.value().node().relate_guard(root_guard),
-            // Per-config tightening; see `Cursor::new`.
-            0 < va.end <= C::LOCKED_END_BOUND_spec(),
+            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]

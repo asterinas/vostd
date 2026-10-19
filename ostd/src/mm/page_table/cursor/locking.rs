@@ -40,9 +40,6 @@ broadcast use group_ghost_tree_lemmas;
         va.start < va.end,
         Cursor::<C, A>::cursor_new_success_conditions(*va),
         Cursor::<C, A>::cursor_range_wf(*va),
-        // Per-config tightening; see `Cursor::new`. Pulled through to the
-        // cursor's `LOCKED_END_BOUND_spec` invariant.
-        va.end <= C::LOCKED_END_BOUND_spec(),
     ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]

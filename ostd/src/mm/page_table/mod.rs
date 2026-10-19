@@ -152,20 +152,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::TOP_LEVEL_CAN_UNMAP(),
     ;
 
-    /// VERIFICATION only: Upper bound on `barrier_va.end` for cursors of this config.
-    /// Traversal also stops at this bound; the complete guard node may extend beyond it.
-    ///
-    /// May be tighter than the structural `vaddr_range_spec().1 + 1`
-    /// when the actual sources of cursor ranges (e.g. the kvirt allocator
-    /// for `KernelPtConfig`) draw from a sub-window of the configured VA
-    /// range. `KernelPtConfig` overrides this to `FRAME_METADATA_BASE_VADDR`,
-    /// which the `kvirt_alloc_range_bounds` axiom enforces.
-    ///
-    /// Default: `usize::MAX + 1` (no tightening over the structural bound).
-    open spec fn LOCKED_END_BOUND_spec() -> int {
-        0x1_0000_0000_0000_0000int
-    }
-
     /// The type of the page table entry.
     type E: PageTableEntryTrait;
 
@@ -1295,8 +1281,7 @@ impl<C: PageTableConfig> PageTable<C> {
             self.relates_owner(owner, *old(regions)),
             Cursor::<C, G>::cursor_range_wf(*va),
             owner.0.value().node().relate_guard(root_guard),
-            // Per-config tightening; see `Cursor::new`.
-            0 < va.end <= C::LOCKED_END_BOUND_spec(),
+            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -1355,8 +1340,7 @@ impl<C: PageTableConfig> PageTable<C> {
             self.relates_owner(owner, *old(regions)),
             Cursor::<C, G>::cursor_range_wf(*va),
             owner.0.value().node().relate_guard(root_guard),
-            // Per-config tightening; see `Cursor::new`.
-            0 < va.end <= C::LOCKED_END_BOUND_spec(),
+            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]

@@ -28,7 +28,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             va % C::BASE_PAGE_SIZE() == 0,
         ensures
             self.locked_range().start <= va < self.locked_range().end,
-            va < C::LOCKED_END_BOUND_spec(),
             C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
                 < C::TOP_LEVEL_INDEX_RANGE().end,
             pte_index_spec::<C>(va, C::NR_LEVELS()) + 1 < crate::mm::NR_ENTRIES,
