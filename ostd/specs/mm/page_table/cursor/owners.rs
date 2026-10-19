@@ -649,7 +649,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.va % C::BASE_PAGE_SIZE() == 0
         &&& 1 <= self.level <= NR_LEVELS
-        &&& 1 <= self.guard_level <= NR_LEVELS
+        &&& 1 <= self.guard_level
+            <= NR_LEVELS
         // A terminal cursor may equal the managed range's exclusive end.
         &&& page_table_managed_start_spec::<C>() <= self.va <= page_table_managed_end_spec::<C>()
         &&& self.locked_range().start <= self.barrier_va.start < self.barrier_va.end

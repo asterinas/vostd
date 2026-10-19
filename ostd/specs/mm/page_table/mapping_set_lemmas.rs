@@ -212,7 +212,7 @@ pub proof fn lemma_extend_empty_mapping_range(
                     |m2: Mapping| slot_start <= m2.va_range.start < slot_end,
                 ).contains(m));
             }
- 
+
         }
     };
 }
