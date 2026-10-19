@@ -300,8 +300,7 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
     }
 }
 
-/// Sanity-check: for x86_64 user PT, the bounds are
-/// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
+/// Sanity-check: for x86_64 user PT.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
         leading_bits_spec::<UserPtConfig>() == 0,
@@ -313,8 +312,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
     vstd::arithmetic::power2::lemma2_to64_rest();
 }
 
-/// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
-/// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
+/// Sanity-check: for x86_64 kernel PT.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
         leading_bits_spec::<KernelPtConfig>() == 0xffff,
@@ -332,8 +330,6 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     assert(usize::BITS == 64);
     assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start == 256);
     assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
-    assert(leading_bits_spec::<KernelPtConfig>() * pow2(48) == pow2(64) - pow2(48));
-    assert(leading_bits_spec::<KernelPtConfig>() == 0xffff);
 }
 
 /// Addresses in one aligned node select the same entries at that node and above.
