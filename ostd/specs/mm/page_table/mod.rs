@@ -86,7 +86,7 @@ pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
         pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
     );
     if C::VA_SIGN_EXT() && (start / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 {
-        (pow2((usize::BITS as int - bits) as nat) - pow2(
+        (pow2((usize::BITS - bits) as nat) - pow2(
             (C::ADDRESS_WIDTH() - bits) as nat,
         )) as usize
     } else {

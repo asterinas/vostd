@@ -36,7 +36,7 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
         ) / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 ==> leading_part_spec::<C>()
             == pow2(usize::BITS as nat) - pow2(C::ADDRESS_WIDTH() as nat),
         leading_bits_spec::<C>() < pow2(
-            (usize::BITS as int - page_table_vaddr_bits_spec::<C>()) as nat,
+            (usize::BITS - page_table_vaddr_bits_spec::<C>()) as nat,
         ),
 {
     C::lemma_paging_consts_properties();
