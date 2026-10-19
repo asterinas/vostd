@@ -1336,7 +1336,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     if self.level < NR_LEVELS as PagingLevel {
                         lemma_same_node_pte_indices_match::<C>(va, old_va, node_start, self.level);
                     }
-                    lemma_same_node_vaddr_upper_bits_match::<C>(va, old_va, node_start, self.level);
+                    lemma_same_node_vaddr_upper_part_match::<C>(va, old_va, node_start, self.level);
 
                     owner.tracked_set_vaddr_in_node(va);
                     assert(owner.children_not_locked(*guards) && owner.metaregion_sound(*regions))

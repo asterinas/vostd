@@ -24,7 +24,7 @@ use crate::specs::{
         lemma_align_down_indices, lemma_inc_slot_indices, lemma_pte_index_bound,
         lemma_same_node_pte_indices_match,
         owners::*,
-        pte_index_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec, vaddr_upper_part_spec,
+        pte_index_spec, vaddr_replace_pte_index_spec, vaddr_upper_part_spec,
     },
 };
 
@@ -209,7 +209,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             new_va % C::BASE_PAGE_SIZE() == 0,
-            vaddr_upper_bits_spec::<C>(new_va) == vaddr_upper_bits_spec::<C>(self.prefix_vaddr()),
+            vaddr_upper_part_spec::<C>(new_va) == vaddr_upper_part_spec::<C>(self.prefix_vaddr()),
             self.locked_range().start <= new_va < self.locked_range().end,
         ensures
             forall|i: int|
@@ -255,7 +255,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             new_va % C::BASE_PAGE_SIZE() == 0,
-            vaddr_upper_bits_spec::<C>(new_va) == vaddr_upper_bits_spec::<C>(old(self).cur_va()),
+            vaddr_upper_part_spec::<C>(new_va) == vaddr_upper_part_spec::<C>(old(self).cur_va()),
             forall|i: int|
                 old(self).level <= i < C::NR_LEVELS() ==> (#[trigger] pte_index_spec::<C>(
                     new_va,

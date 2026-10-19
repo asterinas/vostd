@@ -36,8 +36,7 @@ use crate::specs::{
             nr_page_table_coverage_bits_spec, owners::*, page_table_coverage_end_spec,
             page_table_upper_bits_spec, page_table_upper_part_spec, pte_index_bit_offset_spec,
             pte_index_spec, vaddr_range_proofs::lemma_page_table_upper_bits_properties,
-            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_bits_spec,
-            vaddr_upper_part_spec,
+            vaddr_range_spec, vaddr_replace_pte_index_spec, vaddr_upper_part_spec,
         },
     },
     task::InAtomicMode,
@@ -702,8 +701,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.guard_level < NR_LEVELS ==> C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<
             C,
         >(self.prefix, NR_LEVELS as PagingLevel) < C::TOP_LEVEL_INDEX_RANGE().end
-        &&& vaddr_upper_bits_spec::<C>(self.va) == vaddr_upper_bits_spec::<C>(self.prefix)
-        &&& vaddr_upper_bits_spec::<C>(self.prefix) == page_table_upper_bits_spec::<C>()
+        &&& vaddr_upper_part_spec::<C>(self.va) == vaddr_upper_part_spec::<C>(self.prefix)
+        &&& vaddr_upper_part_spec::<C>(self.prefix) == page_table_upper_part_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
             #![trigger self.continuations[i].idx]
             self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx == pte_index_spec::<C>(
@@ -1229,6 +1228,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ));
 
         lemma_vaddr_upper_part_is_align_down::<C>(self_va);
+        lemma_vaddr_upper_part_is_align_down::<C>(self.prefix);
         lemma_lower_indices_aligned::<C>(self.prefix, body_level);
         lemma_usize_shr_is_div(self.prefix, nr_page_table_coverage_bits_spec::<C>());
         lemma_fundamental_div_mod(self.prefix as int, node_size as int);

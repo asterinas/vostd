@@ -40,7 +40,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_page_table_config_constant_properties();
         lemma_page_table_upper_bits_properties::<C>();
         self.lemma_locked_range_span();
-        lemma_same_node_vaddr_upper_bits_match::<C>(va, self.prefix, self.prefix, self.guard_level);
+        lemma_same_node_vaddr_upper_part_match::<C>(va, self.prefix, self.prefix, self.guard_level);
         CursorOwner::<'rcu, C>::lemma_vaddr_top_cell(va);
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(
             (C::NR_LEVELS() + 1) as crate::mm::PagingLevel,
