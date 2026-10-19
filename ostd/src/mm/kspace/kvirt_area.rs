@@ -520,7 +520,9 @@ impl KVirtArea {
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             assert(cursor_range.end <= FRAME_METADATA_BASE_VADDR);
             assert(page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS()) == 549755813888);
-            assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
+            assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_input_valid(
+                cursor_range,
+            ) ==> crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_success_conditions(
                 cursor_range,
             ));
         }
@@ -823,9 +825,12 @@ impl KVirtArea {
                 assert(page_table_coverage_start_spec::<KernelPtConfig>() + (NR_ENTRIES - 1)
                     * page_size::<KernelPtConfig>(KernelPtConfig::NR_LEVELS())
                     == 0xffff_ff80_0000_0000int);
-                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_range_wf(
+                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_input_valid(
                     va_range,
-                ));
+                ) ==> crate::mm::page_table::Cursor::<
+                    KernelPtConfig,
+                    A,
+                >::cursor_new_success_conditions(va_range));
             }
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             let cursor_res = page_table.cursor_mut(preempt_guard, &va_range);

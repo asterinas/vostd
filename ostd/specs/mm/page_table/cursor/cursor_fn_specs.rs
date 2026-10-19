@@ -14,7 +14,7 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    PagingConstsTrait, Vaddr,
+    PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
     page_table::*,
 };
@@ -51,25 +51,27 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    /// Leaves representable slot successors at the highest level traversal can retain.
-    /// Inside the final top-level slot, an unsupported top-level leaf forces descent,
-    /// so only lower-level headroom is needed instead of reserving that whole slot.
-    pub open spec fn cursor_range_wf(va: Range<Vaddr>) -> bool {
-        let top = C::NR_LEVELS();
-        let body_end = page_table_coverage_end_spec::<C>();
-        let top_size = page_size::<C>(top);
-        Self::cursor_new_success_conditions(va) ==> {
-            ||| va.end + top_size <= body_end
-            ||| top > 1 && C::HIGHEST_TRANSLATION_LEVEL() < top && body_end - top_size <= va.start
-                && va.end + page_size::<C>((top - 1) as crate::mm::PagingLevel) <= body_end
-        }
-    }
-
-    pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
+    /// Checks the range validity, ordering, and alignment enforced by the executable constructor.
+    pub open spec fn cursor_new_input_valid(va: Range<Vaddr>) -> bool {
         &&& va.start < va.end
         &&& va.start % C::BASE_PAGE_SIZE() == 0
         &&& va.end % C::BASE_PAGE_SIZE() == 0
         &&& is_valid_range_spec::<C>(va)
+    }
+
+    /// Conditions for verified construction, including representable slot successors.
+        let top = C::NR_LEVELS();
+        let end = page_table_coverage_end_spec::<C>();
+        // A request wholly in the last root slot must descend when root leaves are unsupported.
+        let reserve_level = if top > 1 && C::HIGHEST_TRANSLATION_LEVEL() < top && end - page_size::<
+            C,
+        >(top) <= va.start {
+            (top - 1) as PagingLevel
+        } else {
+            top
+        };
+        &&& Self::cursor_new_input_valid(va)
+        &&& va.end + page_size::<C>(reserve_level) <= end
     }
 
     pub open spec fn invariants(

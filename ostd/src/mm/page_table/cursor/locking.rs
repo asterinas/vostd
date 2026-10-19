@@ -42,7 +42,6 @@ broadcast use group_ghost_tree_lemmas;
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.has_child(i),
         va.start < va.end,
         Cursor::<C, A>::cursor_new_success_conditions(*va),
-        Cursor::<C, A>::cursor_range_wf(*va),
     ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -312,7 +311,6 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         old(cursor_own).va == va.start,
         old(cursor_own).barrier_va == *va,
         Cursor::<C, A>::cursor_new_success_conditions(*va),
-        Cursor::<C, A>::cursor_range_wf(*va),
     ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]

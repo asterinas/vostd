@@ -1234,7 +1234,8 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards>
         requires
             self.relates_owner(owner, *old(regions)),
-            Cursor::<C, G>::cursor_range_wf(*va),
+            Cursor::<C, G>::cursor_new_input_valid(*va)
+                ==> Cursor::<C, G>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
@@ -1293,7 +1294,8 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards>
         requires
             self.relates_owner(owner, *old(regions)),
-            Cursor::<C, G>::cursor_range_wf(*va),
+            Cursor::<C, G>::cursor_new_input_valid(*va)
+                ==> Cursor::<C, G>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures

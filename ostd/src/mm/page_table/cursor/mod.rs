@@ -226,7 +226,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             pt.relates_owner(pt_own, *old(regions)),
-            Self::cursor_range_wf(*va),
+            Self::cursor_new_input_valid(*va)
+                ==> Self::cursor_new_success_conditions(*va),
             pt_own.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
@@ -1971,7 +1972,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             pt.relates_owner(pt_own, *old(regions)),
-            Cursor::<C, A>::cursor_range_wf(*va),
+            Cursor::<C, A>::cursor_new_input_valid(*va)
+                ==> Cursor::<C, A>::cursor_new_success_conditions(*va),
             pt_own.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
