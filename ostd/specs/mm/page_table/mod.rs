@@ -81,13 +81,13 @@ pub open spec fn vaddr_upper_part_spec<C: PagingConstsTrait>(va: Vaddr) -> int {
 /// Upper VA bits selected by the same sign-extension rule as executable `vaddr_range`.
 /// The bit boundary is the complete page-table coverage, as in `vaddr_upper_bits_spec`.
 pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
-    let bits = page_table_vaddr_bits_spec::<C::C>();
+    let bits = page_table_vaddr_bits_spec::<C>();
     let start = C::TOP_LEVEL_INDEX_RANGE().start * pow2(
-        pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat,
+        pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
     );
-    if C::C::VA_SIGN_EXT() && (start / pow2((C::C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 {
+    if C::VA_SIGN_EXT() && (start / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 {
         (pow2((usize::BITS as int - bits) as nat) - pow2(
-            (C::C::ADDRESS_WIDTH() - bits) as nat,
+            (C::ADDRESS_WIDTH() - bits) as nat,
         )) as usize
     } else {
         0

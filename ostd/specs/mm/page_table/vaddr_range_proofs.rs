@@ -21,23 +21,23 @@ verus! {
 /// Derives the sign-extension mask and its width from the paging constants.
 pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
     ensures
-        leading_bits_spec::<C>() != 0 ==> C::C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start
-            * pow2(pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat) / pow2(
-            (C::C::ADDRESS_WIDTH() - 1) as nat,
+        leading_bits_spec::<C>() != 0 ==> C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start
+            * pow2(pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat) / pow2(
+            (C::ADDRESS_WIDTH() - 1) as nat,
         ) as int) % 2 == 1,
-        C::C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start * pow2(
-            pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat,
-        ) / pow2((C::C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 ==> leading_bits_spec::<C>()
-            * pow2(page_table_vaddr_bits_spec::<C::C>() as nat) == pow2(usize::BITS as nat) - pow2(
-            C::C::ADDRESS_WIDTH() as nat,
+        C::VA_SIGN_EXT() && (C::TOP_LEVEL_INDEX_RANGE().start * pow2(
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
+        ) / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1 ==> leading_bits_spec::<C>()
+            * pow2(page_table_vaddr_bits_spec::<C>() as nat) == pow2(usize::BITS as nat) - pow2(
+            C::ADDRESS_WIDTH() as nat,
         ),
         leading_bits_spec::<C>() < pow2(
-            (usize::BITS as int - page_table_vaddr_bits_spec::<C::C>()) as nat,
+            (usize::BITS as int - page_table_vaddr_bits_spec::<C>()) as nat,
         ),
 {
-    C::C::lemma_paging_consts_properties();
-    let bits = page_table_vaddr_bits_spec::<C::C>() as nat;
-    let width = C::C::ADDRESS_WIDTH() as nat;
+    C::lemma_paging_consts_properties();
+    let bits = page_table_vaddr_bits_spec::<C>() as nat;
+    let width = C::ADDRESS_WIDTH() as nat;
     assert(bits <= width < usize::BITS);
     lemma_pow2_adds((usize::BITS - bits) as nat, bits);
     lemma_pow2_adds((width - bits) as nat, bits);
