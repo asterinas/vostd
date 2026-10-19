@@ -38,11 +38,13 @@ pub use view::*;
 
 verus! {
 
+/// Number of virtual-address bits used to select an entry within one page-table node.
 #[verifier::inline]
 pub open spec fn nr_pte_index_bits_spec<C: PagingConstsTrait>() -> usize {
     nr_subpage_per_huge::<C>().ilog2() as usize
 }
 
+/// Bit position of the least significant bit of the page-table index at `level`.
 #[verifier::inline]
 pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
     (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)) as usize
@@ -92,6 +94,7 @@ pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
     }
 }
 
+/// Number of effective virtual-address bits used by the top-level page-table index.
 #[verifier::inline]
 pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
     (C::ADDRESS_WIDTH_spec() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as usize
@@ -108,6 +111,7 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Va
     RangeInclusiveView { start, end, exhausted: false }
 }
 
+/// Models `is_valid_range`: accepts `0..0` or checks `start` and `end - 1` against the configured bounds.
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
     let va_range = vaddr_range_spec::<C>();
     (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
