@@ -72,8 +72,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             old.inv(),
-            self.lin_barrier_va(),
-            old.lin_barrier_va(),
+            self.in_barrier_va(),
+            old.in_barrier_va(),
             self.level == old.level,
             self.va == old.va,
             old.cur_entry_owner().is_frame(),
@@ -184,7 +184,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             !self.popped_too_high,
             self.metaregion_sound(regions),
             // cursor level and structural fields unchanged
@@ -279,7 +279,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // continuation's slot at `idx` (a real, in-range slot). With this +
             // "higher continuations unchanged", the root continuation's
             // isolation clauses are preserved.
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             !self.popped_too_high,
             forall|j: int|
                 0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx ==> (
@@ -331,8 +331,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // (level == NR_LEVELS). For the outside-(borrowed||absent) clause:
             // the map changed only the in-range slot `idx`, so every outside
             // child keeps `owner0`'s value; `idx` is in-range (top index in
-            // [start, end), and `lin_barrier_va` rules out the sentinel).
-            owner0.lemma_lin_barrier_va_top_index_lt_top_end();
+            // [start, end), and `in_barrier_va` rules out the sentinel).
+            owner0.lemma_in_barrier_va_top_index_lt_top_end();
             assert(self.continuations[NR_LEVELS - 1].idx == pte_index_spec::<C>(
                 self.va,
                 (NR_LEVELS - 1 + 1) as PagingLevel,
@@ -354,9 +354,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_no_new_mappings(self, owner0: Self)
         requires
             owner0.inv(),
-            owner0.lin_barrier_va(),
+            owner0.in_barrier_va(),
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             self.level == owner0.level,
             self.va == owner0.va,
             forall|i: int|

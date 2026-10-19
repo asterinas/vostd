@@ -46,7 +46,7 @@ broadcast use group_ghost_tree_lemmas;
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
                     final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
-        (*ret.1).lin_barrier_va(),
+        (*ret.1).in_barrier_va(),
         ret.0.level == ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
@@ -229,7 +229,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     proof {
         assert(res.1.va == res.0.va);
         assert(res.1.barrier_va == res.0.barrier_va);
-        assert(res.1.lin_barrier_va());
+        assert(res.1.in_barrier_va());
         assert(res.0.inv());
         assert(res.1.level == res.0.level);
         assert(res.1.locked_range().start <= res.0.barrier_va.start);

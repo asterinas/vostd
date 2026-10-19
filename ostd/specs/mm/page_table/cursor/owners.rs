@@ -666,7 +666,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             C::NR_LEVELS(),
         )
         // These bounds describe valid request addresses, independently of node coverage.
-        &&& self.lin_barrier_va() ==> {
+        &&& self.in_barrier_va() ==> {
             &&& C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(
                 self.va,
                 NR_LEVELS as PagingLevel,
@@ -938,7 +938,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             old(self).level <= old(self).guard_level,
-            old(self).lin_barrier_va(),
+            old(self).in_barrier_va(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == NR_LEVELS ==> (old(self).continuations[old(self).level - 1].idx + 1)
                 <= C::TOP_LEVEL_INDEX_RANGE().end,
@@ -956,7 +956,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va = old(self).inc_index().va;
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
-        if self.lin_barrier_va() {
+        if self.in_barrier_va() {
             old(self).lemma_barrier_va_bounds(self.va);
         }
     }
@@ -1139,7 +1139,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             level == self.level,
             new_subtree.inv(),
             new_subtree.value().is_frame(),
@@ -1173,7 +1173,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Whether the current VA belongs to the range requested when creating the cursor.
-    pub open spec fn lin_barrier_va(self) -> bool {
+    pub open spec fn in_barrier_va(self) -> bool {
         self.barrier_va.start <= self.va < self.barrier_va.end
     }
 
@@ -1182,10 +1182,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va >= self.barrier_va.end
     }
 
-    pub proof fn lemma_lin_barrier_va_top_index_lt_top_end(self)
+    pub proof fn lemma_in_barrier_va_top_index_lt_top_end(self)
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             !self.popped_too_high,
         ensures
             pte_index_spec::<C>(self.va, (NR_LEVELS - 1 + 1) as PagingLevel)
@@ -1193,10 +1193,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
     }
 
-    pub proof fn lemma_lin_barrier_va_level_le_guard_level(self)
+    pub proof fn lemma_in_barrier_va_level_le_guard_level(self)
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             !self.popped_too_high,
         ensures
             self.level <= self.guard_level,
@@ -1268,7 +1268,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_va_plus_page_size_no_overflow(self, level: PagingLevel)
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             1 <= level <= self.guard_level,
         ensures
             self.va + page_size::<PagingConsts>(level) <= usize::MAX,
@@ -1346,7 +1346,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_entry_absent_not_present(self)
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             self.cur_entry_owner().is_absent(),
         ensures
             !self@.present(),
@@ -1370,7 +1370,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_subtree_empty_not_present(self)
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path) =~= set![],
         ensures
             !self@.present(),
@@ -1393,7 +1393,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_cur_entry_frame_present(self)
         requires
             self.inv(),
-            self.lin_barrier_va(),
+            self.in_barrier_va(),
             self.cur_entry_owner().is_frame(),
         ensures
             self@.present(),

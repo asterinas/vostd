@@ -15,10 +15,10 @@
 //! - `owner.inv()`, `owner.children_not_locked(guards)`,
 //!   `owner.nodes_locked(guards)`, `!owner.popped_too_high` —
 //!   bundled as `CursorEntry::inv` (entry-side); see [`super::CursorEntry`].
-//! - `owner.lin_barrier_va()` — NOT a precondition of `query`, `jump`,
+//! - `owner.in_barrier_va()` — NOT a precondition of `query`, `jump`,
 //!   or `map`: each handles an out-of-range cursor itself (graceful
 //!   `Err` for `query`; a faithful `panic_diverge` otherwise) and
-//!   re-derives `lin_barrier_va` internally. `protect_next` still
+//!   re-derives `in_barrier_va` internally. `protect_next` still
 //!   requires it; see exec clauses.
 //! - `regions.inv()`, `owner.metaregion_sound(regions)` — passed via
 //!   `&mut regions`.
@@ -174,9 +174,9 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 /// [`crate::mm::vm_space::CursorMut::query`].
 ///
 /// Exec requires `invariants(owner, regions, guards)`. It does **not**
-/// require `owner.lin_barrier_va()`: an out-of-range cursor is handled
+/// require `owner.in_barrier_va()`: an out-of-range cursor is handled
 /// by `Cursor::query`'s graceful `Err` (the exec `requires` was relaxed
-/// accordingly; `lin_barrier_va` now only governs success, not safety).
+/// accordingly; `in_barrier_va` now only governs success, not safety).
 ///
 /// `metaregion_sound_preserves`: a `CursorOwner` that was sound w.r.t.
 /// the old `regions` is still sound w.r.t. the new `regions`. This
@@ -220,7 +220,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
-            &&& old(owner).lin_barrier_va()
+            &&& old(owner).in_barrier_va()
             &&& valid_frame_paddr(paddr)
             &&& old(regions).slot_owner(paddr).usage is Frame
             &&& final(regions).slot_owner(paddr).ref_count() == (old(regions).slot_owner(
@@ -259,11 +259,11 @@ pub axiom fn cursor_query_embedded<'rcu>(
 ///
 /// Exec requires `invariants(owner, regions, guards)` (which includes
 /// `!owner.popped_too_high`). It does **not** require
-/// `owner.lin_barrier_va()`: the exec `requires` was relaxed. A drifted
+/// `owner.in_barrier_va()`: the exec `requires` was relaxed. A drifted
 /// cursor that cannot be repositioned within the target node aborts the
 /// program (a sound `panic_diverge`, mirroring the real `pop_level`
 /// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
-/// `lin_barrier_va` now only governs the success postcondition, and
+/// `in_barrier_va` now only governs the success postcondition, and
 /// this proof soundly models the returning path.
 pub proof fn lemma_cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
@@ -573,7 +573,7 @@ pub(super) proof fn cursor_query_step<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
-            &&& old(entry).owner.lin_barrier_va()
+            &&& old(entry).owner.in_barrier_va()
             &&& valid_frame_paddr(paddr)
             &&& old(regions).slot_owner(paddr).usage is Frame
             &&& final(regions).slot_owner(paddr).ref_count() == (old(regions).slot_owner(
