@@ -23,7 +23,7 @@ use crate::specs::{
             Mapping,
             cursor::owners::{CursorContinuation, CursorOwner},
             node::entry_owners::EntryOwner,
-            owners::{OwnerSubtree, PageTableOwner, vaddr_of},
+            owners::*,
         },
     },
 };
@@ -128,7 +128,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 e.meta_slot_paddr().unwrap(),
             ) != changed_idx;
 
-        self.map_children_implies(msp, target);
+        self.lemma_map_children_implies(msp, target);
 
         assert forall|i: int|
             #![trigger self.continuations[i]]
@@ -207,7 +207,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        self.map_children_implies(f_strong, g);
+        self.lemma_map_children_implies(f_strong, g);
 
         reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
@@ -217,7 +217,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 // Same sub-page bridge as above (continuations branch).
-                cont_entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
+                cont_entry.lemma_metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
             }
         };
     }
@@ -274,9 +274,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// This is the standalone "lift `path_correct_pred` + uniqueness over
     /// the cursor tree" lemma the `unmap` site needs. Each continuation
     /// child subtree is `pt_inv` + path-correct (via
-    /// [`PageTableOwner::pt_inv_implies_path_correct`]), and its mappings
+    /// [`PageTableOwner::lemma_pt_inv_implies_path_correct`]), and its mappings
     /// all bubble up into `self@.mappings`; so by
-    /// [`PageTableOwner::no_frame_with_path_rec`] a frame entry carrying
+    /// [`PageTableOwner::lemma_no_frame_with_path_rec`] a frame entry carrying
     /// `removed_path` would force a mapping starting at
     /// `vaddr_of(removed_path)` into `self@.mappings` — exactly what the
     /// hypothesis forbids. Continuation *entries* are nodes, so the
@@ -319,7 +319,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // child.value.path == child_path (inv_children_rel) and
                 // child.value.path.inv() (EntryOwner::inv).
                 // L1: pt_inv ⟹ tree-wide path correctness.
-                PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
+                PageTableOwner::<C>::lemma_pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.
                 assert forall|m: Mapping|
                     #![trigger self@.mappings.contains(m)]
@@ -329,7 +329,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.lemma_view_mappings_intro(m, i);
                 };
                 // L-rec: no frame entry in this subtree carries removed_path.
-                PageTableOwner(child).no_frame_with_path_rec(
+                PageTableOwner(child).lemma_no_frame_with_path_rec(
                     child_path,
                     removed_path,
                     self@.mappings,
@@ -379,7 +379,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Pointwise: nn(e) && nf(e) ==> r(e).
         // map_full_tree halves -> combined -> r.
         self.and_map_full_tree(nn, nf);
-        self.map_children_implies(
+        self.lemma_map_children_implies(
             |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p),
             r,
         );
@@ -459,7 +459,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        self.map_children_implies(f_strong, g);
+        self.lemma_map_children_implies(f_strong, g);
 
         reveal(CursorOwner::path_metaregion_sound);
         assert forall|i: int|
@@ -470,11 +470,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if cont_entry.meta_slot_paddr() is Some {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
                 if eidx != changed_idx {
-                    cont_entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
-                } else {
-                    if cont_entry.is_frame() {
-                        cont_entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
-                    }
+                    cont_entry.lemma_metaregion_sound_one_slot_changed(
+                        regions0,
+                        regions1,
+                        changed_idx,
+                    );
                 }
             }
         };
@@ -494,7 +494,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             owner_before_replace.inv(),
-            owner_before_replace.in_locked_range(),
+            owner_before_replace.in_barrier_va(),
             self.metaregion_sound(regions0),
             regions0.inv(),
             regions0.contains(removed_idx),
@@ -520,7 +520,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         self.no_node_at_idx_from_slot_key(regions0, removed_idx);
 
-        owner_before_replace.cur_subtree_eq_filtered_mappings_path();
+        owner_before_replace.lemma_cur_subtree_eq_filtered_mappings_path();
 
         let ghost sv = vaddr_of::<C>(removed_path) as int;
         let ghost sz = page_size::<PagingConsts>(owner_before_replace.level) as int;

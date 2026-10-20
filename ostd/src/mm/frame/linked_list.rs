@@ -13,14 +13,8 @@ use vstd_extra::{
 use crate::specs::{
     arch::*,
     mm::frame::{
-        linked_list::linked_list_owners::*,
-        mapping::{frame_to_index, group_page_meta, index_to_meta, meta_to_index},
-        meta_owners::{
-            MetaSlotOwner, MetaSlotStorage, borrow_meta, borrow_meta_mut, typed_meta_value,
-            typed_meta_wf,
-        },
-        meta_region_owners::MetaRegionOwners,
-        unique::UniqueFrameOwner,
+        linked_list::linked_list_owners::*, mapping::*, meta_owners::*,
+        meta_region_owners::MetaRegionOwners, unique::UniqueFrameOwner,
     },
 };
 
@@ -1629,8 +1623,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         &&& regions.slot_owners[idx] == regions_pre_drop.slot_owners[idx]
                     }) by {
                         let idx = meta_to_index(cursor_own.list_own.list[i].paddr);
-                        let ghost _trig_k = original_list[k as int];
-                        let ghost _trig_ik = original_list[i + k + 1];
                         assert(cursor_own.list_own.list[i] == original_list[i + k + 1]);
 
                         cursor_own.list_own.lemma_relate_region_at_index(regions_pre_drop, i);

@@ -14,8 +14,7 @@ use crate::specs::mm::page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
-    page_size,
+    KERNEL_VADDR_RANGE, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,
 };
 
 verus! {
@@ -217,49 +216,6 @@ pub proof fn lemma_page_size_spec_values()
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     vstd::bits::lemma_usize_pow2_no_overflow(48);
-}
-
-/// Used by `Entry::split_if_mapped_huge` to instantiate the 4KB sub-page forall
-/// invariant at the `i`-th sub-frame's slot.
-pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize) -> (big_j: usize)
-    requires
-        2 <= level <= NR_LEVELS,
-        0 < i < NR_ENTRIES,
-    ensures
-        0 < big_j < page_size::<PagingConsts>(level) / PAGE_SIZE,
-        pa + i * page_size::<PagingConsts>((level - 1) as PagingLevel) == pa + big_j * PAGE_SIZE,
-        big_j == i * (page_size::<PagingConsts>((level - 1) as PagingLevel) / PAGE_SIZE),
-{
-    PagingConsts::lemma_paging_consts_properties();
-    let sub_pages_per_entry: int = (page_size::<PagingConsts>((level - 1) as PagingLevel)
-        / PAGE_SIZE) as int;
-    let big_j_int: int = i * sub_pages_per_entry;
-    lemma_page_size_spec_values();
-    lemma_page_size_div_mul_eq::<PagingConsts>((level - 1) as PagingLevel);
-    lemma_page_size_div_mul_eq::<PagingConsts>(level);
-    lemma_page_size_next::<PagingConsts>((level - 1) as PagingLevel);
-    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-    vstd::arithmetic::mul::lemma_mul_strictly_positive(i as int, sub_pages_per_entry);
-    vstd::arithmetic::mul::lemma_mul_strict_inequality(
-        i as int,
-        NR_ENTRIES as int,
-        sub_pages_per_entry,
-    );
-    vstd::arithmetic::mul::lemma_mul_is_associative(
-        NR_ENTRIES as int,
-        sub_pages_per_entry,
-        PAGE_SIZE as int,
-    );
-    vstd::arithmetic::div_mod::lemma_div_by_multiple(
-        NR_ENTRIES as int * sub_pages_per_entry,
-        PAGE_SIZE as int,
-    );
-    vstd::arithmetic::mul::lemma_mul_is_associative(
-        i as int,
-        sub_pages_per_entry,
-        PAGE_SIZE as int,
-    );
-    big_j_int as usize
 }
 
 /// For any VA within the kernel virtual address range and any page level,

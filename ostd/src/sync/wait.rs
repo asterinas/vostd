@@ -326,9 +326,6 @@ impl Waiter {
             ret.0.rel_waker(ret.1),
     )]
     pub fn new_pair() -> (Self, Arc<Waker>) {
-        proof_decl! {
-            let ghost waker_id: int = arbitrary();
-        }
         let waker = Arc::new(
             Waker {
                 has_woken: AtomicBool::new(Ghost(()), false, Tracked(())),

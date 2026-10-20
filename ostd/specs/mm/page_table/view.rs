@@ -57,13 +57,7 @@ impl Mapping {
         // equal `pow2(64)` for a kernel mapping at the top of the canonical
         // high half; `va_range.start` is strictly less than `pow2(64)`
         // because `start + page_size == end <= pow2(64)` and `page_size > 0`.
-        &&& self.va_range.end <= pow2(
-            64,
-        )
-        // Per-config VA range bounds are enforced by `CursorView<C>::inv`
-        // via `vaddr_range_spec<C>`, not here — a single
-        // config-agnostic `Mapping::inv` cannot express them.
-
+        &&& self.va_range.end <= pow2(64)
     }
 }
 

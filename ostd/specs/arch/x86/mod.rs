@@ -7,10 +7,7 @@ use vstd_extra::prelude::*;
 use crate::specs::{
     arch::{
         CurrentArch,
-        model::{
-            self, ArchAddressSpaceModel, lemma_paddr_to_vaddr_aligned_for,
-            lemma_paddr_to_vaddr_properties_for, lemma_vaddr_to_paddr_properties_for,
-        },
+        model::{self, *},
     },
     mm::{
         frame::mapping::lemma_meta_to_frame_soundness,

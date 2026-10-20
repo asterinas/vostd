@@ -180,6 +180,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             level == entry_owner.parent_level,
         ensures
             res.invariants(*entry_owner, *final(regions)),
+            final(regions).slots == old(regions).slots,
             final(regions).slot_owners == old(regions).slot_owners,
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(

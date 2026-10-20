@@ -54,12 +54,7 @@ mod test;
 
 use crate::specs::{
     arch::*,
-    mm::frame::{
-        frame_specs::*,
-        mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
-        meta_owners::*,
-        meta_region_owners::MetaRegionOwners,
-    },
+    mm::frame::{frame_specs::*, mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
 };
 
 use core::{
@@ -206,7 +201,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             final(regions).inv(),
             r matches Ok(res) ==> {
-                &&& MetaSlot::get_from_unused_region_spec(paddr, false, *old(regions), *final(regions))
+                &&& MetaSlot::get_from_unused_region_spec(
+                    paddr, false, res.metadata_perm().usage(),
+                    *old(regions), *final(regions))
+                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm(), *final(repr_perm))
+                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value(), *final(repr_perm)) == metadata
                 &&& res.inv()
                 &&& res.start_paddr_spec() == paddr
                 &&& res.wf_with_region(*final(regions))
@@ -452,6 +451,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.inv(),
         ensures
             res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.ptr_inv(),
+            res.inner@.slot_perm() == self.slot_perm(),
+            res.inner@.tracked_metadata_perm@ is None,
+            MetaSlot::perms_related(res.inner@.slot_perm(), self.metadata_perm()),
+            forall|repr_perm: M::ReprPerm|
+                #[trigger] typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), repr_perm)
+                ==> res.inner@.external_meta_wf(self.metadata_perm(), repr_perm),
     )]
     pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
         let tracked slot_perm = *self.tracked_slot_perm.borrow();
@@ -485,6 +491,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
             res.inner@.tracked_metadata_perm@ is None,
             MetaSlot::perms_related(res.inner@.slot_perm(), frame_permission.resource()),
+            forall|repr_perm: M::ReprPerm|
+                #[trigger] typed_meta_wf::<M>(self.slot_perm(), frame_permission.resource(), repr_perm)
+                ==> res.inner@.external_meta_wf(frame_permission.resource(), repr_perm),
     )]
     pub(in crate::mm) fn borrow_with_permission<'a>(&self) -> FrameRef<'a, M> {
         unsafe {

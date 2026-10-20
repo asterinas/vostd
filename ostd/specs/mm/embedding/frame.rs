@@ -17,8 +17,8 @@
 //!
 //! - **Generic `M: AnyFrameMeta`**: `Frame::from_unused` takes a
 //!   `metadata: M` parameter and threads it through the slot's typed storage permission.
-//!   We don't model the metadata type, so this layer uses
-//!   `get_from_unused_region_spec` and hides the returned fraction.
+//!   This embedding specializes allocation to non-page-table metadata. It uses
+//!   `get_from_unused_region_spec` with `Frame` usage and hides the fraction.
 //! - **Drop-last-in-place teardown**: when `ref_count == 1`, dropping
 //!   the handle invokes the metadata destructor (which may require
 //!   `storage.is_init`, `in_list.value() == 0`). We model this by
@@ -65,10 +65,10 @@ pub axiom fn frame_from_unused_embedded(
         res is Some ==> MetaSlot::get_from_unused_region_spec(
             paddr,
             false,
+            PageUsage::Frame,
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
@@ -164,10 +164,10 @@ pub(super) proof fn from_unused_step(
         res is Some ==> MetaSlot::get_from_unused_region_spec(
             paddr,
             false,
+            PageUsage::Frame,
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
