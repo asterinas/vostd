@@ -2898,9 +2898,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 new_owner.value().lemma_untracked_frame_metaregion_sound(*regions);
             }
             assert(new_owner.value().metaregion_sound(*regions));
-        }
-
-        proof {
             let cont = owner.continuations[owner.level - 1];
             cont.lemma_map_children_unroll(
                 PageTableOwner::<C>::metaregion_sound_pred(*regions),
@@ -2908,8 +2905,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             );
         }
 
-        let ghost regions_before_replace = *regions;
-        let ghost entry_before_replace = owner.cur_entry_owner();
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
 
@@ -3078,7 +3073,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         let ghost owner_before_replace = *owner;
         let ghost regions_before_replace = *regions;
-        let ghost va_after_find = self.0.va;
         let ghost level_after_find = self.0.level;
         proof {
             if owner.cur_entry_owner().is_node() {
