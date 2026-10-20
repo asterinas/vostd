@@ -156,9 +156,7 @@ jobs:
           IRC11_LOCKFILE_BACKUP="$RUNNER_TEMP/Cargo.lock.mainline"
           cp Cargo.lock "$IRC11_LOCKFILE_BACKUP"
           trap 'cp "$IRC11_LOCKFILE_BACKUP" Cargo.lock' EXIT
-          cargo dv verify --targets vstd_extra \
-            --features irc11,vstd/weak-memory
-          cargo dv verify --targets ostd \
+          cargo dv verify --package ostd \
             --features irc11,vstd/weak-memory
 
       - name: Check for unexpected source changes

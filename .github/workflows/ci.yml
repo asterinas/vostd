@@ -58,7 +58,7 @@ jobs:
       - name: Run verification
         run: |
           set -o pipefail
-          if ! cargo dv verify --targets ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
+          if ! cargo dv verify --package ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
             echo "❌ Verification failed"
             echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
             exit 1

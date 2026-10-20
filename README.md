@@ -71,14 +71,17 @@ Verus is cloned and built under `tools/verus`. If the download fails, clone it m
 ### Verify
 
 ```bash
-make                                                               # verify everything (or: cargo dv verify)
-cargo dv focus --targets ostd                                      # ostd only, skip dependency proofs
-cargo dv focus --targets ostd -- --verify-only-module sync::rwlock # verify one ostd module
-cargo dv verify --targets vstd_extra                               # the verified dependency crate
+make                                                               # verify OSTD and its dependencies (or: cargo dv verify)
+cargo dv focus --package ostd                                       # ostd only, skip dependency proofs
+cargo dv focus --package ostd -- --verify-only-module sync::rwlock  # verify one ostd module
+cargo dv verify --package vstd_extra                                # the verified dependency crate
 ```
 
 Partial verification selectors such as `--verify-only-module` require the
 `focus` command.
+
+`--package` (`-p`) selects packages; `--target` selects the Rust target triple
+(default: `x86_64-unknown-none`).
 
 ### Clean
 
@@ -90,8 +93,11 @@ make clean      # or: cargo dv clean          # remove build artifacts for a fre
 
 ```bash
 make build      # or: cargo dv build               # build the verification targets
-make doc        # or: cargo dv doc --target ostd   # generate API docs at doc/index.html
+make doc        # or: cargo dv doc --package ostd  # generate API docs at doc/index.html
 ```
+
+> [!NOTE]
+> Run `cargo dv build` before invoking `cargo dv doc` directly.
 
 The generated documentation can be found at `doc/`.
 An [online version](https://asterinas.github.io/vostd/) is also available.

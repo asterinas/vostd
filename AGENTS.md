@@ -15,12 +15,15 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 
 - `git submodule update --init --recursive`: initialize required submodules.
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
-  - `make verus update` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
+  - `make verus-upgrade` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify`: verify the whole target.
-- `cargo dv focus --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`, without re-checking dependency proofs.
-- `cargo dv verify --targets vstd_extra`: compile and verify the `vstd_extra` library independently.
+- `cargo dv focus --package ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`, without re-checking dependency proofs.
+- `cargo dv verify --package vstd_extra`: compile and verify the `vstd_extra` library independently.
+- `--package` (`-p`) selects packages for `verify`, `focus`, `build`, `doc`, and `count`; `--target <TRIPLE>` selects the Rust target platform (default: `x86_64-unknown-none`).
+- `cargo dv count -p ostd --module sync::rwlock`: count one module; add `--print-all` (`-a`) to print annotated source lines.
+- `cargo dv doc -p ostd`: generate documentation after building dependencies for the same Rust target with `cargo dv build --target <TRIPLE>`.
 - `make fmt`: format Verus/Rust sources using the project formatter.
-- `make doc`: verify and generate API documentation in `doc/`.
+- `make doc`: build dependencies and generate API documentation in `doc/`.
 - `make clean`: remove Cargo and generated documentation artifacts.
 
 ## Coding Guidelines
