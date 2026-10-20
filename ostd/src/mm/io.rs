@@ -60,13 +60,6 @@ use core::ops::Range;
 
 verus! {
 
-/// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a
-/// multiple of `align_of::<T>()`.
-pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
-    ensures
-        res <==> (_0 as usize) % core::mem::align_of::<T>() == 0,
-;
-
 /// Copies `len` bytes from `src` to `dst`, stopping early on page fault.
 /// Returns the number of bytes successfully copied (which is at most `len`).
 ///
