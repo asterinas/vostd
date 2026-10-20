@@ -480,7 +480,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let tracked mut continuation = owner.continuations.tracked_remove(
                         owner.level - 1,
                     );
-                    let ghost continuation_before_push = continuation;
                     let tracked mut child_owner = continuation.tracked_take_child();
                     let tracked mut child_node = {
                         let tracked child_value = child_owner.tracked_borrow_mut_value();
@@ -538,11 +537,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         };
                     }
                     let ghost owner_before_permission_take = *owner;
-                    let ghost continuation_before_permission_take = owner.continuations[owner.level
-                        - 1];
-                    let ghost child_before_permission_take =
-                        continuation_before_permission_take.child();
-                    let ghost entry_before_permission_take = owner.cur_entry_owner();
                     let tracked mut continuation = owner.continuations.tracked_remove(
                         owner.level - 1,
                     );
@@ -828,9 +822,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let end = self.va + len;
 
-        assert(!self.find_next_panic_condition(len));
-        assert(!old(self).find_next_panic_condition(len));
-
         let rcu_guard = self.rcu_guard;
 
         proof {
@@ -981,7 +972,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(&mut child_node_owner))]
                     let nr_children = pt_guard.nr_children();
 
-                    let ghost cur_node_owner = child_node_owner;
                     proof {
                         {
                             let tracked child_value = child_owner.tracked_borrow_mut_value();
