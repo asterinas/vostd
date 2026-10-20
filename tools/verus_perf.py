@@ -7,7 +7,7 @@ Usage:
     verus_perf.py to-bm <metrics.json> [-o out.json]  # emit github-action-benchmark
                                                       # custom JSON (rlimit series)
 
-A `cargo dv verify --targets ostd -- --time-expanded` run consists of several
+A `cargo dv verify --package ostd -- --time-expanded` run consists of several
 sequential Verus invocations. Each prints, per invocation:
     verification results:: <V> verified, <E> errors
     total-time:           <W> ms    (estimated total cpu time ...)

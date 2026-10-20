@@ -43,7 +43,7 @@
         "cargo",
         "dv",
         "verify",
-        "--targets",
+        "--package",
         "ostd",
     ],
     "verus-analyzer.checkOnSave": false,
