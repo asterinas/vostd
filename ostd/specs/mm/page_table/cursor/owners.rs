@@ -1732,7 +1732,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
         self.view_non_overlapping();
-        self.view_mapping_inv();
+        self.lemma_view_mapping_inv();
         lemma_view_in_vaddr_range::<C>(&self);
     }
 }

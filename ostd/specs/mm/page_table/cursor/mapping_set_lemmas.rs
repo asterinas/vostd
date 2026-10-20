@@ -698,11 +698,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Every mapping in the cursor view satisfies `Mapping::inv()`.
-    ///
-    /// Collapses the cursor view into a single-root `view_rec` and applies
-    /// `lemma_view_rec_mapping_inv`. Inherits the latter's two narrow `assume`s
-    /// on `vaddr(path)` arithmetic.
-    pub proof fn view_mapping_inv(self)
+    pub proof fn lemma_view_mapping_inv(self)
         requires
             self.inv(),
         ensures
