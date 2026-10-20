@@ -106,7 +106,6 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-
     proof {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();

@@ -2546,7 +2546,6 @@ proof fn lemma_step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, padd
     if valid_frame_paddr(paddr) && s.regions.slots.contains_key(frame_to_index(paddr))
         && s.regions.slot_owner(paddr).usage is Unused && s.regions.slot_owner(paddr).ref_count()
         == REF_COUNT_UNUSED {
-
         // Transition the slot UNUSED → UNIQUE.
         unique::unique_from_unused_embedded(&mut s.regions, paddr);
 
