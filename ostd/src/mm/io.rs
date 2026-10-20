@@ -41,7 +41,9 @@
 use vstd::{arithmetic::power2::is_pow2, prelude::*, simple_pptr::*};
 use vstd_extra::{assert, ownership::Inv, panic::may_panic};
 
-pub use crate::specs::mm::io::*;
+pub use crate::specs::mm::io::{
+    VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
+};
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
