@@ -132,9 +132,9 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Va
 }
 
 /// Models `is_valid_range` using managed bounds, including its `0..0` exception.
+/// Models `is_valid_range` using managed bounds.
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
-    (r.start == 0 && r.end == 0) || (page_table_managed_start_spec::<C>() <= r.start && r.end
-        <= page_table_managed_end_spec::<C>())
+    page_table_managed_start_spec::<C>() <= r.start < r.end <= page_table_managed_end_spec::<C>()
 }
 
 /// Page-table index selected by `va` at `level`.

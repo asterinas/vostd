@@ -81,6 +81,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         regions: MetaRegionOwners,
         guards: Guards,
     ) -> bool {
+        &&& self.va <= self.barrier_va.end
         &&& owner.inv()
         &&& self.inv()
         &&& self.wf(owner)
@@ -179,6 +180,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.0.va >= self.0.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
+        ||| C::item_into_raw(item).1 > self.0.guard_level
         ||| self.0.va % page_size::<PagingConsts>(C::item_into_raw(item).1) != 0
         ||| self.0.va + page_size::<PagingConsts>(C::item_into_raw(item).1) > self.0.barrier_va.end
     }

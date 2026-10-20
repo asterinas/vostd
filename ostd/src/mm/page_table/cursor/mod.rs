@@ -815,18 +815,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
         hide(CursorView::split_while_huge);
-        assert_eq!(len % PAGE_SIZE, 0);
+        proof {
+            C::axiom_current_paging_consts_hardcoded();
+        }
+        assert_eq!(len % C::BASE_PAGE_SIZE(), 0);
 
-        // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
-        assume(self.va + len <= usize::MAX);
+        // [FIXED] BUG FOUND BY FV: `self.va + len` could overflow. https://github.com/asterinas/asterinas/issues/3159
+        assert!(
+            len <= self.barrier_va.end - self.va,
+            "len exceeds remaining cursor range"
+        );
+
         let end = self.va + len;
-
-        assert!(end <= self.barrier_va.end);
 
         assert(!self.find_next_panic_condition(len));
         assert(!old(self).find_next_panic_condition(len));
-
-        let end = self.va + len;
 
         let rcu_guard = self.rcu_guard;
 
@@ -851,6 +854,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 !old(self).find_next_panic_condition(len),
                 self.barrier_va == old(self).barrier_va,
                 self.guard_level == old(self).guard_level,
+                self.va > self.barrier_va.end ==> owner.set_va_in_node(self.barrier_va.end).inv(),
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
@@ -1215,6 +1219,39 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             }
         }
 
+        // If the last entry is absent or empty, but `barrier_va.end` sits in
+        // the middle, `self.move_forward()` will set `self.va` to exceed
+        // `barrier_va.end`. We fix it and ensure `self.va <= barrier_va.end`.
+        if self.va > self.barrier_va.end {
+            self.va = self.barrier_va.end;
+            proof {
+                let ghost before_clamp = *owner;
+                let tracked mut cont = owner.continuations.tracked_remove(owner.level - 1);
+                cont.idx = pte_index_spec::<C>(self.va, owner.level);
+                owner.continuations.tracked_insert(owner.level - 1, cont);
+                assert(owner.continuations == before_clamp.continuations.insert(
+                    owner.level - 1,
+                    cont,
+                ));
+                owner.va = self.va;
+                owner.popped_too_high = false;
+                assert(*owner == before_clamp.set_va_in_node(self.va));
+                reveal(CursorContinuation::map_children);
+                reveal(CursorOwner::path_metaregion_sound);
+                reveal(CursorOwner::view_mappings);
+                reveal(CursorContinuation::view_mappings);
+                assert(cont.view_mappings() == before_clamp.continuations[owner.level
+                    - 1].view_mappings());
+                let views = owner.continuations.filter_keys(
+                    |i| owner.level - 1 <= i < NR_LEVELS,
+                ).map_values(|c: CursorContinuation<'rcu, C>| c.view_mappings());
+                let old_views = before_clamp.continuations.filter_keys(
+                    |i| before_clamp.level - 1 <= i < NR_LEVELS,
+                ).map_values(|c: CursorContinuation<'rcu, C>| c.view_mappings());
+                assert(views =~= old_views);
+                assert(owner@.mappings == before_clamp@.mappings);
+            }
+        }
         None
     }
 
@@ -1404,6 +1441,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).metaregion_sound(*final(regions)),
             final(owner).va == old(owner)@.align_up_spec(page_size::<PagingConsts>(old(self).level)),
             final(self).va <= old(self).va + page_size::<PagingConsts>(old(self).level),
+            final(self).va > final(self).barrier_va.end ==>
+                final(owner).set_va_in_node(final(self).barrier_va.end).inv(),
             // Slots and slot_owners fully unchanged (pop_level is purely cursor manipulation).
             final(regions).slots == old(regions).slots,
             forall|idx: int|
@@ -1479,8 +1518,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
 
         proof {
-            C::lemma_paging_consts_properties();
-            C::axiom_current_paging_consts_hardcoded();
             lemma_next_slot_pte_index::<C>(va, next_va, self.level);
             owner.lemma_cur_pte_index();
         }
@@ -1506,6 +1543,33 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 reveal(CursorContinuation::map_children);
                 reveal(CursorOwner::path_metaregion_sound);
             };
+            if self.va > self.barrier_va.end {
+                lemma_page_size_ge_base::<C>(self.level);
+                let stop = self.barrier_va.end;
+                let size = page_size::<C>(self.level);
+                lemma_nat_align_down_sound(va as nat, size as nat);
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(next_va as int, size as int);
+                if next_va < size {
+                    vstd::arithmetic::div_mod::lemma_small_mod(next_va as nat, size as nat);
+                }
+                let start = (next_va - size) as Vaddr;
+                vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish(
+                    next_va as int,
+                    size as int,
+                );
+                lemma_same_node_pte_indices_match::<C>(
+                    stop,
+                    va,
+                    start,
+                    (self.level - 1) as PagingLevel,
+                );
+                lemma_same_node_vaddr_leading_part_match::<C>(
+                    stop,
+                    va,
+                    start,
+                    (self.level - 1) as PagingLevel,
+                );
+            }
         }
     }
 
@@ -2740,7 +2804,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
             lemma_page_size_spec_values();
         }
-        assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
+        assert!(
+            level <= C::HIGHEST_TRANSLATION_LEVEL() && level <= self.0.guard_level,
+            "cursor level not suitable for mapping"
+        );
         let size = page_size::<C>(level);
         assert_eq!(self.0.va % size, 0);
 
@@ -2749,13 +2816,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(owner.in_barrier_va());
             owner.lemma_locked_range_vaddr_prefix_match(owner.va);
             owner.lemma_va_plus_page_size_no_overflow(level);
+            owner.lemma_in_barrier_va_level_le_guard_level();
             lemma_page_size_monotone::<C>(level, NR_LEVELS as PagingLevel);
         }
-        let end = self.0.va + size;
-        assert!(end <= self.0.barrier_va.end);
-
-        assert(!self.map_panic_conditions(item));
-        assert(!old(self).map_panic_conditions(item));
+        assert!(
+            size <= self.0.barrier_va.end - self.0.va,
+            "cursor virtual address out-of-bound for mapping"
+        );
 
         let ghost target = Mapping {
             va_range: owner@.cur_slot_range(size),
@@ -2765,10 +2832,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         };
 
         let rcu_guard = self.0.rcu_guard;
-
-        proof {
-            owner.lemma_in_barrier_va_level_le_guard_level();
-        }
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.map_loop(level, rcu_guard);
