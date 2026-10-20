@@ -106,7 +106,6 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-    let ghost start_idx = pte_index_spec::<C>(va.start, C::NR_LEVELS());
 
     proof {
         C::lemma_paging_consts_properties();

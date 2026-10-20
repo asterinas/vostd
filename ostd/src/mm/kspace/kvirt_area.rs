@@ -575,9 +575,6 @@ impl KVirtArea {
                 frame.ptr.addr(),
             );
 
-            let ghost cur_pa_from_wf: usize = KernelPtConfig::item_into_raw(
-                MappedItem::Tracked(frame_as_dynframe(it.seq().index(it.index() as int)), prop),
-            ).0;
             let ghost cur_path = entry_owners[cur_mapped_pa].path;
             let ghost cur_parent_level = entry_owners[cur_mapped_pa].parent_level;
             let tracked mut entry_owner = entry_owners.tracked_remove(cur_mapped_pa);
@@ -589,7 +586,6 @@ impl KVirtArea {
             proof {
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
-                let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::power::lemma_pow0(2int);
             }
 
@@ -779,9 +775,6 @@ impl KVirtArea {
             };
             let preempt_guard = disable_preempt::<A>();
 
-            // Save regions state before cursor_mut so postcondition trigger can fire.
-            let ghost pre_cursor_regions: MetaRegionOwners = *regions;
-
             proof {
                 lemma_page_size_spec_values();
                 lemma_vaddr_range_spec_kernel();
@@ -860,14 +853,10 @@ impl KVirtArea {
                 }
 
                 let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
-                let ghost old_va: nat = cursor.0.va as nat;
 
                 proof {
                     cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 }
-
-                // Save ghost copy of regions before map for post-map invariant maintenance.
-                let ghost pre_map_regions: MetaRegionOwners = *regions;
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
                 // `item_slot_in_regions` for the current `(pa, level)` follows from the

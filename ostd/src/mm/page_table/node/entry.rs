@@ -347,7 +347,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let ghost cp0 = parent_owner.children_perm.value();
         let ghost initial_regions = *regions;
         let ghost initial_owner = *owner;
-        let ghost initial_new_owner = *new_owner;
 
         #[cfg(feature = "allow_panic")]
         {
@@ -1495,7 +1494,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub(in crate::mm) fn replace_child(&mut self, idx: usize, new_child: Child<C>) -> Child<C> {
         let ghost initial_regions = *regions;
         let ghost initial_owner = *owner;
-        let ghost initial_new_owner = *new_owner;
         #[cfg(feature = "allow_panic")]
         {
             let guard_level = self.level();
@@ -1755,7 +1753,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         proof {
             parent_owner.lemma_nr_children_absent_slot_bound(idx);
         }
-        let ghost regions_pre = *regions;
         // Snapshot the parent's PTE array for restoring `count_consistent`
         // after the absent→present (`new_pte`) install below.
         let ghost cp0 = parent_owner.children_perm.value();

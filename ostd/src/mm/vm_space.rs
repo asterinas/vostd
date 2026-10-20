@@ -1031,7 +1031,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             let ghost prev_va: Vaddr = cursor_owner@.cur_va;
             let ghost prev_mappings: Set<Mapping> = cursor_owner@.mappings;
 
-            let ghost prev_view_inv: bool = cursor_owner@.inv();
             proof {
                 cursor_owner.view_preserves_inv();
                 // Per-config VA bound on prev_mappings — needed for

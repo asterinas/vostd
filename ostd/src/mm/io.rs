@@ -462,7 +462,6 @@ impl<'a> VmWriter<'a, Infallible> {
             // write targets memory owned by this writer, and cursor is aligned.
             #[allow(unused_unsafe)]
             unsafe { cursor_i.write_volatile::<T>(Tracked(&mut mv), value) };
-            let ghost cursor_i_pre = cursor_i;
             cursor_i = cursor_i.wrapping_add(len);
             i = i + 1;
             proof {
@@ -616,7 +615,6 @@ impl<'a> VmWriter<'a, Infallible> {
             VmIoMemView::WriteView(mv) => mv,
             _ => { proof_from_false() },
         };
-        let ghost mem_dst_pre = mem_dst;
 
         proof {
             assert forall|i: usize|

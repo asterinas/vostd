@@ -923,7 +923,6 @@ impl PageTable<KernelPtConfig> {
         let ghost new_idx_g: int = frame_to_index(
             new_pt_owner@.unwrap().0.value().meta_slot_paddr().unwrap(),
         );
-        let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
         proof {
             let kern_idx = frame_to_index(kernel_owner.0.value().meta_slot_paddr().unwrap());
             let new_idx = new_idx_g;

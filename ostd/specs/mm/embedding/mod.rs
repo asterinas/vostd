@@ -1127,7 +1127,6 @@ proof fn lemma_step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
     reveal(VmStore::structural_inv);
     let ghost s_before = *s;
     let tracked owner = vm_space::new_vm_space_step(&mut s.regions);
-    let ghost id = fresh_vm_space_id(s.vm_spaces);
     lemma_accounting_preserved_by_pt_alloc(s_before, *s);
 }
 
@@ -1164,9 +1163,7 @@ proof fn lemma_step_open_cursor<'rcu>(
     // carries (every changed slot went UNUSED → non-UNUSED PT node).
     lemma_accounting_preserved_by_pt_alloc(s_before, *s);
     match res {
-        Option::Some(entry) => {
-            let ghost id = fresh_cursor_id(s.cursors);
-        },
+        Option::Some(entry) => {},
         Option::None => {},
     }
 }
@@ -1190,9 +1187,7 @@ proof fn lemma_step_open_cursor_mut<'rcu>(
     // carries (every changed slot went UNUSED → non-UNUSED PT node).
     lemma_accounting_preserved_by_pt_alloc(s_before, *s);
     match res {
-        Option::Some(entry) => {
-            let ghost id = fresh_cursor_id(s.cursors);
-        },
+        Option::Some(entry) => {},
         Option::None => {},
     }
 }
@@ -1344,12 +1339,10 @@ proof fn lemma_step_map<'rcu>(
     let ghost paddr = s.frames[fid].paddr;
     let ghost target_idx = frame_to_index(paddr);
     let ghost old_frames = s.frames;
-    let ghost old_regions = s.regions;
     s.regions.lemma_contains_valid_frame_paddr(paddr);
     assert(old_frames.dom().filter(
         |gid: FrameId| frame_to_index(old_frames[gid].paddr) == target_idx,
     ).contains(fid));
-    let ghost pre_rc_target = old_regions.slot_owners[target_idx].ref_count();
     lemma_accounting_inv_at(*s, target_idx);
     let tracked mut entry = s.tracked_extract_cursor(c);
     let tracked _frame_entry = s.tracked_extract_frame(fid);
@@ -1454,9 +1447,6 @@ proof fn lemma_step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len:
 {
     reveal(VmStore::structural_inv);
     reveal(VmStore::accounting_inv);
-    let ghost s_before = *s;
-    let ghost old_regions = s.regions;
-    let ghost old_frames = s.frames;
     let tracked mut entry = s.tracked_extract_cursor(c);
 }
 
@@ -1477,9 +1467,7 @@ proof fn lemma_step_new_vm_io<'rcu>(
     let tracked vm_space_ref = s.vm_spaces.tracked_borrow(vs);
     let tracked res = io::new_vm_io_step(vm_space_ref, Some(vs), vaddr, len, kind);
     match res {
-        Option::Some(entry) => {
-            let ghost id = fresh_vm_io_id(s.vm_ios);
-        },
+        Option::Some(entry) => {},
         Option::None => {},
     }
 }
@@ -1496,7 +1484,6 @@ proof fn lemma_step_new_kernel_vm_io<'rcu>(
         final(s).inv(),
 {
     let tracked entry = io::new_kernel_vm_io_step(vaddr, len, kind);
-    let ghost id = fresh_vm_io_id(s.vm_ios);
 }
 
 proof fn lemma_step_drop_vm_io<'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
@@ -1541,7 +1528,6 @@ proof fn lemma_step_read<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, de
     let tracked mut src = s.tracked_extract_vm_io(source);
     let tracked mut dst = s.tracked_extract_vm_io(dest);
     let tracked val = io::read_step(&mut src, &mut dst);
-    let ghost id = fresh_vm_io_id(s.vm_ios);
 }
 
 proof fn lemma_step_write<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
@@ -1571,7 +1557,6 @@ proof fn lemma_step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr
     reveal(VmStore::structural_inv);
     reveal(VmStore::accounting_inv);
     let ghost old_frames = s.frames;
-    let ghost old_regions = s.regions;
     if !valid_frame_paddr(paddr) || s.regions.slots.contains_key(frame_to_index(paddr)) {
         let tracked res = frame::from_unused_step(&mut s.regions, paddr);
         match res {
@@ -1633,7 +1618,6 @@ proof fn lemma_step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr
     reveal(VmStore::structural_inv);
     reveal(VmStore::accounting_inv);
     let ghost old_frames = s.frames;
-    let ghost old_regions = s.regions;
     if !valid_frame_paddr(paddr) || s.regions.slots.contains_key(frame_to_index(paddr)) {
         let tracked res = frame::from_in_use_step(&mut s.regions, paddr);
         match res {
@@ -1751,7 +1735,6 @@ proof fn lemma_step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId
         lemma_handle_count_remove(old_frames, fid, idx);
         if idx == target_idx {
             let ghost pre_rc = old_regions.ref_count(idx);
-            let ghost post_rc = s.regions.ref_count(idx);
             if pre_rc > 1 {
             } else {
                 assert(false);
@@ -1876,9 +1859,6 @@ proof fn lemma_step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, ran
             paddr,
         ).ref_count() == REF_COUNT_UNUSED) {
         let ghost s_before = *s;
-        let ghost old_regions = s.regions;
-        let ghost old_frames = s.frames;
-        let ghost old_segments = s.segments;
         let tracked res = segment::from_unused_step(&mut s.regions, range);
         match res {
             Option::Some(entry) => {
@@ -2121,7 +2101,6 @@ proof fn lemma_step_segment_split<'rcu>(
 {
     let ghost s_before = *s;
     let ghost old_regions = s.regions;
-    let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;
     let ghost range = s.segments[sid].range;
     assert(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0) by {
@@ -2280,7 +2259,6 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
 {
     reveal(VmStore::structural_inv);
     reveal(VmStore::accounting_inv);
-    let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;
     let ghost range = s.segments[sid].range;
@@ -2292,11 +2270,6 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
     let ghost new_entry_ghost = SegmentEntry { range: new_range_start..new_range_end };
 
     // Establish facts about the popped slot from `s.inv()`.
-    let ghost so_pre = old_regions.slot_owners[target_idx];
-    let ghost pre_rc = so_pre.ref_count();
-    let ghost pre_H = handle_count(old_frames, target_idx);
-    let ghost pre_P = so_pre.paths_in_pt.len();
-    let ghost pre_cover = segment_cover_count(old_segments, paddr);
     s.regions.lemma_contains_valid_frame_paddr(paddr);
 
     // Register the new FrameEntry FIRST (s.inv() still holds).
@@ -2417,7 +2390,6 @@ proof fn lemma_step_segment_clone_range<'rcu>(
     // Keep the opaque pre-state invariants pointwise throughout this proof.
     let ghost s_before = *s;
     let ghost old_regions = s.regions;
-    let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;
     let ghost sid_range = s.segments[sid].range;
     let ghost new_entry_ghost = SegmentEntry { range: sub_range };
@@ -2537,7 +2509,6 @@ proof fn lemma_step_segment_clone<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segm
         final(s).inv(),
 {
     reveal(VmStore::structural_inv);
-    let ghost r = s.segments[sid].range;
 }
 
 /// `Op::SegmentSlice` step.
@@ -2575,11 +2546,6 @@ proof fn lemma_step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, padd
     if valid_frame_paddr(paddr) && s.regions.slots.contains_key(frame_to_index(paddr))
         && s.regions.slot_owner(paddr).usage is Unused && s.regions.slot_owner(paddr).ref_count()
         == REF_COUNT_UNUSED {
-        let ghost old_regions = s.regions;
-        let ghost old_frames = s.frames;
-        let ghost old_segments = s.segments;
-        let ghost old_unique = s.unique_frames;
-        let ghost idx = frame_to_index(paddr);
 
         // Transition the slot UNUSED → UNIQUE.
         unique::unique_from_unused_embedded(&mut s.regions, paddr);
@@ -2606,12 +2572,6 @@ proof fn lemma_step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
 {
     reveal(VmStore::structural_inv);
     reveal(VmStore::accounting_inv);
-    let ghost old_regions = s.regions;
-    let ghost old_frames = s.frames;
-    let ghost old_segments = s.segments;
-    let ghost old_unique = s.unique_frames;
-    let ghost paddr = s.unique_frames[uid].paddr;
-    let ghost idx = frame_to_index(paddr);
 
 }
 
@@ -2625,10 +2585,7 @@ proof fn lemma_step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
 {
     reveal(VmStore::structural_inv);
     reveal(VmStore::accounting_inv);
-    let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
-    let ghost old_segments = s.segments;
-    let ghost old_unique = s.unique_frames;
     let ghost paddr = s.unique_frames[uid].paddr;
     let ghost idx = frame_to_index(paddr);
 
@@ -2717,10 +2674,7 @@ proof fn lemma_step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: Fr
     ).contains(fid));
 
     if s.regions.ref_count(idx) == 1 {
-        let ghost old_regions = s.regions;
         let ghost old_frames = s.frames;
-        let ghost old_segments = s.segments;
-        let ghost old_unique = s.unique_frames;
 
         // rc==1 ∧ active head ⟹ equation: rc == H + P + cover == 1, and
         // H >= 1, so H == 1, P == 0, cover == 0 (sole reference).

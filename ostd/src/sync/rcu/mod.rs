@@ -548,7 +548,6 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         }
         proof_decl! {
             let tracked mut tracked_ref_perm = self.tracked_ref_perm.get();
-            let ghost new_ptr_is_some = new_ptr is Some;
             let tracked mut old_perm: Option<RcuReadPool<P>> = None;
             let tracked mut err_new_perm: Option<Option<<P as NonNullPtr>::Permission>> = None;
         }

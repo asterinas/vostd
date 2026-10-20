@@ -1623,8 +1623,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         &&& regions.slot_owners[idx] == regions_pre_drop.slot_owners[idx]
                     }) by {
                         let idx = meta_to_index(cursor_own.list_own.list[i].paddr);
-                        let ghost _trig_k = original_list[k as int];
-                        let ghost _trig_ik = original_list[i + k + 1];
                         assert(cursor_own.list_own.list[i] == original_list[i + k + 1]);
 
                         cursor_own.list_own.lemma_relate_region_at_index(regions_pre_drop, i);
