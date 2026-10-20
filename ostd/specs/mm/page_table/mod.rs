@@ -119,7 +119,7 @@ pub open spec fn page_table_managed_end_spec<C: PageTableConfig>() -> int {
 
 /// Number of effective virtual-address bits used by the top-level page-table index.
 #[verifier::inline]
-pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
+pub open spec fn top_level_index_width_spec<C: PagingConstsTrait>() -> usize {
     (C::ADDRESS_WIDTH_spec() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as usize
 }
 

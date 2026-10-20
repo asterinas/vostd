@@ -434,19 +434,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE(),
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
+                top_level_index_width_spec::<Self::C>() as nat,
             ),
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
             ) <= usize::MAX,
-            // FIXME: This property does not hold in general, `ADDRESS_WIDTH` can be wider.
-            pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) == NR_ENTRIES,
+            Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
     ;
 
     // The derived properties of the page table config constants.
@@ -454,27 +447,18 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// NOTE: Implementations of `PageTableConfig` do not need to implement this lemma, the proof is automatically inherited from the default implementation.
     proof fn lemma_page_table_config_constant_properties()
         ensures
-    // Derived properties.
+    // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
+    // so that we only need to call this lemma in proofs.
 
-            Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
-            // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
-            // so that we only need to call this lemma in proofs.
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE(),
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
+                top_level_index_width_spec::<Self::C>() as nat,
             ),
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
             ) <= usize::MAX,
-            // FIXME: This property does not hold in general, `ADDRESS_WIDTH` can be wider.
-            pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) == NR_ENTRIES,
+            Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
     {
         Self::C::lemma_paging_consts_properties();
         Self::lemma_page_table_config_constant_requirements();

@@ -169,6 +169,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
         let (index, parent) = path.pop_tail();
         path.lemma_pop_tail_preserves_inv();
         path.lemma_index_satisfies_elem_inv(path.len() - 1);
+        assert(0 <= index < NR_ENTRIES);
         assert(parent.push_tail(index) == path);
         assert forall|k: int| 0 <= k < parent.len() implies #[trigger] parent[k]
             == pte_index_spec::<C>(va, (C::NR_LEVELS() - k) as PagingLevel) by {
