@@ -2,11 +2,8 @@ use vstd::{prelude::*, set_lib::*};
 use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
-    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
-    mm::page_table::{
-        Mapping, cursor::owners::*, owners::PageTableOwner, page_table_managed_end_spec,
-        page_table_managed_start_spec,
-    },
+    arch::*,
+    mm::page_table::{cursor::owners::*, owners::PageTableOwner, *},
 };
 
 use crate::arch::mm::PagingConsts;

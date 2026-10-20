@@ -11,17 +11,12 @@ use vstd_extra::{
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS},
     mm::page_table::{
-        Mapping,
         cursor::{
             owners::*,
             page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_base},
         },
-        lemma_pte_index_bound, lemma_vaddr_leading_part_is_align_down,
-        owners::{
-            INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int,
-            lemma_vaddr_path_aligned, sibling_paths_disjoint, vaddr, vaddr_of,
-        },
-        pte_index_spec, vaddr_leading_part_spec,
+        owners::*,
+        *,
     },
 };
 

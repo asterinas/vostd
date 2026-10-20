@@ -36,13 +36,7 @@ use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
-    frame::{
-        mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
-        meta_owners::{
-            FracMetadataPerm, MetaSlotOwner, MetadataPerm, typed_meta_value, typed_meta_wf,
-        },
-        meta_region_owners::MetaRegionOwners,
-    },
+    frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
 };
 

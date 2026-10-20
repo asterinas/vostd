@@ -5,11 +5,7 @@ use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::{
         Paddr,
-        frame::{
-            frame_specs::valid_slot_vaddr,
-            mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{frame_specs::valid_slot_vaddr, mapping::*, meta_region_owners::MetaRegionOwners},
     },
 };
 

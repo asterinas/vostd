@@ -35,7 +35,7 @@ use vstd_extra::{
 
 use crate::specs::mm::{
     frame::{
-        mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
+        mapping::*,
         meta_owners::{FracMetadataPerm, MetaSlotOwner},
         meta_region_owners::MetaRegionOwners,
     },

@@ -12,19 +12,14 @@ use vstd::prelude::*;
 use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
 
 use crate::specs::{
-    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    arch::*,
     mm::page_table::{
-        Mapping,
         cursor::{
             owners::{CursorContinuation, CursorOwner},
-            page_size_lemmas::{
-                lemma_page_size_divides, lemma_page_size_ge_base, lemma_page_size_spec_values,
-            },
+            page_size_lemmas::*,
         },
-        lemma_align_down_indices, lemma_inc_slot_indices, lemma_pte_index_bound,
-        lemma_same_node_pte_indices_match,
         owners::*,
-        pte_index_spec, vaddr_leading_part_spec, vaddr_replace_pte_index_spec,
+        *,
     },
 };
 

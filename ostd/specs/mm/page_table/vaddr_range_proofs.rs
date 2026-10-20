@@ -14,13 +14,7 @@ use vstd::{
 };
 use vstd_extra::arithmetic::nat_align_down;
 
-use crate::specs::mm::page_table::{
-    leading_bits_spec, lemma_page_size_is_pow2_pte_index_bit_offset, lemma_page_size_next,
-    lemma_pte_index_spec_is_div_mod, lemma_vaddr_leading_part_is_align_down,
-    nr_page_table_coverage_bits_spec, page_table_coverage_start_spec, page_table_managed_end_spec,
-    page_table_managed_start_spec, pte_index_bit_offset_spec, pte_index_spec,
-    vaddr_leading_part_spec, vaddr_range_spec,
-};
+use crate::specs::mm::page_table::*;
 
 use crate::mm::{
     PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,

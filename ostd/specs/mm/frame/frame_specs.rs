@@ -9,7 +9,7 @@ use crate::specs::{
     arch::*,
     mm::frame::{
         mapping::{frame_to_index, meta_to_index},
-        meta_owners::{FracMetadataPerm, MetaSlotStorage, MetadataPerm, PageUsage, typed_meta_wf},
+        meta_owners::*,
         meta_region_owners::MetaRegionOwners,
     },
 };

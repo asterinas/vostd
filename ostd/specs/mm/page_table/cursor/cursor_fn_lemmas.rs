@@ -7,12 +7,10 @@ use crate::specs::{
     mm::{
         frame::meta_region_owners::MetaRegionOwners,
         page_table::{
-            CursorView, Mapping,
             cursor::owners::{CursorContinuation, CursorOwner},
             cursor::page_size_lemmas::lemma_page_size_next,
-            lemma_pte_index_bound, nat_align_down,
             owners::*,
-            pte_index_spec,
+            *,
         },
     },
 };

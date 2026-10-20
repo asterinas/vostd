@@ -4,11 +4,7 @@ use vstd_extra::{ghost_tree::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::{
-        frame::{
-            mapping::{frame_to_index, index_to_meta, meta_to_index},
-            meta_owners::PageUsage,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::*, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners},
         page_table::*,
     },
 };

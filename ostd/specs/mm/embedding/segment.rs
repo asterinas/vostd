@@ -33,11 +33,7 @@ use vstd_extra::ownership::*;
 use crate::specs::{
     arch::*,
     mm::{
-        frame::{
-            mapping::{frame_to_index, index_to_frame, max_meta_slots},
-            meta_owners::PageUsage,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::*, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners},
         page_table::cursor::owners::CursorOwner,
     },
 };

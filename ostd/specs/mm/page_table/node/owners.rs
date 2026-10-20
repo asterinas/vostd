@@ -6,13 +6,9 @@ use vstd::{
 use vstd_extra::{array_ptr, ownership::*};
 
 use crate::specs::{
-    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
+    arch::*,
     mm::{
-        frame::{
-            mapping::{index_to_meta, max_meta_slots, meta_to_index},
-            meta_owners::*,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
         page_table::owners::INC_LEVELS,
     },
 };

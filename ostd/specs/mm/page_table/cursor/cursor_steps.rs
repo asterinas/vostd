@@ -8,21 +8,18 @@ use vstd_extra::{
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS},
     mm::{
-        Guards, Mapping, MetaRegionOwners,
         frame::mapping::meta_to_index,
         page_table::{
             cursor::{
                 owners::*,
                 page_size_lemmas::{lemma_page_size_ge_base, lemma_page_size_monotone},
             },
-            lemma_inc_slot_indices, lemma_next_slot_pte_index, lemma_page_size_divides,
-            lemma_page_size_next, lemma_pte_index_bound, lemma_pte_index_spec_is_div_mod,
-            lemma_same_node_vaddr_leading_part_match, lemma_vaddr_leading_part_is_align_down,
             node::EntryOwner,
-            owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
-            pte_index_spec, vaddr_leading_part_spec,
+            owners::*,
             vaddr_range_proofs::lemma_page_table_managed_index_bounds,
+            *,
         },
+        *,
     },
 };
 

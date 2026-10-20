@@ -5,10 +5,7 @@ use vstd::{
 };
 use vstd_extra::{cast_ptr::Repr, ownership::*};
 
-use crate::specs::{
-    arch::{ArchAddressSpaceModel, CurrentArch, MAX_PADDR, PAGE_SIZE, valid_frame_paddr},
-    mm::frame::mapping::{frame_to_index, index_to_meta, max_meta_slots},
-};
+use crate::specs::{arch::*, mm::frame::mapping::*};
 
 use super::{meta_owners::MetaSlotOwner, *};
 use crate::mm::{

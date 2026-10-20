@@ -8,10 +8,8 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::*,
-            is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
-            top_level_index_width_spec,
             vaddr_range_proofs::{lemma_leading_bits_properties, lemma_page_table_managed_bounds},
-            vaddr_range_spec, *,
+            *,
         },
     },
     task::InAtomicMode,

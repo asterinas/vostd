@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
-    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    arch::*,
     mm::{
         frame::{
             mapping::{frame_to_index, meta_to_index},

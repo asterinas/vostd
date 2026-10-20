@@ -9,12 +9,7 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::{
-    frame::meta_region_owners::MetaRegionOwners,
-    page_table::{
-        Guards, INC_LEVELS, Mapping, PageTableOwner, PageTableView, mappings_disjoint_paddrs,
-        mappings_disjoint_vaddrs, mappings_well_formed,
-    },
-    tlb::TlbModel,
+    frame::meta_region_owners::MetaRegionOwners, page_table::*, tlb::TlbModel,
     virt_mem::FrameContents,
 };
 

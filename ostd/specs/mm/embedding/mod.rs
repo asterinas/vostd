@@ -45,7 +45,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_frame, index_to_meta, max_meta_slots},
+            mapping::*,
             meta_owners::{MetaSlotOwner, PageUsage},
             meta_region_owners::MetaRegionOwners,
         },

@@ -7,7 +7,7 @@ use vstd::{
 use vstd_extra::{arithmetic::lemma_nat_align_down_sound, ghost_tree::*, ownership::*};
 
 use crate::specs::{
-    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    arch::*,
     mm::page_table::{
         cursor::owners::{CursorContinuation, CursorOwner},
         node::entry_owners::EntryOwner,
