@@ -468,7 +468,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         lemma_page_size_is_pow2_pte_index_bit_offset::<Self::C>(level);
         lemma_page_size_is_pow2_pte_index_bit_offset::<Self::C>((level + 1) as PagingLevel);
         lemma_page_size_next::<Self::C>(level);
-        assert(coverage <= width);
         if coverage < width {
             lemma_pow2_strictly_increases(coverage as nat, width as nat);
         }
@@ -479,15 +478,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         let end = Self::TOP_LEVEL_INDEX_RANGE().end as int;
         lemma_mul_is_commutative(size, fanout);
         lemma_mul_inequality(end, fanout, size);
-        assert(end * size <= pow2(width as nat));
         lemma_mul_inequality_converse(
             end,
             pow2(top_level_index_width_spec::<Self::C>() as nat) as int,
             size,
         );
-        vstd::layout::unsigned_int_max_values();
         lemma2_to64();
-        assert(end * size <= usize::MAX);
     }
 }
 
