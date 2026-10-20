@@ -167,21 +167,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     proof fn lemma_page_table_config_constant_requirements() {
-        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
-
-        use crate::mm::nr_subpage_per_huge;
-        Self::C::lemma_paging_consts_properties();
-        Self::C::axiom_current_paging_consts_hardcoded();
         PageTableEntry::lemma_layout();
-        lemma2_to64();
-        lemma2_to64_rest();
-        vstd::layout::unsigned_int_max_values();
-        lemma_usize_pow2_ilog2(12);
-        lemma_usize_pow2_ilog2(9);
-        lemma_pow2_adds(9, 39);
-        lemma_pow2_adds(8, 39);
-
-        assert((256 * pow2(39) as int) / (pow2(47) as int) == 1);
     }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {

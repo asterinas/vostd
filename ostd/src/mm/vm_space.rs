@@ -1838,17 +1838,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     proof fn lemma_page_table_config_constant_requirements() {
-        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
-
-        lemma2_to64();
-        lemma2_to64_rest();
-        vstd::layout::unsigned_int_max_values();
-        lemma_usize_pow2_ilog2(12);
-        lemma_usize_pow2_ilog2(9);
-        lemma_pow2_adds(9, 39);
         PageTableEntry::lemma_layout();
-        Self::C::lemma_paging_consts_properties();
     }
 }
 
