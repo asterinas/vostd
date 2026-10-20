@@ -131,7 +131,6 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Va
     RangeInclusiveView { start, end, exhausted: false }
 }
 
-/// Models `is_valid_range` using managed bounds, including its `0..0` exception.
 /// Models `is_valid_range` using managed bounds.
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
     page_table_managed_start_spec::<C>() <= r.start < r.end <= page_table_managed_end_spec::<C>()
