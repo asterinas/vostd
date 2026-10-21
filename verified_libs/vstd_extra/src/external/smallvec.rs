@@ -288,11 +288,15 @@ pub assume_specification<A: Array>[ <SmallVec<A> as IntoIterator>::into_iter ](
 /// (E0117) prevents implementing `FromIteratorSpecImpl` for `SmallVec` here.
 pub broadcast axiom fn axiom_smallvec_from_iter_ensures<A: Array>(
     remaining: Seq<A::Item>,
+    will_return_none: bool,
     s: SmallVec<A>,
 )
     ensures
-        obeys_smallvec_array::<A>() ==> #[trigger] FromIteratorSpec::from_iter_ensures(remaining, s)
-            == (remaining == smallvec_view(&s)),
+        obeys_smallvec_array::<A>() ==> #[trigger] FromIteratorSpec::from_iter_ensures(
+            remaining,
+            will_return_none,
+            s,
+        ) == (will_return_none && remaining == smallvec_view(&s)),
 ;
 
 } // verus!
