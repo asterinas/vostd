@@ -13,11 +13,7 @@ use vstd_extra::{
 use crate::specs::{
     arch::*,
     mm::frame::{
-        casts::*,
-        mapping::*,
-        meta_owners::*,
-        meta_region_owners::MetaRegionOwners,
-        unique::*,
+        casts::*, mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners, unique::*,
     },
 };
 
@@ -27,9 +23,9 @@ use super::{
     meta::{GetFrameError, META_SLOT_SIZE, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
-use vstd_extra::typing::tagged::ByteRepr;
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
+use vstd_extra::typing::tagged::ByteRepr;
 
 verus! {
 
@@ -45,12 +41,16 @@ pub struct UniqueFrame<M: AnyFrameMeta + ?Sized> {
 }
 
 #[verifier::external]
-unsafe impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf + Send> Send for UniqueFrame<M> {
+unsafe impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf + Send> Send for UniqueFrame<
+    M,
+> {
 
 }
 
 #[verifier::external]
-unsafe impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf + Sync> Sync for UniqueFrame<M> {
+unsafe impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf + Sync> Sync for UniqueFrame<
+    M,
+> {
 
 }
 
@@ -171,7 +171,9 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
         ensures
             Self::transmute_spec(self, res),
     )]
-    pub fn transmute<M1: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf>(self) -> UniqueFrame<M1> {
+    pub fn transmute<M1: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf>(self) -> UniqueFrame<
+        M1,
+    > {
         proof {
             axiom_unique_frame_transmutable::<M, M1>(self);
             axiom_unique_frame_reparam::<M, M1>(self);
@@ -284,11 +286,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
         // unsafe { &*self.slot().as_meta_ptr::<M>() }
         let tracked points_to = *self.tracked_slot_perm.borrow();
         let tracked metadata_perms = self.tracked_metadata_perm.borrow().tracked_borrow();
-        borrow_meta(
-            self.ptr,
-            Tracked(points_to),
-            Tracked(metadata_perms),
-        )
+        borrow_meta(self.ptr, Tracked(points_to), Tracked(metadata_perms))
     }
 
     /// Gets the mutable metadata of this page.
@@ -323,11 +321,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
     pub fn meta_mut<'a>(&'a mut self) -> &'a mut M {
         let tracked points_to = *self.tracked_slot_perm.borrow();
         let tracked metadata_perms = self.tracked_metadata_perm.borrow_mut().tracked_borrow_mut();
-        borrow_meta_mut(
-            self.ptr,
-            Tracked(points_to),
-            Tracked(metadata_perms),
-        )
+        borrow_meta_mut(self.ptr, Tracked(points_to), Tracked(metadata_perms))
     }
 }
 
@@ -484,10 +478,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf + ?Sized> UniqueFra
         let vaddr = frame_to_meta(paddr);
         let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
 
-        let tracked owner = UniqueFrameOwner {
-            meta_own,
-            slot_index: frame_to_index(paddr),
-        };
+        let tracked owner = UniqueFrameOwner { meta_own, slot_index: frame_to_index(paddr) };
 
         proof_with!{ |= Tracked(owner)}
         Self {

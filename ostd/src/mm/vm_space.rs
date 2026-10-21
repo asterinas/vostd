@@ -871,10 +871,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 let old_frame = item.frame;
 
                 #[verus_spec(with Tracked(tlb_model))]
-                self.flusher.issue_tlb_flush_with(
-                    TlbFlushOp::Address(start_va),
-                    old_frame.into(),
-                );
+                self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
                 #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.dispatch_tlb_flush();
             },

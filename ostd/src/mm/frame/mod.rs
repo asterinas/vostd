@@ -29,6 +29,11 @@
 //! module. The reference count and usage of a frame are stored in the metadata
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+use vstd::std_specs::convert::FromSpecImpl;
+#[cfg(feature = "type_id")]
+use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd::{
     assert_maps_equal, assert_sets_equal,
     atomic::PermissionU64,
@@ -37,16 +42,11 @@ use vstd::{
     simple_pptr::{self, PPtr},
     std_specs::cmp::PartialEqSpecImpl,
 };
-use vstd_extra::{ownership::*, panic::may_panic};
+use vstd_extra::transmute::{can_transmute, transmuted};
 use vstd_extra::typing::tagged::ByteRepr;
 #[cfg(feature = "type_id")]
-use vstd::std_specs::convert::TryFromSpecImpl;
-#[cfg(feature = "type_id")]
-use core::any::TypeId;
-use vstd_extra::transmute::{can_transmute, transmuted};
-use vstd::std_specs::convert::FromSpecImpl;
-#[cfg(feature = "type_id")]
 use vstd_extra::typing::types::{Any, is_};
+use vstd_extra::{ownership::*, panic::may_panic};
 
 pub mod allocator;
 pub mod linked_list;
@@ -64,11 +64,7 @@ mod test;
 use crate::specs::{
     arch::*,
     mm::frame::{
-        casts::*,
-        frame_specs::*,
-        mapping::*,
-        meta_owners::*,
-        meta_region_owners::MetaRegionOwners,
+        casts::*, frame_specs::*, mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners,
     },
 };
 
@@ -294,11 +290,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
                 self.tracked_metadata_perm.tracked_borrow().tracked_borrow()
             };
         }
-        borrow_meta(
-            self.ptr,
-            Tracked(slot_perm),
-            Tracked(metadata_perm),
-        )
+        borrow_meta(self.ptr, Tracked(slot_perm), Tracked(metadata_perm))
     }
 }
 
@@ -886,8 +878,7 @@ impl<M: AnyFrameMeta> From<Frame<M>> for Frame<dyn AnyFrameMeta> {
     }
 }
 
-} // verus!
-
+}  // verus!
 /*
 
 impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
@@ -906,6 +897,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         }
     }
 }*/
+
 
 /// Increases the reference count of the frame by one.
 ///
@@ -1044,8 +1036,7 @@ impl<M: AnyFrameMeta + ?Sized> Frame<M> {
             post.inv(),
             res.tracked_metadata_perm@ is Some,
             res.tracked_metadata_perm@->0.frac() == 1,
-            res.tracked_metadata_perm@->0.id()
-                == post.slot_owners[self.index()].metadata_perm.id(),
+            res.tracked_metadata_perm@->0.id() == post.slot_owners[self.index()].metadata_perm.id(),
             res.tracked_slot_perm@ == post.slots[self.index()],
             res.ptr == self.ptr,
     {
@@ -1062,8 +1053,7 @@ impl<M: AnyFrameMeta + ?Sized> Frame<M> {
             post.inv(),
             res.tracked_metadata_perm@ is Some,
             res.tracked_metadata_perm@->0.frac() == 1,
-            res.tracked_metadata_perm@->0.id()
-                == post.slot_owners[self.index()].metadata_perm.id(),
+            res.tracked_metadata_perm@->0.id() == post.slot_owners[self.index()].metadata_perm.id(),
             res.tracked_slot_perm@ == post.slots[self.index()],
             res.ptr == self.ptr,
         ensures

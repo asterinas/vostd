@@ -44,8 +44,7 @@
 //! and checks it back in on drop ([`ListStore::step_cursor_drop`]).
 use vstd::prelude::*;
 use vstd_extra::{
-    ownership::*, set_extra::lemma_finite_int_set_has_unused,
-    typing::tagged::ByteRepr,
+    ownership::*, set_extra::lemma_finite_int_set_has_unused, typing::tagged::ByteRepr,
 };
 
 use crate::specs::{
@@ -203,8 +202,9 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ListStore<M> {
 // Fresh-id helpers + tracked constructors
 // =============================================================================
 /// Tracked constructor for a fresh *empty* list owner.
-pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>>() -> (tracked res:
-    LinkedListOwner<M>)
+pub proof fn tracked_empty_list_owner<
+    M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>,
+>() -> (tracked res: LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
         res.metadata_perms =~= Seq::<MetadataPerm>::empty(),

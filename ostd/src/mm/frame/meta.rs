@@ -77,22 +77,22 @@ pub(crate) mod mapping {
 }
 
 } // verus!
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 use vstd::{
     atomic::{PAtomicU64, PermissionU64},
     cell::pcell_maybe_uninit,
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
 };
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
 use vstd_extra::{
     ownership::*,
     panic::{may_panic, panic_diverge},
     prelude::*,
     sum::Sum,
 };
-#[cfg(feature = "type_id")]
-use core::any::TypeId;
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 
 use crate::specs::{
     arch::*,

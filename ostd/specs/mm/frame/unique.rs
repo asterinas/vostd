@@ -58,7 +58,9 @@ impl<M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Inv for U
 }
 
 //FIXME: why do we need a index here?
-pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf> {
+pub tracked struct UniqueFrameOwner<
+    M: AnyFrameMeta + ?Sized + ByteRepr<META_STORAGE_SIZE> + OwnerOf,
+> {
     pub meta_own: M::Owner,
     pub ghost slot_index: int,
 }
@@ -114,9 +116,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrameOwner<M
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M {
-        typed_meta_value::<M>(
-            regions.slot_owners[self.slot_index].metadata_perm.resource(),
-        )
+        typed_meta_value::<M>(regions.slot_owners[self.slot_index].metadata_perm.resource())
     }
 
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
@@ -149,7 +149,6 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrameOwner<M
     {
         Self { meta_own, slot_index }
     }
-
 }
 
 } // verus!

@@ -73,9 +73,8 @@ pub exec fn borrow_as<'a, const SIZE: usize, T: ByteRepr<SIZE>>(data: &'a [u8; S
 /// by [`ByteRepr::round_trip`] -- but it is an obligation on this axiom rather than
 /// something the signature gives for free.
 #[verifier::external_body]
-pub exec fn borrow_as_mut<'a, const SIZE: usize, T: ByteRepr<SIZE>>(
-    data: &'a mut [u8; SIZE],
-) -> (r: &'a mut T)
+pub exec fn borrow_as_mut<'a, const SIZE: usize, T: ByteRepr<SIZE>>(data: &'a mut [u8; SIZE]) -> (r:
+    &'a mut T)
     requires
         T::try_from_spec(*old(data)) is Ok,
     ensures

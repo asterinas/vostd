@@ -1,7 +1,7 @@
-use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
-use vstd_extra::typing::tagged::ByteRepr;
-use vstd_extra::substructural::{CellAddr, cell_addr};
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
+use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
+use vstd_extra::substructural::{CellAddr, cell_addr};
+use vstd_extra::typing::tagged::ByteRepr;
 use vstd_extra::{ownership::*, sum::Sum};
 
 use crate::specs::{
@@ -150,7 +150,8 @@ impl MetaSlot {
         }
         &&& Self::perms_related(*post.slots[idx], metadata_perms)
         &&& metadata_perms.storage_perm.value().holds::<M>()
-        &&& metadata_perms.storage_perm.value().value::<M>() == metadata
+        &&& metadata_perms.storage_perm.value().value::<M>()
+            == metadata
         // The recorded identity, beside the value it identifies. `write_meta` stamps
         // this when it installs the metadata; stating it here is what carries it out
         // through `get_from_unused` to callers that aggregate frames.

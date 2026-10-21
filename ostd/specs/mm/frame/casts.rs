@@ -41,7 +41,6 @@ verus! {
 // ---------------------------------------------------------------------------
 // Ownership: what a cast does to the permission
 // ---------------------------------------------------------------------------
-
 /// How a permission is reinterpreted when a handle is reparameterized from
 /// metadata type `A` to metadata type `B`. Uninterpreted and axiomatized
 /// for individual pairs `A` and `B`.
@@ -90,7 +89,6 @@ pub axiom fn axiom_reparam_perm_narrow_untyped(p: Seq<FrameRawPerms>)
 // ---------------------------------------------------------------------------
 // Frame
 // ---------------------------------------------------------------------------
-
 /// What reparameterizing a frame handle's metadata type produces.
 ///
 /// Describes a transmute rather than licensing one: `can_transmute` is a
@@ -159,7 +157,6 @@ pub proof fn axiom_frame_recover_transmutable<M: AnyFrameMeta>(f: Frame<dyn AnyF
 // ---------------------------------------------------------------------------
 // UniqueFrame
 // ---------------------------------------------------------------------------
-
 /// What reparameterizing a unique handle's metadata type produces.
 ///
 /// The [`axiom_frame_reparam`] counterpart, and the same shape: a
@@ -169,10 +166,9 @@ pub proof fn axiom_frame_recover_transmutable<M: AnyFrameMeta>(f: Frame<dyn AnyF
 /// Representation only. That the slot holds a `B` is an identity claim this does
 /// not make -- `UniqueFrame::transmute_requires` is where that lives.
 #[verifier::external_body]
-pub proof fn axiom_unique_frame_reparam<
-    A: AnyFrameMeta + OwnerOf,
-    B: AnyFrameMeta + OwnerOf,
->(f: UniqueFrame<A>)
+pub proof fn axiom_unique_frame_reparam<A: AnyFrameMeta + OwnerOf, B: AnyFrameMeta + OwnerOf>(
+    f: UniqueFrame<A>,
+)
     requires
         can_transmute::<UniqueFrame<A>, UniqueFrame<B>>(f),
     ensures
@@ -201,10 +197,9 @@ pub proof fn axiom_unique_frame_reparam<
 /// type the slot holds -- `UniqueFrame::transmute_requires` is what stops the
 /// reparameterization being useful at the wrong one.
 #[verifier::external_body]
-pub proof fn axiom_unique_frame_transmutable<
-    A: AnyFrameMeta + OwnerOf,
-    B: AnyFrameMeta + OwnerOf,
->(f: UniqueFrame<A>)
+pub proof fn axiom_unique_frame_transmutable<A: AnyFrameMeta + OwnerOf, B: AnyFrameMeta + OwnerOf>(
+    f: UniqueFrame<A>,
+)
     ensures
         can_transmute::<UniqueFrame<A>, UniqueFrame<B>>(f),
 {
@@ -216,7 +211,6 @@ pub proof fn axiom_unique_frame_transmutable<
 //
 // `axiom_segment_reparam` -- the "produced" claim -- is not here; see the module
 // doc. These two are the "permitted" claims, which mention no fields.
-
 /// Erasing a segment's metadata type is a valid transmute.
 ///
 /// `Segment<M>` is a `Range<Paddr>` beside a `PhantomData<M>` and one tracked

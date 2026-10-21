@@ -5,14 +5,13 @@ use vstd::{
     simple_pptr::{PPtr, PointsTo},
     std_specs::{convert::FromSpecImpl, iter::IteratorSpecImpl},
 };
-use vstd_extra::{assert, ownership::*, panic::may_panic, prelude::*};
 use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::{assert, ownership::*, panic::may_panic, prelude::*};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
-        casts::*,
-        frame_specs::FrameRawPerms, mapping::*, meta_owners::*,
+        casts::*, frame_specs::FrameRawPerms, mapping::*, meta_owners::*,
         meta_region_owners::MetaRegionOwners, segment::*,
     },
 };
@@ -222,8 +221,7 @@ impl<M: AnyFrameMeta + OwnerOf> RCClone for Segment<M> {
                         let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                         &&& raw_perms[i].slot_perm == perm.slots[idx]
                         &&& raw_perms[i].inv()
-                        &&& raw_perms[i].metadata_perm.resource().meta_type_id
-                            == self.meta_id()
+                        &&& raw_perms[i].metadata_perm.resource().meta_type_id == self.meta_id()
                         &&& raw_perms[i].metadata_perm.id()
                             == perm.slot_owners[idx].metadata_perm.id()
                     },
@@ -684,8 +682,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                     let paddr = (self.range().start + i * PAGE_SIZE) as usize;
                     &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
                     &&& self.raw_perms()[i].inv()
-                    &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id
-                        == self.meta_id()
+                    &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id == self.meta_id()
                 },
     {
     }
@@ -704,8 +701,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                     let paddr = (self.range().start + i * PAGE_SIZE) as usize;
                     &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
                     &&& self.raw_perms()[i].inv()
-                    &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id
-                        == self.meta_id()
+                    &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id == self.meta_id()
                 },
         ensures
             self.inv(),
@@ -890,8 +886,7 @@ impl<M: AnyFrameMeta + OwnerOf> Segment<M> {
                         // this quantifier is already keyed on `raw_perms[j]` -- the
                         // sequence that becomes the result's -- unlike `from_unused`'s,
                         // which is keyed on `addrs[j]` and needed its own.
-                        &&& raw_perms[j].metadata_perm.resource().meta_type_id
-                            == self.meta_id()
+                        &&& raw_perms[j].metadata_perm.resource().meta_type_id == self.meta_id()
                     },
                 forall|j: int|
                     #![trigger frame_to_index((start + j * PAGE_SIZE) as usize)]
@@ -1383,8 +1378,7 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
                 //
                 // Folded into this quantifier to reuse its trigger rather than adding a
                 // second one over the same sequence.
-                &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id
-                    == self.meta_id()
+                &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id == self.meta_id()
             }
     }
 }

@@ -1,13 +1,11 @@
-use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
 #[cfg(feature = "type_id")]
 use core::any::TypeId;
+use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
+use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
+use vstd_extra::substructural::CellAddr;
+use vstd_extra::typing::tagged::{ByteRepr, ByteSized, TaggedArray, recorded_id};
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
-use vstd_extra::substructural::CellAddr;
-use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
-use vstd_extra::typing::tagged::{
-    ByteRepr, ByteSized, TaggedArray, recorded_id,
-};
 use vstd_extra::{
     ghost_tree::TreePath,
     ownership::*,
@@ -17,6 +15,11 @@ use vstd_extra::{
 use crate::specs::{arch::NR_ENTRIES, mm::frame::frame_specs::FrameRawPerms};
 
 use super::*;
+/// Gated because its only uses here are: both untyped-segment reparam axioms need
+/// `dyn_supertrait`, so an unconditional import would be dead in every other
+/// configuration.
+#[cfg(feature = "dyn_supertrait")]
+use crate::mm::frame::untyped::AnyUFrameMeta;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
@@ -28,11 +31,6 @@ use crate::mm::{
     },
     kspace::FRAME_METADATA_RANGE,
 };
-/// Gated because its only uses here are: both untyped-segment reparam axioms need
-/// `dyn_supertrait`, so an unconditional import would be dead in every other
-/// configuration.
-#[cfg(feature = "dyn_supertrait")]
-use crate::mm::frame::untyped::AnyUFrameMeta;
 
 verus! {
 
@@ -188,9 +186,7 @@ pub axiom fn axiom_usage_of_recorded_id<M: AnyFrameMeta + ByteRepr<META_STORAGE_
 /// The step the open-world representation needs: `usage()` reads the recorded
 /// id, `holds::<M>()` says which id that is, and the axiom above ties it back
 /// to the type's own `usage_spec`.
-pub proof fn lemma_usage_of_held<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
-    perm: MetadataPerm,
-)
+pub proof fn lemma_usage_of_held<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(perm: MetadataPerm)
     requires
         perm.storage_perm.is_init(),
         perm.storage_perm.value().holds::<M>(),
@@ -320,9 +316,9 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
     // slot's address. Borrowed rather than exchanged outright: the `&'a M` we
     // return outlives this body, so there is no point at which the cell
     // permission could be handed back.
-    let tracked storage_perm = <pcell_maybe_uninit::PCell<
-        MetaSlotStorage,
-    > as CellAddr>::unwrap_ref(&metadata_perm.storage_perm);
+    let tracked storage_perm = <pcell_maybe_uninit::PCell<MetaSlotStorage> as CellAddr>::unwrap_ref(
+        &metadata_perm.storage_perm,
+    );
     let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow(Tracked(storage_perm));
     vstd_extra::typing::tagged::borrow_as::<META_STORAGE_SIZE, M>(&storage.0.data)
 }
@@ -343,12 +339,10 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
     proof {
         MetaSlot::axiom_storage_at_slot_start(*slot_perm);
     }
-    let tracked storage_perm = <pcell_maybe_uninit::PCell<
-        MetaSlotStorage,
-    > as CellAddr>::unwrap_mut(&mut metadata_perms.storage_perm);
-    let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow_mut(
-        Tracked(storage_perm),
+    let tracked storage_perm = <pcell_maybe_uninit::PCell<MetaSlotStorage> as CellAddr>::unwrap_mut(
+        &mut metadata_perms.storage_perm,
     );
+    let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow_mut(Tracked(storage_perm));
     vstd_extra::typing::tagged::borrow_as_mut::<META_STORAGE_SIZE, M>(&mut storage.0.data)
 }
 
@@ -407,8 +401,7 @@ pub exec fn write_metadata_into_storage<M: AnyFrameMeta + ByteRepr<META_STORAGE_
         final(metadata_perms).storage_perm.is_init(),
         final(metadata_perms).vtable_ptr_perm == old(metadata_perms).vtable_ptr_perm,
         final(metadata_perms).storage_perm.value().holds::<M>(),
-        final(metadata_perms).storage_perm.value().value::<M>()
-            == metadata,
+        final(metadata_perms).storage_perm.value().value::<M>() == metadata,
 {
     // `store` tags the bytes with `recorded_id::<M>()` and discharges the round
     // trip itself, so there is no separate encoding law to invoke here.

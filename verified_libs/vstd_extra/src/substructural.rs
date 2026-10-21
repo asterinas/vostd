@@ -18,27 +18,26 @@
 //! When is it sound to cast a `*const Foo` to a `*const A`?
 //! And when is it sound to use that new pointer?
 //! We can answer these questions pairwise for each step in the chain.
-//! 
+//!
 //! Step 1: struct-to-field is layout dependent. If the struct has the `#[layout(C)]` attribute,
 //! it is always sound to make this cast for the first field of the struct (C99 and later).
 //! It is tempting to try adding an offset to the base pointer to find other fields, but this is
-//! not sound without detailed knowledge of the compiler. 
+//! not sound without detailed knowledge of the compiler.
 //!
 //! Step 2: cell to contents is modeled by VerusBelt, and we reproduce their approach here.
 //!
 //! Step 3: array to contents -- see `array_ptr.rs`.
-
 use vstd::cell::CellId;
 use vstd::cell::pcell_maybe_uninit::{self, PCell};
+use vstd::prelude::*;
 use vstd::raw_ptr::MemContents;
 use vstd::simple_pptr::PointsTo;
-use vstd::prelude::*;
 
 verus! {
 
 pub tracked struct CellLoc {
     pub id: CellId,
-    pub addr: usize
+    pub addr: usize,
 }
 
 /// The address assigned to a cell.

@@ -3,17 +3,17 @@
 //!
 //! This module leverages the customizability of the metadata system (see
 //! [super::meta]) to allow any type of frame to be used in a linked list.
-use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 use core::marker::PhantomData;
+use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
 use vstd_extra::{
     drop_tracking::{Drop, DropObligation, TrackDrop},
     ownership::*,
     typing::tagged::ByteRepr,
 };
-#[cfg(feature = "type_id")]
-use core::any::TypeId;
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 
 use crate::specs::{
     arch::*,
@@ -1296,8 +1296,7 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 frame.meta_mut()).prev = Some(back);
 
                 let ghost back_idx = meta_to_index(owner.list_own.list[nn - 1].paddr);
-                proof {
-                }
+                proof {}
                 let tracked back_points_to = regions.slots.tracked_borrow(back_idx);
                 let tracked back_metadata_perm = owner.list_own.metadata_perms.tracked_borrow_mut(
                     nn - 1,

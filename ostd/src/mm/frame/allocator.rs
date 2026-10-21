@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
-use vstd::prelude::*;
-use vstd_extra::{ownership::Inv, prelude::*};
-use vstd_extra::typing::tagged::ByteRepr;
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
+use vstd::prelude::*;
+use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::{ownership::Inv, prelude::*};
 
 use crate::specs::mm::frame::{meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners};
 
@@ -82,10 +82,7 @@ impl FrameAllocOptions {
     pub fn alloc_frame_with<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
         &self,
         metadata: M,
-    ) -> Result<
-        Frame<M>,
-        Error,
-    > {
+    ) -> Result<Frame<M>, Error> {
         unimplemented!()/*
         let single_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).unwrap();
         let frame = get_global_frame_allocator()

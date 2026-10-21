@@ -35,14 +35,14 @@ use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*, simple_pptr:
 use vstd_extra::{array_ptr, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
-#[cfg(feature = "type_id")]
-use core::any::TypeId;
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 use crate::specs::mm::{
     frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
 };
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
 
 use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::mm::frame::{
