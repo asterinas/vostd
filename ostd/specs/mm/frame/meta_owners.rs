@@ -3,10 +3,7 @@ use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
 use core::any::TypeId;
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
-use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
-use vstd_extra::typing::tagged::{
-    ByteRepr, ByteSized, TaggedArray, recorded_id,
-};
+use vstd_extra::typing::tagged::{ByteRepr, TaggedArray, recorded_id};
 use vstd_extra::{
     ghost_tree::TreePath,
     ownership::*,
@@ -80,60 +77,6 @@ pub broadcast proof fn axiom_pt_node_round_trip(v: StoredPageTablePageMeta)
     ensures
         #[trigger] pt_node_decode(pt_node_encode(v)) == Ok(v),
 {
-}
-
-impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
-    type Error = ();
-
-    #[verifier::external_body]
-    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-impl TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
-    open spec fn obeys_try_from_spec() -> bool {
-        true
-    }
-
-    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        pt_node_decode(b)
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
-    #[verifier::external_body]
-    fn into(self) -> [u8; META_STORAGE_SIZE] {
-        unimplemented!()
-    }
-}
-
-impl IntoSpecImpl<[u8; META_STORAGE_SIZE]> for StoredPageTablePageMeta {
-    open spec fn obeys_into_spec() -> bool {
-        true
-    }
-
-    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
-        pt_node_encode(self)
-    }
-}
-
-impl ByteSized<{ META_STORAGE_SIZE }> for StoredPageTablePageMeta {
-    /// Axiomatized: a layout fact. Upstream's `impl_frame_meta_for!` asserts the
-    /// same inequality with a `const` check.
-    #[verifier::external_body]
-    proof fn size_correct() {
-    }
-}
-
-impl ByteRepr<{ META_STORAGE_SIZE }> for StoredPageTablePageMeta {
-    proof fn round_trip(self) {
-        broadcast use axiom_pt_node_round_trip;
-    }
-
-    proof fn obeys() {
-    }
 }
 
 /// A frame's metadata, as stored in its slot.

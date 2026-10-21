@@ -90,60 +90,6 @@ pub broadcast proof fn axiom_frame_link_round_trip(v: StoredLink)
 {
 }
 
-impl TryFrom<[u8; META_STORAGE_SIZE]> for StoredLink {
-    type Error = ();
-
-    #[verifier::external_body]
-    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-impl TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
-    open spec fn obeys_try_from_spec() -> bool {
-        true
-    }
-
-    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        frame_link_decode(b)
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<[u8; META_STORAGE_SIZE]> for StoredLink {
-    #[verifier::external_body]
-    fn into(self) -> [u8; META_STORAGE_SIZE] {
-        unimplemented!()
-    }
-}
-
-impl IntoSpecImpl<[u8; META_STORAGE_SIZE]> for StoredLink {
-    open spec fn obeys_into_spec() -> bool {
-        true
-    }
-
-    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
-        frame_link_encode(self)
-    }
-}
-
-impl ByteSized<{ META_STORAGE_SIZE }> for StoredLink {
-    /// Axiomatized: a layout fact. Upstream's `impl_frame_meta_for!` asserts the
-    /// same inequality with a `const` check.
-    #[verifier::external_body]
-    proof fn size_correct() {
-    }
-}
-
-impl ByteRepr<{ META_STORAGE_SIZE }> for StoredLink {
-    proof fn round_trip(self) {
-        broadcast use axiom_frame_link_round_trip;
-    }
-
-    proof fn obeys() {
-    }
-}
-
 
 // ---------------------------------------------------------------------------
 // `Link<M>` as a stored type in its own right
@@ -233,7 +179,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> IntoSpecImpl<
 }
 
 impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ByteSized<{ META_STORAGE_SIZE }> for Link<M> {
-    /// Axiomatized, like `StoredLink`'s: a layout fact.
+    /// Axiomatized: a layout fact.
     #[verifier::external_body]
     proof fn size_correct() {
     }
