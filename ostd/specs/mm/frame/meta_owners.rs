@@ -215,11 +215,42 @@ pub uninterp spec fn usage_of_id(id: MetaTypeId) -> PageUsage;
 
 /// Untypedness is a property of the metadata *type*, not of a value of that type
 #[cfg(feature = "type_id")]
-#[verifier::external_body]
-pub proof fn axiom_untyped_recorded_by_id<M: AnyFrameMeta + ?Sized>(m: &M)
+pub axiom fn axiom_untyped_recorded_by_id<M: AnyFrameMeta + ?Sized>(m: &M)
     ensures
         m.is_untyped_spec() == id_is_untyped(m.meta_id()),
+;
+
+/// Usage, like untypedness, is a property of the metadata *type*, so the
+/// recorded id determines it.
+///
+/// Keyed on [`recorded_id`] rather than on `AnyFrameMeta::meta_id`, which is
+/// `type_id`-gated: without that feature ids are opaque but still a function
+/// of the type, which is all this needs.
+///
+/// Taking a value of `M` is what makes `usage_spec` usable here, and the
+/// equation holds for *every* such value -- which is the claim that usage is
+/// type-level, not per-value. Every impl in the tree satisfies it: all take the
+/// default, except `PageTablePageMeta`, which returns a constant too.
+pub axiom fn axiom_usage_of_recorded_id<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(m: M)
+    ensures
+        usage_of_id(recorded_id::<M>()) == m.usage_spec(),
+;
+
+/// A slot that holds an `M` has `M`'s usage.
+///
+/// The step the open-world representation needs: `usage()` reads the recorded
+/// id, `holds::<M>()` says which id that is, and the axiom above ties it back
+/// to the type's own `usage_spec`.
+pub proof fn lemma_usage_of_held<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
+    perm: MetadataPerm,
+)
+    requires
+        perm.storage_perm.is_init(),
+        perm.storage_perm.value().holds::<M>(),
+    ensures
+        perm.usage() == typed_meta_value::<M>(perm).usage_spec(),
 {
+    axiom_usage_of_recorded_id::<M>(typed_meta_value::<M>(perm));
 }
 
 /// Permissions to access metadata.

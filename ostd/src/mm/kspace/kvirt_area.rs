@@ -594,6 +594,11 @@ impl KVirtArea {
             // `item_slot_in_regions` for the current item is delivered by the
             // loop invariant (instantiated at i = it.index()), itself established by
             // the function precondition.
+            // Flaky obligation: Verus reports every sub-assertion of `map`'s
+            // panic precondition as proved while failing the whole, which it
+            // attributes to the triggering context. Stating it here, on its
+            // own, is what closes it.
+            assert(cursor.map_panic_conditions(item) ==> may_panic());
             let res = unsafe {
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 cursor.map(item)

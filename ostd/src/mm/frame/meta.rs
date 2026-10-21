@@ -272,6 +272,17 @@ pub unsafe trait AnyFrameMeta:   /*Any +*/
         false
     }
 
+    /// The purpose a slot serves while it holds this metadata, at the spec level.
+    ///
+    /// Defaulted to `Frame` because that is what almost all metadata describes;
+    /// page-table nodes are the exception and override it. Defaulted also so
+    /// that, like [`Self::is_untyped_spec`], it can be named at `dyn
+    /// AnyFrameMeta` -- which is the whole point, since the open-world
+    /// representation reaches it only through the recorded id.
+    open spec fn usage_spec(&self) -> PageUsage {
+        PageUsage::Frame
+    }
+
     /// The runtime answer is *sound* with respect to the spec one.
     ///
     /// An implication, not an equality: Verus checks the default body below

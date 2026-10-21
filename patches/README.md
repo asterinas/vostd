@@ -4,8 +4,16 @@ Local changes to the `tools/verus` checkout, carried as patch files so a build i
 always *an upstream commit plus a reviewable set of files*.
 
 Two patches, both against **`asterinas/verus`, branch `main`, commit
-`fec4c33a`** — the commit `cargo dv bootstrap --upgrade` lands on, which pins
-Rust 1.98.1:
+`b63c76a4`** — the commit `cargo dv bootstrap --upgrade` lands on, which pins
+Rust 1.99.1:
+
+`0001` was refreshed against `b63c76a4` on 2026-10-21, having gone stale at
+`fec4c33a` when the `dv` bump moved the bootstrapped commit. Two things needed
+hand-resolving, recorded here because they will recur on the next move: `Ctx`
+lost its `pub debug: bool` field upstream, so the patch must no longer re-add it
+(it was only ever context); and `vir/src/recursive_types.rs` grew two `match`es
+over `TypX` that need a `Primitive::TypeTag` arm, grouped with the other simple
+primitives in both.
 
 | Patch | Supplies | Needed by |
 |---|---|---|
@@ -129,12 +137,15 @@ result.)
 
 Verify both shapes:
 
-    cargo dv verify --targets ostd                                       # 1510 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id                    # 1517 verified, 0 errors
-    cargo dv verify --targets ostd --features type_id,dyn_supertrait     # 1518 verified, 0 errors
+    cargo dv verify -p ostd                                 # 1496 verified, 0 errors
+    cargo dv verify -p ostd -F type_id                      # 1503 verified, 0 errors
+    cargo dv verify -p ostd -F type_id,dyn_supertrait       # 1506 verified, 0 errors
 
-Measured 2026-10-01 against `asterinas/verus` `main` at `fec4c33a` with both
-patches applied; `vstd` itself builds at 2059 verified, 0 errors.
+Measured 2026-10-21 against `asterinas/verus` `main` at `b63c76a4` with both
+patches applied, on `typeid-rework` rebased onto `main` at `ec3a20a6e`; `vstd`
+itself builds at 2059 verified, 0 errors. The earlier figures (1510/1517/1518,
+2026-10-01 at `fec4c33a`) are not comparable: the rebase brought in 34 upstream
+commits.
 
 When reading these runs, grep with `tail`, not `head`. `dv` prints a
 `verification results::` line per crate, and `ostd`'s comes last; `head -4` keeps
@@ -158,7 +169,8 @@ built is to swap it in:
     rm tools/verus && mv tools/verus.bak tools/verus
 
 `--features` needs `dv` at `9543854` (#42) or later; the submodule now points at
-`6d6502d` (#45). If you ever hand-roll the `cargo-verus` command instead, note that it
+`efb1b60` (#49), which renamed `--targets` to `-p`/`--package` and took
+`--target` for the CPU triple. If you ever hand-roll the `cargo-verus` command instead, note that it
 rejects `--features` *after* `--target`, because it would otherwise be silently
 ignored — `dv` has a regression test for exactly that
 (`cargo_features_precede_target_and_verus_args`).
@@ -221,5 +233,11 @@ perturbs Z3's heuristics, which is enough to move a proof sitting near its
 rlimit — and identity is decoration-sensitive, so folding decorations roughly
 doubles a datatype tag. That cost two `ostd` proofs their rlimit once before;
 inlining the pairing on the hot path recovered one and the gate recovered the
-other. Expect the patch to perturb proofs that lean on an unstated trigger;
-`patches/0001-ostd-...` is the worked example of repairing one.
+other. Expect the patch to perturb proofs that lean on an unstated trigger.
+
+The `b63c76a4` refresh cost one: `PageTableOwner::pt_inv_unroll` in
+`specs/mm/page_table/owners.rs`, which verifies on `main` and, with the patch
+applied, failed with every sub-assertion of its postcondition proved and the
+whole unproved. `#[verifier::spinoff_prover]` recovered it, with no `rlimit`
+increase. That is the pattern to expect, and `--expand-errors` is the
+diagnostic: a failure with no `✘` beneath it is this, not a missing fact.

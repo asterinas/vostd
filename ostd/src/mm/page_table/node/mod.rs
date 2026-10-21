@@ -103,6 +103,10 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
+    open spec fn usage_spec(&self) -> PageUsage {
+        PageUsage::PageTable
+    }
+
     #[cfg(feature = "type_id")]
     open spec fn meta_id(&self) -> TypeId {
         type_id::<Self>()
@@ -253,7 +257,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value().node().slot_vaddr(),
-            res.external_meta_wf(owner@.value().node().frame_permission.resource(), ()),
+            res.external_meta_wf(owner@.value().node().frame_permission.resource()),
             res.tracked_slot_perm@ == final(regions).slots[owner@.value().node().slot_index],
             guards.unlocked(owner@.value().node().slot_vaddr()),
             MetaSlot::claim_unused_slot_region_spec(

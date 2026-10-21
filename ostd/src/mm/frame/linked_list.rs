@@ -1114,6 +1114,11 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 nn,
             );
         }
+        proof {
+            // `wf_with_region` wants the slot's usage, which the open-world
+            // representation only yields through the recorded id.
+            lemma_usage_of_held::<Link<M>>(frame.tracked_metadata_perm@->0);
+        }
         Some((frame, Tracked(frame_own)))
     }
 
@@ -1336,6 +1341,10 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
         self.list.size = self.list.size + 1;
 
         proof {
+            // The inserted slot's usage, which `relate_region` demands and the
+            // open-world representation yields only through the recorded id.
+            // Before `tracked_list_insert`, which consumes the permission.
+            lemma_usage_of_held::<Link<M>>(frame_metadata_perm);
             CursorOwner::<M>::tracked_list_insert(
                 owner,
                 &mut frame_own.meta_own,
