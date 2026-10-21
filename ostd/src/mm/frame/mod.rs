@@ -295,7 +295,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
             };
         }
         borrow_meta(
-            PPtr::<MetaSlotStorage>::from_addr(self.ptr.addr()),
+            self.ptr,
             Tracked(slot_perm),
             Tracked(metadata_perm),
         )

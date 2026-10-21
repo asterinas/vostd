@@ -1,5 +1,6 @@
 use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
 use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::substructural::{CellAddr, cell_addr};
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
 use vstd_extra::{ownership::*, sum::Sum};
 
@@ -53,6 +54,26 @@ impl MetaSlot {
         broadcast use VERUS_layout_of_MetaSlot;
 
     }
+
+    /// The metadata cell sits at the start of its slot.
+    ///
+    /// TRUSTED, and a layout claim rather than an ownership one: `MetaSlot` is
+    /// `#[repr(C)]` and `storage` is its first field, so the slot's address
+    /// *is* the cell's address (C99 6.7.2.1 -- a structure's address is its
+    /// first member's).
+    ///
+    /// Nothing weaker would do. [`cell_addr`] is uninterpreted, so without this
+    /// the storage cell's address cannot be named in exec code at all, where
+    /// the only address to hand is the slot pointer's.
+    ///
+    /// This is step 1 of the chain described in [`vstd_extra::substructural`];
+    /// step 2, cell to contents, is [`CellAddr::unwrap_ref`] and its siblings.
+    pub axiom fn axiom_storage_at_slot_start(slot_perm: PointsTo<MetaSlot>)
+        requires
+            slot_perm.is_init(),
+        ensures
+            cell_addr(slot_perm.value().storage.id()) == slot_perm.addr(),
+    ;
 
     pub open spec fn get_from_unused_owner_spec(as_unique: bool, owner: MetaSlotOwner) -> bool {
         &&& owner.ref_count() == (if as_unique {

@@ -160,8 +160,8 @@ pub struct MetaSlot {
     /// placeholder for the metadata of a frame.
     // storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>
     /// # Verification Design
-    /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
-    /// types of metadata defined in the development.
+    /// We model the metadata of the slot as a `MetaSlotStorage`, which is
+    /// an array of bytes with a ghost tag indicating which type it currently holds
     pub storage: pcell_maybe_uninit::PCell<MetaSlotStorage>,
     /// The reference count of the page.
     ///

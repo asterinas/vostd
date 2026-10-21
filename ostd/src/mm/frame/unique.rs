@@ -285,7 +285,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
         let tracked points_to = *self.tracked_slot_perm.borrow();
         let tracked metadata_perms = self.tracked_metadata_perm.borrow().tracked_borrow();
         borrow_meta(
-            PPtr::<MetaSlotStorage>::from_addr(self.ptr.addr()),
+            self.ptr,
             Tracked(points_to),
             Tracked(metadata_perms),
         )
@@ -324,7 +324,7 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
         let tracked points_to = *self.tracked_slot_perm.borrow();
         let tracked metadata_perms = self.tracked_metadata_perm.borrow_mut().tracked_borrow_mut();
         borrow_meta_mut(
-            PPtr::<MetaSlotStorage>::from_addr(self.ptr.addr()),
+            self.ptr,
             Tracked(points_to),
             Tracked(metadata_perms),
         )

@@ -119,11 +119,11 @@ verus! {
 /// The `prev` and `next` fields of the metadata for each link always points to valid
 /// links in the list, so the structure is memory safe (will not read or write invalid memory).
 pub struct LinkedList<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
-    pub front: Option<PPtr<MetaSlotStorage>>,
-    pub back: Option<PPtr<MetaSlotStorage>>,
-    /// The element type is no longer carried by the link pointers -- they are
-    /// bare addresses now -- so the list names it here. What a slot's bytes
-    /// decode to is claimed by `holds::<Link<M>>()`, not by the pointer's type.
+    pub front: Option<PPtr<MetaSlot>>,
+    pub back: Option<PPtr<MetaSlot>>,
+    /// The link pointers address [`MetaSlot`]s, which say nothing about the
+    /// element type, so the list names it here. What a slot's metadata cell
+    /// decodes to is claimed by `holds::<Link<M>>()`, not by the pointer.
     pub _marker: PhantomData<M>,
     /// The number of frames in the list.
     pub size: usize,
@@ -138,7 +138,7 @@ pub struct LinkedList<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
 /// to the "ghost" non-element when the cursor surpasses the back of the list.
 pub struct CursorMut<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub list: &'a mut LinkedList<M>,
-    pub current: Option<PPtr<MetaSlotStorage>>,
+    pub current: Option<PPtr<MetaSlot>>,
 }
 
 #[verifier::spinoff_prover]
@@ -539,7 +539,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedList<M> {
                 let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
             }
 
-            let meta_ptr = PPtr::<MetaSlotStorage>::from_addr(frame_to_meta(frame));
+            let meta_ptr = PPtr::<MetaSlot>::from_addr(frame_to_meta(frame));
             proof_with!(|= Tracked(Some(cursor_owner)));
             Some(CursorMut { list: self, current: Some(meta_ptr) })
         } else {
@@ -1222,7 +1222,7 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
             }
         }
 
-        let frame_ptr = PPtr::<MetaSlotStorage>::from_addr(frame.ptr.addr());
+        let frame_ptr = PPtr::<MetaSlot>::from_addr(frame.ptr.addr());
 
         if let Some(current) = self.current {
             proof_decl!{
@@ -1233,7 +1233,7 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
             }
 
             // Read current's prev pointer.
-            let opt_prev_link: Option<PPtr<MetaSlotStorage>> = borrow_meta::<Link<M>>(
+            let opt_prev_link: Option<PPtr<MetaSlot>> = borrow_meta::<Link<M>>(
                 current,
                 Tracked(points_to),
                 Tracked(metadata_perms),
@@ -1651,8 +1651,8 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Drop for LinkedList<M> {
 // unsafe impl<M> Sync for LinkedList<M> where Link<M>: AnyFrameMeta {}
 /// A link in the linked list.
 pub struct Link<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
-    pub next: Option<PPtr<MetaSlotStorage>>,
-    pub prev: Option<PPtr<MetaSlotStorage>>,
+    pub next: Option<PPtr<MetaSlot>>,
+    pub prev: Option<PPtr<MetaSlot>>,
     pub meta: M,
 }
 

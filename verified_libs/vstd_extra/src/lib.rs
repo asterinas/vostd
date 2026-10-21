@@ -49,6 +49,7 @@ pub mod seq_extra;
 pub mod set_extra;
 pub mod spec_operators;
 pub mod state_machine;
+pub mod substructural;
 pub mod sum;
 pub mod temporal_logic;
 pub mod transmute;

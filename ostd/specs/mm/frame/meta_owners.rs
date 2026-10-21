@@ -3,7 +3,11 @@ use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
 use core::any::TypeId;
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
-use vstd_extra::typing::tagged::{ByteRepr, TaggedArray, recorded_id};
+use vstd_extra::substructural::CellAddr;
+use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
+use vstd_extra::typing::tagged::{
+    ByteRepr, ByteSized, TaggedArray, recorded_id,
+};
 use vstd_extra::{
     ghost_tree::TreePath,
     ownership::*,
@@ -290,8 +294,16 @@ pub open spec fn typed_meta_value<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>
     metadata_perm.storage_perm.value().value::<M>()
 }
 
+/// Borrows the metadata of a slot as an `M`.
+///
+/// `ptr` addresses the [`MetaSlot`] itself, not its metadata. Upstream the
+/// metadata is a cell inside the slot -- `storage: UnsafeCell<[u8;
+/// FRAME_METADATA_MAX_SIZE]>` -- and we model it as one, a
+/// `PCell<MetaSlotStorage>`. So its contents are reached through
+/// `metadata_perm.storage_perm`, never by casting the slot pointer: the
+/// two addresses coincide only because the cell sits at offset 0.
 pub fn borrow_meta<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
-    ptr: PPtr<MetaSlotStorage>,
+    ptr: PPtr<MetaSlot>,
     Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(metadata_perm): Tracked<&'a MetadataPerm>,
 ) -> &'a M
@@ -301,13 +313,22 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
     returns
         typed_meta_value::<M>(*metadata_perm),
 {
-    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
-    let storage = slot.storage.borrow(Tracked(&metadata_perm.storage_perm));
+    proof {
+        MetaSlot::axiom_storage_at_slot_start(*slot_perm);
+    }
+    // The cell permission, borrowed as a permission to the same bytes at the
+    // slot's address. Borrowed rather than exchanged outright: the `&'a M` we
+    // return outlives this body, so there is no point at which the cell
+    // permission could be handed back.
+    let tracked storage_perm = <pcell_maybe_uninit::PCell<
+        MetaSlotStorage,
+    > as CellAddr>::unwrap_ref(&metadata_perm.storage_perm);
+    let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow(Tracked(storage_perm));
     vstd_extra::typing::tagged::borrow_as::<META_STORAGE_SIZE, M>(&storage.0.data)
 }
 
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
-    ptr: PPtr<MetaSlotStorage>,
+    ptr: PPtr<MetaSlot>,
     Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(metadata_perms): Tracked<&'a mut MetadataPerm>,
 ) -> (res: &'a mut M)
@@ -319,8 +340,15 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
         *final(res) == typed_meta_value::<M>(*final(metadata_perms)),
         typed_meta_wf::<M>(*slot_perm, *final(metadata_perms)),
 {
-    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
-    let storage = slot.storage.borrow_mut(Tracked(&mut metadata_perms.storage_perm));
+    proof {
+        MetaSlot::axiom_storage_at_slot_start(*slot_perm);
+    }
+    let tracked storage_perm = <pcell_maybe_uninit::PCell<
+        MetaSlotStorage,
+    > as CellAddr>::unwrap_mut(&mut metadata_perms.storage_perm);
+    let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow_mut(
+        Tracked(storage_perm),
+    );
     vstd_extra::typing::tagged::borrow_as_mut::<META_STORAGE_SIZE, M>(&mut storage.0.data)
 }
 
