@@ -5,7 +5,9 @@
 //! through _allocators_. There are two types of device I/O:
 //!  - `IoMem` for memory I/O (MMIO).
 //!  - `IoPort` for port I/O (PIO).
-mod io_mem;
+use vstd::prelude::*;
+
+pub(crate) mod io_mem;
 
 use cfg_if::cfg_if;
 
@@ -15,7 +17,8 @@ pub(crate) use self::io_mem::IoMemAllocatorBuilder;
 cfg_if!(
     if #[cfg(target_arch = "x86_64")] {
         mod io_port;
-        pub use io_port::IoPort;
+
+        pub use self::io_port::IoPort;
         pub(crate) use self::io_port::{reserve_io_port_range, sensitive_io_port, RawIoPortRange};
     }
 );
@@ -34,13 +37,17 @@ cfg_if!(
 ///
 /// 3. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to
 ///    exceed the maximum value specified by architecture.
+#[verus_spec(
+    ensures
+        io_mem::io_mem_allocator_initialized(),
+)]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
-    unsafe { self::io_mem::init(io_mem_builder) };
+    unsafe { io_mem::init(io_mem_builder) };
 
     // SAFETY: The safety is upheld by the caller.
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        self::io_port::init()
+        io_port::init()
     };
 }
