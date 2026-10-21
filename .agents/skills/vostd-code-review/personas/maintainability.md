@@ -22,7 +22,7 @@ below; if a rule named below no longer exists on the page, drop it.
    the review text alone. Flag reversed conversion lemmas, reconstructed values, runtime
    clones, and caller-facing API changes introduced only to ease a proof. When Verus
    forces an executable change, it must stay minimal and the original form must be shown
-   in the review; the page mandates no specific comment format, so do not require one.
+   in the review; hold it to whichever comment format the page currently mandates.
 3. Mode separation and layout (`separate-verus-modes`): executable code, specifications,
    and proofs sit in visually distinct groups, and adjacent verified items share one
    `verus!` block when no ordinary Rust item separates them.
@@ -57,15 +57,26 @@ below; if a rule named below no longer exists on the page, drop it.
    repeated on every field of a `ghost struct`.
 6. Documentation (`document-verified-apis`): preserve original runtime docs. For a public
    executable API, append a `Verified Properties` section — `Safety` (classes of undefined
-   behavior ruled out and remaining trusted boundaries, claiming only what verification
-   establishes), `Functional Correctness` when applicable, `Preconditions`, and
-   `Postconditions` (including proved absence of panic). For a `spec fn`, document the
+   behavior ruled out, any proved absence of panic, and remaining trusted boundaries,
+   claiming only what verification establishes), `Functional Correctness` when applicable,
+   `Preconditions`, and `Postconditions`. A proved absence of panic is a `Safety` claim,
+   not a `Postconditions` one. Each field states only nontrivial content: a clause
+   evident from the function's name, signature, ordinary rustdoc, or the type's
+   invariant — one restating the spec, the summary line, or the signature — is dropped,
+   not enumerated; a field with nothing to state is omitted; a contract whose only
+   further clause is the proved absence of panic is a single `## Safety` line. For a
+   `spec fn`, document the
    mathematical meaning of the value it denotes; for a `proof fn`, one sentence summarizing
    the proved fact, with further prose only for a non-obvious obligation or guarantee. Do
    **not** add `Preconditions`/`Postconditions` to spec or proof functions — their
    `requires`/`ensures` clauses already state those formally. A verified module gets a
    `Verified Properties` paragraph covering verification design, critical invariants,
-   safety, and verified functional correctness.
+   safety, and verified functional correctness. A documentation finding reports only a
+   misleading gap — wrong or missing text that would misstate verified behavior or a
+   trust boundary. Completeness nits (enumerating trivial clauses, bullet count versus
+   clause count, retrofitting
+   module-level prose onto code whose verification grew in the diff, wording polish) are
+   `Compliance` notes, not findings.
 7. Placement (`right-size-spec-placement`): grep the repo for users of each spec fn the
    target defines; a small model beside its single user is correct, a shared or growing
    model belongs under `ostd/specs/`.

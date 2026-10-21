@@ -12,6 +12,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 ### Proof engineering
 
 - [`complete-external-contracts`](proof-engineering.md#complete-external-contracts) — model every relevant precondition, result, frame condition, and panic behavior at an external boundary, mirroring lazy, closure-driven adapter semantics.
+- [`name-assume-spec-receivers`](proof-engineering.md#name-assume-spec-receivers) — name an `assume_specification` receiver after its role (`l: &Layout`) and call the model spec fn by auto-deref instead of `self_` with `(*self_)`.
 - [`centralize-trusted-boundaries`](proof-engineering.md#centralize-trusted-boundaries) — keep unavoidable external specifications in `vstd_extra::external` and make their trust explicit.
 - [`restrict-generic-trusted-models`](proof-engineering.md#restrict-generic-trusted-models) — grant trusted model guarantees only to reviewed type and architecture combinations.
 - [`distinguish-spec-and-exec-indexing`](proof-engineering.md#distinguish-spec-and-exec-indexing) — use total spec indexing without dropping executable bounds checks or failure semantics.
@@ -26,10 +27,13 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`use-chained-comparisons`](maintainability.md#use-chained-comparisons) — express contiguous bounds as one logically equivalent chained comparison.
 - [`use-returns-for-exact-results`](maintainability.md#use-returns-for-exact-results) — express exact return values with `returns` and remove unused return binders.
 - [`avoid-redundant-as-int-casts`](maintainability.md#avoid-redundant-as-int-casts) — drop `as int` where Verus auto-coerces comparisons and arithmetic, but keep it at spec `int` parameters and standalone `/` divisors.
+- [`use-addr-for-pointers`](maintainability.md#use-addr-for-pointers) — model pointer identity constraints through `ptr.addr()`, not the pointer view's `@.addr` field.
 - [`seq-range-slicing`](maintainability.md#seq-range-slicing) — range-slice a `Seq` or view in specs (`s[i..j]`, `s[i..]`) instead of calling `subrange`/`take`/`skip`; endpoints take any `Integer` type and the inlined desugaring is proof-neutral.
 - [`organize-proof-imports`](maintainability.md#organize-proof-imports) — import proof symbols concisely while keeping proof-only dependencies visible and `reveal` calls minimal.
+- [`attach-broadcast-axioms-once`](maintainability.md#attach-broadcast-axioms-once) — state a needed `broadcast use` once at the beginning of the function owning the proof step, not per branch.
 - [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — stack verification-added imports (`vstd`/`vstd_extra`, then `crate::specs`) above the original import list in blank-line-separated groups the formatter cannot cross, combine same-crate definitions into one `use`, and keep verification-added spec imports separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
+- [`match-enum-results`](maintainability.md#match-enum-results) — express `Option`/`Result` shapes with `ret is Ok` and `ret matches Ok(id)`, and state each exhaustiveness direction once.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs, and mark any executable rewrite with a block comment carrying the divergence reason plus the `Origin Rust:` original.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
 - [`avoid-unused-spec-helpers`](maintainability.md#avoid-unused-spec-helpers) — add spec and proof helpers only for a current caller or a documented abstraction boundary.
@@ -38,9 +42,10 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`avoid-redundant-mode-markers`](maintainability.md#avoid-redundant-mode-markers) — do not add `ghost` or `tracked` markers where the enclosing mode already determines the value's role.
 - [`prefer-ghost-model-structs`](maintainability.md#prefer-ghost-model-structs) — actively use `ghost struct` for newly added specification- and proof-only types.
 - [`keep-internal-spec-helpers-closed`](maintainability.md#keep-internal-spec-helpers-closed) — keep representation-reflecting spec helpers closed and private; reserve `pub open` for the model callers reason about.
-- [`document-verified-apis`](maintainability.md#document-verified-apis) — document public verified APIs: a `Verified Properties` block for executable code and one-sentence summaries for spec and proof functions, omitting the block for trivial contracts (field getters, invariant-only mutators).
+- [`document-verified-apis`](maintainability.md#document-verified-apis) — document public verified APIs: a `Verified Properties` block for executable code (fields state only nontrivial content; a proved absence of panic is a `Safety` claim) and one-sentence summaries for spec and proof functions, omitting the block for trivial contracts (field getters, invariant-only mutators).
 - [`narrow-lint-suppressions`](maintainability.md#narrow-lint-suppressions) — suppress a lint only at the smallest scope that requires it.
 - [`right-size-spec-placement`](maintainability.md#right-size-spec-placement) — keep small local models near their implementation unless they form a reusable subsystem.
+- [`generate-repeated-spec-helpers`](maintainability.md#generate-repeated-spec-helpers) — derive spec functions that repeat verbatim across per-type instantiations from a `macro_rules!` macro.
 - [`document-real-proof-debt`](maintainability.md#document-real-proof-debt) — keep proof comments tied to real source constraints and mark unresolved boundaries explicitly.
 - [`qualified-verus-spec-calls`](maintainability.md#qualified-verus-spec-calls) — use qualified paths where `#[verus_spec]` attaches a specification to a call.
 - [`pair-exec-helpers-with-spec-models`](maintainability.md#pair-exec-helpers-with-spec-models) — prefer `dual_spec` when one definition serves both modes; otherwise bind an exec helper to a spec twin via `#[verus_spec(returns ...)]` and, when the signature matches, `when_used_as_spec`; keep differently-shaped spec fns where the faithful model needs `int` views or total arithmetic.
