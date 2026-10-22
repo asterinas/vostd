@@ -44,7 +44,7 @@ concurrency:
 jobs:
   verify-irc11:
     name: Build and verify
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always

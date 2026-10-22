@@ -1,0 +1,121 @@
+name: Comment on PR verification cost
+
+on:
+  workflow_run:
+    workflows: ["Format and Verify VOSTD (Main)"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: perf-comment-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Find current PR and check verification results
+        id: pr
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+            });
+            const verification = jobs.filter(job => job.name.startsWith('verify ('));
+            if (!verification.length || verification.some(job => job.conclusion !== 'success') ||
+                !jobs.some(job => job.name === 'perf' && job.conclusion === 'success')) {
+              core.info('Verification or performance measurement did not succeed; skipping.');
+              return;
+            }
+
+            // Fork runs may have an empty pull_requests array. Resolve via the
+            // GitHub API and validate the current head before writing anything.
+            const candidates = run.pull_requests.length ? run.pull_requests :
+              await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+                owner, repo, commit_sha: run.head_sha, per_page: 100,
+              });
+            for (const candidate of candidates) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner, repo, pull_number: candidate.number,
+              });
+              if (pr.state === 'open' && pr.base.repo.full_name === `${owner}/${repo}` &&
+                  pr.head.repo?.id === run.head_repository.id && pr.head.sha === run.head_sha) {
+                core.setOutput('number', pr.number);
+                return;
+              }
+            }
+            core.info('No open PR matches this run; skipping stale results.');
+
+      - name: Download performance measurements
+        if: steps.pr.outputs.number
+        uses: actions/download-artifact@v8
+        with:
+          name: verify-perf-report
+          path: perf-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # This privileged workflow never checks out or executes PR code. Artifact
+      # contents are untrusted: read only numeric metrics, not report Markdown.
+      - name: Create or update PR alert
+        if: steps.pr.outputs.number
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const baselinePath = 'perf-report/perf-baseline.json';
+            if (!fs.existsSync(baselinePath)) {
+              core.info('No main baseline available; skipping the alert.');
+              return;
+            }
+            const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+            const current = JSON.parse(fs.readFileSync('perf-report/perf-store/metrics.json', 'utf8'));
+            if (![baseline.rlimit, current.rlimit, current.errors, current.verified].every(
+                  value => Number.isSafeInteger(value) && value >= 0) ||
+                baseline.rlimit === 0 || current.errors !== 0 || current.verified === 0) {
+              core.setFailed('Invalid or unsuccessful verification measurements.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = Number(process.env.PR_NUMBER);
+            const run = context.payload.workflow_run;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.state !== 'open' || pr.head.sha !== run.head_sha) return;
+
+            const marker = '<!-- vostd-total-rlimit-alert -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' && comment.body?.startsWith(marker));
+            const alert = current.rlimit > baseline.rlimit * 1.2;
+            if (!alert && !existing) return;
+
+            const increase = ((current.rlimit / baseline.rlimit - 1) * 100).toFixed(1);
+            const body = [
+              marker,
+              alert ? '## ⚠️ Verification cost increased' : '## ✅ Verification cost alert resolved',
+              '',
+              `Total rlimit: **${baseline.rlimit.toLocaleString('en-US')} → ${current.rlimit.toLocaleString('en-US')}** (${increase}% change).`,
+              '',
+              'Alert threshold: total rlimit exceeds 120% of the last successful main baseline (+20%).',
+              '',
+              `[CI report](${context.serverUrl}/${owner}/${repo}/actions/runs/${run.id}) · PR head: \`${run.head_sha}\``,
+            ].join('\n');
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
