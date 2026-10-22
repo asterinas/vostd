@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{self, pcell::*};
-use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
+use vstd::{
+    atomic_ghost::*,
+    cell::{self, pcell::*},
+    prelude::*,
+};
 use vstd_extra::prelude::*;
 
 use core::{

@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{self, CellId, pcell::*};
-use vstd::prelude::*;
-use vstd::resource::Loc;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
-use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
-use vstd_extra::sum::*;
-use vstd_extra::{prelude::*, resource};
+use vstd::{
+    atomic_ghost::*,
+    cell::{self, CellId, pcell::*},
+    prelude::*,
+    resource::Loc,
+};
+use vstd_extra::{
+    prelude::*,
+    resource::{
+        self,
+        ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*},
+    },
+    sum::*,
+};
 
 use alloc::sync::Arc;
 use core::char::MAX;
