@@ -416,9 +416,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             // Install new entry's path into its slot's paths_in_pt.
-            // Nodes: singleton overwrite (tree enforces unique node path).
-            // Callers register tracked frame paths before replacement.
-            // Untracked physical mappings carry no counted ownership path.
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
 
@@ -1491,19 +1488,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 idx as int,
                 new_pte,
             );
-        }
-
-        proof {
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 let tracked mut new_meta_slot = regions.tracked_borrow_mut_slot_owner(paddr);
                 new_meta_slot.paths_in_pt = set![new_owner.path];
-            }
-        }
-
-        proof {
-            if new_owner.is_node() || new_owner.is_frame() {
-                let paddr = new_owner.meta_slot_paddr().unwrap();
             }
             if owner.is_frame() {
                 let paddr = owner.frame().mapped_pa;
@@ -1514,10 +1502,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     initial_regions,
                     *regions,
                 );
-            }
-            if new_owner.is_frame() {
-                let paddr = new_owner.frame().mapped_pa;
-                let slot = frame_to_index(paddr);
             }
             assert(Entry::<C>::metaregion_sound_neq_preserved(
                 initial_owner,
