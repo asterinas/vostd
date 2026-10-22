@@ -81,7 +81,7 @@ pub closed spec fn no_max_reader_overflow(v: usize) -> bool {
 }
 
 struct_with_invariants! {
-/// Spin-based Read-write Lock
+/// A spin lock that provides data access to either one writer or many readers.
 ///
 /// # Overview
 ///
@@ -642,8 +642,8 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     }
 }*/
 
-/// Because there can be more than one readers to get the T's immutable ref,
-/// so T must be Sync to guarantee the sharing safety.
+// There can be more than one readers to get the `T`'s immutable reference,
+// so `T` must be `Sync` to guarantee the sharing safety.
 #[verifier::external]
 unsafe impl<T: Send, G> Send for RwLock<T, G> {
 
@@ -654,12 +654,12 @@ unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {
 
 }
 
+// `G::Guard` and `G::ReadGuard` are `!Send` and `!Sync`, so are the guards.
 impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {
 
 }
 
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {
+impl<T, G: SpinGuardian> !Sync for RwLockWriteGuard<'_, T, G> {
 
 }
 
@@ -667,8 +667,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {
 
 }
 
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {
+impl<T, G: SpinGuardian> !Sync for RwLockReadGuard<'_, T, G> {
 
 }
 
@@ -676,8 +675,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, 
 
 }
 
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {
+impl<T, G: SpinGuardian> !Sync for RwLockUpgradeableGuard<'_, T, G> {
 
 }
 
@@ -906,7 +904,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 }*/
 
 /// A guard that provides immutable data access but can be atomically
-/// upgraded to `RwLockWriteGuard`.
+/// upgraded to [`RwLockWriteGuard`].
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 pub struct RwLockUpgradeableGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
