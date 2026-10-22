@@ -162,7 +162,8 @@ jobs:
   perf:
     # Every event: parses the verify leg's log and computes the verification
     # cost compared to the measurement from last main. The comparison lands
-    # in the job summary and the report artifact.
+    # in the job summary and the report artifact. Successful main runs also
+    # publish the benchmark history and save the next baseline.
     needs: [verify]
     if: >
       always() &&
@@ -170,7 +171,7 @@ jobs:
       needs.verify.result != 'cancelled'
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write # push benchmark history to gh-pages
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -182,6 +183,7 @@ jobs:
         run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Restore prior measurement (baseline)
+        id: baseline
         uses: actions/cache/restore@v6
         with:
           path: perf-store
@@ -238,6 +240,40 @@ jobs:
           cat out/perf-report.md
           cat out/perf-report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # Failed verification logs may parse as zeros; never publish them.
+      - name: Convert metrics to benchmark format
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.verify.result == 'success'
+        run: |
+          python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
+
+      - name: Record benchmark on gh-pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.verify.result == 'success'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: verify-perf
+          tool: customSmallerIsBetter
+          output-file-path: out/benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          alert-threshold: '120%'
+          comment-on-alert: true
+          summary-always: true
+
+      - name: Save measurement as the next baseline
+        # Cache entries are immutable; reruns of the same SHA reuse its entry.
+        if: >
+          github.event_name != 'pull_request' &&
+          github.ref == 'refs/heads/main' &&
+          needs.verify.result == 'success' &&
+          steps.baseline.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: perf-store
+          key: perf-metrics-${{ github.sha }}
+
       - name: Upload report artifact
         if: always()
         uses: actions/upload-artifact@v7
@@ -245,6 +281,7 @@ jobs:
           name: verify-perf-report
           path: |
             out/perf-report.md
+            out/benchmark.json
             perf-store/metrics.json
             perf-baseline.json
           if-no-files-found: ignore
