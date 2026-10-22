@@ -345,19 +345,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& !pte.is_last(parent_level)
     }
 
-    pub proof fn last_pte_implies_frame_match(self, pte: C::E, parent_level: PagingLevel)
-        requires
-            self.inv(),
-            self.match_pte(pte, parent_level),
-            1 < parent_level,
-            pte.is_last(parent_level),
-        ensures
-            self.is_frame(),
-            self.frame().mapped_pa == pte.paddr(),
-            self.frame().prop == pte.prop(),
-    {
-    }
-
     pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)
         requires
             self.inv(),
