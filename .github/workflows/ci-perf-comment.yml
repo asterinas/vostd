@@ -37,18 +37,27 @@ jobs:
               return;
             }
 
-            // Fork runs may have an empty pull_requests array. Resolve via the
-            // GitHub API and validate the current head before writing anything.
-            const candidates = run.pull_requests.length ? run.pull_requests :
+            // Fork runs may omit PR associations in both the event and the
+            // commit API. Fall back to the source branch, then validate the head.
+            let candidates = run.pull_requests?.length ? run.pull_requests :
               await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
                 owner, repo, commit_sha: run.head_sha, per_page: 100,
               });
+            if (!candidates.length && run.head_repository?.owner?.login && run.head_branch) {
+              candidates = await github.paginate(github.rest.pulls.list, {
+                owner, repo, state: 'open', base: 'main',
+                head: `${run.head_repository.owner.login}:${run.head_branch}`,
+                per_page: 100,
+              });
+            }
             for (const candidate of candidates) {
               const { data: pr } = await github.rest.pulls.get({
                 owner, repo, pull_number: candidate.number,
               });
               if (pr.state === 'open' && pr.base.repo.full_name === `${owner}/${repo}` &&
-                  pr.head.repo?.id === run.head_repository.id && pr.head.sha === run.head_sha) {
+                  pr.head.repo?.id === run.head_repository.id &&
+                  pr.head.ref === run.head_branch && pr.head.sha === run.head_sha) {
+                core.info(`Found PR #${pr.number} for this run.`);
                 core.setOutput('number', pr.number);
                 return;
               }
