@@ -163,7 +163,7 @@ jobs:
     # Every event: parses the verify leg's log and computes the verification
     # cost compared to the measurement from last main. The comparison lands
     # in the job summary and the report artifact. Successful main runs also
-    # publish the benchmark history and save the next baseline.
+    # in the job summary and the report artifact. `perf-history` publishes main
     needs: [verify]
     if: >
       always() &&
@@ -171,7 +171,9 @@ jobs:
       needs.verify.result != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # push benchmark history to gh-pages
+      contents: read
+    outputs:
+      baseline-cache-hit: ${{ steps.baseline.outputs.cache-hit }}
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -246,34 +248,6 @@ jobs:
         run: |
           python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
 
-      - name: Record benchmark on gh-pages
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.verify.result == 'success'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: verify-perf
-          tool: customSmallerIsBetter
-          output-file-path: out/benchmark.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: dev/bench
-          alert-threshold: '120%'
-          comment-on-alert: true
-          summary-always: true
-
-      - name: Save measurement as the next baseline
-        # Cache entries are immutable; reruns of the same SHA reuse its entry.
-        if: >
-          github.event_name != 'pull_request' &&
-          github.ref == 'refs/heads/main' &&
-          needs.verify.result == 'success' &&
-          steps.baseline.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v6
-        with:
-          path: perf-store
-          key: perf-metrics-${{ github.sha }}
-
       - name: Upload report artifact
         if: always()
         uses: actions/upload-artifact@v7
@@ -283,8 +257,54 @@ jobs:
             out/perf-report.md
             out/benchmark.json
             perf-store/metrics.json
+            perf-store/source-sha.txt
             perf-baseline.json
           if-no-files-found: ignore
+
+  perf-history:
+    # Only trusted main runs may publish history and save the next baseline.
+    # PR metrics are processed by the read-only `perf` job above.
+    needs: [verify, perf]
+    if: >
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.verify.result == 'success' &&
+      needs.perf.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download performance measurements
+        uses: actions/download-artifact@v8
+        with:
+          name: verify-perf-report
+
+      - name: Record benchmark on gh-pages
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: verify-perf
+          tool: customSmallerIsBetter
+          output-file-path: out/benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          comment-on-alert: false
+
+      - name: Save measurement as the next baseline
+        # Cache entries are immutable; reruns of the same SHA reuse its entry.
+        if: needs.perf.outputs.baseline-cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: perf-store
+          key: perf-metrics-${{ github.sha }}
 
   doc:
     # PRs build the docs; pushes also upload the artifact for `doc-deploy`,
@@ -353,16 +373,17 @@ jobs:
 
   doc-deploy:
     # Pushes only: merge the doc artifact with the gh-pages benchmark chart
-    # (pushed by `perf`) and deploy. Needs verify so a failed
+    # (pushed by `perf-history`) and deploy. Needs verify so a failed
     # verification can't deploy docs.
-    needs: [doc, perf, verify]
+    needs: [doc, perf, perf-history, verify]
     if: >
       always() &&
       !cancelled() &&
       github.event_name != 'pull_request' &&
       needs.verify.result == 'success' &&
       needs.doc.result == 'success' &&
-      (needs.perf.result == 'success' || needs.perf.result == 'skipped')
+      (needs.perf.result == 'success' || needs.perf.result == 'skipped') &&
+      (needs.perf-history.result == 'success' || needs.perf-history.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
