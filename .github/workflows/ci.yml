@@ -37,7 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
+          - ubuntu-latest
           - macos-14
     timeout-minutes: 240
     steps:
@@ -120,7 +120,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   format:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     timeout-minutes: 45
@@ -168,7 +168,7 @@ jobs:
       always() &&
       !cancelled() &&
       needs.verify.result != 'cancelled'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     timeout-minutes: 30
@@ -203,7 +203,7 @@ jobs:
       - name: Download verification log
         uses: actions/download-artifact@v8
         with:
-          name: verify-log-ubuntu-24.04
+          name: verify-log-ubuntu-latest
 
       - name: Parse cost metrics
         run: |
@@ -255,7 +255,7 @@ jobs:
     if: >
       always() &&
       !cancelled()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       statuses: write   # ci/doc pending status on push
