@@ -162,8 +162,8 @@ jobs:
   perf:
     # Every event: parses the verify leg's log and computes the verification
     # cost compared to the measurement from last main. The comparison lands
-    # in the job summary and the report artifact. Successful main runs also
     # in the job summary and the report artifact. `perf-history` publishes main
+    # measurements.
     needs: [verify]
     if: >
       always() &&
