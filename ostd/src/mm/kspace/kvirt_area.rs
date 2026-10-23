@@ -748,6 +748,7 @@ impl KVirtArea {
         pa_range: Range<Paddr>,
         prop: PageProperty,
     ) -> Self {
+        hide(<CursorOwner<KernelPtConfig> as Inv>::inv);
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         // Rust's `unwrap()` panics if not ok. TODO: make our own wrapper.
         assert!(range_res.is_ok());
@@ -778,7 +779,6 @@ impl KVirtArea {
             proof {
                 lemma_page_size_spec_values();
                 lemma_vaddr_range_spec_kernel();
-                lemma_arch_specific_consts_properties::<KernelPtConfig>();
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             }
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -840,12 +840,12 @@ impl KVirtArea {
                 proof {
                     lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     lemma_sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
+                    lemma_page_size_spec_values();
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
                 proof {
                     prop.lemma_avail1_tag_encoding();
-                    lemma_page_size_ge_base::<PagingConsts>(level);
                 }
                 proof_decl! {
                     let tracked entry_owner =
@@ -862,6 +862,9 @@ impl KVirtArea {
                 // `item_slot_in_regions` for the current `(pa, level)` follows from the
                 // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
+                    assert(cursor.item_wf(item, entry_owner)) by {
+                        reveal(<CursorOwner<KernelPtConfig> as Inv>::inv);
+                    };
                     CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(
                         item,
                         *regions,
@@ -875,19 +878,9 @@ impl KVirtArea {
                 proof {
                     let level_raw = KernelPtConfig::item_into_raw(item).1;
 
-                    let split_self = old_cursor_model.split_while_huge(
-                        page_size::<PagingConsts>(level_raw),
-                    );
-
                     CursorView::<KernelPtConfig>::lemma_split_while_huge_preserves_cur_va(
                         old_cursor_model,
                         page_size::<PagingConsts>(level_raw),
-                    );
-
-                    let pa_next_nat = pa_range.start as nat + sum_page_sizes_spec(
-                        it.seq(),
-                        0,
-                        pos@ + 1,
                     );
                 }
             }

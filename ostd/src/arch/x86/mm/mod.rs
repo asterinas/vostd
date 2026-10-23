@@ -376,6 +376,10 @@ impl PodOnce for PageTableEntry {
 }
 
 impl PageTableEntryTrait for PageTableEntry {
+    /* The trait postconditions use this architecture's `paddr` and `is_present`,
+     * so the old shared default body cannot be verified on the trait.
+     * Origin Rust: Self::default()
+     */
     fn new_absent() -> Self {
         proof {
             lemma_auxiliary_bit_properties(0);

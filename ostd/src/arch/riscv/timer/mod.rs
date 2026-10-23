@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The timer support.
-use core::{
+use vstd::prelude::*;
+
+/* use core::{
     arch::asm,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -18,7 +20,13 @@ use crate::{
 ///
 /// For system performance reasons, this rate cannot be set too high, otherwise
 /// most of the time is spent executing timer code.
+*/
+verus! {
+
 pub const TIMER_FREQ: u64 = 1000;
+
+} // verus!
+/*
 
 static TIMEBASE_FREQ: AtomicU64 = AtomicU64::new(0);
 static TIMER_INTERVAL: AtomicU64 = AtomicU64::new(0);
@@ -117,3 +125,4 @@ fn get_next_when() -> u64 {
 pub(crate) fn get_timebase_freq() -> u64 {
     TIMEBASE_FREQ.load(Ordering::Relaxed)
 }
+*/

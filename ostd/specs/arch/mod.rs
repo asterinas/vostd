@@ -29,11 +29,20 @@ mod x86;
 #[cfg(target_arch = "x86_64")]
 pub use x86::*;
 
+#[cfg(target_arch = "riscv64")]
+mod riscv;
+#[cfg(target_arch = "riscv64")]
+pub use riscv::*;
+
 verus! {
 
 /// The architecture selected by the current verification target.
 #[cfg(target_arch = "x86_64")]
 pub type CurrentArch = x86::X86Arch;
+
+/// The architecture selected by the current verification target.
+#[cfg(target_arch = "riscv64")]
+pub type CurrentArch = riscv::RiscvArch;
 
 /// A physical address that can identify a base-page frame on the selected architecture.
 pub open spec fn valid_frame_paddr(paddr: Paddr) -> bool {
