@@ -35,9 +35,8 @@ pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
     //_pin_current: G,
 }
 
-} // verus!
 #[verus_verify]
-impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
+impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     /// Creates a new TLB flusher with the specified CPUs to be flushed.
     ///
     /// The target CPUs should be a reference to an [`AtomicCpuSet`] that will
@@ -45,7 +44,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     ///
     /// The flusher needs to stick to the current CPU. So please provide a
     /// guard that implements [`PinCurrentCpu`].
-    pub fn new(target_cpus: &'a AtomicCpuSet /*, pin_current_guard: G*/) -> Self {
+    pub fn new(target_cpus: &'a AtomicCpuSet  /*, pin_current_guard: G*/ ) -> Self {
         Self {
             target_cpus,
             have_unsynced_flush: CpuSet::new_empty(),
@@ -61,12 +60,16 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// [`Self::dispatch_tlb_flush`] is called.
     #[verus_spec(
         with Tracked(model): Tracked<&mut TlbModel>
+        requires
+            old(model).inv(),
         ensures
             *final(model) == old(model).issue_tlb_flush(op),
             final(model).inv(),
     )]
-    #[verifier::external_body]
     pub fn issue_tlb_flush(&mut self, op: TlbFlushOp) {
+        proof {
+            model.tracked_issue_tlb_flush(&op);
+        }
         self.ops_stack.push(op, None);
     }
 
@@ -79,16 +82,20 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// method is designed to be used in such cases.
     #[verus_spec(r =>
         with Tracked(model): Tracked<&mut TlbModel>
+        requires
+            old(model).inv(),
         ensures
             *final(model) == old(model).issue_tlb_flush(op),
             final(model).inv(),
     )]
-    #[verifier::external_body]
     pub fn issue_tlb_flush_with(
         &mut self,
         op: TlbFlushOp,
         drop_after_flush: Frame<dyn AnyFrameMeta>,
     ) {
+        proof {
+            model.tracked_issue_tlb_flush(&op);
+        }
         self.ops_stack.push(op, Some(drop_after_flush));
     }
 
@@ -108,8 +115,8 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
             final(model).inv(),
     )]
     pub fn dispatch_tlb_flush(&mut self) {
-        unimplemented!() /*let irq_guard = crate::trap::irq::disable_local();
-        
+        unimplemented!()/*let irq_guard = crate::trap::irq::disable_local();
+
 
         if self.ops_stack.is_empty() {
         return;
@@ -148,6 +155,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
         } else {
         self.ops_stack.clear_without_flush();
         }*/
+
     }
 
     /// Waits for all the previous TLB flush requests to be completed.
@@ -167,7 +175,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// other's TLB coherence.
     #[verifier::external_body]
     pub fn sync_tlb_flush(&mut self) {
-        unimplemented!() /*
+        unimplemented!()/*
         assert!(
         irq::is_local_enabled(),
         "Waiting for remote flush with IRQs disabled"
@@ -181,10 +189,9 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
 
         self.have_unsynced_flush = CpuSet::new_empty();
          */
+
     }
 }
-
-verus! {
 
 /// The operation to flush TLB entries.
 #[verifier::allow(autoderive_clone_without_spec)]
@@ -213,11 +220,11 @@ impl TlbFlushOp {
 
     }
 
-    #[verifier::external_body]
     fn optimize_for_large_range(self) -> Self {
         match self {
             TlbFlushOp::Range(range) => {
-                if range.len() > FLUSH_ALL_RANGE_THRESHOLD {
+                if vstd_extra::external::range::range_usize_len(&range)
+                    > FLUSH_ALL_RANGE_THRESHOLD {
                     TlbFlushOp::All
                 } else {
                     TlbFlushOp::Range(range)
@@ -284,12 +291,10 @@ impl OpsStack {
         }
     }
 
-    #[verifier::external_body]
     fn is_empty(&self) -> bool {
         !self.need_flush_all && self.size == 0
     }
 
-    #[verifier::external_body]
     fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>) {
         if let Some(frame) = drop_after_flush {
             //            self.page_keeper.push(frame);
@@ -307,7 +312,11 @@ impl OpsStack {
         self.size += 1;
     }
 
-    #[verifier::external_body]
+    #[verus_spec(
+        requires
+            self.size <= FLUSH_ALL_OPS_THRESHOLD,
+            other.size <= FLUSH_ALL_OPS_THRESHOLD,
+    )]
     fn push_from(&mut self, other: &OpsStack) {
         //        self.page_keeper.extend(other.page_keeper.iter().cloned());
         if self.need_flush_all {
@@ -318,7 +327,12 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        for i in 0..other.size {
+        for i in 0..other.size
+            invariant
+                self.size == old(self).size + i,
+                i <= other.size,
+                old(self).size + other.size <= FLUSH_ALL_OPS_THRESHOLD,
+        {
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
         }
@@ -340,7 +354,6 @@ impl OpsStack {
         self.clear_without_flush();
     }
 
-    #[verifier::external_body]
     fn clear_without_flush(&mut self) {
         self.need_flush_all = false;
         self.size = 0;
