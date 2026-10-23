@@ -1677,9 +1677,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 {
     C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
     C::lemma_page_table_config_constant_properties();
-    lemma_arch_specific_consts_properties::<C>();
 
     lemma_page_table_managed_bounds::<C>();
     let end = C::TOP_LEVEL_INDEX_RANGE().end as int;

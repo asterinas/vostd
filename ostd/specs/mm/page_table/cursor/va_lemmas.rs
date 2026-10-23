@@ -146,7 +146,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )) == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel),
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
         self.lemma_locked_range_span();
         if self.guard_level < C::NR_LEVELS() {
             lemma_same_node_pte_indices_match::<C>(
