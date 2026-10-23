@@ -231,7 +231,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
-        C::axiom_current_paging_consts_hardcoded();
         broadcast use {
             CursorContinuation::group_lemmas,
             CursorOwner::group_lemmas,
@@ -373,7 +372,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).nodes_locked(guards),
             self.push_level_owner(guard).metaregion_sound(regions),
     {
-        C::axiom_current_paging_consts_hardcoded();
         reveal(CursorContinuation::map_children);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
