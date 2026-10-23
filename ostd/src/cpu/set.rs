@@ -818,34 +818,40 @@ proof fn lemma_mismatched_word_imply_not_full_set(set: &CpuSet, p: int)
     let n = cpu_count();
     let len = seq.len() as int;
     let k = n % 64;
-    // A bit where the word differs from its full-set value.
     let word = seq[p];
     let expected = full_set_word(n, len, p);
     lemma_u64_distinct_bits_differ(word, expected);
     let b = choose|b: int|
         0 <= b < 64 && (#[trigger] (word & (1u64 << (b as usize)))) != (expected & (1u64 << (
         b as usize)));
-    lemma_u64_unit_bit_projection(word, b);
-    lemma_u64_unit_bit_projection(expected, b);
+    assert(u64_bit_is_set(word, b) != u64_bit_is_set(expected, b)) by {
+        lemma_u64_unit_bit_projection(word, b);
+        lemma_u64_unit_bit_projection(expected, b);
+    }
     let j = 64 * p + b;
-    assert(set@.contains(j) == (0 <= j < n && bit_at(seq, j)));
-    if p == len - 1 && k != 0 {
-        if u64_bit_is_set(expected, b) {
-            // The mask only keeps bits below `k`, so `j` is a missing CPU bit.
-            if b >= k {
-                assert(!0u64 & expected == expected) by (bit_vector);
-                assert(false);
-            }
+    assert(u64_bit_is_set(expected, b) == (j < n)) by {
+        let bu = b as u32;
+        if p == len - 1 && k != 0 {
+            let ku = k as u32;
+            assert((expected & (1u64 << bu) != 0) == (bu < ku)) by (bit_vector)
+                requires
+                    bu < 64,
+                    0 < ku < 64,
+                    expected == (1u64 << ku) - 1,
+            ;
         } else {
-            // A set bit at or above `n` would violate the clear-tail invariant.
-            if b < k {
-                assert(!0u64 & expected == expected) by (bit_vector);
-                assert(false);
-            }
-            assert(bit_at(seq, j));
-            assert(false);
+            assert((expected & (1u64 << bu)) != 0) by (bit_vector)
+                requires
+                    bu < 64,
+                    expected == !0u64,
+            ;
         }
     }
+    assert(j / 64 == p && j % 64 == b);
+    assert(bit_at(seq, j) == u64_bit_is_set(word, b));
+    assert(j < n);
+    assert(!set@.contains(j));
+    assert(Set::range(0, n).contains(j));
 }
 
 } // verus!
