@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792680904677,
+  "lastUpdate": 1792743543449,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -6720,6 +6720,90 @@ window.BENCHMARK_DATA = {
             "value": 1927495,
             "unit": "rlimit",
             "extra": "smt-run=635ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18aea7a127610ad471325235b85395afe82710da",
+          "message": "fix: breaking change because of a missing constant (#853)\n\n* fix a breaking change\n\n* Update ci-irc11.yml\n\n* try to fix",
+          "timestamp": "2026-10-23T16:06:13+08:00",
+          "tree_id": "a7d6a42f0b9cd188f04bbcaaaa40e4d0af3e0123",
+          "url": "https://github.com/asterinas/vostd/commit/18aea7a127610ad471325235b85395afe82710da"
+        },
+        "date": 1792743542606,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1409358849,
+            "unit": "rlimit",
+            "extra": "verified=4259 errors=0 smt-run=431,750ms wall=259,873ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 487396573,
+            "unit": "rlimit",
+            "extra": "smt-run=214,190ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 207567185,
+            "unit": "rlimit",
+            "extra": "smt-run=37,490ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 75341681,
+            "unit": "rlimit",
+            "extra": "smt-run=28,786ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=4,641ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 16369438,
+            "unit": "rlimit",
+            "extra": "smt-run=1,591ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 11196458,
+            "unit": "rlimit",
+            "extra": "smt-run=2,260ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=992ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2026397,
+            "unit": "rlimit",
+            "extra": "smt-run=567ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=832ms"
           }
         ]
       }
