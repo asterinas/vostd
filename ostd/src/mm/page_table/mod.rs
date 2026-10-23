@@ -1487,7 +1487,8 @@ pub trait PageTableEntryTrait:
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
             valid_frame_paddr(res.paddr()),
             res.is_present(),
-            forall|level: PagingLevel| !res.is_last(level),
+            forall|level: PagingLevel|
+                (!cfg!(target_arch = "riscv64") || 1 < level) ==> !res.is_last(level),
         returns
             Self::new_pt(paddr),
     ;
@@ -1522,8 +1523,9 @@ pub trait PageTableEntryTrait:
         requires
             old(self).set_prop_req(prop),
         ensures
-            !old(self).is_present() ==> *old(self) == *final(self),
-            old(self).is_present() ==> {
+            !cfg!(target_arch = "riscv64") && !old(self).is_present() ==> *old(self)
+                == *final(self),
+            (cfg!(target_arch = "riscv64") || old(self).is_present()) ==> {
                 &&& final(self).prop() == prop
                 &&& final(self).paddr() == old(self).paddr()
                 &&& final(self).is_present()
@@ -1605,7 +1607,10 @@ pub trait PageTableEntryTrait:
                         - 1) as usize))
                     &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr()
                         == paddr)
-                    &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
+                    &&& forall|level: PagingLevel|
+                        (!cfg!(target_arch = "riscv64") || 1 < level) ==> !Self::new_pt(
+                            paddr,
+                        ).is_last(level)
                 },
     ;
 

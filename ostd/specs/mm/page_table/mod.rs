@@ -319,7 +319,7 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
     }
 }
 
-/// Sanity-check: for x86_64 user PT.
+/// Checks the user address range for x86-64 four-level paging and RISC-V Sv48.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
         leading_bits_spec::<UserPtConfig>() == 0,
@@ -333,7 +333,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
     vstd::arithmetic::power2::lemma2_to64_rest();
 }
 
-/// Sanity-check: for x86_64 kernel PT.
+/// Checks the kernel address range for x86-64 four-level paging and RISC-V Sv48.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
         leading_bits_spec::<KernelPtConfig>() == 0xffff,
