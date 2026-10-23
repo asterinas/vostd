@@ -1,14 +1,25 @@
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
+use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
+use vstd_extra::substructural::CellAddr;
+use vstd_extra::typing::tagged::{ByteRepr, ByteSized, TaggedArray, recorded_id};
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
 use vstd_extra::{
-    cast_ptr::{self, Repr},
     ghost_tree::TreePath,
     ownership::*,
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
-use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners::StoredLink};
+use crate::specs::{arch::NR_ENTRIES, mm::frame::frame_specs::FrameRawPerms};
 
 use super::*;
+/// Gated because its only uses here are: both untyped-segment reparam axioms need
+/// `dyn_supertrait`, so an unconditional import would be dead in every other
+/// configuration.
+#[cfg(feature = "dyn_supertrait")]
+use crate::mm::frame::untyped::AnyUFrameMeta;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
@@ -54,79 +65,142 @@ pub struct StoredPageTablePageMeta {
     pub lock: PAtomicU8,
 }
 
-pub enum MetaSlotStorage {
-    Empty([u8; 39]),
-    Untyped,
-    FrameLink(StoredLink),
-    PTNode(StoredPageTablePageMeta),
+pub const META_STORAGE_SIZE: usize = META_SLOT_SIZE - 3 * 8;
+
+pub uninterp spec fn pt_node_encode(v: StoredPageTablePageMeta) -> [u8; META_STORAGE_SIZE];
+
+pub uninterp spec fn pt_node_decode(b: [u8; META_STORAGE_SIZE]) -> Result<
+    StoredPageTablePageMeta,
+    (),
+>;
+
+#[verifier::external_body]
+pub broadcast proof fn axiom_pt_node_round_trip(v: StoredPageTablePageMeta)
+    ensures
+        #[trigger] pt_node_decode(pt_node_encode(v)) == Ok(v),
+{
+}
+
+/// A frame's metadata, as stored in its slot.
+pub struct MetaSlotStorage(pub TaggedArray<META_STORAGE_SIZE>);
+
+impl MetaSlotStorage {
+    /// This slot holds an `M`.
+    pub open spec fn holds<M: ByteRepr<META_STORAGE_SIZE>>(self) -> bool {
+        self.0.holds::<M>()
+    }
+
+    /// The `M` this slot holds. Meaningful only where [`Self::holds`] does.
+    pub open spec fn value<M: ByteRepr<META_STORAGE_SIZE>>(self) -> M {
+        self.0.value::<M>()
+    }
+
+    /// Build a slot holding `data` as an `M`.
+    pub open spec fn tagged<M: ByteRepr<META_STORAGE_SIZE>>(
+        data: [u8; META_STORAGE_SIZE],
+    ) -> MetaSlotStorage {
+        MetaSlotStorage(TaggedArray { id: Ghost(recorded_id::<M>()), data })
+    }
 }
 
 impl MetaSlotStorage {
     /// The purpose established by the installed metadata representation.
     pub open spec fn usage(self) -> PageUsage {
-        if self is PTNode {
-            PageUsage::PageTable
-        } else {
-            PageUsage::Frame
-        }
+        usage_of_id(self.0.id@)
     }
 }
 
-/// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
-/// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
-/// it can then be used to stand in for `dyn AnyFrameMeta`.
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
+
+    #[cfg(feature = "type_id")]
+    open spec fn meta_id(&self) -> TypeId {
+        type_id::<Self>()
+    }
+
+    #[cfg(feature = "type_id")]
+    proof fn meta_id_correct(&self) {
+    }
+
+    #[cfg(feature = "type_id")]
+    fn to_any(&self) -> (r: &dyn Any) {
+        let d: &dyn Any = self;
+        assert(d.type_id_spec() == self.type_id_spec());
+        d
+    }
 }
 
-impl Repr<MetaSlotStorage> for MetaSlotStorage {
-    type ReprPerm = ();
+/// The type of a recorded metadata identity.
+#[cfg(feature = "type_id")]
+pub type MetaTypeId = TypeId;
 
-    open spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool {
-        true
-    }
+#[cfg(not(feature = "type_id"))]
+pub type MetaTypeId = int;
 
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (self, ())
-    }
+/// The identity recorded for a slot holding metadata of type `M`.
+#[cfg(feature = "type_id")]
+pub open spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId {
+    type_id::<M>()
+}
 
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
-        self
-    }
+#[cfg(not(feature = "type_id"))]
+pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId;
 
-    open spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self {
-        slot
-    }
+/// Whether metadata recorded under `id` describes *untyped* memory
+pub uninterp spec fn id_is_untyped(id: MetaTypeId) -> bool;
 
-    fn from_repr(slot: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
-        slot
-    }
+/// The purpose a slot serves while it holds metadata recorded under `id`.
+///
+/// Uninterpreted for the same reason as [`id_is_untyped`]: the open-world
+/// representation is bytes plus a recorded id, so usage can no longer be read
+/// off a variant the way it was off the tagged union this replaced. Usage is a
+/// property of the metadata *type*, and the id is what survives erasure, so it
+/// is recovered through the id rather than from the stored bytes.
+pub uninterp spec fn usage_of_id(id: MetaTypeId) -> PageUsage;
 
-    fn from_borrowed<'a>(slot: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
-        slot
-    }
+/// Untypedness is a property of the metadata *type*, not of a value of that type
+#[cfg(feature = "type_id")]
+pub axiom fn axiom_untyped_recorded_by_id<M: AnyFrameMeta + ?Sized>(m: &M)
+    ensures
+        m.is_untyped_spec() == id_is_untyped(m.meta_id()),
+;
 
-    fn from_borrowed_mut<'a>(
-        slot: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
-    ) -> &'a mut Self {
-        slot
-    }
+/// Usage, like untypedness, is a property of the metadata *type*, so the
+/// recorded id determines it.
+///
+/// Keyed on [`recorded_id`] rather than on `AnyFrameMeta::meta_id`, which is
+/// `type_id`-gated: without that feature ids are opaque but still a function
+/// of the type, which is all this needs.
+///
+/// Taking a value of `M` is what makes `usage_spec` usable here, and the
+/// equation holds for *every* such value -- which is the claim that usage is
+/// type-level, not per-value. Every impl in the tree satisfies it: all take the
+/// default, except `PageTablePageMeta`, which returns a constant too.
+pub axiom fn axiom_usage_of_recorded_id<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(m: M)
+    ensures
+        usage_of_id(recorded_id::<M>()) == m.usage_spec(),
+;
 
-    proof fn from_to_repr(self, perm: ()) {
-    }
-
-    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
-    }
+/// A slot that holds an `M` has `M`'s usage.
+///
+/// The step the open-world representation needs: `usage()` reads the recorded
+/// id, `holds::<M>()` says which id that is, and the axiom above ties it back
+/// to the type's own `usage_spec`.
+pub proof fn lemma_usage_of_held<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(perm: MetadataPerm)
+    requires
+        perm.storage_perm.is_init(),
+        perm.storage_perm.value().holds::<M>(),
+    ensures
+        perm.usage() == typed_meta_value::<M>(perm).usage_spec(),
+{
+    axiom_usage_of_recorded_id::<M>(typed_meta_value::<M>(perm));
 }
 
 /// Permissions to access metadata.
 pub tracked struct MetadataPerm {
     pub storage_perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
+    pub ghost meta_type_id: MetaTypeId,
 }
 
 impl MetadataPerm {
@@ -194,60 +268,82 @@ impl MetaSlotOwner {
     }
 }
 
-/// Well-formedness of a concrete metadata representation.
-pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+/// Well-formedness of a concrete metadata representation: the storage bytes
+/// carry `M`'s tag and decode to an `M`.
+///
+/// There is no permission parameter. The representation is a plain byte array,
+/// so deciding well-formedness needs nothing but the bytes themselves -- which
+/// is what retiring `Repr` in favour of [`ByteRepr`] bought.
+pub open spec fn typed_meta_wf<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
     slot_perm: vstd::simple_pptr::PointsTo<MetaSlot>,
     metadata_perm: MetadataPerm,
-    repr_perm: M::ReprPerm,
 ) -> bool {
     &&& slot_perm.is_init()
     &&& MetaSlot::perms_related(slot_perm, metadata_perm)
-    &&& M::wf(metadata_perm.storage_perm.value(), repr_perm)
+    &&& metadata_perm.storage_perm.value().holds::<M>()
 }
 
 /// The value of a concrete metadata.
-pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub open spec fn typed_meta_value<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
     metadata_perm: MetadataPerm,
-    repr_perm: M::ReprPerm,
 ) -> M {
-    M::from_repr_spec(metadata_perm.storage_perm.value(), repr_perm)
+    metadata_perm.storage_perm.value().value::<M>()
 }
 
-pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
+/// Borrows the metadata of a slot as an `M`.
+///
+/// `ptr` addresses the [`MetaSlot`] itself, not its metadata. Upstream the
+/// metadata is a cell inside the slot -- `storage: UnsafeCell<[u8;
+/// FRAME_METADATA_MAX_SIZE]>` -- and we model it as one, a
+/// `PCell<MetaSlotStorage>`. So its contents are reached through
+/// `metadata_perm.storage_perm`, never by casting the slot pointer: the
+/// two addresses coincide only because the cell sits at offset 0.
+pub fn borrow_meta<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
+    ptr: PPtr<MetaSlot>,
     Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(metadata_perm): Tracked<&'a MetadataPerm>,
-    Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
 ) -> &'a M
     requires
         ptr.addr() == slot_perm.addr(),
-        typed_meta_wf::<M>(*slot_perm, *metadata_perm, *repr_perm),
+        typed_meta_wf::<M>(*slot_perm, *metadata_perm),
     returns
-        typed_meta_value::<M>(*metadata_perm, *repr_perm),
+        typed_meta_value::<M>(*metadata_perm),
 {
-    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
-    M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perm.storage_perm)), Tracked(repr_perm))
+    proof {
+        MetaSlot::axiom_storage_at_slot_start(*slot_perm);
+    }
+    // The cell permission, borrowed as a permission to the same bytes at the
+    // slot's address. Borrowed rather than exchanged outright: the `&'a M` we
+    // return outlives this body, so there is no point at which the cell
+    // permission could be handed back.
+    let tracked storage_perm = <pcell_maybe_uninit::PCell<MetaSlotStorage> as CellAddr>::unwrap_ref(
+        &metadata_perm.storage_perm,
+    );
+    let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow(Tracked(storage_perm));
+    vstd_extra::typing::tagged::borrow_as::<META_STORAGE_SIZE, M>(&storage.0.data)
 }
 
-pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
+pub fn borrow_meta_mut<'a, M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
+    ptr: PPtr<MetaSlot>,
     Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(metadata_perms): Tracked<&'a mut MetadataPerm>,
-    Tracked(repr_perm): Tracked<&'a mut M::ReprPerm>,
 ) -> (res: &'a mut M)
     requires
         ptr.addr() == slot_perm.addr(),
-        typed_meta_wf::<M>(*slot_perm, *old(metadata_perms), *old(repr_perm)),
+        typed_meta_wf::<M>(*slot_perm, *old(metadata_perms)),
     ensures
-        *res == typed_meta_value::<M>(*old(metadata_perms), *old(repr_perm)),
-        *final(res) == typed_meta_value::<M>(*final(metadata_perms), *final(repr_perm)),
-        typed_meta_wf::<M>(*slot_perm, *final(metadata_perms), *final(repr_perm)),
+        *res == typed_meta_value::<M>(*old(metadata_perms)),
+        *final(res) == typed_meta_value::<M>(*final(metadata_perms)),
+        typed_meta_wf::<M>(*slot_perm, *final(metadata_perms)),
 {
-    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
-    M::from_borrowed_mut(
-        slot.storage.borrow_mut(Tracked(&mut metadata_perms.storage_perm)),
-        Tracked(repr_perm),
-    )
+    proof {
+        MetaSlot::axiom_storage_at_slot_start(*slot_perm);
+    }
+    let tracked storage_perm = <pcell_maybe_uninit::PCell<MetaSlotStorage> as CellAddr>::unwrap_mut(
+        &mut metadata_perms.storage_perm,
+    );
+    let storage = PPtr::<MetaSlotStorage>::from_addr(ptr.addr()).borrow_mut(Tracked(storage_perm));
+    vstd_extra::typing::tagged::borrow_as_mut::<META_STORAGE_SIZE, M>(&mut storage.0.data)
 }
 
 impl Inv for MetaSlotOwner {
@@ -291,12 +387,11 @@ impl OwnerOf for MetaSlot {
     }
 }
 
-/// Writes `metadata` into the byte storage and establishes its direct
-/// `Repr<MetaSlotStorage>` interpretation.
-pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+/// Writes `metadata` into the byte storage, tagging it so the slot afterwards
+/// `holds::<M>()`.
+pub exec fn write_metadata_into_storage<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
     cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
     Tracked(metadata_perms): Tracked<&mut MetadataPerm>,
-    Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
     metadata: M,
 )
     requires
@@ -305,15 +400,14 @@ pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>
         final(metadata_perms).storage_perm.id() == old(metadata_perms).storage_perm.id(),
         final(metadata_perms).storage_perm.is_init(),
         final(metadata_perms).vtable_ptr_perm == old(metadata_perms).vtable_ptr_perm,
-        M::wf(final(metadata_perms).storage_perm.value(), *final(repr_perm)),
-        M::from_repr_spec(final(metadata_perms).storage_perm.value(), *final(repr_perm))
-            == metadata,
+        final(metadata_perms).storage_perm.value().holds::<M>(),
+        final(metadata_perms).storage_perm.value().value::<M>() == metadata,
 {
-    proof {
-        M::from_to_repr(metadata, *repr_perm);
-        M::to_repr_wf(metadata, *repr_perm);
-    }
-    let repr = metadata.to_repr(Tracked(repr_perm));
+    // `store` tags the bytes with `recorded_id::<M>()` and discharges the round
+    // trip itself, so there is no separate encoding law to invoke here.
+    let repr = MetaSlotStorage(
+        vstd_extra::typing::tagged::TaggedArray::<META_STORAGE_SIZE>::store(metadata),
+    );
     cell.write(Tracked(&mut metadata_perms.storage_perm), repr);
 }
 

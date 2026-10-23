@@ -3,7 +3,7 @@ use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
 };
-use vstd_extra::{cast_ptr::Repr, prelude::*};
+use vstd_extra::prelude::*;
 
 use crate::specs::{
     arch::valid_frame_paddr,
@@ -27,13 +27,13 @@ verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
 // FIXME: field visibility
-pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
+pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized> {
     pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
+impl<M: AnyFrameMeta + ?Sized> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Safety
@@ -68,7 +68,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     }
 }
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
+impl<M: AnyFrameMeta + ?Sized> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
     #[verus_spec(r => ensures *r == self.inner@)]
@@ -165,7 +165,7 @@ pub unsafe trait NonNullPtr: 'static + Sized {
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
-unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Frame<M> {
+unsafe impl<M: AnyFrameMeta + 'static> NonNullPtr for Frame<M> {
     type Target = PhantomData<Self>;
 
     type Permission = FrameRawPerms;

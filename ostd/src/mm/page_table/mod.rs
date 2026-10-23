@@ -1118,7 +1118,7 @@ impl<C: PageTableConfig> PageTable<C> {
     ) -> bool {
         &&& owner.inv()
         &&& self.root.ptr.addr() == owner.0.value().node().slot_vaddr()
-        &&& self.root.external_meta_wf(owner.0.value().node().frame_permission.resource(), ())
+        &&& self.root.external_meta_wf(owner.0.value().node().frame_permission.resource())
         &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
         &&& owner.0.value().node().level() == NR_LEVELS
         &&& owner.0.value().path == vstd_extra::ghost_tree::TreePath::<NR_ENTRIES>::new(

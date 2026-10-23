@@ -1,7 +1,8 @@
 use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, simple_pptr::*};
+use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd_extra::{
-    cast_ptr::{Repr, ReprPtr},
     ownership::*,
+    typing::tagged::{ByteRepr, ByteSized},
 };
 
 use crate::specs::{
@@ -27,134 +28,173 @@ use core::marker::PhantomData;
 
 verus! {
 
-pub struct MetaSlotSmall;
+/// Bytes available to a link's inner metadata.
+///
+/// The slot is [`META_STORAGE_SIZE`]; a link spends two words on its neighbours
+/// and the rest is the metadata it wraps. This is upstream's budget exactly --
+/// upstream's `Link` is two niche-optimised pointers beside an `M`.
+/// `Option<Paddr>` is 16 bytes, not 8: `Option<usize>` has no niche. Two of those
+/// and the slot's 40 bytes leave this much for the metadata a link wraps.
+///
+/// It is less than upstream gets, and the reason is worth recording. Upstream's
+/// `Link` holds `Option<NonNull<_>>`, which niche-optimises to 8 bytes a side
+/// because `NonNull` excludes zero *by construction*, leaving 24. Substituting a
+/// sentinel address here recovers those 16 bytes but breaks [`ByteRepr`]'s
+/// round-trip law, which is unconditional: a link whose neighbour sat at the
+/// sentinel would
+/// encode to "absent" and not decode back to itself. `Option` is what buys the
+/// unconditional law, and 16 bytes a side is its price. Reaching 24 needs a type
+/// that excludes a value rather than a constant that is merely unusual --
+/// `NonZeroUsize`, whose `vstd` specification is behind the `nonzero_internals`
+/// feature and not enabled here.
+pub const LINK_INNER_SIZE: usize = META_STORAGE_SIZE - 2 * 16;
 
 /// Representation of a link as stored in the metadata slot.
+///
+/// Two neighbour addresses plus [`LINK_INNER_SIZE`] bytes of inner metadata, which
+/// fills the slot exactly.
 pub struct StoredLink {
     pub next: Option<Paddr>,
     pub prev: Option<Paddr>,
-    pub slot: MetaSlotSmall,
+    pub slot: [u8; LINK_INNER_SIZE],
 }
 
-pub tracked struct LinkInnerPerms<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
-    pub storage: <M as Repr<MetaSlotSmall>>::ReprPerm,
-    pub ghost next_ptr: Option<PPtr<MetaSlotStorage>>,
-    pub ghost prev_ptr: Option<PPtr<MetaSlotStorage>>,
+// ---------------------------------------------------------------------------
+// `StoredLink`'s representation
+// ---------------------------------------------------------------------------
+//
+// An encoding, a decoding, and the round-trip law relating them, beside the type
+// they are about. Encode and decode are left *uninterpreted*: a concrete byte
+// layout is a fact about the type's representation, not about the storage
+// machinery, and naming them without defining them is what keeps the round trip
+// the only thing consumers may assume.
+//
+// Here rather than in `meta_owners` because the slot's world is open -- a type is
+// storable iff it has a `ByteRepr<META_STORAGE_SIZE>`, so a representation is a
+// property of its own type and needs no entry in a central list. The encoding is
+// not onto and does not claim to be: `StoredLink` is strictly smaller than the
+// slot, so the slack bytes are unconstrained.
+
+pub uninterp spec fn frame_link_encode(v: StoredLink) -> [u8; META_STORAGE_SIZE];
+
+pub uninterp spec fn frame_link_decode(b: [u8; META_STORAGE_SIZE]) -> Result<StoredLink, ()>;
+
+/// Decoding recovers what encoding produced.
+///
+/// Axiomatized: the representation obligation a stored type discharges from its
+/// layout, which Verus does not derive for user structs.
+#[verifier::external_body]
+pub broadcast proof fn axiom_frame_link_round_trip(v: StoredLink)
+    ensures
+        #[trigger] frame_link_decode(frame_link_encode(v)) == Ok(v),
+{
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
-    type ReprPerm = LinkInnerPerms<M>;
 
-    open spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> bool {
-        match r {
-            MetaSlotStorage::FrameLink(link) => {
-                &&& M::wf(link.slot, perm.storage)
-                &&& (link.next is Some) == (perm.next_ptr is Some)
-                &&& (link.prev is Some) == (perm.prev_ptr is Some)
-                &&& link.next is Some ==> link.next->0 == perm.next_ptr->0.addr()
-                &&& link.prev is Some ==> link.prev->0 == perm.prev_ptr->0.addr()
-            },
-            _ => false,
-        }
+// ---------------------------------------------------------------------------
+// `Link<M>` as a stored type in its own right
+// ---------------------------------------------------------------------------
+//
+// `StoredLink` is demoted to an encoding detail by these impls: it is the shape
+// `frame_link_encode`/`_decode` work in, and nothing outside this file needs to
+// name it. The slot's tag becomes `recorded_id::<Link<M>>()` rather than
+// `recorded_id::<StoredLink>()`, so it names the type a handle actually claims.
+//
+// Decoding can fail two ways, and both matter: the outer bytes may not be a link
+// at all, or the inner `LINK_INNER_SIZE` bytes may not be an `M`. The old
+// a `Repr::wf` predicate stated those as separate conjuncts; here they fold into
+// `try_from_spec` returning `Err`, which is what lets `TaggedArray::holds` carry
+// the whole claim.
+
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> TryFrom<[u8; META_STORAGE_SIZE]> for Link<M> {
+    type Error = ();
+
+    #[verifier::external_body]
+    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> TryFromSpecImpl<
+    [u8; META_STORAGE_SIZE],
+> for Link<M> {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
     }
 
-    open spec fn to_repr_spec(self, perm: LinkInnerPerms<M>) -> (
-        MetaSlotStorage,
-        LinkInnerPerms<M>,
-    ) {
-        let (slot, storage) = self.meta.to_repr_spec(perm.storage);
-        (
-            MetaSlotStorage::FrameLink(
-                StoredLink {
-                    next: match self.next {
-                        Some(ptr) => Some(ptr.ptr.addr()),
-                        None => None,
+    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
+        match frame_link_decode(b) {
+            Ok(link) => if M::try_from_spec(link.slot) is Ok {
+                Ok(
+                    Link {
+                        next: match link.next {
+                            Some(addr) => Some(PPtr(addr, PhantomData)),
+                            None => None,
+                        },
+                        prev: match link.prev {
+                            Some(addr) => Some(PPtr(addr, PhantomData)),
+                            None => None,
+                        },
+                        meta: M::try_from_spec(link.slot)->Ok_0,
                     },
-                    prev: match self.prev {
-                        Some(ptr) => Some(ptr.ptr.addr()),
-                        None => None,
-                    },
-                    slot,
-                },
-            ),
-            LinkInnerPerms {
-                storage,
-                next_ptr: match self.next {
-                    Some(ptr) => Some(ptr.ptr),
+                )
+            } else {
+                Err(())
+            },
+            Err(_) => Err(()),
+        }
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Into<[u8; META_STORAGE_SIZE]> for Link<M> {
+    #[verifier::external_body]
+    fn into(self) -> [u8; META_STORAGE_SIZE] {
+        unimplemented!()
+    }
+}
+
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> IntoSpecImpl<
+    [u8; META_STORAGE_SIZE],
+> for Link<M> {
+    open spec fn obeys_into_spec() -> bool {
+        true
+    }
+
+    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
+        frame_link_encode(
+            StoredLink {
+                next: match self.next {
+                    Some(ptr) => Some(ptr.addr()),
                     None => None,
                 },
-                prev_ptr: match self.prev {
-                    Some(ptr) => Some(ptr.ptr),
+                prev: match self.prev {
+                    Some(ptr) => Some(ptr.addr()),
                     None => None,
                 },
+                slot: self.meta.into_spec(),
             },
         )
     }
+}
 
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ByteSized<{ META_STORAGE_SIZE }> for Link<M> {
+    /// Axiomatized: a layout fact.
     #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut LinkInnerPerms<M>>) -> MetaSlotStorage {
-        unimplemented!()
+    proof fn size_correct() {
+    }
+}
+
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ByteRepr<{ META_STORAGE_SIZE }> for Link<M> {
+    proof fn round_trip(self) {
+        broadcast use axiom_frame_link_round_trip;
+        // The inner metadata round-trips through its own `ByteRepr`; the outer
+        // bytes through `axiom_frame_link_round_trip`; and a reconstructed
+        // The `PPtr` equals the original because a `PPtr` is its address.
+        self.meta.round_trip();
     }
 
-    open spec fn from_repr_spec(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> Self {
-        match r {
-            MetaSlotStorage::FrameLink(link) => Link {
-                next: match link.next {
-                    Some(addr) => Some(ReprPtr { ptr: perm.next_ptr->0, _T: PhantomData }),
-                    None => None,
-                },
-                prev: match link.prev {
-                    Some(addr) => Some(ReprPtr { ptr: perm.prev_ptr->0, _T: PhantomData }),
-                    None => None,
-                },
-                meta: M::from_repr_spec(link.slot, perm.storage),
-            },
-            _ => Link {
-                next: None,
-                prev: None,
-                meta: M::from_repr_spec(MetaSlotSmall, perm.storage),
-            },
-        }
-    }
-
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&LinkInnerPerms<M>>) -> Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed<'a>(
-        r: &'a MetaSlotStorage,
-        Tracked(perm): Tracked<&'a LinkInnerPerms<M>>,
-    ) -> &'a Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed_mut<'a>(
-        r: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut LinkInnerPerms<M>>,
-    ) -> &'a mut Self {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self, perm: LinkInnerPerms<M>) {
-        <M as Repr<MetaSlotSmall>>::from_to_repr(self.meta, perm.storage);
-    }
-
-    proof fn to_from_repr(r: MetaSlotStorage, perm: LinkInnerPerms<M>) {
-        match r {
-            MetaSlotStorage::FrameLink(link) => {
-                M::to_from_repr(link.slot, perm.storage);
-            },
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
-    proof fn to_repr_wf(self, perm: LinkInnerPerms<M>) {
-        <M as Repr<MetaSlotSmall>>::to_repr_wf(self.meta, perm.storage);
+    proof fn obeys() {
     }
 }
 
@@ -192,7 +232,7 @@ impl InvView for LinkOwner {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for Link<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for Link<M> {
     type Owner = LinkOwner;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
@@ -232,9 +272,8 @@ impl Inv for LinkedListModel {
     }
 }
 
-pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+pub tracked struct LinkedListOwner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub list: Seq<LinkOwner>,
-    pub repr_perms: Seq<LinkInnerPerms<M>>,
     /// Exclusive metadata permissions for the unique frames stored in the
     /// list.
     pub metadata_perms: Seq<MetadataPerm>,
@@ -242,19 +281,18 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     pub ghost _marker: core::marker::PhantomData<M>,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Inv for LinkedListOwner<M> {
     open spec fn inv(self) -> bool {
         // Weakened (our change): an EMPTY list may carry `list_id == 0` (the
         // lazily-minted-id convention used by the list-store embedding); the
         // id is only constrained non-zero once the list is non-empty.
         &&& self.list.len() > 0 ==> self.list_id != 0
-        &&& self.repr_perms.len() == self.list.len()
         &&& self.metadata_perms.len() == self.list.len()
         &&& forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
     pub open spec fn meta_addr_at(self, regions: MetaRegionOwners, i: int) -> usize {
         regions.slots[meta_to_index(self.list[i].paddr)].addr()
     }
@@ -274,12 +312,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
 
     pub open spec fn meta_wf_at(self, regions: MetaRegionOwners, i: int) -> bool {
         let idx = meta_to_index(self.list[i].paddr);
-        typed_meta_wf::<Link<M>>(*regions.slots[idx], self.metadata_perms[i], self.repr_perms[i])
+        typed_meta_wf::<Link<M>>(*regions.slots[idx], self.metadata_perms[i])
     }
 
     pub open spec fn meta_value_at(self, regions: MetaRegionOwners, i: int) -> Link<M> {
         let idx = meta_to_index(self.list[i].paddr);
-        typed_meta_value::<Link<M>>(self.metadata_perms[i], self.repr_perms[i])
+        typed_meta_value::<Link<M>>(self.metadata_perms[i])
     }
 
     /// The per-link invariant expressed directly over the region-owned slot and
@@ -322,7 +360,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// edits mutate `regions.slots[meta_to_index(self.list[i].paddr)]` and must not alias).
     #[verifier::opaque]
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
-        &&& self.repr_perms.len() == self.list.len()
         &&& self.metadata_perms.len() == self.list.len()
         &&& forall|i: int|
             #![trigger self.list[i]]
@@ -340,7 +377,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         requires
             self.relate_region(regions),
         ensures
-            self.repr_perms.len() == self.list.len(),
             self.metadata_perms.len() == self.list.len(),
             self.list.len() > 0 ==> self.list_id != 0,
     {
@@ -480,7 +516,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let idx = meta_to_index(self.list[i].paddr);
                 let value = self.meta_value_at(regions, i);
                 &&& regions.contains(idx)
-                &&& self.repr_perms.len() == self.list.len()
                 &&& self.metadata_perms.len() == self.list.len()
                 &&& regions.slots[idx].addr() == self.list[i].paddr
                 &&& regions.ref_count(idx) == REF_COUNT_UNIQUE
@@ -563,7 +598,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// reaches old `n+1`, new position `n` reaches old `n-1`), which is exactly
     /// where the body rewired the link pointers.
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(60)]
+    #[verifier::rlimit(120)]
     pub proof fn lemma_pop_preserves_relate_region(
         old: LinkedListOwner<M>,
         r0: MetaRegionOwners,
@@ -575,7 +610,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= n < old.list.len(),
             old.relate_region(r0),
             new.list == old.list.remove(n),
-            new.repr_perms.len() == new.list.len(),
             new.metadata_perms.len() == new.list.len(),
             new.list_id == old.list_id,
             forall|p: int|
@@ -587,10 +621,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     } else {
                         p - 1
                     };
-                    let fp = typed_meta_value::<Link<M>>(
-                        new.metadata_perms[np],
-                        new.repr_perms[np],
-                    );
+                    let fp = typed_meta_value::<Link<M>>(new.metadata_perms[np]);
                     &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].paddr
                     &&& fr.slots[i].pptr() == r0.slots[i].pptr()
@@ -602,11 +633,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& new.metadata_perms[np].vtable_ptr_perm.is_init()
                     &&& fr.slot_owners[i].usage is Frame
                     &&& fr.slot_owners[i].in_list_perm.value() == new.list_id
-                    &&& typed_meta_wf::<Link<M>>(
-                        *fr.slots[i],
-                        new.metadata_perms[np],
-                        new.repr_perms[np],
-                    )
+                    &&& typed_meta_wf::<Link<M>>(*fr.slots[i], new.metadata_perms[np])
                     &&& fr.slots[i].addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fr.slots[i].addr()
                         < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
@@ -724,7 +751,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         } else {
             p + 1
         };
-        let fp = typed_meta_value::<Link<M>>(self.metadata_perms[np], self.repr_perms[np]);
+        let fp = typed_meta_value::<Link<M>>(self.metadata_perms[np]);
         &&& fr.contains(i)
         &&& fr.slots[i].is_init()
         &&& fr.slots[i].addr() == old.list[p].paddr
@@ -743,13 +770,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& (p == n - 1 ==> {
             &&& fp.next is Some
             &&& fp.next->0.addr() == link.paddr
-            &&& fp.next->0.ptr.addr() == fr.slots[ins].pptr().addr()
+            &&& fp.next->0.addr() == fr.slots[ins].pptr().addr()
         })
         &&& (p != n - 1 ==> fp.next == old.meta_value_at(r0, p).next)
         &&& (p == n ==> {
             &&& fp.prev is Some
             &&& fp.prev->0.addr() == link.paddr
-            &&& fp.prev->0.ptr.addr() == fr.slots[ins].pptr().addr()
+            &&& fp.prev->0.addr() == fr.slots[ins].pptr().addr()
         })
         &&& (p != n ==> fp.prev == old.meta_value_at(r0, p).prev)
     }
@@ -798,7 +825,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= n <= old.list.len(),
             old.relate_region(r0),
             new.list == old.list.insert(n, link),
-            new.repr_perms.len() == new.list.len(),
             new.metadata_perms.len() == new.list.len(),
             new.list_id != 0,
             old.list.len() > 0 ==> new.list_id == old.list_id,
@@ -831,12 +857,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& (n > 0 ==> {
                     &&& fpn.prev is Some
                     &&& fpn.prev->0.addr() == old.list[n - 1].paddr
-                    &&& fpn.prev->0.ptr.addr() == old.meta_pptr_at(r0, n - 1).addr()
+                    &&& fpn.prev->0.addr() == old.meta_pptr_at(r0, n - 1).addr()
                 })
                 &&& (n < old.list.len() ==> {
                     &&& fpn.next is Some
                     &&& fpn.next->0.addr() == old.list[n].paddr
-                    &&& fpn.next->0.ptr.addr() == old.meta_pptr_at(r0, n).addr()
+                    &&& fpn.next->0.addr() == old.meta_pptr_at(r0, n).addr()
                 })
             }),
             forall|p: int|
@@ -927,7 +953,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> View for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> View for LinkedListOwner<M> {
     type V = LinkedListModel;
 
     open spec fn view(&self) -> Self::V {
@@ -935,12 +961,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> View for LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> InvView for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> InvView for LinkedListOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
     /// Take ownership of `*owner` by swapping it with a fresh empty
     /// `LinkedListOwner`. The resulting "leftover" `*owner` has an empty
     /// `list`, so its `inv()` holds vacuously. Used by drop-style call sites
@@ -950,7 +976,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         ensures
             res == *old(owner),
             final(owner).list == Seq::<LinkOwner>::empty(),
-            final(owner).repr_perms == Seq::<LinkInnerPerms<M>>::empty(),
             final(owner).metadata_perms == Seq::<MetadataPerm>::empty(),
             final(owner).inv(),
     {
@@ -968,14 +993,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub proof fn tracked_destroy_empty(tracked self)
         requires
             self.list =~= Seq::<LinkOwner>::empty(),
-            self.repr_perms =~= Seq::<LinkInnerPerms<M>>::empty(),
             self.metadata_perms =~= Seq::<MetadataPerm>::empty(),
     {
         unimplemented!()
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for LinkedList<M> {
     type Owner = LinkedListOwner<M>;
 
     /// Structural well-formedness of the LinkedList against its owner: size,
@@ -1005,19 +1029,19 @@ impl Inv for CursorModel {
     }
 }
 
-pub tracked struct CursorOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+pub tracked struct CursorOwner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
     pub list_own: LinkedListOwner<M>,
     pub ghost index: int,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for CursorOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Inv for CursorOwner<M> {
     open spec fn inv(self) -> bool {
         &&& 0 <= self.index <= self.length()
         &&& self.list_own.inv()
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> View for CursorOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> View for CursorOwner<M> {
     type V = CursorModel;
 
     open spec fn view(&self) -> Self::V {
@@ -1030,12 +1054,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> View for CursorOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> InvView for CursorOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> InvView for CursorOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }
 
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for CursorMut<'a, M> {
+impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for CursorMut<'a, M> {
     type Owner = CursorOwner<M>;
 
     /// Structural well-formedness: `current` matches the link at `index`'s
@@ -1049,7 +1073,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for CursorMut<'a, M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedList<M> {
     /// Region-based analog of [`LinkedList::wf`]: the front/back pointer facts
     /// are stated directly over the region-owned slot pointers.
     pub open spec fn wf_region(self, owner: LinkedListOwner<M>, regions: MetaRegionOwners) -> bool {
@@ -1064,7 +1088,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     }
 }
 
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
+impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
     /// Region-based analog of [`CursorMut::wf`]: the current-link pointer facts
     /// are stated over the corresponding region-owned slot pointer.
     pub open spec fn wf_region(self, owner: CursorOwner<M>, regions: MetaRegionOwners) -> bool {
@@ -1088,7 +1112,7 @@ impl CursorModel {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorOwner<M> {
     pub open spec fn length(self) -> int {
         self.list_own.list.len() as int
     }
@@ -1112,7 +1136,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     pub open spec fn list_insert(
         cursor: Self,
         link: LinkOwner,
-        repr_perm: LinkInnerPerms<M>,
         metadata_perms: MetadataPerm,
         list_id: u64,
     ) -> (Self, LinkOwner) {
@@ -1121,7 +1144,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
             Self {
                 list_own: LinkedListOwner::<M> {
                     list: cursor.list_own.list.insert(cursor.index, link),
-                    repr_perms: cursor.list_own.repr_perms.insert(cursor.index, repr_perm),
                     metadata_perms: cursor.list_own.metadata_perms.insert(
                         cursor.index,
                         metadata_perms,
@@ -1146,14 +1168,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     pub proof fn tracked_list_insert(
         tracked cursor: &mut Self,
         tracked link: &mut LinkOwner,
-        tracked repr_perm: LinkInnerPerms<M>,
         tracked metadata_perms: MetadataPerm,
         list_id: u64,
     )
         requires
             list_id != 0,
             0 <= old(cursor).index <= old(cursor).list_own.list.len(),
-            old(cursor).list_own.repr_perms.len() == old(cursor).list_own.list.len(),
             old(cursor).list_own.metadata_perms.len() == old(cursor).list_own.list.len(),
             old(cursor).list_own.list.len() > 0 ==> list_id == old(cursor).list_own.list_id,
             old(cursor).list_own.list_id != 0 ==> list_id == old(cursor).list_own.list_id,
@@ -1162,7 +1182,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
                 let res = Self::list_insert(
                     *old(cursor),
                     *old(link),
-                    repr_perm,
                     metadata_perms,
                     list_id,
                 );
@@ -1175,7 +1194,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         let tracked list_entry = LinkOwner { paddr: link_paddr, in_list: list_id };
 
         cursor.list_own.list.tracked_insert(idx, list_entry);
-        cursor.list_own.repr_perms.tracked_insert(idx, repr_perm);
         cursor.list_own.metadata_perms.tracked_insert(idx, metadata_perms);
         cursor.list_own.list_id = list_id;
         cursor.index = idx + 1;
@@ -1235,7 +1253,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> UniqueFrameOwner<Link<M>> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> UniqueFrameOwner<Link<M>> {
     pub open spec fn frame_link_inv(&self, regions: MetaRegionOwners) -> bool {
         &&& self.meta_value(regions).prev is None
         &&& self.meta_value(regions).next is None
@@ -1244,7 +1262,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> UniqueFrameOwner<Link<M>> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> UniqueFrame<Link<M>> {
+impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> UniqueFrame<Link<M>> {
     pub open spec fn frame_link_inv(
         self,
         owner: UniqueFrameOwner<Link<M>>,

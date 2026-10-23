@@ -6,6 +6,7 @@
 #![feature(sized_hierarchy)]
 #![feature(btree_cursors)]
 #![feature(proc_macro_hygiene)]
+#![feature(ptr_metadata)]
 #![cfg_attr(verus_keep_ghost, feature(allocator_api))]
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
@@ -23,7 +24,6 @@ pub mod atomic_data;
 pub mod atomic_irc11;
 pub mod auxiliary;
 pub mod bits;
-pub mod cast_ptr;
 pub mod drop_tracking;
 pub mod external;
 pub mod function_properties;
@@ -49,5 +49,8 @@ pub mod seq_extra;
 pub mod set_extra;
 pub mod spec_operators;
 pub mod state_machine;
+pub mod substructural;
 pub mod sum;
 pub mod temporal_logic;
+pub mod transmute;
+pub mod typing;

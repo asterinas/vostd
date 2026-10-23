@@ -582,6 +582,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         &&& self.pt_inv_at_depth((INC_LEVELS - self.0.level()) as nat)
     }
 
+    // Enabling `type_id` adds the `TypeTag` sort and its axioms to the prelude,
+    // which perturbs Z3 here: every sub-assertion of the postcondition proves
+    // while the whole fails. Spinning the query off isolates it from that.
+    #[verifier::spinoff_prover]
     pub proof fn pt_inv_unroll(self, i: int)
         requires
             self.pt_inv(),
