@@ -13,11 +13,11 @@
 //!
 //! Resolving a historical message returns identity only. Reader protection and
 //! permission to reclaim an allocation belong to the surrounding RCU protocol.
-use vstd::{prelude::*, resource::Loc};
+use vstd::{prelude::*, raw_ptr::ptr_null_mut, resource::Loc};
 use vstd_extra::{
     atomic_irc11::{AtomicHistory, ThreadView},
     ownership::Inv,
-    rcu_objects::{RcuBlockInfo, RcuOwnedObject, RcuRegistration},
+    rcu_objects::{RcuBlockInfo, RcuDomainAuth, RcuOwnedObject, RcuRegistration},
 };
 
 use super::root::{RcuRootGhost, current_registration_matches, rcu_root_history_inv};
@@ -113,6 +113,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
 
     /// Initializes a root while retaining its registration and client resource.
     pub proof fn tracked_initial(
+        tracked domain: RcuDomainAuth,
         ptr: *mut T,
         tracked ownership: Option<O>,
         history: AtomicHistory<*mut T>,
@@ -120,9 +121,12 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         message_view: ThreadView,
     ) -> (tracked res: Self)
         requires
+            domain.inv(),
+            domain.objects() == Map::<nat, usize>::empty(),
             (ownership is Some) == (ptr.addr() != 0),
             history.is_singleton(timestamp, (ptr, message_view)),
         ensures
+            res.domain() == domain.id(),
             rcu_owned_root_history_inv(history, res),
             res.root().current_timestamp() == timestamp,
             res.current_ownership() == ownership,
@@ -139,6 +143,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             },
     {
         let tracked (root, registration) = RcuRootGhost::tracked_initial(
+            domain,
             ptr,
             history,
             timestamp,
@@ -292,6 +297,50 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         previous
     }
 
+    /// Appends another message for the current allocation while retaining all linear resources.
+    pub proof fn tracked_republish_current(
+        tracked &mut self,
+        prev: AtomicHistory<*mut T>,
+        next: AtomicHistory<*mut T>,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: ThreadView,
+    )
+        requires
+            rcu_owned_root_history_inv(prev, *old(self)),
+            old(self).root().current_timestamp() < new_timestamp,
+            next == prev.insert(new_timestamp, value, message_view),
+            old(self).current_owned() is Some,
+            equal(old(self).current_owned()->Some_0.block_info().ptr(), value),
+        ensures
+            rcu_owned_root_history_inv(next, *final(self)),
+            final(self).root().domain_auth() == old(self).root().domain_auth(),
+            final(self).root().current_timestamp() == new_timestamp,
+            final(self).current_owned() == old(self).current_owned(),
+            final(self).infos() == old(self).infos(),
+            final(self).root().publications() == old(self).root().publications().insert(
+                new_timestamp,
+                Some(old(self).current_owned()->Some_0.block_info().obj()),
+            ),
+    {
+        let ghost obj = self.current_owned()->Some_0.block_info().obj();
+        let tracked info = self.infos.tracked_borrow(obj);
+        self.root.tracked_push_registered(prev, next, new_timestamp, value, message_view, info);
+        assert(self.inv());
+        assert forall|ts: nat| next.contains_timestamp(ts) implies {
+            match #[trigger] self.root().publications()[ts] {
+                Some(obj) => equal(self.infos()[obj].ptr(), next.value(ts)),
+                None => true,
+            }
+        } by {
+            if ts != new_timestamp {
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
+                assert(self.root().publications()[ts] == old(self).root().publications()[ts]);
+            }
+        };
+    }
+
     /// Copies a message's typed allocation identity without borrowing its client resource.
     pub proof fn tracked_info_at(
         tracked &self,
@@ -325,6 +374,70 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             None => None,
         }
     }
+}
+
+/// Proves that replacement at a reused address preserves stale typed identities and client resources.
+pub proof fn lemma_stale_messages_preserve_typed_identity<T, O>(
+    first: *mut T,
+    second: *mut T,
+    tracked original: O,
+    tracked replacement: O,
+) -> (tracked res: (
+    RcuRootOwnedGhost<T, O>,
+    RcuOwnedObject<T, O>,
+    RcuBlockInfo<T>,
+    RcuBlockInfo<T>,
+))
+    requires
+        first.addr() != 0,
+        first.addr() == second.addr(),
+    ensures
+        res.0.inv(),
+        res.1.inv(),
+        res.1.ownership() == original,
+        res.0.current_ownership() == Some(replacement),
+        res.2.obj() == res.1.block_info().obj(),
+        res.2.obj() != res.3.obj(),
+        res.2.domain() == res.3.domain(),
+        res.2.addr() == res.3.addr() == first.addr(),
+        equal(res.2.ptr(), first),
+        equal(res.3.ptr(), second),
+        res.0.root().publications()[3] == Some(res.2.obj()),
+        res.0.root().publications()[8] == Some(res.2.obj()),
+        res.0.root().publications()[13] is None,
+        res.0.root().publications()[18] == Some(res.3.obj()),
+{
+    let ghost view = ThreadView::empty();
+    let ghost initial = AtomicHistory(Map::empty().insert(3nat, (first, view)));
+    let tracked mut root = RcuRootOwnedGhost::tracked_initial(
+        RcuDomainAuth::tracked_new(),
+        first,
+        Some(original),
+        initial,
+        3,
+        view,
+    );
+    let ghost repeated = initial.insert(8, first, view);
+    root.tracked_republish_current(initial, repeated, 8, first, view);
+    let ghost null = ptr_null_mut::<T>();
+    let ghost removed = repeated.insert(13, null, view);
+    let tracked previous = root.tracked_push_fresh(repeated, removed, 13, null, view, None);
+    let tracked previous = previous.tracked_unwrap();
+    let ghost reused = removed.insert(18, second, view);
+    let tracked no_previous = root.tracked_push_fresh(
+        removed,
+        reused,
+        18,
+        second,
+        view,
+        Some(replacement),
+    );
+    assert(no_previous is None);
+    let tracked stale_info = root.tracked_info_at(reused, 3).tracked_unwrap();
+    let tracked null_info = root.tracked_info_at(reused, 13);
+    assert(null_info is None);
+    let tracked current_info = root.tracked_info_at(reused, 18).tracked_unwrap();
+    (root, previous, stale_info, current_info)
 }
 
 } // verus!

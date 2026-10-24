@@ -41,6 +41,7 @@ pub mod map_extra;
 
 pub mod prelude;
 pub mod range;
+pub mod raw_callback;
 pub mod raw_ptr_extra;
 pub mod rcu_objects;
 pub mod rcu_read_lease;

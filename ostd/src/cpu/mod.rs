@@ -175,6 +175,15 @@ pub broadcast proof fn lemma_cpu_id_model(cpu_id: CpuId)
 {
 }
 
+/// Numeric CPU identity is injective, including for explicit RCU report masks.
+pub proof fn lemma_cpu_id_injective(left: CpuId, right: CpuId)
+    requires
+        left@ == right@,
+    ensures
+        left == right,
+{
+}
+
 impl TryFromSpecImpl<usize> for CpuId {
     open spec fn obeys_try_from_spec() -> bool {
         true

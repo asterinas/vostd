@@ -11,6 +11,7 @@ on:
       - "tools/patches/verus-irc11.patch"
       - "tools/patches/verus-irc11-vstd.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "tools/tests/rcu_callback_smoke.rs"
       - "dv"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -26,6 +27,7 @@ on:
       - "tools/patches/verus-irc11.patch"
       - "tools/patches/verus-irc11-vstd.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "tools/tests/rcu_callback_smoke.rs"
       - "dv"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -160,6 +162,64 @@ jobs:
             --features irc11,vstd/weak-memory
           cargo dv verify --targets ostd \
             --features irc11,vstd/weak-memory
+
+      - name: Check proof-carrying RCU callbacks
+        run: |
+          RCU_TEST_DIR=$(mktemp -d "$RUNNER_TEMP/rcu-callback.XXXXXX")
+          RCU_VERUS=tools/verus/source/target-verus/release/verus
+          export VERUS_Z3_PATH="$GITHUB_WORKSPACE/tools/verus/source/z3"
+          "$RCU_VERUS" --compile tools/tests/rcu_callback_smoke.rs -o "$RCU_TEST_DIR/callback"
+          "$RCU_TEST_DIR/callback"
+          if "$RCU_VERUS" --cfg rcu_reject_wrong_proof tools/tests/rcu_callback_smoke.rs > "$RCU_TEST_DIR/wrong-proof.log" 2>&1; then
+            echo "RCU regression: callback accepted the wrong proof"
+            exit 1
+          fi
+          grep -q 'failed precondition' "$RCU_TEST_DIR/wrong-proof.log"
+          grep -Fq 'self.call_requires(proof@)' "$RCU_TEST_DIR/wrong-proof.log"
+          if "$RCU_VERUS" --cfg rcu_reject_double_call tools/tests/rcu_callback_smoke.rs > "$RCU_TEST_DIR/double-call.log" 2>&1; then
+            echo "RCU regression: callback accepted a second invocation"
+            exit 1
+          fi
+          grep -q 'use of moved value: `callback`' "$RCU_TEST_DIR/double-call.log"
+
+      - name: Reject quiescent reports with an active reader
+        run: |
+          RCU_TEST_DIR=$(mktemp -d "$RUNNER_TEMP/rcu-reader.XXXXXX")
+          RCU_LOCKFILE_BACKUP="$RCU_TEST_DIR/Cargo.lock.mainline"
+          cp Cargo.lock "$RCU_LOCKFILE_BACKUP"
+          trap 'cp "$RCU_LOCKFILE_BACKUP" Cargo.lock' EXIT
+          if cargo dv focus --targets ostd --features irc11,vstd/weak-memory -- \
+              --cfg rcu_reject_active_report --verify-only-module sync::rcu::acceptance \
+              > "$RCU_TEST_DIR/active-reader.log" 2>&1; then
+            echo "RCU regression: active reader was reported quiescent"
+            exit 1
+          fi
+          grep -q 'failed precondition' "$RCU_TEST_DIR/active-reader.log"
+          grep -Fq 'old(self).participant().fraction() == 1real' "$RCU_TEST_DIR/active-reader.log"
+
+      - name: Check owning-link safety boundaries
+        run: |
+          RCU_TEST_DIR=$(mktemp -d "$RUNNER_TEMP/rcu-link.XXXXXX")
+          RCU_LOCKFILE_BACKUP="$RCU_TEST_DIR/Cargo.lock.mainline"
+          cp Cargo.lock "$RCU_LOCKFILE_BACKUP"
+          trap 'cp "$RCU_LOCKFILE_BACKUP" Cargo.lock' EXIT
+          for rejection in report parent_close vacuity initialized_vacuity wrong_publication; do
+            if cargo dv focus --targets ostd --features irc11,vstd/weak-memory -- \
+                --cfg "rcu_reject_link_$rejection" --verify-only-module sync::rcu::acceptance \
+                > "$RCU_TEST_DIR/$rejection.log" 2>&1; then
+              echo "RCU regression: owning-link $rejection counterexample verified"
+              exit 1
+            fi
+          done
+          grep -q 'failed precondition' "$RCU_TEST_DIR/report.log"
+          grep -Fq 'old(context).participant().fraction() == 1real' "$RCU_TEST_DIR/report.log"
+          grep -Fq 'cannot move out of `parent_guard` because it is borrowed' "$RCU_TEST_DIR/parent_close.log"
+          grep -q 'assertion failed' "$RCU_TEST_DIR/vacuity.log"
+          grep -Fq 'assert(false);' "$RCU_TEST_DIR/vacuity.log"
+          grep -q 'assertion failed' "$RCU_TEST_DIR/initialized_vacuity.log"
+          grep -Fq 'assert(false);' "$RCU_TEST_DIR/initialized_vacuity.log"
+          grep -q 'failed precondition' "$RCU_TEST_DIR/wrong_publication.log"
+          grep -Fq 'self.accepts(value)' "$RCU_TEST_DIR/wrong_publication.log"
 
       - name: Check for unexpected source changes
         if: always()
