@@ -56,7 +56,11 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
         nonzero_from_primitive(self.view_ptr_mut()@.addr)
     }
 
-    axiom fn lemma_addr_view_eq_view_ptr_mut(self);
+    proof fn lemma_addr_view_eq_view_ptr_mut(self) {
+        broadcast use axiom_nonzero_from_primitive_view_eq;
+
+        self.lemma_addr_is_nonnull();
+    }
 
     #[verifier::external_body]
     #[verifier::when_used_as_spec(nonnull_addr_spec_wrapper)]
@@ -200,9 +204,20 @@ pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeS
 }
 
 impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
-    #[verifier::external_body]
-    fn map_addr_v<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>) {
-        unimplemented!()
+    fn map_addr_v<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> NonNull<T> {
+        proof! {
+            broadcast use { axiom_view_nonzero_from_primitive_eq };
+        }
+        /* `external_body` plus `unimplemented!()` left the transfer trusted and panicking; the
+         * body now performs it, so its call sites stop panicking.
+         * Origin Rust: <none; new executable code>
+         */
+        let addr = self.addr_v();
+        let new_addr = f(addr);
+        proof {
+            self.lemma_with_addr_properties(new_addr);
+        }
+        self.with_addr_v(new_addr)
     }
 
     uninterp spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;

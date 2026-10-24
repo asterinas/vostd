@@ -513,7 +513,6 @@ impl<V, const N: usize> Copy for ArrayPtr<V, N> {
 
 }
 
-#[verifier::external_body]
 #[inline(always)]
 pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
     ensures
@@ -526,6 +525,10 @@ pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
     opens_invariants none
     no_unwind
 {
+    /* The contract used to be trusted through `external_body`; vstd now discharges it.
+     * Origin Rust: <none; new executable code>
+     */
+    layout::layout_for_type_is_valid::<[V; N]>();
 }
 
 impl<V, const N: usize> ArrayPtr<V, N> {

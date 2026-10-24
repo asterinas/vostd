@@ -243,6 +243,11 @@ impl !Sync for DisabledLocalIrqGuard {
 /* unsafe impl InAtomicMode for DisabledLocalIrqGuard {} */
 
 impl DisabledLocalIrqGuard {
+    /// The `was_enabled` flag, public so that `transfer_to` can state it in its postcondition.
+    pub closed spec fn was_enabled_spec(self) -> bool {
+        self.was_enabled
+    }
+
     #[verifier::external_body]
     fn new() -> Self {
         let was_enabled = irq::is_local_enabled();
@@ -254,8 +259,19 @@ impl DisabledLocalIrqGuard {
 }
 
 impl GuardTransfer for DisabledLocalIrqGuard {
-    #[verifier::external_body]
-    fn transfer_to(&mut self) -> Self {
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - The new guard carries the flag the receiver recorded before the call, so dropping it
+    ///   re-enables IRQs exactly when dropping the transferred guard would have.
+    /// - The receiver is left with the flag cleared, so dropping it cannot re-enable IRQs.
+    /// ## Safety
+    /// The guard's bookkeeping moves without a gap and the function does not unwind. The
+    /// hardware IRQ state itself is not modeled by the specification.
+    fn transfer_to(&mut self) -> (ret: Self)
+        ensures
+            ret.was_enabled_spec() == old(self).was_enabled_spec(),
+            !final(self).was_enabled_spec(),
+    {
         let was_enabled = self.was_enabled;
         self.was_enabled = false;
         Self { was_enabled }
