@@ -11,7 +11,7 @@ use crate::specs::{
 };
 
 use super::meta_owners::{
-    FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
+    FracMetadataPerm, MetaSlotOwner, MetaSlotStorage, MetadataPerm, PageUsage,
 };
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,

@@ -952,22 +952,13 @@ impl PageTable<KernelPtConfig> {
             assert(kernel_owner.0.value().metaregion_sound(*regions));
         }
         let mut root_node = {
-            /* The root's counting permission is held by NodeOwner; borrowing
-             * with that external permission preserves the pointer and refcount.
-             * Origin Rust: let root_ref = self.root.borrow();
-             */
-            #[verus_spec(with Tracked(&root_owner.frame_permission), Tracked(&*regions))]
-            let root_ref = self.root.borrow_with_permission();
-            #[verus_spec(with Tracked(root_owner), Tracked(guards))]
+            let root_ref = self.root.borrow();
+            #[verus_spec(with Tracked(guards), Tracked(regions.tracked_borrow_slot_owner(root_ref.inner@.start_paddr_spec()).metadata_perm.tracked_borrow()))]
             root_ref.lock(preempt_guard)
         };
-        let mut new_node: PageTableGuard<'rcu, UserPtConfig> = {
-            /* The fresh root's permission is held by new_node_owner.
-             * Origin Rust: let new_ref = new_root.borrow();
-             */
-            #[verus_spec(with Tracked(&new_node_owner.frame_permission), Tracked(&*regions))]
-            let new_ref = new_root.borrow_with_permission();
-            #[verus_spec(with Tracked(&new_node_owner), Tracked(guards))]
+        let mut new_node: PageTableGuard<'_, UserPtConfig> = {
+            let new_ref = new_root.borrow();
+            #[verus_spec(with Tracked(guards), Tracked(regions.tracked_borrow_slot_owner(new_ref.inner@.start_paddr_spec()).metadata_perm.tracked_borrow()))]
             new_ref.lock(preempt_guard)
         };
         let mut i: usize = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start;
@@ -1035,7 +1026,7 @@ impl PageTable<KernelPtConfig> {
             #[verus_spec(with Tracked(root_owner), Tracked(entry_owner), Tracked(&*regions))]
             let root_entry = root_node.entry(i);
             let ghost pre_to_ref_regions: MetaRegionOwners = *regions;
-            #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions))]
+            #[verus_spec(with Tracked(entry_owner), Tracked(regions.tracked_borrow_slot_owner(root_entry.node.inner.inner@.start_paddr_spec()).metadata_perm.tracked_borrow()), Tracked(&*regions))]
             let child = root_entry.to_ref();
 
             proof {
@@ -1118,7 +1109,9 @@ impl<C: PageTableConfig> PageTable<C> {
     ) -> bool {
         &&& owner.inv()
         &&& self.root.ptr.addr() == owner.0.value().node().slot_vaddr()
-        &&& self.root.external_meta_wf(owner.0.value().node().frame_permission.resource(), ())
+        &&& self.root.inv()
+        &&& owner.0.value().node().permission_matches(self.root.frac_metadata_perm())
+        &&& owner.0.value().node_permission is None
         &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
         &&& owner.0.value().node().level() == NR_LEVELS
         &&& owner.0.value().path == vstd_extra::ghost_tree::TreePath::<NR_ENTRIES>::new(

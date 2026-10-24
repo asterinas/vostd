@@ -302,6 +302,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         |i: int, child: Option<OwnerSubtree<C>>|
             {
                 child is Some ==> {
+                    &&& child->0.value().is_node() ==> child->0.value().node_permission is Some
                     &&& child->0.value().parent_level == self.level()
                     &&& child->0.level() == self.tree_level + 1
                     &&& child->0.value().path.len() == self.entry_own.node().tree_level + 1
@@ -342,6 +343,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             0 <= i < self.children.len(),
             self.children[i] is Some,
         ensures
+            self.children[i]->0.value().is_node()
+                ==> self.children[i]->0.value().node_permission is Some,
             self.children[i]->0.value().parent_level == self.level(),
             self.children[i]->0.level() == self.tree_level + 1,
             self.children[i]->0.value().path.len() == self.entry_own.node().tree_level + 1,
@@ -361,6 +364,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& self.pt_inv_children()
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
+        &&& self.tree_level > 0 ==> self.entry_own.node_permission is Some
         &&& self.entry_own.node().relate_guard(self.guard)
         &&& self.tree_level == INC_LEVELS - self.level() - 1
         &&& self.tree_level < INC_LEVELS - 1
@@ -483,6 +487,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             child_value.path == entry_own.path.push_tail(idx as int),
             child_value.path.len() == parent_owner.tree_level + 1,
         ensures
+            child_value.is_node() ==> child_value.node_permission is Some,
             child_value.path.len() == parent_owner.tree_level + 1,
             child_value.match_pte(
                 parent_owner.children_perm.value()[idx as int],
@@ -524,6 +529,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.entry_own.is_absent() == cont_old.entry_own.is_absent(),
             self.entry_own.path == cont_old.entry_own.path,
             self.entry_own.parent_level == cont_old.entry_own.parent_level,
+            self.entry_own.node_permission == cont_old.entry_own.node_permission,
             // entry_own's new parent is well-formed and structurally matches the old
             self.entry_own.is_node(),
             self.entry_own.inv(),
@@ -549,6 +555,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             // The new child at idx is well-formed
             self.children[self.idx as int] is Some,
             self.children[self.idx as int]->0.inv(),
+            self.children[self.idx as int]->0.value().is_node()
+                ==> self.children[self.idx as int]->0.value().node_permission is Some,
             self.children[self.idx as int]->0.value().parent_level == self.level(),
             self.children[self.idx as int]->0.value().path == self.path().push_tail(
                 self.idx as int,
@@ -1053,6 +1061,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == old_regions.slot_owners[idx].ref_count_perm.id(),
             new_regions.slot_owners[idx].metadata_perm.id()
                 == old_regions.slot_owners[idx].metadata_perm.id(),
+            new_regions.slot_owners[idx].metadata_perm()
+                == old_regions.slot_owners[idx].metadata_perm(),
             new_regions.slot_owners[idx].metadata_perm.frac() + 1
                 == old_regions.slot_owners[idx].metadata_perm.frac(),
             new_regions.slot_owners[idx].in_list_perm == old_regions.slot_owners[idx].in_list_perm,
@@ -1517,6 +1527,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[idx].ref_count_perm.id(),
             regions1.slot_owners[idx].metadata_perm.id()
                 == regions0.slot_owners[idx].metadata_perm.id(),
+            regions1.slot_owners[idx].metadata_perm() == regions0.slot_owners[idx].metadata_perm(),
             regions1.slot_owners[idx].metadata_perm.frac() + 1
                 == regions0.slot_owners[idx].metadata_perm.frac(),
             regions1.slot_owners[idx].in_list_perm == regions0.slot_owners[idx].in_list_perm,

@@ -1,6 +1,7 @@
 use vstd::{
     cell::{self, pcell_maybe_uninit},
     prelude::*,
+    resource::Loc,
     simple_pptr::*,
 };
 use vstd_extra::{array_ptr, ownership::*};
@@ -189,13 +190,17 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 /// - `children_perm` is an array permission for the underlying frame in which the node
 ///   is allocated, interpreted as an array of `NR_ENTRIES` page table entries
 /// - `slot_index` identifies the underlying frame's index in the metadata region
+/// - `metadata` and `metadata_id` are identity snapshots, not permissions.
+///   The owning Frame or incoming PTE holds this node's counted token.
 /// - Each node is a page table with a level between 1 and 4 (on x86); `level` tracks
 ///   the level of this node.
 /// - `tree_level` is the level field of the `ghost_tree::TreeNode` that carries this object.
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
-    pub frame_permission: FracMetadataPerm,
+    /// Identity snapshots; the incoming PTE or owning Frame holds the token.
+    pub ghost metadata: MetadataPerm,
+    pub ghost metadata_id: Loc,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub ghost tree_level: int,
     pub ghost slot_index: int,
@@ -204,7 +209,6 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
-        &&& self.frame_permission.frac() == 1
         &&& 1 <= self.level() <= NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
@@ -222,20 +226,11 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
-    pub proof fn tracked_borrow_frame_metadata_perm(
-        tracked permission: &FracMetadataPerm,
-    ) -> (tracked res: &MetadataPerm)
-        ensures
-            *res == permission.resource(),
-    {
-        permission.tracked_borrow()
-    }
-
-    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> tracked &MetadataPerm
-        returns
-            self.frame_permission.resource(),
-    {
-        self.frame_permission.tracked_borrow()
+    /// Relates an actual counted token to this non-owning node identity.
+    pub open spec fn permission_matches(self, permission: FracMetadataPerm) -> bool {
+        &&& permission.frac() == 1
+        &&& permission.id() == self.metadata_id
+        &&& permission.resource() == self.metadata
     }
 
     /// The meta address of this node's slot, computed from `slot_index`.
@@ -244,15 +239,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
-        typed_meta_wf::<PageTablePageMeta<C>>(
-            *regions.slots[self.slot_index],
-            self.frame_permission.resource(),
-            (),
-        )
+        typed_meta_wf::<PageTablePageMeta<C>>(*regions.slots[self.slot_index], self.metadata, ())
     }
 
     pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
-        typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
+        typed_meta_value::<PageTablePageMeta<C>>(self.metadata, ())
     }
 
     pub open spec fn level(self) -> PagingLevel {
@@ -266,7 +257,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
         let idx = self.slot_index;
         &&& regions.contains(idx)
         &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
-        &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
+        &&& self.metadata_id == regions.slot_owners[idx].metadata_perm.id()
+        &&& self.metadata == regions.slot_owners[idx].metadata_perm()
         &&& self.meta_wf(regions)
         &&& self.meta_value().wf(
             self.meta_own,
@@ -330,7 +322,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& guard.inner.inner@.wf(self)
-        &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
+        &&& guard.inner.inner@.external_meta_wf(self.metadata, ())
+        &&& guard.inner.tracked_metadata_perm@ matches Some(permission) ==> {
+            &&& guard.inner.inv()
+            &&& self.permission_matches(*permission)
+        }
     }
 }
 

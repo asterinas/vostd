@@ -304,6 +304,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(child.inv_children_rel()) by {
             assert forall|j: int|
                 0 <= j < NR_ENTRIES && #[trigger] child.children[j] is Some implies {
+                &&& child.children[j]->0.value().is_node()
+                    ==> child.children[j]->0.value().node_permission is Some
                 &&& child.children[j].unwrap().value().parent_level == child.level()
                 &&& child.children[j].unwrap().level() == child.tree_level + 1
                 &&& child.children[j].unwrap().value().path.len()

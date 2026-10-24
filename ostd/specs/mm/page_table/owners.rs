@@ -259,6 +259,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
             kind: EntryOwnerKind::Absent,
+            node_permission: None,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv) as PagingLevel,
         }
@@ -530,6 +531,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.has_child(i)
+        &&& parent.child(i).value().is_node() ==> parent.child(i).value().node_permission is Some
         &&& parent.child(i).value().path.len() == parent.value().node().tree_level
             + 1
         // The child either matches its PTE as an owned node/frame/absent
