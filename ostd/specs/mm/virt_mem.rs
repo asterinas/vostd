@@ -376,14 +376,14 @@ impl MemView {
     ///
     /// ## Postconditions
     /// - `*self == old(self).join(other)`.
-    #[verifier::external_body]
     pub proof fn tracked_join(tracked &mut self, tracked other: Self)
         requires
             old(self).mappings.disjoint(other.mappings),
         ensures
             *final(self) == old(self).join(other),
     {
-        unimplemented!()
+        self.mappings = self.mappings.union(other.mappings);
+        self.memory.tracked_union_prefer_right(other.memory);
     }
 
     /// Lemma: splitting and then joining reconstructs the original view.
@@ -716,12 +716,15 @@ impl VirtPtr {
     /// alignment is checked. The returned pointer carries no provenance — it
     /// is suitable for runtime checks (e.g., `is_aligned`) and for unsafe
     /// volatile reads/writes whose preconditions are independently verified.
-    #[verifier::external_body]
     pub fn cast<T>(self) -> (res: *mut T)
         ensures
             res as usize == self.vaddr,
     {
-        self.vaddr as *mut T
+        /* Verus rejects the `usize` to `*mut T` cast; `with_addr` builds the same address
+         * from a null pointer, which also matches the documented null provenance.
+         * Origin Rust: self.vaddr as *mut T
+         */
+        core::ptr::null_mut::<T>().with_addr(self.vaddr)
     }
 
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
