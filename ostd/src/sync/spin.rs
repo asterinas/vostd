@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{self, pcell::*};
-use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
+use vstd::{
+    atomic_ghost::*,
+    cell::{self, pcell::*},
+    prelude::*,
+};
 use vstd_extra::prelude::*;
 
 use core::{
@@ -114,7 +116,7 @@ proof fn tracked_borrow_mut<R>(tracked resource: &mut R) -> (tracked result: &mu
 pub struct SpinLock<T, G, I: ResourceInvariant<T> = TrivialResourceInvariant> {
     phantom: PhantomData<G>,
     /// Only the last field of a struct may have a dynamically sized type.
-    /// That's why SpinLockInner is put in the last field.
+    /// That's why `SpinLockInner` is put in the last field.
     inner: SpinLockInner<T, I>,
 }
 
@@ -407,7 +409,10 @@ impl<T /*: ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLock<T, G, I
             resource.perm.id() == self.inner.val.id(),
             I::inv(self.constant(), resource.value(), resource.resource()),
     )]
-    fn release_lock(&self) {
+    /// # Safety
+    ///
+    /// The caller must ensure that it has acquired the lock.
+    unsafe fn release_lock(&self) {
         proof!{
             use_type_invariant(self);
         }
@@ -429,7 +434,7 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
     }
 }*/
 
-// SAFETY: Only a single lock holder is permitted to access the inner data of Spinlock.
+// SAFETY: Only a single lock holder is permitted to access the inner data of `Spinlock`.
 #[verifier::external]
 unsafe impl<T: Send, G, I: ResourceInvariant<T>> Send for SpinLock<T, G, I> where I::Resource: Send {}
 #[verifier::external]
@@ -573,7 +578,8 @@ impl<T: /* ?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> DerefMut
 
 /* impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {
     fn drop(&mut self) {
-        self.lock.release_lock();
+        // SAFETY: The spin lock is locked.
+        unsafe { self.lock.release_lock() };
     }
 }
 */
@@ -592,8 +598,11 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
             let tracked resource = self.tracked_resource.get();
             let tracked resource = SpinLockResource { perm, resource };
         }
-        proof_with!(Tracked(resource));
-        self.lock.release_lock();
+        // SAFETY: The spin lock is locked.
+        unsafe {
+            proof_with!(Tracked(resource));
+            self.lock.release_lock();
+        }
     }
 }
 
@@ -603,10 +612,9 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
     }
 }*/
 
+// `G::Guard` is `!Send` and `!Sync`, so is `SpinLockGuard`.
 #[verus_verify]
 impl<T: ?Sized, G: SpinGuardian, I: ResourceInvariant<T>> !Send for SpinLockGuard<'_, T, G, I> {}
 
-#[verifier::external]
-// SAFETY: `SpinLockGuard` can be shared between tasks/threads in same CPU.
-// As `lock()` is only called when there are no race conditions caused by interrupts.
-unsafe impl<T: Sync, G: SpinGuardian, I: ResourceInvariant<T>> Sync for SpinLockGuard<'_, T, G, I> {}
+#[verus_verify]
+impl<T: ?Sized, G: SpinGuardian, I: ResourceInvariant<T>> !Sync for SpinLockGuard<'_, T, G, I> {}

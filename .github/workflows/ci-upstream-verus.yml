@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
+          - ubuntu-latest
           - macos-14
     env:
       CARGO_TERM_COLOR: always

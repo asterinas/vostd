@@ -3,19 +3,18 @@ use vstd::prelude::*;
 use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
-        frame::{
-            mapping::frame_to_index,
-            meta_owners::{PageUsage, is_mmio_paddr},
-            meta_region_owners::MetaRegionOwners,
+        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
+        page_table::{
+            cursor::owners::*, is_valid_range_spec,
+            vaddr_range_proofs::lemma_page_table_managed_index_bounds, *,
         },
-        page_table::{cursor::owners::*, is_valid_range_spec, *},
     },
     task::InAtomicMode,
 };
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    PagingConstsTrait, Vaddr,
+    PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
     page_table::*,
 };
@@ -23,13 +22,57 @@ use core::ops::Range;
 
 verus! {
 
+impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+    /// Request addresses lie inside the locked node and satisfy configuration bounds.
+    pub proof fn lemma_barrier_va_bounds(self, va: Vaddr)
+        requires
+            self.inv(),
+            self.barrier_va.start <= va < self.barrier_va.end,
+            va % C::BASE_PAGE_SIZE() == 0,
+        ensures
+            self.locked_range().start <= va < self.locked_range().end,
+            vaddr_leading_part_spec::<C>(va) == page_table_coverage_start_spec::<C>(),
+            C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
+                < C::TOP_LEVEL_INDEX_RANGE().end,
+    {
+        C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_properties();
+        self.lemma_locked_range_span();
+        lemma_same_node_vaddr_leading_part_match::<C>(
+            va,
+            self.prefix,
+            self.prefix,
+            self.guard_level,
+        );
+        lemma_page_table_managed_index_bounds::<C>(va);
+    }
+}
+
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
+    /// Checks the range validity, ordering, and alignment enforced by the executable constructor.
+    pub open spec fn cursor_new_input_valid(va: Range<Vaddr>) -> bool {
         &&& va.start < va.end
         &&& va.start % C::BASE_PAGE_SIZE() == 0
         &&& va.end % C::BASE_PAGE_SIZE() == 0
         &&& is_valid_range_spec::<C>(va)
+    }
+
+    /// Conditions for verified construction, including representable slot successors.
+    pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
+        let top = C::NR_LEVELS();
+        let end = page_table_coverage_end_spec::<C>();
+        // A request wholly in the last root slot must descend when root leaves are unsupported.
+        let reserve_level = if top > 1 && C::HIGHEST_TRANSLATION_LEVEL() < top && end - page_size::<
+            C,
+        >(top) <= va.start {
+            (top - 1) as PagingLevel
+        } else {
+            top
+        };
+        &&& Self::cursor_new_input_valid(va)
+        &&& va.end + page_size::<C>(reserve_level) <= end
     }
 
     pub open spec fn invariants(
@@ -38,6 +81,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         regions: MetaRegionOwners,
         guards: Guards,
     ) -> bool {
+        &&& self.va <= self.barrier_va.end
         &&& owner.inv()
         &&& self.inv()
         &&& self.wf(owner)
@@ -55,26 +99,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// Panic condition for [`Self::query`]. `query` diverges *only* via the
     /// Arc-style refcount-saturation abort when it clones the **specific**
     /// frame the cursor resolves to. That happens iff:
-    ///  - the cursor is in range (out-of-range returns `Err` *before* any
-    ///    clone — the early `self.va >= barrier_va.end` exit), and
-    ///  - a mapping is present at the cursor (`owner@.present()`), and
-    ///  - the resolved leaf frame is tracked (non-MMIO, so cloning it bumps
-    ///    its slot's refcount — MMIO/untracked leaves never bump), and
+    ///  - the cursor is in range,
+    ///  - the resolved leaf owner carries a permission, so cloning
+    ///    it bumps its slot's refcount (raw RAM/MMIO mappings never bump),
     ///  - that slot's refcount is already at `REF_COUNT_MAX`, so the
     ///    `inc_ref_count` in `clone_item` would overflow and abort.
-    /// `owner@.query_mapping().pa_range.start` is exactly the paddr the
-    /// descent lands on (bridged by [`CursorOwner::lemma_cur_entry_frame_present`]).
     pub open spec fn query_panic_condition(
         self,
         owner: CursorOwner<'rcu, C>,
         regions: MetaRegionOwners,
     ) -> bool {
-        let pa = owner@.query_mapping().pa_range.start;
-        let idx = frame_to_index(pa);
         &&& self.barrier_va.start <= self.va < self.barrier_va.end
-        &&& owner@.present()
-        &&& !is_mmio_paddr(pa)
-        &&& regions.ref_count(idx) >= REF_COUNT_MAX
+        &&& PageTableOwner(owner.cur_subtree()).query_leaf(self.va) matches Some(entry) && {
+            &&& entry.is_frame()
+            &&& entry.frame_is_tracked()
+            &&& regions.ref_count(frame_to_index(entry.frame().mapped_pa)) >= REF_COUNT_MAX
+        }
     }
 
     pub open spec fn query_some_ensures(
@@ -140,6 +180,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.0.va >= self.0.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
+        ||| C::item_into_raw(item).1 > self.0.guard_level
         ||| self.0.va % page_size::<PagingConsts>(C::item_into_raw(item).1) != 0
         ||| self.0.va + page_size::<PagingConsts>(C::item_into_raw(item).1) > self.0.barrier_va.end
     }
@@ -147,7 +188,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
         let (paddr, level, prop, _perm) = C::item_into_raw(item);
-        &&& C::item_well_formed(item)
+        &&& C::item_well_formed(
+            item,
+        )
+        // Mapping may descend within the locked subtree, but cannot replace its parent PTE.
+        &&& level <= self.0.guard_level
         &&& entry_owner.inv()
         &&& (entry_owner.is_absent() || Child::Frame(paddr, level, prop).wf(entry_owner))
     }
@@ -156,42 +201,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let (pa, level, prop, perm) = C::item_into_raw(item);
         let size = page_size::<PagingConsts>(level);
         let range = pa..(pa + size) as usize;
-        regions.paddr_range_not_mapped(range)
+        perm@ is Some ==> regions.paddr_range_not_mapped(range)
     }
 
     pub open spec fn item_slot_in_regions_except_perm(
         item: C::Item,
         regions: MetaRegionOwners,
     ) -> bool {
-        let (pa, level, prop, perm) = C::item_into_raw(item);
+        let (pa, _level, _prop, perm) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
         &&& regions.contains(idx)
-        &&& regions.slot_owners[idx].usage !is PageTable
-        &&& regions.ref_count(idx)
-            != REF_COUNT_UNUSED
-        // Tracked items hold a refcount; untracked (MMIO) don't.
-        &&& perm@ is Some ==> regions.ref_count(idx)
-            > 0
-        // A tracked (mapped) item is a SHARED frame, never the UNIQUE sentinel:
-        // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
-        // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
-        // inv clause vacuous.
-        &&& perm@ is Some ==> regions.ref_count(idx)
-            <= REF_COUNT_MAX
-        // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
-        &&& level > 1 ==> {
-            forall|j: usize|
-                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE ==> {
-                    let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                    &&& regions.contains(sub_idx)
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx)
-                        > 0
-                    // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
-                    // into the mapped huge frame's `frame_sub_pages_valid`.
-                    &&& perm@ is Some ==> regions.ref_count(sub_idx) <= REF_COUNT_MAX
-                }
+        &&& perm@ is Some ==> {
+            &&& regions.slot_owners[idx].usage !is PageTable
+            &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
         }
     }
 
@@ -201,20 +223,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         &&& C::perm_well_formed_with_region(pa, perm, regions)
     }
 
-    pub proof fn item_slot_in_regions_facts(item: C::Item, regions: MetaRegionOwners)
-        requires
-            Self::item_slot_in_regions(item, regions),
+    pub proof fn lemma_item_slot_in_regions_facts(item: C::Item, regions: MetaRegionOwners)
         ensures
-            Self::item_slot_in_regions_except_perm(item, regions),
-            C::perm_well_formed_with_region(
-                C::item_into_raw(item).0,
-                C::item_into_raw(item).3,
-                regions,
-            ),
+            Self::item_slot_in_regions(item, regions) <==> {
+                &&& Self::item_slot_in_regions_except_perm(item, regions)
+                &&& C::perm_well_formed_with_region(
+                    C::item_into_raw(item).0,
+                    C::item_into_raw(item).3,
+                    regions,
+                )
+            },
     {
     }
 
-    pub proof fn item_slot_in_regions_preserved(
+    pub proof fn lemma_item_slot_in_regions_preserved(
         item: C::Item,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
@@ -222,32 +244,42 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             Self::item_slot_in_regions(item, regions0),
             Self::item_slot_in_regions_except_perm(item, regions1),
-            regions0.slots[frame_to_index(C::item_into_raw(item).0)]
-                == regions1.slots[frame_to_index(C::item_into_raw(item).0)],
-            regions0.slot_owners[frame_to_index(C::item_into_raw(item).0)].metadata_perm.id()
-                == regions1.slot_owners[frame_to_index(
-                C::item_into_raw(item).0,
-            )].metadata_perm.id(),
+            C::item_into_raw(item).3@ is Some ==> {
+                let idx = frame_to_index(C::item_into_raw(item).0);
+                &&& regions0.slots[idx] == regions1.slots[idx]
+                &&& regions0.slot_owners[idx].metadata_perm.id()
+                    == regions1.slot_owners[idx].metadata_perm.id()
+            },
         ensures
             Self::item_slot_in_regions(item, regions1),
     {
-        C::lemma_perm_well_formed_with_region_preserved(
-            C::item_into_raw(item).0,
-            C::item_into_raw(item).3,
-            regions0,
-            regions1,
-        );
+        if C::item_into_raw(item).3@ is Some {
+            C::lemma_perm_well_formed_with_region_preserved(
+                C::item_into_raw(item).0,
+                C::item_into_raw(item).3,
+                regions0,
+                regions1,
+            );
+        } else {
+            C::lemma_none_perm_well_formed(C::item_into_raw(item).0, regions1);
+        }
     }
 
-    pub proof fn all_item_slots_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners)
+    pub proof fn lemma_all_item_slots_preserved(
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+    )
         requires
             forall|idx: int| regions0.contains(idx) ==> #[trigger] regions1.contains(idx),
             forall|idx: int|
-                regions0.ref_count(idx) != REF_COUNT_UNUSED ==> #[trigger] regions1.slot_owners[idx]
-                    == regions0.slot_owners[idx],
-            forall|idx: int|
-                regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED
-                    ==> #[trigger] regions1.slots[idx] == regions0.slots[idx],
+                regions0.contains(idx) && regions0.ref_count(idx) != REF_COUNT_UNUSED ==> {
+                    &&& (#[trigger] regions1.slot_owners[idx]).same_permissions(
+                        regions0.slot_owners[idx],
+                    )
+                    &&& regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage
+                    &&& regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr
+                    &&& regions1.slots[idx] == regions0.slots[idx]
+                },
         ensures
             forall|item: C::Item|
                 #![trigger Self::item_slot_in_regions(item, regions0)]
@@ -261,23 +293,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 item,
                 regions0,
             ) implies #[trigger] Self::item_slot_in_regions(item, regions1) by {
-            let (pa, level, _prop, perm) = C::item_into_raw(item);
-            let idx = frame_to_index(pa);
-            assert(regions0.ref_count(idx) != REF_COUNT_UNUSED);
-            assert(Self::item_slot_in_regions_except_perm(item, regions1)) by {
-                if level > 1 {
-                    assert forall|j: usize|
-                        #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                        0 < j < page_size::<PagingConsts>(level) / PAGE_SIZE implies {
-                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        &&& regions1.contains(sub_idx)
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) != REF_COUNT_UNUSED
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) > 0
-                        &&& perm@ is Some ==> regions1.ref_count(sub_idx) <= REF_COUNT_MAX
-                    } by {};
-                }
-            };
-            Self::item_slot_in_regions_preserved(item, regions0, regions1);
+            let (pa, _level, _prop, _perm) = C::item_into_raw(item);
+            if C::item_into_raw(item).3@ is Some {
+                Self::lemma_item_slot_in_regions_preserved(item, regions0, regions1);
+            } else {
+                C::lemma_none_perm_well_formed(pa, regions1);
+            }
         };
     }
 

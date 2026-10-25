@@ -184,6 +184,21 @@ Pass rules stated in every prompt:
   facts as unknown.
 - Cite every violation by the guideline's kebab-case short name
   (`docs/coding-guidelines/README.md`).
+- Classify a finding by its suggested action. A finding whose
+  correction is to write or reword documentation or comments
+  (`document-verified-apis`, `document-real-proof-debt`) is
+  reportable only when the missing or wrong text would mislead a
+  reviewer about verified behavior or a trust boundary — a missing
+  or contradicting trusted-boundary/`Safety` statement for a newly
+  introduced verified API, or a doc claim inconsistent with the
+  contract. Completeness-only documentation findings — enumerating
+  trivial clauses the signature or ordinary rustdoc already states,
+  bullets not
+  mirroring every conjunct, retrofitting a module-level paragraph
+  onto code whose verification grew in the diff, wording or format
+  polish — are not findings; mention them at most once under
+  `Compliance`. A reportable documentation finding is always
+  `low`.
 - Include a `Compliance` list of rules the code demonstrably follows, with line references.
 - You may run read-only repository commands and standalone experiments in a disposable
   directory. Never edit, back up, restore, or construct modified variants of files in
@@ -226,7 +241,9 @@ Compliance:
 ```
 
 For maintainability and proof engineering, each current rule from the persona's
-guideline page appears at least once under either `Findings` or `Compliance`. For
+guideline page appears at least once under either `Findings` or `Compliance` —
+a rule with no violation appears under `Compliance` only; never surface a
+manufactured finding to clear the list. For
 workflow, include only the applicable triggered check(s); omit all non-triggered and
 all other workflow rules rather than recording N/A entries. Findings use a primary
 location inside the requested diff or file/range scope; out-of-scope support stays
@@ -250,7 +267,8 @@ One Markdown file:
 
 ## High      (one `###` per finding)
 ## Medium    (one `###` per finding)
-## Low       (one row per finding: Finding | Guideline | Detail)
+## Low       (one row per finding: Finding | Guideline | Detail;
+             merge rows sharing one guideline and root cause)
 ## Compliance
 ## Suggested fix order
 ## Retracted by verification    (only if any)

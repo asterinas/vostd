@@ -8,12 +8,7 @@ use vstd_extra::{auxiliary::OptionExtraFns, cast_ptr::*, ownership::*};
 
 use crate::specs::{
     arch::*,
-    mm::frame::{
-        mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
-        meta_owners::{MetaSlotStorage, MetadataPerm, borrow_meta, borrow_meta_mut},
-        meta_region_owners::MetaRegionOwners,
-        unique::*,
-    },
+    mm::frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners, unique::*},
 };
 
 use super::{
@@ -214,6 +209,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             self.slot().write_meta(metadata)
         };
 
+        proof {
+            slot_own.usage = metadata_perm.usage();
+        }
         proof_decl!{
         let tracked new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             meta_own_in,

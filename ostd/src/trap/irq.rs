@@ -233,6 +233,11 @@ impl !Send for DisabledLocalIrqGuard {
 
 }
 
+// Required by `InAtomicMode`. See the safety section of its doc comments.
+impl !Sync for DisabledLocalIrqGuard {
+
+}
+
 // SAFETY: The guard disables local IRQs, which meets the first
 // sufficient condition for atomic mode.
 /* unsafe impl InAtomicMode for DisabledLocalIrqGuard {} */

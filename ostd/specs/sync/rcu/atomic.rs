@@ -10,7 +10,10 @@ use vstd::{prelude::*, raw_ptr::spec_cast_ptr_to_thin_ptr, resource::Loc};
 use vstd_extra::{
     atomic_irc11::{AtomicPointsTo, Objective, ThreadView, load_acquire},
     ownership::Inv,
-    rcu_objects::RcuBlockInfo,
+    rcu_objects::{
+        RcuBlockInfo,
+        owned_root::{RcuRootOwnedGhost, rcu_owned_root_history_inv},
+    },
 };
 
 use super::{
@@ -20,7 +23,6 @@ use super::{
         RcuLinkObservation, RcuLinkRemoval, lemma_observed_link_removals, lemma_owned_link_graph,
         owned_link_graph,
     },
-    owned_root::{RcuRootOwnedGhost, rcu_owned_root_history_inv},
     permissions::{CpuRcuLeaseWitness, RcuReclaimClaim, RcuRootPermissionState, RcuRootReadLease},
     retirement::{
         RcuRemovalObservation, RcuRetiredFact, RcuRetiredRecord, RcuRetiredRegistration,

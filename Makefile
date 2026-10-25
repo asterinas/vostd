@@ -6,12 +6,12 @@ VERIFICATION_TARGETS := \
 .PHONY: all verify $(VERIFICATION_TARGETS) fmt build doc clean verus verus-upgrade
 
 $(VERIFICATION_TARGETS):
-	cargo dv verify --targets $@
+	cargo dv verify --package $@
 
 all: verify
 
 verify:
-	cargo dv verify --targets $(VERIFICATION_TARGETS)
+	cargo dv verify --package $(VERIFICATION_TARGETS)
 
 fmt:
 	cargo dv fmt
@@ -21,7 +21,7 @@ build:
 
 doc:
 	cargo dv build -- --no-verify
-	cargo dv doc --target ostd
+	cargo dv doc --package ostd
 
 verus:
 	cargo dv bootstrap

@@ -48,9 +48,7 @@ use vstd_extra::{cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_h
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
-        linked_list::linked_list_owners::{
-            CursorOwner, LinkInnerPerms, LinkOwner, LinkedListOwner, MetaSlotSmall,
-        },
+        linked_list::linked_list_owners::*,
         mapping::{frame_to_index, meta_to_index},
         meta_owners::{MetadataPerm, PageUsage},
         meta_region_owners::MetaRegionOwners,

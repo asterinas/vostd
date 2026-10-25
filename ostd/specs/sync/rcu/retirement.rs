@@ -16,10 +16,11 @@ use vstd::{
 use vstd_extra::{
     atomic_irc11::{AtomicHistory, ThreadView as Irc11ThreadView},
     ownership::Inv,
-    rcu_objects::RcuOwnedObject,
+    rcu_objects::{
+        RcuOwnedObject,
+        owned_root::{RcuRootOwnedGhost, rcu_owned_root_history_inv},
+    },
 };
-
-use super::owned_root::{RcuRootOwnedGhost, rcu_owned_root_history_inv};
 
 verus! {
 

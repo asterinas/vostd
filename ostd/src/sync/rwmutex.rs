@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{self, CellId, pcell::*};
-use vstd::prelude::*;
-use vstd::resource::Loc;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
-use vstd_extra::resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*};
-use vstd_extra::sum::*;
+use vstd::{
+    atomic_ghost::*,
+    cell::{self, CellId, pcell::*},
+    prelude::*,
+    resource::Loc,
+    std_specs::fmt::{DebugSpec, DebugSpecImpl},
+};
+use vstd_extra::{
+    resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*},
+    sum::*,
+};
 
 use core::{
     cell::UnsafeCell,
+    fmt,
     ops::{Deref, DerefMut},
     sync::atomic::{
         // AtomicUsize,
@@ -529,8 +535,8 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
     }
 } */
 
-/// Because there can be more than one readers to get the T's immutable ref,
-/// so T must be Sync to guarantee the sharing safety.
+// There can be more than one readers to get the `T`'s immutable reference,
+// so `T` must be `Sync` to guarantee the sharing safety.
 #[verifier::external]
 unsafe impl<T:   /*: ?Sized +*/ Send> Send for RwMutex<T> {
 
@@ -615,6 +621,18 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexReadGuard<'_, T> {
     }
 }
 
+impl<T: fmt::Debug> DebugSpecImpl for RwMutexReadGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RwMutexReadGuard<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
 impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
     fn drop(self) {
         // When there are no readers, wake up a waiting writer.
@@ -681,6 +699,18 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexWriteGuard<'_, T> {
         }
         // unsafe { &*self.inner.val.get() }
         self.inner.val.borrow(Tracked(self.tracked_perm.borrow()))
+    }
+}
+
+impl<T: fmt::Debug> DebugSpecImpl for RwMutexWriteGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RwMutexWriteGuard<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 
@@ -1026,6 +1056,18 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
         self.inner.val.borrow(
             Tracked(self.tracked_token.borrow().tracked_borrow().tracked_borrow()),
         )
+    }
+}
+
+impl<T: fmt::Debug> DebugSpecImpl for RwMutexUpgradeableGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RwMutexUpgradeableGuard<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 

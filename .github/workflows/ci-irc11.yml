@@ -46,12 +46,12 @@ concurrency:
 jobs:
   verify-irc11:
     name: Build and verify
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
       VERUS_REPOSITORY: https://github.com/asterinas/verus.git
-      VERUS_BASE_COMMIT: 11e7ed5dc5168f5336298cf9bcf93454d37d0d06
+      VERUS_BASE_COMMIT: c0f528d93de7f79731895dad300a548005d5ee06
       VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
       VERUS_COMPAT_PATCH: tools/patches/verus-irc11-vstd.patch
 
@@ -158,9 +158,9 @@ jobs:
           IRC11_LOCKFILE_BACKUP="$RUNNER_TEMP/Cargo.lock.mainline"
           cp Cargo.lock "$IRC11_LOCKFILE_BACKUP"
           trap 'cp "$IRC11_LOCKFILE_BACKUP" Cargo.lock' EXIT
-          cargo dv verify --targets vstd_extra \
+          cargo dv verify --package vstd_extra \
             --features irc11,vstd/weak-memory
-          cargo dv verify --targets ostd \
+          cargo dv verify --package ostd \
             --features irc11,vstd/weak-memory
 
       - name: Check proof-carrying RCU callbacks
@@ -188,7 +188,7 @@ jobs:
           RCU_LOCKFILE_BACKUP="$RCU_TEST_DIR/Cargo.lock.mainline"
           cp Cargo.lock "$RCU_LOCKFILE_BACKUP"
           trap 'cp "$RCU_LOCKFILE_BACKUP" Cargo.lock' EXIT
-          if cargo dv focus --targets ostd --features irc11,vstd/weak-memory -- \
+          if cargo dv focus --package ostd --features irc11,vstd/weak-memory -- \
               --cfg rcu_reject_active_report --verify-only-module sync::rcu::acceptance \
               > "$RCU_TEST_DIR/active-reader.log" 2>&1; then
             echo "RCU regression: active reader was reported quiescent"
@@ -204,7 +204,7 @@ jobs:
           cp Cargo.lock "$RCU_LOCKFILE_BACKUP"
           trap 'cp "$RCU_LOCKFILE_BACKUP" Cargo.lock' EXIT
           for rejection in report parent_close vacuity initialized_vacuity wrong_publication; do
-            if cargo dv focus --targets ostd --features irc11,vstd/weak-memory -- \
+            if cargo dv focus --package ostd --features irc11,vstd/weak-memory -- \
                 --cfg "rcu_reject_link_$rejection" --verify-only-module sync::rcu::acceptance \
                 > "$RCU_TEST_DIR/$rejection.log" 2>&1; then
               echo "RCU regression: owning-link $rejection counterexample verified"

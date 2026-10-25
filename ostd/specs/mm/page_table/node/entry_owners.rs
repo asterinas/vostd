@@ -4,11 +4,7 @@ use vstd_extra::{ghost_tree::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::{
-        frame::{
-            mapping::{frame_to_index, index_to_meta, meta_to_index},
-            meta_owners::PageUsage,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::*, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners},
         page_table::*,
     },
 };
@@ -280,23 +276,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    /// The frame's `is_tracked` flag is pinned to its paddr's range membership:
-    /// tracked frames map regular RAM (non-MMIO paddrs); untracked frames map
-    /// MMIO. Combined with `axiom_mmio_usage_iff_mmio_paddr`, this lets proofs
-    /// translate between the derived frame trackedness and `usage == MMIO`
-    /// on the corresponding meta slot.
-    pub broadcast axiom fn axiom_frame_is_tracked_iff_not_mmio(entry: Self)
-        requires
-            entry.is_frame(),
-            entry.inv(),
-        ensures
-            #[trigger] entry.frame_is_tracked()
-                != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
-    ;
-
-    /// Creates a ghost entry owner for mapping an untracked (device memory) frame.
-    /// Unlike `new_frame`, this does not consume a slot permission from the meta region,
-    /// since device memory PAs are outside the tracked frame allocator.
+    /// Creates an untracked physical mapping without counted metadata ownership.
+    /// The mapped address may belong to ordinary RAM or MMIO.
     /// The actual mapping correctness is guaranteed by the caller's `unsafe` contract.
     ///
     /// The `requires` reflect properties established by `collect_largest_pages` and the page-table
@@ -364,19 +345,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& !pte.is_last(parent_level)
     }
 
-    pub proof fn last_pte_implies_frame_match(self, pte: C::E, parent_level: PagingLevel)
-        requires
-            self.inv(),
-            self.match_pte(pte, parent_level),
-            1 < parent_level,
-            pte.is_last(parent_level),
-        ensures
-            self.is_frame(),
-            self.frame().mapped_pa == pte.paddr(),
-            self.frame().prop == pte.prop(),
-    {
-    }
-
     pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)
         requires
             self.inv(),
@@ -432,111 +400,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    /// Helper: sub-page validity is preserved when the only slot that changed is the
-    /// frame's own slot (and slots map and other slot owners are unchanged).
-    pub proof fn frame_sub_pages_valid_preserved_at_own_slot(
-        self,
-        r0: MetaRegionOwners,
-        r1: MetaRegionOwners,
-    )
-        requires
-            self.inv(),
-            r0.inv(),
-            self.is_frame(),
-            self.parent_level <= NR_LEVELS,
-            self.frame_sub_pages_valid(r0),
-            r0.slots == r1.slots,
-            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
-            forall|i: int|
-                #![trigger r1.slot_owners[i]]
-                i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
-                    ==> r0.slot_owners[i] == r1.slot_owners[i],
-        ensures
-            self.frame_sub_pages_valid(r1),
-    {
-        if self.parent_level > 1 {
-            let pa = self.frame().mapped_pa;
-            let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
-            let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
-            C::lemma_huge_raw_item_untracked(
-                pa,
-                self.parent_level,
-                self.frame().prop,
-                Tracked(self.frame_permission()),
-            );
-            assert(!self.frame_is_tracked());
-            assert forall|j: usize|
-                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                0 < j < nr_pages implies {
-                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                &&& r1.slots.contains_key(sub_idx)
-                &&& self.frame_is_tracked() ==> {
-                    &&& r1.ref_count(sub_idx) != REF_COUNT_UNUSED
-                    &&& r1.ref_count(sub_idx) > 0
-                    &&& r1.ref_count(sub_idx) <= REF_COUNT_MAX
-                }
-            } by {
-                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                assert(r0.slots.contains_key(sub_idx));
-                assert(r1.slots.contains_key(sub_idx));
-                // From frame_sub_pages_valid(r0): slot existence is unconditional.
-                // sub_idx != self_idx by arithmetic: pa is PAGE_SIZE-aligned, so
-                // self_idx = pa / PAGE_SIZE, and sub_idx = (pa + j*PAGE_SIZE) / PAGE_SIZE
-                //         = pa/PAGE_SIZE + j = self_idx + j > self_idx (since j >= 1).
-                let pa_plus_int: int = pa + j * PAGE_SIZE;
-                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
-                    PagingConsts,
-                >(self.parent_level);
-                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
-                    PagingConsts,
-                >(self.parent_level);
-                vstd::arithmetic::div_mod::lemma_div_multiples_vanish_quotient(
-                    j as int,
-                    pa as int,
-                    PAGE_SIZE as int,
-                );
-                // Slot equality at sub_idx carries usage and rc forward.
-            }
-        }
-    }
-
-    /// Sub-page slot validity for huge frames (fine-grained: all 4KB pages within).
-    ///
-    /// When a frame at this entry has `parent_level > 1`, it is a huge page covering
-    /// `page_size(parent_level)` bytes. Every 4KB sub-page within this range (excluding
-    /// the j = 0 case which coincides with the frame's own slot) must be allocated
-    /// (in the free pool) with `rc != UNUSED`.
-    ///
-    /// The fine-grained form (over `j * PAGE_SIZE` rather than `j * page_size(L-1)`) is
-    /// what enables the recursive split case in `split_if_mapped_huge`: when splitting a
-    /// 1GB frame into 2MB sub-frames, each 2MB sub-frame's own sub-page validity (over
-    /// its 511 4KB sub-sub-pages) follows from the 1GB frame's fine-grained validity over
-    /// the corresponding subrange of indices.
-    pub open spec fn frame_sub_pages_valid(self, regions: MetaRegionOwners) -> bool {
-        self.is_frame() && self.parent_level > 1 ==> {
-            let pa = self.frame().mapped_pa;
-            let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
-            forall|j: usize|
-                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
-                0 < j < nr_pages ==> {
-                    let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                    // Slot existence is unconditional — the metadata array spans all
-                    // phys memory at boot, so every valid sub-page PA has an allocated slot.
-                    &&& regions.slots.contains_key(
-                        sub_idx,
-                    )
-                    // A tracked huge mapping would own one reference to every
-                    // covered base page. Current configs only permit untracked
-                    // huge mappings, so this implication is normally vacuous.
-                    &&& self.frame_is_tracked() ==> {
-                        &&& regions.ref_count(sub_idx) != REF_COUNT_UNUSED
-                        &&& regions.ref_count(sub_idx) > 0
-                        &&& regions.ref_count(sub_idx) <= REF_COUNT_MAX
-                    }
-                }
-        }
-    }
-
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
@@ -552,17 +415,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots[idx].addr() == index_to_meta(idx)
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
-            &&& regions.slot_owners[idx].usage !is PageTable
-            // Tracked vs MMIO discriminator is the slot's `usage`. MMIO slots
-            // stay in the free pool with `rc == UNUSED`; tracked slots have
-            // `rc > 0`. The slot's `usage == MMIO` is pinned by the paddr's
-            // range membership via `axiom_mmio_usage_iff_mmio_paddr`.
-            &&& regions.slot_owners[idx].usage !is MMIO ==> {
-                // A mapped (tracked) frame is SHARED.
+            &&& self.frame_is_tracked() ==> {
+                &&& regions.slot_owners[idx].usage !is PageTable
                 &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
+                &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             }
-            &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
-            &&& self.frame_sub_pages_valid(regions)
             &&& C::perm_well_formed_with_region(
                 self.frame().mapped_pa,
                 Tracked(self.frame_permission()),
@@ -606,9 +463,27 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    /// Physical-slot exclusion for owning entries; raw mappings impose no exclusion.
     pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
-        self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
-            ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
+        (self.is_node() || (self.is_frame() && self.frame_is_tracked())) && (other.is_node() || (
+        other.is_frame() && other.frame_is_tracked())) ==> {
+            self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
+                ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
+        }
+    }
+
+    /// An untracked mapping needs no counted ownership of its physical slot.
+    pub proof fn lemma_untracked_frame_metaregion_sound(self, regions: MetaRegionOwners)
+        requires
+            self.inv(),
+            self.is_frame(),
+            !self.frame_is_tracked(),
+            regions.inv(),
+        ensures
+            self.metaregion_sound(regions),
+    {
+        regions.lemma_contains_valid_frame_paddr(self.frame().mapped_pa);
+        C::lemma_none_perm_well_formed(self.frame().mapped_pa, regions);
     }
 
     /// `metaregion_sound` transfers when `slot_owners` matches and `slots` is a superset.
@@ -637,14 +512,40 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 r1,
             );
         }
-        if self.is_frame() && self.parent_level > 1 {
-            C::lemma_huge_raw_item_untracked(
+    }
+
+    /// Updating frame paths preserves metadata access and node ownership paths.
+    pub proof fn lemma_metaregion_sound_frame_paths_changed(
+        self,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            self.metaregion_sound(r0),
+            r0.inv(),
+            r1.inv(),
+            r0.slots == r1.slots,
+            forall|i: int|
+                #![trigger r1.slot_owners[i]]
+                r0.slot_owners.contains_key(i) ==> {
+                    &&& r1.slot_owners[i].same_permissions(r0.slot_owners[i])
+                    &&& r1.slot_owners[i].usage == r0.slot_owners[i].usage
+                    &&& r1.slot_owners[i].slot_vaddr == r0.slot_owners[i].slot_vaddr
+                    &&& r0.slot_owners[i].paths_in_pt.subset_of(r1.slot_owners[i].paths_in_pt)
+                    &&& r0.slot_owners[i].usage is PageTable ==> r1.slot_owners[i].paths_in_pt
+                        == r0.slot_owners[i].paths_in_pt
+                },
+        ensures
+            self.metaregion_sound(r1),
+    {
+        if self.is_frame() {
+            C::lemma_perm_well_formed_with_region_preserved(
                 self.frame().mapped_pa,
-                self.parent_level,
-                self.frame().prop,
                 Tracked(self.frame_permission()),
+                r0,
+                r1,
             );
-            assert(!self.frame_is_tracked());
         }
     }
 
@@ -671,7 +572,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     /// If `metaregion_sound(r0)` holds and `r1` differs from `r0` only at one slot index
     /// that this entry does not reference, then `metaregion_sound(r1)` also holds.
-    pub proof fn metaregion_sound_one_slot_changed(
+    pub proof fn lemma_metaregion_sound_one_slot_changed(
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
@@ -687,26 +588,18 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // slots preserved at the entry's index (frames read from slots)
             forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
             forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
-            self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
+            self.is_node() || (self.is_frame() && self.frame_is_tracked())
+                ==> self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
-            // Huge frames: if changed_idx is one of this frame's 4KB sub-page slots and
-            // that sub-slot is non-MMIO, the sub-page validity at changed_idx must still
-            // hold in r1. MMIO sub-pages keep `usage == MMIO` and `rc == UNUSED`.
-            self.is_frame() && self.parent_level > 1 ==> {
-                let pa = self.frame().mapped_pa;
-                let nr_pages = page_size::<PagingConsts>(self.parent_level) / PAGE_SIZE;
-                forall|j: usize|
-                    0 < j < nr_pages ==> {
-                        let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        sub_idx != changed_idx || r1.slot_owners[sub_idx].usage is MMIO || (
-                        r1.slots.contains_key(sub_idx) && r1.ref_count(sub_idx) != REF_COUNT_UNUSED
-                            && r1.ref_count(sub_idx) > 0 && r1.ref_count(sub_idx) <= REF_COUNT_MAX)
-                    }
-            },
+            self.meta_slot_paddr() is Some && frame_to_index(self.meta_slot_paddr()->0)
+                == changed_idx ==> r1.inv(),
         ensures
             self.metaregion_sound(r1),
     {
-        if self.meta_slot_paddr() is Some {
+        if self.is_frame() && !self.frame_is_tracked() && frame_to_index(self.meta_slot_paddr()->0)
+            == changed_idx {
+            self.lemma_untracked_frame_metaregion_sound(r1);
+        } else if self.meta_slot_paddr() is Some {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             assert(idx != changed_idx);
             assert(r0.slot_owners[idx] == r1.slot_owners[idx]);
@@ -727,15 +620,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 assert(self.node().meta_wf(r1));
                 assert(self.node().metaregion_sound_node(r1));
             }
-        }
-        if self.is_frame() && self.parent_level > 1 {
-            C::lemma_huge_raw_item_untracked(
-                self.frame().mapped_pa,
-                self.parent_level,
-                self.frame().prop,
-                Tracked(self.frame_permission()),
-            );
-            assert(!self.frame_is_tracked());
         }
     }
 }

@@ -1,6 +1,6 @@
 use vstd::{arithmetic::div_mod::lemma_mod_add_multiples_vanish, prelude::*};
 use vstd_extra::{
-    arithmetic::{lemma_nat_align_down_sound, nat_align_down},
+    arithmetic::{lemma_nat_align_down_sound, lemma_nat_align_down_within_block, nat_align_down},
     ghost_tree::*,
     ownership::*,
 };
@@ -8,15 +8,18 @@ use vstd_extra::{
 use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS},
     mm::{
-        Guards, Mapping, MetaRegionOwners,
         frame::mapping::meta_to_index,
         page_table::{
-            cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_base},
-            lemma_next_slot_pte_index, lemma_page_size_next, lemma_pte_index_bound,
+            cursor::{
+                owners::*,
+                page_size_lemmas::{lemma_page_size_ge_base, lemma_page_size_monotone},
+            },
             node::EntryOwner,
-            owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
-            pte_index_spec,
+            owners::*,
+            vaddr_range_proofs::lemma_page_table_managed_index_bounds,
+            *,
         },
+        *,
     },
 };
 
@@ -144,13 +147,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn max_steps(self) -> nat {
-        (self.max_steps_partial(self.level as usize) + Self::max_steps_subtree(
-            self.level as usize,
-        )) as nat
+        if self.at_or_past_barrier_end() {
+            0
+        } else {
+            (self.max_steps_partial(self.level as usize) + Self::max_steps_subtree(
+                self.level as usize,
+            )) as nat
+        }
     }
 
     /// Two owners with the same idx values from `start` upward have the same max_steps_partial.
-    pub proof fn max_steps_partial_eq(self, other: Self, start: usize)
+    pub proof fn lemma_max_steps_partial_eq(self, other: Self, start: usize)
         requires
             1 <= start <= NR_LEVELS + 1,
             forall|k: int|
@@ -161,7 +168,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS + 1 - start,
     {
         if start <= NR_LEVELS {
-            self.max_steps_partial_eq(other, (start + 1) as usize);
+            self.lemma_max_steps_partial_eq(other, (start + 1) as usize);
         }
     }
 
@@ -183,20 +190,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn push_level_owner_decreases_steps(self, guard: PageTableGuard<'rcu, C>)
         requires
             self.inv(),
+            self.in_barrier_va(),
             self.level > 1,
         ensures
             self.push_level_owner(guard).max_steps() < self.max_steps(),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         let new_self = self.push_level_owner(guard);
         let l = self.level as usize;
         let lm1 = (self.level - 1) as usize;
         // Continuations agree at indices [l-1, NR_LEVELS): only [l-2] changed.
-        new_self.max_steps_partial_eq(self, l);
-        // va.index[l-2] < NR_ENTRIES (from va.inv()).
-        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
+        new_self.lemma_max_steps_partial_eq(self, l);
         let new_child = new_self.continuations[lm1 - 1];
 
         // subtree(l) == NR * (subtree(lm1) + 1) (from def of max_steps_subtree, l > 1).
@@ -226,9 +231,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         broadcast use {
             CursorContinuation::group_lemmas,
             CursorOwner::group_lemmas,
@@ -272,7 +275,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
             !self.popped_too_high,
             self.level <= self.guard_level,
-            self.in_locked_range(),
+            self.in_barrier_va(),
             // The current entry is a node (we're descending into it)
             self.cur_entry_owner().is_node(),
             // The child node's guard relates to the new guard
@@ -286,16 +289,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard).inv(),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
-        // locking-work: when self.level == self.guard_level, self.inv() does
-        // not supply va.index[guard_level-1] == prefix.index[guard_level-1]
-        // (the conjunct at owners.rs:481-482 requires strict level < guard_level).
-        // After push_level, the new level < guard_level triggers that conjunct.
-        // Derive it from in_locked_range() for all cases.
-        self.lemma_in_locked_range_guard_index_eq_prefix();
-
         let new_owner = self.push_level_owner(guard);
 
         let old_cont = self.continuations[self.level - 1];
@@ -305,8 +300,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pte_index_spec::<C>(self.cur_va(), (self.level - 1) as PagingLevel),
             guard,
         );
-
-        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         assert(child.inv_children_rel()) by {
             assert forall|j: int|
@@ -364,7 +357,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
             !self.popped_too_high,
             self.level <= self.guard_level,
-            self.in_locked_range(),
+            self.in_barrier_va(),
             self.only_current_locked(guards),
             self.nodes_locked(guards),
             self.metaregion_sound(regions),
@@ -380,9 +373,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner(guard).nodes_locked(guards),
             self.push_level_owner(guard).metaregion_sound(regions),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         reveal(CursorContinuation::map_children);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
@@ -405,16 +396,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont_i = self.continuations[i];
 
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
-                let addr = cont_i.entry_own.node().slot_vaddr();
-                assert(addr == cur_entry.node().slot_vaddr());
-                let idx = meta_to_index(addr);
-                assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
-                assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
                 assert(set![cont_i.path()].contains(cur_entry_path));
 
-                assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
-                    old_cont.lemma_inv_children_rel_unroll(old_cont.idx as int);
-                };
                 assert(false);
             }
         };
@@ -517,10 +500,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *final(self) == old(self).push_level_owner(guard),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
-        assert(pte_index_spec::<C>(self.va, (self.level - 2 + 1) as PagingLevel) < NR_ENTRIES);
 
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
@@ -584,7 +565,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child = self.continuations[self.level - 1];
         let child_addr = child.entry_own.node().slot_vaddr();
 
-        self.map_children_implies(
+        self.lemma_map_children_implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
         );
@@ -596,11 +577,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level,
         when self.level <= NR_LEVELS
     {
-        if self.index() + 1 < NR_ENTRIES {
-            // Standard advance. At the very last in-range top-level slot, this
-            // produces a "one-past-end" cursor with idx == TOP_LEVEL_INDEX_RANGE.end,
-            // which the cursor inv allows (relaxed `<= top_end`). Such a cursor is
-            // `above_locked_range`.
+        if self.index() + 1 == NR_ENTRIES && self.level == self.guard_level {
+            Self {
+                va: (nat_align_down(self.va as nat, page_size::<C>(self.level) as nat)
+                    + page_size::<C>(self.level)) as Vaddr,
+                popped_too_high: false,
+                ..self
+            }
+        } else if self.index() + 1 < NR_ENTRIES {
+            // Advance to the next aligned slot boundary. At the end of the managed
+            // range, the resulting VA is exactly the exclusive end sentinel.
             self.inc_index().zero_below_level()
         } else if self.level < NR_LEVELS {
             self.pop_level_owner().0.move_forward_owner_spec()
@@ -615,46 +601,44 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub proof fn move_forward_increases_va(self)
+    pub proof fn lemma_move_forward_increases_va(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
+            self.in_barrier_va(),
             !self.popped_too_high,
         ensures
             self.move_forward_owner_spec().va > self.va,
     {
-        self.lemma_in_locked_range_guard_index_eq_prefix();
-        self.move_forward_va_is_align_up();
+        self.lemma_move_forward_va_is_align_up();
         self.lemma_va_plus_page_size_no_overflow(self.level);
         lemma_page_size_ge_base::<PagingConsts>(self.level);
         lemma_nat_align_down_sound(self.va as nat, page_size::<PagingConsts>(self.level) as nat);
     }
 
-    pub proof fn move_forward_not_popped_too_high(self)
+    pub proof fn lemma_move_forward_not_popped_too_high(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
+            self.in_barrier_va(),
         ensures
             !self.move_forward_owner_spec().popped_too_high,
         decreases NR_LEVELS - self.level,
     {
         reveal(PageTableOwner::pt_inv_at_depth);
+        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
+            return;
+        }
         if self.index() + 1 >= NR_ENTRIES && self.level < NR_LEVELS {
-            self.pop_level_owner().0.move_forward_not_popped_too_high();
+            self.pop_level_owner().0.lemma_move_forward_not_popped_too_high();
         }
     }
 
-    /// Variant of `move_forward_owner_decreases_steps` for the popped_too_high
-    /// case. Same postcondition, but precondition allows `popped_too_high`.
-    /// Used by the main lemma's case 2b to handle the chain of pops that
-    /// `move_forward_owner_spec` does internally when popped_too_high.
-    pub proof fn move_forward_owner_popped_too_high_decreases(self)
+    proof fn lemma_move_forward_owner_popped_too_high_decreases(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
+            self.in_barrier_va(),
             self.popped_too_high,
             self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
@@ -667,6 +651,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let l = self.level as usize;
         let st_l = Self::max_steps_subtree(l) as int;
 
+        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
+            self.lemma_move_forward_guard_end();
+            return;
+        }
         if self.index() + 1 < NR_ENTRIES {
             // Case A: advance via inc_index().zero_below_level().
             // (Mirror of subcase A in the main lemma's case 2b.)
@@ -674,7 +662,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             let new_state = inc.zero_below_level();
 
-            new_state.max_steps_partial_eq(self, (self.level + 1) as usize);
+            new_state.lemma_max_steps_partial_eq(self, (self.level + 1) as usize);
             let self_idx = self.continuations[self.level - 1].idx as int;
             vstd::arithmetic::mul::lemma_mul_is_distributive_add(
                 st_l,
@@ -683,42 +671,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             );
 
         } else if self.level < NR_LEVELS {
-            // Case B1: pop again (popped2.popped_too_high also true) and recurse.
             let popped2 = self.pop_level_owner().0;
             let lp1 = (self.level + 1) as usize;
-            popped2.max_steps_partial_eq(self, lp1);
+            popped2.lemma_max_steps_partial_eq(self, lp1);
 
             assert(Self::max_steps_subtree(l) * 0nat == 0) by (nonlinear_arith);
-
-            // popped2.popped_too_high holds: popped2.level == self.level + 1
-            // > self.guard_level (since self.popped_too_high gives
-            // self.level >= self.guard_level), so popped2 satisfies the
-            // popped_too_high arm of pop_level_owner.
-
-            // Recurse on popped2.
-            popped2.move_forward_owner_popped_too_high_decreases();
+            popped2.lemma_move_forward_owner_popped_too_high_decreases();
 
         } else {
-            // Case C: self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
-            // Excluded by the lemma's precondition.
             assert(false);
         }
     }
 
-    pub proof fn move_forward_owner_decreases_steps(self)
+    pub proof fn lemma_move_forward_owner_decreases_steps(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
+            self.in_barrier_va(),
             !self.popped_too_high,
-            // See `move_forward_owner_popped_too_high_decreases` for the
-            // rationale: rules out the unreachable third-branch corner.
-            self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
-    // "Decrease by ≥ subtree(self.level)" form: needed by `push_level`
-    // and by the pop+recursion case to compensate for pop_level's
-    // `+(subtree(L+1) - subtree(L))` increase.
-
             self.move_forward_owner_spec().max_steps() + Self::max_steps_subtree(
                 self.level as usize,
             ) <= self.max_steps(),
@@ -726,47 +697,40 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level,
     {
         reveal(PageTableOwner::pt_inv_at_depth);
+        self.lemma_in_barrier_va_level_le_guard_level();
         let l = self.level as usize;
         let st_l = Self::max_steps_subtree(l) as int;
 
+        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
+            self.lemma_move_forward_guard_end();
+            return;
+        }
         if self.index() + 1 < NR_ENTRIES {
-            // Case 1: increment idx at the current level.
-            //   new_state.max_steps_partial(L) = old.max_steps_partial(L) - subtree(L)
-            //   max_steps adds +subtree(L) on both sides → diff = -subtree(L).
             let inc = self.inc_index();
 
             let new_state = inc.zero_below_level();
 
-            new_state.max_steps_partial_eq(self, (self.level + 1) as usize);
+            new_state.lemma_max_steps_partial_eq(self, (self.level + 1) as usize);
             let self_idx = self.continuations[self.level - 1].idx as int;
             let tail = self.max_steps_partial((self.level + 1) as usize) as int;
-            // st_l * (NR - idx - 1) == st_l * (NR - idx - 2) + st_l * 1.
             vstd::arithmetic::mul::lemma_mul_is_distributive_add(
                 st_l,
                 NR_ENTRIES - self_idx - 2,
                 1,
             );
-            // Tie new_state to move_forward_owner_spec and stitch the arithmetic:
-            //   new_state.max_steps_partial(l) = (NR - self_idx - 2) * st_l + tail
-            //   new_state.max_steps()          = new_state.max_steps_partial(l) + st_l
-            //   self.max_steps()               = (NR - self_idx - 1) * st_l + tail + st_l
-            // Hence new_state.max_steps() + st_l == self.max_steps() (equality, so ≤).
 
         } else if self.level < NR_LEVELS {
             let popped = self.pop_level_owner().0;
             let lp1 = (self.level + 1) as usize;
-            popped.max_steps_partial_eq(self, lp1);
+            popped.lemma_max_steps_partial_eq(self, lp1);
 
             assert(Self::max_steps_subtree(l) * 0nat == 0) by (nonlinear_arith);
 
             if !popped.popped_too_high {
-                popped.move_forward_owner_decreases_steps();
+                popped.lemma_move_forward_owner_decreases_steps();
 
             } else {
-                // popped.popped_too_high — delegate to the popped_too_high
-                // variant, which handles all subcases (advance, recursive pop,
-                // and the NR_LEVELS leaf) in one call.
-                popped.move_forward_owner_popped_too_high_decreases();
+                popped.lemma_move_forward_owner_popped_too_high_decreases();
             }
         } else {
             assert(false);
@@ -775,13 +739,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// Advancing the cursor reaches the next slot boundary, including carries to a parent.
     #[verifier::spinoff_prover]
-    pub proof fn move_forward_va_is_align_up(self)
+    pub proof fn lemma_move_forward_va_is_align_up(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
+            self.in_barrier_va(),
             !self.popped_too_high,
-            self.level == self.guard_level ==> self.index() + 1 < NR_ENTRIES,
         ensures
             self.move_forward_owner_spec().va == self@.align_up_spec(
                 page_size::<PagingConsts>(self.level),
@@ -791,6 +754,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
         reveal(PageTableOwner::pt_inv_at_depth);
+        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
+            self.lemma_move_forward_guard_end();
+            return;
+        }
         if self.index() + 1 < NR_ENTRIES {
             self.inc_and_zero_increases_va();
             return;
@@ -799,14 +766,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let popped = self.pop_level_owner().0;
         assert(self.move_forward_owner_spec().va == popped.move_forward_owner_spec().va);
         if !popped.popped_too_high {
-            popped.move_forward_va_is_align_up();
+            popped.lemma_move_forward_va_is_align_up();
             popped.lemma_va_plus_page_size_no_overflow(popped.level);
         } else {
             popped.inc_and_zero_increases_va();
             popped.lemma_inc_index_va();
         }
 
-        self.lemma_cur_pte_index();
         self.lemma_va_plus_page_size_no_overflow(self.level);
         lemma_page_size_next::<C>(self.level);
         lemma_page_size_ge_base::<PagingConsts>(self.level);
@@ -827,11 +793,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// After popping a level, the total view_mappings is preserved.
     /// The restored parent at index self.level absorbs the child's mappings,
     /// and both are within the view_mappings range [self.level, NR_LEVELS).
-    pub proof fn pop_level_owner_preserves_mappings(self)
+    pub proof fn lemma_pop_level_owner_preserves_mappings(self)
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
+            self.in_barrier_va(),
         ensures
             self.pop_level_owner().0@.mappings == self@.mappings,
     {
@@ -872,10 +838,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
-    pub proof fn move_forward_owner_preserves_mappings(self)
+    pub proof fn lemma_move_forward_owner_preserves_mappings(self)
         requires
             self.inv(),
-            self.in_locked_range(),
+            self.in_barrier_va(),
         ensures
             self.move_forward_owner_spec()@.mappings == self@.mappings,
         decreases NR_LEVELS - self.level,
@@ -883,6 +849,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         reveal(PageTableOwner::pt_inv_at_depth);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
+        if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
+            return;
+        }
         if self.index() + 1 < NR_ENTRIES {
             let inc = self.inc_index();
             let result = inc.zero_below_level();
@@ -908,9 +877,74 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else if self.level < NR_LEVELS {
             let popped = self.pop_level_owner().0;
 
-            self.pop_level_owner_preserves_mappings();
-            popped.move_forward_owner_preserves_mappings();
+            self.lemma_pop_level_owner_preserves_mappings();
+            popped.lemma_move_forward_owner_preserves_mappings();
         }
+    }
+
+    /// Advancing the guard's final entry retains its continuation at the node-end sentinel.
+    pub proof fn lemma_move_forward_guard_end(self)
+        requires
+            self.inv(),
+            self.in_barrier_va(),
+            self.level == self.guard_level,
+            self.index() + 1 == NR_ENTRIES,
+        ensures
+            self.move_forward_owner_spec().va == self.locked_range().end,
+            self.move_forward_owner_spec().at_or_past_barrier_end(),
+            self.move_forward_owner_spec().inv(),
+            self.move_forward_owner_spec().max_steps() == 0,
+            self.move_forward_owner_spec().va == self@.align_up_spec(
+                page_size::<PagingConsts>(self.level),
+            ),
+    {
+        use vstd::arithmetic::div_mod::*;
+        C::lemma_paging_consts_properties();
+        C::axiom_current_paging_consts_hardcoded();
+        self.lemma_cur_pte_index();
+        self.lemma_locked_range_span();
+        self.lemma_va_plus_page_size_no_overflow(self.level);
+        lemma_page_size_next::<C>(self.level);
+        lemma_pte_index_spec_is_div_mod::<C>(self.va, self.level);
+        let ps = page_size::<C>(self.level) as int;
+        let node_ps = page_size::<C>((self.level + 1) as PagingLevel) as int;
+        lemma_fundamental_div_mod(self.prefix as int, node_ps);
+        lemma_fundamental_div_mod_converse(
+            self.va as int,
+            node_ps,
+            self.prefix as int / node_ps,
+            self.va - self.prefix,
+        );
+        lemma_mod_breakdown(self.va as int, ps, NR_ENTRIES as int);
+        lemma_nat_align_down_sound(self.va as nat, ps as nat);
+        assert(nat_align_down(self.va as nat, ps as nat) + ps == self.prefix + node_ps)
+            by (nonlinear_arith)
+            requires
+                self.va as int % node_ps == self.va - self.prefix,
+                self.va as int % node_ps == ps * (self.va as int / ps % NR_ENTRIES as int)
+                    + self.va as int % ps,
+                self.va as int / ps % NR_ENTRIES as int == NR_ENTRIES - 1,
+                node_ps == ps * NR_ENTRIES,
+                nat_align_down(self.va as nat, ps as nat) == self.va - self.va as int % ps,
+        ;
+        let next = self.move_forward_owner_spec().va;
+        self.lemma_locked_range_page_aligned();
+        lemma_page_table_managed_index_bounds::<C>(self.va);
+        lemma_page_size_divides::<C>(self.level, C::NR_LEVELS());
+        lemma_nat_align_down_within_block(
+            self.va as nat,
+            page_size::<C>(self.level) as nat,
+            page_size::<C>(C::NR_LEVELS()) as nat,
+        );
+        lemma_page_size_next::<C>(C::NR_LEVELS());
+        lemma_vaddr_leading_part_is_align_down::<C>(self.va);
+        let root_base = vaddr_leading_part_spec::<C>(self.va);
+        let root_size = page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel);
+        lemma_nat_align_down_sound(self.va as nat, root_size as nat);
+        lemma_same_node_vaddr_leading_part_match::<C>(next, self.va, root_base, C::NR_LEVELS());
+        assert(self.move_forward_owner_spec().inv()) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
     }
 }
 

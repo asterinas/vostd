@@ -23,10 +23,7 @@ use crate::{
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,
     },
-    specs::{
-        arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
-        mm::virt_mem::VirtPtr,
-    },
+    specs::{arch::*, mm::virt_mem::VirtPtr},
     sync::{PreemptDisabled, RwArc, RwLockReadGuard},
 };
 

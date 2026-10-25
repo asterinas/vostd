@@ -5,7 +5,7 @@
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
 > [!NOTE]
-> This repository is currently in a transitional state: the components under `ostd/src/sync` and `ostd/libs/id-alloc` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+> This repository is currently in a transitional state: the components under `ostd/src/sync` and `ostd/libs/id-alloc` track Asterinas [v0.19.0](https://github.com/asterinas/asterinas/releases/tag/v0.19.0), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
 
 ## Overview
 
@@ -18,9 +18,9 @@ This work is ongoing. Our current focus is OSTD's *memory management* and *synch
 This project is tied to the following papers:
 
 - 🏆 **CortenMM** — *CortenMM: Efficient Memory Management with Strong Correctness Guarantees*, SOSP 2025 (**Best Paper Award**). Concurrency proofs for OSTD memory management. [[paper](https://dl.acm.org/doi/10.1145/3731569.3764836)] [[code](https://github.com/TELOS-syslab/CortenMM-Artifact)]
-- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. KVerus-generated proofs accepted upstream are tracked under the [`AI-assist` label](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [[paper](https://arxiv.org/abs/2605.03822)] [[code](https://github.com/asterinas/KVerus)]
+- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. KVerus-generated proofs accepted upstream are tracked under the [`AI-assist` label](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [[paper](https://dl.acm.org/doi/10.1145/3832783.3834503)] [[code](https://github.com/asterinas/KVerus)]
 - **StarVerus** - *StarVerus: LLM-Powered Multi-Agent Collaboration for Industrial Rust Code Verification Automation*, KDD 2026 (ADS Track). Multi-agent verification for industrial Rust. [[paper](https://dl.acm.org/doi/10.1145/3770855.3818485)]
-- **Beyond Benchmarks** — *Beyond Benchmarks: A Case Study of LLM-Generated Verus Specification Failures on Asterinas Vostd*, ASE 2026 (Industry Track). *coming soon*
+- **Beyond Benchmarks** — *Beyond Benchmarks: A Case Study of LLM-Generated Verus Specification Failures on Asterinas Vostd*, ASE 2026 (Industry Track). [[paper](https://dl.acm.org/doi/10.1145/3832783.3834504)]
 
 ## Bugs Found by Verification
 
@@ -71,14 +71,17 @@ Verus is cloned and built under `tools/verus`. If the download fails, clone it m
 ### Verify
 
 ```bash
-make                                                               # verify everything (or: cargo dv verify)
-cargo dv focus --targets ostd                                      # ostd only, skip dependency proofs
-cargo dv focus --targets ostd -- --verify-only-module sync::rwlock # verify one ostd module
-cargo dv verify --targets vstd_extra                               # the verified dependency crate
+make                                                               # verify OSTD and its dependencies (or: cargo dv verify)
+cargo dv focus --package ostd                                       # ostd only, skip dependency proofs
+cargo dv focus --package ostd -- --verify-only-module sync::rwlock  # verify one ostd module
+cargo dv verify --package vstd_extra                                # the verified dependency crate
 ```
 
 Partial verification selectors such as `--verify-only-module` require the
 `focus` command.
+
+`--package` (`-p`) selects packages; `--target` selects the Rust target triple
+(default: `x86_64-unknown-none`).
 
 ### Clean
 
@@ -90,8 +93,11 @@ make clean      # or: cargo dv clean          # remove build artifacts for a fre
 
 ```bash
 make build      # or: cargo dv build               # build the verification targets
-make doc        # or: cargo dv doc --target ostd   # generate API docs at doc/index.html
+make doc        # or: cargo dv doc --package ostd  # generate API docs at doc/index.html
 ```
+
+> [!NOTE]
+> Run `cargo dv build` before invoking `cargo dv doc` directly.
 
 The generated documentation can be found at `doc/`.
 An [online version](https://asterinas.github.io/vostd/) is also available.
@@ -103,10 +109,16 @@ An [online version](https://asterinas.github.io/vostd/) is also available.
 
 ## Contributing
 
-We welcome your contributions! Conventions:
+We welcome your contributions! Follow the
+[VOSTD Verus Coding Guidelines](docs/coding-guidelines/README.md)
+for coding, specification, proof, naming, and organization conventions.
 
-- Prefix `axiom fn` with `axiom_`, `proof fn` with `lemma_`, and proof helpers that manipulate `tracked` linear permission objects with `tracked_`.
-- Prefer associated functions over isolated lemmas.
-- Put specifications and lemmas in `ostd/specs`; general definitions and lemmas in `verified_libs/vstd_extra`.
-- Before submitting: run `make verus-upgrade` (`cargo dv bootstrap --upgrade`) to follow the [latest supported Verus](https://github.com/asterinas/verus), and `make fmt` (`cargo dv fmt`) to format (enforced).
-- For Verus changes, prefer PRs to [the upstream repo](https://github.com/verus-lang/verus) over our fork, since we aim to minimize differences between them.
+Before submitting:
+
+- Run `make verus-upgrade` (`cargo dv bootstrap --upgrade`) to update the supported Verus toolchain.
+- Run `make fmt` (`cargo dv fmt`) to format your changes; formatting is enforced.
+- For changes to OSTD or verified libraries, run `make` to verify them.
+
+For changes to Verus itself, prefer contributing to
+[upstream Verus](https://github.com/verus-lang/verus)
+to minimize differences between upstream and our fork.

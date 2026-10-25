@@ -11,10 +11,10 @@ use vstd::{prelude::*, resource::Loc};
 use vstd_extra::{
     atomic_irc11::{AtomicHistory, AtomicPointsTo, ThreadView},
     ownership::Inv,
+    rcu_objects::owned_root::{RcuRootOwnedGhost, rcu_owned_root_history_inv},
 };
 
 use super::{
-    owned_root::{RcuRootOwnedGhost, rcu_owned_root_history_inv},
     retirement::RcuRemovalObservation,
     traversal::{AllocationId, LinkEdge, LinkGraph, SeenRemoved, TraversalGuard},
 };

@@ -558,7 +558,6 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         }
         proof_decl! {
             let tracked mut tracked_ref_perm = self.tracked_ref_perm.get();
-            let ghost new_ptr_is_some = new_ptr is Some;
             let tracked mut old_perm: Option<RcuReadPool<P>> = None;
             let tracked mut err_new_perm: Option<Option<<P as NonNullPtr>::Permission>> = None;
         }
@@ -1061,7 +1060,7 @@ impl<T: Send + 'static> Drop for RcuDrop<T> {
 ///
 /// The caller must ensure that this CPU is not executing in a RCU read-side
 /// critical section.
-pub unsafe fn finish_grace_period() {
+pub(crate) unsafe fn finish_grace_period() {
     let rcu_monitor = RCU_MONITOR.get().unwrap();
     // SAFETY: The caller ensures safety.
     unsafe {
@@ -1079,7 +1078,7 @@ exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorInvariant, RcuMonitorPred>
     Once::new(Ghost(RcuMonitorPred))
 }
 
-pub fn init() {
+pub(super) fn init() {
     RCU_MONITOR.init(RcuMonitor::new_data());
 }
 

@@ -15,10 +15,10 @@
 //! - `owner.inv()`, `owner.children_not_locked(guards)`,
 //!   `owner.nodes_locked(guards)`, `!owner.popped_too_high` —
 //!   bundled as `CursorEntry::inv` (entry-side); see [`super::CursorEntry`].
-//! - `owner.in_locked_range()` — NOT a precondition of `query`, `jump`,
+//! - `owner.in_barrier_va()` — NOT a precondition of `query`, `jump`,
 //!   or `map`: each handles an out-of-range cursor itself (graceful
 //!   `Err` for `query`; a faithful `panic_diverge` otherwise) and
-//!   re-derives `in_locked_range` internally. `protect_next` still
+//!   re-derives `in_barrier_va` internally. `protect_next` still
 //!   requires it; see exec clauses.
 //! - `regions.inv()`, `owner.metaregion_sound(regions)` — passed via
 //!   `&mut regions`.
@@ -119,6 +119,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
+            &&& c.barrier_va == va
             &&& c.inv()
             &&& c.children_not_locked(g)
             &&& c.nodes_locked(g)
@@ -160,6 +161,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
+            &&& c.barrier_va == va
             &&& c.inv()
             &&& c.children_not_locked(g)
             &&& c.nodes_locked(g)
@@ -172,9 +174,9 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 /// [`crate::mm::vm_space::CursorMut::query`].
 ///
 /// Exec requires `invariants(owner, regions, guards)`. It does **not**
-/// require `owner.in_locked_range()`: an out-of-range cursor is handled
+/// require `owner.in_barrier_va()`: an out-of-range cursor is handled
 /// by `Cursor::query`'s graceful `Err` (the exec `requires` was relaxed
-/// accordingly; `in_locked_range` now only governs success, not safety).
+/// accordingly; `in_barrier_va` now only governs success, not safety).
 ///
 /// `metaregion_sound_preserves`: a `CursorOwner` that was sound w.r.t.
 /// the old `regions` is still sound w.r.t. the new `regions`. This
@@ -207,6 +209,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
         !old(owner).popped_too_high,
     ensures
         final(owner).inv(),
+        final(owner).barrier_va == old(owner).barrier_va,
         final(regions).inv(),
         final(owner).children_not_locked(*final(guards)),
         final(owner).nodes_locked(*final(guards)),
@@ -217,6 +220,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
+            &&& old(owner).in_barrier_va()
             &&& valid_frame_paddr(paddr)
             &&& old(regions).slot_owner(paddr).usage is Frame
             &&& final(regions).slot_owner(paddr).ref_count() == (old(regions).slot_owner(
@@ -255,11 +259,11 @@ pub axiom fn cursor_query_embedded<'rcu>(
 ///
 /// Exec requires `invariants(owner, regions, guards)` (which includes
 /// `!owner.popped_too_high`). It does **not** require
-/// `owner.in_locked_range()`: the exec `requires` was relaxed. A drifted
+/// `owner.in_barrier_va()`: the exec `requires` was relaxed. A drifted
 /// cursor that cannot be repositioned within the target node aborts the
 /// program (a sound `panic_diverge`, mirroring the real `pop_level`
 /// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
-/// `in_locked_range` now only governs the success postcondition, and
+/// `in_barrier_va` now only governs the success postcondition, and
 /// this proof soundly models the returning path.
 pub proof fn lemma_cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
@@ -276,6 +280,7 @@ pub proof fn lemma_cursor_jump_embedded<'rcu>(
         !old(owner).popped_too_high,
     ensures
         final(owner).inv(),
+        final(owner).barrier_va == old(owner).barrier_va,
         final(regions).inv(),
         final(owner).children_not_locked(*final(guards)),
         final(owner).nodes_locked(*final(guards)),
@@ -323,6 +328,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
 
     ensures
         final(owner).inv(),
+        final(owner).barrier_va == old(owner).barrier_va,
         final(regions).inv(),
         final(owner).children_not_locked(*final(guards)),
         final(owner).nodes_locked(*final(guards)),
@@ -384,6 +390,7 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         old(tlb_model).inv(),
     ensures
         final(owner).inv(),
+        final(owner).barrier_va == old(owner).barrier_va,
         final(regions).inv(),
         final(owner).children_not_locked(*final(guards)),
         final(owner).nodes_locked(*final(guards)),
@@ -430,11 +437,6 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
                 ).slot_owners[i].paths_in_pt.len()
                 &&& final(regions).ref_count(i) != 0
             },
-        // MMIO slots untouched.*
-        forall|i: int|
-            #![trigger final(regions).slot_owners[i]]
-            old(regions).slot_owners[i].usage == PageUsage::MMIO ==> final(regions).slot_owners[i]
-                == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -571,6 +573,7 @@ pub(super) proof fn cursor_query_step<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
+            &&& old(entry).owner.in_barrier_va()
             &&& valid_frame_paddr(paddr)
             &&& old(regions).slot_owner(paddr).usage is Frame
             &&& final(regions).slot_owner(paddr).ref_count() == (old(regions).slot_owner(
@@ -749,10 +752,6 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
                 ).slot_owners[i].paths_in_pt.len()
                 &&& final(regions).ref_count(i) != 0
             },
-        forall|i: int|
-            #![trigger final(regions).slot_owners[i]]
-            old(regions).slot_owners[i].usage == PageUsage::MMIO ==> final(regions).slot_owners[i]
-                == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),

@@ -37,7 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-24.04
+          - ubuntu-latest
           - macos-14
     timeout-minutes: 240
     steps:
@@ -58,7 +58,7 @@ jobs:
       - name: Run verification
         run: |
           set -o pipefail
-          if ! cargo dv verify --targets ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
+          if ! cargo dv verify --package ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
             echo "❌ Verification failed"
             echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
             exit 1
@@ -120,7 +120,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   format:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     timeout-minutes: 45
@@ -162,15 +162,18 @@ jobs:
   perf:
     # Every event: parses the verify leg's log and computes the verification
     # cost compared to the measurement from last main. The comparison lands
-    # in the job summary and the report artifact.
+    # in the job summary and the report artifact. `perf-history` publishes main
+    # measurements.
     needs: [verify]
     if: >
       always() &&
       !cancelled() &&
       needs.verify.result != 'cancelled'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      baseline-cache-hit: ${{ steps.baseline.outputs.cache-hit }}
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -182,6 +185,7 @@ jobs:
         run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Restore prior measurement (baseline)
+        id: baseline
         uses: actions/cache/restore@v6
         with:
           path: perf-store
@@ -203,7 +207,7 @@ jobs:
       - name: Download verification log
         uses: actions/download-artifact@v8
         with:
-          name: verify-log-ubuntu-24.04
+          name: verify-log-ubuntu-latest
 
       - name: Parse cost metrics
         run: |
@@ -238,6 +242,12 @@ jobs:
           cat out/perf-report.md
           cat out/perf-report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # Failed verification logs may parse as zeros; never publish them.
+      - name: Convert metrics to benchmark format
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.verify.result == 'success'
+        run: |
+          python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
+
       - name: Upload report artifact
         if: always()
         uses: actions/upload-artifact@v7
@@ -245,9 +255,56 @@ jobs:
           name: verify-perf-report
           path: |
             out/perf-report.md
+            out/benchmark.json
             perf-store/metrics.json
+            perf-store/source-sha.txt
             perf-baseline.json
           if-no-files-found: ignore
+
+  perf-history:
+    # Only trusted main runs may publish history and save the next baseline.
+    # PR metrics are processed by the read-only `perf` job above.
+    needs: [verify, perf]
+    if: >
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.verify.result == 'success' &&
+      needs.perf.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download performance measurements
+        uses: actions/download-artifact@v8
+        with:
+          name: verify-perf-report
+
+      - name: Record benchmark on gh-pages
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: verify-perf
+          tool: customSmallerIsBetter
+          output-file-path: out/benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          comment-on-alert: false
+
+      - name: Save measurement as the next baseline
+        # Cache entries are immutable; reruns of the same SHA reuse its entry.
+        if: needs.perf.outputs.baseline-cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: perf-store
+          key: perf-metrics-${{ github.sha }}
 
   doc:
     # PRs build the docs; pushes also upload the artifact for `doc-deploy`,
@@ -255,7 +312,7 @@ jobs:
     if: >
       always() &&
       !cancelled()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       statuses: write   # ci/doc pending status on push
@@ -316,16 +373,17 @@ jobs:
 
   doc-deploy:
     # Pushes only: merge the doc artifact with the gh-pages benchmark chart
-    # (pushed by `perf`) and deploy. Needs verify so a failed
+    # (pushed by `perf-history`) and deploy. Needs verify so a failed
     # verification can't deploy docs.
-    needs: [doc, perf, verify]
+    needs: [doc, perf, perf-history, verify]
     if: >
       always() &&
       !cancelled() &&
       github.event_name != 'pull_request' &&
       needs.verify.result == 'success' &&
       needs.doc.result == 'success' &&
-      (needs.perf.result == 'success' || needs.perf.result == 'skipped')
+      (needs.perf.result == 'success' || needs.perf.result == 'skipped') &&
+      (needs.perf-history.result == 'success' || needs.perf-history.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read

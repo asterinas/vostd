@@ -17,7 +17,7 @@ pub fn panic_diverge() -> !
     requires
         may_panic(),
 {
-    vpanic!("")
+    vpanic!("");
 }
 
 /// Extension trait providing a panicking `unwrap` that models Rust's

@@ -33,8 +33,7 @@ pub ghost enum MetaSlotStatus {
 }
 
 pub ghost enum PageUsage {
-    // The zero variant is reserved for the unused type. Only an unused page
-    // can be designated for one of the other purposes.
+    /// Initial purpose before metadata is installed. Reuse is governed by refcount.
     Unused,
     /// The page is reserved or unusable. The kernel should not touch it.
     Reserved,
@@ -46,43 +45,7 @@ pub ghost enum PageUsage {
     Meta,
     /// The page stores the kernel such as kernel code, data, etc.
     Kernel,
-    /// The page maps memory-mapped I/O (MMIO). Untracked: no refcount, slot
-    /// stays in the free pool, but distinguishable from `Unused` so the
-    /// kernel allocator never collides with an MMIO mapping.
-    MMIO,
 }
-
-/// Whether `pa` falls in an MMIO physical-address range. Uninterpreted at the
-/// spec level — concrete arch- and machine-specific MMIO range layouts are
-/// outside the verification surface, but the kernel allocator (which picks
-/// slots with `PageUsage::Unused`) is guaranteed disjoint from MMIO mappings.
-pub uninterp spec fn is_mmio_paddr(pa: Paddr) -> bool;
-
-/// Connects a slot's `PageUsage::MMIO` discriminant to its paddr's range
-/// membership. Used to derive disjointness between MMIO mappings and the
-/// regular allocator pool: a slot can be `MMIO` iff its paddr is in MMIO
-/// range, so a slot with `usage != MMIO` (e.g. `Unused`) cannot share an idx
-/// with any MMIO mapping.
-pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
-    ensures
-        (#[trigger] slot.usage == PageUsage::MMIO) <==> is_mmio_paddr(
-            meta_to_frame(slot.slot_vaddr),
-        ),
-;
-
-/// MMIO ranges are aligned to (and closed under) huge-page granularities:
-/// every sub-paddr within a huge frame inherits the huge frame's MMIO-ness.
-/// This is a hardware-layout convention — MMIO BARs are mapped at huge-page
-/// boundaries, and the verified `split_if_mapped_huge` relies on it to
-/// transfer MMIO-ness from a huge frame to its 4KB sub-pages. Non-broadcast:
-/// callers invoke this explicitly with the relevant `page_size`.
-pub axiom fn axiom_mmio_paddr_huge_page_closed(pa: Paddr, page_size: usize, offset: usize)
-    requires
-        pa % page_size == 0,
-        offset < page_size,
-    ensures
-        is_mmio_paddr((pa + offset) as Paddr) == is_mmio_paddr(pa),
-;
 
 pub struct StoredPageTablePageMeta {
     pub nr_children: pcell_maybe_uninit::PCell<u16>,
@@ -96,6 +59,17 @@ pub enum MetaSlotStorage {
     Untyped,
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
+}
+
+impl MetaSlotStorage {
+    /// The purpose established by the installed metadata representation.
+    pub open spec fn usage(self) -> PageUsage {
+        if self is PTNode {
+            PageUsage::PageTable
+        } else {
+            PageUsage::Frame
+        }
+    }
 }
 
 /// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
@@ -153,6 +127,13 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
 pub tracked struct MetadataPerm {
     pub storage_perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
+}
+
+impl MetadataPerm {
+    /// The purpose of the metadata described by this permission.
+    pub open spec fn usage(self) -> PageUsage {
+        self.storage_perm.value().usage()
+    }
 }
 
 pub const REF_COUNT_MAX_USIZE: usize = REF_COUNT_MAX as usize;
@@ -275,14 +256,12 @@ impl Inv for MetaSlotOwner {
             &&& self.metadata_perm.is_full()
             &&& self.storage_perm().is_uninit()
             &&& self.vtable_ptr_perm().is_uninit()
-            &&& self.in_list_perm.value()
-                == 0
-            // A managed slot at `REF_COUNT_UNUSED` has no live PTE mapping.
-            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
+            &&& self.in_list_perm.value() == 0
+            &&& self.paths_in_pt.is_empty()
         }
         &&& self.ref_count() == REF_COUNT_UNIQUE ==> {
             &&& self.metadata_perm.is_resource_vacant()
-            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
+            &&& self.paths_in_pt.is_empty()
         }
         &&& 0 < self.ref_count() <= REF_COUNT_MAX ==> {
             &&& self.metadata_perm.frac() + self.ref_count() == REF_COUNT_MAX

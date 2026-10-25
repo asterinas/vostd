@@ -7,7 +7,7 @@ use vstd::{
 use vstd_extra::{arithmetic::lemma_nat_align_down_sound, ghost_tree::*, ownership::*};
 
 use crate::specs::{
-    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    arch::*,
     mm::page_table::{
         cursor::owners::{CursorContinuation, CursorOwner},
         node::entry_owners::EntryOwner,
@@ -57,7 +57,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     /// Lift map_children from f to g when siblings (j != idx) come from
     /// cont0 which had map_children(f), and the child at idx (if present)
     /// already satisfies g.
-    pub proof fn map_children_lift_skip_idx(
+    pub proof fn lemma_map_children_lift_skip_idx(
         self,
         cont0: Self,
         idx: int,
@@ -119,7 +119,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
 // ─── Tree predicate lifting (CursorOwner) ──────────────────────────
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    pub proof fn map_children_implies(
+    pub proof fn lemma_map_children_implies(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
         g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -144,7 +144,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     // ─── Tree entry level constraints ──────────────────────────
-    pub proof fn cur_entry_node_implies_level_gt_1(self)
+    pub proof fn lemma_cur_entry_node_implies_level_gt_1(self)
         requires
             self.inv(),
             self.cur_entry_owner().is_node(),

@@ -36,13 +36,7 @@ use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
-    frame::{
-        mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
-        meta_owners::{
-            FracMetadataPerm, MetaSlotOwner, MetadataPerm, typed_meta_value, typed_meta_wf,
-        },
-        meta_region_owners::MetaRegionOwners,
-    },
+    frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
 };
 
@@ -50,7 +44,7 @@ use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::mm::frame::{
     allocator::FrameAllocOptions,
     meta::{
-        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED,
+        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX,
         mapping::{frame_to_meta, meta_to_frame},
     },
 };
@@ -229,47 +223,28 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
     /// Allocates a new empty page table node.
     #[verus_spec(res =>
-        with Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
-             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&Guards>,
-             Ghost(idx): Ghost<usize>,
                  -> owner: Tracked<OwnerSubtree<C>>,
         requires
             1 <= level < NR_LEVELS,
-            idx < NR_ENTRIES,
             old(regions).inv(),
-            old(parent_owner).inv(),
         ensures
             final(regions).inv(),
-            final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value().node().slot_vaddr(),
-            res.inv(),
-            res.wf_with_region(*final(regions)),
+            res.external_meta_wf(owner@.value().node().frame_permission.resource(), ()),
+            res.tracked_slot_perm@ == final(regions).slots[owner@.value().node().slot_index],
             guards.unlocked(owner@.value().node().slot_vaddr()),
-            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().slot_vaddr()), *old(regions), *final(regions)),
-            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().slot_vaddr()), *old(regions), *final(regions)),
+            MetaSlot::claim_unused_slot_region_spec(
+                meta_to_frame(owner@.value().node().slot_vaddr()),
+                false, *old(regions), *final(regions)),
 
             old(regions).contains(meta_to_index(owner@.value().node().slot_vaddr())),
 
-            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value().node().slot_vaddr())),
-            owner@.value().metaregion_sound(*final(regions)),
-            forall|i: int|
-                #[trigger] old(regions).ref_count(i) != REF_COUNT_UNUSED
-                ==> i != meta_to_index(owner@.value().node().slot_vaddr()),
-            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())), level as PagingLevel),
-            final(parent_owner).meta_own == old(parent_owner).meta_own,
-            final(parent_owner).frame_permission == old(parent_owner).frame_permission,
-            final(parent_owner).slot_index == old(parent_owner).slot_index,
-            final(parent_owner).level() == old(parent_owner).level(),
-            final(parent_owner).tree_level == old(parent_owner).tree_level,
-            final(parent_owner).children_perm.addr() == old(parent_owner).children_perm.addr(),
-            final(parent_owner).children_perm.value() == old(parent_owner).children_perm.value().update(
-                idx as int,
-                C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())),
-            ),
+            final(regions).slot_owners[owner@.value().node().slot_index].paths_in_pt.is_empty(),
+            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())), (level + 1) as PagingLevel),
             final(regions).contains(owner@.value().node().slot_index),
             owner@.value().node().metaregion_sound_node(*final(regions)),
     )]
@@ -577,6 +552,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).meta_own == old(owner).meta_own,
             final(owner).frame_permission == old(owner).frame_permission,
             final(owner).slot_index == old(owner).slot_index,
+            final(owner).tree_level == old(owner).tree_level,
             final(owner).children_perm.value() == old(owner).children_perm.value().update(
                 idx as int,
                 pte,
