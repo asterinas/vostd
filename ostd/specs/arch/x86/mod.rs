@@ -1,5 +1,5 @@
 use vstd::{
-    arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2},
+    arithmetic::power2::{lemma2_to64, lemma2_to64_rest, pow2},
     prelude::*,
 };
 use vstd_extra::prelude::*;
@@ -16,14 +16,13 @@ use crate::specs::{
 };
 
 use crate::{
-    arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    arch::mm::{NR_ENTRIES, PAGE_SIZE, PagingConsts},
     mm::{
-        MAX_NR_PAGES, MAX_PADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+        MAX_NR_PAGES, MAX_PADDR, Paddr, PagingConstsTrait, Vaddr,
         frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame},
         kspace::{
             FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr,
         },
-        page_size,
     },
 };
 
@@ -129,14 +128,13 @@ pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
     lemma_paddr_to_vaddr_aligned_for::<CurrentArch>(pa);
 }
 
-// Here are some architecture-specific const value properties.
-// Any use of this lemma in architecture-independent code should be removed.
-pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>()
+/// Index and address constants for the current x86-64 four-level paging configuration.
+pub(crate) proof fn lemma_arch_specific_consts_properties()
     ensures
-        C::BASE_PAGE_SIZE().ilog2() == 12u32,
-        nr_pte_index_bits_spec::<C>() == 9usize,
+        PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32,
+        nr_pte_index_bits_spec::<PagingConsts>() == 9usize,
         pow2(9) == NR_ENTRIES,
-        pte_index_bit_offset_spec::<C>(4) == 39,
+        pte_index_bit_offset_spec::<PagingConsts>(4) == 39,
         0 * pow2(39) == 0,
         256 * pow2(39) == pow2(47),
         512 * pow2(39) == pow2(48),
@@ -144,13 +142,10 @@ pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>(
         0xffff_int * 0x1_0000_0000_0000int + pow2(47) == 0xffff_8000_0000_0000int,
         0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint,
 {
-    C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
     lemma2_to64();
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
-    lemma_pow2_adds(8, 39);
 }
 
 } // verus!

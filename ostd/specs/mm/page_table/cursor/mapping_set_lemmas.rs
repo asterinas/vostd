@@ -293,18 +293,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 page_size::<PagingConsts>((lvl + 1) as PagingLevel) as nat,
             ),
     {
-        C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_vaddr_leading_part_is_align_down::<C>(self.cur_va());
         let cont = self.continuations[lvl];
         let child_path = cont.path().push_tail(cont.idx as int);
-        assert(child_path.len() == C::NR_LEVELS() - lvl);
-        assert forall|k: int| 0 <= k < child_path.len() implies #[trigger] child_path[k]
-            == pte_index_spec::<C>(self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel) by {
-            lemma_pte_index_bound::<C>(self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel);
-        };
-        lemma_vaddr_path_aligned::<C>(child_path, self.cur_va());
-        lemma_vaddr_of_eq_int::<C>(child_path);
+        lemma_vaddr_path_aligned::<C, NR_ENTRIES>(child_path, self.cur_va());
+        lemma_rec_vaddr_same_layout::<C, PagingConsts, NR_ENTRIES>(child_path, 0);
         lemma_page_size_ge_base::<PagingConsts>((lvl + 1) as PagingLevel);
         lemma_nat_align_down_sound(
             self.cur_va() as nat,

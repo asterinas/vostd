@@ -514,7 +514,6 @@ impl KVirtArea {
         proof {
             lemma_page_size_spec_values();
             lemma_vaddr_range_spec_kernel();
-            lemma_arch_specific_consts_properties::<KernelPtConfig>();
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
         }
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -778,7 +777,6 @@ impl KVirtArea {
             proof {
                 lemma_page_size_spec_values();
                 lemma_vaddr_range_spec_kernel();
-                lemma_arch_specific_consts_properties::<KernelPtConfig>();
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             }
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]

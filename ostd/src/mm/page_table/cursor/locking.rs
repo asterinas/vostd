@@ -784,13 +784,14 @@ pub open spec fn ceil_div(x: int, d: int) -> int
     (x + d - 1) / d
 }
 
-pub open spec fn idx_range_spec(
+/// Indices intersecting the requested range in a node of configuration `C`.
+pub open spec fn idx_range_spec<C: PagingConstsTrait>(
     cur_node_level: PagingLevel,
     cur_node_va: Vaddr,
     va_start: Vaddr,
     va_end: Vaddr,
 ) -> (usize, usize) {
-    let ps = page_size::<PagingConsts>(cur_node_level) as int;
+    let ps = page_size::<C>(cur_node_level) as int;
     let start_idx = (va_start - cur_node_va) / ps;
     let end_idx = ceil_div(va_end - cur_node_va, ps);
     (start_idx as usize, end_idx as usize)
@@ -798,17 +799,17 @@ pub open spec fn idx_range_spec(
 
 #[verus_spec(ret =>
     requires
-        1 <= cur_node_level <= NR_LEVELS,
+        1 <= cur_node_level <= C::NR_LEVELS(),
         cur_node_va <= va_range.start,
         va_range.start < va_range.end,
-        va_range.end <= cur_node_va + page_size::<PagingConsts>((cur_node_level + 1) as PagingLevel),
-        cur_node_va % page_size::<PagingConsts>((cur_node_level + 1) as PagingLevel) == 0,
-        va_range.start % page_size::<PagingConsts>(cur_node_level) == 0,
+        va_range.end <= cur_node_va + page_size::<C>((cur_node_level + 1) as PagingLevel),
+        cur_node_va % page_size::<C>((cur_node_level + 1) as PagingLevel) == 0,
+        va_range.start % page_size::<C>(cur_node_level) == 0,
     ensures
-        ret.start == idx_range_spec(cur_node_level, cur_node_va, va_range.start, va_range.end).0,
-        ret.end == idx_range_spec(cur_node_level, cur_node_va, va_range.start, va_range.end).1,
+        ret.start == idx_range_spec::<C>(cur_node_level, cur_node_va, va_range.start, va_range.end).0,
+        ret.end == idx_range_spec::<C>(cur_node_level, cur_node_va, va_range.start, va_range.end).1,
         ret.start < ret.end,
-        ret.end <= NR_ENTRIES,
+        ret.end <= nr_subpage_per_huge::<C>(),
 )]
 fn dfs_get_idx_range<C: PagingConstsTrait>(
     cur_node_level: PagingLevel,
@@ -817,21 +818,46 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
 ) -> Range<usize> {
     proof {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
     }
     let ps = page_size::<C>(cur_node_level);
     let diff = va_range.end - cur_node_va;
 
     proof {
-        use vstd::arithmetic::div_mod::*;
+        use vstd::arithmetic::power2::{lemma2_to64, lemma_pow2_adds, lemma_pow2_strictly_increases};
+        use vstd_extra::external::ilog2::lemma_usize_is_pow2_is_ilog2_pow2;
 
         use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
-        lemma_page_size_ge_base::<PagingConsts>(cur_node_level);
-        lemma_page_size_spec_values();
-        lemma_page_size_next::<PagingConsts>(cur_node_level);
-        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-
-        // diff + ps - 1 fits in usize: both <= page_size(5) = 2^48
+        lemma_page_size_next::<C>(cur_node_level);
+        // The executable ceiling division adds before subtracting. Bound that
+        // intermediate sum using the configured address width.
+        let parent_level = (cur_node_level + 1) as PagingLevel;
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(cur_node_level);
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(parent_level);
+        let offset = pte_index_bit_offset_spec::<C>(cur_node_level) as nat;
+        let parent_offset = pte_index_bit_offset_spec::<C>(parent_level) as nat;
+        let half_bits = (usize::BITS - 1) as nat;
+        lemma2_to64();
+        lemma_pow2_adds(half_bits, 1);
+        if nr_pte_index_bits_spec::<C>() > 0 {
+            assert(offset < parent_offset) by (nonlinear_arith)
+                requires
+                    offset == C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (
+                    cur_node_level - 1),
+                    parent_offset == C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>()
+                        * cur_node_level,
+                    nr_pte_index_bits_spec::<C>() > 0,
+            ;
+            lemma_pow2_strictly_increases(offset, half_bits);
+            if parent_offset < half_bits {
+                lemma_pow2_strictly_increases(parent_offset, half_bits);
+            }
+        } else {
+            // A one-entry node is permitted by the trait. Its base page is
+            // smaller than two PTEs, so it also leaves arithmetic headroom.
+            lemma_usize_is_pow2_is_ilog2_pow2(nr_subpage_per_huge::<C>());
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(C::BASE_PAGE_SIZE() as int, 8);
+            lemma_usize_is_pow2_is_ilog2_pow2(C::BASE_PAGE_SIZE());
+        }
     }
 
     let start_idx = (va_range.start - cur_node_va) / ps;
@@ -847,52 +873,12 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         let si = va_range.start - cur_node_va;
 
         assert(start_idx < end_idx) by {
-            // si = start_idx * ai (exact division since si % ai == 0)
-            lemma_page_size_divides::<PagingConsts>(
-                cur_node_level,
-                (cur_node_level + 1) as PagingLevel,
-            );
-            // Prove si % ai == 0: va_range.start and cur_node_va are both multiples of ps.
-            // cur_node_va % ps == 0: cur_node_va % page_size(level+1) == 0 and ps | page_size(level+1).
-            let psu = page_size::<PagingConsts>((cur_node_level + 1) as PagingLevel) as int;
-            assert(cur_node_va as int % ai == 0) by {
-                // cur_node_va % psu == 0, psu % ai == 0
-                // ==> cur_node_va is a multiple of ai
-                lemma_fundamental_div_mod(cur_node_va as int, psu);
-                lemma_fundamental_div_mod(psu, ai);
-                let k = cur_node_va as int / psu;
-                let m = psu / ai;
-                // lemma gives: cur_node_va == psu * k + (cur_node_va % psu)
-                //              psu == ai * m + (psu % ai)
-                assert(cur_node_va == (m * k) * ai) by (nonlinear_arith)
-                    requires
-                        cur_node_va == psu * k + 0,
-                        psu == ai * m + 0,
-                        cur_node_va as int % psu == 0,
-                        psu % ai == 0,
-                ;
-                lemma_mod_multiples_basic(m * k, ai);
-            };
-            assert(si % ai == 0) by {
-                // va_range.start = si + cur_node_va, both multiples of ai
-                // si % ai + cur_node_va % ai == va_range.start % ai (mod ai)
-                lemma_mod_adds(si, cur_node_va as int, ai);
-                // gives: si%ai + 0 == 0 + ai * ((si%ai + 0)/ai)
-                // so si%ai == ai * (si%ai / ai)
-                // since 0 <= si%ai < ai, si%ai / ai == 0, so si%ai == 0
-            };
-
-            // start_idx * ai = si (exact division since si % ai == 0)
+            // Use exact division for the aligned start and ceiling division for the end.
+            lemma_page_size_divides::<C>(cur_node_level, (cur_node_level + 1) as PagingLevel);
             lemma_fundamental_div_mod(si, ai);
-            // si == ai * (si / ai) + (si % ai) == ai * start_idx + 0
-            vstd::arithmetic::mul::lemma_mul_is_commutative(ai, si / ai);
-
-            // end_idx * ai >= xi: ceil_div(xi, ai) * ai >= xi
             lemma_fundamental_div_mod(xi + ai - 1, ai);
             let qi = (xi + ai - 1) / ai;
             let ri = (xi + ai - 1) % ai;
-            // xi + ai - 1 == ai * qi + ri
-            vstd::arithmetic::mul::lemma_mul_is_commutative(ai, qi);
             assert(qi * ai >= xi) by (nonlinear_arith)
                 requires
                     xi + ai - 1 == qi * ai + ri,
@@ -900,12 +886,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                     ai > 0,
             ;
 
-            assert(start_idx * ai < end_idx * ai) by (nonlinear_arith)
-                requires
-                    start_idx * ai == si,
-                    end_idx * ai >= xi,
-                    si < xi,
-            ;
             vstd::arithmetic::mul::lemma_mul_strict_inequality_converse(
                 start_idx as int,
                 end_idx as int,
@@ -913,18 +893,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             );
         };
 
-        // -- end_idx <= NR_ENTRIES --
-        // diff <= page_size(level+1) = NR_ENTRIES * ps
-        // So ceil_div(diff, ps) <= NR_ENTRIES.
-        let psu = page_size::<PagingConsts>((cur_node_level + 1) as PagingLevel) as int;
-        // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
-        assert(psu + ai - 1 == NR_ENTRIES * ai + (ai - 1)) by (nonlinear_arith)
-            requires
-                psu == NR_ENTRIES * ai,
-        ;
-        lemma_fundamental_div_mod_converse(psu + ai - 1, ai, NR_ENTRIES as int, ai - 1);
-        // So (psu + ai - 1) / ai == NR_ENTRIES
-        // xi + ai - 1 <= psu + ai - 1, so end_idx = (xi+ai-1)/ai <= (psu+ai-1)/ai = NR_ENTRIES
+        // Rounding a range contained in the node cannot exceed its entry count.
+        let entries = nr_subpage_per_huge::<C>() as int;
+        let psu = page_size::<C>((cur_node_level + 1) as PagingLevel) as int;
+        lemma_fundamental_div_mod_converse(psu + ai - 1, ai, entries, ai - 1);
         lemma_div_is_ordered(xi + ai - 1, psu + ai - 1, ai);
     }
 

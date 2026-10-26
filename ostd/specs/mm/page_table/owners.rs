@@ -15,11 +15,12 @@ use vstd::{
     set_lib::*,
 };
 use vstd_extra::{
-    arithmetic::nat_align_down, drop_tracking::*, ghost_tree::*, ownership::*,
+    arithmetic::{lemma_mod_0_add, nat_align_down},
+    drop_tracking::*,
+    ghost_tree::*,
+    ownership::*,
     prelude::TreeNodeValue,
 };
-
-use crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries;
 
 use crate::specs::{
     arch::*,
@@ -36,7 +37,7 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    page_size, page_size_spec,
+    nr_subpage_per_huge, page_size, page_size_spec,
     page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
 };
 use core::ops::{Deref, Range};
@@ -45,17 +46,22 @@ verus! {
 
 broadcast use group_ghost_tree_lemmas;
 
+/// The contribution of one index at a configuration-relative path depth.
 #[verifier::inline]
-pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
+pub open spec fn vaddr_make<C: PagingConstsTrait>(idx: int, offset: usize) -> usize
     recommends
-        0 < L,
-        idx < L,
-        offset < NR_ENTRIES,
+        0 < C::NR_LEVELS(),
+        idx < C::NR_LEVELS(),
+        offset < nr_subpage_per_huge::<C>(),
 {
-    (page_size_spec::<PagingConsts>((L - idx) as PagingLevel) * offset) as usize
+    (page_size_spec::<C>((C::NR_LEVELS() - idx) as PagingLevel) * offset) as usize
 }
 
-pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
+/// Positional address of a path suffix in the selected paging layout.
+pub open spec fn rec_vaddr<C: PagingConstsTrait, const N: usize>(
+    path: TreePath<N>,
+    idx: int,
+) -> usize
     decreases path.len() - idx,
     when 0 <= idx <= path.len()
 {
@@ -63,12 +69,18 @@ pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
         0
     } else {
         let offset = path[idx] as usize;
-        (vaddr_make::<NR_LEVELS>(idx, offset) + rec_vaddr(path, idx + 1)) as usize
+        (vaddr_make::<C>(idx, offset) + rec_vaddr::<C, N>(path, idx + 1)) as usize
     }
 }
 
+/// Positional address of a path in the selected paging layout.
+pub open spec fn vaddr_for<C: PagingConstsTrait, const N: usize>(path: TreePath<N>) -> usize {
+    rec_vaddr::<C, N>(path, 0)
+}
+
+/// Positional address in the build-selected owner layout.
 pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
-    rec_vaddr(path, 0)
+    vaddr_for::<PagingConsts, NR_ENTRIES>(path)
 }
 
 /// Reconstructs a path address with the configuration's derived upper-address contribution.
@@ -77,7 +89,7 @@ pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usi
 }
 
 /// The positional VA of every valid path fits in the current paging address
-/// space. The concrete x86 bound is retained for callers that combine it with
+/// space. The current 48-bit bound is retained for callers that combine it with
 /// canonical leading bits.
 #[verifier::spinoff_prover]
 pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
@@ -87,8 +99,7 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     ensures
         vaddr(path) < 0x1_0000_0000_0000int,
 {
-    lemma_rec_vaddr_suffix_bound(path, 0);
-    lemma_page_size_ge_base::<PagingConsts>((INC_LEVELS - path.len()) as PagingLevel);
+    lemma_rec_vaddr_suffix_bound::<PagingConsts, NR_ENTRIES>(path, 0);
     lemma_page_size_spec_values();
 }
 
@@ -104,18 +115,12 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
 {
     broadcast use TreePath::lemma_index_satisfies_elem_inv;
 
-    lemma_rec_vaddr_suffix_bound(path, 1);
-    lemma_rec_vaddr_unfold(path, 0);
-    lemma_page_size_next::<PagingConsts>(NR_LEVELS as PagingLevel);
-    lemma_nr_subpage_per_huge_eq_nr_entries();
+    lemma_rec_vaddr_suffix_bound::<PagingConsts, NR_ENTRIES>(path, 1);
+    lemma_rec_vaddr_unfold::<PagingConsts, NR_ENTRIES>(path, 0);
     lemma_page_size_spec_values();
-    let i0 = path[0];
-    lemma_vaddr_make_eq_page_size(0, i0);
 }
 
-/// `vaddr_of::<C>(path)` in `int` equals the unconditional sum — no usize
-/// wrap. Holds because `vaddr(path) < 2^48` (any valid path) and
-/// `LEADING_BITS < 2^16`, so the sum is `< 2^64 = usize::MAX + 1`.
+/// Adding the coverage start to a path address does not truncate to `usize`.
 pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES>)
     requires
         path.inv(),
@@ -123,23 +128,23 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     ensures
         vaddr_of::<C>(path) == vaddr(path) + page_table_coverage_start_spec::<C>(),
 {
-    C::lemma_page_table_config_constant_properties();
     lemma_leading_bits_properties::<C>();
-    C::lemma_paging_consts_properties();
     C::axiom_current_paging_consts_hardcoded();
-    lemma_vaddr_strict_bound(path);
-    lemma_arch_specific_consts_properties::<C>();
-    vstd::arithmetic::power2::lemma2_to64();
-    assert(nr_page_table_coverage_bits_spec::<C>() == 48);
-    assert(leading_bits_spec::<C>() < 65536);
+    lemma_rec_vaddr_same_layout::<C, PagingConsts, NR_ENTRIES>(path, 0);
+    lemma_rec_vaddr_suffix_bound::<C, NR_ENTRIES>(path, 0);
+    lemma_page_size_ge_base::<C>((C::NR_LEVELS() + 1 - path.len()) as PagingLevel);
     let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
-    lemma_page_size_spec_values();
+    vstd::layout::unsigned_int_max_values();
 }
 
-/// A path of concrete PTE indices identifies the aligned slot containing the address.
-pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, va: Vaddr)
+/// A path of configured PTE indices identifies the aligned slot containing the address.
+pub proof fn lemma_vaddr_path_aligned<C: PagingConstsTrait, const N: usize>(
+    path: TreePath<N>,
+    va: Vaddr,
+)
     requires
+        N == nr_subpage_per_huge::<C>(),
         path.inv(),
         path.len() <= C::NR_LEVELS(),
         forall|k: int|
@@ -148,14 +153,13 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
                 (C::NR_LEVELS() - k) as PagingLevel,
             ),
     ensures
-        vaddr(path) + vaddr_leading_part_spec::<C>(va) == nat_align_down(
+        vaddr_for::<C, N>(path) + vaddr_leading_part_spec::<C>(va) == nat_align_down(
             va as nat,
             page_size::<C>((C::NR_LEVELS() - path.len() + 1) as PagingLevel) as nat,
         ),
     decreases path.len(),
 {
     C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
     let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
     let size = page_size::<C>(level) as int;
@@ -169,14 +173,14 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
         let (index, parent) = path.pop_tail();
         path.lemma_pop_tail_preserves_inv();
         path.lemma_index_satisfies_elem_inv(path.len() - 1);
-        assert(0 <= index < NR_ENTRIES);
+        assert(0 <= index < N);
         assert(parent.push_tail(index) == path);
         assert forall|k: int| 0 <= k < parent.len() implies #[trigger] parent[k]
             == pte_index_spec::<C>(va, (C::NR_LEVELS() - k) as PagingLevel) by {
             assert(parent[k] == path[k]);
         };
-        lemma_vaddr_path_aligned::<C>(parent, va);
-        PageTableOwner::<C>::lemma_vaddr_push_tail_eq(parent, index);
+        lemma_vaddr_path_aligned::<C, N>(parent, va);
+        lemma_rec_vaddr_push_tail::<C, N>(parent, index, 0);
         lemma_page_size_next::<C>(level);
         lemma_pte_index_spec_is_div_mod::<C>(va, level);
 
@@ -188,11 +192,11 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
         lemma_fundamental_div_mod(va as int, parent_size);
         vstd::arithmetic::div_mod::lemma_mod_bound(va as int, parent_size);
         vstd::arithmetic::div_mod::lemma_div_pos_is_pos(va as int, parent_size);
-        assert(vaddr(parent) + vaddr_leading_part_spec::<C>(va) == nat_align_down(
+        assert(vaddr_for::<C, N>(parent) + vaddr_leading_part_spec::<C>(va) == nat_align_down(
             va as nat,
             parent_size as nat,
         ));
-        assert(vaddr(path) == vaddr(parent) + index * size);
+        assert(vaddr_for::<C, N>(path) == vaddr_for::<C, N>(parent) + index * size);
         assert(index == pte_index_spec::<C>(va, level));
         assert(quotient == fanout * (va as int / parent_size) + index);
         assert(size * quotient == parent_size * (va as int / parent_size) + size * index)
@@ -887,8 +891,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         };
 
         let pt = path.push_tail(i);
-        lemma_rec_vaddr_push_tail(path, i, 0);
-        lemma_rec_vaddr_suffix_bound(pt, 0);
+        lemma_rec_vaddr_push_tail::<PagingConsts, NR_ENTRIES>(path, i, 0);
+        lemma_rec_vaddr_suffix_bound::<PagingConsts, NR_ENTRIES>(pt, 0);
         let entry_size = page_size::<PagingConsts>(
             (INC_LEVELS - path.len() - 1) as PagingLevel,
         ) as int;
@@ -985,7 +989,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         lemma_vaddr_top_index_cell(path);
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
-        lemma_arch_specific_consts_properties::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma_page_size_spec_values();
         lemma_mul_inequality(path[0] + 1, t, page_size::<C>(C::NR_LEVELS()) as int);
@@ -1220,8 +1223,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             vaddr(path) + page_size::<PagingConsts>((INC_LEVELS - path.len()) as PagingLevel)
                 <= usize::MAX,
     {
-        lemma_rec_vaddr_aligned(path, 0);
-        lemma_rec_vaddr_suffix_bound(path, 0);
+        lemma_rec_vaddr_aligned::<PagingConsts, NR_ENTRIES>(path, 0);
+        lemma_rec_vaddr_suffix_bound::<PagingConsts, NR_ENTRIES>(path, 0);
     }
 
     /// Every mapping in `view_rec` satisfies `Mapping::inv()`.
@@ -1262,7 +1265,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             C::lemma_page_table_config_constant_properties();
             C::lemma_paging_consts_properties();
             C::axiom_current_paging_consts_hardcoded();
-            lemma_arch_specific_consts_properties::<C>();
+            lemma_arch_specific_consts_properties();
             lemma_leading_bits_properties::<C>();
             assert(nr_page_table_coverage_bits_spec::<C>() == 48);
             lemma_vaddr_strict_bound(path);
@@ -1685,180 +1688,178 @@ impl<C: PageTableConfig> View for PageTableOwner<C> {
     }
 }
 
+/// Equal paging layouts assign equal addresses to every path suffix.
+pub(crate) proof fn lemma_rec_vaddr_same_layout<
+    C: PagingConstsTrait,
+    D: PagingConstsTrait,
+    const N: usize,
+>(path: TreePath<N>, idx: int)
+    requires
+        0 <= idx <= path.len(),
+        C::BASE_PAGE_SIZE() == D::BASE_PAGE_SIZE(),
+        C::NR_LEVELS() == D::NR_LEVELS(),
+        nr_subpage_per_huge::<C>() == nr_subpage_per_huge::<D>(),
+    ensures
+        rec_vaddr::<C, N>(path, idx) == rec_vaddr::<D, N>(path, idx),
+    decreases path.len() - idx,
+{
+    if idx < path.len() {
+        lemma_rec_vaddr_same_layout::<C, D, N>(path, idx + 1);
+    }
+}
+
 // Auxiliary proofs for page-table path arithmetic.
 /// A path index advances by one page at the corresponding paging level.
-proof fn lemma_vaddr_make_eq_page_size(idx: int, offset: int)
+proof fn lemma_vaddr_make_eq_page_size<C: PagingConstsTrait, const N: usize>(idx: int, offset: int)
     requires
-        0 <= idx < NR_LEVELS,
-        0 <= offset < NR_ENTRIES,
+        N == nr_subpage_per_huge::<C>(),
+        0 <= idx < C::NR_LEVELS(),
+        0 <= offset < N,
     ensures
-        vaddr_make::<NR_LEVELS>(idx, offset as usize) == offset * page_size::<PagingConsts>(
-            (NR_LEVELS - idx) as PagingLevel,
+        vaddr_make::<C>(idx, offset as usize) == offset * page_size::<C>(
+            (C::NR_LEVELS() - idx) as PagingLevel,
         ),
 {
-    let entry_size = page_size::<PagingConsts>((NR_LEVELS - idx) as PagingLevel) as int;
-    let parent_size = page_size::<PagingConsts>((INC_LEVELS - idx) as PagingLevel) as int;
-    lemma_page_size_next::<PagingConsts>((NR_LEVELS - idx) as PagingLevel);
-    lemma_nr_subpage_per_huge_eq_nr_entries();
-    vstd::arithmetic::mul::lemma_mul_is_commutative(NR_ENTRIES as int, entry_size);
-    assert(offset * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
+    let entry_size = page_size::<C>((C::NR_LEVELS() - idx) as PagingLevel) as int;
+    lemma_page_size_next::<C>((C::NR_LEVELS() - idx) as PagingLevel);
+    assert(offset * entry_size <= N * entry_size) by (nonlinear_arith)
         requires
-            0 <= offset <= NR_ENTRIES,
+            0 <= offset <= N,
             0 <= entry_size,
     ;
-    assert(NR_ENTRIES * entry_size == parent_size);
-    assert(parent_size <= usize::MAX);
-    assert(offset as usize == offset);
-    assert(page_size_spec::<PagingConsts>((NR_LEVELS - idx) as PagingLevel) == entry_size);
-    assert(vaddr_make::<NR_LEVELS>(idx, offset as usize) == (entry_size * offset) as usize);
-    assert(entry_size * offset == offset * entry_size) by (nonlinear_arith);
+    assert(vaddr_make::<C>(idx, offset as usize) == (entry_size * offset) as usize);
 }
 
 /// The suffix beginning at `idx`, together with the mapped page at the end of
 /// the path, fits in one entry at the parent level.
-proof fn lemma_rec_vaddr_suffix_bound(path: TreePath<NR_ENTRIES>, idx: int)
+proof fn lemma_rec_vaddr_suffix_bound<C: PagingConstsTrait, const N: usize>(
+    path: TreePath<N>,
+    idx: int,
+)
     requires
+        N == nr_subpage_per_huge::<C>(),
         path.inv(),
-        0 <= idx <= path.len() <= INC_LEVELS - 1,
+        0 <= idx <= path.len() <= C::NR_LEVELS(),
     ensures
-        rec_vaddr(path, idx) + page_size::<PagingConsts>((INC_LEVELS - path.len()) as PagingLevel)
-            <= page_size::<PagingConsts>((INC_LEVELS - idx) as PagingLevel),
+        rec_vaddr::<C, N>(path, idx) + page_size::<C>(
+            (C::NR_LEVELS() + 1 - path.len()) as PagingLevel,
+        ) <= page_size::<C>((C::NR_LEVELS() + 1 - idx) as PagingLevel),
     decreases path.len() - idx,
 {
+    C::lemma_paging_consts_properties();
     if idx == path.len() {
-        assert(rec_vaddr(path, idx) == 0);
+        assert(rec_vaddr::<C, N>(path, idx) == 0);
     } else {
-        path.lemma_index_satisfies_elem_inv(idx);
-        lemma_rec_vaddr_suffix_bound(path, idx + 1);
-        lemma_page_size_next::<PagingConsts>((NR_LEVELS - idx) as PagingLevel);
-        lemma_nr_subpage_per_huge_eq_nr_entries();
-
-        let entry_size = page_size::<PagingConsts>((NR_LEVELS - idx) as PagingLevel) as int;
-        let mapped_page_size = page_size::<PagingConsts>(
-            (INC_LEVELS - path.len()) as PagingLevel,
+        lemma_rec_vaddr_suffix_bound::<C, N>(path, idx + 1);
+        lemma_page_size_next::<C>((C::NR_LEVELS() - idx) as PagingLevel);
+        let entry_size = page_size::<C>((C::NR_LEVELS() - idx) as PagingLevel) as int;
+        let mapped_page_size = page_size::<C>(
+            (C::NR_LEVELS() + 1 - path.len()) as PagingLevel,
         ) as int;
-        lemma_vaddr_make_eq_page_size(idx, path[idx]);
-        assert(path[idx] + 1 <= NR_ENTRIES);
-        assert((path[idx] + 1) * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
+        assert((path[idx] + 1) * entry_size <= N * entry_size) by (nonlinear_arith)
             requires
-                0 <= path[idx] + 1 <= NR_ENTRIES,
+                0 <= path[idx] + 1 <= N,
                 0 <= entry_size,
         ;
-        assert(entry_size * path[idx] + rec_vaddr(path, idx + 1) + mapped_page_size <= (path[idx]
-            + 1) * entry_size) by (nonlinear_arith)
+        assert(entry_size * path[idx] + rec_vaddr::<C, N>(path, idx + 1) + mapped_page_size <= (
+        path[idx] + 1) * entry_size) by (nonlinear_arith)
             requires
-                rec_vaddr(path, idx + 1) + mapped_page_size <= entry_size,
+                rec_vaddr::<C, N>(path, idx + 1) + mapped_page_size <= entry_size,
                 0 <= entry_size,
         ;
-        assert(entry_size * path[idx] + rec_vaddr(path, idx + 1) <= usize::MAX);
-        assert(rec_vaddr(path, idx) == entry_size * path[idx] + rec_vaddr(path, idx + 1));
-        assert(rec_vaddr(path, idx) + mapped_page_size <= (path[idx] + 1) * entry_size);
     }
 }
 
 /// Unfold one path entry without a truncating `usize` cast.
-proof fn lemma_rec_vaddr_unfold(path: TreePath<NR_ENTRIES>, idx: int)
+proof fn lemma_rec_vaddr_unfold<C: PagingConstsTrait, const N: usize>(path: TreePath<N>, idx: int)
     requires
+        N == nr_subpage_per_huge::<C>(),
         path.inv(),
-        0 <= idx < path.len() <= INC_LEVELS - 1,
+        0 <= idx < path.len() <= C::NR_LEVELS(),
     ensures
-        rec_vaddr(path, idx) == path[idx] * page_size::<PagingConsts>(
-            (NR_LEVELS - idx) as PagingLevel,
-        ) + rec_vaddr(path, idx + 1),
+        rec_vaddr::<C, N>(path, idx) == path[idx] * page_size::<C>(
+            (C::NR_LEVELS() - idx) as PagingLevel,
+        ) + rec_vaddr::<C, N>(path, idx + 1),
 {
-    path.lemma_index_satisfies_elem_inv(idx);
-    lemma_rec_vaddr_suffix_bound(path, idx + 1);
-    lemma_vaddr_make_eq_page_size(idx, path[idx]);
-    lemma_page_size_next::<PagingConsts>((NR_LEVELS - idx) as PagingLevel);
-    lemma_nr_subpage_per_huge_eq_nr_entries();
-
-    let entry_size = page_size::<PagingConsts>((NR_LEVELS - idx) as PagingLevel) as int;
-    let parent_size = page_size::<PagingConsts>((INC_LEVELS - idx) as PagingLevel) as int;
-    assert(path[idx] + 1 <= NR_ENTRIES);
-    assert(path[idx] * entry_size + rec_vaddr(path, idx + 1) <= (path[idx] + 1) * entry_size)
-        by (nonlinear_arith)
+    C::lemma_paging_consts_properties();
+    lemma_rec_vaddr_suffix_bound::<C, N>(path, idx + 1);
+    lemma_vaddr_make_eq_page_size::<C, N>(idx, path[idx]);
+    lemma_page_size_next::<C>((C::NR_LEVELS() - idx) as PagingLevel);
+    let entry_size = page_size::<C>((C::NR_LEVELS() - idx) as PagingLevel) as int;
+    assert(path[idx] * entry_size + rec_vaddr::<C, N>(path, idx + 1) <= (path[idx] + 1)
+        * entry_size) by (nonlinear_arith)
         requires
-            rec_vaddr(path, idx + 1) <= entry_size,
+            rec_vaddr::<C, N>(path, idx + 1) <= entry_size,
             0 <= entry_size,
     ;
-    assert((path[idx] + 1) * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
+    assert((path[idx] + 1) * entry_size <= N * entry_size) by (nonlinear_arith)
         requires
-            0 <= path[idx] + 1 <= NR_ENTRIES,
+            0 <= path[idx] + 1 <= N,
             0 <= entry_size,
     ;
-    assert(NR_ENTRIES * entry_size == parent_size);
-    assert(parent_size <= usize::MAX);
-    assert(path[idx] * entry_size + rec_vaddr(path, idx + 1) <= usize::MAX);
 }
 
 /// Every path suffix is aligned to the page size represented by its last
 /// entry.
-proof fn lemma_rec_vaddr_aligned(path: TreePath<NR_ENTRIES>, idx: int)
+proof fn lemma_rec_vaddr_aligned<C: PagingConstsTrait, const N: usize>(path: TreePath<N>, idx: int)
     requires
+        N == nr_subpage_per_huge::<C>(),
         path.inv(),
-        0 <= idx <= path.len() <= INC_LEVELS - 1,
+        0 <= idx <= path.len() <= C::NR_LEVELS(),
     ensures
-        rec_vaddr(path, idx) % page_size::<PagingConsts>((INC_LEVELS - path.len()) as PagingLevel)
-            == 0,
+        rec_vaddr::<C, N>(path, idx) % page_size::<C>(
+            (C::NR_LEVELS() + 1 - path.len()) as PagingLevel,
+        ) == 0,
     decreases path.len() - idx,
 {
-    let mapped_level = (INC_LEVELS - path.len()) as PagingLevel;
-    let mapped_page_size = page_size::<PagingConsts>(mapped_level) as int;
-    lemma_page_size_ge_base::<PagingConsts>(mapped_level);
-    assert(0 < mapped_page_size);
+    C::lemma_paging_consts_properties();
+    let mapped_level = (C::NR_LEVELS() + 1 - path.len()) as PagingLevel;
+    let mapped_page_size = page_size::<C>(mapped_level) as int;
+    lemma_page_size_ge_base::<C>(mapped_level);
     if idx == path.len() {
-        assert(rec_vaddr(path, idx) == 0);
-        assert(0usize % page_size::<PagingConsts>(mapped_level) == 0);
+        assert(0usize % page_size::<C>(mapped_level) == 0);
     } else {
-        path.lemma_index_satisfies_elem_inv(idx);
-        lemma_rec_vaddr_aligned(path, idx + 1);
-        lemma_rec_vaddr_unfold(path, idx);
-
-        let entry_level = (NR_LEVELS - idx) as PagingLevel;
-        let entry_size = page_size::<PagingConsts>(entry_level) as int;
-        lemma_page_size_divides::<PagingConsts>(mapped_level, entry_level);
-        assert(entry_size % mapped_page_size == 0);
+        lemma_rec_vaddr_aligned::<C, N>(path, idx + 1);
+        lemma_rec_vaddr_unfold::<C, N>(path, idx);
+        let entry_level = (C::NR_LEVELS() - idx) as PagingLevel;
+        let entry_size = page_size::<C>(entry_level) as int;
+        lemma_page_size_divides::<C>(mapped_level, entry_level);
         lemma_fundamental_div_mod(entry_size, mapped_page_size);
         let entry_ratio = entry_size / mapped_page_size;
-        assert(entry_size == entry_ratio * mapped_page_size);
         lemma_mod_multiples_basic(path[idx] * entry_ratio, mapped_page_size);
         lemma_mul_is_associative(path[idx], entry_ratio, mapped_page_size);
-        assert(path[idx] * entry_size == (path[idx] * entry_ratio) * mapped_page_size);
-        assert((path[idx] * entry_size) % mapped_page_size == 0);
-        lemma_mod_0_add(path[idx] * entry_size, rec_vaddr(path, idx + 1) as int, mapped_page_size);
-        assert((path[idx] * entry_size + rec_vaddr(path, idx + 1)) % mapped_page_size == 0);
-        assert((rec_vaddr(path, idx) as int) % mapped_page_size == 0);
-        assert(rec_vaddr(path, idx) % page_size::<PagingConsts>(mapped_level) == ((rec_vaddr(
-            path,
-            idx,
-        ) as int) % mapped_page_size) as usize);
+        lemma_mod_0_add(
+            path[idx] * entry_size,
+            rec_vaddr::<C, N>(path, idx + 1) as int,
+            mapped_page_size,
+        );
     }
 }
 
 /// Appending a path index adds exactly one entry-sized offset.
-proof fn lemma_rec_vaddr_push_tail(path: TreePath<NR_ENTRIES>, i: int, idx: int)
+proof fn lemma_rec_vaddr_push_tail<C: PagingConstsTrait, const N: usize>(
+    path: TreePath<N>,
+    i: int,
+    idx: int,
+)
     requires
+        N == nr_subpage_per_huge::<C>(),
         path.inv(),
-        0 <= idx <= path.len() < INC_LEVELS - 1,
-        0 <= i < NR_ENTRIES,
+        0 <= idx <= path.len() < C::NR_LEVELS(),
+        0 <= i < N,
     ensures
-        rec_vaddr(path.push_tail(i), idx) == rec_vaddr(path, idx) + i * page_size::<PagingConsts>(
-            (NR_LEVELS - path.len()) as PagingLevel,
-        ),
+        rec_vaddr::<C, N>(path.push_tail(i), idx) == rec_vaddr::<C, N>(path, idx) + i * page_size::<
+            C,
+        >((C::NR_LEVELS() - path.len()) as PagingLevel),
     decreases path.len() - idx,
 {
     let pt = path.push_tail(i);
-    path.lemma_push_tail_len(i);
-    path.lemma_push_tail_index(i);
-    path.lemma_push_tail_preserves_inv(i);
     if idx == path.len() {
-        assert(rec_vaddr(path, idx) == 0);
-        lemma_rec_vaddr_unfold(pt, idx);
-        assert(rec_vaddr(pt, idx + 1) == 0);
+        lemma_rec_vaddr_unfold::<C, N>(pt, idx);
     } else {
-        lemma_rec_vaddr_push_tail(path, i, idx + 1);
-        lemma_rec_vaddr_unfold(path, idx);
-        lemma_rec_vaddr_unfold(pt, idx);
+        lemma_rec_vaddr_push_tail::<C, N>(path, i, idx + 1);
+        lemma_rec_vaddr_unfold::<C, N>(path, idx);
+        lemma_rec_vaddr_unfold::<C, N>(pt, idx);
     }
 }
 
