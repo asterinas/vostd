@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792985957159,
+  "lastUpdate": 1793004243320,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -6972,6 +6972,90 @@ window.BENCHMARK_DATA = {
             "value": 1512725,
             "unit": "rlimit",
             "extra": "smt-run=652ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ddcc81db2c7bd5278aa5221764c62d3a8ad33db",
+          "message": "chore: add `Frame::slot_vaddr` (#864)\n\n* chore: add `Frame::slot_vaddr`\n\n* fmt\n\n* minor",
+          "timestamp": "2026-10-26T16:18:45+08:00",
+          "tree_id": "8e5e803844cb844622ac019019fe2f14ae5ab617",
+          "url": "https://github.com/asterinas/vostd/commit/1ddcc81db2c7bd5278aa5221764c62d3a8ad33db"
+        },
+        "date": 1793004242993,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1473465198,
+            "unit": "rlimit",
+            "extra": "verified=4260 errors=0 smt-run=330,502ms wall=198,635ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 538222141,
+            "unit": "rlimit",
+            "extra": "smt-run=180,250ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 233546323,
+            "unit": "rlimit",
+            "extra": "smt-run=26,743ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 65216734,
+            "unit": "rlimit",
+            "extra": "smt-run=18,222ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=3,360ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 16369438,
+            "unit": "rlimit",
+            "extra": "smt-run=1,091ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 11196458,
+            "unit": "rlimit",
+            "extra": "smt-run=1,622ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=618ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2026397,
+            "unit": "rlimit",
+            "extra": "smt-run=374ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=539ms"
           }
         ]
       }
