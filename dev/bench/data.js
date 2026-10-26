@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792939457516,
+  "lastUpdate": 1792985957159,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -6888,6 +6888,90 @@ window.BENCHMARK_DATA = {
             "value": 1512725,
             "unit": "rlimit",
             "extra": "smt-run=630ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ngan.tran@live.com",
+            "name": "Cruz Man",
+            "username": "numbermuncher11"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36e90fe192753dbd05c45e175b8c1a2abf4083b3",
+          "message": "Fix empty-set partition specification (#862)",
+          "timestamp": "2026-10-26T11:25:26+08:00",
+          "tree_id": "4e4ff766c703b3610c9790b5acceaf478e73b738",
+          "url": "https://github.com/asterinas/vostd/commit/36e90fe192753dbd05c45e175b8c1a2abf4083b3"
+        },
+        "date": 1792985956605,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1509156921,
+            "unit": "rlimit",
+            "extra": "verified=4260 errors=0 smt-run=467,723ms wall=271,821ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 487098826,
+            "unit": "rlimit",
+            "extra": "smt-run=229,607ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 277053177,
+            "unit": "rlimit",
+            "extra": "smt-run=42,982ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 89465546,
+            "unit": "rlimit",
+            "extra": "smt-run=31,045ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=5,036ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 16369438,
+            "unit": "rlimit",
+            "extra": "smt-run=1,674ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 11196458,
+            "unit": "rlimit",
+            "extra": "smt-run=2,806ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=1,088ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=876ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1512725,
+            "unit": "rlimit",
+            "extra": "smt-run=652ms"
           }
         ]
       }
