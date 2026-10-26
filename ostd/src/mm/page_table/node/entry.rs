@@ -416,12 +416,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             // Install new entry's path into its slot's paths_in_pt.
-            // Nodes: singleton overwrite (tree enforces unique node path).
-            // Callers register tracked frame paths before replacement.
-            // Untracked physical mappings carry no counted ownership path.
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.lemma_contains_valid_frame_paddr(paddr);
 
                 let tracked mut new_meta_slot = regions.tracked_borrow_mut_slot_owner(paddr);
                 new_meta_slot.paths_in_pt = set![new_owner.path];
@@ -431,7 +427,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         proof {
             if new_owner.is_node() || new_owner.is_frame() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.lemma_contains_valid_frame_paddr(paddr);
             }
             if owner.is_frame() {
                 let paddr = owner.frame().mapped_pa;
@@ -446,15 +441,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             if new_owner.is_frame() {
                 let paddr = new_owner.frame().mapped_pa;
                 let slot = frame_to_index(paddr);
-                assert(initial_regions.slots[slot] == regions.slots[slot]);
-                assert(initial_regions.slot_owners[slot].metadata_perm.id()
-                    == regions.slot_owners[slot].metadata_perm.id());
-                C::lemma_perm_well_formed_with_region_preserved(
-                    paddr,
-                    Tracked(new_owner.frame_permission()),
-                    initial_regions,
-                    *regions,
-                );
             }
             assert(Self::metaregion_sound_neq_preserved(
                 initial_owner,
@@ -614,9 +600,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert forall|i: int, j: int|
                     0 <= i < NR_ENTRIES && 0 <= j
                         < NR_ENTRIES implies !#[trigger] fresh_children[i]->0.has_child(j) by {
-                    assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
-                        new_node_owner,
-                    ));
                     assert(!new_node_owner.child(i).has_child(j));
                 };
             }
@@ -672,7 +655,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     old_path,
                 );
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
-                regions.lemma_contains_valid_frame_paddr(new_paddr);
                 let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
                 new_meta_slot.paths_in_pt = set![owner.value().path];
 
@@ -713,7 +695,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 );
                 let pt = PageTableOwner(*owner);
                 pt.lemma_view_rec_contains(old_path);
-                assert(pt.view_rec(old_path) == set![]);
             }
             Some(pt_lock_guard)
         }
@@ -843,7 +824,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let prop = self.pte.prop();
 
         proof {
-            EntryOwner::last_pte_implies_frame_match(owner.value(), self.pte, level);
             C::lemma_huge_raw_item_untracked(
                 pa,
                 level,
@@ -862,9 +842,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let new_page = PageTableNode::<C>::alloc(level - 1);
         let ghost fresh_children = new_owner.children();
         proof {
-            assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
-                new_owner,
-            ));
             assert forall|i: int, j: int|
                 0 <= i < NR_ENTRIES && 0 <= j
                     < NR_ENTRIES implies !#[trigger] fresh_children[i]->0.has_child(j) by {
@@ -879,23 +856,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             };
         }
         proof {
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies (
-            #[trigger] new_owner.children()[i]) is Some by {
-                assert(crate::specs::mm::page_table::allocated_empty_node_owner(
-                    new_owner,
-                    (level - 1) as PagingLevel,
-                ));
-                assert(new_owner.has_child(i));
-            };
             let tracked new_value = new_owner.tracked_borrow_mut_value();
             new_value.path = owner.value().path;
             crate::specs::mm::page_table::tracked_rebase_freshly_allocated_children(
                 &mut new_owner,
                 owner.value().path,
             );
-            assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
-                new_owner,
-            ));
         }
         let paddr = new_page.start_paddr();
 
@@ -918,7 +884,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         proof {
             C::lemma_paging_consts_properties();
             C::axiom_current_paging_consts_hardcoded();
-            assert(nr_subpage_per_huge_spec::<C>() == NR_ENTRIES);
         }
 
         for i in 0..nr_subpage_per_huge::<C>()
@@ -1007,10 +972,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         {
             proof {
                 C::lemma_page_table_config_constant_properties();
-                C::lemma_paging_consts_properties();
                 C::axiom_current_paging_consts_hardcoded();
 
-                assert(new_owner.inv_children());
                 assert(new_owner.child(i as int).inv());
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
             }
@@ -1059,7 +1022,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             proof {
-                new_owner_child_before_update.lemma_set_value_observable_fields(child_owner);
                 OwnerSubtree::lemma_ext_equal(
                     *new_owner_child,
                     new_owner_child_before_update.set_value(child_owner),
@@ -1070,46 +1032,20 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 }
 
                 let owner_with_updated_value = new_owner_before_update.set_value(new_owner.value());
-                vstd::seq_lib::lemma_update_is_remove_insert(
-                    new_owner_before_update.children(),
-                    i as int,
-                    Some(*new_owner_child),
-                );
                 OwnerSubtree::lemma_ext_equal(
                     new_owner,
                     owner_with_updated_value.insert(i as int, *new_owner_child),
                 );
-                assert forall|j: int| 0 <= j < NR_ENTRIES implies (
-                #[trigger] new_owner.children()[j]) is Some by {
-                    if j != i {
-                        assert(owner_with_updated_value.insert(
-                            i as int,
-                            *new_owner_child,
-                        ).children()[j] == owner_with_updated_value.children()[j]);
-                    }
-                };
                 assert forall|j: int, k: int|
                     0 <= j < NR_ENTRIES && 0 <= k < NR_ENTRIES implies !#[trigger] new_owner.child(
                     j,
                 ).has_child(k) by {
                     assert(!new_owner_before_update.child(j).has_child(k));
-                    if j == i {
-                        assert(new_owner_child_before_update == new_owner_before_update.child(
-                            i as int,
-                        ));
-                        assert(new_owner.child(j).children()
-                            == new_owner_child_before_update.children());
-                    } else {
-                        assert(new_owner.child(j) == new_owner_before_update.child(j));
-                    }
                 };
                 assert forall|j: int| 0 <= j <= i implies #[trigger] new_owner.child(
                     j,
                 ).value().frame().prop == prop by {
-                    if j == i {
-                        assert(new_owner.child(j).value() == child_owner);
-                        assert(child_owner.frame().prop == prop);
-                    } else {
+                    if j != i {
                         assert(new_owner.child(j) == new_owner_before_update.child(j));
                     }
                 };
@@ -1118,23 +1054,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 ).value().frame().mapped_pa == pa + j * page_size::<PagingConsts>(
                     (level - 1) as PagingLevel,
                 ) by {
-                    if j == i {
-                        assert(new_owner.child(j).value() == child_owner);
-                    } else {
+                    if j != i {
                         assert(new_owner.child(j) == new_owner_before_update.child(j));
                     }
                 };
                 assert forall|j: int| 0 <= j <= i implies #[trigger] new_owner.child(
                     j,
                 ).value().metaregion_sound(*regions) by {
-                    if j == i {
-                        assert(new_owner.child(j).value() == child_owner);
-                        assert(child_owner.metaregion_sound(*regions));
-                    } else {
+                    if j != i {
                         assert(new_owner.child(j) == new_owner_before_update.child(j));
                     }
                 };
-
             }
         }
 
@@ -1172,7 +1102,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert forall|j: int| 0 <= j < NR_ENTRIES implies #[trigger] owner.child(
                 j,
             ).value().metaregion_sound(*regions) by {
-                assert(owner.child(j).value().is_frame());
                 assert(owner.child(j).value().metaregion_sound(regions_before_registration));
                 owner.child(j).value().lemma_metaregion_sound_one_slot_changed(
                     regions_before_registration,
@@ -1187,12 +1116,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value().parent_level,
             );
             Entry::<C>::lemma_allocated_node_preserves_disjoint_entries(
-                absent,
-                owner.value(),
-                *old(regions),
-                *regions,
-            );
-            Entry::<C>::alloc_if_none_metaregion_sound_preserved(
                 absent,
                 owner.value(),
                 *old(regions),
@@ -1226,7 +1149,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner,
             ).value().frame().prop by {
                 assert(owner.child(j).value().frame().prop == prop);
-                assert(prop == old(owner).value().frame().prop);
             };
         }
         Some(pt_lock_guard)
@@ -1566,44 +1488,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 idx as int,
                 new_pte,
             );
-        }
-
-        proof {
             if new_owner.is_node() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.lemma_contains_valid_frame_paddr(paddr);
                 let tracked mut new_meta_slot = regions.tracked_borrow_mut_slot_owner(paddr);
                 new_meta_slot.paths_in_pt = set![new_owner.path];
-            }
-        }
-
-        proof {
-            if new_owner.is_node() || new_owner.is_frame() {
-                let paddr = new_owner.meta_slot_paddr().unwrap();
-                regions.lemma_contains_valid_frame_paddr(paddr);
             }
             if owner.is_frame() {
                 let paddr = owner.frame().mapped_pa;
                 let slot = frame_to_index(paddr);
-                assert(initial_regions.slots[slot] == regions.slots[slot]);
-                assert(initial_regions.slot_owners[slot].metadata_perm.id()
-                    == regions.slot_owners[slot].metadata_perm.id());
                 C::lemma_perm_well_formed_with_region_preserved(
                     paddr,
                     Tracked(owner.frame_permission()),
-                    initial_regions,
-                    *regions,
-                );
-            }
-            if new_owner.is_frame() {
-                let paddr = new_owner.frame().mapped_pa;
-                let slot = frame_to_index(paddr);
-                assert(initial_regions.slots[slot] == regions.slots[slot]);
-                assert(initial_regions.slot_owners[slot].metadata_perm.id()
-                    == regions.slot_owners[slot].metadata_perm.id());
-                C::lemma_perm_well_formed_with_region_preserved(
-                    paddr,
-                    Tracked(new_owner.frame_permission()),
                     initial_regions,
                     *regions,
                 );
@@ -1625,9 +1520,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     if entry.is_frame() {
                         let paddr = entry.frame().mapped_pa;
                         let slot = frame_to_index(paddr);
-                        assert(initial_regions.slots[slot] == regions.slots[slot]);
-                        assert(initial_regions.slot_owners[slot].metadata_perm.id()
-                            == regions.slot_owners[slot].metadata_perm.id());
                         C::lemma_perm_well_formed_with_region_preserved(
                             paddr,
                             Tracked(entry.frame_permission()),
@@ -1779,18 +1671,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             assert forall|i: int, j: int|
                 0 <= i < NR_ENTRIES && 0 <= j
                     < NR_ENTRIES implies !#[trigger] fresh_children[i]->0.has_child(j) by {
-                assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(
-                    new_node_owner,
-                ));
                 assert(!new_node_owner.child(i).has_child(j));
-            };
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies (
-            #[trigger] fresh_children[i]) is Some by {
-                assert(crate::specs::mm::page_table::allocated_empty_node_owner(
-                    new_node_owner,
-                    (level - 1) as PagingLevel,
-                ));
-                assert(new_node_owner.has_child(i));
             };
         }
 
@@ -1848,15 +1729,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 owner,
                 old_path,
             );
-            assert(crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*owner));
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies (#[trigger] owner.child(
-                i,
-            )).value().is_absent() by {
-                assert(fresh_children[i]->0.value().is_absent());
-            };
 
             let new_paddr = owner.value().meta_slot_paddr().unwrap();
-            regions.lemma_contains_valid_frame_paddr(new_paddr);
             let tracked new_meta_slot = regions.tracked_borrow_mut_slot_owner(new_paddr);
             new_meta_slot.paths_in_pt = set![owner.value().path];
 
@@ -1887,13 +1761,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 f_pt,
             );
             let pt = PageTableOwner(*owner);
-            pt.lemma_view_rec_contains(old_path);
             assert forall|m: crate::specs::mm::page_table::Mapping|
                 pt.view_rec(old_path).contains(m) implies false by {
                 let i = pt.view_rec_contains_choose(old_path, m);
-                PageTableOwner(owner.child(i)).lemma_view_rec_absent_empty(old_path.push_tail(i));
             };
-            assert(pt.view_rec(old_path) == set![]);
         }
 
         pt_lock_guard

@@ -1050,7 +1050,7 @@ impl<T: Send + 'static> Drop for RcuDrop<T> {
 ///
 /// The caller must ensure that this CPU is not executing in a RCU read-side
 /// critical section.
-pub unsafe fn finish_grace_period() {
+pub(crate) unsafe fn finish_grace_period() {
     let rcu_monitor = RCU_MONITOR.get().unwrap();
     // SAFETY: The caller ensures safety.
     unsafe {
@@ -1068,7 +1068,7 @@ exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorInvariant, RcuMonitorPred>
     Once::new(Ghost(RcuMonitorPred))
 }
 
-pub fn init() {
+pub(super) fn init() {
     RCU_MONITOR.init(RcuMonitor::new_data());
 }
 

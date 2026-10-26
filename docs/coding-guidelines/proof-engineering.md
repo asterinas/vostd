@@ -68,6 +68,41 @@ See also: PR [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3747
 [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295),
 and [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023000538).
 
+### Name assume-spec receivers
+
+<!-- guideline: name-assume-spec-receivers -->
+
+Name the receiver parameters of an `assume_specification` after
+their role (`l: &Layout`, `vec: &mut Vec<T, A>`, `b: &bool`), the
+naming the [Verus assume_specification guide's examples](../../tools/verus/source/docs/guide/src/reference-assume-specification.md#examples)
+use; the guide also rejects `self` in the signature. Rejecting
+`self` does not mean spelling the receiver `self_` and dereferencing
+it by hand: when the model spec fn takes `self` by value, method-call
+auto-deref lets a `&T` receiver call it directly, so write the
+deref-free form:
+
+```rust
+// Prefer this:
+pub assume_specification[ core::alloc::Layout::size ](l: &Layout) -> usize
+    returns
+        l.spec_size(),
+
+// Over this:
+pub assume_specification[ core::alloc::Layout::size ](self_: &Layout) -> usize
+    returns
+        (*self_).spec_size(),
+```
+
+The `&`-receiver form is part of matching the signature — the modeled
+method takes `&self`, so the parameter carries `&Layout`, and `&mut T`
+where the modeled method takes `&mut self`. What this rule governs is
+the binder's name and the deref-free call: a `(*self_)` round trip
+adds noise to every read of the boundary file.
+
+See also: PR [#802](https://github.com/asterinas/vostd/pull/802#discussion_r4310053052),
+the [earlier deref-naming round](https://github.com/asterinas/vostd/pull/802#discussion_r4114862722),
+and the [author's commitment to this rule](https://github.com/asterinas/vostd/pull/802#discussion_r4310705382).
+
 ### Centralize trusted boundaries
 
 <!-- guideline: centralize-trusted-boundaries -->
@@ -88,14 +123,37 @@ generic signature, trait bounds, and associated types. Before adding an
 external function wrapper, test the direct form with the active toolchain
 and record any concrete obstacle.
 
+Third-party constants that verified code mentions get the same
+treatment: consume their values through the boundary file instead of
+duplicating them at the call site. A constant gets a per-constant
+`assume_specification[ crate::path ] -> T` carrying the trusted
+literal, plus a `pub use` re-export of the original constants so
+verified code keeps referencing the real symbols (whose names carry
+their meaning) rather than a local mirror that can drift from the
+source of truth:
+
+```rust
+pub use x86::apic::xapic::{XAPIC_EOI, XAPIC_SVR, /* ... */};
+
+verus! {
+pub assume_specification[ x86::apic::xapic::XAPIC_EOI ] -> u32
+    returns
+        0x0B0u32,
+;
+}
+```
+
 See also: PR [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3671555470),
 [#674](https://github.com/asterinas/vostd/pull/674#discussion_r3687737109),
 [#703](https://github.com/asterinas/vostd/pull/703#issuecomment-5264921275),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940943084),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3944088308),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946352295),
-[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032586635), and
-[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032735266).
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032586635),
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032735266),
+[#819](https://github.com/asterinas/vostd/pull/819#discussion_r4226900210),
+[#819](https://github.com/asterinas/vostd/pull/819#discussion_r4227263510), and
+[#819](https://github.com/asterinas/vostd/pull/819#discussion_r4227300314).
 
 ### Restrict generic trusted models
 
@@ -154,12 +212,28 @@ previously admitted with `assume`, `admit`, or `=~=`, remove the cheat instead
 of layering proof on top; a change that strengthens verification should
 net-reduce the trusted surface, never grow it.
 
+This reaches upstream design as well as local helpers. Before
+inventing a model for a hard construct, look for an accepted
+upstream Verus form and follow it — PR #819's `external/ptr.rs`
+models raw pointer arithmetic per
+[verus-lang/verus#3062](https://github.com/verus-lang/verus/pull/3062)
+instead of a local invention. Within `vstd_extra`, import an
+already-modeled definition before re-declaring anything that looks
+like a sibling model — PR #802's `Layout` validity uses vstd's
+`valid_layout` rather than restating the documented conditions.
+Note reusing the predicate does not by itself discharge validity
+for an opaque external type, which still needs its own boundary
+axiom (`axiom_layout_model`).
+
 See also: PR [#699](https://github.com/asterinas/vostd/pull/699#issuecomment-5225757765),
 [#692](https://github.com/asterinas/vostd/pull/692#discussion_r3733886308),
 [#699](https://github.com/asterinas/vostd/pull/699#discussion_r3763403672),
 [#657](https://github.com/asterinas/vostd/pull/657#discussion_r3612471054),
 [#718](https://github.com/asterinas/vostd/pull/718#issuecomment-5390400295),
-and [#718](https://github.com/asterinas/vostd/pull/718#discussion_r3826747008).
+[#718](https://github.com/asterinas/vostd/pull/718#discussion_r3826747008),
+[#819](https://github.com/asterinas/vostd/pull/819#discussion_r4226871925),
+[#819](https://github.com/asterinas/vostd/pull/819#discussion_r4227435187), and
+[#802](https://github.com/asterinas/vostd/pull/802#discussion_r4101580272).
 
 ### Canonical spec models
 
@@ -172,11 +246,20 @@ capture the required semantics directly.
 
 Make type-level properties independent of irrelevant value arguments, and make
 predicates methods when they describe the well-formedness of one model.
+The same test applies to spec helpers: drop a parameter that
+every call site passes the same value for, and slice at the
+call sites instead — PR #789 reshaped the term
+`valid_device_scopes(bytes: Seq<u8>, end: int)` into
+`valid_device_scopes(bytes: Seq<u8>)` because `end` was
+always `bytes.len()`, and callers now write
+`valid_device_scopes(bytes[scope_len..])` with the
+[`seq-range-slicing`](maintainability.md#seq-range-slicing) sugar.
 
 See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763971349),
 [#704](https://github.com/asterinas/vostd/pull/704#issuecomment-5265438143),
-[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573), and
-[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3767737737).
+[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573),
+[#704](https://github.com/asterinas/vostd/pull/704#discussion_r3767737737), and
+[#789](https://github.com/asterinas/vostd/pull/789#discussion_r4060283908).
 
 ### Quantifiers and triggers
 
@@ -237,6 +320,28 @@ fact into two proof paths whose definitions drift apart. The removal cascades:
 leaves with it, and callers of `view_preserves_inv` must be updated in the
 same pass (PR #782, `MemoryRegionArray`).
 
+Because `type_inv` is `closed`, other modules cannot unfold it; the
+cross-module export is a broadcast lemma that requires the invariant
+and is triggered on the type's view:
+
+```rust
+pub broadcast proof fn lemma_type_inv_range(cpu_id: CpuId)
+    requires
+        CpuId::type_inv(cpu_id),
+    ensures
+        #![trigger cpu_id@]
+        0 <= cpu_id@ < cpu_count(),
+{
+}
+```
+
+Do not attempt to drop the `requires` on the broadcast lemma so the
+caller gets the range for free: broadcast items take spec-mode
+parameters, and type invariants only flow through executable
+dataflow (`use_type_invariant`), so the empty body cannot
+establish its own postcondition. Callers feed the `requires` with
+`use_type_invariant(&value)`.
+
 Reach for `Inv` when the invariant breaks transiently or rides on mutating
 operations that may panic:
 
@@ -256,11 +361,13 @@ If a single clause of the invariant makes either case bite, weakening the
 invariant and restating that clause as method-level postconditions is a third
 lever, trading implicit strength for explicit per-method guarantees.
 
-See also: [`CpuId::type_inv`](../../ostd/src/cpu/mod.rs#L138),
+See also: [`CpuId::type_inv`](../../ostd/src/cpu/mod.rs#L149),
+[`lemma_type_inv_range`](../../ostd/src/cpu/mod.rs#L160),
 [`impl Inv for CpuSet`](../../ostd/src/cpu/set.rs#L169),
 PR [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3801496837),
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3810349440),
 [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4027116647),
 [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4034384104),
-[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4034932801), and
-[#782](https://github.com/asterinas/vostd/pull/782#discussion_r4042941132).
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4034932801),
+[#782](https://github.com/asterinas/vostd/pull/782#discussion_r4042941132), and
+[#812](https://github.com/asterinas/vostd/pull/812#discussion_r4226409753).

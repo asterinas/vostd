@@ -106,16 +106,23 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     } */
 
     /// Releases the mutex and wake up one thread which is blocked on this mutex.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that it has acquired the lock.
     #[verus_spec(
         with
             Tracked(perm): Tracked<PointsTo<T>>,
         requires
             perm.id() == self.cell_id(),
     )]
-    fn unlock(&self)
+    unsafe fn unlock(&self)
     {
-        proof_with!(Tracked(perm));
-        self.release_lock();
+        // SAFETY: The safety is upheld by the caller.
+        unsafe {
+            proof_with!(Tracked(perm));
+            self.release_lock();
+        }
         self.queue.wake_one();
     }
 
@@ -146,13 +153,16 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         }.is_ok()
     }
 
+    /// # Safety
+    ///
+    /// The caller must ensure that it has acquired the lock.
     #[verus_spec(
         with
             Tracked(perm): Tracked<PointsTo<T>>,
         requires
             perm.id() == self.cell_id(),
     )]
-    fn release_lock(&self)
+    unsafe fn release_lock(&self)
     {
         proof! {
             use_type_invariant(self);
@@ -262,7 +272,8 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
 /* impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
     fn drop(&mut self)
     {
-        self.mutex.unlock();
+        // SAFETY: The mutex is locked.
+        unsafe { self.mutex.unlock() };
     }
 } */
 
@@ -271,8 +282,11 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
     #[verus_spec]
     pub fn drop(self) {
         proof!{use_type_invariant(&self);}
-        proof_with!(self.tracked_perm);
-        self.mutex.unlock();
+        // SAFETY: The mutex is locked.
+        unsafe {
+            proof_with!(self.tracked_perm);
+            self.mutex.unlock();
+        }
     }
 }
 

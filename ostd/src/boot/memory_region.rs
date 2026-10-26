@@ -232,6 +232,7 @@ impl MemoryRegion {
 /// allows 128 regions.
 //
 // TODO: confirm the number or make it configurable.
+#[verus_verify]
 pub const MAX_REGIONS: usize = 512;
 
 /// A heapless set of memory regions.
