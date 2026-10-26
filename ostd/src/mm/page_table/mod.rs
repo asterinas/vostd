@@ -1487,7 +1487,7 @@ pub trait PageTableEntryTrait:
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
             valid_frame_paddr(res.paddr()),
             res.is_present(),
-            forall|level: PagingLevel| !res.is_last(level),
+            forall|level: PagingLevel| level > 1 ==> !res.is_last(level),
         returns
             Self::new_pt(paddr),
     ;
@@ -1605,7 +1605,7 @@ pub trait PageTableEntryTrait:
                         - 1) as usize))
                     &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr()
                         == paddr)
-                    &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
+                    &&& forall|level: PagingLevel| level > 1 ==> !Self::new_pt(paddr).is_last(level)
                 },
     ;
 
