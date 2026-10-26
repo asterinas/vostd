@@ -98,7 +98,7 @@ impl<M: ?Sized> Frame<M> {
     /// `ManuallyDrop<Frame>` values embedded in `FrameRef`.
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
-        &&& valid_slot_vaddr(self.ptr.addr())
+        &&& valid_slot_vaddr(self.slot_vaddr())
         &&& self.slot_perm().pptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
@@ -139,8 +139,14 @@ impl<M: ?Sized> Frame<M> {
         frame_to_index(self.start_paddr_spec())
     }
 
+    #[verifier::inline]
+    pub open spec fn slot_vaddr(self) -> Vaddr {
+        self.ptr.addr()
+    }
+
+    #[verifier::inline]
     pub open spec fn start_paddr_spec(self) -> Paddr {
-        meta_to_frame(self.ptr.addr())
+        meta_to_frame(self.slot_vaddr())
     }
 
     pub open spec fn drop_requires(self, region: MetaRegionOwners) -> bool {

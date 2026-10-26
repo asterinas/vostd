@@ -233,7 +233,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(regions).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
-            res.ptr.addr() == owner@.value().node().slot_vaddr(),
+            res.slot_vaddr() == owner@.value().node().slot_vaddr(),
             res.external_meta_wf(owner@.value().node().frame_permission.resource(), ()),
             res.tracked_slot_perm@ == final(regions).slots[owner@.value().node().slot_index],
             guards.unlocked(owner@.value().node().slot_vaddr()),

@@ -1693,7 +1693,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).metaregion_sound(*regions),
             !old(owner).popped_too_high,
             old(owner).in_barrier_va(),
-            guards.lock_held(child_pt.inner.inner@.ptr.addr()),
+            guards.lock_held(child_pt.inner.inner@.slot_vaddr()),
         ensures
             final(owner).inv(),
             final(owner).children_not_locked(*guards),

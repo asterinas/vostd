@@ -1727,7 +1727,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
         let item = Self::item_from_raw(pa, level, prop, perm);
         assert(Self::raw_item_well_formed((pa, level, prop, perm)));
-        assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
+        assert(item.frame.slot_vaddr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
         crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
     }
 
@@ -1741,7 +1741,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         assert(Self::item_well_formed(item));
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
+        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
     }
 
     open spec fn item_well_formed(item: Self::Item) -> bool {
@@ -1804,7 +1804,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         let item = Self::item_from_raw(pa, level, prop, perm);
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
+        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
     }
 
     proof fn lemma_clone_ensures_concrete(
@@ -1815,7 +1815,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         res: Self::Item,
     ) {
         use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
-        let frame_idx = meta_to_index(item.frame.ptr.addr());
+        let frame_idx = meta_to_index(item.frame.slot_vaddr());
         assert(frame_to_index(pa) == frame_idx);
         assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
         assert(item.frame.clone_ensures(old_regions, new_regions, res.frame));

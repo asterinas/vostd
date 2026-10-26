@@ -229,7 +229,7 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
         final(kernel_owner)@ is Some,
         final(kernel_owner)@->0.inv(),
         (final(kernel_owner)@->0).0.value().is_node(),
-        res.root.ptr.addr() == (final(kernel_owner)@->0).0.value().node().slot_vaddr(),
+        res.root.slot_vaddr() == (final(kernel_owner)@->0).0.value().node().slot_vaddr(),
         old(kernel_owner)@ is Some ==> final(kernel_owner)@ == old(kernel_owner)@,
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
             (final(kernel_owner)@->0).0.value().node(),
@@ -450,7 +450,7 @@ impl KVirtArea {
             forall|i: int|
                 0 <= i < frames.len() ==> {
                     let pa = #[trigger] crate::mm::frame::meta::mapping::meta_to_frame(
-                        frames[i].ptr.addr(),
+                        frames[i].slot_vaddr(),
                     );
                     &&& old(entry_owners).contains_key(pa)
                     &&& old(entry_owners)[pa].inv()
@@ -555,7 +555,7 @@ impl KVirtArea {
                 forall|i: int|
                     it.index() <= i < it.seq().len() ==> {
                         let pa = #[trigger] crate::mm::frame::meta::mapping::meta_to_frame(
-                            it.seq()[i].ptr.addr(),
+                            it.seq()[i].slot_vaddr(),
                         );
                         &&& entry_owners.contains_key(pa)
                         &&& entry_owners[pa].inv()
@@ -572,7 +572,7 @@ impl KVirtArea {
                     ),
         {
             let ghost cur_mapped_pa: usize = crate::mm::frame::meta::mapping::meta_to_frame(
-                frame.ptr.addr(),
+                frame.slot_vaddr(),
             );
 
             let ghost cur_path = entry_owners[cur_mapped_pa].path;
