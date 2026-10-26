@@ -13,7 +13,11 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            frame_specs::FrameRawPerms, meta_owners::MetaSlotStorage,
+            frame_specs::FrameRawPerms,
+            mapping::{
+                group_page_meta, lemma_meta_to_paddr_biinjective, lemma_paddr_to_meta_biinjective,
+            },
+            meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
@@ -1723,12 +1727,12 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let item = Self::item_from_raw(pa, level, prop, perm);
         assert(Self::raw_item_well_formed((pa, level, prop, perm)));
         assert(item.frame.slot_vaddr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
-        crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
+        lemma_paddr_to_meta_biinjective(pa);
     }
 
     proof fn lemma_item_from_raw_roundtrip(
@@ -1738,10 +1742,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         assert(Self::item_well_formed(item));
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
+        lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
     }
 
     open spec fn item_well_formed(item: Self::Item) -> bool {
@@ -1801,10 +1805,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let item = Self::item_from_raw(pa, level, prop, perm);
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
+        lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
     }
 
     proof fn lemma_clone_ensures_concrete(
@@ -1829,7 +1833,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         regions: MetaRegionOwners,
     ) {
         use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let perm = Self::item_into_raw(item).3;
         Self::lemma_item_from_raw_well_formed(pa, level, prop, perm);
