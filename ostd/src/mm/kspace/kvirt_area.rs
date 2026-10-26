@@ -4,7 +4,6 @@ use vstd::{prelude::*, set_lib::FiniteRange};
 use vstd_extra::{
     arithmetic::nat_align_down,
     assert,
-    cast_ptr::Repr,
     ownership::{InvView, OwnerOf},
     panic::may_panic,
     prelude::Inv,
@@ -54,9 +53,7 @@ use core::ops::Range;
 verus! {
 
 /// Spec representation of Frame<T> as DynFrame (used when the actual conversion is opaque).
-pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    frame: Frame<T>,
-) -> DynFrame {
+pub open spec fn frame_as_dynframe<T: AnyFrameMeta + ?Sized>(frame: Frame<T>) -> DynFrame {
     DynFrame {
         ptr: frame.ptr,
         _marker: PhantomData,
@@ -86,7 +83,7 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
 #[allow(private_interfaces)]
-pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
+pub open spec fn frame_entry_wf<T: AnyFrameMeta + ?Sized>(
     frame: Frame<T>,
     prop: PageProperty,
     entry_owner: EntryOwner<KernelPtConfig>,
@@ -594,6 +591,11 @@ impl KVirtArea {
             // `item_slot_in_regions` for the current item is delivered by the
             // loop invariant (instantiated at i = it.index()), itself established by
             // the function precondition.
+            // Flaky obligation: Verus reports every sub-assertion of `map`'s
+            // panic precondition as proved while failing the whole, which it
+            // attributes to the triggering context. Stating it here, on its
+            // own, is what closes it.
+            assert(cursor.map_panic_conditions(item) ==> may_panic());
             let res = unsafe {
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 cursor.map(item)

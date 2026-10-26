@@ -429,6 +429,13 @@ pub proof fn lemma_same_node_vaddr_leading_part_match<C: PagingConstsTrait>(
     let small = page_size::<C>(small_level) as int;
     let quotient = node_start as int / small;
     lemma_fundamental_div_mod(node_start as int, small);
+    // `node_start` is a multiple of `small`, so the quotient reconstructs it
+    // exactly -- which is what both converse steps need, in the `q * d` form
+    // the lemma states it in. This was being instantiated incidentally.
+    assert(node_start as int % small == 0);
+    assert(node_start as int == quotient * small) by {
+        lemma_mul_is_commutative(small, quotient);
+    }
     lemma_fundamental_div_mod_converse(va1 as int, small, quotient, va1 - node_start);
     lemma_fundamental_div_mod_converse(va2 as int, small, quotient, va2 - node_start);
     let delta = (nr_pte_index_bits_spec::<C>() * (C::NR_LEVELS() - level)) as nat;

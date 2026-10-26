@@ -1,5 +1,8 @@
+use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
 use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
-use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
+use vstd_extra::substructural::{CellAddr, cell_addr};
+use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::{ownership::*, sum::Sum};
 
 use crate::specs::{
     arch::*,
@@ -12,6 +15,7 @@ use crate::specs::{
 
 use super::meta_owners::{
     FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
+    recorded_meta_id,
 };
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
@@ -50,6 +54,26 @@ impl MetaSlot {
         broadcast use VERUS_layout_of_MetaSlot;
 
     }
+
+    /// The metadata cell sits at the start of its slot.
+    ///
+    /// TRUSTED, and a layout claim rather than an ownership one: `MetaSlot` is
+    /// `#[repr(C)]` and `storage` is its first field, so the slot's address
+    /// *is* the cell's address (C99 6.7.2.1 -- a structure's address is its
+    /// first member's).
+    ///
+    /// Nothing weaker would do. [`cell_addr`] is uninterpreted, so without this
+    /// the storage cell's address cannot be named in exec code at all, where
+    /// the only address to hand is the slot pointer's.
+    ///
+    /// This is step 1 of the chain described in [`vstd_extra::substructural`];
+    /// step 2, cell to contents, is [`CellAddr::unwrap_ref`] and its siblings.
+    pub axiom fn axiom_storage_at_slot_start(slot_perm: PointsTo<MetaSlot>)
+        requires
+            slot_perm.is_init(),
+        ensures
+            cell_addr(slot_perm.value().storage.id()) == slot_perm.addr(),
+    ;
 
     pub open spec fn get_from_unused_owner_spec(as_unique: bool, owner: MetaSlotOwner) -> bool {
         &&& owner.ref_count() == (if as_unique {
@@ -104,13 +128,12 @@ impl MetaSlot {
 
     /// The complete successful result of claiming an unused slot, including
     /// the fraction returned to the new frame handle.
-    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
         paddr: Paddr,
         metadata: M,
         as_unique: bool,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-        repr_perm: M::ReprPerm,
         permission: Sum<FracMetadataPerm, MetadataPerm>,
     ) -> bool {
         let idx = frame_to_index(paddr);
@@ -126,8 +149,13 @@ impl MetaSlot {
             &&& permission->Left_0.id() == post.slot_owners[idx].metadata_perm.id()
         }
         &&& Self::perms_related(*post.slots[idx], metadata_perms)
-        &&& <M as Repr<MetaSlotStorage>>::wf(metadata_perms.storage_perm.value(), repr_perm)
-        &&& M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm) == metadata
+        &&& metadata_perms.storage_perm.value().holds::<M>()
+        &&& metadata_perms.storage_perm.value().value::<M>()
+            == metadata
+        // The recorded identity, beside the value it identifies. `write_meta` stamps
+        // this when it installs the metadata; stating it here is what carries it out
+        // through `get_from_unused` to callers that aggregate frames.
+        &&& metadata_perms.meta_type_id == recorded_meta_id::<M>()
     }
 
     pub open spec fn inc_ref_count_panic_cond(rc_perm: PermissionU64) -> bool {

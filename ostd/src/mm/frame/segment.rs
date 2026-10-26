@@ -5,12 +5,13 @@ use vstd::{
     simple_pptr::{PPtr, PointsTo},
     std_specs::{convert::FromSpecImpl, iter::IteratorSpecImpl},
 };
-use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
+use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::{assert, ownership::*, panic::may_panic, prelude::*};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
-        frame_specs::FrameRawPerms, mapping::*, meta_owners::*,
+        casts::*, frame_specs::FrameRawPerms, mapping::*, meta_owners::*,
         meta_region_owners::MetaRegionOwners, segment::*,
     },
 };
@@ -43,9 +44,102 @@ verus! {
 pub struct Segment<M: AnyFrameMeta + ?Sized> {
     range: Range<Paddr>,
     _marker: core::marker::PhantomData<M>,
+    /// The metadata type every frame in this segment holds, as ghost state.
+    ///
+    /// The segment's own record of the homogeneity its doc comment claims, rather
+    /// than a fact recovered by comparing frames. Three things come out of putting
+    /// it here: an empty segment still has an id (agreement between frames goes
+    /// vacuous and loses it), a split inherits it instead of re-deriving it, and a
+    /// downcast reads it once off the segment instead of per frame.
+    ///
+    /// `Ghost<MetaTypeId>` rather than a `ghost` field: a `ghost` field cannot be
+    /// initialised from executable code, which would make every constructor below
+    /// unreachable. `Ghost` is zero-sized, so the compiled struct is still just the
+    /// range -- which is what `axiom_segment_reparam`'s layout claim needs.
+    meta_type_id: Ghost<MetaTypeId>,
     /// One raw permission bundle for each frame in `range`, in address order.
     #[cfg(verus_keep_ghost_body)]
     tracked_perms: Tracked<Option<Seq<FrameRawPerms>>>,
+}
+
+/// Reparameterizing a segment's metadata type is always a valid transmute.
+///
+/// The [`Frame`] argument for a struct that is not a pointer. `Segment<M>` has
+/// exactly one non-zero-sized *exec* field, `range: Range<Paddr>`; `_marker` is
+/// `PhantomData` and `tracked_perms` is `Tracked`, both erased at compile time.
+/// The compiled struct is one address range, identically for every `M`, and
+/// nothing about it is reinterpreted -- `range`'s type is the same on both
+/// sides. The permission sequence does not carry across unchanged: it is
+/// reinterpreted by `reparam_perm`, exactly as a frame's metadata permission is,
+/// and collapsed to the identity by the `axiom_reparam_perm_*` axiom for the pair
+/// at hand, only because `FrameRawPerms` is not indexed by the metadata type
+/// today.
+///
+/// Module-private, deliberately. `Segment`'s fields are private, and a publicly
+/// visible spec signature may not construct a datatype whose fields are not
+/// equally visible -- but stating the result as a struct literal is what lets
+/// `From`'s postcondition close, so the axiom stays inside the module instead of
+/// being weakened to accessor equalities.
+///
+/// Describes a transmute rather than licensing one: `can_transmute` is a
+/// precondition, supplied for the one pair we permit by
+/// [`axiom_segment_erase_transmutable`].
+///
+/// Representation only. Segments are homogeneous by invariant, but that their
+/// frames really carry `B`'s metadata is an identity claim this does not make.
+#[cfg(feature = "dyn_supertrait")]
+#[verifier::external_body]
+proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Sized>(s: Segment<A>)
+    requires
+        vstd_extra::transmute::can_transmute::<Segment<A>, Segment<B>>(s),
+    ensures
+        vstd_extra::transmute::transmuted::<Segment<A>, Segment<B>>(s) == (Segment::<B> {
+            range: s.range,
+            _marker: core::marker::PhantomData,
+            meta_type_id: s.meta_type_id,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perms: Tracked(
+                match s.tracked_perms@ {
+                    Some(p) => Some(reparam_perm::<A, B, Seq<FrameRawPerms>>(p)),
+                    None => None,
+                },
+            ),
+        }),
+{
+}
+
+#[cfg(feature = "dyn_supertrait")]
+impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    closed spec fn from_spec(v: Segment<M>) -> Self {
+        Segment {
+            range: v.range,
+            _marker: core::marker::PhantomData,
+            meta_type_id: v.meta_type_id,
+            #[cfg(verus_keep_ghost_body)]
+            tracked_perms: v.tracked_perms,
+        }
+    }
+}
+
+/// Erases a typed untyped-segment handle to [`USegment`].
+///
+/// The segment counterpart of `From<Frame<M>> for Frame<dyn AnyFrameMeta>`, and
+/// the conversion upstream writes as `.into()`.
+#[cfg(feature = "dyn_supertrait")]
+impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
+    fn from(seg: Segment<M>) -> (r: Self) {
+        proof {
+            axiom_segment_erase_transmutable::<M>(seg);
+            axiom_segment_reparam::<M, dyn AnyUFrameMeta>(seg);
+            axiom_reparam_perm_erase_untyped::<M>(seg.tracked_perms@->0);
+        }
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        unsafe { core::mem::transmute::<Segment<M>, USegment>(seg) }
+    }
 }
 
 /*
@@ -56,16 +150,6 @@ impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
 }
 */
 
-/*impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
-    fn drop(&mut self) {
-        for paddr in self.range.clone().step_by(PAGE_SIZE) {
-            // SAFETY: for each frame there would be a forgotten handle
-            // when creating the `Segment` object.
-            drop(unsafe { Frame::<M>::from_raw(paddr) });
-        }
-    }
-}*/
-
 /// A contiguous range of homogeneous untyped physical memory frames that have any metadata.
 ///
 /// In other words, the metadata of the frames are of the same type, and they
@@ -73,24 +157,21 @@ impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
 /// [`USegment`] as a parameter accepts any untyped segments.
 ///
 /// The usage of this frame will not be changed while this object is alive.
+///
+/// Instantiable only with the `dyn_supertrait` feature, and the requirement is
+/// in Verus rather than here. `Segment` is declared
+/// `Segment<M: AnyFrameMeta + ?Sized>`, so discharging that bound at
+/// `dyn AnyUFrameMeta` needs `dyn AnyUFrameMeta: AnyFrameMeta` -- a *supertrait*
+/// impl, which stock Verus does not derive for `dyn` types. This is why
+/// `Frame<dyn ..>` works without the feature and `Segment<dyn ..>` does not:
+/// `Frame<M: ?Sized>` carries no trait bound at all, so there is nothing to
+/// discharge.
+///
+/// `patches/0002-verus-dyn-supertrait-impls.patch` emits those impls; see
+/// [`From<Segment<M>>`](Segment) for the conversion that produces one.
 pub type USegment = Segment<dyn AnyUFrameMeta>;
 
-/* impl<M: AnyFrameMeta + ?Sized> Clone for Segment<M> {
-    fn clone(&self) -> Self {
-        for paddr in self.range.clone().step_by(PAGE_SIZE) {
-            // SAFETY: for each frame there would be a forgotten handle
-            // when creating the `Segment` object, so we already have
-            // reference counts for the frames.
-            unsafe { inc_frame_ref_count(paddr) };
-        }
-        Self {
-            range: self.range.clone(),
-            _marker: core::marker::PhantomData,
-        }
-    }
-} */
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> RCClone for Segment<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         &&& self.inv()
         &&& perm.inv()
@@ -140,6 +221,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                         let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                         &&& raw_perms[i].slot_perm == perm.slots[idx]
                         &&& raw_perms[i].inv()
+                        &&& raw_perms[i].metadata_perm.resource().meta_type_id == self.meta_id()
                         &&& raw_perms[i].metadata_perm.id()
                             == perm.slot_owners[idx].metadata_perm.id()
                     },
@@ -186,6 +268,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             };
             let tracked frame_permission = tracked_permission.get();
             proof {
+                // Same step as `slice`: the fraction is fresh from the region, so the
+                // metadata type comes across via matching ids plus `Count::agree`.
+                // The frame being added sits at `raw_perms.len()` in this segment.
                 frame_permission.agree(
                     &self.tracked_perms.borrow().tracked_borrow().tracked_borrow(
                         raw_perms.len() as int,
@@ -203,6 +288,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         Self {
             range: self.range.start..self.range.end,
             _marker: core::marker::PhantomData,
+            meta_type_id: self.meta_type_id,
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(raw_perms)),
         }
@@ -210,7 +296,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Segment<M> {
     /// Creates a new [`Segment`] from unused frames.
     ///
     /// The caller must provide a closure to initialize metadata for all the frames.
@@ -249,7 +335,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             old(regions).inv(),
             forall|paddr_in: Paddr|
@@ -299,6 +384,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         let mut segment = Self {
             range: range.start..range.start,
             _marker: core::marker::PhantomData,
+            meta_type_id: Ghost(recorded_meta_id::<M>()),
         };
 
         let mut i = 0;
@@ -343,6 +429,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 regions.inv(),
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                 segment.range.end == range.start + i * PAGE_SIZE,
+                // Every frame pushed so far was written at `M`.
+                //
+                // Its own quantifier, triggered on the permission sequence rather than
+                // on `addrs`: `inv()`'s homogeneity conjunct is keyed on
+                // `raw_perms()[i]`, so a fact keyed on `addrs[j]` never instantiates
+                // there even though both range over the same frames.
+                forall|j: int|
+                    #![trigger segment.tracked_perms@->0[j]]
+                    0 <= j < segment.tracked_perms@->0.len()
+                        ==> segment.tracked_perms@->0[j].metadata_perm.resource().meta_type_id
+                        == recorded_meta_id::<M>(),
             ensures
                 i == addr_len,
             decreases addr_len - i,
@@ -350,7 +447,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             let paddr_in = range.start + i * PAGE_SIZE;
             let (paddr, meta) = metadata_fn(paddr_in);
 
-            let res = #[verus_spec(with Tracked(regions), Tracked(repr_perm))]
+            let res = #[verus_spec(with Tracked(regions))]
             Frame::<M>::from_unused(paddr, meta);
             let mut frame = match res {
                 Ok(f) => f,
@@ -475,11 +572,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// # Safety
     ///
     /// The range must be a forgotten [`Segment`] that matches the type `M`.
+    ///
+    /// Note the `meta_id` ghost argument is currently unexercised: the only caller
+    /// is `Segment::<LargeAllocFrameMeta>::from_raw` in `mm::heap`, which is
+    /// commented out of the build. Re-enabling `heap` will need that call to pass
+    /// `recorded_meta_id::<LargeAllocFrameMeta>()`.
     /// The caller must ensure the range was previously produced by [`Self::into_raw`]
     /// and that the metadata region still records the segment obligations.
     #[verus_spec(r =>
         with
             Tracked(raw_perms): Tracked<Seq<FrameRawPerms>>,
+            Ghost(meta_id): Ghost<MetaTypeId>,
         requires
             range.start % PAGE_SIZE == 0,
             range.end % PAGE_SIZE == 0,
@@ -490,14 +593,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     let paddr = (range.start + i * PAGE_SIZE) as usize;
                     &&& raw_perms[i].slot_vaddr() == frame_to_meta(paddr)
                     &&& raw_perms[i].inv()
+                    // The safety comment's "matches the type `M`", made explicit.
+                    &&& raw_perms[i].metadata_perm.resource().meta_type_id == meta_id
                 },
         ensures
             r.inv(),
             r.range() == range,
+            r.meta_id() == meta_id,
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
-        Self { range, _marker: core::marker::PhantomData }
+        Self { range, _marker: core::marker::PhantomData, meta_type_id: Ghost(meta_id) }
     }
 }
 
@@ -550,6 +656,67 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         self.tracked_perms@->0
     }
 
+    /// The metadata type every frame in this segment holds.
+    pub closed spec fn meta_id(&self) -> MetaTypeId {
+        self.meta_type_id@
+    }
+
+    /// [`Self::inv`], restated as its conjuncts.
+    ///
+    /// Verus will not unfold a trait-impl spec function at a `dyn` type argument,
+    /// so `inv()` is opaque to callers holding a `Segment<dyn AnyFrameMeta>`, `open`
+    /// notwithstanding. Proved here where `M` is still a parameter, and called at
+    /// the `dyn` types.
+    pub proof fn lemma_inv_parts(self)
+        requires
+            self.inv(),
+        ensures
+            self.start_paddr() % PAGE_SIZE == 0,
+            self.end_paddr() % PAGE_SIZE == 0,
+            self.start_paddr() <= self.end_paddr() <= MAX_PADDR,
+            self.inner_perm_inv(),
+            self.raw_perms().len() == self.len(),
+            forall|i: int|
+                #![trigger self.raw_perms()[i]]
+                0 <= i < self.raw_perms().len() ==> {
+                    let paddr = (self.range().start + i * PAGE_SIZE) as usize;
+                    &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
+                    &&& self.raw_perms()[i].inv()
+                    &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id == self.meta_id()
+                },
+    {
+    }
+
+    /// The converse of [`Self::lemma_inv_parts`]: folds the conjuncts back up.
+    pub proof fn lemma_inv_from_parts(self)
+        requires
+            self.start_paddr() % PAGE_SIZE == 0,
+            self.end_paddr() % PAGE_SIZE == 0,
+            self.start_paddr() <= self.end_paddr() <= MAX_PADDR,
+            self.inner_perm_inv(),
+            self.raw_perms().len() == self.len(),
+            forall|i: int|
+                #![trigger self.raw_perms()[i]]
+                0 <= i < self.raw_perms().len() ==> {
+                    let paddr = (self.range().start + i * PAGE_SIZE) as usize;
+                    &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
+                    &&& self.raw_perms()[i].inv()
+                    &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id == self.meta_id()
+                },
+        ensures
+            self.inv(),
+    {
+    }
+
+    /// Whether this segment's frames hold untyped metadata.
+    ///
+    /// One predicate for the whole segment: [`Self::inv`] makes them homogeneous,
+    /// so untypedness is the same for all of them -- which is why the downcast may
+    /// test a single frame.
+    pub open spec fn is_untyped(&self) -> bool {
+        id_is_untyped(self.meta_id())
+    }
+
     pub open spec fn metadata_perms(&self) -> Seq<FracMetadataPerm> {
         self.raw_perms().map_values(|perm: FrameRawPerms| perm.metadata_perm)
     }
@@ -564,7 +731,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> Segment<M> {
     /// Splits the frames into two at the given byte offset from the start.
     ///
     /// The resulting frames cannot be empty. So the offset cannot be neither
@@ -603,12 +770,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self {
                 range: old.range.start..at,
                 _marker: core::marker::PhantomData,
+                // Read through `old`, as `range` is: `self` has been moved by here.
+                meta_type_id: old.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(left_perms)),
             },
             Self {
                 range: at..old.range.end,
                 _marker: core::marker::PhantomData,
+                meta_type_id: old.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(right_perms)),
             },
@@ -711,6 +881,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& raw_perms[j].inv()
                         &&& raw_perms[j].metadata_perm.id()
                             == regions.slot_owners[idx].metadata_perm.id()
+                        // A slice's frames are a sub-range of this segment's, so they
+                        // hold the type this segment records. Folded in here because
+                        // this quantifier is already keyed on `raw_perms[j]` -- the
+                        // sequence that becomes the result's -- unlike `from_unused`'s,
+                        // which is keyed on `addrs[j]` and needed its own.
+                        &&& raw_perms[j].metadata_perm.resource().meta_type_id == self.meta_id()
                     },
                 forall|j: int|
                     #![trigger frame_to_index((start + j * PAGE_SIZE) as usize)]
@@ -755,6 +931,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             };
             let tracked frame_permission = tracked_permission.get();
             proof {
+                // The new fraction records the same metadata type as this segment.
+                //
+                // It is a *fresh* fraction from the region, not one of `self`'s, so the
+                // link runs through ids: `relate_regions` says `self`'s fraction and the
+                // region's share one, `inc_frame_ref_count` returns a fraction of that
+                // same resource, and `Count::agree` turns matching ids into matching
+                // values. `self.inv()` then supplies the type.
                 frame_permission.agree(
                     &self.tracked_perms.borrow().tracked_borrow().tracked_borrow(
                         perm_idx,
@@ -774,7 +957,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
 
         proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
-        Self { range: start..end, _marker: core::marker::PhantomData }
+        // A slice holds a sub-range of the same frames, so it holds the same type.
+        Self {
+            range: start..end,
+            _marker: core::marker::PhantomData,
+            meta_type_id: self.meta_type_id,
+        }
     }
 
     /// Forgets the [`Segment`] and gets a raw range of physical addresses.
@@ -818,12 +1006,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self {
                 range: self.start_paddr()..at,
                 _marker: core::marker::PhantomData,
+                meta_type_id: self.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(self.raw_perms()[..idx])),
             },
             Self {
                 range: at..self.end_paddr(),
                 _marker: core::marker::PhantomData,
+                meta_type_id: self.meta_type_id,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_perms: Tracked(Some(self.raw_perms()[idx..])),
             },
@@ -831,7 +1021,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment<M> {
+impl<M: AnyFrameMeta> FromSpecImpl<Frame<M>> for Segment<M> {
     open spec fn obeys_from_spec() -> bool {
         true
     }
@@ -847,6 +1037,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
         Self {
             range: paddr..(paddr + PAGE_SIZE) as usize,
             _marker: core::marker::PhantomData,
+            meta_type_id: Ghost(frame.metadata_perm().meta_type_id),
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(perm)),
         }
@@ -854,9 +1045,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
+impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
     fn from(frame: Frame<M>) -> Self {
         assume(frame.inv());
+
+        // Before the permission is taken below: afterwards `metadata_perm()` reads
+        // `->0` of `None`, which is unspecified, while `from_spec` reads it off the
+        // original frame -- so the two would disagree.
+        let ghost meta_id = frame.metadata_perm().meta_type_id;
 
         let mut frame = frame;
         let pa = frame.start_paddr();
@@ -873,13 +1069,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
         Self {
             range: pa..(pa + PAGE_SIZE),
             _marker: core::marker::PhantomData,
+            meta_type_id: Ghost(meta_id),
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(perms)),
         }
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> Iterator for Segment<M> {
     type Item = Frame<M>;
 
     #[verifier::rlimit(200)]
@@ -915,7 +1112,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Segment<M> {
+impl<M: AnyFrameMeta + OwnerOf> IteratorSpecImpl for Segment<M> {
     open spec fn obeys_prophetic_iter_laws(&self) -> bool {
         true
     }
@@ -959,7 +1156,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
+impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
@@ -1124,13 +1321,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
     }
 }
 
-impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
-    fn from(seg: Segment<M>) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(seg) }
-    }
-}
-
 impl TryFrom<Segment<dyn AnyFrameMeta>> for USegment {
     type Error = Segment<dyn AnyFrameMeta>;
 
@@ -1178,7 +1368,109 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
                 let paddr = (self.range().start + i * PAGE_SIZE) as usize;
                 &&& self.raw_perms()[i].slot_vaddr() == frame_to_meta(paddr)
                 &&& self.raw_perms()[i].inv()
+                // Homogeneity: every frame holds the metadata type the segment
+                // records.
+                //
+                // Not `recorded_meta_id::<M>()`: an erased segment's frames carry the
+                // *concrete* type's recorded id, since erasure preserves it rather than
+                // overwriting it, so pinning this to `M` would be false for
+                // `Segment<dyn AnyFrameMeta>`.
+                //
+                // Folded into this quantifier to reuse its trigger rather than adding a
+                // second one over the same sequence.
+                &&& self.raw_perms()[i].metadata_perm.resource().meta_type_id == self.meta_id()
             }
+    }
+}
+
+/// The erased-to-untyped segment downcast.
+///
+/// An *inherent* impl, which is what lets the conversion carry a `requires`: a
+/// trait method impl may carry neither that nor a `with` parameter, and this one
+/// needs `seg.inv()`. Inherent methods win resolution, so `USegment::try_from(seg)`
+/// is upstream's call unchanged; `TryFrom`'s generic uses still want the trait
+/// impl, which waits on the invariant becoming a type invariant.
+#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
+impl Segment<dyn AnyUFrameMeta> {
+    /// Tries to view an erased segment as an untyped one.
+    ///
+    /// Tests a single frame: by [`Segment::inv`] every frame's permission records
+    /// [`Segment::meta_id`], so one frame's recorded identity is the segment's.
+    /// Upstream's `debug_assert!` loop over the rest checks what is here an
+    /// invariant, so it is dropped.
+    ///
+    /// # Upstream bug: the empty segment
+    ///
+    /// Upstream reads `from_raw(seg.range.start)` unconditionally. For an empty
+    /// segment that address is not a frame the segment owns, so `dyn_meta()`
+    /// dispatches `is_untyped()` through the vtable word of a slot that may be
+    /// uninitialized. It is reachable from safe code -- `try_from` and `slice` are
+    /// both safe and `slice(&(0..0))` returns an empty segment, as does draining the
+    /// `Iterator`. This version answers `Ok` without reading anything, which is why
+    /// the postcondition guards `is_untyped()` with `seg.len() > 0`.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - the segment satisfies its invariant; non-emptiness is deliberately not
+    ///   required.
+    ///
+    /// ## Postconditions
+    /// - `Ok` implies the segment was untyped if it had any frames, and the result
+    ///   keeps its range, identity, permissions and invariant;
+    /// - `Err` returns the input unchanged.
+    pub fn try_from(seg: Segment<dyn AnyFrameMeta>) -> (r: core::result::Result<
+        Self,
+        Segment<dyn AnyFrameMeta>,
+    >)
+        requires
+            seg.inv(),
+        ensures
+            r is Ok ==> {
+                &&& seg.len() > 0 ==> seg.is_untyped()
+                &&& r->Ok_0.range() == seg.range()
+                &&& r->Ok_0.meta_id() == seg.meta_id()
+                &&& r->Ok_0.raw_perms() == seg.raw_perms()
+                &&& r->Ok_0.inv()
+            },
+            r is Err ==> r->Err_0 == seg,
+    {
+        proof {
+            seg.lemma_inv_parts();
+        }
+        let untyped = if seg.size() == 0 {
+            assert(seg.len() == 0);
+            true
+        } else {
+            proof {
+                assert(seg.len() > 0) by (nonlinear_arith)
+                    requires
+                        seg.start_paddr() % PAGE_SIZE == 0,
+                        seg.end_paddr() % PAGE_SIZE == 0,
+                        seg.start_paddr() < seg.end_paddr(),
+                        seg.len() == (seg.size() / PAGE_SIZE) as int,
+                        seg.size() == seg.end_paddr() - seg.start_paddr(),
+                ;
+                assert(seg.raw_perms()[0].slot_vaddr() == frame_to_meta(seg.start_paddr()));
+            }
+            let tracked perms = seg.tracked_perms.borrow().tracked_borrow();
+            let tracked first = perms.tracked_borrow(0);
+            let slot = PPtr(frame_to_meta(seg.start_paddr()), core::marker::PhantomData);
+            super::meta::is_untyped_at(slot, Tracked(first))
+        };
+        if !untyped {
+            return Err(seg);
+        }
+        proof {
+            axiom_segment_untyped_transmutable(seg);
+            axiom_segment_reparam::<dyn AnyFrameMeta, dyn AnyUFrameMeta>(seg);
+            axiom_reparam_perm_narrow_untyped(seg.tracked_perms@->0);
+        }
+        // SAFETY: The frames are untyped and the struct is transmutable.
+        let res = unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, USegment>(seg) };
+        proof {
+            res.lemma_inv_from_parts();
+        }
+        Ok(res)
     }
 }
 

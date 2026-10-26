@@ -3,7 +3,7 @@ use vstd::{
     prelude::*,
     simple_pptr::{self, *},
 };
-use vstd_extra::{cast_ptr::Repr, ownership::*};
+use vstd_extra::ownership::*;
 
 use crate::specs::{arch::*, mm::frame::mapping::*};
 
