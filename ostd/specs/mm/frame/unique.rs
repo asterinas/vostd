@@ -4,7 +4,7 @@ use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::{
-        Paddr,Vaddr,
+        Paddr, Vaddr,
         frame::{frame_specs::valid_slot_vaddr, mapping::*, meta_region_owners::MetaRegionOwners},
     },
 };
@@ -25,7 +25,7 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> 
     pub open spec fn slot_vaddr(self) -> Vaddr {
         self.ptr.addr()
     }
-    
+
     #[verifier::inline]
     pub open spec fn start_paddr_spec(self) -> Paddr {
         meta_to_frame(self.slot_vaddr())
