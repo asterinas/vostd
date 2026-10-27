@@ -9,7 +9,7 @@ mod allocator;
 
 use core::{marker::PhantomData, mem::size_of};
 
-pub(super) use self::allocator::init;
+pub(super) use self::allocator::{init, io_port_allocator_initialized};
 use crate::{Error, prelude::*};
 
 verus! {

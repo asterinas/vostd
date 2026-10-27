@@ -80,12 +80,7 @@ pub(crate) fn construct_remappable_msix_address(remapping_index: u32) -> u32 {
 
 /// Encodes the bus, device, and function into an address offset in the PCI MMIO region.
 #[verus_verify(dual_spec)]
-#[verus_spec(offset =>
-    ensures
-        offset == ((location.bus as u32) << 16)
-            | ((location.device as u32) << 11)
-            | ((location.function as u32) << 8),
-)]
+#[verus_spec(returns encode_as_address_offset(location))]
 fn encode_as_address_offset(location: &PciDeviceLocation) -> u32 {
     ((location.bus as u32) << 16)
         | ((location.device as u32) << 11)

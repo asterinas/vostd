@@ -50,16 +50,16 @@ pub(crate) closed spec fn id_alloc_bits(s: Seq<bool>, end: int) -> Set<usize> {
 }
 
 /// Set of ids currently allocated by `allocator`.
-pub(crate) open spec fn id_alloc_view(allocator: &IdAlloc) -> Set<usize> {
+spec fn id_alloc_view(allocator: &IdAlloc) -> Set<usize> {
     id_alloc_bits(allocator@, allocator@.len() as int)
 }
 
 /// Number of ids `allocator` can hold.
-pub(crate) open spec fn id_alloc_capacity(allocator: &IdAlloc) -> usize {
+spec fn id_alloc_capacity(allocator: &IdAlloc) -> usize {
     allocator@.len() as usize
 }
 
-pub(crate) open spec fn io_port_inner_inv_values(
+spec fn io_port_inner_inv_values(
     allocated_instance_id: InstanceId,
     allocated: Set<usize>,
     allocator: &IdAlloc,
@@ -542,6 +542,7 @@ pub(super) static IO_PORT_ALLOCATOR: Once<IoPortAllocator> = Once::new();
 /// 2. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to exceed the maximum
 ///    value specified by architecture.
 #[verifier::external_body]
+#[verus_spec(ensures io_port_allocator_initialized())]
 pub(in crate::io) unsafe fn init() {
     // SAFETY: `MAX_IO_PORT` is guaranteed not to exceed the maximum value specified by architecture.
     let mut allocator = IdAlloc::with_capacity(crate::arch::io::MAX_IO_PORT as usize);
@@ -623,7 +624,7 @@ pub(crate) proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
 }
 
 /// For an in-bounds id, `id_alloc_view` membership coincides with the allocated bitmap bit.
-pub(crate) proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
+proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
     requires
         allocator.inv(),
         id < allocator@.len() <= usize::MAX,
