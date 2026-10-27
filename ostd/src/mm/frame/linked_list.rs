@@ -237,7 +237,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// matching the tracked permission objects. The new frame must be active, so that it is
     /// valid to call `into_raw` on it inside of `insert_before`.
     /// ## Postconditions
-    /// The new frame is inserted at the front of the list, and the cursor is moved to the new frame.
+    /// The new frame is inserted at the front of the list.
     /// The list invariants are preserved.
     /// ## Safety
     /// See [`insert_before`] for the safety guarantees.
@@ -255,6 +255,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             frame.frame_link_inv(*old(frame_own), *old(regions)),
             old(regions).inv(),
         ensures
+            final(self).wf_region(*final(owner), *final(regions)),
+            final(owner).inv(),
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
             final(owner).list == old(owner).list.insert(0, final(frame_own).meta_own),
@@ -274,6 +276,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             *owner = cursor_own.list_own;
+            owner.lemma_relate_region_implies_inv(*regions);
         }
     }
 
@@ -345,6 +348,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             frame.frame_link_inv(*old(frame_own), *old(regions)),
             old(regions).inv(),
         ensures
+            final(self).wf_region(*final(owner), *final(regions)),
+            final(owner).inv(),
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
             final(owner).list == old(owner).list.insert(
@@ -368,6 +373,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             *owner = cursor_own.list_own;
+            owner.lemma_relate_region_implies_inv(*regions);
+            assert(self.wf_region(*owner, *regions));
         }
     }
 
@@ -635,6 +642,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         ensures
             r.current.is_none(),
             *r.list == *old(self),
+            *final(self) == *final(r.list),
     )]
     fn cursor_at_ghost_mut(&mut self) -> CursorMut<'_, M> {
         CursorMut { list: self, current: None }
@@ -1187,6 +1195,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         ensures
             final(owner).wf_with_region(*final(regions)),
             final(self).wf_region(*final(owner), *final(regions)),
+            *final(final(self).list) == *final(old(self).list),
             final(regions).inv(),
             final(owner).list_own.list == old(owner).list_own.list.insert(
                 old(owner).index,

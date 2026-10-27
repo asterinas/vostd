@@ -347,6 +347,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         reveal(LinkedListOwner::relate_region);
     }
 
+    /// Derives the owner invariant from the list's region relation.
+    pub proof fn lemma_relate_region_implies_inv(self, regions: MetaRegionOwners)
+        requires
+            self.relate_region(regions),
+        ensures
+            self.inv(),
+    {
+        self.lemma_relate_region_shape(regions);
+        assert forall|i: int| 0 <= i < self.list.len() implies self.inv_at(i) by {
+            self.lemma_relate_region_at_index(regions, i);
+            self.lemma_relate_region_at_facts(regions, i);
+        }
+    }
+
     /// Extracts the region relation at one list position without leaving the
     /// list-wide quantifiers visible in the caller.
     pub proof fn lemma_relate_region_at_index(self, regions: MetaRegionOwners, i: int)
