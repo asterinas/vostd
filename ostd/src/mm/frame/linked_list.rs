@@ -326,7 +326,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// matching the tracked permission objects. The new frame must be active, so that it is
     /// valid to call `into_raw` on it inside of `insert_before`.
     /// ## Postconditions
-    /// - The new frame is inserted at the back of the list, and the cursor is moved to the new frame.
+    /// - The new frame is inserted at the back of the list.
     /// - The list invariants are preserved.
     /// ## Safety
     /// See [`insert_before`] for the safety guarantees.
@@ -346,10 +346,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         ensures
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
-            old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
-                old(owner).list.len() - 1, final(frame_own).meta_own),
-            old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
-                0, final(frame_own).meta_own),
+            final(owner).list == old(owner).list.insert(
+                old(owner).list.len() as int, final(frame_own).meta_own),
             // Id preserved when already minted; a fresh (empty) list adopts a
             // non-zero id.
             old(owner).list_id != 0 ==> final(owner).list_id == old(owner).list_id,
@@ -358,13 +356,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(frame_own).meta_own.in_list == final(owner).list_id,
     )]
     pub fn push_back(&mut self, frame: UniqueFrame<Link<M>>) {
-        let current = self.back;
         let tracked owner0 = LinkedListOwner::tracked_take(owner);
-        let tracked mut cursor_own = CursorOwner::tracked_back_owner(owner0);
-        let mut cursor = CursorMut { list: self, current };
+        let tracked mut cursor_own = CursorOwner::tracked_cursor_mut_at_owner(
+            owner0,
+            owner0.list.len() as int,
+        );
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
-        cursor.insert_before(frame);
+        self.cursor_at_ghost_mut().insert_before(frame);
 
         proof {
             *owner = cursor_own.list_own;
@@ -605,8 +604,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     }
 
     /// Gets a cursor at the "ghost" non-element that can mutate the linked list links.
-    #[verus_spec(
-        with Tracked(owner): Tracked<&mut LinkedListOwner<M>>
+    #[verus_spec(r =>
+        ensures
+            r.current.is_none(),
+            *r.list == *old(self),
     )]
     fn cursor_at_ghost_mut(&mut self) -> CursorMut<'_, M> {
         CursorMut { list: self, current: None }
