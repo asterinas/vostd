@@ -338,7 +338,7 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.slot_vaddr()
+        &&& self.slot_vaddr() == owner.slot_vaddr()
         &&& self.ptr_inv()
     }
 }

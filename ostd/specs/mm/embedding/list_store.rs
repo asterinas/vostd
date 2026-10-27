@@ -373,12 +373,8 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).inv(),
         final(owner).inv(),
         final(owner).relate_region(*final(regions)),
-        old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
-            old(owner).list.len() - 1,
-            final(frame_own).meta_own,
-        ),
-        old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
-            0,
+        final(owner).list == old(owner).list.insert(
+            old(owner).list.len() as int,
             final(frame_own).meta_own,
         ),
         old(owner).list_id != 0 ==> final(owner).list_id == old(owner).list_id,
@@ -389,9 +385,7 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         forall|k: int|
             #![trigger final(regions).slots[k]]
             #![trigger final(regions).slot_owners[k]]
-            k != old(frame_own).slot_index && (old(owner).list.len() > 1 ==> k != meta_to_index(
-                old(owner).list[old(owner).list.len() - 2].paddr,
-            )) && (old(owner).list.len() > 0 ==> k != meta_to_index(
+            k != old(frame_own).slot_index && (old(owner).list.len() > 0 ==> k != meta_to_index(
                 old(owner).list[old(owner).list.len() - 1].paddr,
             )) ==> final(regions).slots[k] == old(regions).slots[k] && final(regions).slot_owners[k]
                 == old(regions).slot_owners[k],
@@ -413,11 +407,7 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             ).slot_index ==> fo.global_inv(*final(regions)) && fo.frame_link_inv(*final(regions))
                 && final(regions).slot_owners[fo.slot_index].in_list_perm.value() == 0,
 {
-    let ghost n = if owner.list.len() > 0 {
-        owner.list.len() - 1
-    } else {
-        0
-    };
+    let ghost n = owner.list.len() as int;
     axiom_insert_before_at_embedded(regions, owner, frame_own, n, used_ids);
 }
 

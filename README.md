@@ -72,6 +72,7 @@ Verus is cloned and built under `tools/verus`. If the download fails, clone it m
 
 ```bash
 make                                                               # verify OSTD and its dependencies (or: cargo dv verify)
+make verify-riscv                                                   # verify the RISC-V arch code of OSTD (or: cargo dv verify --target riscv64imac-unknown-none-elf)
 cargo dv focus --package ostd                                       # ostd only, skip dependency proofs
 cargo dv focus --package ostd -- --verify-only-module sync::rwlock  # verify one ostd module
 cargo dv verify --package vstd_extra                                # the verified dependency crate

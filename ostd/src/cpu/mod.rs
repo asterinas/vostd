@@ -215,8 +215,7 @@ unsafe fn set_this_cpu_id(id: u32) {
 
     #[cfg(debug_assertions)]
     IS_CURRENT_CPU_INITED.store(true);
-}
-
+} */
 /// A marker trait for guard types that can "pin" the current task to the
 /// current CPU.
 ///
@@ -234,11 +233,14 @@ unsafe fn set_this_cpu_id(id: u32) {
 /// [`DisabledPreemptGuard`]: crate::task::DisabledPreemptGuard
 pub unsafe trait PinCurrentCpu {
     /// Returns the ID of the current CPU.
-    fn current_cpu(&self) -> CpuId {
+    /* fn current_cpu(&self) -> CpuId {
         CpuId::current_racy()
     }
+    */
+    fn current_cpu(&self) -> CpuId;
 }
 
+/*
 // SAFETY: A guard that enforces the atomic mode requires disabling any
 // context switching. So naturally, the current task is pinned on the CPU.
 unsafe impl<T: InAtomicMode> PinCurrentCpu for T {}

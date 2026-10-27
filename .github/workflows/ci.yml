@@ -1,9 +1,10 @@
 name: Format and Verify VOSTD (Main)
 
-# One verification run feeds everything: a verify leg runs with
-# --time-expanded and uploads the log, `perf` parses it (never re-verifies),
-# `doc` builds the docs in parallel, and `doc-deploy` merges those docs with
-# the gh-pages benchmark before deploying. `format` delegates to `cargo verus fmt`.
+# One verification run feeds everything: verify legs (one per os/target, incl.
+# riscv64imac) run with --time-expanded and upload logs, `perf` parses the
+# ubuntu x86_64 leg's log (never re-verifies), `doc` builds the docs in
+# parallel, and `doc-deploy` merges those docs with the gh-pages benchmark
+# before deploying. `format` delegates to `cargo verus fmt`.
 
 on:
   push:
@@ -36,9 +37,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-14
+        include:
+          # `riscv64imac` is verified on Linux only; macOS keeps guarding the
+          # default x86_64 build. The triple selects the arch module mounted
+          # under `cfg(target_arch = ...)` in `ostd/src/lib.rs`.
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-none
+          - os: ubuntu-latest
+            rust_target: riscv64imac-unknown-none-elf
+          - os: macos-14
+            rust_target: x86_64-unknown-none
     timeout-minutes: 240
     steps:
       - name: Checkout repository
@@ -54,11 +62,12 @@ jobs:
           verus: 'true'
           install-verusfmt: 'false'
 
-      # `make` plus --time-expanded for the perf job's log.
+      # `make` plus --time-expanded for the perf job's log. `--target` selects
+      # the architecture whose `cfg(target_arch)` module gets verified.
       - name: Run verification
         run: |
           set -o pipefail
-          if ! cargo dv verify --package ostd -- --time-expanded 2>&1 | tee verify_output.txt; then
+          if ! cargo dv verify --package ostd --target ${{ matrix.rust_target }} -- --time-expanded 2>&1 | tee verify_output.txt; then
             echo "❌ Verification failed"
             echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
             exit 1
@@ -97,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: verify-log-${{ matrix.os }}
+          name: verify-log-${{ matrix.os }}-${{ matrix.rust_target }}
           path: verify_output.txt
           retention-days: 7
           if-no-files-found: warn
@@ -106,7 +115,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "# CI Summary (${{ matrix.os }})"
+            echo "# CI Summary (${{ matrix.os }} / ${{ matrix.rust_target }})"
             if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
               echo "- Verification: ❌ failed"
             else
@@ -207,7 +216,8 @@ jobs:
       - name: Download verification log
         uses: actions/download-artifact@v8
         with:
-          name: verify-log-ubuntu-latest
+          # The perf baseline tracks the default (x86_64) target only.
+          name: verify-log-ubuntu-latest-x86_64-unknown-none
 
       - name: Parse cost metrics
         run: |

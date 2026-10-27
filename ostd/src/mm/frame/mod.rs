@@ -450,7 +450,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         requires
             self.inv(),
         ensures
-            res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.slot_vaddr() == self.slot_vaddr(),
             res.inner@.ptr_inv(),
             res.inner@.slot_perm() == self.slot_perm(),
             res.inner@.tracked_metadata_perm@ is None,
@@ -486,7 +486,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
                 frame_permission.resource(),
             ),
         ensures
-            res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.slot_vaddr() == self.slot_vaddr(),
             res.inner@.ptr_inv(),
             res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
             res.inner@.tracked_metadata_perm@ is None,

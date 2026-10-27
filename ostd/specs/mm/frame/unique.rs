@@ -4,7 +4,7 @@ use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::{
-        Paddr,
+        Paddr, Vaddr,
         frame::{frame_specs::valid_slot_vaddr, mapping::*, meta_region_owners::MetaRegionOwners},
     },
 };
@@ -21,8 +21,14 @@ use crate::mm::frame::{
 verus! {
 
 impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+    #[verifier::inline]
+    pub open spec fn slot_vaddr(self) -> Vaddr {
+        self.ptr.addr()
+    }
+
+    #[verifier::inline]
     pub open spec fn start_paddr_spec(self) -> Paddr {
-        meta_to_frame(self.ptr.addr())
+        meta_to_frame(self.slot_vaddr())
     }
 
     pub open spec fn index(self) -> int {
@@ -42,7 +48,7 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> 
 
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
-        &&& valid_slot_vaddr(self.ptr.addr())
+        &&& valid_slot_vaddr(self.slot_vaddr())
         &&& self.slot_perm().pptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
@@ -75,7 +81,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> OwnerOf for UniqueFrame<
     type Owner = UniqueFrameOwner<M>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == index_to_meta(owner.slot_index)
+        &&& self.slot_vaddr() == index_to_meta(owner.slot_index)
     }
 }
 

@@ -133,7 +133,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         self,
         transmuted: UniqueFrame<M1>,
     ) -> bool {
-        &&& transmuted.ptr.addr() == self.ptr.addr()
+        &&& transmuted.slot_vaddr() == self.slot_vaddr()
         &&& transmuted.tracked_slot_perm@ == self.tracked_slot_perm@
         &&& transmuted.tracked_metadata_perm@ == self.tracked_metadata_perm@
     }
@@ -216,7 +216,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         let tracked new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             meta_own_in,
             repr_perm,
-            meta_to_index(self.ptr.addr()),
+            meta_to_index(self.slot_vaddr()),
         );
         }
 
@@ -336,7 +336,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         requires
             self.ptr_inv(),
         returns
-            meta_to_frame(self.ptr.addr()),
+            meta_to_frame(self.slot_vaddr()),
     )]
     pub fn start_paddr(&self) -> Paddr {
         let slot = self.slot();
@@ -417,7 +417,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             self.inv(),
         ensures
             metadata_perms@ == self.metadata_perm(),
-            r == meta_to_frame(self.ptr.addr()),
+            r == meta_to_frame(self.slot_vaddr()),
     )]
     pub(crate) fn into_raw(mut self) -> Paddr {
         let tracked metadata_perms = self.tracked_metadata_perm.tracked_take();
@@ -563,11 +563,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
         let tracked mut owner = owner;
         let ptr = unique.ptr;
-        let ghost idx = meta_to_index(unique.ptr.addr());
+        let ghost idx = meta_to_index(unique.slot_vaddr());
         proof {
             broadcast use group_page_meta;
 
-            regions.lemma_contains_valid_frame_paddr(meta_to_frame(unique.ptr.addr()));
+            regions.lemma_contains_valid_frame_paddr(meta_to_frame(unique.slot_vaddr()));
         }
         let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let slot = unique.slot();
@@ -609,7 +609,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn try_from_shared(mut frame: Frame<M>) -> Result<Self, Frame<M>> {
-        let ghost idx = meta_to_index(frame.ptr.addr());
+        let ghost idx = meta_to_index(frame.slot_vaddr());
         proof {
             broadcast use group_page_meta;
 

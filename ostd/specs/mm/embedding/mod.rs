@@ -1870,6 +1870,11 @@ proof fn lemma_step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, ran
             Option::None => {},
         }
     }
+    assert forall|idx: int|
+        #![trigger final(s).regions.slot_owners[idx]]
+        0 <= idx < max_meta_slots() ==> final(s).regions.slots.contains_key(idx) || (
+        final(s).regions.slot_owners[idx].usage is PageTable && final(s).regions.ref_count(idx)
+            != REF_COUNT_UNUSED) by {};
 }
 
 proof fn lemma_accounting_inv_intro<'rcu>(store: VmStore<'rcu>)

@@ -343,6 +343,7 @@ impl Borrow<Task> for CurrentTask {
     }
 }
 
+*/
 /// Trait for manipulating the task context.
 pub trait TaskContextApi {
     /// Sets instruction pointer
@@ -357,6 +358,8 @@ pub trait TaskContextApi {
     /// Gets stack pointer
     fn stack_pointer(&self) -> usize;
 }
+
+/*
 
 #[cfg(ktest)]
 mod test {
