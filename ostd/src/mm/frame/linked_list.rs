@@ -12,6 +12,7 @@ use vstd_extra::{
 
 use crate::specs::{
     arch::*,
+    mm::embedding::list_store::list_registry_ok,
     mm::frame::{
         linked_list::linked_list_owners::*, mapping::*, meta_owners::*,
         meta_region_owners::MetaRegionOwners, unique::UniqueFrameOwner,
@@ -471,28 +472,42 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// ## Preconditions
     /// - The list must be well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects.
-    /// - The frame should be raw (because it is owned by the list)
+    /// - The list owner must match the list and region permissions, and its
+    /// membership registry must be consistent with the region's `in_list` tags.
     /// ## Postconditions
-    /// - This functions post-conditions are incomplete due to refactoring of the permission model.
-    /// When complete, it will guarantee that the cursor is well-formed and points to the matching
-    /// element in the list.
+    /// - For a list with an allocated (non-zero) ID, a cursor is returned exactly
+    /// when the valid frame belongs to the list. Its owner has an in-range index
+    /// matching the frame, and the cursor is well-formed with the region permissions.
+    /// - The returned cursor and its tracked owner are either both present or both absent.
     /// ## Safety
     /// - `lazy_get_id` uses atomic memory accesses, so there are no data races.
-    /// - We assume that the ID allocator has an available ID if the list previously didn't have one,
-    /// but the consequence if that is not the case is a failsafe panic.
-    /// - Everything else conforms to the safe interface.
+    /// - Membership and owner well-formedness for a fresh list remain unspecified:
+    /// `lazy_get_id` does not yet model freshness against the region's `in_list` tags.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
             Tracked(owner): Tracked<LinkedListOwner<M>>,
             -> cursor_owner: Tracked<Option<CursorOwner<M>>>,
         requires
-            old(regions).inv(),
+            regions.inv(),
+            old(self).wf_region(owner, *regions),
+            owner.relate_region(*regions),
+            list_registry_ok(*regions, owner),
         ensures
             !valid_frame_paddr(frame) ==> r is None,
-            final(regions).inv(),
-            final(regions).slots == old(regions).slots,
-            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
+            r is Some == cursor_owner@ is Some,
+            owner.list_id != 0 ==> (r is Some) == (valid_frame_paddr(frame)
+                && exists|i: int| 0 <= i < owner.list.len()
+                    && #[trigger] meta_to_index(owner.list[i].paddr) == frame_to_index(frame)),
+            r matches Some(cursor) ==> (cursor_owner@ matches Some(co) ==> {
+                &&& co.list_own == owner
+                &&& owner.list_id != 0 ==> {
+                    &&& 0 <= co.index < owner.list.len()
+                    &&& meta_to_index(owner.list[co.index].paddr) == frame_to_index(frame)
+                    &&& cursor.wf_region(co, *regions)
+                    &&& co.wf_with_region(*regions)
+                }
+            }),
     )]
     pub fn cursor_mut_at(&mut self, frame: Paddr) -> Option<CursorMut<'_, M>> {
         proof_decl! {
@@ -515,17 +530,29 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             };
         };
 
-        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
-        let tracked mut inner_perms = &mut slot_own;
+        let tracked slot_own = regions.slot_owners.tracked_borrow(idx);
 
-        let contains = slot.in_list.load(Tracked(&mut inner_perms.in_list_perm))
+        let contains = slot.in_list.load(Tracked(&slot_own.in_list_perm))
             == #[verus_spec(with Tracked(&owner))]
         self.lazy_get_id();
 
         if contains {
             proof_decl!{
-                let ghost link = owner.list.filter(|link: LinkOwner| link.paddr == frame).first();
-                let ghost index = owner.list.index_of(link);
+                if owner.list_id != 0 {
+                    assert(exists|i: int| 0 <= i < owner.list.len()
+                        && #[trigger] meta_to_index(owner.list[i].paddr) == idx);
+                }
+                let ghost index = if owner.list_id != 0 {
+                    choose|i: int| 0 <= i < owner.list.len()
+                        && #[trigger] meta_to_index(owner.list[i].paddr) == frame_to_index(frame)
+                } else {
+                    0
+                };
+                if owner.list_id != 0 {
+                    owner.lemma_relate_region_at_index(*regions, index);
+                    owner.lemma_relate_region_at_facts(*regions, index);
+                    lemma_meta_region_inv_at(*regions, idx);
+                }
                 let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
             }
 
