@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793073474244,
+  "lastUpdate": 1793077932492,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -7224,6 +7224,90 @@ window.BENCHMARK_DATA = {
             "value": 1512725,
             "unit": "rlimit",
             "extra": "smt-run=655ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8164a7b6f80a2e239a5ca23b950b14aab86079a",
+          "message": "ci: add risc-v verify (#867)\n\n* ci: add riscv64imac verify\n\n* fix: riscv error\n\n* chore: update Makefile for riscv\n\n* sync: dv",
+          "timestamp": "2026-10-27T13:03:38+08:00",
+          "tree_id": "c127b6b778a894ef72f13ef567bb7bff04ad9d80",
+          "url": "https://github.com/asterinas/vostd/commit/e8164a7b6f80a2e239a5ca23b950b14aab86079a"
+        },
+        "date": 1793077931961,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1470046281,
+            "unit": "rlimit",
+            "extra": "verified=4260 errors=0 smt-run=385,758ms wall=230,994ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 538222141,
+            "unit": "rlimit",
+            "extra": "smt-run=199,256ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 233732906,
+            "unit": "rlimit",
+            "extra": "smt-run=36,809ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 65216734,
+            "unit": "rlimit",
+            "extra": "smt-run=23,813ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=3,899ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 16369438,
+            "unit": "rlimit",
+            "extra": "smt-run=1,308ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 11196458,
+            "unit": "rlimit",
+            "extra": "smt-run=1,943ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=810ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=640ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1512725,
+            "unit": "rlimit",
+            "extra": "smt-run=467ms"
           }
         ]
       }
