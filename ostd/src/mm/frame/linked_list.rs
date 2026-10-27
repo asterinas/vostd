@@ -302,8 +302,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             owner.relate_region(*old(regions)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
-            r.is_some() ==> (r->0).1@.meta_own@ == owner.list[0]@,
-            r.is_some() ==> (r->0).0.frame_link_inv((r->0).1@, *final(regions)),
+            r is Some ==> {
+                &&& (r->0).1@.meta_own@ == owner.list[0]@
+                &&& (r->0).0.frame_link_inv((r->0).1@, *final(regions))
+            }
     )]
     pub fn pop_front(&mut self) -> Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
