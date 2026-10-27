@@ -13,6 +13,7 @@ use super::{
     cpu::CpuRcuClosedGeneration,
     retirement::{RcuRetiredFact, RcuRetiredRecord},
 };
+
 use crate::cpu::CpuId;
 
 verus! {

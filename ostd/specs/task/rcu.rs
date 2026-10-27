@@ -19,6 +19,7 @@ use crate::specs::sync::rcu::{
     cpu::{CpuRcuClosedGeneration, CpuRcuCoreBinding, CpuRcuParticipant, CpuRcuReaderFragment},
     retirement::RcuRetiredFacts,
 };
+
 use crate::{cpu::CpuId, task::RunningTaskContext};
 
 verus! {

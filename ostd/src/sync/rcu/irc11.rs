@@ -59,6 +59,14 @@ impl<P: NonNullPtr> RcuRootOwnershipPredicate<P::Target, P::Permission> for Smar
     }
 }
 
+/// Every permission produced by a smart pointer satisfies the publication predicate.
+pub open spec fn rcu_value_satisfies<P: NonNullPtr>(
+    value: P,
+    condition: spec_fn(P::Permission) -> bool,
+) -> bool {
+    forall|owned: P::Permission| #[trigger] value.rel_perm(owned) ==> condition(owned)
+}
+
 /* Explicit context and close are required until kernel scheduler/preemption
  * glue can supply these capabilities. Native pointer instructions are unchanged.
  * Origin Rust: <none; new executable code>
@@ -257,7 +265,7 @@ impl<P: NonNullPtr> Irc11RcuOption<P> {
 
     /// Every permission produced by this value's pointer conversion satisfies the root predicate.
     pub open spec fn accepts(&self, value: P) -> bool {
-        forall|owned: P::Permission| #[trigger] value.rel_perm(owned) ==> (self.condition())(owned)
+        rcu_value_satisfies(value, self.condition())
     }
 
     /// Fixed scheduler, domain, online-set, and permission-registry identities.
@@ -362,8 +370,7 @@ impl<P: NonNullPtr> Irc11RcuOption<P> {
             domain.inv(),
             domain.objects() == Map::<nat, usize>::empty(),
             nullable || value is Some,
-            value matches Some(value) ==> forall|owned: P::Permission| #[trigger]
-                value.rel_perm(owned) ==> condition(owned),
+            value matches Some(value) ==> rcu_value_satisfies(value, condition),
         ensures
             res.inv(),
             res.key().domain == domain.id(),
@@ -879,8 +886,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
             self.inv(),
             old(context).inv(),
             self.participant() == old(context).participant().id(),
-            forall|owned: P::Permission| #[trigger]
-                value.rel_perm(owned) ==> (self.condition())(owned),
+            rcu_value_satisfies(value, self.condition()),
         ensures
             final(context).inv(),
             final(context).same_identity(*old(context)),

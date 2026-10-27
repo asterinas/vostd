@@ -7,19 +7,20 @@
 //! active callbacks. A completed batch supplies a matching permit for each
 //! consuming callback invocation. The monitor publishes its accumulated retire
 //! observations through an actual native release/acquire lock.
-use crate::specs::{
-    sync::rcu::{
-        grace_period::{CompletedGracePeriod, RcuCallbackSummary, RcuGracePeriod, report_covers},
-        retirement::RcuRetiredFacts,
-    },
-    task::rcu::RunningRcuContext,
-};
 use vstd::{
     cell::pcell::{PCell, PointsTo},
     prelude::*,
     resource::Loc,
 };
 use vstd_extra::{atomic_irc11::ThreadView, auxiliary::OptionExtraFns, ownership::Inv};
+
+use crate::specs::{
+    sync::rcu::{
+        grace_period::{CompletedGracePeriod, RcuCallbackSummary, RcuGracePeriod},
+        retirement::RcuRetiredFacts,
+    },
+    task::rcu::RunningRcuContext,
+};
 
 use super::{
     irc11::{PendingRcuDrop, RcuCallbackWork},
@@ -643,11 +644,11 @@ impl<'a> Irc11RcuMonitorGuard<'a> {
     /* New explicit native RCU adapter; protocol resources erase without restoring legacy scheduler glue.
      * Origin Rust: <none; new executable code>
      */
-    pub fn is_complete(&self) -> (res: bool)
+    pub fn is_complete(&self) -> bool
         requires
             self.inv(),
-        ensures
-            res == self.complete(),
+        returns
+            self.complete(),
     {
         self.monitor.data.borrow(
             Tracked(self.tracked_guard.borrow().tracked_resource()),
@@ -734,9 +735,9 @@ impl<'a> Irc11RcuMonitorGuard<'a> {
 }
 
 // Compare runtime numeric IDs while preserving their exact typed set model.
-fn contains_cpu(cpus: &Vec<CpuId>, cpu: CpuId) -> (res: bool)
-    ensures
-        res == cpus@.contains(cpu),
+fn contains_cpu(cpus: &Vec<CpuId>, cpu: CpuId) -> bool
+    returns
+        cpus@.contains(cpu),
 {
     let mut index = 0;
     while index < cpus.len()

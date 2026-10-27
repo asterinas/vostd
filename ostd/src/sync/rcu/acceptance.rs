@@ -4,13 +4,6 @@
 //! These are verification clients, not boot or scheduler implementations. Their
 //! contexts are constructed from real scheduler checkout and canonical core
 //! registration. No nonempty subjective view or completed GP is assumed.
-use crate::specs::{
-    sync::rcu::cpu::CpuRcuParticipant,
-    task::{
-        cpu_core::{CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreRegistration},
-        rcu::RunningRcuContext,
-    },
-};
 use vstd::{
     prelude::*,
     resource::{Loc, map::GhostMapAuth},
@@ -18,6 +11,14 @@ use vstd::{
 use vstd_extra::{
     atomic_irc11::ThreadView, ownership::Inv, rcu_objects::RcuDomainAuth,
     scheduler_thread_view::SchedulerThreadViewRegistry,
+};
+
+use crate::specs::{
+    sync::rcu::cpu::CpuRcuParticipant,
+    task::{
+        cpu_core::{CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreRegistration},
+        rcu::RunningRcuContext,
+    },
 };
 
 use super::{

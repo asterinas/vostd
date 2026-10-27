@@ -25,11 +25,11 @@ use vstd::{
 };
 use vstd_extra::atomic_irc11::{ThreadView as Irc11ThreadView, ThreadViewOrder};
 
+use super::retirement::{RcuRetiredFacts, RcuRetiredRecord, records_observed};
 use crate::specs::task::cpu_core::{
     CpuCoreLocalState, CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreRegistration,
 };
 
-use super::retirement::{RcuRetiredFacts, RcuRetiredRecord};
 use crate::cpu::CpuId;
 
 verus! {
@@ -59,14 +59,6 @@ pub(super) ghost struct CpuRcuCarrier {
 }
 
 impl CpuRcuCarrier {
-    pub(super) open spec fn records_observed(
-        records: Set<RcuRetiredRecord>,
-        view: Irc11ThreadView,
-    ) -> bool {
-        forall|record: RcuRetiredRecord| #[trigger]
-            records.contains(record) ==> record.removal.observed_by(view)
-    }
-
     pub(super) open spec fn state(
         cpu: CpuId,
         generation: nat,
@@ -101,7 +93,7 @@ impl CpuRcuCarrier {
                 &&& report.generation < state.generation
                 &&& report.view.spec_le(state.view)
                 &&& report.known_retired.subset_of(state.known_retired)
-                &&& CpuRcuCarrier::records_observed(report.known_retired, report.view)
+                &&& records_observed(report.known_retired, report.view)
             }
     }
 
@@ -114,10 +106,14 @@ impl CpuRcuCarrier {
     }
 
     pub(super) open spec fn has_valid_state(self) -> bool {
-        &&& self.state is Some
-        &&& self.state.unwrap().left is Frac
-        &&& self.state.unwrap().right is Agree
-        &&& self.state.valid()
+        match self.state {
+            Some(state) => {
+                &&& state.left is Frac
+                &&& state.right is Agree
+                &&& self.state.valid()
+            },
+            None => false,
+        }
     }
 }
 
@@ -127,10 +123,10 @@ impl ResourceAlgebra for CpuRcuCarrier {
             Some(ProductRA { left: FractionRA::Frac(_), right: AgreementRA::Agree(state) }) => {
                 &&& self.state.valid()
                 &&& CpuRcuCarrier::reports_fit(state, self.closed)
-                &&& CpuRcuCarrier::records_observed(state.known_retired, state.view)
+                &&& records_observed(state.known_retired, state.view)
             },
             None => forall|report: CpuRcuReportView| #[trigger]
-                self.closed.contains(report) ==> CpuRcuCarrier::records_observed(
+                self.closed.contains(report) ==> records_observed(
                     report.known_retired,
                     report.view,
                 ),
@@ -153,7 +149,7 @@ impl ResourceAlgebra for CpuRcuCarrier {
                 assert(combined.valid());
                 assert(combined.closed == left.closed.union(right.closed));
                 assert forall|report: CpuRcuReportView| #[trigger]
-                    left.closed.contains(report) implies CpuRcuCarrier::records_observed(
+                    left.closed.contains(report) implies records_observed(
                     report.known_retired,
                     report.view,
                 ) by {
@@ -185,7 +181,7 @@ impl ResourceAlgebra for CpuRcuCarrier {
                     &&& report.generation < left_state.generation
                     &&& report.view.spec_le(left_state.view)
                     &&& report.known_retired.subset_of(left_state.known_retired)
-                    &&& CpuRcuCarrier::records_observed(report.known_retired, report.view)
+                    &&& records_observed(report.known_retired, report.view)
                 } by {
                     assert(left.closed.union(right.closed).contains(report));
                     match right.state {
@@ -243,25 +239,13 @@ pub tracked struct CpuRcuClosedGeneration {
     binding: CpuRcuCoreBinding,
 }
 
-proof fn lemma_choose_singleton_report(report: CpuRcuReportView)
-    ensures
-        (choose|candidate: CpuRcuReportView| Set::empty().insert(report).contains(candidate))
-            == report,
-{
-    let ghost reports = Set::empty().insert(report);
-    assert(reports.contains(report));
-    let ghost chosen = choose|candidate: CpuRcuReportView| reports.contains(candidate);
-    assert(reports.contains(chosen));
-    assert(chosen == report);
-}
-
 impl CpuRcuParticipant {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.resource.value().has_valid_state()
         &&& self.resource.value().closed.is_empty()
         &&& self.resource.value().state_view().known_retired == self.known_retired.records()
-        &&& CpuRcuCarrier::records_observed(
+        &&& records_observed(
             self.resource.value().state_view().known_retired,
             self.resource.value().state_view().view,
         )
@@ -534,8 +518,8 @@ impl CpuRcuParticipant {
             old_known_retired,
             1real,
         ));
-        assert(CpuRcuCarrier::records_observed(old_known_retired, old_view));
-        assert(CpuRcuCarrier::records_observed(merged_records, report_view)) by {
+        assert(records_observed(old_known_retired, old_view));
+        assert(records_observed(merged_records, report_view)) by {
             assert forall|record: RcuRetiredRecord| #[trigger]
                 merged_records.contains(record) implies record.removal.observed_by(report_view) by {
                 if old_known_retired.contains(record) {
@@ -795,7 +779,7 @@ impl CpuRcuReaderFragment {
         &&& self.resource.value().has_valid_state()
         &&& self.resource.value().closed.is_empty()
         &&& self.resource.value().state_view().known_retired == self.known_retired.records()
-        &&& CpuRcuCarrier::records_observed(
+        &&& records_observed(
             self.resource.value().state_view().known_retired,
             self.resource.value().state_view().view,
         )
@@ -961,7 +945,7 @@ impl CpuRcuClosedGeneration {
         &&& self.report().known_retired == self.known_retired.records()
         &&& self.binding.single_local_id() == self.resource.loc()
         &&& self.binding.cpu() == self.report().cpu
-        &&& CpuRcuCarrier::records_observed(self.report().known_retired, self.report().view)
+        &&& records_observed(self.report().known_retired, self.report().view)
     }
 
     closed spec fn report(self) -> CpuRcuReportView {
@@ -1250,6 +1234,22 @@ impl CpuRcuClosedGeneration {
     {
         let tracked _reader = self.lemma_later_reader(reader);
     }
+}
+
+} // verus!
+// Auxiliary proofs and regression clients.
+verus! {
+
+proof fn lemma_choose_singleton_report(report: CpuRcuReportView)
+    ensures
+        (choose|candidate: CpuRcuReportView| Set::empty().insert(report).contains(candidate))
+            == report,
+{
+    let ghost reports = Set::empty().insert(report);
+    assert(reports.contains(report));
+    let ghost chosen = choose|candidate: CpuRcuReportView| reports.contains(candidate);
+    assert(reports.contains(chosen));
+    assert(chosen == report);
 }
 
 /// Regression proof for both sides of the grace-period reader dichotomy.

@@ -365,18 +365,18 @@ impl<
             self.inv(),
             reader.wf(),
             parent.inv(),
-            parent.info() is Some,
-            parent.lease() is Some,
-            source == (AllocationId {
-                domain: parent.info()->Some_0.domain(),
-                object: parent.info()->Some_0.obj(),
-            }),
-            source_ptr == spec_cast_ptr_to_thin_ptr::<U, T>(parent.info()->Some_0.ptr()),
+            match (parent.info(), parent.lease()) {
+                (Some(info), Some(lease)) => {
+                    &&& source == (AllocationId { domain: info.domain(), object: info.obj() })
+                    &&& source_ptr == spec_cast_ptr_to_thin_ptr::<U, T>(info.ptr())
+                    &&& start_view == lease.witness().start_view()
+                },
+                _ => false,
+            },
             reader.participant_id() == parent.reader().participant_id(),
             reader.generation() == parent.reader().generation(),
             reader.participant_view() == parent.reader().participant_view(),
             reader.known_retired() == parent.reader().known_retired(),
-            start_view == parent.lease()->Some_0.witness().start_view(),
             source.domain != self.key().domain,
             binding.registry() == self.key().scheduler,
             binding.cpu() == reader.cpu(),

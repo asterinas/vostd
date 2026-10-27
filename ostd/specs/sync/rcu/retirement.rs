@@ -48,6 +48,12 @@ pub ghost struct RcuRetiredRecord {
     pub retire_observation_registry: Loc,
 }
 
+/// Every retirement record's removal observation is covered by `view`.
+pub open spec fn records_observed(records: Set<RcuRetiredRecord>, view: Irc11ThreadView) -> bool {
+    forall|record: RcuRetiredRecord| #[trigger]
+        records.contains(record) ==> record.removal.observed_by(view)
+}
+
 /// Persistent certificate issued by one retirement authority.
 pub tracked struct RcuRetiredFact {
     ghost domain: Loc,
@@ -249,8 +255,7 @@ impl RcuRetiredFacts {
     /// the separate weak-memory premise needed before a CPU report may publish
     /// them to readers in a later quiescent generation.
     pub open spec fn observed_by(self, view: Irc11ThreadView) -> bool {
-        forall|record: RcuRetiredRecord| #[trigger]
-            self.records().contains(record) ==> record.removal.observed_by(view)
+        records_observed(self.records(), view)
     }
 
     /// Creates an empty retirement-fact collection.

@@ -25,6 +25,7 @@ use super::{
     grace_period::RcuReclaimPermit,
     retirement::{RcuRetiredRecord, RcuRetiredRegistration},
 };
+
 use crate::cpu::CpuId;
 
 verus! {
