@@ -3,7 +3,12 @@
 VERIFICATION_TARGETS := \
 	ostd \
 
-.PHONY: all verify $(VERIFICATION_TARGETS) fmt build doc clean verus verus-upgrade
+RUST_TARGETS := \
+	x86_64-unknown-none \
+	riscv64imac-unknown-none-elf \
+
+.PHONY: all verify $(VERIFICATION_TARGETS) verify-x86 verify-riscv \
+	fmt build doc clean verus verus-upgrade
 
 $(VERIFICATION_TARGETS):
 	cargo dv verify --package $@
@@ -12,6 +17,13 @@ all: verify
 
 verify:
 	cargo dv verify --package $(VERIFICATION_TARGETS)
+
+verify-%:
+	cargo dv verify --package $(VERIFICATION_TARGETS) --target $*
+
+# Short aliases.
+verify-x86: verify-x86_64-unknown-none
+verify-riscv: verify-riscv64imac-unknown-none-elf
 
 fmt:
 	cargo dv fmt
