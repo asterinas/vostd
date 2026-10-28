@@ -17,7 +17,7 @@ use vstd::{
 };
 use vstd_extra::{
     once::OnceImpl, range::RangeExtraFns, resource::range::GhostSubRange,
-    resource_invariant::TrivialResourceInvariant,
+    resource_invariant::TrivialResourceInvariant, set_extra::pairwise_disjoint,
 };
 
 use crate::specs::arch::PAGE_SIZE;
@@ -64,6 +64,7 @@ impl IoMemAllocator {
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         proof! {
             use_type_invariant(self);
+            lemma_windows_disjoint(self.allocators@);
         }
         proof_decl! {
             let tracked allocated: FreePermit;
@@ -148,6 +149,8 @@ impl IoMemAllocatorBuilder {
         ensures
             ret.type_inv(),
             ret.state_matches(state_out@),
+            forall|i: int| 0 <= i < ranges@.len() ==>
+                #[trigger] state_out@[i]@ == ranges@[i].view_set(),
     )]
     pub(crate) unsafe fn new(ranges: Vec<Range<usize>>) -> Self {
         /* info!(
@@ -158,6 +161,9 @@ impl IoMemAllocatorBuilder {
         proof_decl! {
             let tracked mut state = Seq::tracked_empty();
         }
+        proof! {
+            lemma_ranges_disjoint(ranges@);
+        }
         #[verus_spec(it =>
             invariant
                 allocators@.len() == it.index(),
@@ -166,12 +172,15 @@ impl IoMemAllocatorBuilder {
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
                 usize_ranges_disjoint(it.seq()),
+                ranges_separated(it.seq()),
                 usize_ranges_match_registered(it.seq()),
                 forall|j: int| #![trigger registered_io_mem_windows()[j]] 0 <= j < it.index() ==>
                     allocators@[j]@ == registered_io_mem_windows()[j],
                 windows_disjoint(allocators@),
                 allocator_states_match(allocators@, state),
                 state.len() == it.index(),
+                forall|i: int| 0 <= i < it.index() ==>
+                    #[trigger] state[i]@ == it.seq()[i].view_set(),
         )]
         for range in ranges {
             proof_decl! {
@@ -190,7 +199,14 @@ impl IoMemAllocatorBuilder {
                     assert(it.seq()[i].end <= it.seq()[it.index()].start
                         || it.seq()[it.index()].end <= it.seq()[i].start);
                 }
+                let windows = allocators@.map_values(|allocator: RangeAllocator| allocator@);
+                assert(ranges_separated(windows));
+                lemma_ranges_disjoint(windows);
             }
+        }
+        proof! {
+            assert(allocators@.map_values(|allocator: RangeAllocator| allocator@)
+                =~= registered_io_mem_windows());
         }
         proof_with!(|= Tracked(state));
         Self { allocators }
@@ -260,6 +276,7 @@ impl IoMemAllocatorBuilder {
         }
         proof! {
             use_type_invariant(self);
+            lemma_windows_disjoint(self.allocators@);
         }
         proof_decl! {
             let tracked allocated: FreePermit;
@@ -286,18 +303,21 @@ broadcast use vstd::std_specs::vec::group_vec_axioms;
 /// The MMIO windows are pairwise disjoint, so the first overlapping window found by
 /// `find_allocator` is the window containing a registered range, regardless of window order.
 pub open spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
-    forall|i: int, j: int|
-        #![trigger allocators[i], allocators[j]]
-        0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
-            || allocators[j]@.end <= allocators[i]@.start
+    usize_ranges_disjoint(allocators.map_values(|allocator: RangeAllocator| allocator@))
 }
 
 /// The ranges handed to [`IoMemAllocatorBuilder::new`] are pairwise disjoint.
 pub open spec fn usize_ranges_disjoint(ranges: Seq<Range<usize>>) -> bool {
-    forall|i: int, j: int|
+    &&& pairwise_disjoint(
+        ranges.map_values(|range: Range<usize>| range.view_set()).to_set(),
+    )
+    // A set collapses duplicate windows and omits empty ranges' positions. Preserve the
+    // per-window separation needed by `find_allocator` for these cases.
+    &&& forall|i: int, j: int|
         #![trigger ranges[i], ranges[j]]
-        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start || ranges[j].end
-            <= ranges[i].start
+        0 <= i < j < ranges.len() && (ranges[i] == ranges[j] || ranges[i].start >= ranges[i].end
+            || ranges[j].start >= ranges[j].end) ==> ranges[i].end <= ranges[j].start
+            || ranges[j].end <= ranges[i].start
 }
 
 /// The abstract MMIO windows registered by platform boot code.
@@ -305,10 +325,7 @@ pub uninterp spec fn registered_io_mem_windows() -> Seq<Range<usize>>;
 
 /// The concrete range allocators represent the abstract boot-time windows exactly.
 pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bool {
-    &&& allocators.len() == registered_io_mem_windows().len()
-    &&& forall|i: int|
-        #![trigger registered_io_mem_windows()[i]]
-        0 <= i < allocators.len() ==> allocators[i]@ == registered_io_mem_windows()[i]
+    allocators.map_values(|allocator: RangeAllocator| allocator@) == registered_io_mem_windows()
 }
 
 /// The ranges passed across the unsafe builder boundary represent the abstract windows.
@@ -540,3 +557,88 @@ mod test {
         );
     }
 }
+
+verus! {
+
+/// Endpoint separation for distinct windows, including empty ranges.
+closed spec fn ranges_separated(ranges: Seq<Range<usize>>) -> bool {
+    forall|i: int, j: int|
+        #![trigger ranges[i], ranges[j]]
+        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start || ranges[j].end
+            <= ranges[i].start
+}
+
+/// Exposes endpoint separation directly on allocator views for lookup proofs.
+proof fn lemma_windows_disjoint(allocators: Seq<RangeAllocator>)
+    requires
+        windows_disjoint(allocators),
+    ensures
+        forall|i: int, j: int|
+            #![trigger allocators[i], allocators[j]]
+            0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
+                || allocators[j]@.end <= allocators[i]@.start,
+{
+    let ranges = allocators.map_values(|allocator: RangeAllocator| allocator@);
+    lemma_ranges_disjoint(ranges);
+    assert forall|i: int, j: int|
+        #![trigger allocators[i], allocators[j]]
+        0 <= i < j < allocators.len() implies allocators[i]@.end <= allocators[j]@.start
+        || allocators[j]@.end <= allocators[i]@.start by {
+        assert(ranges[i].end <= ranges[j].start || ranges[j].end <= ranges[i].start);
+    }
+}
+
+/// Relates the set-based disjointness model to the endpoint bounds used by allocator lookup.
+proof fn lemma_ranges_disjoint(ranges: Seq<Range<usize>>)
+    ensures
+        usize_ranges_disjoint(ranges) == ranges_separated(ranges),
+{
+    let sets = ranges.map_values(|r: Range<usize>| r.view_set());
+    if usize_ranges_disjoint(ranges) {
+        assert forall|i: int, j: int|
+            #![trigger ranges[i], ranges[j]]
+            0 <= i < j < ranges.len() implies ranges[i].end <= ranges[j].start || ranges[j].end
+            <= ranges[i].start by {
+            assert(sets.to_set().contains(sets[i]));
+            assert(sets.to_set().contains(sets[j]));
+            if ranges[i] != ranges[j] && ranges[i].start < ranges[i].end && ranges[j].start
+                < ranges[j].end {
+                assert(sets[i] != sets[j]) by {
+                    if ranges[i].start < ranges[j].start {
+                        assert(sets[i].contains(ranges[i].start));
+                    } else if ranges[j].start < ranges[i].start {
+                        assert(sets[j].contains(ranges[j].start));
+                    } else if ranges[i].end < ranges[j].end {
+                        assert(sets[j].contains(ranges[i].end));
+                    } else {
+                        assert(sets[i].contains(ranges[j].end));
+                    }
+                }
+                assert(sets[i].disjoint(sets[j]));
+                if ranges[i].start < ranges[j].end && ranges[j].start < ranges[i].end {
+                    let address = if ranges[i].start < ranges[j].start {
+                        ranges[j].start
+                    } else {
+                        ranges[i].start
+                    };
+                    assert(sets[i].contains(address) && sets[j].contains(address));
+                }
+            }
+        }
+    } else if ranges_separated(ranges) {
+        assert forall|left: Set<usize>, right: Set<usize>|
+            #![trigger sets.to_set().contains(left), sets.to_set().contains(right)]
+            sets.to_set().contains(left) && sets.to_set().contains(right) && left
+                != right implies left.disjoint(right) by {
+            let i = choose|i: int| 0 <= i < sets.len() && sets[i] == left;
+            let j = choose|j: int| 0 <= j < sets.len() && sets[j] == right;
+            assert(i != j);
+            assert(ranges[i].end <= ranges[j].start || ranges[j].end <= ranges[i].start);
+            assert forall|address: usize| #[trigger] left.contains(address) implies !right.contains(
+                address,
+            ) by {}
+        }
+    }
+}
+
+} // verus!
