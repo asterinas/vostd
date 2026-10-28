@@ -1,4 +1,4 @@
-name: Verify VOSTD (Main) with verus-lang/verus
+name: Verify with Upstream Verus
 
 on:
   push:
@@ -27,9 +27,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-14
+        include:
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-none
+          - os: ubuntu-latest
+            rust_target: riscv64imac-unknown-none-elf
+          - os: macos-14
+            rust_target: x86_64-unknown-none
     env:
       CARGO_TERM_COLOR: always
 
@@ -61,7 +65,7 @@ jobs:
               repo,
               sha: '${{ steps.pr.outputs.head_sha }}',
               state: 'pending',
-              context: 'ci/upstream-verus (${{ matrix.os }})',
+              context: 'ci/upstream-verus (${{ matrix.os }}, ${{ matrix.rust_target }})',
               description: 'Upstream Verus verification is running',
               target_url: runUrl,
             });
@@ -94,7 +98,7 @@ jobs:
 
       - name: Verify ostd with upstream verus
         id: verify
-        run: make
+        run: make verify-${{ matrix.rust_target }}
 
       - name: Report upstream Verus verification status
         if: always() && github.event_name == 'issue_comment'
@@ -116,7 +120,7 @@ jobs:
               repo,
               sha: '${{ steps.pr.outputs.head_sha }}',
               state,
-              context: 'ci/upstream-verus (${{ matrix.os }})',
+              context: 'ci/upstream-verus (${{ matrix.os }}, ${{ matrix.rust_target }})',
               description,
               target_url: runUrl,
             });

@@ -1,4 +1,4 @@
-name: Format and Verify VOSTD (Main)
+name: Verify VOSTD
 
 # One verification run feeds everything: verify legs (one per os/target, incl.
 # riscv64imac) run with --time-expanded and upload logs, `perf` parses the

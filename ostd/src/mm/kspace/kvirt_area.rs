@@ -584,6 +584,7 @@ impl KVirtArea {
             let ghost regions_before_map = *regions;
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
             proof {
+                lemma_page_size_spec_values();
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
                 vstd::arithmetic::power::lemma_pow0(2int);

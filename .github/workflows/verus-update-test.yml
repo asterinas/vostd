@@ -9,9 +9,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-14
+        include:
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-none
+          - os: ubuntu-latest
+            rust_target: riscv64imac-unknown-none-elf
+          - os: macos-14
+            rust_target: x86_64-unknown-none
 
     runs-on: ${{ matrix.os }}
 
@@ -34,7 +38,7 @@ jobs:
       - name: Run tests on main branch
         shell: bash
         run: |
-          echo "=== Running tests on main branch (${{ runner.os }}) ==="
+          echo "=== Running tests on main branch (${{ runner.os }}, ${{ matrix.rust_target }}) ==="
 
           git fetch origin main
           git checkout main
@@ -46,11 +50,11 @@ jobs:
           cargo dv bootstrap --branch update-test
 
           set -o pipefail
-          if ! make 2>&1; then
-            echo "❌ Verification failed on ${{ runner.os }}"
+          if ! make verify-${{ matrix.rust_target }} 2>&1; then
+            echo "❌ Verification failed on ${{ runner.os }} (${{ matrix.rust_target }})"
             exit 1
           else
-            echo "✅ Verification passed on ${{ runner.os }}"
+            echo "✅ Verification passed on ${{ runner.os }} (${{ matrix.rust_target }})"
           fi
 
   dispatch-promotion:
