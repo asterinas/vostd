@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793176541054,
+  "lastUpdate": 1793186327816,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -7560,6 +7560,90 @@ window.BENCHMARK_DATA = {
             "value": 1451903,
             "unit": "rlimit",
             "extra": "smt-run=1,695ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a22d96b40dddb85a4df2896113fb9e7170b86a42",
+          "message": "fix: RISC-V mapping proof and add verification to Verus CI workflows (#873)\n\n* fix: RISC-V mapping proof and add verification to Verus CI workflows\n\n* ci: IRC11 verus base update",
+          "timestamp": "2026-10-28T19:05:15+08:00",
+          "tree_id": "215d1f819156f59a114b8a07c32475faec445d8f",
+          "url": "https://github.com/asterinas/vostd/commit/a22d96b40dddb85a4df2896113fb9e7170b86a42"
+        },
+        "date": 1793186327493,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1344390345,
+            "unit": "rlimit",
+            "extra": "verified=4262 errors=0 smt-run=426,667ms wall=251,245ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 543754451,
+            "unit": "rlimit",
+            "extra": "smt-run=218,591ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 92529203,
+            "unit": "rlimit",
+            "extra": "smt-run=23,186ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 73802104,
+            "unit": "rlimit",
+            "extra": "smt-run=31,701ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=4,635ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 16369438,
+            "unit": "rlimit",
+            "extra": "smt-run=1,672ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9170301,
+            "unit": "rlimit",
+            "extra": "smt-run=2,577ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=1,030ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=956ms"
+          },
+          {
+            "name": "rlimit: resource::ghost_resource::csum",
+            "value": 1512725,
+            "unit": "rlimit",
+            "extra": "smt-run=684ms"
           }
         ]
       }
