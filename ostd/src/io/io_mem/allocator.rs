@@ -62,21 +62,15 @@ impl IoMemAllocator {
             result is Some,
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
-        /* Original Rust:
-        find_allocator(&self.allocators, &range)?
-            .alloc_specific(&range)
-            .ok()?;
-        */
-        let allocator = find_allocator(&self.allocators, &range)?;
         proof! {
             use_type_invariant(self);
         }
         proof_decl! {
             let tracked allocated: FreePermit;
         }
-        let result = #[verus_spec(with Tracked(permit) => Tracked(allocated))]
-        allocator.alloc_specific(&range);
-        result.ok()?;
+        (#[verus_spec(with Tracked(permit) => Tracked(allocated))]
+        find_allocator(&self.allocators, &range)?.alloc_specific(&range))
+        .ok()?;
 
         /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
 
@@ -121,7 +115,7 @@ impl IoMemAllocator {
     /// User must ensure the range doesn't belong to physical memory or system device I/O.
     #[verus_spec(ret =>
         requires
-            windows_ordered(allocators@),
+            windows_disjoint(allocators@),
             windows_match_registered(allocators@),
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
@@ -149,7 +143,7 @@ impl IoMemAllocatorBuilder {
         with
             -> state_out: Tracked<RangeAllocatorPermits>,
         requires
-            usize_ranges_ordered(ranges@),
+            usize_ranges_disjoint(ranges@),
             usize_ranges_match_registered(ranges@),
         ensures
             ret.type_inv(),
@@ -171,11 +165,11 @@ impl IoMemAllocatorBuilder {
                     &&& allocators@[j]@.start == it.seq()[j].start
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
-                usize_ranges_ordered(it.seq()),
+                usize_ranges_disjoint(it.seq()),
                 usize_ranges_match_registered(it.seq()),
                 forall|j: int| #![trigger registered_io_mem_windows()[j]] 0 <= j < it.index() ==>
                     allocators@[j]@ == registered_io_mem_windows()[j],
-                windows_ordered(allocators@),
+                windows_disjoint(allocators@),
                 allocator_states_match(allocators@, state),
                 state.len() == it.index(),
         )]
@@ -191,8 +185,10 @@ impl IoMemAllocatorBuilder {
                 state.tracked_push(permit);
                 assert forall|i: int| #![trigger allocators@[i]]
                     0 <= i < allocators@.len() - 1
-                    implies allocators@[i]@.end <= range.start by {
-                    assert(it.seq()[i].end <= it.seq()[i + 1].start);
+                    implies allocators@[i]@.end <= range.start
+                        || range.end <= allocators@[i]@.start by {
+                    assert(it.seq()[i].end <= it.seq()[it.index()].start
+                        || it.seq()[it.index()].end <= it.seq()[i].start);
                 }
             }
         }
@@ -287,19 +283,21 @@ verus! {
 
 broadcast use vstd::std_specs::vec::group_vec_axioms;
 
-/// The registered MMIO windows are pairwise ordered: every window ends at or before the start
-/// of the next one, so no window can partially cover a range that is contained in another one.
-pub open spec fn windows_ordered(allocators: Seq<RangeAllocator>) -> bool {
+/// The MMIO windows are pairwise disjoint, so the first overlapping window found by
+/// `find_allocator` is the window containing a registered range, regardless of window order.
+pub open spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
     forall|i: int, j: int|
         #![trigger allocators[i], allocators[j]]
         0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
+            || allocators[j]@.end <= allocators[i]@.start
 }
 
-/// The ranges handed to [`IoMemAllocatorBuilder::new`] are pairwise ordered.
-pub open spec fn usize_ranges_ordered(ranges: Seq<Range<usize>>) -> bool {
+/// The ranges handed to [`IoMemAllocatorBuilder::new`] are pairwise disjoint.
+pub open spec fn usize_ranges_disjoint(ranges: Seq<Range<usize>>) -> bool {
     forall|i: int, j: int|
         #![trigger ranges[i], ranges[j]]
-        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start
+        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start || ranges[j].end
+            <= ranges[i].start
 }
 
 /// The abstract MMIO windows registered by platform boot code.
@@ -320,8 +318,7 @@ pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> boo
         #![trigger ranges[i]]
         0 <= i < ranges.len() ==> {
             &&& ranges[i].start <= ranges[i].end
-            &&& ranges[i].start == registered_io_mem_windows()[i].start
-            &&& ranges[i].end == registered_io_mem_windows()[i].end
+            &&& ranges[i] == registered_io_mem_windows()[i]
         }
 }
 
@@ -358,10 +355,10 @@ impl IoMemAllocatorBuilder {
         allocator_states_match(self.allocators@, state)
     }
 
-    /// The builder always holds the ordered windows handed to [`IoMemAllocatorBuilder::new`].
+    /// The builder always holds the disjoint windows handed to [`IoMemAllocatorBuilder::new`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        windows_ordered(self.allocators@) && windows_match_registered(self.allocators@)
+        windows_disjoint(self.allocators@) && windows_match_registered(self.allocators@)
     }
 }
 
@@ -392,10 +389,10 @@ impl IoMemAllocator {
             }
     }
 
-    /// The allocator inherits the ordered windows of the builder it was built from.
+    /// The allocator inherits the disjoint windows of the builder it was built from.
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        windows_ordered(self.allocators@) && windows_match_registered(self.allocators@)
+        windows_disjoint(self.allocators@) && windows_match_registered(self.allocators@)
     }
 }
 

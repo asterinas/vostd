@@ -87,7 +87,7 @@ impl RangeAllocator {
     }
 
     /// The free permission and borrowed allocation tokens account for this allocator's full range.
-    pub open spec fn owns_free_pool(
+    pub open spec fn permits_cover_fullrange(
         self,
         permit: AllocPermit,
         allocations: Seq<FreePermit>,
@@ -452,7 +452,7 @@ impl RangeAllocator {
             Tracked(allocations): Tracked<&Seq<FreePermit>>,
             -> allocated: Tracked<Option<FreePermit>>,
         requires
-            self.owns_free_pool(*old(permit), *allocations),
+            self.permits_cover_fullrange(*old(permit), *allocations),
         ensures
             res matches Ok(res) ==> {
                 &&& res.end - res.start == size
@@ -460,7 +460,7 @@ impl RangeAllocator {
                 &&& allocated@ matches Some(token) && {
                     &&& token.id() == self.free_id()
                     &&& token.range() == res
-                    &&& self.owns_free_pool(*final(permit), allocations.push(token))
+                    &&& self.permits_cover_fullrange(*final(permit), allocations.push(token))
                 }
                 &&& final(permit)@ == old(permit)@ - res.view_set()
                 &&& res.view_set() <= old(permit)@
@@ -577,7 +577,7 @@ impl RangeAllocator {
                 let tracked allocated_subset = resource.allocated.insert_set(range.view_set());
                 let tracked token = GhostSubRange::tracked_new(allocated_subset, range);
                 let ghost next_allocations = allocations.push(token);
-                assert(self.owns_free_pool(*permit, next_allocations)) by {
+                assert(self.permits_cover_fullrange(*permit, next_allocations)) by {
                     assert forall|address: usize| #[trigger] self@.view_set().contains(address)
                         implies permit@.contains(address) || exists|i: int|
                             0 <= i < next_allocations.len()
