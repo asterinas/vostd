@@ -398,7 +398,7 @@ function renderTreemapChart(snapshot) {
       label.style.fontSize = `${rect.w > 180 && rect.h > 100 ? 20 : rect.w > 95 && rect.h > 50 ? 15 : 11}px`;
       if (collapsed) {
         label.classList.add("tm-label-group");
-        label.style.fontSize = "10px";
+        label.style.fontSize = `${Math.min(10, (rect.w - 6) / (node.name.length * 0.72))}px`;
         const name = document.createElement("span");
         name.className = "tm-group-name";
         name.textContent = node.name.toUpperCase();
@@ -458,7 +458,23 @@ function renderTreemapChart(snapshot) {
       { x: 0, y: 0, w: width, h: height },
       { x: 0, y: height, w: width, h: H - height },
     ]);
-    layout(data.slice(2), { x: width, y: 0, w: W - width, h: H }, GAP.group, "");
+    const right = data.slice(2);
+    const small = right.filter((node) => node.total < 100);
+    const large = right.filter((node) => node.total >= 100);
+    const rightTotal = right.reduce((sum, node) => sum + node.total, 0);
+    const smallTotal = small.reduce((sum, node) => sum + node.total, 0);
+    // A shallow row gives small subsystem names more width without enlarging
+    // their areas or forcing the chart beyond the viewport.
+    const rowHeight = H * smallTotal / rightTotal;
+    layout(large, { x: width, y: 0, w: W - width, h: H - rowHeight }, GAP.group, "");
+    let x = width;
+    const smallRects = small.map((node) => {
+      const w = (W - width) * node.total / smallTotal;
+      const rect = { x, y: H - rowHeight, w, h: rowHeight };
+      x += w;
+      return rect;
+    });
+    layout(small, { x: width, y: H - rowHeight, w: W - width, h: rowHeight }, GAP.group, "", smallRects);
   } else {
     layout(data, { x: 0, y: 0, w: W, h: H }, GAP.group, "");
   }

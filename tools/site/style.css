@@ -63,7 +63,7 @@ body {
   line-height: 1.55;
 }
 
-.wrap { max-width: 1800px; margin: 0 auto; padding: 0 24px 64px; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 0 24px 64px; }
 
 header.page {
   display: flex;
@@ -237,7 +237,7 @@ footer.page a { color: var(--ink-2); }
 
 /* Dense coverage map, with readable parent bands and quiet module borders. */
 .treemap-scroll { overflow-x: auto; margin-top: 12px; }
-#treemap-chart { position: relative; height: auto; min-width: 1600px; aspect-ratio: 1.84; min-height: 760px; }
+#treemap-chart { position: relative; height: auto; aspect-ratio: 1.84; min-height: 600px; }
 .tm-group { border: 1px solid #8c9a93; background: #d7e0dc; }
 .tm-header { background: #d7e0dc; color: #33433c; border-color: #8c9a93; line-height: 20px; font-size: 11px; }
 .tm-module { border-color: #f9f9f7; }
