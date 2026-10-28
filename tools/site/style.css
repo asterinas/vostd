@@ -1,6 +1,4 @@
-/* VOSTD verification dashboard chrome.
- * Values follow the validated reference palette (see the dataviz skill):
- * chart chrome/ink tokens plus a blue ordinal ramp for the treemap states. */
+/* Shared dashboard and performance bench palette and chrome. */
 
 :root {
   --page: #f9f9f7;
@@ -65,7 +63,7 @@ body {
   line-height: 1.55;
 }
 
-.wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 0 24px 64px; }
 
 header.page {
   display: flex;
@@ -184,7 +182,7 @@ footer.page a { color: var(--ink-2); }
 .legend-chip { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 12.8px; }
 .legend-swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
 
-/* Hand-rolled treemap (hover tooltips are the native title attribute). */
+/* HTML treemap with status bands and interactive module labels. */
 .tm-root { position: relative; width: 100%; height: 100%; }
 .tm-root > div { position: absolute; }
 .tm-header {
@@ -236,3 +234,36 @@ footer.page a { color: var(--ink-2); }
 }
 .card .echarts-tooltip .tt-value { color: var(--ink); font-weight: 600; }
 .card .echarts-tooltip .tt-label { color: var(--ink-2); }
+
+/* Dense coverage map, with readable parent bands and quiet module borders. */
+#treemap-chart { position: relative; height: auto; aspect-ratio: 1.84; min-height: 600px; margin-top: 12px; }
+.tm-group { border: 1px solid #8c9a93; background: #d7e0dc; }
+.tm-header { background: #d7e0dc; color: #33433c; border-color: #8c9a93; line-height: 20px; font-size: 11px; }
+.tm-module { border-color: #f9f9f7; }
+.tm-module:hover, .tm-module:focus-visible { outline: 2px solid var(--series-verified); outline-offset: -2px; z-index: 1; }
+.tm-header:focus-visible { outline: 2px solid var(--series-verified); outline-offset: -2px; }
+.tm-label { top: 1px; left: 1px; padding: 1px 3px; border-radius: 0; background: rgba(252,252,251,.85); color: #233029; opacity: 1; max-width: calc(100% - 2px); white-space: nowrap; text-overflow: ellipsis; }
+.tm-count { display: block; font-size: .85em; }
+.tm-tooltip { position: fixed; z-index: 20; pointer-events: none; width: max-content; max-width: calc(100vw - 24px); padding: 14px 16px; background: var(--surface-1); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 30px #0003; font-size: 13px; }
+.tm-tooltip strong { display: block; margin-bottom: 8px; overflow-wrap: anywhere; }
+.tm-tooltip-row { display: grid; grid-template-columns: 13px 1fr auto auto; align-items: center; gap: 8px; }
+.tm-tooltip-row b { font-variant-numeric: tabular-nums; }
+.tm-tooltip-meta { border-top: 1px solid var(--grid); margin-top: 10px; padding-top: 8px; color: var(--ink-2); font-size: 12px; }
+.meta { flex-basis: 100%; }
+.data-table { overflow-x: auto; }
+a { color: var(--series-verified); text-underline-offset: 3px; }
+.grid td:first-child { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .wrap { padding: 0 12px 32px; }
+  header.page { padding-top: 24px; gap: 8px 12px; }
+  .site-links { grid-template-columns: 1fr; gap: 10px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile { padding: 12px; }
+  .tile .tile-value { font-size: 26px; }
+  .card h2 { margin-left: 8px; }
+  .card .card-note, .legend { margin-left: 8px; margin-right: 8px; }
+}
+.bench-table { margin: 12px 16px; overflow-x: auto; }
+@media (max-width: 600px) {
+  .bench-page .tile-value { font-size: 20px; }
+}

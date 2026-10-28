@@ -174,15 +174,51 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
     """Verified APIs in a rustdoc JSON tree (``dv doc --json-output``).
 
     Returns the count plus one entry per API (qualified name, source group,
-    location) for the site's list view.
+    location, documentation path) for the site's list view.
     """
     payload = json.loads(Path(doc_json_path).read_text(encoding="utf-8"))
     index = payload.get("index", {})
     if not isinstance(index, dict):
         return 0, []
 
+    # Canonical rustdoc paths handle re-exports and types defined in other modules.
+    paths = {str(key): value for key, value in payload.get("paths", {}).items()}
+    module_paths: dict[str, list[str]] = {}
+
+    def visit_module(item_id: str, path: list[str]) -> None:
+        item = index.get(str(item_id), {})
+        module = (item.get("inner") or {}).get("module")
+        if module is None or str(item_id) in module_paths:
+            return
+        module_paths[str(item_id)] = path
+        for child_id in module.get("items", []):
+            child = index.get(str(child_id), {})
+            child_name = child.get("name")
+            if not child_name:
+                continue
+            child_path = path + [child_name]
+            kind = next(iter(child.get("inner") or {}), "")
+            paths.setdefault(str(child_id), {"path": child_path, "kind": kind})
+            if kind == "module":
+                visit_module(str(child_id), child_path)
+
+    root_id = str(payload.get("root", ""))
+    visit_module(root_id, [index.get(root_id, {}).get("name") or "ostd"])
+
+    def doc_path(item_id: str) -> str | None:
+        summary = paths.get(str(item_id), {})
+        path = summary.get("path", [])
+        kind = summary.get("kind")
+        prefixes = {"struct": "struct", "enum": "enum", "union": "union",
+                    "trait": "trait", "type_alias": "type", "function": "fn",
+                    "primitive": "primitive"}
+        if not path or kind not in prefixes:
+            return None
+        return "/".join(path[:-1] + [f"{prefixes[kind]}.{path[-1]}.html"])
+
     derived_ids: set[str] = set()
     owner_names: dict[str, str] = {}
+    owner_docs: dict[str, str] = {}
     for item in index.values():
         impl_info = (item.get("inner") or {}).get("impl")
         if not impl_info:
@@ -198,9 +234,25 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
             owner = resolved.get("path")
         elif isinstance(for_info.get("primitive"), str):
             owner = for_info["primitive"]
+        elif isinstance(for_info.get("slice"), dict):
+            element = for_info["slice"]
+            owner = f"[{element.get('primitive') or element.get('generic') or '_'}]"
         if owner:
             for item_id in impl_info.get("items", []):
                 owner_names[str(item_id)] = owner
+                if isinstance(resolved, dict):
+                    owner_path = doc_path(str(resolved.get("id")))
+                    if owner_path:
+                        owner_docs[str(item_id)] = owner_path
+
+    # Default trait methods live on the trait page rather than an impl page.
+    for item_id, item in index.items():
+        trait = (item.get("inner") or {}).get("trait")
+        if trait is not None:
+            for child_id in trait.get("items", []):
+                owner_names[str(child_id)] = item.get("name", "")
+                if path := doc_path(str(item_id)):
+                    owner_docs[str(child_id)] = path
 
     entries: list[dict[str, str]] = []
     for item in index.values():
@@ -222,11 +274,25 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
         if is_trait_impl_without_body(item):
             continue
 
-        owner = owner_names.get(str(item.get("id")))
+        item_id = str(item.get("id"))
+        owner = owner_names.get(item_id)
+        qualified = str(name)
         if owner:
             qualified = f"{owner}::{name}"
+        url = doc_path(item_id)
+        if item_id in owner_docs:
+            url = f"{owner_docs[item_id]}#method.{name}"
+        # Foreign-type impls have no local type page. Link to the exact body in
+        # Verusdoc's source view instead of a nonexistent alloc/core HTML page.
+        if not url or not url.startswith(f"{index.get(root_id, {}).get('name') or 'ostd'}/"):
+            source = trim_source_path(span.get("filename", ""))
+            if source.startswith("ostd/src/"):
+                start = span.get("begin", [0])[0]
+                end = span.get("end", [start])[0]
+                url = f"src/ostd/{source.removeprefix('ostd/src/')}.html#{start}-{end}"
         entries.append(
             {
+                **({"doc_path": url} if url else {}),
                 "name": qualified,
                 "group": api_group(span.get("filename", "")),
                 "location": f'{trim_source_path(span.get("filename", ""))}:'

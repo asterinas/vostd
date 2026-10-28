@@ -532,7 +532,6 @@ jobs:
         run: |
           set -e
           mkdir -p site
-          cp -r tools/site/. site/
           # Fresh snapshot/history just committed to the gh-pages worktree.
           mkdir -p site/stats
           cp gh-pages/stats/history.json site/stats/history.json
@@ -544,6 +543,8 @@ jobs:
           else
             echo "no dev/bench on gh-pages yet; the bench card will 404 until the first perf push"
           fi
+          # Apply the shared dashboard/bench UI after copying benchmark data.
+          cp -r tools/site/. site/
           echo "site root:"; ls site
 
       - name: Upload pages artifact

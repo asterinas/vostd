@@ -105,7 +105,7 @@ function renderTiles(snapshot, historyPoints) {
         deltaEl.classList.toggle("down", delta > 0);
       }
       const sign = delta > 0 ? "+" : "";
-      deltaEl.textContent = `${sign}${fmtFull(delta)} lines vs previous commit`;
+      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaKey === "verified_apis" ? "APIs" : "lines"} vs previous commit`;
       tile.append(deltaEl);
     }
     host.append(tile);
@@ -149,6 +149,7 @@ function renderHistoryChart(points) {
     textStyle: { fontFamily: "system-ui, -apple-system, sans-serif" },
     color: SERIES.map((s) => css(s.cssVar)),
     legend: {
+      type: "scroll",
       top: 0,
       icon: "roundRect",
       itemWidth: 12,
@@ -158,6 +159,7 @@ function renderHistoryChart(points) {
     grid: { left: 56, right: 20, top: 34, bottom: 44 },
     tooltip: {
       trigger: "axis",
+      confine: true,
       axisPointer: { type: "line", lineStyle: { color: text.baseline, width: 1 } },
       backgroundColor: text.surface,
       borderColor: "transparent",
@@ -202,27 +204,24 @@ function renderHistoryChart(points) {
 
 /* --------------------------------------------------------------- treemap */
 
-/* treemap: hand-rolled squarify layout ported from code_treemap.py, rendered
- * as plain HTML — ECharts' nested treemap cannot caption parent rows (the
- * upperLabel path swallows labels), while HTML gives pixel parity with the
- * reference image: group bands "ARCH · 6,267 exec LoC", an extra platform
- * level under arch, and each module stacked with its four status colors. */
+/* Module budgets are grouped by subsystem, with an extra platform level under
+ * arch. HTML tiles allow status bands and labels to share each module's area. */
 function treemapData(snapshot) {
   const mergeModules = (rows) => {
     const merged = { total: 0, spec: 0, proof: 0, rust_mode: 0 };
     for (const st of TM_STATUS) merged[st.key] = 0;
     for (const module of rows) {
       merged.total += module.total;
-      merged.spec += module.spec;
-      merged.proof += module.proof;
-      merged.rust_mode += module.rust_mode;
-      for (const st of TM_STATUS) merged[st.key] += module[st.key];
+      merged.spec += module.spec || 0;
+      merged.proof += module.proof || 0;
+      merged.rust_mode += module.rust_mode || 0;
+      for (const st of TM_STATUS) merged[st.key] += module[st.key] || 0;
     }
     return merged;
   };
 
   const groups = new Map();
-  for (const module of snapshot.modules) {
+  for (const module of snapshot.modules.filter((m) => m.total > 0)) {
     if (!groups.has(module.group)) groups.set(module.group, []);
     groups.get(module.group).push(module);
   }
@@ -247,7 +246,7 @@ function treemapData(snapshot) {
           return {
             name: plat,
             level: "platform",
-            total: leaves.reduce((s, leaf) => s + leaf.total, 0),
+            ...mergeModules(leaves),
             children: leaves,
           };
         })
@@ -261,7 +260,7 @@ function treemapData(snapshot) {
     data.push({
       name: groupName,
       level: "group",
-      total: children.reduce((s, c) => s + c.total, 0),
+      ...mergeModules(children),
       children,
     });
   }
@@ -319,106 +318,145 @@ function squarifyRects(sizes, rect) {
   return out;
 }
 
-function treemapTitle(meta, name) {
-  return [
-    name,
-    ...TM_STATUS.map(
-      (st) => `${st.name} ${fmtFull(meta[st.key] || 0)} (${PCT((meta[st.key] || 0) / (meta.total || 1))})`,
-    ),
-    `spec ${fmtFull(meta.spec || 0)} · proof ${fmtFull(meta.proof || 0)} · vostd rust-mode ${fmtFull(meta.rust_mode || 0)}`,
-  ].join("\n");
-}
-
-/* Flat-coordinate HTML treemap: one absolutely-positioned div per tile in the
- * host's pixel space. Mirrors the code_treemap.py reference layout — group
- * caption bands, an extra platform level under arch, and each module filled
- * with its four statuses stacked full-at-bottom (unplanned on top). */
+// A single HTML tooltip works for modules, group captions, keyboard and touch.
 function renderTreemapChart(snapshot) {
   const host = document.getElementById("treemap-chart");
   renderTreemapLegend(snapshot);
   host.replaceChildren();
-
-  const data = treemapData(snapshot);
   const root = document.createElement("div");
   root.className = "tm-root";
-  host.append(root);
+  const tooltip = document.createElement("div");
+  tooltip.className = "tm-tooltip";
+  tooltip.id = "module-tooltip";
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.hidden = true;
+  host.append(root, tooltip);
 
   const W = host.clientWidth;
   const H = host.clientHeight;
   if (!W || !H) return;
-
-  const HEADER = 18;   // group/platform caption band, px
-  const GAP = { group: 5, platform: 3, module: 1 };
-
+  const HEADER = 22;
+  const GAP = { group: 4, platform: 2, module: 1 };
   const inset = (rect, pad) => ({
-    x: rect.x + pad,
-    y: rect.y + pad,
-    w: Math.max(0, rect.w - 2 * pad),
-    h: Math.max(0, rect.h - 2 * pad),
+    x: rect.x + pad, y: rect.y + pad,
+    w: Math.max(0, rect.w - 2 * pad), h: Math.max(0, rect.h - 2 * pad),
   });
-
   const place = (rect, className) => {
     const el = document.createElement("div");
     el.className = className;
-    el.style.left = `${rect.x}px`;
-    el.style.top = `${rect.y}px`;
-    el.style.width = `${rect.w}px`;
-    el.style.height = `${rect.h}px`;
+    Object.assign(el.style, {
+      left: `${rect.x}px`, top: `${rect.y}px`,
+      width: `${rect.w}px`, height: `${rect.h}px`,
+    });
     root.append(el);
     return el;
   };
-
-  const layout = (nodes, bounds, gap, prefix) => {
-    const rects = squarifyRects(
-      nodes.map((node) => node.total),
-      bounds,
-    );
+  const moveTooltip = (x, y) => {
+    // Fixed coordinates keep the card inside the viewport at the bottom/right.
+    const margin = 12;
+    tooltip.style.left = `${Math.max(margin, Math.min(x + margin, window.innerWidth - tooltip.offsetWidth - margin))}px`;
+    tooltip.style.top = `${Math.max(margin, Math.min(y + margin, window.innerHeight - tooltip.offsetHeight - margin))}px`;
+  };
+  const describe = (el, node, path) => {
+    el.tabIndex = 0;
+    el.setAttribute("aria-label", `${path}, ${fmtFull(node.total)} executable lines`);
+    el.setAttribute("aria-describedby", tooltip.id);
+    const show = (event) => {
+      tooltip.innerHTML = `<strong>${esc(path)}</strong>` + TM_STATUS.map((st) =>
+        `<div class="tm-tooltip-row"><span class="legend-swatch" style="background:var(${st.cssVar})"></span>` +
+        `<span>${esc(st.key === "verified_exec" ? "Verified" : st.key === "trusted" ? "Trusted" : st.name)}</span>` +
+        `<b>${fmtFull(node[st.key] || 0)}</b><span>LoC</span></div>`).join("") +
+        `<div class="tm-tooltip-meta">${fmtFull(node.total)} exec LoC · spec ${fmtFull(node.spec)} · proof ${fmtFull(node.proof)}<br>` +
+        `VOSTD rust-mode ${fmtFull(node.rust_mode)}</div>`;
+      tooltip.hidden = false;
+      const rect = el.getBoundingClientRect();
+      moveTooltip(event.clientX ?? rect.left, event.clientY ?? rect.bottom);
+    };
+    el.addEventListener("pointerenter", show);
+    el.addEventListener("pointermove", (e) => moveTooltip(e.clientX, e.clientY));
+    el.addEventListener("pointerleave", () => { tooltip.hidden = true; });
+    el.addEventListener("focus", show);
+    el.addEventListener("blur", () => { tooltip.hidden = true; });
+    el.addEventListener("click", show);
+    el.addEventListener("keydown", (e) => { if (e.key === "Escape") tooltip.hidden = true; });
+  };
+  const drawModule = (node, rect, path, collapsed = false) => {
+    if (rect.w < 1 || rect.h < 1) return;
+    const cell = place(rect, "tm-module");
+    describe(cell, node, path);
+    for (const st of TM_STATUS.slice().reverse()) {
+      if (!node[st.key]) continue;
+      const band = document.createElement("div");
+      band.className = "tm-status";
+      band.style.flexGrow = String(node[st.key]);
+      band.style.background = `var(${st.cssVar})`;
+      cell.append(band);
+    }
+    if (rect.w >= 28 && rect.h >= 16) {
+      const label = document.createElement("div");
+      label.className = "tm-label";
+      label.style.fontSize = `${rect.w > 180 && rect.h > 100 ? 20 : rect.w > 95 && rect.h > 50 ? 15 : 11}px`;
+      label.append(document.createTextNode(collapsed ? node.name.toUpperCase() : node.name));
+      // Small modules show only their name; the exact counts remain in the tooltip.
+      if (!collapsed && rect.w >= 140 && rect.h >= 85) {
+        const count = document.createElement("span");
+        count.className = "tm-count";
+        count.textContent = `${fmtFull(node.total)} exec LoC`;
+        label.append(count);
+      }
+      cell.append(label);
+    }
+  };
+  const layout = (nodes, bounds, gap, prefix, fixedRects) => {
+    if (bounds.w <= 0 || bounds.h <= 0) return;
+    let rects = fixedRects || squarifyRects(nodes.map((node) => node.total), bounds);
+    // Keep the main architecture beside the other platforms, as in the overview.
+    if (nodes[0]?.level === "platform" && nodes.length > 1 && bounds.w > bounds.h) {
+      const total = nodes.reduce((sum, node) => sum + node.total, 0);
+      const width = bounds.w * nodes[0].total / total;
+      const rest = { x: bounds.x + width, y: bounds.y, w: bounds.w - width, h: bounds.h };
+      let y = rest.y;
+      rects = [{ ...bounds, w: width }, ...nodes.slice(1).map((node) => {
+        const h = rest.h * node.total / (total - nodes[0].total);
+        const rect = { ...rest, y, h };
+        y += h;
+        return rect;
+      })];
+    }
     nodes.forEach((node, i) => {
       const rect = inset(rects[i], gap / 2);
-      const path = `${prefix}/${node.name}`;
+      const path = prefix ? `${prefix}/${node.name}` : node.name;
       if (node.level === "module") {
-        if (rect.w < 2 || rect.h < 2) return;
-        const cell = place(rect, "tm-module");
-        cell.title = treemapTitle(node, path);
-        // Statuses stacked from the top: unplanned … verified at the bottom,
-        // matching the reference's bottom-anchored stacking.
-        const parts = TM_STATUS.filter((st) => node[st.key] > 0);
-        for (const st of parts.slice().reverse()) {
-          const band = document.createElement("div");
-          band.className = "tm-status";
-          band.style.flexGrow = String(node[st.key]);
-          band.style.background = `var(${st.cssVar})`;
-          cell.append(band);
-        }
-        if (rect.w >= 56 && rect.h >= 26) {
-          const label = document.createElement("div");
-          label.className = "tm-label";
-          label.textContent = node.name;
-          cell.append(label);
-        }
+        drawModule(node, rect, path);
         return;
       }
-
-      // Group or platform: caption band, then children below it.
-      const total = node.children.reduce((s, c) => s + c.total, 0);
-      if (rect.w < 70 || rect.h <= HEADER + 12) {
-        // Too small to caption or nest; draw a dim placeholder cell.
-        const cell = place(rect, "tm-header tm-header-thin");
-        cell.textContent = `${node.name.toUpperCase()} · ${fmtFull(total)}`;
+      // Tiny groups keep their status colors instead of becoming clipped headers.
+      if (rect.w < 64 || rect.h < HEADER + 20) {
+        drawModule(node, rect, path, true);
         return;
       }
-      const band = place({ x: rect.x, y: rect.y, w: rect.w, h: HEADER }, "tm-header");
-      band.textContent = `${node.name.toUpperCase()} · ${fmtFull(total)} exec LoC`;
-      layout(
-        node.children,
-        { x: rect.x, y: rect.y + HEADER, w: rect.w, h: rect.h - HEADER },
-        node.level === "group" ? GAP.platform : GAP.module,
-        path,
-      );
+      place(rect, "tm-group");
+      const band = place({ ...rect, h: HEADER }, "tm-header");
+      band.textContent = node.name.toUpperCase();
+      describe(band, node, path);
+      layout(node.children,
+        { x: rect.x + 1, y: rect.y + HEADER, w: rect.w - 2, h: rect.h - HEADER - 1 },
+        node.level === "group" ? GAP.platform : GAP.module, path);
     });
   };
-
-  layout(data, { x: 0, y: 0, w: W, h: H }, GAP.group, "");
+  const data = treemapData(snapshot);
+  if (W >= 700 && data[0]?.name === "arch" && data[1]?.name === "mm") {
+    const leftTotal = data[0].total + data[1].total;
+    const width = W * leftTotal / data.reduce((sum, node) => sum + node.total, 0);
+    const height = H * data[0].total / leftTotal;
+    layout(data.slice(0, 2), { x: 0, y: 0, w: width, h: H }, GAP.group, "", [
+      { x: 0, y: 0, w: width, h: height },
+      { x: 0, y: height, w: width, h: H - height },
+    ]);
+    layout(data.slice(2), { x: width, y: 0, w: W - width, h: H }, GAP.group, "");
+  } else {
+    layout(data, { x: 0, y: 0, w: W, h: H }, GAP.group, "");
+  }
 }
 
 function renderTreemapLegend(snapshot) {
@@ -458,7 +496,8 @@ function table(rows, headers) {
     const tr = tbody.insertRow();
     for (const cell of row) {
       const td = tr.insertCell();
-      td.textContent = cell;
+      if (cell instanceof Node) td.append(cell);
+      else td.textContent = cell;
     }
   }
   return t;
@@ -526,7 +565,16 @@ function renderApiTable(snapshot) {
         .slice()
         .sort((a, b) =>
           (a.group + a.name).localeCompare(b.group + b.name))
-        .map((api) => [api.name, api.group, api.location]),
+        .map((api) => {
+          const link = document.createElement("a");
+          link.textContent = api.name;
+          // Snapshot links are relative to the published documentation root.
+          if (api.doc_path && !api.doc_path.split("/").includes("..") &&
+              /^[a-zA-Z0-9_./#%~-]+$/.test(api.doc_path)) {
+            link.href = `verusdoc/${api.doc_path}`;
+          }
+          return [link, api.group, api.location];
+        }),
       ["Verified API", "Module", "Location"],
     ),
   );
@@ -546,12 +594,6 @@ const liveData = {};
 
 function registerChart(chart, host) {
   liveCharts.push([chart, host]);
-}
-
-function rerender() {
-  liveCharts.length = 0; // disposed below
-  renderHistoryChart(liveData.points || []);
-  renderTreemapChart(liveData.snapshot);
 }
 
 function disposeCharts() {
@@ -596,6 +638,16 @@ async function main() {
   renderHistoryTable(liveData.points);
   renderTreemapTable(snapshot);
   renderApiTable(snapshot);
+
+  let resizeFrame;
+  const observer = new ResizeObserver(() => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      for (const [chart] of liveCharts) chart.resize();
+      renderTreemapChart(liveData.snapshot);
+    });
+  });
+  observer.observe(document.getElementById("treemap-chart"));
 
   const scheme = window.matchMedia("(prefers-color-scheme: dark)");
   scheme.addEventListener("change", () => {
