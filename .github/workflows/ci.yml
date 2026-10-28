@@ -3,8 +3,13 @@ name: Format and Verify VOSTD (Main)
 # One verification run feeds everything: verify legs (one per os/target, incl.
 # riscv64imac) run with --time-expanded and upload logs, `perf` parses the
 # ubuntu x86_64 leg's log (never re-verifies), `doc` builds the docs in
-# parallel, and `doc-deploy` merges those docs with the gh-pages benchmark
-# before deploying. `format` delegates to `cargo verus fmt`.
+# parallel, and `doc-deploy` deploys the site at the repo root. The site root
+# is the verification dashboard (from tools/site/): stats/snapshot.json holds
+# the per-module line_count snapshot the `stats` job takes against the
+# phaseII/mainline baseline, stats/history.json the totals per commit that
+# `perf-history` appends on gh-pages, and dev/bench is the verify-perf chart
+# published by the same job. The verusdoc tree is served under /verusdoc/
+# and `format` delegates to `cargo verus fmt`.
 
 on:
   push:
@@ -271,15 +276,86 @@ jobs:
             perf-baseline.json
           if-no-files-found: ignore
 
+  stats:
+    # Per-module verification snapshot: line_count over ostd/src + ostd/libs,
+    # with each file's counts clamped to the phaseII/mainline exec-LoC budget.
+    # PRs exercise the pipeline; pushes publish via perf-history + doc-deploy.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Provides the dv submodule the setup action resolves and the
+          # tools/verus tree (in-repo) the line_count build reads.
+          ref: ${{ github.sha }}
+          submodules: recursive
+
+      - name: Set up toolchain and caches
+        uses: ./.github/actions/setup-verus
+        with:
+          verus: 'false'
+          dv-cache: 'restore'
+
+      - name: Cache line_count build
+        uses: actions/cache@v6
+        with:
+          path: tools/verus/source/target
+          key: ${{ runner.os }}-line-count-${{ hashFiles('tools/verus/source/Cargo.lock', 'tools/verus/source/tools/line_count/**') }}
+          restore-keys: |
+            ${{ runner.os }}-line-count-
+
+      - name: Build line_count
+        run: cargo build --release -p line_count --manifest-path tools/verus/source/Cargo.toml
+
+      - name: Fetch mainline baseline
+        run: |
+          git fetch --depth=1 origin phaseII/mainline
+          git worktree add --detach "$PWD/mainline" FETCH_HEAD
+          echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+
+      - name: Take verification snapshot
+        run: |
+          python3 tools/verus_stats.py snapshot \
+            --line-count tools/verus/source/target/release/line_count \
+            --mainline-source src=mainline/ostd/src \
+            --mainline-source libs=mainline/ostd/libs \
+            --mainline-sha "$MAINLINE_SHA" \
+            --sha "$GITHUB_SHA" \
+            --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
+            -o stats-snapshot.json
+
+      - name: Upload stats artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-snapshot
+          path: stats-snapshot.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# Stats Summary"
+            echo "- Verification snapshot: ${{ job.status == 'success' && '✅ recorded' || '❌ failed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   perf-history:
     # Only trusted main runs may publish history and save the next baseline.
-    # PR metrics are processed by the read-only `perf` job above.
-    needs: [verify, perf]
+    # PR metrics are processed by the read-only `perf` job above. This job owns
+    # every gh-pages data push: the verify-perf benchmark (auto-pushed by the
+    # action) and then the verification stats point + snapshot.
+    needs: [verify, perf, stats]
     if: >
       github.event_name != 'pull_request' &&
       github.ref == 'refs/heads/main' &&
       needs.verify.result == 'success' &&
-      needs.perf.result == 'success'
+      needs.perf.result == 'success' &&
+      needs.stats.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -295,6 +371,11 @@ jobs:
         with:
           name: verify-perf-report
 
+      - name: Download stats snapshot
+        uses: actions/download-artifact@v8
+        with:
+          name: stats-snapshot
+
       - name: Record benchmark on gh-pages
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -306,6 +387,31 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
           comment-on-alert: false
+
+      - name: Record verification stats on gh-pages
+        run: |
+          set -e
+          if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            git worktree add "$PWD/gh-pages" FETCH_HEAD
+          else
+            git worktree add --orphan -b gh-pages "$PWD/gh-pages"
+          fi
+          cd gh-pages
+          mkdir -p stats
+          python3 ../tools/verus_stats.py record \
+            --snapshot ../stats-snapshot.json \
+            --history stats/history.json
+          cp ../stats-snapshot.json stats/snapshot.json
+          git add stats
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -m "chore: record verification stats for ${GITHUB_SHA}"
+          if ! git push origin HEAD:gh-pages; then
+            echo "push rejected; rebasing once and retrying"
+            git fetch origin gh-pages
+            git rebase FETCH_HEAD
+            git push origin HEAD:gh-pages
+          fi
+          echo "recorded stats point for ${GITHUB_SHA}"
 
       - name: Save measurement as the next baseline
         # Cache entries are immutable; reruns of the same SHA reuse its entry.
@@ -382,10 +488,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   doc-deploy:
-    # Pushes only: merge the doc artifact with the gh-pages benchmark chart
-    # (pushed by `perf-history`) and deploy. Needs verify so a failed
-    # verification can't deploy docs.
-    needs: [doc, perf, perf-history, verify]
+    # Pushes only: assemble the site — dashboard (tools/site) at the root,
+    # verusdoc under /verusdoc/, the gh-pages benchmark chart under
+    # /dev/bench/ and the stats snapshot/history under /stats/ — and deploy.
+    # Needs verify so a failed verification can't deploy docs.
+    needs: [doc, perf, perf-history, verify, stats]
     if: >
       always() &&
       !cancelled() &&
@@ -393,7 +500,8 @@ jobs:
       needs.verify.result == 'success' &&
       needs.doc.result == 'success' &&
       (needs.perf.result == 'success' || needs.perf.result == 'skipped') &&
-      (needs.perf-history.result == 'success' || needs.perf-history.result == 'skipped')
+      (needs.perf-history.result == 'success' || needs.perf-history.result == 'skipped') &&
+      (needs.stats.result == 'success' || needs.stats.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -402,34 +510,69 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        # Provides the git dir for the gh-pages fetch below.
+        # Provides the git dir for the gh-pages fetch below and tools/site/.
         uses: actions/checkout@v7
 
       - name: Download doc artifact
         uses: actions/download-artifact@v8
         with:
           name: doc-site
-          path: doc
+          path: site/verusdoc
 
-      # Serve the benchmark chart at <site>/dev/bench/.
-      - name: Embed verify-perf benchmark into the doc artifact
+      - name: Download stats snapshot
+        if: needs.stats.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: stats-snapshot
+          path: site/stats
+
+      - name: Assemble site root
+        run: |
+          set -e
+          cp -r tools/site/. site/
+          # Rename for the site's dashboards: stats-snapshot.json -> snapshot.json.
+          if [[ -f site/stats/stats-snapshot.json ]]; then
+            mv site/stats/stats-snapshot.json site/stats/snapshot.json
+          else
+            mkdir -p site/stats
+            echo "no stats artifact; the dashboard will fall back to the last published snapshot"
+          fi
+          echo "site root:"
+          ls site
+
+      # Serve the benchmark chart at <site>/dev/bench/ and the stats history
+      # (appended by `perf-history`) at <site>/stats/history.json.
+      - name: Embed gh-pages data into the site
         run: |
           set -e
           if ! git fetch --depth=1 origin gh-pages 2>/dev/null; then
-            echo "no gh-pages branch yet; benchmark not embedded"
+            echo "no gh-pages branch yet; benchmark and history not embedded"
             exit 0
           fi
-          git checkout FETCH_HEAD -- dev/bench || { echo "no dev/bench on gh-pages; skipping"; exit 0; }
-          mkdir -p doc/dev
-          mv dev/bench doc/dev/bench
-          rmdir dev 2>/dev/null || true
-          echo "embedded dev/bench into the doc artifact:"
-          ls doc/dev/bench
+          if git checkout FETCH_HEAD -- dev/bench 2>/dev/null; then
+            mkdir -p site/dev
+            mv dev/bench site/dev/bench
+            rmdir dev 2>/dev/null || true
+            echo "embedded dev/bench"
+          else
+            echo "no dev/bench on gh-pages; skipping"
+          fi
+          if git checkout FETCH_HEAD -- stats 2>/dev/null; then
+            # Prefer the fresh artifact snapshot over the pushed one.
+            if [[ ! -f site/stats/snapshot.json ]]; then
+              mv stats/snapshot.json site/stats/snapshot.json 2>/dev/null || true
+            fi
+            mkdir -p site/stats
+            mv stats/history.json site/stats/history.json 2>/dev/null || true
+            echo "embedded stats/history.json"
+          else
+            echo "no stats on gh-pages yet; history will start from this run"
+          fi
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: doc
+          path: site
 
       - name: Deploy to GitHub Pages
         id: deployment
