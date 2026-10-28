@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793158796005,
+  "lastUpdate": 1793176541054,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -7476,6 +7476,90 @@ window.BENCHMARK_DATA = {
             "value": 1512725,
             "unit": "rlimit",
             "extra": "smt-run=486ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "025280446ae0ffc2df56a280a43cca78b0f3772d",
+          "message": "ci: add ci verification dashboard with verification coverage, API links, and performance benchmarks (#871)\n\n* feat: verification dashboard homepage + stats CI pipeline\n\n- tools/verus_stats.py: snapshot + record subcommands using line_count --json,\n  mainline normalize via origin/phaseII/mainline, ostd/src+ostd/libs only\n- tools/site/: ECharts dashboard (tiles, line chart, treemap, tables, tiles)\n  with dark/light CSS scheme\n- ci.yml: add stats job (line_count build + mainline fetch + snapshot),\n  extend perf-history (record history.json on gh-pages),\n  extend doc-deploy (assemble site root: dashboard + verusdoc/ + dev/bench/ + stats/)\n\n* fix(ci): stats job requires bootstrapped tools/verus and mainline fallback\n\n- tools/verus is gitignored: setup-verus with verus: 'false' skips the\n  bootstrap-if-miss step, so the line_count build had no manifest on CI.\n  Use verus: 'true' (as the doc job does) to cache+bootstrap tools/verus.\n- the fork may lack phaseII/mainline: fall back to fetching it from\n  asterinas/vostd when git fetch origin fails.\n- bump job timeout to 60m (cold Verus bootstrap on cache miss)\n\n* feat: four-status treemap, spec-library LoC, merged stats deploy job\n\n- verus_stats.py: scan ostd/specs into spec_all/proof_all for the line\n  chart; port code_treemap.py semantics — unplanned modules (arch\n  boot/iommu/tdx_guest, libs linux-bzimage/ostd-macros/ostd-test), no-twin\n  files count as unverified, align_ext pinned at 24 verified lines;\n  history points carry unplanned too\n- site: treemap re-rendered with a hand-rolled squarify into plain HTML\n  (ECharts nested treemap cannot caption parent rows) — group/platform\n  caption bands, module label chips, four reference status colors, exact\n  tile values in stat tiles, module table sorted by name, no drill-down\n- ci.yml: fold the snapshot into the deploy job renamed `stats` at\n  doc-deploy's position (verify/doc -> perf-history -> stats)\n\n* feat: verified API count from rustdoc JSON in snapshot, tile, and chart\n\n- verus_stats.py: port kverus verus_cov.py's API extraction — count\n  bodyful rustdoc functions that are neither spec/proof-only (internal\n  spec/proof attrs, when_used_as_spec, ../specs files) nor trusted away\n  (external_body), skipping uppercase names, Inline(Hint) trait impls\n  and auto-derived impl items; snapshot --doc-json fills\n  totals.verified_apis and record carries it into history points\n- ci: doc job runs 'cargo dv doc --package ostd --json-output' and\n  uploads doc/ostd.json; the stats deploy job folds it into the snapshot\n- site: 'Unverified' stat tile becomes 'Verified APIs' (281 locally),\n  line chart grows a fifth series (violet slot 5), history table gains\n  an APIs column; verified-API deltas skip points without the field\n- site: swap card order (treemap above the line chart) and trim module\n  label chips to the name (hover tooltips carry the counts)\n\n* feat: per-API list card under the history chart\n\n- verus_stats.py: collect_verified_apis also returns each entry\n  (owner-qualified name, module group, repo-relative location) and the\n  snapshot carries it as verified_apis_list\n- site: 'Verified APIs' card with a View list table (name/module/\n  location) after the line chart; trimmed the treemap/line card notes\n  per review\n\n* Improve Pages coverage visualization and benchmark dashboard\n\n* Correct treemap group labels and trusted boundary terminology\n\n* Widen coverage chart and preserve compact group names\n\n* Fit coverage chart to laptop screens with compact subsystem row\n\n* doc: update readme\n\n* Extract CI steps into composite actions",
+          "timestamp": "2026-10-28T16:28:00+08:00",
+          "tree_id": "5d2e5f09d049a01821696f8416ad1371ba32ff44",
+          "url": "https://github.com/asterinas/vostd/commit/025280446ae0ffc2df56a280a43cca78b0f3772d"
+        },
+        "date": 1793176540365,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1451537969,
+            "unit": "rlimit",
+            "extra": "verified=4262 errors=0 smt-run=482,288ms wall=278,835ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 538222141,
+            "unit": "rlimit",
+            "extra": "smt-run=238,303ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 215835661,
+            "unit": "rlimit",
+            "extra": "smt-run=47,333ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 74490006,
+            "unit": "rlimit",
+            "extra": "smt-run=28,022ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=4,939ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 11196458,
+            "unit": "rlimit",
+            "extra": "smt-run=2,618ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=1,054ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2026397,
+            "unit": "rlimit",
+            "extra": "smt-run=747ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=885ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::mod_internals",
+            "value": 1451903,
+            "unit": "rlimit",
+            "extra": "smt-run=1,695ms"
           }
         ]
       }
