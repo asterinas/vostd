@@ -2,15 +2,11 @@ pub mod entry_owners;
 pub mod owners;
 
 use vstd::prelude::*;
-use vstd_extra::typing::tagged::{ByteRepr, ByteSized};
+use vstd_extra::typing::tagged::MaxSize;
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
-use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd_extra::drop_tracking::*;
 
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotStorage, StoredPageTablePageMeta, axiom_pt_node_round_trip, pt_node_decode,
-    pt_node_encode,
-};
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 
 use crate::mm::{
     frame::Frame,
@@ -82,123 +78,14 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     }
 }
 
-impl<C: PageTableConfig> PageTablePageMeta<C> {
-    pub open spec fn into_spec(self) -> StoredPageTablePageMeta {
-        StoredPageTablePageMeta {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-        }
-    }
-
-    #[verifier::when_used_as_spec(into_spec)]
-    pub fn into(self) -> StoredPageTablePageMeta
-        returns
-            self.into_spec(),
-    {
-        StoredPageTablePageMeta {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-        }
-    }
-}
-
-impl StoredPageTablePageMeta {
-    pub open spec fn into_spec<C: PageTableConfig>(self) -> PageTablePageMeta<C> {
-        PageTablePageMeta::<C> {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[verifier::when_used_as_spec(into_spec)]
-    pub fn into<C: PageTableConfig>(self) -> PageTablePageMeta<C>
-        returns
-            self.into_spec::<C>(),
-    {
-        PageTablePageMeta::<C> {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-            _phantom: PhantomData,
-        }
-    }
-}
-
 pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
     _page: Frame<PageTablePageMeta<C>>,
 ) -> Frame<PageTablePageMeta<C>>;
 
-// ---------------------------------------------------------------------------
-// `PageTablePageMeta<C>` as a stored type in its own right
-// ---------------------------------------------------------------------------
-//
-// `StoredPageTablePageMeta` demotes to an encoding detail, as `StoredLink` does
-// for links: the slot's tag becomes `recorded_id::<PageTablePageMeta<C>>()`, which
-// names the type a handle claims rather than its byte-shaped stand-in.
-
-impl<C: PageTableConfig> TryFrom<[u8; META_STORAGE_SIZE]> for PageTablePageMeta<C> {
-    type Error = ();
-
-    #[verifier::external_body]
-    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-impl<C: PageTableConfig> TryFromSpecImpl<[u8; META_STORAGE_SIZE]> for PageTablePageMeta<C> {
-    open spec fn obeys_try_from_spec() -> bool {
-        true
-    }
-
-    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        match pt_node_decode(b) {
-            Ok(node) => Ok(node.into_spec::<C>()),
-            Err(_) => Err(()),
-        }
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl<C: PageTableConfig> Into<[u8; META_STORAGE_SIZE]> for PageTablePageMeta<C> {
-    #[verifier::external_body]
-    fn into(self) -> [u8; META_STORAGE_SIZE] {
-        unimplemented!()
-    }
-}
-
-impl<C: PageTableConfig> IntoSpecImpl<[u8; META_STORAGE_SIZE]> for PageTablePageMeta<C> {
-    open spec fn obeys_into_spec() -> bool {
-        true
-    }
-
-    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
-        pt_node_encode(PageTablePageMeta::<C>::into_spec(self))
-    }
-}
-
-impl<C: PageTableConfig> ByteSized<{ META_STORAGE_SIZE }> for PageTablePageMeta<C> {
+impl<C: PageTableConfig> MaxSize<{ META_STORAGE_SIZE }> for PageTablePageMeta<C> {
     /// Axiomatized: a layout fact.
     #[verifier::external_body]
     proof fn size_correct() {
-    }
-}
-
-impl<C: PageTableConfig> ByteRepr<{ META_STORAGE_SIZE }> for PageTablePageMeta<C> {
-    /// The byte round trip is the axiom, and the `Stored` <-> live identity
-    /// unfolds, both `into_spec`s being `open`.
-    proof fn round_trip(self) {
-        broadcast use axiom_pt_node_round_trip;
-    }
-
-    proof fn obeys() {
     }
 }
 

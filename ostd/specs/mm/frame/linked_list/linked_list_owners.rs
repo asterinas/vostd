@@ -2,7 +2,7 @@ use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, s
 use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd_extra::{
     ownership::*,
-    typing::tagged::{ByteRepr, ByteSized},
+    typing::tagged::MaxSize,
 };
 
 use crate::specs::{
@@ -39,7 +39,7 @@ verus! {
 /// It is less than upstream gets, and the reason is worth recording. Upstream's
 /// `Link` holds `Option<NonNull<_>>`, which niche-optimises to 8 bytes a side
 /// because `NonNull` excludes zero *by construction*, leaving 24. Substituting a
-/// sentinel address here recovers those 16 bytes but breaks [`ByteRepr`]'s
+/// sentinel address here recovers those 16 bytes but breaks [`MaxSize`]'s
 /// round-trip law, which is unconditional: a link whose neighbour sat at the
 /// sentinel would
 /// encode to "absent" and not decode back to itself. `Option` is what buys the
@@ -53,148 +53,13 @@ pub const LINK_INNER_SIZE: usize = META_STORAGE_SIZE - 2 * 16;
 ///
 /// Two neighbour addresses plus [`LINK_INNER_SIZE`] bytes of inner metadata, which
 /// fills the slot exactly.
-pub struct StoredLink {
-    pub next: Option<Paddr>,
-    pub prev: Option<Paddr>,
-    pub slot: [u8; LINK_INNER_SIZE],
-}
-
-// ---------------------------------------------------------------------------
-// `StoredLink`'s representation
-// ---------------------------------------------------------------------------
-//
-// An encoding, a decoding, and the round-trip law relating them, beside the type
-// they are about. Encode and decode are left *uninterpreted*: a concrete byte
-// layout is a fact about the type's representation, not about the storage
-// machinery, and naming them without defining them is what keeps the round trip
-// the only thing consumers may assume.
-//
-// Here rather than in `meta_owners` because the slot's world is open -- a type is
-// storable iff it has a `ByteRepr<META_STORAGE_SIZE>`, so a representation is a
-// property of its own type and needs no entry in a central list. The encoding is
-// not onto and does not claim to be: `StoredLink` is strictly smaller than the
-// slot, so the slack bytes are unconstrained.
-
-pub uninterp spec fn frame_link_encode(v: StoredLink) -> [u8; META_STORAGE_SIZE];
-
-pub uninterp spec fn frame_link_decode(b: [u8; META_STORAGE_SIZE]) -> Result<StoredLink, ()>;
-
-/// Decoding recovers what encoding produced.
-///
-/// Axiomatized: the representation obligation a stored type discharges from its
-/// layout, which Verus does not derive for user structs.
-#[verifier::external_body]
-pub broadcast proof fn axiom_frame_link_round_trip(v: StoredLink)
-    ensures
-        #[trigger] frame_link_decode(frame_link_encode(v)) == Ok(v),
-{
-}
-
-
-// ---------------------------------------------------------------------------
-// `Link<M>` as a stored type in its own right
-// ---------------------------------------------------------------------------
-//
-// `StoredLink` is demoted to an encoding detail by these impls: it is the shape
-// `frame_link_encode`/`_decode` work in, and nothing outside this file needs to
-// name it. The slot's tag becomes `recorded_id::<Link<M>>()` rather than
-// `recorded_id::<StoredLink>()`, so it names the type a handle actually claims.
-//
-// Decoding can fail two ways, and both matter: the outer bytes may not be a link
-// at all, or the inner `LINK_INNER_SIZE` bytes may not be an `M`. The old
-// a `Repr::wf` predicate stated those as separate conjuncts; here they fold into
-// `try_from_spec` returning `Err`, which is what lets `TaggedArray::holds` carry
-// the whole claim.
-
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> TryFrom<[u8; META_STORAGE_SIZE]> for Link<M> {
-    type Error = ();
-
-    #[verifier::external_body]
-    fn try_from(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> TryFromSpecImpl<
-    [u8; META_STORAGE_SIZE],
-> for Link<M> {
-    open spec fn obeys_try_from_spec() -> bool {
-        true
-    }
-
-    open spec fn try_from_spec(b: [u8; META_STORAGE_SIZE]) -> Result<Self, Self::Error> {
-        match frame_link_decode(b) {
-            Ok(link) => if M::try_from_spec(link.slot) is Ok {
-                Ok(
-                    Link {
-                        next: match link.next {
-                            Some(addr) => Some(PPtr(addr, PhantomData)),
-                            None => None,
-                        },
-                        prev: match link.prev {
-                            Some(addr) => Some(PPtr(addr, PhantomData)),
-                            None => None,
-                        },
-                        meta: M::try_from_spec(link.slot)->Ok_0,
-                    },
-                )
-            } else {
-                Err(())
-            },
-            Err(_) => Err(()),
-        }
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Into<[u8; META_STORAGE_SIZE]> for Link<M> {
-    #[verifier::external_body]
-    fn into(self) -> [u8; META_STORAGE_SIZE] {
-        unimplemented!()
-    }
-}
-
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> IntoSpecImpl<
-    [u8; META_STORAGE_SIZE],
-> for Link<M> {
-    open spec fn obeys_into_spec() -> bool {
-        true
-    }
-
-    open spec fn into_spec(self) -> [u8; META_STORAGE_SIZE] {
-        frame_link_encode(
-            StoredLink {
-                next: match self.next {
-                    Some(ptr) => Some(ptr.addr()),
-                    None => None,
-                },
-                prev: match self.prev {
-                    Some(ptr) => Some(ptr.addr()),
-                    None => None,
-                },
-                slot: self.meta.into_spec(),
-            },
-        )
-    }
-}
-
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ByteSized<{ META_STORAGE_SIZE }> for Link<M> {
+/// Storable in a slot. The inner `M` rides along inside the stored value
+/// rather than being decoded out of a nested byte range, so `LINK_INNER_SIZE`
+/// survives only as the size budget `M` must fit.
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> MaxSize<{ META_STORAGE_SIZE }> for Link<M> {
     /// Axiomatized: a layout fact.
     #[verifier::external_body]
     proof fn size_correct() {
-    }
-}
-
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> ByteRepr<{ META_STORAGE_SIZE }> for Link<M> {
-    proof fn round_trip(self) {
-        broadcast use axiom_frame_link_round_trip;
-        // The inner metadata round-trips through its own `ByteRepr`; the outer
-        // bytes through `axiom_frame_link_round_trip`; and a reconstructed
-        // The `PPtr` equals the original because a `PPtr` is its address.
-        self.meta.round_trip();
-    }
-
-    proof fn obeys() {
     }
 }
 
@@ -232,7 +97,7 @@ impl InvView for LinkOwner {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for Link<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> OwnerOf for Link<M> {
     type Owner = LinkOwner;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
@@ -272,7 +137,7 @@ impl Inv for LinkedListModel {
     }
 }
 
-pub tracked struct LinkedListOwner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
+pub tracked struct LinkedListOwner<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> {
     pub list: Seq<LinkOwner>,
     /// Exclusive metadata permissions for the unique frames stored in the
     /// list.
@@ -281,7 +146,7 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> 
     pub ghost _marker: core::marker::PhantomData<M>,
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Inv for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> Inv for LinkedListOwner<M> {
     open spec fn inv(self) -> bool {
         // Weakened (our change): an EMPTY list may carry `list_id == 0` (the
         // lazily-minted-id convention used by the list-store embedding); the
@@ -292,7 +157,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Inv for LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
     pub open spec fn meta_addr_at(self, regions: MetaRegionOwners, i: int) -> usize {
         regions.slots[meta_to_index(self.list[i].paddr)].addr()
     }
@@ -953,7 +818,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> View for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> View for LinkedListOwner<M> {
     type V = LinkedListModel;
 
     open spec fn view(&self) -> Self::V {
@@ -961,12 +826,12 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> View for LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> InvView for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> InvView for LinkedListOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
     /// Take ownership of `*owner` by swapping it with a fresh empty
     /// `LinkedListOwner`. The resulting "leftover" `*owner` has an empty
     /// `list`, so its `inv()` holds vacuously. Used by drop-style call sites
@@ -999,7 +864,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for LinkedList<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> OwnerOf for LinkedList<M> {
     type Owner = LinkedListOwner<M>;
 
     /// Structural well-formedness of the LinkedList against its owner: size,
@@ -1029,19 +894,19 @@ impl Inv for CursorModel {
     }
 }
 
-pub tracked struct CursorOwner<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> {
+pub tracked struct CursorOwner<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> {
     pub list_own: LinkedListOwner<M>,
     pub ghost index: int,
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> Inv for CursorOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> Inv for CursorOwner<M> {
     open spec fn inv(self) -> bool {
         &&& 0 <= self.index <= self.length()
         &&& self.list_own.inv()
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> View for CursorOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> View for CursorOwner<M> {
     type V = CursorModel;
 
     open spec fn view(&self) -> Self::V {
@@ -1054,12 +919,12 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> View for CursorOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> InvView for CursorOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> InvView for CursorOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }
 
-impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for CursorMut<'a, M> {
+impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> OwnerOf for CursorMut<'a, M> {
     type Owner = CursorOwner<M>;
 
     /// Structural well-formedness: `current` matches the link at `index`'s
@@ -1073,7 +938,7 @@ impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> OwnerOf for CursorMut<'a, 
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedList<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedList<M> {
     /// Region-based analog of [`LinkedList::wf`]: the front/back pointer facts
     /// are stated directly over the region-owned slot pointers.
     pub open spec fn wf_region(self, owner: LinkedListOwner<M>, regions: MetaRegionOwners) -> bool {
@@ -1088,7 +953,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> LinkedList<M> {
     }
 }
 
-impl<'a, M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorMut<'a, M> {
+impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
     /// Region-based analog of [`CursorMut::wf`]: the current-link pointer facts
     /// are stated over the corresponding region-owned slot pointer.
     pub open spec fn wf_region(self, owner: CursorOwner<M>, regions: MetaRegionOwners) -> bool {
@@ -1112,7 +977,7 @@ impl CursorModel {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorOwner<M> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorOwner<M> {
     pub open spec fn length(self) -> int {
         self.list_own.list.len() as int
     }
@@ -1253,7 +1118,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> CursorOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> UniqueFrameOwner<Link<M>> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> UniqueFrameOwner<Link<M>> {
     pub open spec fn frame_link_inv(&self, regions: MetaRegionOwners) -> bool {
         &&& self.meta_value(regions).prev is None
         &&& self.meta_value(regions).next is None
@@ -1262,7 +1127,7 @@ impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> UniqueFrameOwner<Link<M>> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<LINK_INNER_SIZE>> UniqueFrame<Link<M>> {
+impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> UniqueFrame<Link<M>> {
     pub open spec fn frame_link_inv(
         self,
         owner: UniqueFrameOwner<Link<M>>,

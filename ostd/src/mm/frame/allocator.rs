@@ -2,7 +2,7 @@
 //! The physical memory allocator.
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
 use vstd::prelude::*;
-use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::typing::tagged::MaxSize;
 use vstd_extra::{ownership::Inv, prelude::*};
 
 use crate::specs::mm::frame::{meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners};
@@ -79,7 +79,7 @@ impl FrameAllocOptions {
             res is Err ==> *final(regions) == *old(regions),
     )]
     #[verifier::external_body]
-    pub fn alloc_frame_with<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
+    pub fn alloc_frame_with<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
         &self,
         metadata: M,
     ) -> Result<Frame<M>, Error> {

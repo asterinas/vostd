@@ -2,87 +2,20 @@
 //!
 //! A value stored as raw bytes has no way to say what it is. This module supplies
 //! the missing piece: [`TaggedArray`] carries the bytes together with a ghost
-//! record of the stored type's identity, and [`ByteRepr`] is what lets a type be
-//! stored in the first place.
-//!
-//! The world is **open**. The only restriction on what may be stored is that it
-//! fit in `SIZE` bytes -- there is no enumeration of admissible types, so a
-//! generic family with infinitely many instantiations needs no special treatment.
-//! What is given up in exchange is exhaustiveness: there is no "the value is one
-//! of these" law, only "is it this type", asked one type at a time.
-//!
-//! Deliberately usable without the `type_id` toolchain patch. The sibling
-//! [`super::types`] models `core::any::TypeId` directly and so needs it; here the
-//! id type degrades to an opaque `int`, which keeps the storage available in every
-//! feature shape and confines the patch to *deciding* identity.
+//! record of the stored type's identity. It axiomatizes loads and stores of whole
+//! objects, not details of the bytes, which may have any layout. The objects thus
+//! stored are not restricted to being plain-old-data.
 use vstd::prelude::*;
-
-use vstd::std_specs::convert::{IntoSpec, TryFromSpec};
 
 verus! {
 
-// ===========================================================================
-// Representation
-// ===========================================================================
-//
-/// A type that fits in `SIZE` bytes.
-pub trait ByteSized<const SIZE: usize>: Sized {
+/// A type that fits in `SIZE` bytes, and may therefore be stored in `SIZE`
+/// bytes of tagged storage.
+pub trait MaxSize<const SIZE: usize>: Sized {
     proof fn size_correct()
         ensures
             size_of::<Self>() <= SIZE,
     ;
-}
-
-/// A type whose values can be encoded into `SIZE` bytes and recovered.
-///
-/// `round_trip` goes from value to bytes and back, and we do not assume the converse.
-/// That means that if the type contains padding, we make no claims about its value after
-/// a write-to-bytes; only that when we later read-from-bytes we will get what was written.
-pub trait ByteRepr<const SIZE: usize>: ByteSized<SIZE> + TryFromSpec<[u8; SIZE]> + IntoSpec<
-    [u8; SIZE],
-> {
-    proof fn round_trip(self)
-        ensures
-            Self::try_from_spec(self.into_spec()) == Ok(self),
-    ;
-
-    /// The executable conversions agree with their specifications.
-    proof fn obeys()
-        ensures
-            Self::obeys_into_spec(),
-            Self::obeys_try_from_spec(),
-    ;
-}
-
-/// AXIOM: Reinterpret stored bytes as a reference to the value they encode.
-#[verifier::external_body]
-pub exec fn borrow_as<'a, const SIZE: usize, T: ByteRepr<SIZE>>(data: &'a [u8; SIZE]) -> (r: &'a T)
-    requires
-        T::try_from_spec(*data) is Ok,
-    ensures
-        *r == T::try_from_spec(*data)->Ok_0,
-{
-    unimplemented!()
-}
-
-/// AXIOM: the mutable counterpart of [`borrow_as`].
-///
-/// The third postcondition is the one that carries weight: writing through the
-/// returned `&mut T` must leave the bytes decodable. That holds because the bytes
-/// *are* the `T`, in place -- whatever valid `T` is written there decodes to itself
-/// by [`ByteRepr::round_trip`] -- but it is an obligation on this axiom rather than
-/// something the signature gives for free.
-#[verifier::external_body]
-pub exec fn borrow_as_mut<'a, const SIZE: usize, T: ByteRepr<SIZE>>(data: &'a mut [u8; SIZE]) -> (r:
-    &'a mut T)
-    requires
-        T::try_from_spec(*old(data)) is Ok,
-    ensures
-        *r == T::try_from_spec(*old(data))->Ok_0,
-        T::try_from_spec(*final(data)) is Ok,
-        *final(r) == T::try_from_spec(*final(data))->Ok_0,
-{
-    unimplemented!()
 }
 
 /// The type of a recorded type identity.
@@ -94,77 +27,78 @@ pub type RecordedId = core::any::TypeId;
 #[cfg(not(feature = "type_id"))]
 pub type RecordedId = int;
 
-/// The identity recorded for type `T`.
 #[cfg(feature = "type_id")]
 pub open spec fn recorded_id<T: ?Sized>() -> RecordedId {
     type_id::<T>()
 }
 
-/// Uninterpreted without the feature: distinct types cannot be told apart, so a
-/// downcast's precondition is simply not dischargeable. That is incompleteness,
-/// not unsoundness.
 #[cfg(not(feature = "type_id"))]
 pub uninterp spec fn recorded_id<T: ?Sized>() -> RecordedId;
 
-/// Bytes plus a ghost id naming the type they hold.
+/// Interpret the contents of the array as a value of type `T`.
+/// The contents of the array are indexed by an integer, `store_id`,
+/// which is incremented every time the array is updated. This allows us
+/// to axiomatize the connection between the written value and future reads
+/// without carrying the value directly (which we cannot do, as it has no known type!)
+///
+/// Uninterpreted, so the only facts about it are those `store` establishes. For
+/// a model to exist it must be surjective onto `T`, i.e. `T` must have at most
+/// countably many values -- true of every executable type.
+///
+/// # Upgrade path
+///
+/// This is the weakest form of a pattern the RCU proofs already run properly:
+/// [`crate::rcu_objects::RcuDomainAuth`] mints fresh ghost identities from a
+/// monotone `next_obj` counter and publishes facts about them as
+/// `GhostPersistentPointsTo`. Replacing `stored` with a `GhostMapAuth<nat, T>`
+/// plus persistent points-to would buy two things:
+///
+/// - Freshness by construction, retiring the surjectivity side condition above.
+/// - Duplicable read facts. A persistent "store `s` holds `v`" can be copied
+///   freely.
+pub uninterp spec fn stored<const SIZE: usize, T>(store_id: int) -> T;
+
+/// Bytes, plus ghost records of what type they hold and which store put it there.
 pub struct TaggedArray<const SIZE: usize> {
     /// The stored type's identity, as ghost state.
     pub id: Ghost<RecordedId>,
+    pub store_id: Ghost<int>,
     pub data: [u8; SIZE],
 }
 
 impl<const SIZE: usize> TaggedArray<SIZE> {
-    /// These bytes hold a `T`, and the recorded id says so.
-    pub open spec fn holds<T: ByteRepr<SIZE>>(self) -> bool {
-        &&& self.id@ == recorded_id::<T>()
-        &&& T::try_from_spec(self.data) is Ok
+    /// The recorded id corresponds to type `T`
+    pub open spec fn holds<T: MaxSize<SIZE>>(self) -> bool {
+        self.id@ == recorded_id::<T>()
     }
 
-    /// The stored value, where [`Self::holds`] says there is one.
-    pub open spec fn value<T: ByteRepr<SIZE>>(self) -> T {
-        T::try_from_spec(self.data)->Ok_0
+    /// The stored value, interpreted as type `T`
+    pub open spec fn value<T: MaxSize<SIZE>>(self) -> T {
+        stored::<SIZE, T>(self.store_id@)
     }
 
     /// Store a value, recording its type.
-    pub exec fn store<T: ByteRepr<SIZE>>(t: T) -> (r: Self)
+    ///
+    /// This module's only axiom: what was written is what is read,
+    /// for a read at the type that was written. [`Self::holds`] is the "well
+    /// typed" proviso -- a read at another type learns nothing, because
+    /// [`stored`] is indexed by `T` and no axiom relates two instantiations.
+    #[verifier::external_body]
+    pub exec fn store<T: MaxSize<SIZE>>(t: T) -> (r: Self)
         ensures
             r.holds::<T>(),
             r.value::<T>() == t,
     {
-        let ghost t0 = t;
-        proof {
-            T::obeys();
-            t0.round_trip();
+        let mut data = [0u8;SIZE];
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                &t as *const T as *const u8,
+                data.as_mut_ptr(),
+                core::mem::size_of::<T>(),
+            );
         }
-        TaggedArray { id: Ghost(recorded_id::<T>()), data: t.into() }
-    }
-
-    /// Read the stored value in place.
-    ///
-    /// Rests on [`borrow_as`], whose precondition is exactly the decode-success
-    /// that [`Self::holds`] carries.
-    pub exec fn borrow<'a, T: ByteRepr<SIZE>>(&'a self) -> (r: &'a T)
-        requires
-            self.holds::<T>(),
-        ensures
-            *r == self.value::<T>(),
-    {
-        borrow_as::<SIZE, T>(&self.data)
-    }
-
-    /// Mutate the stored value in place.
-    ///
-    /// The recorded id is untouched, so [`Self::holds`] survives: mutation reaches
-    /// only `data`, and the decode half is what [`borrow_as_mut`] preserves.
-    pub exec fn borrow_mut<'a, T: ByteRepr<SIZE>>(&'a mut self) -> (r: &'a mut T)
-        requires
-            old(self).holds::<T>(),
-        ensures
-            *r == old(self).value::<T>(),
-            final(self).holds::<T>(),
-            *final(r) == final(self).value::<T>(),
-    {
-        borrow_as_mut::<SIZE, T>(&mut self.data)
+        core::mem::forget(t);
+        TaggedArray { id: Ghost(recorded_id::<T>()), store_id: Ghost(arbitrary()), data }
     }
 }
 

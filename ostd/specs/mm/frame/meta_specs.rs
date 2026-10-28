@@ -1,7 +1,12 @@
 use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
-use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
-use vstd_extra::substructural::{CellAddr, cell_addr};
-use vstd_extra::typing::tagged::ByteRepr;
+use vstd::{
+    atomic::*,
+    cell::pcell_maybe_uninit,
+    prelude::*,
+    simple_pptr::{PPtr, PointsTo},
+};
+use vstd_extra::substructural::{CellUnwrap, FieldSplit, StructToField};
+use vstd_extra::typing::tagged::MaxSize;
 use vstd_extra::{ownership::*, sum::Sum};
 
 use crate::specs::{
@@ -15,7 +20,7 @@ use crate::specs::{
 
 use super::meta_owners::{
     FracMetadataPerm, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, MetadataPerm, PageUsage,
-    recorded_meta_id,
+    recorded_meta_id, typed_meta_value, typed_meta_wf,
 };
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
@@ -32,6 +37,43 @@ use crate::mm::{
 verus! {
 
 global layout MetaSlot is size == 64, align == 8;
+
+/// Identifies `storage` as the first field of a [`MetaSlot`].
+impl StructToField for MetaSlot {
+    type FirstField = pcell_maybe_uninit::PCell<MetaSlotStorage>;
+
+    /// The three fields the metadata chain never touches. They are named only
+    /// so that [`Self::combine`] can put them back unchanged.
+    type Remainder = (PAtomicU64, PPtr<usize>, PAtomicU64);
+
+    open spec fn split(self) -> (Self::FirstField, Self::Remainder) {
+        (self.storage, (self.ref_count, self.vtable_ptr, self.in_list))
+    }
+
+    open spec fn combine(f: Self::FirstField, r: Self::Remainder) -> Self {
+        MetaSlot { storage: f, ref_count: r.0, vtable_ptr: r.1, in_list: r.2 }
+    }
+
+    proof fn roundtrip(self) {
+    }
+
+    axiom fn split_first(tracked perm: PointsTo<MetaSlot>) -> (tracked res: (
+        FieldSplit<MetaSlot, Self::Remainder>,
+        PointsTo<Self::FirstField>,
+    ));
+
+    axiom fn combine_first(
+        tracked rest: FieldSplit<MetaSlot, Self::Remainder>,
+        tracked perm: PointsTo<Self::FirstField>,
+    ) -> (tracked res: PointsTo<MetaSlot>);
+
+    axiom fn borrow_first<'a>(tracked perm: &'a PointsTo<MetaSlot>) -> (tracked res: &'a PointsTo<
+        Self::FirstField,
+    >);
+
+    axiom fn borrow_first_mut<'a>(tracked perm: &'a mut PointsTo<MetaSlot>) -> (tracked res:
+        &'a mut PointsTo<Self::FirstField>);
+}
 
 impl MetaSlot {
     /// The relation between the [`MetaSlot`] permission and a metadata permission fraction.
@@ -55,25 +97,68 @@ impl MetaSlot {
 
     }
 
-    /// The metadata cell sits at the start of its slot.
+    /// The slot's metadata storage, as a pointer permission at type `M`.
     ///
-    /// TRUSTED, and a layout claim rather than an ownership one: `MetaSlot` is
-    /// `#[repr(C)]` and `storage` is its first field, so the slot's address
-    /// *is* the cell's address (C99 6.7.2.1 -- a structure's address is its
-    /// first member's).
+    /// The whole chain from [`vstd_extra::substructural`] in one step: step 1
+    /// [`StructToField::borrow_first`] down to the storage cell, step 2
+    /// [`CellUnwrap::unwrap_ref`] to its contents, step 3
+    /// [`MetaSlotStorage::as_meta_perm`] to the `M` those bytes hold.
     ///
-    /// Nothing weaker would do. [`cell_addr`] is uninterpreted, so without this
-    /// the storage cell's address cannot be named in exec code at all, where
-    /// the only address to hand is the slot pointer's.
-    ///
-    /// This is step 1 of the chain described in [`vstd_extra::substructural`];
-    /// step 2, cell to contents, is [`CellAddr::unwrap_ref`] and its siblings.
-    pub axiom fn axiom_storage_at_slot_start(slot_perm: PointsTo<MetaSlot>)
+    /// A proof function rather than part of [`MetaSlot::as_meta_ptr`] because
+    /// the *pointer* does not depend on how the metadata permission is
+    /// borrowed, only the permission does. Keeping them apart lets
+    /// `as_meta_ptr` be the single exec function upstream has, and puts the
+    /// shared/exclusive split entirely in proof code -- here and in
+    /// [`Self::meta_perm_mut`].
+    pub proof fn meta_perm<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
+        tracked slot_perm: &'a PointsTo<MetaSlot>,
+        tracked metadata_perm: &'a MetadataPerm,
+    ) -> (tracked res: &'a PointsTo<M>)
         requires
-            slot_perm.is_init(),
+            typed_meta_wf::<M>(*slot_perm, *metadata_perm),
         ensures
-            cell_addr(slot_perm.value().storage.id()) == slot_perm.addr(),
-    ;
+            res.addr() == slot_perm.addr(),
+            res.is_init(),
+            res.value() == typed_meta_value::<M>(*metadata_perm),
+    {
+        let tracked cell_perm = MetaSlot::borrow_first(slot_perm);
+        let tracked storage_perm = MetaSlotStorage::unwrap_ref(
+            cell_perm,
+            &metadata_perm.storage_perm,
+        );
+        MetaSlotStorage::as_meta_perm::<M>(storage_perm)
+    }
+
+    /// [`Self::meta_perm`] for exclusive access.
+    ///
+    /// Only reachable with the whole [`MetadataPerm`], which is why it serves
+    /// `UniqueFrame` and not `Frame`: a `Frame`'s permission is a
+    /// `Count` fraction, and a fraction can only ever be borrowed shared.
+    ///
+    /// The `final` clauses carry the write back the other way: whatever the
+    /// borrow ends up holding is what the slot holds, and it still holds an
+    /// `M`.
+    pub proof fn meta_perm_mut<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
+        tracked slot_perm: &'a PointsTo<MetaSlot>,
+        tracked metadata_perm: &'a mut MetadataPerm,
+    ) -> (tracked res: &'a mut PointsTo<M>)
+        requires
+            typed_meta_wf::<M>(*slot_perm, *old(metadata_perm)),
+        ensures
+            res.addr() == slot_perm.addr(),
+            res.is_init(),
+            res.value() == typed_meta_value::<M>(*old(metadata_perm)),
+            final(res).is_init(),
+            typed_meta_wf::<M>(*slot_perm, *final(metadata_perm)),
+            typed_meta_value::<M>(*final(metadata_perm)) == final(res).value(),
+    {
+        let tracked cell_perm = MetaSlot::borrow_first(slot_perm);
+        let tracked storage_perm = MetaSlotStorage::unwrap_mut(
+            cell_perm,
+            &mut metadata_perm.storage_perm,
+        );
+        MetaSlotStorage::as_meta_perm_mut::<M>(storage_perm)
+    }
 
     pub open spec fn get_from_unused_owner_spec(as_unique: bool, owner: MetaSlotOwner) -> bool {
         &&& owner.ref_count() == (if as_unique {
@@ -128,7 +213,7 @@ impl MetaSlot {
 
     /// The complete successful result of claiming an unused slot, including
     /// the fraction returned to the new frame handle.
-    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE>>(
+    pub open spec fn get_from_unused_spec<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
         paddr: Paddr,
         metadata: M,
         as_unique: bool,

@@ -35,181 +35,188 @@ use vstd::simple_pptr::PointsTo;
 
 verus! {
 
-pub tracked struct CellLoc {
-    pub id: CellId,
-    pub addr: usize,
+/// A witness that a struct's remainder is set aside while its first field is
+/// split out: issued by [`StructToField::split_first`] and spent by
+/// [`StructToField::combine_first`].
+pub tracked struct FieldSplit<S, R> {
+    addr: usize,
+    rest: Ghost<R>,
+    _S: core::marker::PhantomData<S>,
 }
 
-/// The address assigned to a cell.
-///
-/// Uninterpreted, and a function of the id alone, so the assignment is
-/// canonical: a cell has one address, and [`CellAddr::unwrap`] hands back the
-/// same one however many times it is called.
-pub uninterp spec fn cell_addr(id: CellId) -> usize;
+impl<S, R> FieldSplit<S, R> {
+    /// Where the struct this witness came from lives.
+    pub closed spec fn addr(self) -> usize {
+        self.addr
+    }
 
-pub trait CellAddr {
-    type Perm;
+    /// Everything but the first field, as it stood when the split happened.
+    /// Still true when the witness is spent: no permission for those bytes
+    /// exists while it is held, so nothing can have written them.
+    pub closed spec fn rest(self) -> R {
+        self.rest@
+    }
+}
 
-    /// The type held in the cell. An associated type rather than a parameter on
-    /// `unwrap`, so that the `PointsTo` handed out is for the cell's own value
-    /// type -- a method-level `V` would let a `PCell<u64>`'s permission be
-    /// unwrapped into a `PointsTo<bool>`.
-    type Value;
+/// A struct with an identified first field, such that it is sound to cast a pointer to the
+/// struct into a pointer to that field.
+pub trait StructToField: Sized {
+    type FirstField;
 
-    spec fn id(&self) -> CellId;
+    type Remainder;
 
-    /// Which cell `perm` is a permission for.
-    spec fn perm_id(perm: &Self::Perm) -> CellId;
+    spec fn split(self) -> (Self::FirstField, Self::Remainder);
 
-    /// What `perm` says that cell currently holds.
-    spec fn perm_contents(perm: &Self::Perm) -> MemContents<Self::Value>;
+    spec fn combine(f: Self::FirstField, r: Self::Remainder) -> Self;
 
-    /// Exchanges a cell permission for an addressed one: the same contents, now
-    /// reachable through a pointer at the cell's assigned address.
-    ///
-    /// `perm_id`/`perm_contents` exist to let this be stated at all. `Perm` is
-    /// an opaque associated type, so without them there is nothing to say about
-    /// the input, and the result could not be tied to the cell it came from.
-    proof fn unwrap(tracked perm: Self::Perm) -> (tracked res: (CellLoc, PointsTo<Self::Value>))
+    proof fn roundtrip(self)
         ensures
-            res.0.id == Self::perm_id(&perm),
-            res.0.addr == cell_addr(Self::perm_id(&perm)),
-            res.1.addr() == res.0.addr,
-            res.1.mem_contents() == Self::perm_contents(&perm),
+            Self::combine(self.split().0, self.split().1) == self,
     ;
 
-    /// The inverse exchange: gives up an addressed permission and the location
-    /// it belongs to, and gets the cell permission back.
-    ///
-    /// Both `requires` carry the soundness of this direction, because
-    /// [`CellLoc`]'s fields are public and so a `CellLoc` can be built out of
-    /// thin air:
-    ///
-    /// - `perm.addr() == loc.addr` stops an unrelated `PointsTo` from being
-    ///   passed off as the cell's contents.
-    /// - `loc.addr == cell_addr(loc.id)` stops a fabricated `CellLoc` from
-    ///   naming a cell the caller does not own. It is the obligation that cannot
-    ///   be discharged for an arbitrary id: `cell_addr` is uninterpreted, so the
-    ///   only way to know a cell's address is to have been given it -- in
-    ///   practice, by [`Self::unwrap`].
-    ///
-    /// `loc` is consumed, which keeps the exchange balanced: `unwrap` issues one
-    /// `CellLoc` and `wrap` spends it.
-    proof fn wrap(tracked loc: CellLoc, tracked perm: PointsTo<Self::Value>) -> (tracked res:
-        Self::Perm)
+    /// Exchanges a permission for the struct for one for its first field, at
+    /// the same address. The remainder has no permission of its own afterwards --
+    /// its value goes into the witness.
+    proof fn split_first(tracked perm: PointsTo<Self>) -> (tracked res: (
+        FieldSplit<Self, Self::Remainder>,
+        PointsTo<Self::FirstField>,
+    ))
         requires
-            loc.addr == cell_addr(loc.id),
-            perm.addr() == loc.addr,
+            perm.is_init(),
         ensures
-            Self::perm_id(&res) == loc.id,
-            Self::perm_contents(&res) == perm.mem_contents(),
+            res.0.addr() == perm.addr(),
+            res.0.rest() == perm.value().split().1,
+            res.1.addr() == perm.addr(),
+            res.1.mem_contents() == MemContents::Init(perm.value().split().0),
+    ;
+
+    /// The inverse exchange: gives up the field permission and the witness, and
+    /// gets the struct permission back, its first field now holding whatever
+    /// the field permission does.
+    proof fn combine_first(
+        tracked rest: FieldSplit<Self, Self::Remainder>,
+        tracked perm: PointsTo<Self::FirstField>,
+    ) -> (tracked res: PointsTo<Self>)
+        requires
+            perm.addr() == rest.addr(),
+            perm.is_init(),
+        ensures
+            res.addr() == perm.addr(),
+            res.is_init(),
+            res.value() == Self::combine(perm.value(), rest.rest()),
     ;
 
     /// The borrowed form of the exchange, for reading.
     ///
-    /// [`Self::unwrap`] consumes the cell permission, which is no help when the
-    /// caller holds only a shared borrow of it, and no help either when the
-    /// access hands out a reference that outlives the exchange -- the cell
-    /// permission would have to stay surrendered for as long as that reference
-    /// lives, with no point at which to [`Self::wrap`] it back.
-    ///
-    /// Borrowing ties the two lifetimes together instead: the addressed
-    /// permission lives exactly as long as the borrow of the cell permission,
-    /// so the cell permission returns on its own and there is nothing to spend.
-    /// No [`CellLoc`] is handed out because there would be nothing in it: its
-    /// `addr` is `cell_addr` of its `id`, and the caller can already name both.
-    proof fn unwrap_ref<'a>(tracked perm: &'a Self::Perm) -> (tracked res: &'a PointsTo<
-        Self::Value,
+    /// As with [`CellUnwrap::unwrap_ref`], no witness is handed out: the borrow
+    /// ties the field permission's lifetime to the struct permission's, so it
+    /// returns on its own and there is nothing to spend.
+    proof fn borrow_first<'a>(tracked perm: &'a PointsTo<Self>) -> (tracked res: &'a PointsTo<
+        Self::FirstField,
     >)
+        requires
+            perm.is_init(),
         ensures
-            res.addr() == cell_addr(Self::perm_id(perm)),
-            res.mem_contents() == Self::perm_contents(perm),
+            res.addr() == perm.addr(),
+            res.mem_contents() == MemContents::Init(perm.value().split().0),
     ;
 
-    /// The borrowed form for writing: as [`Self::unwrap_ref`], and whatever the
-    /// addressed permission holds when the borrow ends is what the cell holds.
-    proof fn unwrap_mut<'a>(tracked perm: &'a mut Self::Perm) -> (tracked res: &'a mut PointsTo<
-        Self::Value,
-    >)
+    /// The borrowed form for writing.
+    ///
+    /// Unlike [`CellUnwrap::unwrap_mut`], this takes the struct permission by
+    /// `&mut`. A field of a plain struct is not interior-mutable, so writing it
+    /// really does change the struct's value, and the final clause says how:
+    /// the first field becomes whatever the borrow ends up holding, and the
+    /// remainder -- which no permission reached during the borrow -- is the one
+    /// it started with. That is the pairing [`Self::combine`] exists to state.
+    proof fn borrow_first_mut<'a>(tracked perm: &'a mut PointsTo<Self>) -> (tracked res:
+        &'a mut PointsTo<Self::FirstField>)
+        requires
+            old(perm).is_init(),
         ensures
-            res.addr() == cell_addr(Self::perm_id(old(perm))),
-            res.mem_contents() == Self::perm_contents(old(perm)),
-            Self::perm_id(final(perm)) == Self::perm_id(old(perm)),
-            Self::perm_contents(final(perm)) == final(res).mem_contents(),
+            res.addr() == old(perm).addr(),
+            res.mem_contents() == MemContents::Init(old(perm).value().split().0),
+            final(res).is_init(),
+            final(perm).addr() == old(perm).addr(),
+            final(perm).is_init(),
+            final(perm).value() == Self::combine(final(res).value(), old(perm).value().split().1),
     ;
 }
 
-/// Gives [`PCell`] an address.
-///
-/// This is the `pcell_maybe_uninit` `PCell`, which is the one `ostd` stores in a
-/// `MetaSlot` and the one whose permission matches the target: both it and
-/// [`vstd::simple_pptr::PointsTo`] carry a [`MemContents`], so the exchange
-/// preserves the initialized/uninitialized state exactly, with no side
-/// condition in either direction.
-impl<V> CellAddr for PCell<V> {
-    type Perm = pcell_maybe_uninit::PointsTo<V>;
+/// A witness that a cell lives at an address: issued by [`CellUnwrap::unwrap`]
+/// and spent by [`CellUnwrap::wrap`].
+pub tracked struct CellLoc {
+    id: CellId,
+    addr: usize,
+}
 
-    type Value = V;
-
-    // Written as a path call, not `self.id()`: the inherent `PCell::id` and this
-    // trait method share a name, and relying on inherent-wins here would be
-    // needlessly delicate.
-    open spec fn id(&self) -> CellId {
-        PCell::id(self)
+impl CellLoc {
+    /// The cell this witness is for.
+    pub closed spec fn id(self) -> CellId {
+        self.id
     }
 
-    open spec fn perm_id(perm: &Self::Perm) -> CellId {
-        perm.id()
+    /// Where that cell lives.
+    pub closed spec fn addr(self) -> usize {
+        self.addr
     }
+}
 
-    open spec fn perm_contents(perm: &Self::Perm) -> MemContents<V> {
-        perm.mem_contents()
-    }
+pub trait CellUnwrap: Sized {
+    proof fn unwrap(
+        tracked parent: PointsTo<PCell<Self>>,
+        tracked perm: pcell_maybe_uninit::PointsTo<Self>,
+    ) -> (tracked res: (CellLoc, PointsTo<Self>))
+        requires
+            parent.mem_contents() is Init,
+            parent.mem_contents().value().id() == perm.id(),
+        ensures
+            res.0.id() == perm.id(),
+            res.0.addr() == parent.addr(),
+            res.1.addr() == parent.addr(),
+            res.1.mem_contents() == perm.mem_contents(),
+    ;
 
-    /// TRUSTED. This is the module's whole trust burden, and it is not a
-    /// bookkeeping step: a `PCell` has no address in its specification at all
-    /// -- [`CellId`] is deliberately opaque and carries no provenance -- so no
-    /// proof can produce a `simple_pptr::PointsTo` from a cell permission. The
-    /// exchange has to be asserted.
-    ///
-    /// What makes it defensible is that the cell permission is *consumed*:
-    /// `perm` is taken by value, so the contents cannot be reached both ways at
-    /// once. `cell_addr` being a function of the id keeps the address stable
-    /// across calls, and the result's `mem_contents` is the input's, so the
-    /// caller learns nothing about the value it did not already hold.
-    #[verifier::external_body]
-    proof fn unwrap(tracked perm: Self::Perm) -> (tracked res: (CellLoc, PointsTo<V>)) {
-        unimplemented!();
-    }
+    proof fn wrap(tracked loc: CellLoc, tracked perm: PointsTo<Self>) -> (tracked res: (
+        pcell_maybe_uninit::PointsTo<Self>,
+        PointsTo<PCell<Self>>,
+    ))
+        requires
+            perm.addr() == loc.addr(),
+            perm.mem_contents().is_init(),
+        ensures
+            res.0.id() == loc.id(),
+            res.0.mem_contents() == perm.mem_contents(),
+            res.1.addr() == perm.addr(),
+            res.1.mem_contents().is_init(),
+            res.1.mem_contents().value().id() == loc.id(),
+    ;
 
-    /// TRUSTED, for the same reason as [`Self::unwrap`]: the two directions of
-    /// one exchange, neither provable from the other.
-    ///
-    /// The asymmetry worth noting is in the preconditions rather than the trust.
-    /// `unwrap` needs none -- holding the cell permission is already the right
-    /// to the contents, and the address it hands out is whatever `cell_addr`
-    /// says. `wrap` needs both of its, because a `PointsTo` plus a `CellLoc`
-    /// does not by itself say the two are about the same cell.
-    #[verifier::external_body]
-    proof fn wrap(tracked loc: CellLoc, tracked perm: PointsTo<V>) -> (tracked res: Self::Perm) {
-        unimplemented!();
-    }
+    proof fn unwrap_ref<'a>(
+        tracked parent: &'a PointsTo<PCell<Self>>,
+        tracked perm: &'a pcell_maybe_uninit::PointsTo<Self>,
+    ) -> (tracked res: &'a PointsTo<Self>)
+        requires
+            parent.mem_contents() is Init,
+            parent.mem_contents().value().id() == perm.id(),
+        ensures
+            res.addr() == parent.addr(),
+            res.mem_contents() == perm.mem_contents(),
+    ;
 
-    /// TRUSTED, as the owning pair. These two need no precondition at all:
-    /// borrowing a cell permission is already the right to its contents, and
-    /// the borrow checker, not a `requires`, is what stops the addressed
-    /// permission from outliving it.
-    #[verifier::external_body]
-    proof fn unwrap_ref<'a>(tracked perm: &'a Self::Perm) -> (tracked res: &'a PointsTo<V>) {
-        unimplemented!();
-    }
-
-    #[verifier::external_body]
-    proof fn unwrap_mut<'a>(tracked perm: &'a mut Self::Perm) -> (tracked res: &'a mut PointsTo<
-        V,
-    >) {
-        unimplemented!();
-    }
+    proof fn unwrap_mut<'a>(
+        tracked parent: &'a PointsTo<PCell<Self>>,
+        tracked perm: &'a mut pcell_maybe_uninit::PointsTo<Self>,
+    ) -> (tracked res: &'a mut PointsTo<Self>)
+        requires
+            parent.mem_contents() is Init,
+            parent.mem_contents().value().id() == old(perm).id(),
+        ensures
+            res.addr() == parent.addr(),
+            res.mem_contents() == old(perm).mem_contents(),
+            final(perm).id() == old(perm).id(),
+            final(perm).mem_contents() == final(res).mem_contents(),
+    ;
 }
 
 } // verus!

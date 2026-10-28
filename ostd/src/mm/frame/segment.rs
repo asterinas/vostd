@@ -5,7 +5,7 @@ use vstd::{
     simple_pptr::{PPtr, PointsTo},
     std_specs::{convert::FromSpecImpl, iter::IteratorSpecImpl},
 };
-use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::typing::tagged::MaxSize;
 use vstd_extra::{assert, ownership::*, panic::may_panic, prelude::*};
 
 use crate::specs::{
@@ -296,7 +296,7 @@ impl<M: AnyFrameMeta + OwnerOf> RCClone for Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> Segment<M> {
     /// Creates a new [`Segment`] from unused frames.
     ///
     /// The caller must provide a closure to initialize metadata for all the frames.

@@ -43,7 +43,7 @@ use vstd::{
     std_specs::cmp::PartialEqSpecImpl,
 };
 use vstd_extra::transmute::{can_transmute, transmuted};
-use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::typing::tagged::MaxSize;
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::{Any, is_};
 use vstd_extra::{ownership::*, panic::may_panic};
@@ -184,7 +184,7 @@ impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -280,8 +280,6 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
             },
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
-        // SAFETY: The type is tracked by the typed storage permission.
-        //  unsafe { &*self.slot().as_meta_ptr::<M>() }
         proof_decl! {
             let tracked slot_perm = self.tracked_slot_perm.borrow();
             let tracked metadata_perm = if metadata_perm is Some {
@@ -289,8 +287,12 @@ impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
             } else {
                 self.tracked_metadata_perm.tracked_borrow().tracked_borrow()
             };
+            let tracked meta_perm = MetaSlot::meta_perm::<M>(slot_perm, metadata_perm);
         }
-        borrow_meta(self.ptr, Tracked(slot_perm), Tracked(metadata_perm))
+        // SAFETY: The type is tracked by the typed storage permission.
+        #[verus_spec(with Tracked(slot_perm))]
+        let meta_ptr = self.slot().as_meta_ptr::<M>();
+        meta_ptr.borrow(Tracked(meta_perm))
     }
 }
 
@@ -753,7 +755,7 @@ impl<M: ?Sized> Frame<M> {
 /// Identity of an erased frame's metadata.
 ///
 /// A separate impl block because the surrounding one is bounded by
-/// `ByteRepr<META_STORAGE_SIZE>`, which `dyn AnyFrameMeta` does not satisfy --
+/// `MaxSize<META_STORAGE_SIZE>`, which `dyn AnyFrameMeta` does not satisfy --
 /// and it is exactly the erased case these two are for.
 impl Frame<dyn AnyFrameMeta> {
     /// Gets the dynamically-typed metadata of this frame.

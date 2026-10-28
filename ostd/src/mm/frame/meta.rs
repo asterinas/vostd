@@ -14,7 +14,8 @@
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
 use vstd::prelude::*;
-use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::substructural::{CellUnwrap, StructToField};
+use vstd_extra::typing::tagged::{MaxSize, TaggedArray};
 
 verus! {
 
@@ -531,7 +532,7 @@ impl MetaSlot {
                 )
             },
     )]
-    pub(super) fn get_from_unused<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf>(
+    pub(super) fn get_from_unused<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
@@ -812,20 +813,24 @@ impl MetaSlot {
         meta_ptr
     }
 
+    */
     /// Gets the stored metadata as type `M`.
     ///
-    /// Calling the method should be safe, but using the returned pointer would
-    /// be unsafe. Specifically, the derefernecer should ensure that:
-    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and
-    ///    valid;
-    ///  - the initialized metadata is of type `M`;
-    ///  - the returned pointer should not be dereferenced as mutable unless
-    ///    having exclusive access to the metadata slot.
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta>(&self) -> *mut M {
-        self.storage.get() as *mut M
+    /// Upstream this is one cast -- `self.storage.get() as *mut M`
+    #[verus_spec(res =>
+        with
+            Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>,
+        requires
+            *self == slot_perm.value(),
+        ensures
+            res.addr() == slot_perm.addr(),
+    )]
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta>(&self) -> PPtr<M> {
+        proof_with!(Tracked(slot_perm));
+        let addr = self.addr_of();
+        PPtr::from_addr(addr)
     }
 
-    */
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
     /// # Safety
@@ -857,7 +862,7 @@ impl MetaSlot {
             final(metadata_perm).storage_perm.value().value::<M>() == metadata,
             final(metadata_perm).meta_type_id == recorded_meta_id::<M>(),
     )]
-    pub(super) unsafe fn write_meta<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
         &self,
         metadata: M,
     ) {
@@ -872,12 +877,14 @@ impl MetaSlot {
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
         // unsafe { ptr.cast::<M>().write(metadata) };
-        write_metadata_into_storage(&self.storage, Tracked(metadata_perm), metadata);
+        //
+        // `store` is what tags the bytes with `recorded_id::<M>()` and names the
+        // stored value; the cell write then installs them. Upstream's single
+        // `ptr.cast::<M>().write` is these two steps, which the cell model
+        // separates: one to build the storage value, one to put it in the cell.
+        let repr = MetaSlotStorage(TaggedArray::<META_STORAGE_SIZE>::store(metadata));
+        self.storage.write(Tracked(&mut metadata_perm.storage_perm), repr);
 
-        // Record which type went in. After the storage write, not before:
-        // `write_metadata_into_storage` takes the permission `&mut` and its
-        // postcondition says nothing about this field, so an earlier assignment
-        // would be forgotten. This is the only place that knows `M`.
         proof {
             metadata_perm.meta_type_id = recorded_meta_id::<M>();
         }

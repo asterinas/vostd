@@ -5,7 +5,7 @@ use vstd::{
     simple_pptr::{self, PPtr, PointsTo},
 };
 use vstd_extra::ownership::*;
-use vstd_extra::typing::tagged::ByteRepr;
+use vstd_extra::typing::tagged::MaxSize;
 
 use crate::specs::{
     arch::*,
@@ -114,7 +114,7 @@ impl<M: ?Sized> Frame<M> {
     }
 }
 
-impl<M: AnyFrameMeta + ByteRepr<META_STORAGE_SIZE> + ?Sized> Frame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + ?Sized> Frame<M> {
     /// Relates an externally stored metadata permission to this frame's slot permission.
     pub open spec fn external_meta_wf(self, metadata_perm: MetadataPerm) -> bool {
         &&& self.ptr_inv()
