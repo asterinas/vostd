@@ -19,7 +19,7 @@ const SERIES = [
 const TM_STATUS = [
   // Status palette follows code_treemap.py; identical in light/dark themes.
   { key: "verified_exec", name: "Fully verified", cssVar: "--tm-verified", darkText: true },
-  { key: "trusted", name: "Partially verified", cssVar: "--tm-trusted", darkText: true },
+  { key: "trusted", name: "Trusted boundary", cssVar: "--tm-trusted", darkText: true },
   { key: "unverified", name: "Unverified", cssVar: "--tm-unverified", darkText: true },
   { key: "unplanned", name: "Unplanned", cssVar: "--tm-unplanned", darkText: false },
 ];
@@ -364,7 +364,7 @@ function renderTreemapChart(snapshot) {
     const show = (event) => {
       tooltip.innerHTML = `<strong>${esc(path)}</strong>` + TM_STATUS.map((st) =>
         `<div class="tm-tooltip-row"><span class="legend-swatch" style="background:var(${st.cssVar})"></span>` +
-        `<span>${esc(st.key === "verified_exec" ? "Verified" : st.key === "trusted" ? "Trusted" : st.name)}</span>` +
+        `<span>${esc(st.key === "verified_exec" ? "Verified" : st.name)}</span>` +
         `<b>${fmtFull(node[st.key] || 0)}</b><span>LoC</span></div>`).join("") +
         `<div class="tm-tooltip-meta">${fmtFull(node.total)} exec LoC · spec ${fmtFull(node.spec)} · proof ${fmtFull(node.proof)}<br>` +
         `VOSTD rust-mode ${fmtFull(node.rust_mode)}</div>`;
@@ -396,14 +396,7 @@ function renderTreemapChart(snapshot) {
       const label = document.createElement("div");
       label.className = "tm-label";
       label.style.fontSize = `${rect.w > 180 && rect.h > 100 ? 20 : rect.w > 95 && rect.h > 50 ? 15 : 11}px`;
-      label.append(document.createTextNode(collapsed ? node.name.toUpperCase() : node.name));
-      // Small modules show only their name; the exact counts remain in the tooltip.
-      if (!collapsed && rect.w >= 140 && rect.h >= 85) {
-        const count = document.createElement("span");
-        count.className = "tm-count";
-        count.textContent = `${fmtFull(node.total)} exec LoC`;
-        label.append(count);
-      }
+      label.append(document.createTextNode(collapsed ? `${node.name.toUpperCase()} | ${fmtFull(node.total)} LoC` : node.name));
       cell.append(label);
     }
   };
@@ -437,7 +430,7 @@ function renderTreemapChart(snapshot) {
       }
       place(rect, "tm-group");
       const band = place({ ...rect, h: HEADER }, "tm-header");
-      band.textContent = node.name.toUpperCase();
+      band.textContent = `${node.name.toUpperCase()} | ${fmtFull(node.total)} LoC`;
       describe(band, node, path);
       layout(node.children,
         { x: rect.x + 1, y: rect.y + HEADER, w: rect.w - 2, h: rect.h - HEADER - 1 },
@@ -520,7 +513,7 @@ function renderTreemapTable(snapshot) {
           fmtFull(m.unplanned),
           PCT(m.total ? m.verified_exec / m.total : 0),
         ]),
-      ["Module", "Exec LoC", "Verified", "Trusted", "Unverified", "Unplanned", "Verified share"],
+      ["Module", "Exec LoC", "Verified", "Trusted boundary", "Unverified", "Unplanned", "Verified share"],
     ),
   );
 }
@@ -541,7 +534,7 @@ function renderHistoryTable(points) {
           fmtFull(p.proof ?? 0),
           p.verified_apis != null ? fmtFull(p.verified_apis) : "—",
         ]),
-      ["Date", "Commit", "Verified", "Trusted", "Spec", "Proof", "Verified APIs"],
+      ["Date", "Commit", "Verified", "Trusted boundary", "Spec", "Proof", "Verified APIs"],
     ),
   );
 }

@@ -243,7 +243,6 @@ footer.page a { color: var(--ink-2); }
 .tm-module:hover, .tm-module:focus-visible { outline: 2px solid var(--series-verified); outline-offset: -2px; z-index: 1; }
 .tm-header:focus-visible { outline: 2px solid var(--series-verified); outline-offset: -2px; }
 .tm-label { top: 1px; left: 1px; padding: 1px 3px; border-radius: 0; background: rgba(252,252,251,.85); color: #233029; opacity: 1; max-width: calc(100% - 2px); white-space: nowrap; text-overflow: ellipsis; }
-.tm-count { display: block; font-size: .85em; }
 .tm-tooltip { position: fixed; z-index: 20; pointer-events: none; width: max-content; max-width: calc(100vw - 24px); padding: 14px 16px; background: var(--surface-1); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 30px #0003; font-size: 13px; }
 .tm-tooltip strong { display: block; margin-bottom: 8px; overflow-wrap: anywhere; }
 .tm-tooltip-row { display: grid; grid-template-columns: 13px 1fr auto auto; align-items: center; gap: 8px; }
