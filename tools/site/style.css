@@ -20,10 +20,12 @@
   --series-spec: #eda100;    /* slot 3 yellow — spec */
   --series-proof: #008300;   /* slot 4 green — proof */
 
-  /* Treemap: one blue ordinal ramp unverified → trusted → verified. */
-  --tm-unverified: #86b6ef;
-  --tm-trusted: #3987e5;
-  --tm-verified: #184f95;
+  /* Treemap statuses: the code_treemap.py reference palette (semantic, not
+   * theme-dependent — both themes use the same fills). */
+  --tm-verified: #2f965b;
+  --tm-trusted: #b8dda2;
+  --tm-unverified: #e3e6e8;
+  --tm-unplanned: #343a40;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -44,9 +46,7 @@
     --series-spec: #c98500;
     --series-proof: #008300;
 
-    --tm-unverified: #86b6ef;
-    --tm-trusted: #3987e5;
-    --tm-verified: #184f95;
+    --tm-unplanned: #444b52;
   }
 }
 
@@ -176,6 +176,52 @@ footer.page {
   margin-top: 36px;
 }
 footer.page a { color: var(--ink-2); }
+
+/* Treemap legend chips (status share of the executable budget). */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 2px 16px 4px; }
+.legend-chip { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 12.8px; }
+.legend-swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
+
+/* Hand-rolled treemap (hover tooltips are the native title attribute). */
+.tm-root { position: relative; width: 100%; height: 100%; }
+.tm-root > div { position: absolute; }
+.tm-header {
+  background: var(--grid);
+  border: 1px solid var(--baseline);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  line-height: 16px;
+  padding: 0 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tm-header-thin { height: auto; }
+.tm-module {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--surface-1);
+}
+.tm-status { min-height: 0; }
+.tm-label {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-1);
+  opacity: 0.9;
+  color: var(--ink);
+  font-size: 10.5px;
+  line-height: 1.35;
+  white-space: pre-line;
+  pointer-events: none;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+}
 
 /* ECharts tooltip chrome (canvas charts don't inherit page CSS). */
 .card .echarts-tooltip {

@@ -38,7 +38,7 @@
 
     <section class="card">
       <h2>Verified lines of code over time</h2>
-      <p class="card-note" id="history-note">VOSTD-raw line counts recorded on every verified main-branch commit (spec and proof lines are not part of the executable budget).</p>
+      <p class="card-note" id="history-note">Line counts recorded on every verified main-branch commit. Spec and proof include the ostd/specs tree; verified and trusted lines cover ostd/src and ostd/libs.</p>
       <div class="chart" id="history-chart" role="img" aria-label="Line chart of verified, trusted, spec, and proof lines of code over time"></div>
       <details class="data-table">
         <summary>View data</summary>
@@ -48,8 +48,9 @@
 
     <section class="card">
       <h2>Verification status by module</h2>
-      <p class="card-note" id="treemap-note">Area is the mainline OSTD executable-LoC budget per module; VOSTD counts are clamped to it so numbers describe real code size. Click to drill down.</p>
-      <div class="chart" id="treemap-chart" role="img" aria-label="Treemap of OSTD modules by executable lines of code, split into verified, trusted, and unverified parts"></div>
+      <p class="card-note" id="treemap-note">Area is the mainline OSTD executable-LoC budget per module; VOSTD counts are clamped to it so numbers describe real code size. Modules outside the verification plan (arch boot/iommu/tdx_guest, libs linux-bzimage/ostd-macros/ostd-test) are counted as unplanned. Hover any tile for its exact counts.</p>
+      <div class="legend" id="treemap-legend" aria-label="Treemap status legend"></div>
+      <div class="chart" id="treemap-chart" role="img" aria-label="Treemap of OSTD modules by executable lines of code, split into fully verified, partially verified, unverified, and unplanned parts"></div>
       <details class="data-table">
         <summary>View data</summary>
         <div id="treemap-table"></div>

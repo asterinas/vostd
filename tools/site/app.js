@@ -16,9 +16,11 @@ const SERIES = [
 ];
 
 const TM_STATUS = [
-  { key: "verified_exec", name: "Verified", cssVar: "--tm-verified", darkText: true },
-  { key: "trusted", name: "Trusted", cssVar: "--tm-trusted", darkText: true },
-  { key: "unverified", name: "Unverified", cssVar: "--tm-unverified", darkText: false },
+  // Status palette follows code_treemap.py; identical in light/dark themes.
+  { key: "verified_exec", name: "Fully verified", cssVar: "--tm-verified", darkText: true },
+  { key: "trusted", name: "Partially verified", cssVar: "--tm-trusted", darkText: true },
+  { key: "unverified", name: "Unverified", cssVar: "--tm-unverified", darkText: true },
+  { key: "unplanned", name: "Unplanned", cssVar: "--tm-unplanned", darkText: false },
 ];
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -78,7 +80,7 @@ function renderTiles(snapshot, historyPoints) {
     label.textContent = spec.label;
     const value = document.createElement("div");
     value.className = "tile-value";
-    value.textContent = fmt(spec.value);
+    value.textContent = fmtFull(spec.value);
     tile.append(label, value);
 
     if (spec.deltaKey && previous && current && current[spec.deltaKey] != null) {
@@ -188,98 +190,243 @@ function renderHistoryChart(points) {
 
 /* --------------------------------------------------------------- treemap */
 
+/* treemap: hand-rolled squarify layout ported from code_treemap.py, rendered
+ * as plain HTML — ECharts' nested treemap cannot caption parent rows (the
+ * upperLabel path swallows labels), while HTML gives pixel parity with the
+ * reference image: group bands "ARCH · 6,267 exec LoC", an extra platform
+ * level under arch, and each module stacked with its four status colors. */
+function treemapData(snapshot) {
+  const mergeModules = (rows) => {
+    const merged = { total: 0, spec: 0, proof: 0, rust_mode: 0 };
+    for (const st of TM_STATUS) merged[st.key] = 0;
+    for (const module of rows) {
+      merged.total += module.total;
+      merged.spec += module.spec;
+      merged.proof += module.proof;
+      merged.rust_mode += module.rust_mode;
+      for (const st of TM_STATUS) merged[st.key] += module[st.key];
+    }
+    return merged;
+  };
+
+  const groups = new Map();
+  for (const module of snapshot.modules) {
+    if (!groups.has(module.group)) groups.set(module.group, []);
+    groups.get(module.group).push(module);
+  }
+
+  const data = [];
+  for (const [groupName, rows] of groups) {
+    let children;
+    if (groupName === "arch") {
+      const platforms = new Map();
+      for (const module of rows) {
+        const [plat, moduleName] = module.child.split("/", 2);
+        if (!platforms.has(plat)) platforms.set(plat, new Map());
+        const mods = platforms.get(plat);
+        if (!mods.has(moduleName)) mods.set(moduleName, []);
+        mods.get(moduleName).push(module);
+      }
+      children = [...platforms.entries()]
+        .map(([plat, mods]) => {
+          const leaves = [...mods.entries()]
+            .map(([name, rows]) => ({ name, level: "module", ...mergeModules(rows) }))
+            .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+          return {
+            name: plat,
+            level: "platform",
+            total: leaves.reduce((s, leaf) => s + leaf.total, 0),
+            children: leaves,
+          };
+        })
+        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    } else {
+      children = [...new Map(rows.map((m) => [m.child, rows.filter((r) => r.child === m.child)]))
+        .entries()]
+        .map(([name, rows]) => ({ name, level: "module", ...mergeModules(rows) }))
+        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    }
+    data.push({
+      name: groupName,
+      level: "group",
+      total: children.reduce((s, c) => s + c.total, 0),
+      children,
+    });
+  }
+  data.sort((a, b) => b.total - a.total);
+  return data;
+}
+
+/* Squarified treemap layout (reference: code_treemap.py squarify()). */
+function squarifyRects(sizes, rect) {
+  const total = sizes.reduce((sum, value) => sum + value, 0);
+  if (total <= 0 || rect.w <= 0 || rect.h <= 0) return [];
+  const area = rect.w * rect.h;
+  const rest = sizes.map((value) => (value * area) / total);
+  const out = [];
+  let bounds = { ...rect };
+
+  const worstRatio = (row, side) => {
+    if (!row.length || Math.min(...row) <= 0 || side <= 0) return Infinity;
+    const rowSum = row.reduce((s, v) => s + v, 0);
+    return Math.max(
+      (side * side * Math.max(...row)) / (rowSum * rowSum),
+      (rowSum * rowSum) / (side * side * Math.min(...row)),
+    );
+  };
+
+  while (rest.length) {
+    const row = [rest.shift()];
+    const side = Math.min(bounds.w, bounds.h);
+    while (rest.length) {
+      const candidate = row.concat(rest[0]);
+      if (worstRatio(candidate, side) > worstRatio(row, side)) break;
+      row.push(rest.shift());
+    }
+    const rowSum = row.reduce((s, v) => s + v, 0);
+    if (bounds.w >= bounds.h) {
+      const rowWidth = rowSum / bounds.h;
+      let cursorY = bounds.y;
+      for (const size of row) {
+        const itemHeight = size / rowWidth;
+        out.push({ x: bounds.x, y: cursorY, w: rowWidth, h: itemHeight });
+        cursorY += itemHeight;
+      }
+      bounds = { x: bounds.x + rowWidth, y: bounds.y, w: bounds.w - rowWidth, h: bounds.h };
+    } else {
+      const rowHeight = rowSum / bounds.w;
+      let cursorX = bounds.x;
+      for (const size of row) {
+        const itemWidth = size / rowHeight;
+        out.push({ x: cursorX, y: bounds.y, w: itemWidth, h: rowHeight });
+        cursorX += itemWidth;
+      }
+      bounds = { x: bounds.x, y: bounds.y + rowHeight, w: bounds.w, h: bounds.h - rowHeight };
+    }
+  }
+  return out;
+}
+
+function treemapTitle(meta, name) {
+  return [
+    name,
+    ...TM_STATUS.map(
+      (st) => `${st.name} ${fmtFull(meta[st.key] || 0)} (${PCT((meta[st.key] || 0) / (meta.total || 1))})`,
+    ),
+    `spec ${fmtFull(meta.spec || 0)} · proof ${fmtFull(meta.proof || 0)} · vostd rust-mode ${fmtFull(meta.rust_mode || 0)}`,
+  ].join("\n");
+}
+
+/* Flat-coordinate HTML treemap: one absolutely-positioned div per tile in the
+ * host's pixel space. Mirrors the code_treemap.py reference layout — group
+ * caption bands, an extra platform level under arch, and each module filled
+ * with its four statuses stacked full-at-bottom (unplanned on top). */
 function renderTreemapChart(snapshot) {
   const host = document.getElementById("treemap-chart");
-  if (!window.echarts) {
-    host.innerHTML = "";
-    host.append(placeholder("Charts are unavailable (ECharts failed to load)."));
-    return;
-  }
+  renderTreemapLegend(snapshot);
+  host.replaceChildren();
 
-  const text = baseText();
-  const byGroup = new Map();
-  for (const module of snapshot.modules) {
-    const key = `${module.group}/${module.child}`;
-    const node = {
-      name: module.child,
-      meta: module,
-      children: TM_STATUS.map((st) => ({
-        name: st.name,
-        value: module[st.key],
-        itemStyle: { color: css(st.cssVar) },
-      })),
-    };
-    if (!byGroup.has(module.group)) byGroup.set(module.group, []);
-    byGroup.get(module.group).push(node);
-  }
+  const data = treemapData(snapshot);
+  const root = document.createElement("div");
+  root.className = "tm-root";
+  host.append(root);
 
-  const data = [...byGroup.entries()].map(([group, children]) => ({ name: group, children }));
+  const W = host.clientWidth;
+  const H = host.clientHeight;
+  if (!W || !H) return;
 
-  const chart = echarts.init(host);
-  chart.setOption({
-    animationDuration: 200,
-    textStyle: { fontFamily: "system-ui, -apple-system, sans-serif" },
-    tooltip: {
-      backgroundColor: text.surface,
-      borderColor: "transparent",
-      textStyle: { color: text.ink },
-      confine: true,
-      formatter: (info) => {
-        const module = info.data.meta;
-        if (!module) return "";
-        const matched = module.files_with_mainline === module.files;
-        const rows = TM_STATUS.map(
-          (st) =>
-            `<div><span style="display:inline-block;width:10px;height:10px;` +
-            `background:${css(st.cssVar)};border-radius:2px;margin-right:6px"></span>` +
-            `<span class="tt-label">${st.name}</span> <span class="tt-value">${fmtFull(
-              module[st.key],
-            )}</span></div>`,
-        ).join("");
-        const shaft = `<div class="tt-label" style="margin-top:4px">` +
-          `spec ${fmtFull(module.spec)} · proof ${fmtFull(module.proof)} · vostd rust-mode ` +
-          `${fmtFull(module.rust_mode)}${matched ? "" : " · not in mainline"}</div>`;
-        return `<div class="echarts-tooltip"><div class="tt-value">${esc(
-          module.group,
-        )}/${esc(module.child)}</div>${rows}${shaft}</div>`;
-      },
-    },
-    series: [
-      {
-        type: "treemap",
-        roam: false,
-        nodeClick: "zoomToNode",
-        breadcrumb: {
-          show: true,
-          bottom: 0,
-          itemStyle: { color: text.surface, borderColor: text.baseline, textStyle: { color: text.ink2 } },
-        },
-        label: { show: true, formatter: "{b}", fontSize: 11, color: text.ink },
-        upperLabel: {
-          show: true,
-          height: 20,
-          fontSize: 11,
-          color: text.ink2,
-          fontWeight: 600,
-        },
-        itemStyle: { borderColor: text.surface, borderWidth: 2, gapWidth: 2 },
-        levels: [
-          { itemStyle: { borderColor: text.surface, borderWidth: 0, gapWidth: 3 } },
-          {
-            itemStyle: {
-              borderColor: text.surface,
-              borderWidth: 2,
-              gapWidth: 2,
-              color: text.grid,
-            },
-          },
-          { colorSaturation: [0, 0], itemStyle: { borderWidth: 1, gapWidth: 1, borderColor: text.surface } },
-        ],
-        data,
-      },
-    ],
+  const HEADER = 18;   // group/platform caption band, px
+  const GAP = { group: 5, platform: 3, module: 1 };
+
+  const inset = (rect, pad) => ({
+    x: rect.x + pad,
+    y: rect.y + pad,
+    w: Math.max(0, rect.w - 2 * pad),
+    h: Math.max(0, rect.h - 2 * pad),
   });
-  registerChart(chart, host);
+
+  const place = (rect, className) => {
+    const el = document.createElement("div");
+    el.className = className;
+    el.style.left = `${rect.x}px`;
+    el.style.top = `${rect.y}px`;
+    el.style.width = `${rect.w}px`;
+    el.style.height = `${rect.h}px`;
+    root.append(el);
+    return el;
+  };
+
+  const layout = (nodes, bounds, gap, prefix) => {
+    const rects = squarifyRects(
+      nodes.map((node) => node.total),
+      bounds,
+    );
+    nodes.forEach((node, i) => {
+      const rect = inset(rects[i], gap / 2);
+      const path = `${prefix}/${node.name}`;
+      if (node.level === "module") {
+        if (rect.w < 2 || rect.h < 2) return;
+        const cell = place(rect, "tm-module");
+        cell.title = treemapTitle(node, path);
+        // Statuses stacked from the top: unplanned … verified at the bottom,
+        // matching the reference's bottom-anchored stacking.
+        const parts = TM_STATUS.filter((st) => node[st.key] > 0);
+        for (const st of parts.slice().reverse()) {
+          const band = document.createElement("div");
+          band.className = "tm-status";
+          band.style.flexGrow = String(node[st.key]);
+          band.style.background = `var(${st.cssVar})`;
+          cell.append(band);
+        }
+        if (rect.w >= 56 && rect.h >= 26) {
+          const label = document.createElement("div");
+          label.className = "tm-label";
+          label.textContent = `${node.name}\n${fmtFull(node.total)} exec LoC`;
+          cell.append(label);
+        }
+        return;
+      }
+
+      // Group or platform: caption band, then children below it.
+      const total = node.children.reduce((s, c) => s + c.total, 0);
+      if (rect.w < 70 || rect.h <= HEADER + 12) {
+        // Too small to caption or nest; draw a dim placeholder cell.
+        const cell = place(rect, "tm-header tm-header-thin");
+        cell.textContent = `${node.name.toUpperCase()} · ${fmtFull(total)}`;
+        return;
+      }
+      const band = place({ x: rect.x, y: rect.y, w: rect.w, h: HEADER }, "tm-header");
+      band.textContent = `${node.name.toUpperCase()} · ${fmtFull(total)} exec LoC`;
+      layout(
+        node.children,
+        { x: rect.x, y: rect.y + HEADER, w: rect.w, h: rect.h - HEADER },
+        node.level === "group" ? GAP.platform : GAP.module,
+        path,
+      );
+    });
+  };
+
+  layout(data, { x: 0, y: 0, w: W, h: H }, GAP.group, "");
+}
+
+function renderTreemapLegend(snapshot) {
+  const host = document.getElementById("treemap-legend");
+  if (!host) return;
+  const totals = snapshot.totals;
+  const total = totals.total || 1;
+  host.replaceChildren(
+    ...TM_STATUS.map((st) => {
+      const chip = document.createElement("span");
+      chip.className = "legend-chip";
+      const swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.background = css(st.cssVar);
+      chip.append(swatch, document.createTextNode(
+        `${st.name} ${PCT((totals[st.key] || 0) / total)}`,
+      ));
+      return chip;
+    }),
+  );
 }
 
 /* ---------------------------------------------------------------- tables */
@@ -311,16 +458,18 @@ function renderTreemapTable(snapshot) {
     table(
       snapshot.modules
         .slice()
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) =>
+          `${a.group}/${a.child}`.localeCompare(`${b.group}/${b.child}`))
         .map((m) => [
           `${m.group}/${m.child}`,
           fmtFull(m.total),
           fmtFull(m.verified_exec),
           fmtFull(m.trusted),
           fmtFull(m.unverified),
+          fmtFull(m.unplanned),
           PCT(m.total ? m.verified_exec / m.total : 0),
         ]),
-      ["Module", "Exec LoC", "Verified", "Trusted", "Unverified", "Verified share"],
+      ["Module", "Exec LoC", "Verified", "Trusted", "Unverified", "Unplanned", "Verified share"],
     ),
   );
 }

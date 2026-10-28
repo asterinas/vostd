@@ -28,12 +28,23 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LINE_COUNT = REPO_ROOT / "tools/verus/source/target-verus/release/line_count"
 DEFAULT_SOURCES = ("src=ostd/src", "libs=ostd/libs")
+DEFAULT_SPECS_SOURCE = "specs=ostd/specs"
 
 VERIFIED = "verified_exec"
 TRUSTED = "trusted"
 UNVERIFIED = "unverified"
+UNPLANNED = "unplanned"
 
 TEST_DIRECTORY_NAMES = {"test", "tests"}
+
+# Modules outside the verification plan, following code_treemap.py: their
+# whole executable-LoC budget is drawn as unplanned and vostd counts are
+# ignored for them.
+UNPLANNED_ARCH_MODULES = {"boot", "iommu", "tdx_guest"}
+UNPLANNED_LIBS = {"linux-bzimage", "ostd-macros", "ostd-test"}
+# code_treemap.py's special case: vostd's align_ext is plain Rust, so its
+# verified line count comes from this constant instead of line_count.
+ALIGN_EXT_VERIFIED_EXEC = 24
 
 
 @dataclass
@@ -43,6 +54,7 @@ class Coverage:
     budget: int = 0  # executable LoC budget (mainline exec, or vostd exec if unmatched)
     verified_exec: int = 0
     trusted: int = 0
+    unplanned: int = 0
     spec: int = 0
     proof: int = 0
     rust_mode: int = 0
@@ -59,7 +71,7 @@ class Coverage:
 
     @property
     def unverified(self) -> int:
-        return max(0, self.budget - self.verified_exec - self.trusted)
+        return max(0, self.budget - self.verified_exec - self.trusted - self.unplanned)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -67,12 +79,20 @@ class Coverage:
             VERIFIED: self.verified_exec,
             TRUSTED: self.trusted,
             UNVERIFIED: self.unverified,
+            UNPLANNED: self.unplanned,
             "spec": self.spec,
             "proof": self.proof,
             "rust_mode": self.rust_mode,
             "files": self.files,
             "files_with_mainline": self.files_with_mainline,
         }
+
+
+def is_unplanned_module(group: str, child: str) -> bool:
+    """Whether a module sits outside the verification plan (code_treemap.py)."""
+    if group == "arch" and "/" in child:
+        return child.split("/", 1)[1] in UNPLANNED_ARCH_MODULES
+    return group == "libs" and child in UNPLANNED_LIBS
 
 
 def is_test_source(relative: Path) -> bool:
@@ -286,12 +306,27 @@ def collect_coverage(
         has_mainline = key in mainline_reports
         if has_mainline:
             budget = mainline_budget(classify_lines(mainline_reports[key]))
-            full, partial = normalize_coverage(budget, buckets[VERIFIED], buckets[TRUSTED])
+            if child == "align_ext" and group == "libs":
+                # code_treemap.py: vostd's align_ext is pure Rust, use the
+                # constant instead of the empty line_count report.
+                full, partial = normalize_coverage(
+                    budget, ALIGN_EXT_VERIFIED_EXEC, buckets[TRUSTED]
+                )
+            else:
+                full, partial = normalize_coverage(
+                    budget, buckets[VERIFIED], buckets[TRUSTED]
+                )
         else:
-            # No mainline twin (new/rewritten file): keep vostd raw counts, the
-            # site marks such modules as backed only by vostd itself.
+            # No mainline twin (new/rewritten file) and not on the unplanned
+            # list: treat as unverified, matching code_treemap.py's "missing
+            # vostd counterpart" semantics.
             budget = buckets[VERIFIED] + buckets[TRUSTED]
-            full, partial = buckets[VERIFIED], buckets[TRUSTED]
+            full, partial = 0, 0
+
+        unplanned = 0
+        if is_unplanned_module(group, child):
+            # Outside the verification plan: the whole budget is unplanned.
+            unplanned, full, partial = budget, 0, 0
 
         account(
             group,
@@ -300,6 +335,7 @@ def collect_coverage(
                 budget=budget,
                 verified_exec=full,
                 trusted=partial,
+                unplanned=unplanned,
                 spec=buckets["spec"],
                 proof=buckets["proof"],
                 rust_mode=buckets["rust_mode"],
@@ -330,6 +366,36 @@ def totals_of(modules: dict[str, dict[str, Coverage]]) -> Coverage:
     return totals
 
 
+def count_spec_proof(
+    line_count_path: Path, root: Path, jobs: int
+) -> tuple[int, int, int]:
+    """Spec/proof line totals for a spec-library tree (e.g. ``ostd/specs``).
+
+    These files hold only spec/proof code (no exec), so they never contribute
+    to the executable-LoC budget or the treemap; they are added to the
+    line-chart totals as ``spec_all``/``proof_all``.
+    """
+    spec = proof = files = 0
+    warnings: list[str] = []
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        for report, error in [
+            run_line_count_file(line_count_path, path, no_external_by_default=True)
+            for path in sorted(root.rglob("*.rs"), key=lambda p: str(p))
+            if not is_test_source(path.relative_to(root))
+        ]:
+            if error:
+                warnings.append(error)
+                continue
+            buckets = classify_lines(report)
+            spec += buckets["spec"]
+            proof += buckets["proof"]
+            files += 1
+    if warnings:
+        for warning in warnings[:10]:
+            print(warning, file=sys.stderr)
+    return spec, proof, files
+
+
 def git_output(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
@@ -348,6 +414,7 @@ def print_report(modules: dict[str, dict[str, Coverage]], warnings: list[str]) -
         ("Verified", totals.verified_exec),
         ("Trusted boundary", totals.trusted),
         ("Unverified", totals.unverified),
+        ("Unplanned", totals.unplanned),
         ("Spec", totals.spec),
         ("Proof", totals.proof),
         ("Rust-mode (vostd raw)", totals.rust_mode),
@@ -390,8 +457,16 @@ def write_snapshot(
     sha: str,
     date: str,
     mainline_sha: str | None,
+    specs: tuple[int, int, int] | None = None,
 ) -> None:
     totals = totals_of(modules)
+    totals_dict = totals.as_dict()
+    if specs is not None:
+        spec, proof, _ = specs
+        # Line-chart totals: spec/proof across src+libs+specs. The plain
+        # spec/proof keys stay src+libs-only (they must sum over modules).
+        totals_dict["spec_all"] = totals.spec + spec
+        totals_dict["proof_all"] = totals.proof + proof
     snapshot = {
         "date": date,
         "sha": sha,
@@ -402,7 +477,7 @@ def write_snapshot(
             for child, coverage in sorted(children.items())
             if coverage.total > 0
         ],
-        "totals": totals.as_dict(),
+        "totals": totals_dict,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
@@ -454,9 +529,19 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     if not modules:
         raise SystemExit("line_count produced no executable lines")
 
+    specs = None
+    if args.specs_source:
+        specs_root = Path(args.specs_source).expanduser()
+        if not specs_root.is_absolute():
+            specs_root = REPO_ROOT / specs_root
+        specs_root = specs_root.resolve()
+        if specs_root.is_dir():
+            specs = count_spec_proof(line_count_path, specs_root, args.jobs)
+            print(f"Spec library: {specs[2]} files, spec {specs[0]:,}, proof {specs[1]:,}")
+
     sha = args.sha or git_output(REPO_ROOT, "rev-parse", "HEAD")
     date = args.date or git_output(REPO_ROOT, "show", "-s", "--format=%cI", sha) or ""
-    write_snapshot(modules, args.output, sha, date, args.mainline_sha)
+    write_snapshot(modules, args.output, sha, date, args.mainline_sha, specs)
     print_report(modules, warnings)
     return 0
 
@@ -472,10 +557,15 @@ def cmd_record(args: argparse.Namespace) -> int:
     points = history.setdefault("points", [])
 
     totals = snapshot["totals"]
+    # History points chart the widest spec/proof scope (src+libs+specs);
+    # fall back to the legacy module-scope keys for older snapshots.
+    keys = ("total", VERIFIED, TRUSTED, UNVERIFIED, UNPLANNED, "rust_mode")
     point = {
         "date": snapshot["date"],
         "sha": snapshot["sha"],
-        **{key: totals[key] for key in ("total", VERIFIED, TRUSTED, UNVERIFIED, "spec", "proof", "rust_mode")},
+        **{key: totals[key] for key in keys},
+        "spec": totals.get("spec_all", totals["spec"]),
+        "proof": totals.get("proof_all", totals["proof"]),
     }
     for existing in points:
         if existing.get("sha") == point["sha"]:
@@ -521,6 +611,12 @@ def parse_args() -> argparse.ArgumentParser:
         default=[],
         metavar="KIND=DIR",
         help="mainline baseline roots; repeatable (checkout of phaseII/mainline)",
+    )
+    snapshot.add_argument(
+        "--specs-source",
+        default="ostd/specs",
+        help="spec-library tree folded into the line-chart spec/proof totals "
+        "(spec_all/proof_all); does not appear in the treemap",
     )
     snapshot.add_argument("--mainline-sha", help="commit the mainline checkout is at")
     snapshot.add_argument("--arch", help="keep only one arch platform, e.g. x86")
