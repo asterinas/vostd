@@ -507,6 +507,31 @@ function renderHistoryTable(points) {
   );
 }
 
+function renderApiTable(snapshot) {
+  const host = document.getElementById("api-table");
+  const entries = Array.isArray(snapshot.verified_apis_list)
+    ? snapshot.verified_apis_list
+    : [];
+  if (!entries.length) {
+    host.replaceChildren(
+      placeholder(
+        "This snapshot carries no API list — the rustdoc JSON step has not run for it yet.",
+      ),
+    );
+    return;
+  }
+  host.replaceChildren(
+    table(
+      entries
+        .slice()
+        .sort((a, b) =>
+          (a.group + a.name).localeCompare(b.group + b.name))
+        .map((api) => [api.name, api.group, api.location]),
+      ["Verified API", "Module", "Location"],
+    ),
+  );
+}
+
 /* ------------------------------------------------------------- plumbing */
 
 function placeholder(message) {
@@ -570,6 +595,7 @@ async function main() {
   renderTreemapChart(snapshot);
   renderHistoryTable(liveData.points);
   renderTreemapTable(snapshot);
+  renderApiTable(snapshot);
 
   const scheme = window.matchMedia("(prefers-color-scheme: dark)");
   scheme.addEventListener("change", () => {

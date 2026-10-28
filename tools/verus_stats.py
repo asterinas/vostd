@@ -145,20 +145,64 @@ def is_automatically_derived_impl(item: dict[str, Any]) -> bool:
     return "automatically_derived" in item.get("attrs", [])
 
 
-def count_verified_apis(doc_json_path: Path) -> int:
-    """Count verified APIs in a rustdoc JSON tree (``dv doc --json-output``)."""
+def trim_source_path(filename: str) -> str:
+    """Make a rustdoc span filename repo-relative (starting at ``ostd/``)."""
+    parts = Path(filename).parts
+    for i, part in enumerate(parts):
+        if part == "ostd":
+            return Path(*parts[i:]).as_posix()
+    return filename
+
+
+def api_group(filename: str) -> str:
+    """Bucket a rustdoc span filename into a coarse source group."""
+    parts = Path(filename).parts
+    for i, part in enumerate(parts):
+        if part == "ostd" and i + 1 < len(parts):
+            root, tail = parts[i + 1], parts[i + 2 :]
+            if root == "libs" and tail:
+                return f"libs/{tail[0]}"
+            if root == "src" and tail and not tail[0].endswith(".rs"):
+                if tail[0] == "arch" and len(tail) >= 2:
+                    return f"arch/{tail[1]}"
+                return tail[0]
+            return root
+    return (Path(filename).parent.as_posix() or ".")
+
+
+def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]]]:
+    """Verified APIs in a rustdoc JSON tree (``dv doc --json-output``).
+
+    Returns the count plus one entry per API (qualified name, source group,
+    location) for the site's list view.
+    """
     payload = json.loads(Path(doc_json_path).read_text(encoding="utf-8"))
     index = payload.get("index", {})
     if not isinstance(index, dict):
-        return 0
+        return 0, []
 
     derived_ids: set[str] = set()
+    owner_names: dict[str, str] = {}
     for item in index.values():
         impl_info = (item.get("inner") or {}).get("impl")
-        if impl_info and is_automatically_derived_impl(item):
+        if not impl_info:
+            continue
+        if is_automatically_derived_impl(item):
             derived_ids.update(impl_info.get("items", []))
+        for_info = impl_info.get("for")
+        if not isinstance(for_info, dict):
+            continue
+        owner = None
+        resolved = for_info.get("resolved_path")
+        if isinstance(resolved, dict):
+            owner = resolved.get("path")
+        elif isinstance(for_info.get("primitive"), str):
+            owner = for_info["primitive"]
+        if owner:
+            for item_id in impl_info.get("items", []):
+                owner_names[str(item_id)] = owner
 
-    count = 0
+    entries: list[dict[str, str]] = []
     for item in index.values():
         name = item.get("name")
         if name is None:
@@ -177,8 +221,20 @@ def count_verified_apis(doc_json_path: Path) -> int:
             continue
         if is_trait_impl_without_body(item):
             continue
-        count += 1
-    return count
+
+        owner = owner_names.get(str(item.get("id")))
+        if owner:
+            qualified = f"{owner}::{name}"
+        entries.append(
+            {
+                "name": qualified,
+                "group": api_group(span.get("filename", "")),
+                "location": f'{trim_source_path(span.get("filename", ""))}:'
+                f'{span.get("begin", [0, 0])[0]}:{span.get("begin", [0, 0])[1]}',
+            }
+        )
+    entries.sort(key=lambda e: (e["location"], e["name"]))
+    return len(entries), entries
 
 
 def is_test_source(relative: Path) -> bool:
@@ -545,6 +601,7 @@ def write_snapshot(
     mainline_sha: str | None,
     specs: tuple[int, int, int] | None = None,
     verified_apis: int | None = None,
+    api_entries: list[dict[str, str]] | None = None,
 ) -> None:
     totals = totals_of(modules)
     totals_dict = totals.as_dict()
@@ -568,6 +625,8 @@ def write_snapshot(
         ],
         "totals": totals_dict,
     }
+    if api_entries is not None:
+        snapshot["verified_apis_list"] = api_entries
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     print(f"Snapshot: {output}")
@@ -629,12 +688,13 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             print(f"Spec library: {specs[2]} files, spec {specs[0]:,}, proof {specs[1]:,}")
 
     verified_apis = None
+    api_entries: list[dict[str, str]] | None = None
     if args.doc_json:
         doc_json = Path(args.doc_json).expanduser()
         if not doc_json.is_absolute():
             doc_json = Path.cwd() / doc_json
         if doc_json.is_file():
-            verified_apis = count_verified_apis(doc_json)
+            verified_apis, api_entries = collect_verified_apis(doc_json)
             print(f"Verified APIs: {verified_apis:,}")
         else:
             print(f"warning: rustdoc JSON not found, skipping API count: {doc_json}",
@@ -643,7 +703,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     sha = args.sha or git_output(REPO_ROOT, "rev-parse", "HEAD")
     date = args.date or git_output(REPO_ROOT, "show", "-s", "--format=%cI", sha) or ""
     write_snapshot(modules, args.output, sha, date, args.mainline_sha, specs,
-                   verified_apis)
+                   verified_apis, api_entries)
     print_report(modules, warnings)
     return 0
 
