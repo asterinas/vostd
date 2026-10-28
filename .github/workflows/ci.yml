@@ -61,77 +61,11 @@ jobs:
           ref: ${{ github.sha }}
           submodules: recursive
 
-      - name: Set up toolchain and caches
-        uses: ./.github/actions/setup-verus
+      - name: Verify OSTD and publish log
+        uses: ./.github/actions/verify
         with:
-          verus: 'true'
-          install-verusfmt: 'false'
-
-      # `make` plus --time-expanded for the perf job's log. `--target` selects
-      # the architecture whose `cfg(target_arch)` module gets verified.
-      - name: Run verification
-        run: |
-          set -o pipefail
-          if ! cargo dv verify --package ostd --target ${{ matrix.rust_target }} -- --time-expanded 2>&1 | tee verify_output.txt; then
-            echo "❌ Verification failed"
-            echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
-            exit 1
-          else
-            echo "✅ Verification passed!"
-          fi
-
-      - name: Check for verification warnings
-        if: always() && runner.os == 'Linux'
-        run: |
-          WARNINGS=(
-            "note: automatically chose triggers for this expression:|auto-trigger notes"
-            "warning: use of deprecated method \`vstd::set::Set::<A>::finite\`|deprecated Set::finite()"
-            "warning: use of deprecated associated function \`vstd::set::Set::<A>::new_assuming_finite\`|deprecated Set::new_assuming_finite()"
-          )
-
-          FAILED=0
-          for ITEM in "${WARNINGS[@]}"; do
-            PATTERN="${ITEM%%|*}"
-            LABEL="${ITEM##*|}"
-            if grep -q "$PATTERN" verify_output.txt 2>/dev/null; then
-              echo "❌ Found $LABEL"
-              grep -n "$PATTERN" verify_output.txt
-              FAILED=1
-            else
-              echo "✅ No $LABEL found"
-            fi
-          done
-
-          if [[ "$FAILED" == "1" ]]; then
-            echo "VERIFY_WARNINGS_FOUND=1" >> "$GITHUB_ENV"
-            exit 1
-          fi
-
-      - name: Upload verification log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: verify-log-${{ matrix.os }}-${{ matrix.rust_target }}
-          path: verify_output.txt
-          retention-days: 7
-          if-no-files-found: warn
-
-      - name: Publish summary
-        if: always()
-        run: |
-          {
-            echo "# CI Summary (${{ matrix.os }} / ${{ matrix.rust_target }})"
-            if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
-              echo "- Verification: ❌ failed"
-            else
-              echo "- Verification: ✅ passed"
-            fi
-            if [[ "${VERIFY_WARNINGS_FOUND:-0}" == "1" ]]; then
-              echo "- Verification warnings: ❌ found"
-            else
-              echo "- Verification warnings: ✅ none"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          rust-target: ${{ matrix.rust_target }}
+          runner-label: ${{ matrix.os }}
 
   format:
     runs-on: ubuntu-latest
@@ -187,7 +121,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      baseline-cache-hit: ${{ steps.baseline.outputs.cache-hit }}
+      baseline-cache-hit: ${{ steps.perf.outputs.baseline-cache-hit }}
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -195,86 +129,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Record which commit was checked out
-        run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
-      - name: Restore prior measurement (baseline)
-        id: baseline
-        uses: actions/cache/restore@v6
+      - name: Analyze verification performance
+        id: perf
+        uses: ./.github/actions/perf
         with:
-          path: perf-store
-          key: perf-metrics-${{ github.sha }}
-          restore-keys: |
-            perf-metrics-
-
-      - name: Save aside the baseline (if any)
-        run: |
-          if [[ -f perf-store/metrics.json ]]; then
-            BASELINE_SHA=$(cat perf-store/source-sha.txt 2>/dev/null || echo unknown)
-            echo "BASELINE_SHA=$BASELINE_SHA" >> "$GITHUB_ENV"
-            mv perf-store/metrics.json perf-baseline.json
-            echo "Baseline: $BASELINE_SHA"
-          else
-            echo "No prior measurement cached; nothing to compare against yet."
-          fi
-
-      - name: Download verification log
-        uses: actions/download-artifact@v8
-        with:
-          # The perf baseline tracks the default (x86_64) target only.
-          name: verify-log-ubuntu-latest-x86_64-unknown-none
-
-      - name: Parse cost metrics
-        run: |
-          mkdir -p perf-store
-          python3 tools/verus_perf.py parse verify_output.txt > perf-store/metrics.json
-          echo "$CUR_SHA" > perf-store/source-sha.txt
-          echo "recorded run for: $CUR_SHA"
-          cat perf-store/metrics.json
-
-      - name: Compare against the prior measurement
-        run: |
-          mkdir -p out
-          if [[ -f perf-baseline.json ]]; then
-            {
-              echo "## Verification cost"
-              echo
-              echo "Comparing this run (\`$CUR_SHA\`) against the last main measurement (\`${BASELINE_SHA:-unknown}\`)."
-              echo
-              python3 tools/verus_perf.py compare perf-baseline.json perf-store/metrics.json
-            } > out/perf-report.md
-          else
-            {
-              echo "## Verification cost: first recorded baseline"
-              echo
-              echo "No prior measurement was cached; nothing to compare against yet. This run's cost (\`$CUR_SHA\`):"
-              echo
-              echo '```'
-              cat perf-store/metrics.json
-              echo '```'
-            } > out/perf-report.md
-          fi
-          cat out/perf-report.md
-          cat out/perf-report.md >> "$GITHUB_STEP_SUMMARY"
-
-      # Failed verification logs may parse as zeros; never publish them.
-      - name: Convert metrics to benchmark format
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.verify.result == 'success'
-        run: |
-          python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
-
-      - name: Upload report artifact
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: verify-perf-report
-          path: |
-            out/perf-report.md
-            out/benchmark.json
-            perf-store/metrics.json
-            perf-store/source-sha.txt
-            perf-baseline.json
-          if-no-files-found: ignore
+          verification-result: ${{ needs.verify.result }}
 
   perf-history:
     # Only trusted main runs may publish history and save the next baseline.
@@ -297,31 +156,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Download performance measurements
-        uses: actions/download-artifact@v8
+      - name: Publish performance history
+        uses: ./.github/actions/perf-history
         with:
-          name: verify-perf-report
-
-      - name: Record benchmark on gh-pages
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: verify-perf
-          tool: customSmallerIsBetter
-          output-file-path: out/benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: dev/bench
-          comment-on-alert: false
-
-      - name: Save measurement as the next baseline
-        # Cache entries are immutable; reruns of the same SHA reuse its entry.
-        if: needs.perf.outputs.baseline-cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v6
-        with:
-          path: perf-store
-          key: perf-metrics-${{ github.sha }}
+          baseline-cache-hit: ${{ needs.perf.outputs.baseline-cache-hit }}
 
   doc:
     # PRs build the docs; pushes also upload the artifact for `stats`,
@@ -362,37 +201,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up toolchain and caches
-        uses: ./.github/actions/setup-verus
-        with:
-          verus: 'true'
-          dv-cache: 'restore'
-
-      - name: Build docs
-        run: make doc
-
-      # After the HTML docs: a second pass emitting the rustdoc JSON tree the
-      # stats job counts verified APIs from (doc/ostd.json).
-      - name: Generate rustdoc JSON
-        run: cargo dv doc --package ostd --json-output
-
-      - name: Upload rustdoc JSON
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: doc-api-json
-          path: doc/ostd.json
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: Upload doc artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: doc-site
-          path: doc
-          retention-days: 7
-          if-no-files-found: error
+      - name: Build documentation and publish artifacts
+        uses: ./.github/actions/build-docs
 
       - name: Publish summary
         if: always()
@@ -433,128 +243,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up toolchain and caches
-        uses: ./.github/actions/setup-verus
-        with:
-          # 'true' is required: tools/verus is gitignored, so the setup
-          # action must bootstrap it (and cache it) for the line_count build.
-          verus: 'true'
-          dv-cache: 'restore'
-
-      - name: Cache line_count build
-        uses: actions/cache@v6
-        with:
-          # Distinct from the Verus cache, which excludes source/target.
-          path: tools/verus/source/target
-          key: ${{ runner.os }}-line-count-${{ hashFiles('tools/verus/source/Cargo.lock', 'tools/verus/source/tools/line_count/**') }}
-          restore-keys: |
-            ${{ runner.os }}-line-count-
-
-      - name: Build line_count
-        run: cargo build --release -p line_count --manifest-path tools/verus/source/Cargo.toml
-
-      - name: Fetch mainline baseline
-        run: |
-          git fetch --depth=1 origin phaseII/mainline ||
-            git fetch --depth=1 https://github.com/asterinas/vostd.git phaseII/mainline
-          git worktree add --detach "$PWD/mainline" FETCH_HEAD
-          echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
-
-      - name: Download rustdoc JSON
-        uses: actions/download-artifact@v8
-        with:
-          name: doc-api-json
-          path: api-json
-        continue-on-error: true
-
-      - name: Take verification snapshot
-        run: |
-          DOC_JSON_ARG=""
-          if [[ -f api-json/ostd.json ]]; then
-            DOC_JSON_ARG="--doc-json api-json/ostd.json"
-          else
-            echo "no rustdoc JSON artifact; the verified-API count is skipped this run"
-          fi
-          python3 tools/verus_stats.py snapshot \
-            --line-count tools/verus/source/target/release/line_count \
-            --mainline-source src=mainline/ostd/src \
-            --mainline-source libs=mainline/ostd/libs \
-            --mainline-sha "$MAINLINE_SHA" \
-            --sha "$GITHUB_SHA" \
-            --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
-            $DOC_JSON_ARG \
-            -o stats-snapshot.json
-          mkdir -p fresh-stats
-          cp stats-snapshot.json fresh-stats/snapshot.json
-
-      - name: Upload stats artifact
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: stats-snapshot
-          path: stats-snapshot.json
-          retention-days: 7
-          if-no-files-found: error
-
-      # gh-pages holds the long-lived data: dev/bench (benchmark chart, pushed
-      # by `perf-history` just before) and stats/history.json (this job's line).
-      - name: Record verification stats on gh-pages
-        run: |
-          set -e
-          if git fetch --depth=1 origin gh-pages 2>/dev/null; then
-            git worktree add "$PWD/gh-pages" FETCH_HEAD
-          else
-            git worktree add --orphan -b gh-pages "$PWD/gh-pages"
-          fi
-          cd gh-pages
-          mkdir -p stats
-          python3 ../tools/verus_stats.py record \
-            --snapshot ../stats-snapshot.json \
-            --history stats/history.json
-          git add stats
-          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-            commit -m "chore: record verification stats for ${GITHUB_SHA}"
-          if ! git push origin HEAD:gh-pages; then
-            echo "push rejected; rebasing once and retrying"
-            git fetch origin gh-pages
-            git rebase FETCH_HEAD
-            git push origin HEAD:gh-pages
-          fi
-          echo "recorded stats point for ${GITHUB_SHA}"
-
-      - name: Download doc artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: doc-site
-          path: site/verusdoc
-
-      - name: Assemble and deploy the site
-        run: |
-          set -e
-          mkdir -p site
-          # Fresh snapshot/history just committed to the gh-pages worktree.
-          mkdir -p site/stats
-          cp gh-pages/stats/history.json site/stats/history.json
-          cp fresh-stats/snapshot.json site/stats/snapshot.json
-          if [[ -d gh-pages/dev/bench ]]; then
-            mkdir -p site/dev
-            cp -r gh-pages/dev/bench site/dev/bench
-            echo "embedded dev/bench"
-          else
-            echo "no dev/bench on gh-pages yet; the bench card will 404 until the first perf push"
-          fi
-          # Apply the shared dashboard/bench UI after copying benchmark data.
-          cp -r tools/site/. site/
-          echo "site root:"; ls site
-
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: site
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Generate statistics and deploy Pages
+        uses: ./.github/actions/pages
 
       - name: Publish summary
         if: always()
