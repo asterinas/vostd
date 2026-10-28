@@ -283,25 +283,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          # Provides the dv submodule the setup action resolves and the
-          # tools/verus tree (in-repo) the line_count build reads.
+          # Provides the dv submodule the setup action resolves.
           ref: ${{ github.sha }}
           submodules: recursive
 
       - name: Set up toolchain and caches
         uses: ./.github/actions/setup-verus
         with:
-          verus: 'false'
+          # 'true' is required: tools/verus is gitignored, so the setup
+          # action must bootstrap it (and cache it) for the line_count build.
+          verus: 'true'
           dv-cache: 'restore'
 
       - name: Cache line_count build
         uses: actions/cache@v6
         with:
+          # Distinct from the Verus cache, which excludes source/target.
           path: tools/verus/source/target
           key: ${{ runner.os }}-line-count-${{ hashFiles('tools/verus/source/Cargo.lock', 'tools/verus/source/tools/line_count/**') }}
           restore-keys: |
@@ -312,7 +314,8 @@ jobs:
 
       - name: Fetch mainline baseline
         run: |
-          git fetch --depth=1 origin phaseII/mainline
+          git fetch --depth=1 origin phaseII/mainline ||
+            git fetch --depth=1 https://github.com/asterinas/vostd.git phaseII/mainline
           git worktree add --detach "$PWD/mainline" FETCH_HEAD
           echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
 
