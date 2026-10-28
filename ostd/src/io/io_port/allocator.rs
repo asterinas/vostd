@@ -10,7 +10,7 @@ use vstd::{
 };
 use vstd_extra::{ownership::Inv, resource_invariant::SimpleResourceInvariant};
 
-use crate::arch::device::io_port::valid_io_port_access;
+use crate::arch::{device::io_port::valid_io_port_access, io::MAX_IO_PORT};
 
 use core::ops::Range;
 
@@ -66,9 +66,9 @@ spec fn io_port_inner_inv_values(
 ) -> bool {
     &&& allocated_instance_id == io_port_allocator_instance_id()
     &&& allocator.inv()
-    &&& allocator@.len() == crate::arch::io::MAX_IO_PORT
+    &&& allocator@.len() == MAX_IO_PORT
     &&& allocated.subset_of(id_alloc_view(allocator))
-    &&& id_alloc_capacity(allocator) == crate::arch::io::MAX_IO_PORT as usize
+    &&& id_alloc_capacity(allocator) == MAX_IO_PORT as usize
 }
 
 /// Authority over the set of PIO ids currently allocated by the global allocator.
@@ -204,10 +204,10 @@ impl IoPortAllocator {
             invariant
                 allocator_inner.inv(),
                 allocator_inner@.len()
-                    == crate::arch::io::MAX_IO_PORT,
+                    == MAX_IO_PORT,
                 !already_allocated ==> forall|id: usize|
                     range.start as usize <= id <
-                        (range.start as int + scan_iter.index()) as usize ==>
+                        (range.start + scan_iter.index()) as usize ==>
                         !id_alloc_view(&allocator_inner).contains(id),
         )]
         for i in range.clone() {
@@ -215,9 +215,9 @@ impl IoPortAllocator {
                 assert((i as usize) < allocator_inner@.len()) by {
                     assert((i as usize) < range.end as usize);
                     assert((range.end as usize) <= u16::MAX as usize);
-                    assert((u16::MAX as usize) <= crate::arch::io::MAX_IO_PORT as usize);
+                    assert((u16::MAX as usize) <= MAX_IO_PORT as usize);
                     assert(allocator_inner@.len()
-                        == crate::arch::io::MAX_IO_PORT);
+                        == MAX_IO_PORT);
                 }
             }
             if allocator_inner.is_allocated(i as usize) {
@@ -257,22 +257,22 @@ impl IoPortAllocator {
             invariant
                 allocator_inner.inv(),
                 allocator_inner@.len()
-                    == crate::arch::io::MAX_IO_PORT,
+                    == MAX_IO_PORT,
                 range.end as usize <= id_alloc_capacity(&allocator_inner),
                 instance_id == io_port_allocator_instance_id(),
                 preserved.subset_of(allocation_start_view),
                 preserved.subset_of(id_alloc_view(&allocator_inner)),
                 id_alloc_capacity(&allocator_inner) ==
-                    crate::arch::io::MAX_IO_PORT as usize,
+                    MAX_IO_PORT as usize,
                 id_alloc_view(&allocator_inner) ==
                     allocation_start_view.union(
                         Set::<usize>::range(
                             range.start as usize,
-                            (range.start as int + allocation_iter.index()) as usize,
+                            (range.start + allocation_iter.index()) as usize,
                         ),
                     ),
                 forall|id: usize|
-                    (range.start as int + allocation_iter.index()) as usize <= id <
+                    (range.start + allocation_iter.index()) as usize <= id <
                         range.end as usize ==>
                     !id_alloc_view(&allocator_inner).contains(id),
         )]
@@ -284,7 +284,7 @@ impl IoPortAllocator {
             }
             proof! {
                 assert((i as usize) ==
-                    (range.start as int + allocation_iter.index()) as usize);
+                    (range.start + allocation_iter.index()) as usize);
                 assert((i as usize) < id_alloc_capacity(&allocator_inner));
                 assert(allocator_inner.inv());
                 assert(!id_alloc_view(&allocator_inner).contains(i as usize));
@@ -418,15 +418,15 @@ impl IoPortAllocator {
             assert(io_port_inner_inv_values(instance_id, preserved, &allocator.value()));
             assert(preserved.subset_of(bitmap_view));
             assert(bitmap_view == id_alloc_bits(pre_seq, pre_len));
-            assert(pre_len == crate::arch::io::MAX_IO_PORT);
-            assert(crate::arch::io::MAX_IO_PORT <= usize::MAX);
+            assert(pre_len == MAX_IO_PORT);
+            assert(MAX_IO_PORT <= usize::MAX);
             assert(pre_len <= usize::MAX);
             assert(claim.id() == instance_id);
             assert((range.end as usize) <= allocator.value()@.len()) by {
                 assert((range.end as usize) <= u16::MAX as usize);
-                assert((u16::MAX as usize) <= crate::arch::io::MAX_IO_PORT as usize);
+                assert((u16::MAX as usize) <= MAX_IO_PORT as usize);
                 assert(allocator.value()@.len()
-                    == crate::arch::io::MAX_IO_PORT);
+                    == MAX_IO_PORT);
             }
         }
         proof! {
@@ -457,17 +457,16 @@ impl IoPortAllocator {
             .free_consecutive(range.start as usize..range.end as usize);
         */
         proof! {
-            assert(allocator_inner@.len() == crate::arch::io::MAX_IO_PORT);
+            assert(allocator_inner@.len() == MAX_IO_PORT);
             assert(id_alloc_capacity(&allocator_inner)
-                == crate::arch::io::MAX_IO_PORT as usize);
+                == MAX_IO_PORT as usize);
             assert(allocator_inner@ == pre_seq);
             assert((range.end as usize) <= id_alloc_capacity(&allocator_inner));
             assert(io_port_inner_inv_values(instance_id, preserved, &allocator_inner));
             assert(id_alloc_view(&allocator_inner) == bitmap_view);
             assert forall|i: int|
-                range.start as usize <= i
-                    && i < allocator_inner@.len()
-                    && i < range.end as usize implies
+                range.start as usize <= i < range.end as usize
+                    && i < allocator_inner@.len() implies
                 allocator_inner@[i]
             by {
                 assert(Set::<usize>::range(range.start as usize, range.end as usize)
@@ -505,9 +504,9 @@ impl IoPortAllocator {
                     == id_alloc_bits(allocator_inner@, final_llen));
             }
             assert(allocator_inner.inv());
-            assert(allocator_inner@.len() == crate::arch::io::MAX_IO_PORT);
+            assert(allocator_inner@.len() == MAX_IO_PORT);
             assert(id_alloc_capacity(&allocator_inner)
-                == crate::arch::io::MAX_IO_PORT as usize);
+                == MAX_IO_PORT as usize);
             assert(allocator.resource().instance_id() == instance_id);
             assert(io_port_inner_inv_values(
                 allocator.resource().instance_id(),
@@ -545,7 +544,7 @@ pub(super) static IO_PORT_ALLOCATOR: Once<IoPortAllocator> = Once::new();
 #[verus_spec(ensures io_port_allocator_initialized())]
 pub(in crate::io) unsafe fn init() {
     // SAFETY: `MAX_IO_PORT` is guaranteed not to exceed the maximum value specified by architecture.
-    let mut allocator = IdAlloc::with_capacity(crate::arch::io::MAX_IO_PORT as usize);
+    let mut allocator = IdAlloc::with_capacity(MAX_IO_PORT as usize);
 
     unsafe extern "C" {
         fn __sensitive_io_ports_start();

@@ -103,12 +103,14 @@ impl IoMem {
 
     /// Returns the physical address of the I/O memory.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.paddr())]
     pub fn paddr(&self) -> Paddr {
         self.pa
     }
 
     /// Returns the length of the I/O memory region.
     #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.length())]
     pub fn length(&self) -> usize {
         self.limit
     }

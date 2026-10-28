@@ -75,6 +75,7 @@ impl<T, A> IoPort<T, A> {
 
     /// Whether the port was acquired as overlapping: it occupies only its first port.
     ///
+    /// Public so callers can use the allocation and constructor postconditions.
     /// Marks the occupied range of [`Self::claim_matches_set`] and the released range of
     /// [`Self::drop`].
     pub closed spec fn is_overlapping(&self) -> bool {
