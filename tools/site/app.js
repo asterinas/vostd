@@ -396,7 +396,19 @@ function renderTreemapChart(snapshot) {
       const label = document.createElement("div");
       label.className = "tm-label";
       label.style.fontSize = `${rect.w > 180 && rect.h > 100 ? 20 : rect.w > 95 && rect.h > 50 ? 15 : 11}px`;
-      label.append(document.createTextNode(collapsed ? `${node.name.toUpperCase()} | ${fmtFull(node.total)} LoC` : node.name));
+      if (collapsed) {
+        label.classList.add("tm-label-group");
+        label.style.fontSize = "10px";
+        const name = document.createElement("span");
+        name.className = "tm-group-name";
+        name.textContent = node.name.toUpperCase();
+        const count = document.createElement("span");
+        count.className = "tm-group-total";
+        count.textContent = `${fmtFull(node.total)} LoC`;
+        label.append(name, count);
+      } else {
+        label.textContent = node.name;
+      }
       cell.append(label);
     }
   };

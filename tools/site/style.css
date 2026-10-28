@@ -63,7 +63,7 @@ body {
   line-height: 1.55;
 }
 
-.wrap { max-width: 1440px; margin: 0 auto; padding: 0 24px 64px; }
+.wrap { max-width: 1800px; margin: 0 auto; padding: 0 24px 64px; }
 
 header.page {
   display: flex;
@@ -236,7 +236,8 @@ footer.page a { color: var(--ink-2); }
 .card .echarts-tooltip .tt-label { color: var(--ink-2); }
 
 /* Dense coverage map, with readable parent bands and quiet module borders. */
-#treemap-chart { position: relative; height: auto; aspect-ratio: 1.84; min-height: 600px; margin-top: 12px; }
+.treemap-scroll { overflow-x: auto; margin-top: 12px; }
+#treemap-chart { position: relative; height: auto; min-width: 1600px; aspect-ratio: 1.84; min-height: 760px; }
 .tm-group { border: 1px solid #8c9a93; background: #d7e0dc; }
 .tm-header { background: #d7e0dc; color: #33433c; border-color: #8c9a93; line-height: 20px; font-size: 11px; }
 .tm-module { border-color: #f9f9f7; }
@@ -266,3 +267,8 @@ a { color: var(--series-verified); text-underline-offset: 3px; }
 @media (max-width: 600px) {
   .bench-page .tile-value { font-size: 20px; }
 }
+
+/* Stack compact group captions so their names stay intact. */
+.tm-label.tm-label-group { padding: 1px 2px; line-height: 1.2; }
+.tm-group-name, .tm-group-total { display: block; }
+.tm-group-total { font-size: 9px; }
