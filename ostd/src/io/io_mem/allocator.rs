@@ -255,7 +255,7 @@ impl IoMemAllocatorBuilder {
                 0 <= k < self.allocators@.len() && k < state_before.len() && {
                     let candidate = self.allocators@[k];
                     &&& candidate@.start <= range.start < range.end <= candidate@.end
-                    &&& state_before[k].id() == candidate.free_id()
+                    &&& state_before[k].id() == candidate.allocate_id()
                     &&& range.view_set() <= state_before[k]@
                 };
             let tracked mut window_permit = state.tracked_borrow_mut(k);
@@ -334,7 +334,7 @@ closed spec fn allocator_states_match(
     &&& forall|i: int|
         #![trigger allocators[i]]
         0 <= i < allocators.len() ==> {
-            &&& state[i].id() == allocators[i].free_id()
+            &&& state[i].id() == allocators[i].allocate_id()
             &&& state[i]@ <= allocators[i]@.view_set()
         }
 }
@@ -348,7 +348,7 @@ impl IoMemAllocatorBuilder {
             0 <= i < self.allocators@.len() && i < state.len() && {
                 let allocator = self.allocators@[i];
                 &&& allocator@.start <= range.start < range.end <= allocator@.end
-                &&& state[i].id() == allocator.free_id()
+                &&& state[i].id() == allocator.allocate_id()
                 &&& range.view_set() <= state[i]@
             }
     }
@@ -370,7 +370,7 @@ impl IoMemAllocator {
     pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
         exists|i: int|
             #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
+            0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
                 && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
     }
 
@@ -378,7 +378,7 @@ impl IoMemAllocator {
     pub closed spec fn has_allocation(self, id: Loc) -> bool {
         exists|i: int|
             #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].allocated_id() == id
+            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
     }
 
     /// Whether some window wholly covers `range`.
@@ -447,7 +447,7 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
             &&& exists|k: int| #![trigger allocators@[k]]
                 0 <= k < allocators@.len()
                     && allocators@[k]@ == res@
-                    && allocators@[k].free_id() == res.free_id()
+                    && allocators@[k].allocate_id() == res.allocate_id()
         },
         ret is None ==> forall|i: int| #![trigger allocators@[i]] 0 <= i < allocators@.len()
             ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,

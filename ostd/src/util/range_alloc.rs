@@ -67,22 +67,23 @@ impl View for RangeAllocator {
 }
 
 impl RangeAllocator {
-    /// The identifier shared by this allocator's allocated-set authority and its [`FreePermit`]s.
+    /// The identifier of this allocator's [`FreePermit`]s, which authorize freeing allocated ranges.
+    /// Shared with the allocated-address set authority.
     ///
     /// Allocation returns a `FreePermit` with this identifier, proving ownership of the allocated
-    /// range. [`Self::free`] consumes it and returns an [`AllocRangePermit`] with [`Self::free_id`].
-    pub closed spec fn allocated_id(self) -> Loc {
-        self.freelist.constant().allocated_id
+    /// range. [`Self::free`] consumes it and returns an [`AllocRangePermit`] with [`Self::allocate_id`].
+    pub closed spec fn free_id(self) -> Loc {
+        self.freelist.constant().free_id
     }
 
-    /// The identifier shared by this allocator's free-set authority, [`AllocPermit`]s, and
-    /// [`AllocRangePermit`]s.
+    /// The identifier of this allocator's [`AllocPermit`]s and [`AllocRangePermit`]s, which authorize
+    /// allocating free addresses. Shared with the free-address set authority.
     ///
     /// Construction returns an `AllocPermit` with this identifier. An `AllocRangePermit` split
     /// from it authorizes allocation of a specific free range; allocation consumes that permission
-    /// and returns a [`FreePermit`] with [`Self::allocated_id`]. Freeing reverses this transition.
-    pub closed spec fn free_id(self) -> Loc {
-        self.freelist.constant().free_id
+    /// and returns a [`FreePermit`] with [`Self::free_id`]. Freeing reverses this transition.
+    pub closed spec fn allocate_id(self) -> Loc {
+        self.freelist.constant().allocate_id
     }
 
     /// The free permission and borrowed allocation tokens account for this allocator's full range.
@@ -91,8 +92,8 @@ impl RangeAllocator {
         permit: AllocPermit,
         allocations: Seq<FreePermit>,
     ) -> bool {
-        &&& permit.id() == self.free_id()
-        &&& allocations.all(|token: FreePermit| token.id() == self.allocated_id())
+        &&& permit.id() == self.allocate_id()
+        &&& allocations.all(|token: FreePermit| token.id() == self.free_id())
         &&& forall|address: usize| #[trigger]
             self@.view_set().contains(address) ==> {
                 permit@.contains(address) || exists|i: int|
@@ -109,8 +110,8 @@ impl RangeAllocator {
 ghost struct FreelistConstant {
     fullrange: Range<usize>,
     initialized_id: Loc,
+    allocate_id: Loc,
     free_id: Loc,
-    allocated_id: Loc,
 }
 
 ghost struct FreelistInvariant;
@@ -184,8 +185,8 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         freelist: Option<BTreeMap<usize, FreeRange>>,
         resource: Self::Resource,
     ) -> bool {
-        &&& resource.free.id() == constant.free_id
-        &&& resource.allocated.id() == constant.allocated_id
+        &&& resource.free.id() == constant.allocate_id
+        &&& resource.allocated.id() == constant.free_id
         &&& match resource.initialized {
             Sum::Left(pending) => {
                 &&& pending.id() == constant.initialized_id
@@ -214,7 +215,7 @@ impl RangeAllocator {
             fullrange.start <= fullrange.end,
         ensures
             ret@ == fullrange,
-            permit@.id() == ret.free_id(),
+            permit@.id() == ret.allocate_id(),
             permit@@ == fullrange.view_set(),
     )]
     /* `#[verus_spec]` on a `const fn` does not keep `proof_decl!` locals visible to
@@ -229,8 +230,8 @@ impl RangeAllocator {
             let ghost constant = FreelistConstant {
                 fullrange,
                 initialized_id: initialized.id(),
-                free_id: free.id(),
-                allocated_id: allocated.id(),
+                allocate_id: free.id(),
+                free_id: allocated.id(),
             };
             let tracked resource = FreelistResource {
                 initialized: Sum::Left(initialized),
@@ -278,11 +279,11 @@ impl RangeAllocator {
             -> allocated: Tracked<FreePermit>,
         requires
             self@.start <= allocate_range.start < allocate_range.end <= self@.end,
-            permit.id() == self.free_id(),
+            permit.id() == self.allocate_id(),
             permit.range() == allocate_range,
         ensures
             res is Ok,
-            allocated@.id() == self.allocated_id(),
+            allocated@.id() == self.free_id(),
             allocated@.range() == allocate_range,
     )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
@@ -457,7 +458,7 @@ impl RangeAllocator {
                 &&& res.end - res.start == size
                 &&& self@.start <= res.start <= res.end <= self@.end
                 &&& allocated@ matches Some(token) && {
-                    &&& token.id() == self.allocated_id()
+                    &&& token.id() == self.free_id()
                     &&& token.range() == res
                     &&& self.owns_free_pool(*final(permit), allocations.push(token))
                 }
@@ -496,7 +497,7 @@ impl RangeAllocator {
             permit.agree(&resource.free);
             assert forall|i: int| 0 <= i < allocations.len() implies #[trigger] allocations[i].id()
                 == resource.allocated.id() by {
-                let belongs = |token: FreePermit| token.id() == self.allocated_id();
+                let belongs = |token: FreePermit| token.id() == self.free_id();
                 assert(belongs(allocations[i]));
             }
             lemma_allocations_agree(allocations, &resource.allocated, allocations.len() as int);
@@ -632,10 +633,10 @@ impl RangeAllocator {
             -> alloc_permit: Tracked<AllocRangePermit>,
         requires
             self@.start <= range.start < range.end <= self@.end,
-            allocated.id() == self.allocated_id(),
+            allocated.id() == self.free_id(),
             allocated.range() == range,
         ensures
-            alloc_permit@.id() == self.free_id(),
+            alloc_permit@.id() == self.allocate_id(),
             alloc_permit@.range() == range,
     )]
     pub fn free(&self, range: Range<usize>) {
@@ -888,10 +889,10 @@ impl RangeAllocator {
                 &&& ret.resource().allocated@ == self@.view_set() - ret.resource().free@
             },
             ret.constant().fullrange == self@,
+            ret.constant().allocate_id == self.allocate_id(),
             ret.constant().free_id == self.free_id(),
-            ret.constant().allocated_id == self.allocated_id(),
-            ret.resource().free.id() == self.free_id(),
-            ret.resource().allocated.id() == self.allocated_id(),
+            ret.resource().free.id() == self.allocate_id(),
+            ret.resource().allocated.id() == self.free_id(),
             ret.resource().initialized is Right,
             ret.resource().initialized->Right_0.id() == ret.constant().initialized_id,
     )]
