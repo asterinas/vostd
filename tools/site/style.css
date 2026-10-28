@@ -19,6 +19,7 @@
   --series-trusted: #1baf7a;  /* slot 2 aqua — trusted boundary */
   --series-spec: #eda100;    /* slot 3 yellow — spec */
   --series-proof: #008300;   /* slot 4 green — proof */
+  --series-api: #4a3aa7;     /* slot 5 violet — verified API count */
 
   /* Treemap statuses: the code_treemap.py reference palette (semantic, not
    * theme-dependent — both themes use the same fills). */
@@ -45,6 +46,7 @@
     --series-trusted: #199e70;
     --series-spec: #c98500;
     --series-proof: #008300;
+    --series-api: #9085e9;
 
     --tm-unplanned: #444b52;
   }

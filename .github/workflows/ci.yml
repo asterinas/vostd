@@ -371,6 +371,20 @@ jobs:
       - name: Build docs
         run: make doc
 
+      # After the HTML docs: a second pass emitting the rustdoc JSON tree the
+      # stats job counts verified APIs from (doc/ostd.json).
+      - name: Generate rustdoc JSON
+        run: cargo dv doc --package ostd --json-output
+
+      - name: Upload rustdoc JSON
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: doc-api-json
+          path: doc/ostd.json
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Upload doc artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
@@ -446,8 +460,21 @@ jobs:
           git worktree add --detach "$PWD/mainline" FETCH_HEAD
           echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
 
+      - name: Download rustdoc JSON
+        uses: actions/download-artifact@v8
+        with:
+          name: doc-api-json
+          path: api-json
+        continue-on-error: true
+
       - name: Take verification snapshot
         run: |
+          DOC_JSON_ARG=""
+          if [[ -f api-json/ostd.json ]]; then
+            DOC_JSON_ARG="--doc-json api-json/ostd.json"
+          else
+            echo "no rustdoc JSON artifact; the verified-API count is skipped this run"
+          fi
           python3 tools/verus_stats.py snapshot \
             --line-count tools/verus/source/target/release/line_count \
             --mainline-source src=mainline/ostd/src \
@@ -455,6 +482,7 @@ jobs:
             --mainline-sha "$MAINLINE_SHA" \
             --sha "$GITHUB_SHA" \
             --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
+            $DOC_JSON_ARG \
             -o stats-snapshot.json
           mkdir -p fresh-stats
           cp stats-snapshot.json fresh-stats/snapshot.json

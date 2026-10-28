@@ -95,6 +95,92 @@ def is_unplanned_module(group: str, child: str) -> bool:
     return group == "libs" and child in UNPLANNED_LIBS
 
 
+# --- Verified API extraction (rustdoc JSON) -------------------------------
+# Ports kverus-dev's verus_cov.py + RustdocApiExtractor: an API is a function
+# with a body in the published rustdoc that is neither spec/proof-only nor
+# trusted away (external_body), excluding trait impls without bodies and
+# auto-derived impl items.
+
+SPEC_ONLY_ATTRS = (
+    "#[verus::internal(spec)]",
+    "#[verus::internal(proof)]",
+    "#[verifier::when_used_as_spec(",
+)
+TRUSTED_ATTRS = {"#[verifier::external_body]"}
+TRAIT_IMPL_NO_BODY_ATTRS = {"#[attr = Inline(Hint)]"}
+
+
+def item_attr_strings(item: dict[str, Any]) -> list[str]:
+    """Normalize rustdoc JSON attrs (plain strings or ``{"other": ...}``)."""
+    strings = []
+    for attr in item.get("attrs") or []:
+        if isinstance(attr, dict):
+            strings.append(str(attr.get("other", "")))
+        else:
+            strings.append(str(attr))
+    return strings
+
+
+def not_exec_code(item: dict[str, Any]) -> bool:
+    """Spec/proof-only fns and items contributed from external spec files."""
+    strings = item_attr_strings(item)
+    if any(skip in attr for attr in strings for skip in SPEC_ONLY_ATTRS):
+        return True
+    filename = (item.get("span") or {}).get("filename", "")
+    return "src/../specs" in filename or "/specs/" in filename
+
+
+def not_verified(item: dict[str, Any]) -> bool:
+    """Items trusted away entirely (external_body)."""
+    return any(attr in TRUSTED_ATTRS for attr in item_attr_strings(item))
+
+
+def is_trait_impl_without_body(item: dict[str, Any]) -> bool:
+    return any(
+        attr in TRAIT_IMPL_NO_BODY_ATTRS for attr in item_attr_strings(item)
+    )
+
+
+def is_automatically_derived_impl(item: dict[str, Any]) -> bool:
+    return "automatically_derived" in item.get("attrs", [])
+
+
+def count_verified_apis(doc_json_path: Path) -> int:
+    """Count verified APIs in a rustdoc JSON tree (``dv doc --json-output``)."""
+    payload = json.loads(Path(doc_json_path).read_text(encoding="utf-8"))
+    index = payload.get("index", {})
+    if not isinstance(index, dict):
+        return 0
+
+    derived_ids: set[str] = set()
+    for item in index.values():
+        impl_info = (item.get("inner") or {}).get("impl")
+        if impl_info and is_automatically_derived_impl(item):
+            derived_ids.update(impl_info.get("items", []))
+
+    count = 0
+    for item in index.values():
+        name = item.get("name")
+        if name is None:
+            continue
+        span = item.get("span") or {}
+        if not span:
+            continue
+        function_info = (item.get("inner") or {}).get("function")
+        if not function_info or function_info.get("has_body") is False:
+            continue
+        if item.get("id") in derived_ids:
+            continue
+        if str(name).isupper():
+            continue
+        if not_exec_code(item) or not_verified(item):
+            continue
+        if is_trait_impl_without_body(item):
+            continue
+        count += 1
+    return count
+
+
 def is_test_source(relative: Path) -> bool:
     parts = [part.casefold() for part in relative.parts]
     filename = parts[-1] if parts else ""
@@ -458,6 +544,7 @@ def write_snapshot(
     date: str,
     mainline_sha: str | None,
     specs: tuple[int, int, int] | None = None,
+    verified_apis: int | None = None,
 ) -> None:
     totals = totals_of(modules)
     totals_dict = totals.as_dict()
@@ -467,6 +554,8 @@ def write_snapshot(
         # spec/proof keys stay src+libs-only (they must sum over modules).
         totals_dict["spec_all"] = totals.spec + spec
         totals_dict["proof_all"] = totals.proof + proof
+    if verified_apis is not None:
+        totals_dict["verified_apis"] = verified_apis
     snapshot = {
         "date": date,
         "sha": sha,
@@ -539,9 +628,22 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             specs = count_spec_proof(line_count_path, specs_root, args.jobs)
             print(f"Spec library: {specs[2]} files, spec {specs[0]:,}, proof {specs[1]:,}")
 
+    verified_apis = None
+    if args.doc_json:
+        doc_json = Path(args.doc_json).expanduser()
+        if not doc_json.is_absolute():
+            doc_json = Path.cwd() / doc_json
+        if doc_json.is_file():
+            verified_apis = count_verified_apis(doc_json)
+            print(f"Verified APIs: {verified_apis:,}")
+        else:
+            print(f"warning: rustdoc JSON not found, skipping API count: {doc_json}",
+                  file=sys.stderr)
+
     sha = args.sha or git_output(REPO_ROOT, "rev-parse", "HEAD")
     date = args.date or git_output(REPO_ROOT, "show", "-s", "--format=%cI", sha) or ""
-    write_snapshot(modules, args.output, sha, date, args.mainline_sha, specs)
+    write_snapshot(modules, args.output, sha, date, args.mainline_sha, specs,
+                   verified_apis)
     print_report(modules, warnings)
     return 0
 
@@ -567,6 +669,8 @@ def cmd_record(args: argparse.Namespace) -> int:
         "spec": totals.get("spec_all", totals["spec"]),
         "proof": totals.get("proof_all", totals["proof"]),
     }
+    if "verified_apis" in totals:
+        point["verified_apis"] = totals["verified_apis"]
     for existing in points:
         if existing.get("sha") == point["sha"]:
             existing.update(point)  # reruns refresh the same commit
@@ -617,6 +721,11 @@ def parse_args() -> argparse.ArgumentParser:
         default="ostd/specs",
         help="spec-library tree folded into the line-chart spec/proof totals "
         "(spec_all/proof_all); does not appear in the treemap",
+    )
+    snapshot.add_argument(
+        "--doc-json",
+        help="rustdoc JSON tree (cargo dv doc --package ostd --json-output) "
+        "counted into totals.verified_apis",
     )
     snapshot.add_argument("--mainline-sha", help="commit the mainline checkout is at")
     snapshot.add_argument("--arch", help="keep only one arch platform, e.g. x86")

@@ -37,16 +37,6 @@
     <section class="tiles" id="tiles" aria-label="Headline verification numbers"></section>
 
     <section class="card">
-      <h2>Verified lines of code over time</h2>
-      <p class="card-note" id="history-note">Line counts recorded on every verified main-branch commit. Spec and proof include the ostd/specs tree; verified and trusted lines cover ostd/src and ostd/libs.</p>
-      <div class="chart" id="history-chart" role="img" aria-label="Line chart of verified, trusted, spec, and proof lines of code over time"></div>
-      <details class="data-table">
-        <summary>View data</summary>
-        <div id="history-table"></div>
-      </details>
-    </section>
-
-    <section class="card">
       <h2>Verification status by module</h2>
       <p class="card-note" id="treemap-note">Area is the mainline OSTD executable-LoC budget per module; VOSTD counts are clamped to it so numbers describe real code size. Modules outside the verification plan (arch boot/iommu/tdx_guest, libs linux-bzimage/ostd-macros/ostd-test) are counted as unplanned. Hover any tile for its exact counts.</p>
       <div class="legend" id="treemap-legend" aria-label="Treemap status legend"></div>
@@ -54,6 +44,16 @@
       <details class="data-table">
         <summary>View data</summary>
         <div id="treemap-table"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Verified lines of code over time</h2>
+      <p class="card-note" id="history-note">Line counts recorded on every verified main-branch commit. Spec and proof include the ostd/specs tree; verified and trusted lines cover ostd/src and ostd/libs. Verified APIs are the functions with a body in the published rustdoc that are neither spec/proof-only nor trusted away.</p>
+      <div class="chart" id="history-chart" role="img" aria-label="Line chart of verified, trusted, spec, proof lines of code and verified API count over time"></div>
+      <details class="data-table">
+        <summary>View data</summary>
+        <div id="history-table"></div>
       </details>
     </section>
 

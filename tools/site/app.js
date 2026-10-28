@@ -13,6 +13,7 @@ const SERIES = [
   { key: "trusted", name: "Trusted boundary", cssVar: "--series-trusted" },
   { key: "spec", name: "Spec", cssVar: "--series-spec" },
   { key: "proof", name: "Proof", cssVar: "--series-proof" },
+  { key: "verified_apis", name: "Verified APIs", cssVar: "--series-api" },
 ];
 
 const TM_STATUS = [
@@ -67,7 +68,12 @@ function renderTiles(snapshot, historyPoints) {
       deltaKey: "trusted",
       upIsGood: false,
     },
-    { label: "Unverified", value: totals.unverified, deltaKey: "unverified", upIsGood: false },
+    {
+      label: "Verified APIs",
+      value: totals.verified_apis ?? 0,
+      deltaKey: "verified_apis",
+      upIsGood: true,
+    },
   ];
 
   const host = document.getElementById("tiles");
@@ -83,7 +89,13 @@ function renderTiles(snapshot, historyPoints) {
     value.textContent = fmtFull(spec.value);
     tile.append(label, value);
 
-    if (spec.deltaKey && previous && current && current[spec.deltaKey] != null) {
+    if (
+      spec.deltaKey &&
+      previous &&
+      current &&
+      current[spec.deltaKey] != null &&
+      previous[spec.deltaKey] != null
+    ) {
       const delta = current[spec.deltaKey] - previous[spec.deltaKey];
       const deltaEl = document.createElement("div");
       deltaEl.className = "tile-delta";
@@ -381,7 +393,7 @@ function renderTreemapChart(snapshot) {
         if (rect.w >= 56 && rect.h >= 26) {
           const label = document.createElement("div");
           label.className = "tm-label";
-          label.textContent = `${node.name}\n${fmtFull(node.total)} exec LoC`;
+          label.textContent = node.name;
           cell.append(label);
         }
         return;
@@ -488,8 +500,9 @@ function renderHistoryTable(points) {
           fmtFull(p.trusted ?? 0),
           fmtFull(p.spec ?? 0),
           fmtFull(p.proof ?? 0),
+          p.verified_apis != null ? fmtFull(p.verified_apis) : "—",
         ]),
-      ["Date", "Commit", "Verified", "Trusted", "Spec", "Proof"],
+      ["Date", "Commit", "Verified", "Trusted", "Spec", "Proof", "Verified APIs"],
     ),
   );
 }
