@@ -1,0 +1,17 @@
+{
+  "points": [
+    {
+      "date": "2026-10-28T16:28:00+08:00",
+      "sha": "025280446ae0ffc2df56a280a43cca78b0f3772d",
+      "total": 15836,
+      "verified_exec": 4608,
+      "trusted": 628,
+      "unverified": 7009,
+      "unplanned": 3591,
+      "rust_mode": 20170,
+      "spec": 18700,
+      "proof": 17782,
+      "verified_apis": 281
+    }
+  ]
+}
