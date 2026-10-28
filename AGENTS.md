@@ -20,7 +20,7 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 - `cargo dv focus --package ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`, without re-checking dependency proofs.
 - `cargo dv verify --package vstd_extra`: compile and verify the `vstd_extra` library independently.
 - `--package` (`-p`) selects packages for `verify`, `focus`, `build`, `doc`, and `count`; `--target <TRIPLE>` selects the Rust target platform (default: `x86_64-unknown-none`).
-- `make verify-<TRIPLE>` verifies `ostd` for one Rust target (short aliases: `verify-x86`, `verify-riscv`); the pattern accepts any triple `cargo dv` supports, e.g. `make verify-loongarch64-unknown-none-softfloat`. Plain `make` / `make verify` stays on the default target.
+- `make verify-<TRIPLE>` verifies `ostd` for one Rust target (short aliases: `verify-x86`, `verify-riscv`, `verify-loongarch`); the pattern accepts any triple `cargo dv` supports, e.g. `make verify-loongarch64-unknown-none-softfloat`. Plain `make` / `make verify` stays on the default target.
 - `cargo dv count -p ostd --module sync::rwlock`: count one module; add `--print-all` (`-a`) to print annotated source lines.
 - `cargo dv doc -p ostd`: generate documentation after building dependencies for the same Rust target with `cargo dv build --target <TRIPLE>`.
 - `make fmt`: format Verus/Rust sources using the project formatter.

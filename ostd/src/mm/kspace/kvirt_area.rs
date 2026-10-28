@@ -258,21 +258,20 @@ pub axiom fn kvirt_alloc_range_bounds(
         kvirt_alloc_spec(area_size) == Ok::<core::ops::Range<Vaddr>, RangeAllocError>(r) ==> r.start
             <= r.end && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start
             + map_offset <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0
-            && KERNEL_BASE_VADDR <= r.start && r.end <= FRAME_METADATA_BASE_VADDR,
+            && KERNEL_BASE_VADDR <= r.start && r.end <= FRAME_METADATA_BASE_VADDR
+            && page_table_managed_start_spec::<KernelPtConfig>() <= r.start,
 ;
 
-/// Kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR] with alignment are valid for
-/// KernelPtConfig (which uses sign-extended high-half addresses).
+/// Aligned ranges within the kernel page table's managed bounds are valid for KernelPtConfig.
 pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
     requires
-        KERNEL_BASE_VADDR <= r.start < r.end <= KERNEL_END_VADDR,
+        page_table_managed_start_spec::<KernelPtConfig>() <= r.start < r.end <= KERNEL_END_VADDR,
         r.start % PAGE_SIZE == 0,
         r.end % PAGE_SIZE == 0,
     ensures
         is_valid_range_spec::<KernelPtConfig>(r),
 {
     lemma_vaddr_range_spec_kernel();
-    assert(KERNEL_BASE_VADDR == 0xFFFF_8000_0000_0000usize) by (compute_only);
 }
 
 /// Kernel virtual area.
@@ -492,8 +491,6 @@ impl KVirtArea {
         let cursor_range = range.start + map_offset..range.end;
 
         proof {
-            // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
-            // tightened bound still satisfies lemma_kernel_range_valid's precondition.
             if cursor_range.start < cursor_range.end {
                 assert(FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR) by (compute_only);
                 lemma_kernel_range_valid(cursor_range);
@@ -514,7 +511,6 @@ impl KVirtArea {
         proof {
             lemma_page_size_spec_values();
             lemma_vaddr_range_spec_kernel();
-            lemma_arch_specific_consts_properties::<KernelPtConfig>();
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
         }
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -730,6 +726,7 @@ impl KVirtArea {
             owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             forall|pa: Paddr, level: PagingLevel|
+                1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==>
                 #[trigger]
                 <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
                     pa,
@@ -763,11 +760,6 @@ impl KVirtArea {
             let len = pa_range.end - pa_range.start;
             let va_range = range.start + map_offset..range.start + map_offset + len;
 
-            proof {
-                assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
-                lemma_kernel_range_valid(va_range);
-            }
-
             let page_table = {
                 proof_decl! {
                     let tracked mut kpt_owner = Some(&owner.pt_owner);
@@ -796,8 +788,9 @@ impl KVirtArea {
                             != page_size::<PagingConsts>(level),
                     len >= page_size::<PagingConsts>(2) ==> may_panic(),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
-                    forall|pa: Paddr, level: PagingLevel| #[trigger]
-                        <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+                    forall|pa: Paddr, level: PagingLevel|
+                        1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
+                            ==> #[trigger] <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
                         pa, level, prop),
                     cursor.0.invariants(cursor_owner, *regions, *guards),
                     // Level bounds / alignment from `collect_largest_pages` postconditions.

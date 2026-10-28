@@ -37,6 +37,10 @@ mod riscv;
 #[cfg(target_arch = "riscv64")]
 pub use riscv::*;
 
+#[cfg(target_arch = "loongarch64")]
+mod loongarch;
+#[cfg(target_arch = "loongarch64")]
+pub use loongarch::*;
 verus! {
 
 // Asterinas is designed for 64-bit architectures.
@@ -51,6 +55,9 @@ pub type CurrentArch = x86::X86Arch;
 /// The architecture selected by the current verification target.
 #[cfg(target_arch = "riscv64")]
 pub type CurrentArch = riscv::RiscvArch;
+
+#[cfg(target_arch = "loongarch64")]
+pub type CurrentArch = loongarch::LoongArch;
 
 /// A physical address that can identify a base-page frame on the selected architecture.
 pub open spec fn valid_frame_paddr(paddr: Paddr) -> bool {

@@ -6,8 +6,9 @@ VERIFICATION_TARGETS := \
 RUST_TARGETS := \
 	x86_64-unknown-none \
 	riscv64imac-unknown-none-elf \
+	loongarch64-unknown-none-softfloat \
 
-.PHONY: all verify $(VERIFICATION_TARGETS) verify-x86 verify-riscv \
+.PHONY: all verify $(VERIFICATION_TARGETS) verify-x86 verify-riscv verify-loongarch \
 	fmt build doc clean verus verus-upgrade
 
 $(VERIFICATION_TARGETS):
@@ -24,6 +25,7 @@ verify-%:
 # Short aliases.
 verify-x86: verify-x86_64-unknown-none
 verify-riscv: verify-riscv64imac-unknown-none-elf
+verify-loongarch: verify-loongarch64-unknown-none-softfloat
 
 fmt:
 	cargo dv fmt
