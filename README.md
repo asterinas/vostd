@@ -1,6 +1,6 @@
 # Formal Verification of Asterinas OSTD with Verus
 
-[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/)
+[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/verusdoc)
 [![verify](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci.yml?branch=main&label=verify)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
@@ -101,7 +101,7 @@ make doc        # or: cargo dv doc --package ostd  # generate API docs at doc/in
 > Run `cargo dv build` before invoking `cargo dv doc` directly.
 
 The generated documentation can be found at `doc/`.
-An [online version](https://asterinas.github.io/vostd/) is also available.
+An [online version](https://asterinas.github.io/vostd/verusdoc) is also available.
 
 ### IDE Support
 

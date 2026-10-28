@@ -3,7 +3,10 @@
 use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
-    std_specs::{convert::FromSpecImpl, iter::IteratorSpecImpl},
+    std_specs::{
+        convert::FromSpecImpl,
+        iter::{IteratorSpec, IteratorSpecImpl},
+    },
 };
 use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
 
@@ -936,8 +939,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     }
 
     #[verifier::prophetic]
-    closed spec fn will_return_none(&self) -> bool {
-        true
+    closed spec fn produces(&self) -> Seq<bool> {
+        Seq::new(IteratorSpec::remaining(self).len(), |i: int| true)
     }
 
     closed spec fn decrease(&self) -> Option<nat> {
