@@ -67,12 +67,20 @@ impl View for RangeAllocator {
 }
 
 impl RangeAllocator {
-    /// The identifier shared by this allocator's allocated-set authority and allocation tokens.
+    /// The identifier shared by this allocator's allocated-set authority and its [`FreePermit`]s.
+    ///
+    /// Allocation returns a `FreePermit` with this identifier, proving ownership of the allocated
+    /// range. [`Self::free`] consumes it and returns an [`AllocRangePermit`] with [`Self::free_id`].
     pub closed spec fn allocated_id(self) -> Loc {
         self.freelist.constant().allocated_id
     }
 
-    /// The identifier shared by this allocator's free-set authority and allocation permissions.
+    /// The identifier shared by this allocator's free-set authority, [`AllocPermit`]s, and
+    /// [`AllocRangePermit`]s.
+    ///
+    /// Construction returns an `AllocPermit` with this identifier. An `AllocRangePermit` split
+    /// from it authorizes allocation of a specific free range; allocation consumes that permission
+    /// and returns a [`FreePermit`] with [`Self::allocated_id`]. Freeing reverses this transition.
     pub closed spec fn free_id(self) -> Loc {
         self.freelist.constant().free_id
     }
