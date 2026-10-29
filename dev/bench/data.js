@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793244158170,
+  "lastUpdate": 1793252318491,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -7728,6 +7728,90 @@ window.BENCHMARK_DATA = {
             "value": 1927495,
             "unit": "rlimit",
             "extra": "smt-run=469ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b79efa6fe2dbb905dad61bc9fcbd96e523c39e3",
+          "message": "fix: add soundness and bi-injectivity lemmas for rlimit error (#874)\n\n* fix: add soundness and bi-injectivity lemmas for rlimit error\n\n* fix: add soundness and bi-injectivity lemma calls in Segment::drop loop",
+          "timestamp": "2026-10-29T13:32:13+08:00",
+          "tree_id": "aeb18982f12f4fd82133b5cfac1c5931c769107e",
+          "url": "https://github.com/asterinas/vostd/commit/9b79efa6fe2dbb905dad61bc9fcbd96e523c39e3"
+        },
+        "date": 1793252317913,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1344855759,
+            "unit": "rlimit",
+            "extra": "verified=4264 errors=0 smt-run=471,970ms wall=279,936ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 543754451,
+            "unit": "rlimit",
+            "extra": "smt-run=243,680ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78229690,
+            "unit": "rlimit",
+            "extra": "smt-run=29,946ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 73802104,
+            "unit": "rlimit",
+            "extra": "smt-run=31,356ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=5,426ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9170301,
+            "unit": "rlimit",
+            "extra": "smt-run=2,715ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=1,152ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2026397,
+            "unit": "rlimit",
+            "extra": "smt-run=784ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=960ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::mod_internals",
+            "value": 1451903,
+            "unit": "rlimit",
+            "extra": "smt-run=1,822ms"
           }
         ]
       }
