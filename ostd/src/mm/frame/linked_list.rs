@@ -317,10 +317,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         let tracked mut cursor_own = CursorOwner::tracked_front_owner(owner0);
         let tracked mut returned_owner: Option<UniqueFrameOwner<Link<M>>>;
 
-        proof_with!(Tracked(regions), Tracked(&mut cursor_own) => Tracked(returned_owner)
-            |= Tracked(CursorOwner::tracked_restore_list_owner(
-                owner, cursor_own, regions, returned_owner)));
-        self.cursor_front_mut().take_current()
+        /* Restore the tracked list owner after the cursor call.
+         * Origin Rust: self.cursor_front_mut().take_current()
+         */
+        #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own) => Tracked(returned_owner))]
+        let frame = self.cursor_front_mut().take_current();
+        proof! {
+            *owner = cursor_own.list_own;
+            owner.lemma_relate_region_implies_inv(*regions);
+        }
+        proof_with!(|= Tracked(returned_owner));
+        frame
     }
 
     /// Pushes a frame to the back of the linked list.
@@ -422,10 +429,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         let tracked mut cursor_own = CursorOwner::tracked_back_owner(owner0);
         let tracked mut returned_owner: Option<UniqueFrameOwner<Link<M>>>;
 
-        proof_with!(Tracked(regions), Tracked(&mut cursor_own) => Tracked(returned_owner)
-            |= Tracked(CursorOwner::tracked_restore_list_owner(
-                owner, cursor_own, regions, returned_owner)));
-        self.cursor_back_mut().take_current()
+        /* Restore the tracked list owner after the cursor call.
+         * Origin Rust: self.cursor_back_mut().take_current()
+         */
+        #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own) => Tracked(returned_owner))]
+        let frame = self.cursor_back_mut().take_current();
+        proof! {
+            *owner = cursor_own.list_own;
+            owner.lemma_relate_region_implies_inv(*regions);
+        }
+        proof_with!(|= Tracked(returned_owner));
+        frame
     }
 
     /// Tells if a frame is in the list.
