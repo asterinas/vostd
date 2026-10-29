@@ -222,6 +222,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             Err(err)
         } else {
             proof_decl! {
+                lemma_paddr_to_meta_biinjective(paddr);
+                lemma_frame_to_meta_soundness(paddr);
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
                 let ghost idx = frame_to_index(paddr);
                 assert(regions.slot_owners.contains_key(idx));
