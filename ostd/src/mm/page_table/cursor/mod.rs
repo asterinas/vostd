@@ -1440,6 +1440,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     #[verifier::spinoff_prover]
     fn move_forward(&mut self) {
+        hide(<CursorOwner as Inv>::inv);
+        hide(<MetaRegionOwners as Inv>::inv);
+        hide(CursorOwner::nodes_locked);
+        hide(CursorContinuation::view_mappings);
+        hide(CursorOwner::view_mappings);
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
+        assert(1 <= owner.level <= owner.guard_level <= NR_LEVELS) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
         proof {
@@ -1531,6 +1542,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 reveal(CursorContinuation::map_children);
                 reveal(CursorOwner::path_metaregion_sound);
             };
+            assert(owner.nodes_locked(*guards)) by {
+                reveal(CursorOwner::nodes_locked);
+            };
             if self.va > self.barrier_va.end {
                 lemma_page_size_ge_base::<C>(self.level);
                 let stop = self.barrier_va.end;
@@ -1558,6 +1572,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     (self.level - 1) as PagingLevel,
                 );
             }
+            assert(self.inv() && (self.va > self.barrier_va.end ==> owner.set_va_in_node(
+                self.barrier_va.end,
+            ).inv())) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
         }
     }
 
