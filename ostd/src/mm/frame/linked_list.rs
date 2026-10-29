@@ -1465,63 +1465,58 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// Empties the list owner, preserves the region invariant, and leaves unrelated
     /// frames' usage, metadata addresses, and page-table ownership unchanged.
     #[verifier::spinoff_prover]
-    pub fn drop(mut self, Tracked(s): Tracked<&mut (LinkedListOwner<M>, MetaRegionOwners)>)
+    pub fn drop(
+        mut self,
+        Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    )
         requires
-            self.wf(old(s).0),
-            old(s).0.inv(),
-            old(s).1.inv(),
+            self.wf(*old(owner)),
+            old(owner).inv(),
+            old(regions).inv(),
             forall|i: int|
-                #![trigger old(s).0.list[i]]
-                0 <= i < old(s).0.list.len() ==> old(s).1.contains(
-                    meta_to_index(old(s).0.list[i].paddr),
-                ),
-            forall|i: int|
-                #![trigger old(s).0.list[i]]
-                0 <= i < old(s).0.list.len() ==> {
-                    let idx = meta_to_index(old(s).0.list[i].paddr);
-                    old(s).1.ref_count(idx) == REF_COUNT_UNIQUE
-                },
-            forall|i: int|
-                #![trigger old(s).0.list[i]]
-                0 <= i < old(s).0.list.len() ==> {
-                    let idx = meta_to_index(old(s).0.list[i].paddr);
-                    old(s).1.slot_owners[idx].paths_in_pt.is_empty()
+                #![trigger old(owner).list[i]]
+                0 <= i < old(owner).list.len() ==> {
+                    let idx = meta_to_index(old(owner).list[i].paddr);
+                    &&& old(regions).contains(idx)
+                    &&& old(regions).ref_count(idx) == REF_COUNT_UNIQUE
+                    &&& old(regions).slot_owners[idx].paths_in_pt.is_empty()
                 },
             forall|i: int, j: int|
-                #![trigger old(s).0.list[i], old(s).0.list[j]]
-                0 <= i < j < old(s).0.list.len() ==> meta_to_index(old(s).0.list[i].paddr)
-                    != meta_to_index(old(s).0.list[j].paddr),
-            old(s).0.relate_region(old(s).1),
+                #![trigger old(owner).list[i], old(owner).list[j]]
+                0 <= i < j < old(owner).list.len() ==> meta_to_index(old(owner).list[i].paddr)
+                    != meta_to_index(old(owner).list[j].paddr),
+            old(owner).relate_region(*old(regions)),
         ensures
-            final(s).0.list.len() == 0,
+            final(owner).list.len() == 0,
             forall|idx: int|
-                #![trigger final(s).1.slot_owners[idx]]
+                #![trigger final(regions).slot_owners[idx]]
                 (forall|i: int|
-                    #![trigger old(s).0.list[i]]
-                    0 <= i < old(s).0.list.len() ==> idx != meta_to_index(old(s).0.list[i].paddr))
-                    ==> {
-                    &&& final(s).1.slot_owners[idx].usage == old(s).1.slot_owners[idx].usage
-                    &&& final(s).1.slot_owners[idx].slot_vaddr == old(
-                        s,
-                    ).1.slot_owners[idx].slot_vaddr
-                    &&& final(s).1.slot_owners[idx].paths_in_pt == old(
-                        s,
-                    ).1.slot_owners[idx].paths_in_pt
+                    #![trigger old(owner).list[i]]
+                    0 <= i < old(owner).list.len() ==> idx != meta_to_index(
+                        old(owner).list[i].paddr,
+                    )) ==> {
+                    &&& final(regions).slot_owners[idx].usage == old(regions).slot_owners[idx].usage
+                    &&& final(regions).slot_owners[idx].slot_vaddr == old(
+                        regions,
+                    ).slot_owners[idx].slot_vaddr
+                    &&& final(regions).slot_owners[idx].paths_in_pt == old(
+                        regions,
+                    ).slot_owners[idx].paths_in_pt
                 },
-            final(s).1.slots.dom() =~= old(s).1.slots.dom(),
-            final(s).1.inv(),
+            final(regions).slots.dom() =~= old(regions).slots.dom(),
+            final(regions).inv(),
     {
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<M>;
         }
-        let ghost original_list = s.0.list;
-        let ghost original_list_id = s.0.list_id;
+        let ghost original_list = owner.list;
+        let ghost original_list_id = owner.list_id;
         let ghost n = original_list.len();
-        let ghost original_regions = s.1;
+        let ghost original_regions = *regions;
         proof {
-            list_own = LinkedListOwner::<M>::tracked_take(&mut s.0);
+            list_own = LinkedListOwner::<M>::tracked_take(owner);
         }
-        let tracked regions: &mut MetaRegionOwners = &mut s.1;
 
         let tracked mut cursor_own = CursorOwner::tracked_front_owner(list_own);
         let mut cursor = self.cursor_front_mut();
@@ -1566,7 +1561,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                             == original_regions.slot_owners[idx].paths_in_pt
                     },
                 regions.slots.dom() == original_regions.slots.dom(),
-                // `paths_in_pt.is_empty()` precondition).
                 forall|j: int|
                     #![trigger original_list[j]]
                     k <= j < n ==> {
@@ -1639,11 +1633,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             }
         }
 
-        // `s.1` is already updated in place via the re-borrow `regions`;
-        // restore `s.0` to the cursor's final (empty) `list_own`.
+        // Restore the list owner from the cursor's final (empty) list.
         proof {
             let tracked mut final_list_own = cursor_own.list_own;
-            vstd::modes::tracked_swap(&mut s.0, &mut final_list_own);
+            vstd::modes::tracked_swap(owner, &mut final_list_own);
             final_list_own.tracked_destroy_empty();
         }
     }
