@@ -699,7 +699,6 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
 impl<M: ?Sized> Frame<M> {
     pub fn drop(mut self, Tracked(regions): Tracked<&mut MetaRegionOwners>)
         requires
-            self.drop_requires(*old(regions)),
             self.inv(),
             old(regions).inv(),
             self.wf_with_region(*old(regions)),
