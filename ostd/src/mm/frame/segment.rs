@@ -1041,6 +1041,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             }
             proof {
                 assert(valid_frame_paddr(paddr));
+                lemma_paddr_to_meta_biinjective(paddr);
+                lemma_frame_to_meta_soundness(paddr);
             }
             let tracked perm = raw_perms.tracked_pop_front();
             let frame = unsafe {
