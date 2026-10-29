@@ -683,8 +683,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r.relate_regions(*final(regions)),
     )]
     #[verifier::spinoff_prover]
-    #[verifier::loop_isolation(false)]
-    #[verifier::rlimit(200)]
     pub fn slice(&self, range: &Range<usize>) -> Self {
         assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
         assert!(range.start <= range.end && range.end <= self.size());
@@ -694,13 +692,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         let mut paddr = start;
         let ghost addr_len = (end - start) / PAGE_SIZE as int;
         let ghost first_perm_idx: int = (range.start / PAGE_SIZE) as int;
-        let ghost last_perm_idx: int = (range.end / PAGE_SIZE) as int;
         let ghost mut i: int = 0;
         proof_decl! {
             let tracked mut raw_perms = Seq::<FrameRawPerms>::tracked_empty();
         }
         loop
             invariant
+                self.inv(),
+                self.relate_regions(*old(regions)),
+                range.start == first_perm_idx * PAGE_SIZE,
+                range.start <= range.end <= self.size(),
+                start == self.range.start + range.start,
+                end == self.range.start + range.end,
+                end == start + addr_len * PAGE_SIZE,
                 self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
                 regions.inv(),
                 regions.slots == old(regions).slots,
@@ -727,13 +731,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& regions.slot_owners[idx].usage
                             == raw_perms[j].metadata_perm.resource().usage()
                     },
-                paddr == (start + i * PAGE_SIZE) as usize,
+                paddr == start + i * PAGE_SIZE,
                 paddr <= end,
                 0 <= i <= addr_len,
                 paddr < end <==> i < addr_len,
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i <= j < last_perm_idx ==> (*regions).slot_owner(
+                    first_perm_idx + i <= j < first_perm_idx + addr_len ==> (*regions).slot_owner(
                         (self.range.start + j * PAGE_SIZE) as usize,
                     ) == old(regions).slot_owner((self.range.start + j * PAGE_SIZE) as usize),
                 forall|j: int|
@@ -741,6 +745,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     first_perm_idx <= j < first_perm_idx + i ==> old(regions).slot_owner(
                         (self.range.start + j * PAGE_SIZE) as usize,
                     ).ref_count() < REF_COUNT_MAX,
+            ensures
+                paddr == end,
+                i == addr_len,
             decreases addr_len - i,
         {
             if paddr >= end {
