@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793260848673,
+  "lastUpdate": 1793261711406,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -7896,6 +7896,90 @@ window.BENCHMARK_DATA = {
             "value": 1951672,
             "unit": "rlimit",
             "extra": "smt-run=564ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0c4661f681b0b77b06507cfabb27f2eaebfede7",
+          "message": "fix: strengthen `Linkedlist::contains/cursor_mut_at` postconditions and remove `TrackDrop for LinkedList` (#875)\n\n* fix `LinkedList::contains`\n\n* fmt\n\n* remove `TrackDrop for LinkedList`\n\n* minor\n\n* simplify\n\n* rename a field\n\n* minor\n\n* simplify",
+          "timestamp": "2026-10-29T16:08:26+08:00",
+          "tree_id": "6d64c129c5ee4c6de83060d5cfbf5bcc4b4d4454",
+          "url": "https://github.com/asterinas/vostd/commit/d0c4661f681b0b77b06507cfabb27f2eaebfede7"
+        },
+        "date": 1793261710388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1762034293,
+            "unit": "rlimit",
+            "extra": "verified=4261 errors=0 smt-run=517,407ms wall=295,682ms"
+          },
+          {
+            "name": "rlimit: mm::frame::segment",
+            "value": 632632317,
+            "unit": "rlimit",
+            "extra": "smt-run=64,844ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 558156875,
+            "unit": "rlimit",
+            "extra": "smt-run=247,348ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 81628070,
+            "unit": "rlimit",
+            "extra": "smt-run=31,404ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=4,937ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9172309,
+            "unit": "rlimit",
+            "extra": "smt-run=2,709ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218523,
+            "unit": "rlimit",
+            "extra": "smt-run=1,852ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3180666,
+            "unit": "rlimit",
+            "extra": "smt-run=1,050ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=815ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951672,
+            "unit": "rlimit",
+            "extra": "smt-run=900ms"
           }
         ]
       }
