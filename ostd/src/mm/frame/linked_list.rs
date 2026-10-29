@@ -440,9 +440,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// ## Preconditions
     /// - The list must be well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects.
-    /// - The frame must be a valid, active frame.
+    /// - The list owner must relate its links to the region permissions.
     /// ## Postconditions
-    /// The function returns `true` if the frame is in the list, `false` otherwise.
+    /// - The result is `true` exactly when the frame address is valid and its
+    /// region-owned `in_list` tag equals the list's ID after lazy initialization.
+    /// - A valid frame in the owner's list always returns `true`.
     /// ## Safety
     /// - `lazy_get_id` uses atomic memory accesses, so there are no data races.
     /// - We assume that the ID allocator has an available ID if the list previously didn't have one,
@@ -450,20 +452,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// - Everything else conforms to the safe interface.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(slot_own): Tracked<&MetaSlotOwner>,
-            Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
+            Tracked(owner): Tracked<&LinkedListOwner<M>>,
         requires
-            slot_own.inv(),
-            old(regions).inv(),
+            regions.inv(),
+            old(self).wf(*owner),
+            owner.relate_region(*regions),
         ensures
-            old(owner).list_id != 0 ==> *final(owner) == *old(owner),
+            (valid_frame_paddr(frame) && exists|i: int| 0 <= i < owner.list.len()
+                && #[trigger] meta_to_index(owner.list[i].paddr) == frame_to_index(frame))
+                ==> r,
+        returns
+            valid_frame_paddr(frame)
+                && regions.slot_owners[frame_to_index(frame)].in_list_perm.value()
+                    == final(self).list_id,
     )]
     pub fn contains(&mut self, frame: Paddr) -> bool {
         proof_decl! {
         let ghost idx = frame_to_index(frame);
             if valid_frame_paddr(frame) {
                 regions.lemma_contains_valid_frame_paddr(frame);
+                if exists|i: int| 0 <= i < owner.list.len()
+                    && #[trigger] meta_to_index(owner.list[i].paddr) == idx {
+                    let i = choose|i: int| 0 <= i < owner.list.len()
+                        && #[trigger] meta_to_index(owner.list[i].paddr) == idx;
+                    owner.lemma_relate_region_shape(*regions);
+                    owner.lemma_relate_region_at_index(*regions, i);
+                    owner.lemma_relate_region_at_facts(*regions, i);
+                }
             }
         let tracked slot_perm = if valid_frame_paddr(frame) {
             Some(*regions.slots.tracked_borrow(idx))
@@ -472,16 +488,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         };
         }
         let Ok(slot) = (#[verus_spec(with Tracked(slot_perm))]
-        crate::mm::frame::meta::get_slot(frame)) else {
+        get_slot(frame)) else {
             return false;
         };
 
-        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
+        let tracked slot_own = regions.slot_owners.tracked_borrow(idx);
 
-        let tracked mut inner_perms = &mut slot_own;
-
-        slot.in_list.load(Tracked(&mut inner_perms.in_list_perm))
-            == #[verus_spec(with Tracked(owner))]
+        slot.in_list.load(Tracked(&slot_own.in_list_perm)) == #[verus_spec(with Tracked(owner))]
         self.lazy_get_id()
     }
 
