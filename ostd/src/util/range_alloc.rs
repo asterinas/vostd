@@ -472,27 +472,6 @@ impl RangeAllocator {
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
         proof! {
-            proof fn lemma_allocations_agree(
-                tracked allocations: &Seq<FreePermit>,
-                tracked authority: &GhostSetAuth<usize>,
-                count: int,
-            )
-                requires
-                    0 <= count <= allocations.len(),
-                    forall|i: int| 0 <= i < allocations.len() ==> #[trigger]
-                        allocations[i].id() == authority.id(),
-                ensures
-                    forall|i: int| 0 <= i < count ==> #[trigger] allocations[i]@
-                        <= authority@,
-                decreases count,
-            {
-                if count > 0 {
-                    lemma_allocations_agree(allocations, authority, count - 1);
-                    let tracked token = allocations.tracked_borrow(count - 1);
-                    token.tracked_borrow().agree(authority);
-                }
-            }
-
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             permit.agree(&resource.free);
             assert forall|i: int| 0 <= i < allocations.len() implies #[trigger] allocations[i].id()
@@ -1434,6 +1413,27 @@ proof fn lemma_merge_right_neighbor(
             }
             lemma_concrete_free_set_contains(new_freelist, address);
         }
+    }
+}
+
+/// Every borrowed allocation token agrees with the allocated-address authority.
+proof fn lemma_allocations_agree(
+    tracked allocations: &Seq<FreePermit>,
+    tracked authority: &GhostSetAuth<usize>,
+    count: int,
+)
+    requires
+        0 <= count <= allocations.len(),
+        forall|i: int|
+            0 <= i < allocations.len() ==> #[trigger] allocations[i].id() == authority.id(),
+    ensures
+        forall|i: int| 0 <= i < count ==> #[trigger] allocations[i]@ <= authority@,
+    decreases count,
+{
+    if count > 0 {
+        lemma_allocations_agree(allocations, authority, count - 1);
+        let tracked token = allocations.tracked_borrow(count - 1);
+        token.tracked_borrow().agree(authority);
     }
 }
 

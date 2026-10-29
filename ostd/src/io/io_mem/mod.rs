@@ -208,8 +208,6 @@ impl IoMem {
 
         // SAFETY: The caller of `IoMem::new()` ensures that the given
         // physical address range is I/O memory, so it is safe to map.
-        // Original Rust:
-        // let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
         let kva = unsafe {
             KVirtArea::map_untracked_frames::<AnyAtomicGuard>(area_size, 0, frames_range, prop)
         };

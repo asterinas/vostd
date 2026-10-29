@@ -91,22 +91,35 @@ impl IoMemAllocator {
     ///
     /// The caller must have ownership of the MMIO region through the `IoMemAllocator::get` interface.
     #[expect(dead_code)]
-    #[verifier::external_body]
     #[verus_spec(
         with
             Tracked(allocated): Tracked<FreePermit>,
+            -> permit: Tracked<AllocRangePermit>,
         requires
             range.start < range.end,
             self.covers_range(range),
             allocated.range() == range,
-            self.has_allocation(allocated.id()),
+            self.has_allocation(allocated.id(), range),
+        ensures
+            permit@.range() == range,
+            self.has_free_permission(permit@.id(), range),
     )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
+        proof! {
+            use_type_invariant(self);
+            lemma_windows_disjoint(self.allocators@);
+        }
         let allocator = find_allocator(&self.allocators, &range).unwrap();
 
         /* debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end); */
 
+        proof_decl! {
+            let tracked permit: AllocRangePermit;
+        }
+        #[verus_spec(with Tracked(allocated) => Tracked(permit))]
         allocator.free(range);
+        #[verus_spec(with |= Tracked(permit))]
+        ()
     }
 
     /// Initializes usable memory I/O region.
@@ -390,11 +403,12 @@ impl IoMemAllocator {
                 && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
     }
 
-    /// Whether `id` is the allocation-token identity of one of the windows.
-    pub closed spec fn has_allocation(self, id: Loc) -> bool {
+    /// Whether `id` is the allocation-token identity of a window containing `range`.
+    pub closed spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
         exists|i: int|
             #![trigger self.allocators@[i]]
             0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
+                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
     }
 
     /// Whether some window wholly covers `range`.
@@ -464,6 +478,7 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
                 0 <= k < allocators@.len()
                     && allocators@[k]@ == res@
                     && allocators@[k].allocate_id() == res.allocate_id()
+                    && allocators@[k].free_id() == res.free_id()
         },
         ret is None ==> forall|i: int| #![trigger allocators@[i]] 0 <= i < allocators@.len()
             ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
