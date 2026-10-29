@@ -306,7 +306,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         let mut i = 0;
         let addr_len = (range.end - range.start) / PAGE_SIZE;
-        let ghost addr_at = |j: int| (range.start + j * PAGE_SIZE) as usize;
 
         while i < addr_len
             invariant
@@ -315,7 +314,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 range.end % PAGE_SIZE == 0,
                 range.start < range.end <= MAX_PADDR,
                 segment.range.start == range.start,
-                forall|j: int| #[trigger] addr_at(j) == (range.start + j * PAGE_SIZE) as usize,
                 i <= addr_len,
                 i == segment.tracked_perms@->0.len(),
                 range.start <= range.start + i * PAGE_SIZE <= range.end,
@@ -331,9 +329,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         && metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> paddr_in
                         == paddr_out,
                 forall|j: int|
-                    #![trigger addr_at(j)]
+                    #![trigger frame_idx_at(range.start, j)]
                     0 <= j < i ==> {
-                        let paddr = addr_at(j);
+                        let paddr = (range.start + j * PAGE_SIZE) as usize;
                         let idx = frame_to_index(paddr);
                         &&& regions.contains(idx)
                         &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
@@ -373,17 +371,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                             range.start % PAGE_SIZE == 0,
                             range.end <= MAX_PADDR,
-                            forall|j: int| #[trigger]
-                                addr_at(j) == (range.start + j * PAGE_SIZE) as usize,
                             segment.range.end == range.start + i * PAGE_SIZE,
                             range.start <= p <= segment.range.end,
                             p == range.start + k * PAGE_SIZE,
                             p % PAGE_SIZE == 0,
                             0 <= k <= i,
                             forall|j: int|
-                                #![trigger addr_at(j)]
+                                #![trigger frame_idx_at(range.start, j)]
                                 k <= j < i ==> {
-                                    let paddr = addr_at(j);
+                                    let paddr = (range.start + j * PAGE_SIZE) as usize;
                                     let idx = frame_to_index(paddr);
                                     &&& regions.contains(idx)
                                     &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
@@ -405,7 +401,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         proof {
                             broadcast use group_page_meta;
 
-                            assert(addr_at(k) == p);
+                            assert(frame_idx_at(range.start, k) == frame_to_index(p));
 
                         }
                         let tracked perm =
@@ -448,7 +444,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 regions.contains(frame_to_index(addr))
             } by {
                 let j = (addr - range.start) / PAGE_SIZE as int;
-                assert(addr_at(j) == addr);
+                assert(frame_idx_at(range.start, j) == frame_to_index(addr));
             }
             assert forall|i: int|
                 #![trigger frame_to_index((segment.range.start + i * PAGE_SIZE) as usize)]
@@ -466,7 +462,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.slot_owners[idx].usage
                     == segment.tracked_perms@->0[i].metadata_perm.resource().usage()
             } by {
-                assert(addr_at(i) == (segment.range.start + i * PAGE_SIZE) as usize);
+                assert(frame_idx_at(range.start, i) == frame_to_index(
+                    (segment.range.start + i * PAGE_SIZE) as usize,
+                ));
             }
 
         }
