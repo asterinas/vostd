@@ -145,25 +145,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             == regions.slot_owners[self.slot_index].metadata_perm().usage()
     }
 
-    pub open spec fn from_unused_owner(
-        meta_own: M::Owner,
-        repr_perm: M::ReprPerm,
-        slot_index: int,
-    ) -> Self {
-        Self { meta_own, repr_perm: Some(repr_perm), slot_index }
-    }
-
-    pub proof fn tracked_from_unused_owner(
-        tracked meta_own: M::Owner,
-        tracked repr_perm: M::ReprPerm,
-        slot_index: int,
-    ) -> (tracked res: Self)
-        returns
-            Self::from_unused_owner(meta_own, repr_perm, slot_index),
-    {
-        Self { meta_own, repr_perm: Some(repr_perm), slot_index }
-    }
-
     pub proof fn tracked_borrow_repr_perm(tracked &self) -> tracked &M::ReprPerm
         requires
             self.repr_perm is Some,

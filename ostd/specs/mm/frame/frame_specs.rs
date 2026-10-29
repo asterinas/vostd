@@ -148,33 +148,6 @@ impl<M: ?Sized> Frame<M> {
     pub open spec fn start_paddr_spec(self) -> Paddr {
         meta_to_frame(self.slot_vaddr())
     }
-
-    pub open spec fn drop_requires(self, region: MetaRegionOwners) -> bool {
-        let idx = self.index();
-        let slot_own = region.slot_owners[idx];
-        &&& self.inv()
-        &&& region.inv()
-        &&& self.wf_with_region(region)
-        &&& 0 < slot_own.ref_count() <= REF_COUNT_MAX
-        &&& slot_own.ref_count() == 1 ==> {
-            &&& slot_own.paths_in_pt.is_empty()
-        }
-    }
-
-    pub open spec fn drop_ensures(self, old: MetaRegionOwners, new: MetaRegionOwners) -> bool {
-        let paddr = self.start_paddr_spec();
-        let old_owner = old.slot_owner(paddr);
-        let new_owner = new.slot_owner(paddr);
-        &&& new.inv()
-        &&& new =~= old.insert_slot_owner(paddr, new_owner)
-        &&& new_owner.slot_vaddr == old_owner.slot_vaddr
-        &&& new_owner.usage == old_owner.usage
-        &&& new_owner.paths_in_pt == old_owner.paths_in_pt
-        &&& new_owner.metadata_perm.id() == old_owner.metadata_perm.id()
-        &&& old_owner.ref_count() == 1 ==> { new_owner.ref_count() == REF_COUNT_UNUSED }
-        &&& old_owner.ref_count() > 1 ==> new_owner.ref_count() == (old_owner.ref_count()
-            - 1) as u64
-    }
 }
 
 impl<M: ?Sized> Frame<M> {

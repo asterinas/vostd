@@ -560,6 +560,7 @@ impl<T, const TOTAL: usize> CountResource<T, TOTAL> {
         requires
             old(self).id() == other.id(),
         ensures
+            !old(self).is_resource_vacant(),
             old(self).frac() + other.frac() > TOTAL ==> false,
             old(self).frac() + other.frac() <= TOTAL ==> {
                 &&& final(self).id() == old(self).id()

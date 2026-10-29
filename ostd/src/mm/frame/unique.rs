@@ -105,11 +105,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             proof_decl! {
                 let tracked metadata_perms = permissions.tracked_unwrap().tracked_take_right();
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
-                let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(
-                    meta_own_in,
-                    repr_perm,
-                    frame_to_index(paddr),
-                );
+                let tracked owner = UniqueFrameOwner::<M> {
+                    meta_own: meta_own_in,
+                    repr_perm: Some(repr_perm),
+                    slot_index: frame_to_index(paddr),
+                };
             }
 
             let ptr = from_unused.unwrap();
@@ -213,11 +213,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             slot_own.usage = metadata_perm.usage();
         }
         proof_decl!{
-        let tracked new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
-            meta_own_in,
-            repr_perm,
-            meta_to_index(self.slot_vaddr()),
-        );
+        let tracked new_owner = UniqueFrameOwner::<M1> {
+            meta_own: meta_own_in,
+            repr_perm: Some(repr_perm),
+            slot_index: meta_to_index(self.slot_vaddr()),
+        };
         }
 
         #[cfg(verus_keep_ghost_body)]
