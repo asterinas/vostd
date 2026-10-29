@@ -4,11 +4,7 @@
 //! This module leverages the customizability of the metadata system (see
 //! [super::meta]) to allow any type of frame to be used in a linked list.
 use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
-use vstd_extra::{
-    cast_ptr::*,
-    drop_tracking::{Drop, DropObligation, TrackDrop},
-    ownership::*,
-};
+use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{
     arch::*,
@@ -1460,92 +1456,61 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
-    type State = (LinkedListOwner<M>, MetaRegionOwners);
-
-    /// Real key: the list's `list_id`. The token carries the identity of
-    /// the list it belongs to, so a token forged for one list can't be
-    /// used to discharge another (the `consume_requires` key match
-    /// refuses the mismatch). A multiset ledger over `list_id` is not
-    /// added because every live `LinkedList` already has a unique
-    /// `LinkedListOwner` in scope — the per-instance discipline is
-    /// state-side, not ledger-side.
-    type Obligation = DropObligation<u64>;
-
-    open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        true
-    }
-
-    open spec fn tracked_redeem_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-        obl: Self::Obligation,
-    ) -> bool {
-        &&& s0 =~= s1
-        &&& obl.value() == self.list_id
-    }
-
-    proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
-        DropObligation::tracked_mint(self.list_id)
-    }
-
-    open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& self.wf(s.0)
-        &&& s.0.inv()
-        &&& s.1.inv()
-        &&& forall|i: int|
-            #![trigger s.0.list[i]]
-            0 <= i < s.0.list.len() ==> s.1.contains(meta_to_index(s.0.list[i].paddr))
-        &&& forall|i: int|
-            #![trigger s.0.list[i]]
-            0 <= i < s.0.list.len() ==> {
-                let idx = meta_to_index(s.0.list[i].paddr);
-                s.1.ref_count(idx) == REF_COUNT_UNIQUE
-            }
-        &&& forall|i: int|
-            #![trigger s.0.list[i]]
-            0 <= i < s.0.list.len() ==> {
-                let idx = meta_to_index(s.0.list[i].paddr);
-                s.1.slot_owners[idx].paths_in_pt.is_empty()
-            }
-        &&& forall|i: int, j: int|
-            #![trigger s.0.list[i], s.0.list[j]]
-            0 <= i < j < s.0.list.len() ==> meta_to_index(s.0.list[i].paddr) != meta_to_index(
-                s.0.list[j].paddr,
-            )
-        &&& s.0.relate_region(s.1)
-        &&& obl.value() == self.list_id
-    }
-
-    open spec fn drop_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-        obl: Self::Obligation,
-    ) -> bool {
-        &&& s1.0.list.len() == 0
-        &&& forall|idx: int|
-            #![trigger s1.1.slot_owners[idx]]
-            (forall|i: int|
-                #![trigger s0.0.list[i]]
-                0 <= i < s0.0.list.len() ==> idx != meta_to_index(s0.0.list[i].paddr)) ==> {
-                &&& s1.1.slot_owners[idx].usage == s0.1.slot_owners[idx].usage
-                &&& s1.1.slot_owners[idx].slot_vaddr == s0.1.slot_owners[idx].slot_vaddr
-                &&& s1.1.slot_owners[idx].paths_in_pt == s0.1.slot_owners[idx].paths_in_pt
-            }
-        &&& s1.1.slots.dom() =~= s0.1.slots.dom()
-        &&& s1.1.inv()
-    }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
+    /// Releases every frame owned by the list.
+    ///
+    /// # Verified Properties
+    /// Requires matching list ownership and region permissions, with every list
+    /// frame uniquely owned and absent from page tables.
+    /// Empties the list owner, preserves the region invariant, and leaves unrelated
+    /// frames' usage, metadata addresses, and page-table ownership unchanged.
     #[verifier::spinoff_prover]
-    fn drop(
-        mut self,
-        Tracked(s): Tracked<&mut Self::State>,
-        Tracked(obl): Tracked<DropObligation<u64>>,
-    ) {
+    pub fn drop(mut self, Tracked(s): Tracked<&mut (LinkedListOwner<M>, MetaRegionOwners)>)
+        requires
+            self.wf(old(s).0),
+            old(s).0.inv(),
+            old(s).1.inv(),
+            forall|i: int|
+                #![trigger old(s).0.list[i]]
+                0 <= i < old(s).0.list.len() ==> old(s).1.contains(
+                    meta_to_index(old(s).0.list[i].paddr),
+                ),
+            forall|i: int|
+                #![trigger old(s).0.list[i]]
+                0 <= i < old(s).0.list.len() ==> {
+                    let idx = meta_to_index(old(s).0.list[i].paddr);
+                    old(s).1.ref_count(idx) == REF_COUNT_UNIQUE
+                },
+            forall|i: int|
+                #![trigger old(s).0.list[i]]
+                0 <= i < old(s).0.list.len() ==> {
+                    let idx = meta_to_index(old(s).0.list[i].paddr);
+                    old(s).1.slot_owners[idx].paths_in_pt.is_empty()
+                },
+            forall|i: int, j: int|
+                #![trigger old(s).0.list[i], old(s).0.list[j]]
+                0 <= i < j < old(s).0.list.len() ==> meta_to_index(old(s).0.list[i].paddr)
+                    != meta_to_index(old(s).0.list[j].paddr),
+            old(s).0.relate_region(old(s).1),
+        ensures
+            final(s).0.list.len() == 0,
+            forall|idx: int|
+                #![trigger final(s).1.slot_owners[idx]]
+                (forall|i: int|
+                    #![trigger old(s).0.list[i]]
+                    0 <= i < old(s).0.list.len() ==> idx != meta_to_index(old(s).0.list[i].paddr))
+                    ==> {
+                    &&& final(s).1.slot_owners[idx].usage == old(s).1.slot_owners[idx].usage
+                    &&& final(s).1.slot_owners[idx].slot_vaddr == old(
+                        s,
+                    ).1.slot_owners[idx].slot_vaddr
+                    &&& final(s).1.slot_owners[idx].paths_in_pt == old(
+                        s,
+                    ).1.slot_owners[idx].paths_in_pt
+                },
+            final(s).1.slots.dom() =~= old(s).1.slots.dom(),
+            final(s).1.inv(),
+    {
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<M>;
         }
@@ -1613,7 +1578,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 forall|j: int|
                     #![trigger original_list[j]]
                     k <= j < n ==> regions.contains(meta_to_index(original_list[j].paddr)),
-                // Distinct slot indices in original list (from drop_requires)
                 forall|i: int, j: int|
                     #![trigger original_list[i], original_list[j]]
                     0 <= i < j < n ==> meta_to_index(original_list[i].paddr) != meta_to_index(

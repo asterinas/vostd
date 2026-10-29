@@ -441,9 +441,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     }
 
     /// Unfolds the opaque `relate_region_at` ONCE and exposes its clauses.
-    /// `relate_region_at` is opaque to avoid quantifier explosion at use sites;
-    /// this lemma localizes the reveal so callers get
-    /// the facts at a single index without re-exploding the SMT context.
     pub proof fn lemma_relate_region_at_facts(self, regions: MetaRegionOwners, i: int)
         requires
             self.relate_region_at(regions, i),
