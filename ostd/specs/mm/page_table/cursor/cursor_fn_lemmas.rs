@@ -105,10 +105,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old@.present(),
             old@.query_mapping().page_size == page_size::<PagingConsts>(old.level),
     {
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::view_mappings);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
+        old.lemma_inv_continuation(old.level - 1);
+        let old_cont = old.continuations[old.level - 1];
+        old_cont.lemma_inv_children_unroll(old_cont.idx as int);
+        old_cont.lemma_inv_children_rel_unroll(old_cont.idx as int);
+        old_cont.lemma_pt_inv_children_unroll(old_cont.idx as int);
+        self.lemma_cur_subtree_inv();
         old.view_preserves_inv();
         old.lemma_cur_subtree_inv();
         old.cur_va_in_subtree_range();
@@ -129,8 +138,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ;
         let cont0 = old.continuations[old.level - 1];
         let cont1 = self.continuations[self.level - 1];
+        cont1.lemma_inv_children_rel_unroll(cont1.idx as int);
         cont0.view_mappings_take_child();
         cont1.view_mappings_take_child();
+        cont0.take_child_preserves_inv();
+        cont1.take_child_preserves_inv();
         let siblings0 = cont0.take_child().1;
         let siblings1 = cont1.take_child().1;
         assert(siblings0.view_mappings() == siblings1.view_mappings()) by {
