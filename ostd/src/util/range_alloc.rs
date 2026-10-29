@@ -474,28 +474,16 @@ impl RangeAllocator {
         proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             permit.agree(&resource.free);
-            assert forall|i: int| 0 <= i < allocations.len() implies #[trigger] allocations[i].id()
-                == resource.allocated.id() by {
-                let belongs = |token: FreePermit| token.id() == self.free_id();
-                assert(belongs(allocations[i]));
-            }
             lemma_allocations_agree(allocations, &resource.allocated, allocations.len() as int);
             assert(resource.free@ <= permit@) by {
                 assert forall|address: usize| #[trigger] resource.free@.contains(address) implies
                     permit@.contains(address) by {
-                    lemma_concrete_free_set_contains(lock_guard@->0@, address);
                     let key = choose|key: usize| #[trigger]
                         lock_guard@->0@.contains_key(key)
                             && lock_guard@->0@[key].block.view_set().contains(address);
                     assert(self@.view_set().contains(address));
-                    if !permit@.contains(address) {
-                        let j = choose|j: int| 0 <= j < allocations.len()
-                            && #[trigger] allocations[j]@.contains(address);
-                        assert(allocations[j]@ <= resource.allocated@);
-                    }
                 }
             }
-            assert(permit@ == resource.free@);
         }
         let freelist = lock_guard.as_mut().unwrap();
         proof_decl! {
@@ -566,7 +554,6 @@ impl RangeAllocator {
                                 assert(next_allocations[allocations.len() as int]@
                                     .contains(address));
                             } else {
-                                assert(!permit_before@.contains(address));
                                 let i = choose|i: int| 0 <= i < allocations.len()
                                     && #[trigger] allocations[i]@.contains(address);
                                 assert(next_allocations[i]@.contains(address));
@@ -629,7 +616,6 @@ impl RangeAllocator {
             let tracked allocated_subset = allocated.tracked_borrow();
             allocated_subset.agree(&resource.allocated);
             if resource.initialized is Left {
-                assert(resource.allocated@.is_empty());
                 assert(allocated_subset@.contains(range.start));
                 assert(false);
             }
@@ -695,7 +681,6 @@ impl RangeAllocator {
                             key,
                         );
                         if key != *prev_va {
-                            assert(before_left_map.contains_key(key));
                             assert(before_left_map.contains_key(*prev_va));
                             assert(false);
                         } else {
@@ -787,23 +772,13 @@ impl RangeAllocator {
                             key,
                         );
                         if merged_right {
-                            assert(before_right_map.contains_key(key));
-                            assert(before_right_map.contains_key(*next_va));
-                            assert(before_insert_map.contains_key(*next_va));
-                            assert(before_left_map.contains_key(key));
-                            assert(before_left_map.contains_key(*next_va));
-                            assert(before_left_map[key] == before_right_map[key]);
-                            assert(before_right_map[*next_va].block.end == free_range.end);
                             assert(false);
                         } else {
-                            assert(freelist@ == before_right_map);
                             if key == *next_va {
                                 assert(false);
                             } else {
-                                assert(*next_va < key);
                                 assert(before_right_map.contains_key(*next_va));
                                 assert(before_right_map.contains_key(before_right_range.start));
-                                assert(concrete_freelist_wf(self@, before_right_map));
                                 assert(before_right_map[*next_va].block.view_set().contains(
                                     *next_va,
                                 ));
@@ -821,7 +796,6 @@ impl RangeAllocator {
                         || freelist@[key].block.start != free_range.end by {
                     if key != free_range.start
                         && freelist@[key].block.start == free_range.end {
-                        assert(freelist@[key].block.start == key);
                         lemma_lower_bound_has_next(
                             next_cursor_model,
                             before_right_range.start,
