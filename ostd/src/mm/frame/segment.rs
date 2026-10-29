@@ -122,7 +122,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         &&& res.relate_regions(new_perm)
     }
 
-    #[verifier::loop_isolation(false)]
     #[verifier::rlimit(200)]
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
         let mut paddr = self.range.start;
@@ -134,6 +133,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             invariant
                 perm.inv(),
                 self.inv(),
+                self.relate_regions(*old(perm)),
                 perm.slots == old(perm).slots,
                 perm.slot_owners.dom() == old(perm).slot_owners.dom(),
                 raw_perms.len() == (paddr - self.range.start) / (PAGE_SIZE as int),
@@ -178,6 +178,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                     raw_perms.len() <= i < self.len() ==> perm.slot_owner(
                         (self.range.start + i * PAGE_SIZE) as usize,
                     ) == old(perm).slot_owner((self.range.start + i * PAGE_SIZE) as usize),
+            ensures
+                paddr == self.range.end,
             decreases self.range.end - paddr,
         {
             if paddr >= self.range.end {
@@ -247,8 +249,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///   then `range.start < range.end` (the runtime `assert!` would otherwise diverge).
     /// FIXME: this implementation does not match source code.
     #[verifier::spinoff_prover]
-    #[verifier::loop_isolation(false)]
-    #[verifier::allow_complex_invariants]
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -311,6 +311,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         while i < addr_len
             invariant
                 segment.tracked_perms@ is Some,
+                range.start % PAGE_SIZE == 0,
+                range.end % PAGE_SIZE == 0,
+                range.start < range.end <= MAX_PADDR,
+                segment.range.start == range.start,
+                forall|j: int| #[trigger] addr_at(j) == (range.start + j * PAGE_SIZE) as usize,
                 i <= addr_len,
                 i == segment.tracked_perms@->0.len(),
                 range.start <= range.start + i * PAGE_SIZE <= range.end,
@@ -367,6 +372,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             segment.tracked_perms@->0.len() == i - k,
                             regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                             range.start % PAGE_SIZE == 0,
+                            range.end <= MAX_PADDR,
+                            forall|j: int| #[trigger]
+                                addr_at(j) == (range.start + j * PAGE_SIZE) as usize,
                             segment.range.end == range.start + i * PAGE_SIZE,
                             range.start <= p <= segment.range.end,
                             p == range.start + k * PAGE_SIZE,
