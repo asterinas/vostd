@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793186327816,
+  "lastUpdate": 1793244158170,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -7644,6 +7644,90 @@ window.BENCHMARK_DATA = {
             "value": 1512725,
             "unit": "rlimit",
             "extra": "smt-run=684ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "85332676+Je5s1e@users.noreply.github.com",
+            "name": "Chao",
+            "username": "Je5s1e"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1d56def9457f321ae5dbf517d9b78f06dc6f15da",
+          "message": "fix: correct VmSpace slot specs and verify virtual memory helpers (#859)",
+          "timestamp": "2026-10-29T11:15:36+08:00",
+          "tree_id": "b7a50ce481cf88970bb5436b2064dd863c432ef3",
+          "url": "https://github.com/asterinas/vostd/commit/1d56def9457f321ae5dbf517d9b78f06dc6f15da"
+        },
+        "date": 1793244157507,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1344824971,
+            "unit": "rlimit",
+            "extra": "verified=4264 errors=0 smt-run=303,914ms wall=186,335ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 543754451,
+            "unit": "rlimit",
+            "extra": "smt-run=163,827ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78229690,
+            "unit": "rlimit",
+            "extra": "smt-run=16,145ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 73802104,
+            "unit": "rlimit",
+            "extra": "smt-run=21,617ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 19423556,
+            "unit": "rlimit",
+            "extra": "smt-run=2,640ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 16369438,
+            "unit": "rlimit",
+            "extra": "smt-run=968ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9170301,
+            "unit": "rlimit",
+            "extra": "smt-run=1,390ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3602253,
+            "unit": "rlimit",
+            "extra": "smt-run=622ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2026397,
+            "unit": "rlimit",
+            "extra": "smt-run=521ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1927495,
+            "unit": "rlimit",
+            "extra": "smt-run=469ms"
           }
         ]
       }
