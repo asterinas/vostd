@@ -167,6 +167,7 @@ impl<T, A> IoPort<T, A> {
     }
 
     /// Returns the size of the I/O port.
+    #[verus_spec(returns size_of::<T>() as u16)]
     pub const fn size(&self) -> u16 {
         size_of::<T>() as u16
     }

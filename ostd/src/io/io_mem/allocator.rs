@@ -118,6 +118,8 @@ impl IoMemAllocator {
         requires
             windows_disjoint(allocators@),
             windows_match_registered(allocators@),
+        ensures
+            ret.allocators@ == allocators@,
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }

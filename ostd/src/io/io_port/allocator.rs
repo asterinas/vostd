@@ -92,7 +92,10 @@ impl IoPortAllocation {
     }
 
     /// Creates a fresh protocol instance with an empty allocated set.
-    pub proof fn tracked_initialize() -> (tracked result: Self) {
+    pub proof fn tracked_initialize() -> (tracked result: Self)
+        ensures
+            result.value() == Set::<usize>::empty(),
+    {
         let tracked (auth, _empty_claims) = GhostSetAuth::new(Set::empty());
         Self { auth }
     }
