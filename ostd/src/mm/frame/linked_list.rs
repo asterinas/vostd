@@ -1683,7 +1683,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
     open spec fn on_drop_pre(
         &self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+        regions: MetaRegionOwners,
         vm_io_owner: crate::specs::mm::io::VmIoOwner,
     ) -> bool {
         self.meta.on_drop_pre(reader, regions, vm_io_owner)
@@ -1692,7 +1692,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<crate::mm::Infallible>,
-        regions: Tracked<&mut crate::specs::mm::frame::meta_region_owners::MetaRegionOwners>,
+        regions: Tracked<&mut MetaRegionOwners>,
         vm_io_owner: Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
         self.meta.on_drop(reader, regions, vm_io_owner);
