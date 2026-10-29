@@ -1398,17 +1398,19 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         )]
         let _ = frame.into_raw();
 
-        self.list.size = self.list.size + 1;
+        self.list.size += 1;
 
         proof {
             let tracked frame_repr_perm = frame_own.repr_perm.tracked_take();
-            CursorOwner::<M>::tracked_list_insert(
-                owner,
-                &mut frame_own.meta_own,
-                frame_repr_perm,
-                frame_metadata_perm,
-                list_id,
-            );
+            let ghost insert_index = owner.index;
+            let ghost slot_vaddr = frame_own.meta_own.slot_vaddr;
+            let tracked list_entry = LinkOwner { slot_vaddr, in_list: list_id };
+            owner.list_own.list.tracked_insert(insert_index, list_entry);
+            owner.list_own.repr_perms.tracked_insert(insert_index, frame_repr_perm);
+            owner.list_own.metadata_perms.tracked_insert(insert_index, frame_metadata_perm);
+            owner.list_own.list_id = list_id;
+            owner.index = insert_index + 1;
+            frame_own.meta_own = LinkOwner { slot_vaddr, in_list: list_id };
             let oldl = owner0.list_own;
             let nn = owner0.index as int;
             let flink = frame_own.meta_own;
