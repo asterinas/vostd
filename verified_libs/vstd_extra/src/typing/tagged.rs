@@ -6,6 +6,7 @@
 //! objects, not details of the bytes, which may have any layout. The objects thus
 //! stored are not restricted to being plain-old-data.
 use vstd::prelude::*;
+use vstd::simple_pptr::PointsTo;
 
 verus! {
 
@@ -83,6 +84,16 @@ impl<const SIZE: usize> TaggedArray<SIZE> {
     /// for a read at the type that was written. [`Self::holds`] is the "well
     /// typed" proviso -- a read at another type learns nothing, because
     /// [`stored`] is indexed by `T` and no axiom relates two instantiations.
+    ///
+    /// Where `T` holds cells, the claim covers their identities: the cell in
+    /// `data` is a byte copy of the one in `t`, and this says the copy *is*
+    /// that cell. VerusBelt's `Heap-Move-Cell` is the rule for that --
+    /// `{l |-> c * l' |-> v'} *l' := *l {exists v. l |-> v * l' |-> c}` --
+    /// and it "does not even require ownership of the second half (`c |-> v`);
+    /// this helps us show that we can move a `PCell` without ownership of its
+    /// `PCell::PointsTo`". Which is the situation here: a caller may well have
+    /// dropped the contents' permission before storing. See
+    /// [`crate::substructural::cell`] for the citation.
     #[verifier::external_body]
     pub exec fn store<T: MaxSize<SIZE>>(t: T) -> (r: Self)
         ensures
@@ -101,5 +112,79 @@ impl<const SIZE: usize> TaggedArray<SIZE> {
         TaggedArray { id: Ghost(recorded_id::<T>()), store_id: Ghost(arbitrary()), data }
     }
 }
+
+/// A type whose representation *is* a [`TaggedArray`] of `SIZE` bytes.
+///
+/// `unsafe` because implementing it asserts a layout fact Rust does not
+/// otherwise guarantee and Verus cannot state: that the array's bytes begin at
+/// `Self`'s own address. Implement it only for a `#[repr(transparent)]` (or
+/// `#[repr(C)]`, array first) wrapper. The promise bottoms out in
+/// [`TaggedArray`]'s `data` being at offset 0, which holds because its other
+/// fields are `Ghost` and so zero-sized.
+///
+/// [`Self::array_injective`] is the part of that promise which *can* be
+/// stated, and it is why [`as_perm_mut`] need say nothing about the rest of
+/// `Self`: there is no rest. It is also what stops the obvious misuse -- a
+/// wrapper with extra fields beside the array cannot discharge it.
+pub unsafe trait TaggedStorage<const SIZE: usize>: Sized {
+    /// The array this value is.
+    spec fn array(self) -> TaggedArray<SIZE>;
+
+    /// A wrapper holds nothing but its array, so the array determines it.
+    proof fn array_injective(s1: Self, s2: Self)
+        ensures
+            s1.array() == s2.array() ==> s1 == s2,
+    ;
+}
+
+/// Reinterprets a permission for tagged storage as a permission for the `T`
+/// that storage holds.
+///
+/// TRUSTED. [`TaggedArray::holds`] is what makes it defensible: the bytes carry
+/// `T`'s recorded tag, so the reinterpretation is the identity on memory -- the
+/// bytes *are* the `T`, in place -- and the address is the storage's own, so no
+/// new provenance is invented. It re-types ownership that already exists rather
+/// than conjuring any.
+pub axiom fn as_perm<'a, const SIZE: usize, S: TaggedStorage<SIZE>, T: MaxSize<SIZE>>(
+    tracked perm: &'a PointsTo<S>,
+) -> (tracked res: &'a PointsTo<T>)
+    requires
+        perm.is_init(),
+        perm.value().array().holds::<T>(),
+    ensures
+        res.addr() == perm.addr(),
+        res.is_init(),
+        res.value() == perm.value().array().value::<T>(),
+;
+
+/// The mutable counterpart.
+///
+/// The two `final` clauses are the ones that carry weight. The tag survives a
+/// write -- it is ghost state no byte write can reach -- and the stored value
+/// becomes whatever the borrow ends up holding, which under [`stored`] means
+/// the array is renamed to a fresh `store_id`. So this is the in-place sibling
+/// of [`TaggedArray::store`]'s law rather than a separate kind of claim:
+/// `store` says a whole-array write names its value, this says a write through
+/// the borrow renames it.
+///
+/// `perm` is taken by `&mut`, which is what keeps it sound: the borrow checker
+/// freezes the storage permission for all of `'a`, so there is no point at
+/// which the two permissions are both observable and disagree.
+pub axiom fn as_perm_mut<'a, const SIZE: usize, S: TaggedStorage<SIZE>, T: MaxSize<SIZE>>(
+    tracked perm: &'a mut PointsTo<S>,
+) -> (tracked res: &'a mut PointsTo<T>)
+    requires
+        old(perm).is_init(),
+        old(perm).value().array().holds::<T>(),
+    ensures
+        res.addr() == old(perm).addr(),
+        res.is_init(),
+        res.value() == old(perm).value().array().value::<T>(),
+        final(res).is_init(),
+        final(perm).addr() == old(perm).addr(),
+        final(perm).is_init(),
+        final(perm).value().array().holds::<T>(),
+        final(perm).value().array().value::<T>() == final(res).value(),
+;
 
 } // verus!

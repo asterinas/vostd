@@ -14,7 +14,7 @@
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
 use vstd::prelude::*;
-use vstd_extra::substructural::{CellUnwrap, StructToField};
+use vstd_extra::substructural::{cell::CellUnwrap, struct_field::StructToField};
 use vstd_extra::typing::tagged::{MaxSize, TaggedArray};
 
 verus! {

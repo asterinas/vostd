@@ -5,7 +5,10 @@ use vstd::{
     prelude::*,
     simple_pptr::{PPtr, PointsTo},
 };
-use vstd_extra::substructural::{CellUnwrap, FieldSplit, StructToField};
+use vstd_extra::substructural::{
+    cell::CellUnwrap,
+    struct_field::{FieldSplit, StructToField},
+};
 use vstd_extra::typing::tagged::MaxSize;
 use vstd_extra::{ownership::*, sum::Sum};
 
@@ -102,14 +105,7 @@ impl MetaSlot {
     /// The whole chain from [`vstd_extra::substructural`] in one step: step 1
     /// [`StructToField::borrow_first`] down to the storage cell, step 2
     /// [`CellUnwrap::unwrap_ref`] to its contents, step 3
-    /// [`MetaSlotStorage::as_meta_perm`] to the `M` those bytes hold.
-    ///
-    /// A proof function rather than part of [`MetaSlot::as_meta_ptr`] because
-    /// the *pointer* does not depend on how the metadata permission is
-    /// borrowed, only the permission does. Keeping them apart lets
-    /// `as_meta_ptr` be the single exec function upstream has, and puts the
-    /// shared/exclusive split entirely in proof code -- here and in
-    /// [`Self::meta_perm_mut`].
+    /// [`vstd_extra::typing::tagged::as_perm`] to the `M` those bytes hold.
     pub proof fn meta_perm<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
         tracked slot_perm: &'a PointsTo<MetaSlot>,
         tracked metadata_perm: &'a MetadataPerm,
@@ -126,7 +122,7 @@ impl MetaSlot {
             cell_perm,
             &metadata_perm.storage_perm,
         );
-        MetaSlotStorage::as_meta_perm::<M>(storage_perm)
+        vstd_extra::typing::tagged::as_perm::<META_STORAGE_SIZE, MetaSlotStorage, M>(storage_perm)
     }
 
     /// [`Self::meta_perm`] for exclusive access.
@@ -157,7 +153,9 @@ impl MetaSlot {
             cell_perm,
             &mut metadata_perm.storage_perm,
         );
-        MetaSlotStorage::as_meta_perm_mut::<M>(storage_perm)
+        vstd_extra::typing::tagged::as_perm_mut::<META_STORAGE_SIZE, MetaSlotStorage, M>(
+            storage_perm,
+        )
     }
 
     pub open spec fn get_from_unused_owner_spec(as_unique: bool, owner: MetaSlotOwner) -> bool {

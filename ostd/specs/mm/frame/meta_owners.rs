@@ -2,8 +2,11 @@
 use core::any::TypeId;
 use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
-use vstd_extra::substructural::{CellLoc, CellUnwrap, StructToField};
-use vstd_extra::typing::tagged::{MaxSize, TaggedArray, recorded_id};
+use vstd_extra::substructural::{
+    cell::{CellLoc, CellUnwrap},
+    struct_field::StructToField,
+};
+use vstd_extra::typing::tagged::{MaxSize, TaggedArray, TaggedStorage, recorded_id};
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
 use vstd_extra::{
@@ -65,6 +68,7 @@ pub ghost enum PageUsage {
 pub const META_STORAGE_SIZE: usize = META_SLOT_SIZE - 3 * 8;
 
 /// A frame's metadata, as stored in its slot.
+#[repr(transparent)]
 pub struct MetaSlotStorage(pub TaggedArray<META_STORAGE_SIZE>);
 
 impl MetaSlotStorage {
@@ -112,38 +116,15 @@ impl CellUnwrap for MetaSlotStorage {
     ) -> (tracked res: &'a mut vstd::simple_pptr::PointsTo<Self>);
 }
 
-impl MetaSlotStorage {
-    /// Reinterprets a permission for the slot's byte storage as a permission for
-    /// the `M` those bytes hold.
-    pub axiom fn as_meta_perm<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
-        tracked perm: &'a vstd::simple_pptr::PointsTo<MetaSlotStorage>,
-    ) -> (tracked res: &'a vstd::simple_pptr::PointsTo<M>)
-        requires
-            perm.is_init(),
-            perm.value().holds::<M>(),
-        ensures
-            res.addr() == perm.addr(),
-            res.is_init(),
-            res.value() == perm.value().value::<M>(),
-    ;
+/// The slot's storage is exactly a tagged array, so the generic permission
+/// re-type in [`vstd_extra::typing::tagged`] applies to it.
+unsafe impl TaggedStorage<META_STORAGE_SIZE> for MetaSlotStorage {
+    open spec fn array(self) -> TaggedArray<META_STORAGE_SIZE> {
+        self.0
+    }
 
-    /// The mutable counterpart.
-    pub axiom fn as_meta_perm_mut<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
-        tracked perm: &'a mut vstd::simple_pptr::PointsTo<MetaSlotStorage>,
-    ) -> (tracked res: &'a mut vstd::simple_pptr::PointsTo<M>)
-        requires
-            old(perm).is_init(),
-            old(perm).value().holds::<M>(),
-        ensures
-            res.addr() == old(perm).addr(),
-            res.is_init(),
-            res.value() == old(perm).value().value::<M>(),
-            final(res).is_init(),
-            final(perm).addr() == old(perm).addr(),
-            final(perm).is_init(),
-            final(perm).value().holds::<M>(),
-            final(perm).value().value::<M>() == final(res).value(),
-    ;
+    proof fn array_injective(s1: Self, s2: Self) {
+    }
 }
 
 unsafe impl AnyFrameMeta for MetaSlotStorage {
