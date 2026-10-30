@@ -1057,9 +1057,8 @@ impl PageTable<KernelPtConfig> {
                     *regions,
                 );
             }
-            let pt = match child {
-                ChildRef::PageTable(pt) => pt,
-                _ => vstd::pervasive::unreached(),
+            let ChildRef::PageTable(pt) = child else {
+                panic!("The kernel page table doesn't contain shared nodes");
             };
 
             let pt_addr = pt.start_paddr();

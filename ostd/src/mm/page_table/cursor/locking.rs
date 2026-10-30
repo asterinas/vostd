@@ -501,11 +501,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
             }
         } else if cur_entry.is_node() {
-            let opt_pt = match cur_entry.to_ref() {
-                ChildRef::PageTable(pt) => Some(pt),
-                _ => None,
+            let ChildRef::PageTable(pt) = cur_entry.to_ref() else {
+                unreachable!();
             };
-            let pt = opt_pt.unwrap();
 
             cur_pt_addr = pt.start_paddr();
             cur_node_guard = None;
