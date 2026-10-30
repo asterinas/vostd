@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::arithmetic::mul::lemma_mul_inequality;
-use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
+use vstd::{arithmetic::mul::lemma_mul_inequality, prelude::*};
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
     ownership::{Inv, OwnerOf},
@@ -168,8 +167,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                 )]
                 while i < frame_count {
                     proof {
-                        // A whole-segment `usize` fit (see `check_and_insert_dma_mapping`)
-                        // bounds every frame offset in the loop.
                         lemma_mul_inequality(i as int, frame_count as int, PAGE_SIZE as int);
                     }
                     let _paddr = start_paddr + i * PAGE_SIZE;
