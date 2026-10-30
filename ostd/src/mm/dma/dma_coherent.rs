@@ -153,19 +153,13 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                 start_paddr as Daddr
             },
             DmaType::Iommu => {
-                let mut i = 0;
-
-                #[verus_spec(
+                for i in 0..frame_count
                     invariant
-                        i <= frame_count,
                         segment.inv(),
                         start_paddr == segment.start_paddr(),
                         frame_count == segment.size() / PAGE_SIZE,
                         start_paddr + frame_count * PAGE_SIZE <= usize::MAX,
-                    decreases
-                        frame_count - i,
-                )]
-                while i < frame_count {
+                {
                     proof {
                         lemma_mul_inequality(i as int, frame_count as int, PAGE_SIZE as int);
                     }
@@ -176,7 +170,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                         iommu::map(paddr as Daddr, paddr).unwrap();
                     }
                     */
-                    i += 1;
                 }
 
                 start_paddr as Daddr
