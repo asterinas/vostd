@@ -86,7 +86,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(), */
                 let (right, Tracked(perm)) = right.into_raw();
-                let right_tagged = right.map_addr_v(
+                let right_tagged = right.map_addr(
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
                         ensures
                             ret@ == addr@ | (1usize << Self::ALIGN_BITS),
@@ -382,7 +382,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 proof! {
                     Self::lemma_align_bits_range();
                 }
-                let tagged_ptr = ptr.map_addr_v(
+                let tagged_ptr = ptr.map_addr(
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
                         ensures
                             ret@ == addr@ | (1usize << Self::ALIGN_BITS),
@@ -468,8 +468,8 @@ verus! {
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     use core::num::NonZeroUsize;
 
-    let removed_bits = ptr.addr_v().get() & bits;
-    let result_ptr = ptr.map_addr_v(
+    let removed_bits = ptr.addr().get() & bits;
+    let result_ptr = ptr.map_addr(
         |addr| -> (ret: NonZeroUsize)
             requires
                 addr@ & !bits != 0,

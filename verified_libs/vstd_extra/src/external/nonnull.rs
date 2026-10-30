@@ -35,12 +35,6 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
         ensures
             (#[trigger] self.addr_spec()).view() == self.view_ptr_mut().addr(),
     ;
-
-    /// A wrapper of `NonNull::addr` in `std`, here we use our own `NonZeroUsize`
-    fn addr_v(self) -> NonZeroUsize
-        returns
-            self.addr_spec(),
-    ;
 }
 
 impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
@@ -53,7 +47,7 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
     axiom fn lemma_addr_is_nonnull(self);
 
     open spec fn addr_spec(self) -> NonZeroUsize {
-        nonzero_from_primitive(self.view_ptr_mut()@.addr)
+        nonzero_from_primitive(self.view_ptr_mut().addr())
     }
 
     proof fn lemma_addr_view_eq_view_ptr_mut(self) {
@@ -61,18 +55,36 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
 
         self.lemma_addr_is_nonnull();
     }
-
-    #[verifier::external_body]
-    #[verifier::when_used_as_spec(nonnull_addr_spec_wrapper)]
-    fn addr_v(self) -> NonZeroUsize {
-        unimplemented!()
-    }
 }
 
 #[verifier::inline]
 pub open spec fn nonnull_addr_spec_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> NonZeroUsize {
     ptr.addr_spec()
 }
+
+/// Trusted model of Rust 1.99.1's `core/src/ptr/non_null.rs::NonNull::addr`:
+/// returns the nonzero address of the underlying pointer.
+#[verifier::when_used_as_spec(nonnull_addr_spec_wrapper)]
+pub assume_specification<T: PointeeSized>[ NonNull::<T>::addr ](ptr: NonNull<T>) -> NonZeroUsize
+    returns
+        ptr.addr_spec(),
+    opens_invariants none
+    no_unwind
+;
+
+/// Trusted model of Rust 1.99.1's `core/src/ptr/non_null.rs::NonNull::map_addr`:
+/// calls `f` on the address and preserves the pointer's metadata and provenance.
+pub assume_specification<T: PointeeSized>[ NonNull::<T>::map_addr ](
+    ptr: NonNull<T>,
+    f: impl FnOnce(NonZeroUsize) -> NonZeroUsize,
+) -> (ret: NonNull<T>)
+    requires
+        f.requires((ptr.addr_spec(),)),
+    ensures
+        ret.view_ptr_mut()@.metadata == ptr.view_ptr_mut()@.metadata,
+        ret.view_ptr_mut()@.provenance == ptr.view_ptr_mut()@.provenance,
+        f.ensures((ptr.addr_spec(),), ret.addr_spec()),
+;
 
 #[verifier::inline]
 pub open spec fn nonnull_view_ptr_mut_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> *mut T {
@@ -191,35 +203,9 @@ pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeS
         returns
             self.with_addr_spec(addr),
     ;
-
-    /// A wrapper of `NonNull::map_addr` in `std`, here we use our own `NonZeroUsize`
-    fn map_addr_v<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>)
-        requires
-            f.requires((self.addr_spec(),)),
-        ensures
-            ret.view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
-            ret.view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
-            f.ensures((self.addr_spec(),), ret.addr_spec()),
-    ;
 }
 
 impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
-    fn map_addr_v<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> NonNull<T> {
-        proof! {
-            broadcast use { axiom_view_nonzero_from_primitive_eq };
-        }
-        /* `external_body` plus `unimplemented!()` left the transfer trusted and panicking; the
-         * body now performs it, so its call sites stop panicking.
-         * Origin Rust: <none; new executable code>
-         */
-        let addr = self.addr_v();
-        let new_addr = f(addr);
-        proof {
-            self.lemma_with_addr_properties(new_addr);
-        }
-        self.with_addr_v(new_addr)
-    }
-
     uninterp spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
 
     axiom fn lemma_with_addr_properties(self, addr: NonZeroUsize);
