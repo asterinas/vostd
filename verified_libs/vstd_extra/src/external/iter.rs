@@ -17,7 +17,7 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
 ) -> (iter: <[T; N] as IntoIterator>::IntoIter)
     ensures
         IteratorSpec::obeys_prophetic_iter_laws(&iter),
-        IteratorSpec::will_return_none(&iter),
+        IteratorSpec::produces(&iter) == Seq::new(N as nat, |i: int| true),
         IteratorSpec::remaining(&iter) == array@,
         IteratorSpec::decrease(&iter) == Some(N as nat),
 ;

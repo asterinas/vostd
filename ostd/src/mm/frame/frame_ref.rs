@@ -49,7 +49,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             slot_perm.pptr().addr() == frame_to_meta(raw),
             slot_perm.is_init(),
         ensures
-            r.inner@.ptr.addr() == frame_to_meta(raw),
+            r.inner@.slot_vaddr() == frame_to_meta(raw),
             r.inner@.ptr_inv(),
             r.inner@.tracked_slot_perm@ == slot_perm,
             r.inner@.tracked_metadata_perm@ is None,

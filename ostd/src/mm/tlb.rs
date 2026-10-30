@@ -212,8 +212,24 @@ impl TlbFlushOp {
         }*/
 
     }
+}
 
-    #[verifier::external_body]
+} // verus!
+#[verus_verify]
+impl TlbFlushOp {
+    #[verus_spec(
+        returns
+            match self {
+                TlbFlushOp::Range(range) => {
+                    if range.end - range.start > FLUSH_ALL_RANGE_THRESHOLD {
+                        TlbFlushOp::All
+                    } else {
+                        self
+                    }
+                },
+                _ => self,
+            },
+    )]
     fn optimize_for_large_range(self) -> Self {
         match self {
             TlbFlushOp::Range(range) => {
@@ -222,11 +238,13 @@ impl TlbFlushOp {
                 } else {
                     TlbFlushOp::Range(range)
                 }
-            },
+            }
             _ => self,
         }
     }
 }
+
+verus! {
 
 // The queues of pending requests on each CPU.
 /*cpu_local! {
@@ -234,7 +252,6 @@ impl TlbFlushOp {
     /// Whether this CPU finishes the last remote flush request.
     static ACK_REMOTE_FLUSH: AtomicBool = AtomicBool::new(true);
 }*/
-
 #[verifier::external_body]
 fn do_remote_flush() {
     unimplemented!()/*

@@ -1,0 +1,41 @@
+name: Build Verusdoc
+description: >-
+  Build HTML documentation and rustdoc JSON, uploading artifacts outside PRs. Expects a
+  checkout with submodules.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up toolchain and caches
+      uses: ./.github/actions/setup-verus
+      with:
+        verus: 'true'
+        dv-cache: 'restore'
+
+    - name: Build docs
+      shell: bash
+      run: make doc
+
+    # After the HTML docs: a second pass emitting the rustdoc JSON tree the
+    # stats job counts verified APIs from (doc/ostd.json).
+    - name: Generate rustdoc JSON
+      shell: bash
+      run: cargo dv doc --package ostd --json-output
+
+    - name: Upload rustdoc JSON
+      if: github.event_name != 'pull_request'
+      uses: actions/upload-artifact@v7
+      with:
+        name: doc-api-json
+        path: doc/ostd.json
+        retention-days: 7
+        if-no-files-found: error
+
+    - name: Upload doc artifact
+      if: github.event_name != 'pull_request'
+      uses: actions/upload-artifact@v7
+      with:
+        name: doc-site
+        path: doc
+        retention-days: 7
+        if-no-files-found: error

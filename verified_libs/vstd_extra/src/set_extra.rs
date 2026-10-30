@@ -152,14 +152,23 @@ pub open spec fn pairwise_disjoint<A>(sets: Set<Set<A>>) -> bool {
 }
 
 pub open spec fn is_partition<A>(s: Set<A>, parts: Set<Set<A>>) -> bool {
-    // Each part is non-empty and subset of s
-    forall|part: Set<A>| #[trigger]
-        parts.contains(part) ==> !part.is_empty() && part <= s
-            &&
-        // Parts are pairwise disjoint
-        pairwise_disjoint(parts) &&
-        // Union of parts is s
-        s == parts.flatten()
+    // Each part is non-empty and a subset of s.
+    (forall|part: Set<A>| #[trigger]
+        parts.contains(part) ==> !part.is_empty() && part
+            <= s)
+    // Parts are pairwise disjoint.
+     && pairwise_disjoint(parts)
+    // The union of the parts is s.
+     && s == parts.flatten()
+}
+
+/// With no parts, `s` is a partition exactly when it is empty.
+pub proof fn lemma_is_partition_empty_parts<A>(s: Set<A>)
+    ensures
+        is_partition(s, Set::<Set<A>>::empty()) == s.is_empty(),
+{
+    reveal(is_partition);
+    assert(Set::<Set<A>>::empty().flatten() =~= Set::<A>::empty());
 }
 
 /// If `parts` is a finite set of finite, pairwise-disjoint sets,
