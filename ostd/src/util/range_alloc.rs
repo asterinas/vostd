@@ -19,6 +19,7 @@ use vstd::{
 };
 use vstd_extra::{
     debug_assert,
+    panic::UnwrapOrPanic,
     range::RangeExtraFns,
     resource::flags::{OneShotPending, OneShotSet},
     resource::range::GhostSubRange,
@@ -495,12 +496,10 @@ impl RangeAllocator {
                 assert(false);
             }
         }
-        let freelist = lock_guard.as_mut().unwrap_or_else(
-            #[verus_spec(requires false)]
-            || -> &mut BTreeMap<usize, FreeRange> {
-                panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.")
-            },
-        );
+        /* let freelist = lock_guard.as_mut().unwrap_or_else(|| {
+            panic!("Free a 'KVirtArea' when 'VirtAddrAllocator' has not been initialized.")
+        }); */
+        let freelist = lock_guard.as_mut().unwrap_or_panic();
         // 1. get the previous free block, check if we can merge this block with the free one
         //     - if contiguous, merge this area with the free block.
         //     - if not contiguous, create a new free block, insert it into the list.
