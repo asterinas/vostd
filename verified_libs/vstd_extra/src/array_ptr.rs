@@ -513,21 +513,6 @@ impl<V, const N: usize> Copy for ArrayPtr<V, N> {
 
 }
 
-#[verifier::external_body]
-#[inline(always)]
-pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
-    ensures
-        layout::valid_layout(
-            layout::size_of::<[V; N]>() as usize,
-            layout::align_of::<[V; N]>() as usize,
-        ),
-        layout::size_of::<[V; N]>() as usize as nat == layout::size_of::<[V; N]>(),
-        layout::align_of::<[V; N]>() as usize as nat == layout::align_of::<[V; N]>(),
-    opens_invariants none
-    no_unwind
-{
-}
-
 impl<V, const N: usize> ArrayPtr<V, N> {
     /// Reconstructs a pointer to the selected array element.
     #[inline(always)]
@@ -556,7 +541,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             perm@.is_pptr(res),
             perm@.is_uninit_all(),
     {
-        layout_for_array_is_valid::<V, N>();
+        layout::layout_for_type_is_valid::<[V; N]>();
         let (p, Tracked(raw_perm), Tracked(dealloc)) = raw_ptr::allocate(
             core::mem::size_of::<[V; N]>(),
             core::mem::align_of::<[V; N]>(),
