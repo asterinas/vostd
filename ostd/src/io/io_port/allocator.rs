@@ -284,8 +284,7 @@ impl IoPortAllocator {
                     }
                 }
             }
-            /* Original Rust: allocator.alloc_specific(i as usize); */
-            let _res = allocator_inner.alloc_specific(i as usize);
+            allocator_inner.alloc_specific(i as usize);
             proof! {
                 assert(allocator_inner@.len() == old_len);
                 assert(id_alloc_view(&allocator_inner) == old_view.insert(i as usize)) by {
@@ -318,17 +317,12 @@ impl IoPortAllocator {
                         == old_view.insert(i as usize).contains(j) by {
                         lemma_id_alloc_bits_char(old_seq, old_len, j);
                         lemma_id_alloc_bits_char(allocator_inner@, old_len, j);
-                        if _res is Some {
-                            assert(allocator_inner@ == old_seq.update(i as int, true));
-                            assert(allocator_inner@[j as int] == (if j == i {
-                                true
-                            } else {
-                                old_seq[j as int]
-                            }));
+                        assert(allocator_inner@ == old_seq.update(i as int, true));
+                        assert(allocator_inner@[j as int] == (if j == i {
+                            true
                         } else {
-                            assert(old_seq[i as int]);
-                            assert(allocator_inner@ == old_seq);
-                        }
+                            old_seq[j as int]
+                        }));
                     }
                 }
                 assert(preserved.subset_of(id_alloc_view(&allocator_inner)));
