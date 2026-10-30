@@ -1,0 +1,274 @@
+/* Shared dashboard and performance bench palette and chrome. */
+
+:root {
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --good-text: #006300;
+  --bad-text: #d03b3b;
+
+  /* Categorical series (fixed order, validated set). */
+  --series-verified: #2a78d6; /* slot 1 blue — verified exec */
+  --series-trusted: #1baf7a;  /* slot 2 aqua — trusted boundary */
+  --series-spec: #eda100;    /* slot 3 yellow — spec */
+  --series-proof: #008300;   /* slot 4 green — proof */
+  --series-api: #4a3aa7;     /* slot 5 violet — verified API count */
+
+  /* Treemap statuses: the code_treemap.py reference palette (semantic, not
+   * theme-dependent — both themes use the same fills). */
+  --tm-verified: #2f965b;
+  --tm-trusted: #b8dda2;
+  --tm-unverified: #e3e6e8;
+  --tm-unplanned: #343a40;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-3: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --good-text: #0ca30c;
+    --bad-text: #e66767;
+
+    --series-verified: #3987e5;
+    --series-trusted: #199e70;
+    --series-spec: #c98500;
+    --series-proof: #008300;
+    --series-api: #9085e9;
+
+    --tm-unplanned: #444b52;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.wrap { max-width: 1440px; margin: 0 auto; padding: 0 24px 64px; }
+
+header.page {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 40px 0 8px;
+}
+
+header.page h1 { margin: 0; font-size: 26px; letter-spacing: 0.2px; }
+header.page .subtitle { color: var(--ink-2); font-size: 17.1px; }
+header.page .spacer { flex: 1; }
+header.page .repo-btn {
+  padding: 6px 14px;
+  border-radius: 15px;
+  border: 1px solid var(--baseline);
+  color: var(--ink);
+  font-size: 14px;
+  text-decoration: none;
+}
+header.page .repo-btn:hover { background: var(--surface-1); }
+
+.meta { color: var(--ink-3); font-size: 12.8px; margin: 2px 0 0; }
+
+/* Link cards to the two sub-sites. */
+.site-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 22px 0 30px; }
+
+.site-links a {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.site-links a:hover { border-color: var(--baseline); }
+.site-links .card-title { font-size: 16.1px; font-weight: 600; }
+.site-links .card-desc { color: var(--ink-2); font-size: 13.4px; }
+.site-links .card-arrow { color: var(--ink-3); font-size: 13px; font-family: ui-monospace, monospace; }
+
+/* Stat tiles. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin: 24px 0 8px; }
+
+.tile {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px 12px;
+}
+
+.tile .tile-label { color: var(--ink-2); font-size: 12.8px; }
+.tile .tile-value { font-size: 30px; font-weight: 600; line-height: 1.2; margin-top: 4px; }
+.tile .tile-delta { font-size: 12.8px; margin-top: 2px; color: var(--ink-2); }
+.tile .tile-delta.up { color: var(--good-text); }
+.tile .tile-delta.down { color: var(--bad-text); }
+
+/* Chart cards. */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px 14px;
+  margin: 18px 0;
+}
+
+.card h2 { font-size: 16.1px; margin: 16px 16px 4px; font-weight: 600; }
+.card .card-note { color: var(--ink-2); font-size: 12.8px; margin: 0 16px 8px; }
+
+.chart { width: 100%; height: 420px; }
+
+.chart-placeholder {
+  color: var(--ink-3);
+  font-size: 13.4px;
+  padding: 60px 16px;
+  text-align: center;
+}
+
+/* Table view (toggleable twin of each chart). */
+details.data-table { margin: 8px 16px 6px; }
+details.data-table summary { cursor: pointer; color: var(--ink-2); font-size: 12.8px; }
+details.data-table summary:hover { color: var(--ink); }
+
+table.grid {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+
+table.grid th, table.grid td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--grid);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.grid th:first-child, table.grid td:first-child { text-align: left; }
+table.grid th { color: var(--ink-2); font-weight: 600; border-top: none; }
+table.grid tr:last-child td { border-bottom: none; }
+table.grid td.num-mismatch td, table.grid td .muted { color: var(--ink-3); }
+
+footer.page {
+  color: var(--ink-3);
+  font-size: 12.4px;
+  border-top: 1px solid var(--grid);
+  padding-top: 18px;
+  margin-top: 36px;
+}
+footer.page a { color: var(--ink-2); }
+
+/* Treemap legend chips (status share of the executable budget). */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 2px 16px 4px; }
+.legend-chip { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 12.8px; }
+.legend-swatch { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
+
+/* HTML treemap with status bands and interactive module labels. */
+.tm-root { position: relative; width: 100%; height: 100%; }
+.tm-root > div { position: absolute; }
+.tm-header {
+  background: var(--grid);
+  border: 1px solid var(--baseline);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  line-height: 16px;
+  padding: 0 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tm-header-thin { height: auto; }
+.tm-module {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--surface-1);
+}
+.tm-status { min-height: 0; }
+.tm-label {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-1);
+  opacity: 0.9;
+  color: var(--ink);
+  font-size: 10.5px;
+  line-height: 1.35;
+  white-space: pre-line;
+  pointer-events: none;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+}
+
+/* ECharts tooltip chrome (canvas charts don't inherit page CSS). */
+.card .echarts-tooltip {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 6px 10px;
+}
+.card .echarts-tooltip .tt-value { color: var(--ink); font-weight: 600; }
+.card .echarts-tooltip .tt-label { color: var(--ink-2); }
+
+/* Dense coverage map, with readable parent bands and quiet module borders. */
+.treemap-scroll { overflow-x: auto; margin-top: 12px; }
+#treemap-chart { position: relative; height: auto; aspect-ratio: 1.84; min-height: 600px; }
+.tm-group { border: 1px solid #8c9a93; background: #d7e0dc; }
+.tm-header { background: #d7e0dc; color: #33433c; border-color: #8c9a93; line-height: 20px; font-size: 11px; }
+.tm-module { border-color: #f9f9f7; }
+.tm-module:hover, .tm-module:focus-visible { outline: 2px solid var(--series-verified); outline-offset: -2px; z-index: 1; }
+.tm-header:focus-visible { outline: 2px solid var(--series-verified); outline-offset: -2px; }
+.tm-label { top: 1px; left: 1px; padding: 1px 3px; border-radius: 0; background: rgba(252,252,251,.85); color: #233029; opacity: 1; max-width: calc(100% - 2px); white-space: nowrap; text-overflow: ellipsis; }
+.tm-tooltip { position: fixed; z-index: 20; pointer-events: none; width: max-content; max-width: calc(100vw - 24px); padding: 14px 16px; background: var(--surface-1); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 30px #0003; font-size: 13px; }
+.tm-tooltip strong { display: block; margin-bottom: 8px; overflow-wrap: anywhere; }
+.tm-tooltip-row { display: grid; grid-template-columns: 13px 1fr auto auto; align-items: center; gap: 8px; }
+.tm-tooltip-row b { font-variant-numeric: tabular-nums; }
+.tm-tooltip-meta { border-top: 1px solid var(--grid); margin-top: 10px; padding-top: 8px; color: var(--ink-2); font-size: 12px; }
+.meta { flex-basis: 100%; }
+.data-table { overflow-x: auto; }
+a { color: var(--series-verified); text-underline-offset: 3px; }
+.grid td:first-child { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .wrap { padding: 0 12px 32px; }
+  header.page { padding-top: 24px; gap: 8px 12px; }
+  .site-links { grid-template-columns: 1fr; gap: 10px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile { padding: 12px; }
+  .tile .tile-value { font-size: 26px; }
+  .card h2 { margin-left: 8px; }
+  .card .card-note, .legend { margin-left: 8px; margin-right: 8px; }
+}
+.bench-table { margin: 12px 16px; overflow-x: auto; }
+@media (max-width: 600px) {
+  .bench-page .tile-value { font-size: 20px; }
+}
+
+/* Stack compact group captions so their names stay intact. */
+.tm-label.tm-label-group { padding: 1px 2px; line-height: 1.2; }
+.tm-group-name, .tm-group-total { display: block; }
+.tm-group-total { font-size: 9px; }

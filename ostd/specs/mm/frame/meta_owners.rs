@@ -271,6 +271,7 @@ impl Inv for MetaSlotOwner {
         }
         &&& REF_COUNT_MAX < self.ref_count() < REF_COUNT_UNIQUE ==> { false }
         &&& self.ref_count() == 0 ==> {
+            &&& self.metadata_perm.is_full()
             &&& self.in_list_perm.value() == 0
         }
         &&& FRAME_METADATA_RANGE.start <= self.slot_vaddr < FRAME_METADATA_RANGE.end

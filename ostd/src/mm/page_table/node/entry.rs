@@ -743,7 +743,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(owner).level() == old(owner).level()
                 &&& final(parent_owner).relate_guard(*final(self).node)
                 &&& final(owner).value().node().relate_guard(res->0)
-                &&& final(owner).value().node().slot_vaddr() == res->0.inner.inner@.ptr.addr()
+                &&& final(owner).value().node().slot_vaddr() == res->0.inner.inner@.slot_vaddr()
                 &&& PageTableOwner(*final(owner)).pt_inv()
                 &&& PageTableOwner(*final(owner)).view_rec(final(owner).value().path)
                     == Set::<int>::range(0, NR_ENTRIES as int).map(|i: int|
@@ -751,7 +751,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             PageTableOwner(*old(owner)).view_rec(old(owner).value().path).choose(),
                             page_size::<PagingConsts>((old(parent_owner).level() - 1) as PagingLevel),
                             i as usize))
-                &&& final(guards).lock_held(res->0.inner.inner@.ptr.addr())
+                &&& final(guards).lock_held(res->0.inner.inner@.slot_vaddr())
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] final(owner).children()[j])->0.value().is_frame()
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
@@ -794,7 +794,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(parent_owner).meta_own == old(parent_owner).meta_own,
             final(parent_owner).frame_permission == old(parent_owner).frame_permission,
             final(regions).slots == old(regions).slots,
-            final(self).node.inner.inner@.ptr.addr() == old(self).node.inner.inner@.ptr.addr(),
+            final(self).node.inner.inner@.slot_vaddr() == old(self).node.inner.inner@.slot_vaddr(),
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i)
                 && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
@@ -966,7 +966,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
                         &&& new_owner.children()[j].unwrap().value().is_frame()
                     },
-                new_page.ptr.addr() == new_owner_meta_addr,
+                new_page.slot_vaddr() == new_owner_meta_addr,
                 new_owner.value().node().metaregion_sound_node(*regions),
                 regions.slot_owners[meta_to_index(new_owner_meta_addr)].paths_in_pt.is_empty(),
         {
@@ -1568,7 +1568,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).value().path == old(owner).value().path,
             final(owner).value().metaregion_sound(*final(regions)),
             final(owner).value().node().relate_guard(res),
-            final(owner).value().node().slot_vaddr() == res.inner.inner@.ptr.addr(),
+            final(owner).value().node().slot_vaddr() == res.inner.inner@.slot_vaddr(),
             final(owner).value().match_pte(
                 final(parent_owner).children_perm.value()[idx as int],
                 final(parent_owner).level(),

@@ -105,10 +105,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old@.present(),
             old@.query_mapping().page_size == page_size::<PagingConsts>(old.level),
     {
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::view_mappings);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
+        old.lemma_inv_continuation(old.level - 1);
+        let old_cont = old.continuations[old.level - 1];
+        old_cont.lemma_inv_children_unroll(old_cont.idx as int);
+        old_cont.lemma_inv_children_rel_unroll(old_cont.idx as int);
+        old_cont.lemma_pt_inv_children_unroll(old_cont.idx as int);
+        self.lemma_cur_subtree_inv();
         old.view_preserves_inv();
         old.lemma_cur_subtree_inv();
         old.cur_va_in_subtree_range();
@@ -129,8 +138,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ;
         let cont0 = old.continuations[old.level - 1];
         let cont1 = self.continuations[self.level - 1];
+        cont1.lemma_inv_children_rel_unroll(cont1.idx as int);
         cont0.view_mappings_take_child();
         cont1.view_mappings_take_child();
+        cont0.take_child_preserves_inv();
+        cont1.take_child_preserves_inv();
         let siblings0 = cont0.take_child().1;
         let siblings1 = cont1.take_child().1;
         assert(siblings0.view_mappings() == siblings1.view_mappings()) by {
@@ -202,8 +214,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].idx == self.continuations[self.level - 1].idx,
             other.continuations[self.level - 1].entry_own.parent_level
                 == self.continuations[self.level - 1].entry_own.parent_level,
-            other.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
-                == self.continuations[self.level - 1].guard.inner.inner@.ptr.addr(),
+            other.continuations[self.level - 1].guard.inner.inner@.slot_vaddr()
+                == self.continuations[self.level - 1].guard.inner.inner@.slot_vaddr(),
             other.continuations[self.level - 1].path() == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
             forall|j: int|
@@ -300,8 +312,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[self.level - 1].entry_own.parent_level
                 == owner0.continuations[owner0.level - 1].entry_own.parent_level,
             // Guard address preserved (from parent_perms_preserved).
-            self.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
-                == owner0.continuations[owner0.level - 1].guard.inner.inner@.ptr.addr(),
+            self.continuations[self.level - 1].guard.inner.inner@.slot_vaddr()
+                == owner0.continuations[owner0.level - 1].guard.inner.inner@.slot_vaddr(),
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
             pte_index_spec::<C>(self.cur_va(), self.level as PagingLevel)

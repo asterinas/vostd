@@ -1,6 +1,6 @@
 # Formal Verification of Asterinas OSTD with Verus
 
-[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/)
+[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/verusdoc)
 [![verify](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci.yml?branch=main&label=verify)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
@@ -72,6 +72,8 @@ Verus is cloned and built under `tools/verus`. If the download fails, clone it m
 
 ```bash
 make                                                               # verify OSTD and its dependencies (or: cargo dv verify)
+make verify-riscv                                                   # verify the RISC-V arch code of OSTD (or: cargo dv verify --target riscv64imac-unknown-none-elf)
+make verify-loongarch                                               # verify the LoongArch arch code of OSTD (or: cargo dv verify --target loongarch64-unknown-none-softfloat)
 cargo dv focus --package ostd                                       # ostd only, skip dependency proofs
 cargo dv focus --package ostd -- --verify-only-module sync::rwlock  # verify one ostd module
 cargo dv verify --package vstd_extra                                # the verified dependency crate
@@ -100,7 +102,7 @@ make doc        # or: cargo dv doc --package ostd  # generate API docs at doc/in
 > Run `cargo dv build` before invoking `cargo dv doc` directly.
 
 The generated documentation can be found at `doc/`.
-An [online version](https://asterinas.github.io/vostd/) is also available.
+An [online version](https://asterinas.github.io/vostd/verusdoc) is also available.
 
 ### IDE Support
 

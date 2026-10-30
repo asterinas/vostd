@@ -50,6 +50,7 @@ doc
 
 # build artifacts
 *.rlib
+*.pyc
 
 # Agents
 .agents/*

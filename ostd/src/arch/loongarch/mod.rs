@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the LoongArch platform.
-pub mod boot;
+/*pub mod boot;
 pub(crate) mod cpu;
 pub mod device;
 mod io;
-pub(crate) mod iommu;
+pub(crate) mod iommu;*/
 pub(crate) mod irq;
-pub mod kernel;
+/* pub mod kernel; */
 pub(crate) mod mm;
-pub(crate) mod pci;
+/*pub(crate) mod pci;
 pub mod qemu;
 pub(crate) mod serial;
-pub(crate) mod task;
+pub(crate) mod task; */
 pub mod timer;
-pub mod trap;
+/* pub mod trap; */
 
-#[cfg(feature = "cvm_guest")]
+/*#[cfg(feature = "cvm_guest")]
 pub(crate) fn init_cvm_guest() {
     // Unimplemented, no-op
 }
@@ -66,3 +66,4 @@ pub fn read_random() -> Option<u64> {
 }
 
 pub(crate) fn enable_cpu_features() {}
+*/
