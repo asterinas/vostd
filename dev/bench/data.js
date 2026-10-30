@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793367716512,
+  "lastUpdate": 1793368891241,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -8568,6 +8568,90 @@ window.BENCHMARK_DATA = {
             "value": 1951392,
             "unit": "rlimit",
             "extra": "smt-run=858ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "85332676+Je5s1e@users.noreply.github.com",
+            "name": "Chao",
+            "username": "Je5s1e"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "020b85418e2d4edcd5089cbf818e477b1d07f3ea",
+          "message": "fix: verify IRQ guard transfer and pointer helpers (#858)\n\n* fix: verify IRQ guard transfer and pointer helpers\n\n* Resolve upstream conflicts and simplify IRQ and pointer verification\n\n* Simplify IRQ and array layout verification comments",
+          "timestamp": "2026-10-30T21:55:26+08:00",
+          "tree_id": "4d51ab0c8c4df8edf0d7d22acb5177ce11ada63b",
+          "url": "https://github.com/asterinas/vostd/commit/020b85418e2d4edcd5089cbf818e477b1d07f3ea"
+        },
+        "date": 1793368889399,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 906014779,
+            "unit": "rlimit",
+            "extra": "verified=4268 errors=0 smt-run=221,018ms wall=156,635ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 362982336,
+            "unit": "rlimit",
+            "extra": "smt-run=110,701ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78893838,
+            "unit": "rlimit",
+            "extra": "smt-run=17,783ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 57981152,
+            "unit": "rlimit",
+            "extra": "smt-run=15,488ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 11845978,
+            "unit": "rlimit",
+            "extra": "smt-run=823ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707233,
+            "unit": "rlimit",
+            "extra": "smt-run=1,277ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=829ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=539ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=498ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951392,
+            "unit": "rlimit",
+            "extra": "smt-run=444ms"
           }
         ]
       }
