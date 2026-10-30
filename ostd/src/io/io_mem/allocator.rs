@@ -493,17 +493,11 @@ fn find_allocator<'a>(
     )]
     for allocator in allocators.iter() {
         let allocator_range = allocator.fullrange();
-        /* Verus does not yet support `continue` in `for` loops.
-        Original Rust:
         if allocator_range.start >= range.end || allocator_range.end <= range.start {
             continue;
         }
 
         return Some(allocator);
-        */
-        if allocator_range.start < range.end && allocator_range.end > range.start {
-            return Some(allocator);
-        }
     }
     None
 }
