@@ -100,7 +100,6 @@ broadcast use group_ghost_tree_lemmas;
 )]
 #[verifier::spinoff_prover]
 #[verifier::exec_allows_no_decreases_clause]
-#[verifier::loop_isolation(false)]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
     guard: &'rcu A,
@@ -128,6 +127,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         invariant
             cursor_own.va == va.start,
             cursor_own.barrier_va == *va,
+            Cursor::<C, A>::cursor_new_success_conditions(*va),
             regions.slots == old(regions).slots,
             forall|idx: int| #![trigger regions.slot_owners[idx]]
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>

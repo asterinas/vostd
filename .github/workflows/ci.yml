@@ -1,7 +1,7 @@
 name: Verify VOSTD
 
 # One verification run feeds everything: verify legs (one per os/target, incl.
-# riscv64imac) run with --time-expanded and upload logs, `perf` parses the
+# riscv64imac and loongarch64) run with --time-expanded and upload logs, `perf` parses the
 # ubuntu x86_64 leg's log (never re-verifies), `doc` builds the docs in
 # parallel, and `perf-history` pushes the verify-perf chart to gh-pages. The
 # final `stats` job takes the per-module line_count snapshot against the
@@ -43,13 +43,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `riscv64imac` is verified on Linux only; macOS keeps guarding the
-          # default x86_64 build. The triple selects the arch module mounted
-          # under `cfg(target_arch = ...)` in `ostd/src/lib.rs`.
+          # RISC-V and LoongArch are verified on Linux only; macOS keeps
+          # guarding the default x86_64 build. The triple selects the arch module
+          # mounted under `cfg(target_arch = ...)` in `ostd/src/lib.rs`.
           - os: ubuntu-latest
             rust_target: x86_64-unknown-none
           - os: ubuntu-latest
             rust_target: riscv64imac-unknown-none-elf
+          - os: ubuntu-latest
+            rust_target: loongarch64-unknown-none-softfloat
           - os: macos-14
             rust_target: x86_64-unknown-none
     timeout-minutes: 240

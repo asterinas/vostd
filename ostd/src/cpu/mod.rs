@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU-related definitions.
-use vstd::{prelude::*, std_specs::convert::TryFromSpecImpl};
+use vstd::{
+    prelude::*,
+    std_specs::{convert::TryFromSpecImpl, iter::IteratorSpec},
+};
 
 // pub mod local;
 pub mod set;
@@ -113,8 +116,34 @@ pub fn num_cpus() -> usize {
 }
 
 /// Returns an iterator over all CPUs.
+///
+/// # Verified Properties
+///
+/// If iteration completes, CPU IDs are yielded exactly once in ascending order.
+#[verus_verify]
+#[verus_spec(ret =>
+    ensures
+        IteratorSpec::obeys_prophetic_iter_laws(&ret),
+        IteratorSpec::decrease(&ret) is Some,
+        IteratorSpec::remaining(&ret).len() == cpu_count(),
+        IteratorSpec::produces(&ret).len() == cpu_count(),
+        forall|i: int| 0 <= i < IteratorSpec::remaining(&ret).len()
+            && IteratorSpec::produces(&ret)[i] ==>
+            #[trigger] IteratorSpec::remaining(&ret)[i]@ == i,
+)]
 pub fn all_cpus() -> impl Iterator<Item = CpuId> {
-    (0..num_cpus()).map(|id| CpuId(id as u32))
+    proof! {
+        broadcast use { axiom_cpu_count_bounds, vstd::std_specs::iter::group_iter_axioms };
+    }
+    (0..num_cpus()).map(
+        #[verus_spec(ret: CpuId =>
+            requires
+                id < cpu_count(),
+            ensures
+                ret@ == id,
+        )]
+        |id| CpuId(id as u32),
+    )
 }
 
 verus! {

@@ -535,7 +535,6 @@ impl MetaSlot {
             }
     )]
     #[verifier::exec_allows_no_decreases_clause]
-    #[verifier::loop_isolation(false)]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
         proof_decl! {
             if valid_frame_paddr(paddr) {
@@ -559,6 +558,11 @@ impl MetaSlot {
         loop
             invariant
                 *regions == *old(regions),
+                old(regions).inv(),
+                valid_frame_paddr(paddr),
+                regions.contains(frame_to_index(paddr)),
+                slot == regions.slots[frame_to_index(paddr)].value(),
+                old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
         {
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
 

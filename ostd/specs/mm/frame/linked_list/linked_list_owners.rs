@@ -629,7 +629,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         ensures
             new.relate_region(fr),
     {
-        reveal(LinkedListOwner::relate_region);
+        old.lemma_relate_region_shape(r0);
         let nlen = new.list.len() as int;
 
         assert forall|k: int|
@@ -658,6 +658,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 b + 1
             };
+            old.lemma_relate_region_indices_distinct(r0, pa, pb);
         }
 
         assert forall|m: int| #![trigger new.meta_addr_at(fr, m)] 0 <= m < nlen implies {
@@ -675,6 +676,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 m + 1
             };
             let _ = old.list[pm];
+            old.lemma_relate_region_at_index(r0, pm);
             old.lemma_relate_region_at_facts(r0, pm);
         }
 
@@ -687,27 +689,36 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 k + 1
             };
             let _ = old.list[p];
+            old.lemma_relate_region_at_index(r0, p);
             old.lemma_relate_region_at_facts(r0, p);
             let _ = old.list[n];
+            old.lemma_relate_region_at_index(r0, n);
             old.lemma_relate_region_at_facts(r0, n);
             if p - 1 >= 0 {
                 let _ = old.list[p - 1];
+                old.lemma_relate_region_at_index(r0, p - 1);
                 old.lemma_relate_region_at_facts(r0, p - 1);
             }
             if p + 1 < old.list.len() {
                 let _ = old.list[p + 1];
+                old.lemma_relate_region_at_index(r0, p + 1);
                 old.lemma_relate_region_at_facts(r0, p + 1);
             }
             if n - 1 >= 0 {
                 let _ = old.list[n - 1];
+                old.lemma_relate_region_at_index(r0, n - 1);
                 old.lemma_relate_region_at_facts(r0, n - 1);
             }
             if n + 1 < old.list.len() {
+                old.lemma_relate_region_at_index(r0, n + 1);
                 old.lemma_relate_region_at_facts(r0, n + 1);
             }
             new.lemma_relate_region_at_from_clauses(fr, k);
         }
 
+        assert(new.relate_region(fr)) by {
+            reveal(LinkedListOwner::relate_region);
+        };
     }
 
     /// The list-rewiring "surgery" for inserting `link` before index `n`
@@ -857,7 +868,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         ensures
             new.relate_region(fr),
     {
-        reveal(LinkedListOwner::relate_region);
+        old.lemma_relate_region_shape(r0);
         let nlen = new.list.len() as int;
         let ins = meta_to_index(new.list[n].slot_vaddr);
 
@@ -874,7 +885,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         assert forall|a: int, b: int|
             #![trigger meta_to_index(new.list[a].slot_vaddr), meta_to_index(new.list[b].slot_vaddr)]
             0 <= a < nlen && 0 <= b < nlen && a != b implies meta_to_index(new.list[a].slot_vaddr)
-            != meta_to_index(new.list[b].slot_vaddr) by {}
+            != meta_to_index(new.list[b].slot_vaddr) by {
+            if a != n && b != n {
+                let pa = if a < n {
+                    a
+                } else {
+                    a - 1
+                };
+                let pb = if b < n {
+                    b
+                } else {
+                    b - 1
+                };
+                old.lemma_relate_region_indices_distinct(r0, pa, pb);
+            }
+        }
 
         assert forall|m: int| #![trigger new.meta_addr_at(fr, m)] 0 <= m < nlen implies ({
             &&& (m < n ==> new.meta_addr_at(fr, m) == old.meta_addr_at(r0, m) && new.meta_pptr_at(
@@ -886,11 +911,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         }) by {
             if m < n {
                 let _ = old.list[m];
+                old.lemma_relate_region_at_index(r0, m);
                 old.lemma_relate_region_at_facts(r0, m);
                 new.lemma_insert_old_slot_post_at_facts(fr, old, r0, n, link, m);
             }
             if m > n {
                 let _ = old.list[m - 1];
+                old.lemma_relate_region_at_index(r0, m - 1);
                 old.lemma_relate_region_at_facts(r0, m - 1);
                 new.lemma_insert_old_slot_post_at_facts(fr, old, r0, n, link, m - 1);
             }
@@ -901,24 +928,31 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= k < nlen implies new.relate_region_at(fr, k) by {
             if k < n {
                 let _ = old.list[k];
+                old.lemma_relate_region_at_index(r0, k);
                 old.lemma_relate_region_at_facts(r0, k);
                 new.lemma_insert_old_slot_post_at_facts(fr, old, r0, n, link, k);
             }
             if k > n {
                 let _ = old.list[k - 1];
+                old.lemma_relate_region_at_index(r0, k - 1);
                 old.lemma_relate_region_at_facts(r0, k - 1);
                 new.lemma_insert_old_slot_post_at_facts(fr, old, r0, n, link, k - 1);
             }
             if n - 1 >= 0 && n - 1 < old.list.len() {
                 let _ = old.list[n - 1];
+                old.lemma_relate_region_at_index(r0, n - 1);
                 old.lemma_relate_region_at_facts(r0, n - 1);
             }
             if n >= 0 && n < old.list.len() {
                 let _ = old.list[n];
+                old.lemma_relate_region_at_index(r0, n);
                 old.lemma_relate_region_at_facts(r0, n);
             }
             new.lemma_relate_region_at_from_clauses(fr, k);
         }
+        assert(new.relate_region(fr)) by {
+            reveal(LinkedListOwner::relate_region);
+        };
     }
 
     pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel> {

@@ -367,6 +367,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
+        hide(MetaSlotOwner::storage_perm);
+        hide(MetaSlotOwner::vtable_ptr_perm);
         if self.va >= self.barrier_va.end {
             return Err(PageTableError::InvalidVaddr(self.va));
         }
@@ -803,6 +805,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<
         Vaddr,
     > {
+        hide(MetaSlotOwner::storage_perm);
+        hide(MetaSlotOwner::vtable_ptr_perm);
+        hide(<MetaRegionOwners as Inv>::inv);
+        hide(CursorContinuation::inv_children);
         // Keep solver tuning for this scan proof local to the function.
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::pt_inv_children);
@@ -1440,6 +1446,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     #[verifier::spinoff_prover]
     fn move_forward(&mut self) {
+        hide(<CursorOwner as Inv>::inv);
+        hide(<MetaRegionOwners as Inv>::inv);
+        hide(CursorOwner::nodes_locked);
+        hide(CursorContinuation::view_mappings);
+        hide(CursorOwner::view_mappings);
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
+        assert(1 <= owner.level <= owner.guard_level <= NR_LEVELS) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
         proof {
@@ -1531,6 +1548,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 reveal(CursorContinuation::map_children);
                 reveal(CursorOwner::path_metaregion_sound);
             };
+            assert(owner.nodes_locked(*guards)) by {
+                reveal(CursorOwner::nodes_locked);
+            };
             if self.va > self.barrier_va.end {
                 lemma_page_size_ge_base::<C>(self.level);
                 let stop = self.barrier_va.end;
@@ -1558,6 +1578,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     (self.level - 1) as PagingLevel,
                 );
             }
+            assert(self.inv() && (self.va > self.barrier_va.end ==> owner.set_va_in_node(
+                self.barrier_va.end,
+            ).inv())) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
         }
     }
 
@@ -2339,7 +2364,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let ghost regions0 = *regions;
             let cur_child = {
                 proof {
-                    reveal(<CursorOwner as Inv>::inv);
+                    assert(1 <= owner.level <= NR_LEVELS && owner.continuations[owner.level
+                        - 1].all_some() && owner.continuations[owner.level - 1].level()
+                        == owner.level && self.0.path[self.0.level - 1] is Some) by {
+                        reveal(<CursorOwner as Inv>::inv);
+                    };
+                    owner.lemma_inv_continuation(owner.level - 1);
                     owner.lemma_cont_entry_metaregion_at(*regions, owner.level - 1);
                     let cont = owner.continuations[owner.level - 1];
                     cont.lemma_inv_children_unroll(cont.idx as int);
@@ -2470,6 +2500,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             owner.level <= i
                                 < NR_LEVELS implies owner.continuations[i].map_children(g_unlocked)
                             && owner.continuations[i].map_children(g_sound) by {
+                            owner_pre_none.lemma_inv_continuation(i);
                             owner_pre_none.continuations[i].map_children_lift(
                                 f_unlocked,
                                 g_unlocked,
@@ -2497,6 +2528,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 owner.level - 1 <= i
                                     < NR_LEVELS implies owner.continuations[i].entry_own.metaregion_sound(
                             *regions) by {
+                                owner_pre_none.lemma_inv_continuation(i);
+                                owner_pre_none.lemma_cont_entry_metaregion_at(regions_after_ref, i);
                                 reveal(<MetaRegionOwners as Inv>::inv);
                                 let eo = owner_pre_none.continuations[i].entry_own;
                             };
@@ -2526,6 +2559,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     proof {
                         owner_pre_push.map_branch_none_no_new_mappings(owner_pre_none);
+                        assert(owner.cur_entry_owner().is_absent()) by {
+                            reveal(<CursorOwner as Inv>::inv);
+                        };
 
                         lemma_page_size_monotone::<PagingConsts>(self.0.level, level_pre_none);
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
@@ -2618,6 +2654,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             self.0.level,
                             owner_before_frame.level,
                         );
+                        assert(owner.cur_entry_owner().is_frame()) by {
+                            reveal(<CursorOwner as Inv>::inv);
+                        };
                         owner.find_next_split_push_equals_split_while_huge(owner_before_frame@);
                         owner0.view_preserves_inv();
                         lemma_page_size_ge_base::<PagingConsts>(level_before_frame);
@@ -2753,6 +2792,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(300)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
+        hide(CursorContinuation::view_mappings);
+        hide(CursorOwner::view_mappings);
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
 
@@ -3383,6 +3424,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> Option<PageTableFrag<C>> {
+        hide(MetaSlotOwner::storage_perm);
+        hide(MetaSlotOwner::vtable_ptr_perm);
         // Keep quantified child predicates out of this replacement proof's ambient context.
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::view_mappings);
