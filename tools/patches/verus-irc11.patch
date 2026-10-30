@@ -3011,7 +3011,7 @@ index 5662268c..fa6cd837 100644
          } else {
              panic!("unexpected argument: {:}", arg)
          }
-@@ -149,6 +152,10 @@ fn main() {
+@@ -149,4 +152,8 @@ fn main() {
          child_args.push("--cfg".to_string());
          child_args.push("feature=\"alloc\"".to_string());
      }
@@ -3019,8 +3019,6 @@ index 5662268c..fa6cd837 100644
 +        child_args.push("--cfg".to_string());
 +        child_args.push("feature=\"weak-memory\"".to_string());
 +    }
-     child_args.push("--cfg".to_string());
-     child_args.push("feature=\"nonzero_internals\"".to_string());
      child_args.push(VSTD_RS_PATH.to_string());
 diff --git a/tools/vargo/src/cli.rs b/tools/vargo/src/cli.rs
 index 47afffb8..f4f2883c 100644

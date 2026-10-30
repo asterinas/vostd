@@ -1,0 +1,41 @@
+name: Publish verification performance
+description: >-
+  Record benchmark history on gh-pages and save the next performance baseline. Call only
+  for successful main runs; expects a checkout.
+inputs:
+  github-token:
+    description: Token with contents write permission for publishing benchmark history
+    required: true
+  baseline-cache-hit:
+    description: Whether the current commit already has a cached baseline
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Download performance measurements
+      uses: actions/download-artifact@v8
+      with:
+        name: verify-perf-report
+
+    - name: Record benchmark on gh-pages
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: verify-perf
+        tool: customSmallerIsBetter
+        output-file-path: out/benchmark.json
+        github-token: ${{ inputs.github-token }}
+        auto-push: true
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: dev/bench
+        comment-on-alert: false
+
+    - name: Save measurement as the next baseline
+      # Cache entries are immutable; reruns of the same SHA reuse its entry.
+      if: inputs.baseline-cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: perf-store
+        key: perf-metrics-${{ github.sha }}

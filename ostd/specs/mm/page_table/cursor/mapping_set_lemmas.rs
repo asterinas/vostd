@@ -477,6 +477,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_cont.view_mappings(),
             ),
     {
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         let level = old_self.level;
@@ -502,6 +505,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             cont_i.children[j].unwrap(),
                         ).view_rec(cont_i.path().push_tail(j)).contains(m);
                     cont_i.lemma_inv_children_unroll(j);
+                    cont_i.lemma_pt_inv_children_unroll(j);
+                    cont_i.lemma_inv_children_rel_unroll(j);
                     PageTableOwner(cont_i.children[j].unwrap()).lemma_view_rec_vaddr_range(
                         cont_i.path().push_tail(j),
                         m,
@@ -513,6 +518,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             old_cont.children[k].unwrap(),
                         ).view_rec(old_cont.path().push_tail(k)).contains(m);
                     old_cont.lemma_inv_children_unroll(k);
+                    old_cont.lemma_pt_inv_children_unroll(k);
+                    old_cont.lemma_inv_children_rel_unroll(k);
                     PageTableOwner(old_cont.children[k].unwrap()).lemma_view_rec_vaddr_range(
                         old_cont.path().push_tail(k),
                         m,

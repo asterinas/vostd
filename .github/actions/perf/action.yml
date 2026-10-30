@@ -1,0 +1,101 @@
+name: Analyze verification performance
+description: >-
+  Compare the default target's verification log with the cached main baseline and upload
+  the performance report. Expects a checkout.
+inputs:
+  verification-result:
+    description: Result of the verify job; only successful main runs produce benchmark data
+    required: true
+outputs:
+  baseline-cache-hit:
+    description: Whether the current commit already has a cached performance baseline
+    value: ${{ steps.baseline.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Record which commit was checked out
+      shell: bash
+      run: echo "CUR_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+    - name: Restore prior measurement (baseline)
+      id: baseline
+      uses: actions/cache/restore@v6
+      with:
+        path: perf-store
+        key: perf-metrics-${{ github.sha }}
+        restore-keys: |
+          perf-metrics-
+
+    - name: Save aside the baseline (if any)
+      shell: bash
+      run: |
+        if [[ -f perf-store/metrics.json ]]; then
+          BASELINE_SHA=$(cat perf-store/source-sha.txt 2>/dev/null || echo unknown)
+          echo "BASELINE_SHA=$BASELINE_SHA" >> "$GITHUB_ENV"
+          mv perf-store/metrics.json perf-baseline.json
+          echo "Baseline: $BASELINE_SHA"
+        else
+          echo "No prior measurement cached; nothing to compare against yet."
+        fi
+
+    - name: Download verification log
+      uses: actions/download-artifact@v8
+      with:
+        # The perf baseline tracks the default (x86_64) target only.
+        name: verify-log-ubuntu-latest-x86_64-unknown-none
+
+    - name: Parse cost metrics
+      shell: bash
+      run: |
+        mkdir -p perf-store
+        python3 tools/verus_perf.py parse verify_output.txt > perf-store/metrics.json
+        echo "$CUR_SHA" > perf-store/source-sha.txt
+        echo "recorded run for: $CUR_SHA"
+        cat perf-store/metrics.json
+
+    - name: Compare against the prior measurement
+      shell: bash
+      run: |
+        mkdir -p out
+        if [[ -f perf-baseline.json ]]; then
+          {
+            echo "## Verification cost"
+            echo
+            echo "Comparing this run (\`$CUR_SHA\`) against the last main measurement (\`${BASELINE_SHA:-unknown}\`)."
+            echo
+            python3 tools/verus_perf.py compare perf-baseline.json perf-store/metrics.json
+          } > out/perf-report.md
+        else
+          {
+            echo "## Verification cost: first recorded baseline"
+            echo
+            echo "No prior measurement was cached; nothing to compare against yet. This run's cost (\`$CUR_SHA\`):"
+            echo
+            echo '```'
+            cat perf-store/metrics.json
+            echo '```'
+          } > out/perf-report.md
+        fi
+        cat out/perf-report.md
+        cat out/perf-report.md >> "$GITHUB_STEP_SUMMARY"
+
+    # Failed verification logs may parse as zeros; never publish them.
+    - name: Convert metrics to benchmark format
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && inputs.verification-result == 'success'
+      shell: bash
+      run: |
+        python3 tools/verus_perf.py to-bm perf-store/metrics.json -o out/benchmark.json
+
+    - name: Upload report artifact
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: verify-perf-report
+        path: |
+          out/perf-report.md
+          out/benchmark.json
+          perf-store/metrics.json
+          perf-store/source-sha.txt
+          perf-baseline.json
+        if-no-files-found: ignore

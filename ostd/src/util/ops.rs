@@ -90,7 +90,7 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
         finite_range_matches_ord::<T>(),
         forall |x: T, y: T| #[trigger] cloned::<T>(x,y) ==> x == y,
     ensures
-        ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
+        ret.obeys_prophetic_iter_laws() && ret.produces().all(|p: bool| p) ==> {
             &&& ret.remaining() == range_difference_spec(*a, *b)
             &&& ret.remaining().len() <= 2
             &&& ret.remaining().all(
@@ -132,7 +132,7 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
         lemma_range_difference_set(*a, *b);
         assert forall|ret: core::iter::Filter<_, _>|
             #[trigger] filter_post(iter, pred, ret) &&
-            ret.will_return_none() implies
+            ret.produces().all(|p: bool| p) implies
             ret.remaining() == range_difference_spec(*a, *b) by {
             filter_postcondition(iter, pred, ret);
         }

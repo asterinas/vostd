@@ -222,6 +222,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             Err(err)
         } else {
             proof_decl! {
+                lemma_paddr_to_meta_biinjective(paddr);
+                lemma_frame_to_meta_soundness(paddr);
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
                 let ghost idx = frame_to_index(paddr);
                 assert(regions.slot_owners.contains_key(idx));
@@ -450,7 +452,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         requires
             self.inv(),
         ensures
-            res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.slot_vaddr() == self.slot_vaddr(),
             res.inner@.ptr_inv(),
             res.inner@.slot_perm() == self.slot_perm(),
             res.inner@.tracked_metadata_perm@ is None,
@@ -486,7 +488,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
                 frame_permission.resource(),
             ),
         ensures
-            res.inner@.ptr.addr() == self.ptr.addr(),
+            res.inner@.slot_vaddr() == self.slot_vaddr(),
             res.inner@.ptr_inv(),
             res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
             res.inner@.tracked_metadata_perm@ is None,
@@ -697,9 +699,27 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
 impl<M: ?Sized> Frame<M> {
     pub fn drop(mut self, Tracked(regions): Tracked<&mut MetaRegionOwners>)
         requires
-            self.drop_requires(*old(regions)),
+            self.inv(),
+            old(regions).inv(),
+            self.wf_with_region(*old(regions)),
+            old(regions).slot_owners[self.index()].ref_count() == 1 ==> old(
+                regions,
+            ).slot_owners[self.index()].paths_in_pt.is_empty(),
         ensures
-            self.drop_ensures(*old(regions), *final(regions)),
+            final(regions).inv(),
+            ({
+                let paddr = self.start_paddr_spec();
+                let old_owner = old(regions).slot_owner(paddr);
+                let new_owner = final(regions).slot_owner(paddr);
+                &&& *final(regions) =~= old(regions).insert_slot_owner(paddr, new_owner)
+                &&& new_owner.slot_vaddr == old_owner.slot_vaddr
+                &&& new_owner.usage == old_owner.usage
+                &&& new_owner.paths_in_pt == old_owner.paths_in_pt
+                &&& new_owner.metadata_perm.id() == old_owner.metadata_perm.id()
+                &&& old_owner.ref_count() == 1 ==> new_owner.ref_count() == REF_COUNT_UNUSED
+                &&& old_owner.ref_count() > 1 ==> new_owner.ref_count() == (old_owner.ref_count()
+                    - 1) as u64
+            }),
     {
         proof_decl!{
             let ghost idx = self.index();

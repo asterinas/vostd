@@ -2,10 +2,10 @@ diff --git a/source/vstd/Cargo.toml b/source/vstd/Cargo.toml
 index 1c106c81..ef05ea7e 100644
 --- a/source/vstd/Cargo.toml
 +++ b/source/vstd/Cargo.toml
-@@ -33,6 +33,7 @@ allocator = []
+@@ -32,6 +32,7 @@ alloc = []
+ allocator = []
  strict_provenance_atomic_ptr = []
  allow_panic = [] # code is allowed to panic.
- nonzero_internals = []
 +weak-memory = []
  
  

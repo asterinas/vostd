@@ -27,28 +27,4 @@ pub open spec fn spec_ord_max<T: Ord>(x: T, y: T) -> T {
     }
 }
 
-/// Returns the minimum, choosing the first argument when they compare equal.
-/// See [`std::cmp::min`](https://doc.rust-lang.org/std/cmp/fn.min.html).
-#[verifier::when_used_as_spec(spec_ord_min)]
-pub assume_specification<T: Ord>[ core::cmp::min ](x: T, y: T) -> (ret: T)
-    ensures
-        ({
-            &&& T::obeys_cmp_spec()
-            &&& T::obeys_partial_cmp_spec()
-            &&& y.partial_cmp_spec(&x) == Some(y.cmp_spec(&x))
-        }) ==> ret == spec_ord_min(x, y),
-;
-
-/// Returns the maximum, choosing the second argument when they compare equal.
-/// See [`std::cmp::max`](https://doc.rust-lang.org/std/cmp/fn.max.html).
-#[verifier::when_used_as_spec(spec_ord_max)]
-pub assume_specification<T: Ord>[ core::cmp::max ](x: T, y: T) -> (ret: T)
-    ensures
-        ({
-            &&& T::obeys_cmp_spec()
-            &&& T::obeys_partial_cmp_spec()
-            &&& y.partial_cmp_spec(&x) == Some(y.cmp_spec(&x))
-        }) ==> ret == spec_ord_max(x, y),
-;
-
 } // verus!
