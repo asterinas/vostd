@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793368891241,
+  "lastUpdate": 1793374553413,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -8652,6 +8652,90 @@ window.BENCHMARK_DATA = {
             "value": 1951392,
             "unit": "rlimit",
             "extra": "smt-run=444ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "85332676+Je5s1e@users.noreply.github.com",
+            "name": "Chao",
+            "username": "Je5s1e"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c8019b4db19a612bee3feea9ac6825932903ae0",
+          "message": "fix: prove DMA coherent frame address bounds (#856)\n\n* fix: prove DMA coherent frame address bounds\n\n* tidy imports and comments in the DMA coherent proof",
+          "timestamp": "2026-10-30T23:30:12+08:00",
+          "tree_id": "0903ded6d010dbcda1180e848e99d0b209c89e08",
+          "url": "https://github.com/asterinas/vostd/commit/7c8019b4db19a612bee3feea9ac6825932903ae0"
+        },
+        "date": 1793374552157,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 906071584,
+            "unit": "rlimit",
+            "extra": "verified=4268 errors=0 smt-run=276,995ms wall=195,745ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 362982336,
+            "unit": "rlimit",
+            "extra": "smt-run=134,543ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 84319312,
+            "unit": "rlimit",
+            "extra": "smt-run=18,205ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78893838,
+            "unit": "rlimit",
+            "extra": "smt-run=21,557ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 11845978,
+            "unit": "rlimit",
+            "extra": "smt-run=1,167ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707233,
+            "unit": "rlimit",
+            "extra": "smt-run=1,852ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,183ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=765ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=593ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951392,
+            "unit": "rlimit",
+            "extra": "smt-run=641ms"
           }
         ]
       }
