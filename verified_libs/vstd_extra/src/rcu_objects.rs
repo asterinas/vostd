@@ -81,6 +81,26 @@ impl RcuDomainAuth {
         RcuDomainAuth { objects, retire_perms, next_obj: 0 }
     }
 
+    /// Allocates two empty domains and proves their authority identities distinct.
+    pub proof fn tracked_new_pair() -> (tracked res: (Self, Self))
+        ensures
+            res.0.inv(),
+            res.1.inv(),
+            res.0.objects() == Map::<nat, usize>::empty(),
+            res.1.objects() == Map::<nat, usize>::empty(),
+            res.0.id() != res.1.id(),
+    {
+        let tracked mut first = Self::tracked_new();
+        let tracked mut second = Self::tracked_new();
+        if first.id() == second.id() {
+            let tracked mut first_entry = first.objects.insert(0nat, 0usize);
+            let tracked second_entry = second.objects.insert(0nat, 0usize);
+            first_entry.disjoint(&second_entry);
+            assert(false);
+        }
+        (first, second)
+    }
+
     /// Registers a non-null pointer with a fresh allocation ID.
     ///
     /// # Preconditions
@@ -257,6 +277,17 @@ impl<T> RcuBaseRetirePerm<T> {
     pub closed spec fn belongs_to(self, domain: RcuDomainAuth) -> bool {
         &&& self.domain() == domain.id()
         &&& self.perm.id() == domain.retire_registry()
+    }
+
+    /// Registration of other allocations preserves this permission's domain binding.
+    pub proof fn lemma_same_domain(self, before: RcuDomainAuth, after: RcuDomainAuth)
+        requires
+            self.belongs_to(before),
+            before.id() == after.id(),
+            before.retire_registry() == after.retire_registry(),
+        ensures
+            self.belongs_to(after),
+    {
     }
 
     /// Proves that two base retire permissions cannot name the same allocation.
