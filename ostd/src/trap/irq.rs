@@ -243,6 +243,11 @@ impl !Sync for DisabledLocalIrqGuard {
 /* unsafe impl InAtomicMode for DisabledLocalIrqGuard {} */
 
 impl DisabledLocalIrqGuard {
+    /// Saved IF state, restored by the currently disabled destructor.
+    pub closed spec fn was_enabled(&self) -> bool {
+        self.was_enabled
+    }
+
     #[verifier::external_body]
     fn new() -> Self {
         let was_enabled = irq::is_local_enabled();
@@ -254,7 +259,11 @@ impl DisabledLocalIrqGuard {
 }
 
 impl GuardTransfer for DisabledLocalIrqGuard {
-    #[verifier::external_body]
+    #[verus_spec(ret =>
+        ensures
+            !final(self).was_enabled(),
+            ret.was_enabled() == old(self).was_enabled(),
+    )]
     fn transfer_to(&mut self) -> Self {
         let was_enabled = self.was_enabled;
         self.was_enabled = false;

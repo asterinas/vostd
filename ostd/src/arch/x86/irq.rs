@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Interrupts.
 use vstd::prelude::*;
+use vstd_extra::ownership::Inv;
+
+use crate::specs::task::irq::LocalIrqState;
+
+use crate::cpu::CpuId;
 
 /* use spin::Once;
 use x86_64::registers::rflags::{self, RFlags};
@@ -49,9 +54,25 @@ impl IrqRemapping {
         Some(self.entry.get()?.index())
     }
 }
+*/
 
 // FIXME: Mark this as unsafe. See
 // <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqHardware>
+    requires
+        old(hw).inv(),
+        old(hw).state()@.depth == 0,
+        old(hw).state()@.enabled,
+    ensures
+        final(hw).inv(),
+        final(hw).cpu() == old(hw).cpu(),
+        final(hw).enabled(),
+        final(hw).state() == old(hw).state(),
+    opens_invariants none
+    no_unwind
+)]
 pub(crate) fn enable_local() {
     x86_64::instructions::interrupts::enable();
     // When emulated with QEMU, interrupts may not be delivered if a STI instruction is immediately
@@ -60,6 +81,7 @@ pub(crate) fn enable_local() {
     x86_64::instructions::nop();
 }
 
+/*
 /// Enables local IRQs and halts the CPU to wait for interrupts.
 ///
 /// This method guarantees that no interrupts can occur in the middle. In other words, IRQs must
@@ -83,11 +105,84 @@ pub(crate) fn enable_local_and_halt() {
     };
 } */
 
+verus! {
+
+/// Exclusive access to IF in an externally pinned kernel execution context.
+///
+/// Has no allocator or public constructor. Provisioning must establish
+/// supervisor privilege, the executing CPU, and agreement with IF. The context
+/// must stay pinned across IF changes, and returning handlers must restore IF.
+/// Legacy IRQ entry points must not run while this is live, since their
+/// unmodeled IF writes invalidate it. A logical CPU-local allocation is not
+/// enough to obtain it; initialization and scheduler wiring are pending.
+///
+/// The IRQ entry points trust their contracts to model IF reads and writes.
+/// Read and disable remain panicking stubs, with guarantees only on normal
+/// return; enable uses unverified STI/NOP instructions. Guard construction and
+/// Drop are not yet connected to this resource.
+pub(crate) tracked struct LocalIrqHardware {
+    ghost cpu: CpuId,
+    ghost enabled: bool,
+    state: LocalIrqState,
+}
+
+impl !Send for LocalIrqHardware {
+
+}
+
+impl !Sync for LocalIrqHardware {
+
+}
+
+impl Inv for LocalIrqHardware {
+    closed spec fn inv(self) -> bool {
+        self.state().inv() && self.state()@.cpu == self.cpu()
+    }
+}
+
+impl LocalIrqHardware {
+    /// CPU fixed by the execution context that provided this resource.
+    pub(crate) closed spec fn cpu(&self) -> CpuId {
+        self.cpu
+    }
+
+    /// IF at the current observation point in that execution context.
+    pub(crate) closed spec fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Logical IRQ state permanently owned by this hardware permission.
+    pub(crate) closed spec fn state(&self) -> LocalIrqState {
+        self.state
+    }
+}
+
+} // verus!
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqHardware>
+    requires
+        old(hw).inv(),
+    ensures
+        final(hw).inv(),
+        final(hw).cpu() == old(hw).cpu(),
+        !final(hw).enabled(),
+        final(hw).state() == old(hw).state(),
+    opens_invariants none
+)]
 pub(crate) fn disable_local() {
     // x86_64::instructions::interrupts::disable();
     unimplemented!()
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&LocalIrqHardware>
+    requires
+        hw.inv(),
+    returns hw.enabled()
+    opens_invariants none
+)]
 pub(crate) fn is_local_enabled() -> bool {
     // (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
     unimplemented!()
