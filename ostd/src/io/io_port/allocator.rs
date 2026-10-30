@@ -6,6 +6,7 @@ use vstd::{
     assert_seqs_equal,
     prelude::*,
     resource::set::{GhostSetAuth, GhostSubset},
+    std_specs::iter::IteratorSpec,
     tokens::InstanceId,
 };
 use vstd_extra::{ownership::Inv, resource_invariant::SimpleResourceInvariant};
@@ -199,41 +200,23 @@ impl IoPortAllocator {
             assert(io_port_inner_inv_values(instance_id, preserved, &allocator.value()));
         }
         let allocator_inner = &mut *allocator;
-        // `Iterator::any` with a capturing closure is not supported by Verus.
-        // Original Rust:
-        // if range.any(|i| allocator.is_allocated(i as usize)) { return None; }
-        let mut already_allocated = false;
-        #[verus_spec(scan_iter =>
-            invariant
-                allocator_inner.inv(),
-                allocator_inner@.len()
-                    == MAX_IO_PORT,
-                !already_allocated ==> forall|id: usize|
-                    range.start as usize <= id <
-                        (range.start + scan_iter.index()) as usize ==>
-                        !id_alloc_view(&allocator_inner).contains(id),
-        )]
-        for i in range.clone() {
-            proof! {
-                assert((i as usize) < allocator_inner@.len()) by {
-                    assert((i as usize) < range.end as usize);
-                    assert((range.end as usize) <= u16::MAX as usize);
-                    assert((u16::MAX as usize) <= MAX_IO_PORT as usize);
-                    assert(allocator_inner@.len()
-                        == MAX_IO_PORT);
-                }
-            }
-            if allocator_inner.is_allocated(i as usize) {
-                already_allocated = true;
-            }
-            proof! {
-                lemma_id_alloc_view_contains(&allocator_inner, i as usize);
-            }
-        }
         proof_decl! {
             let tracked range_claim: GhostSubset<usize>;
         }
-        if already_allocated {
+        if range.clone().any(
+            #[verus_spec(ret: bool =>
+                requires
+                    range.start <= i < range.end,
+                ensures
+                    ret == id_alloc_view(&allocator_inner).contains(i as usize),
+            )]
+            |i| {
+                proof! {
+                    lemma_id_alloc_view_contains(&allocator_inner, i as usize);
+                }
+                allocator_inner.is_allocated(i as usize)
+            },
+        ) {
             allocator.drop();
             return None;
         }
@@ -246,6 +229,9 @@ impl IoPortAllocator {
             assert(ids.disjoint(id_alloc_view(&allocator_inner))) by {
                 assert forall|id: usize| #[trigger] ids.contains(id) implies
                     !id_alloc_view(&allocator_inner).contains(id) by {
+                    assert(IteratorSpec::remaining(&range)[
+                        id as int - range.start as int
+                    ] == id as u16);
                 }
             }
             assert forall|id: usize| ids.contains(id) implies
