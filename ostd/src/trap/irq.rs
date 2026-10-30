@@ -261,10 +261,7 @@ impl DisabledLocalIrqGuard {
 impl GuardTransfer for DisabledLocalIrqGuard {
     /// # Verified Properties
     /// ## Postconditions
-    /// - The returned guard preserves the receiver's previous `was_enabled` flag.
-    /// - The receiver's flag is cleared.
-    /// ## Safety
-    /// The transfer does not unwind. Hardware IRQ state and drop behavior are not modeled.
+    /// - Transfers the recorded IRQ-enable flag to the returned guard and clears the receiver's flag.
     fn transfer_to(&mut self) -> (ret: Self)
         ensures
             ret.was_enabled_spec() == old(self).was_enabled_spec(),

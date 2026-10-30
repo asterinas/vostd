@@ -541,9 +541,6 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             perm@.is_pptr(res),
             perm@.is_uninit_all(),
     {
-        /* vstd provides the array layout contract directly, so the local wrapper is redundant.
-         * Origin Rust: layout_for_array_is_valid::<V, N>();
-         */
         layout::layout_for_type_is_valid::<[V; N]>();
         let (p, Tracked(raw_perm), Tracked(dealloc)) = raw_ptr::allocate(
             core::mem::size_of::<[V; N]>(),
