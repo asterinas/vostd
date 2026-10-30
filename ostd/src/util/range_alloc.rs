@@ -806,8 +806,6 @@ impl RangeAllocator {
                     }
                 }
             }
-        }
-        proof! {
             lemma_restored_freelist_is_separated(
                 self@,
                 before_left_map,
@@ -815,8 +813,6 @@ impl RangeAllocator {
                 free_range.start,
                 free_range,
             );
-        }
-        proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             resource.allocated.delete(allocated.tracked_into_subset());
             let tracked free_subset = resource.free.insert_set(range.view_set());

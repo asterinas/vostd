@@ -8,11 +8,9 @@ use crate::{bus::pci::PciDeviceLocation, io::IoPort, prelude::*};
 verus! {
 
 broadcast use super::device::io_port::group_io_port_models;
-// Original Rust: static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
 
 exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
 
-// Original Rust: static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
 exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
 
 } // verus!

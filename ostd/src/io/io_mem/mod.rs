@@ -133,10 +133,7 @@ impl IoMem {
     )]
     pub fn slice(&self, range: Range<usize>) -> Self {
         // This ensures `range.start < range.end` and `range.end <= limit`.
-        /*
         assert!(!range.is_empty() && range.end <= self.limit);
-        */
-        vstd_extra::assert!(range.start < range.end && range.end <= self.limit);
 
         // We've checked the range is in bounds, so we can construct the new `IoMem` safely.
         Self {
