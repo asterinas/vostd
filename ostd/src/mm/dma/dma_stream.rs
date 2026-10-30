@@ -419,18 +419,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                 start_paddr as Daddr
             },
             DmaType::Iommu => {
-                let mut i = 0;
-
-                #[verus_spec(
+                for i in 0..frame_count
                     invariant
-                        i <= frame_count,
                         segment.inv(),
                         start_paddr == segment.start_paddr(),
                         frame_count == segment.size() / PAGE_SIZE,
-                    decreases
-                        frame_count - i,
-                )]
-                while i < frame_count {
+                {
                     assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let paddr = start_paddr + i * PAGE_SIZE;
 
@@ -440,8 +434,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                         iommu::map(paddr as Daddr, paddr)->0;
                     }
                     */
-
-                    i += 1;
                 }
 
                 start_paddr as Daddr

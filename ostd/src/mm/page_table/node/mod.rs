@@ -157,8 +157,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         reader.skip_in_place(range.start * core::mem::size_of::<C::E>());
 
-        let mut i = range.start;
-        while i < range.end {
+        for _ in range {
             // Non-atomic read is OK because we have mutable access.
             let pte = reader.read_once::<C::E>().unwrap();
             if pte.is_present() {
@@ -182,7 +181,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                     };
                 }
             }
-            i += 1;
         }
     }
 
