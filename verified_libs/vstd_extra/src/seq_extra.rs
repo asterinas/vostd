@@ -445,4 +445,25 @@ pub proof fn lemma_first_zero_index_set_after_first_zero(s: Seq<bool>, i: int)
     lemma_is_first_zero_unique(t, first_zero_index(t), fz);
 }
 
+/// A kept position `j` is counted by `filter_index`, so the prefix `[0, j)`
+/// keeps strictly fewer elements than the whole sequence.
+pub proof fn lemma_filter_index_take_len_lt<T>(s: Seq<T>, keep: spec_fn(int) -> bool, j: int)
+    requires
+        0 <= j < s.len(),
+        keep(j),
+    ensures
+        s.take(j).filter_index(keep).len() < s.filter_index(keep).len(),
+    decreases s.len(),
+{
+    reveal(Seq::filter_index);
+    if j + 1 < s.len() {
+        let s_rest = s.drop_last();
+        assert(s_rest.take(j) =~= s.take(j));
+        lemma_filter_index_take_len_lt(s_rest, keep, j);
+    } else {
+        assert(s.take(j) =~= s.drop_last());
+        assert(j == s.len() - 1);
+    }
+}
+
 } // verus!
