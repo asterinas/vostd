@@ -51,10 +51,11 @@ impl<C: PageTableConfig> Child<C> {
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: all [safety invariants](Child::invariants) must hold on the child.
-    /// - **Safety**: the entry's must be marked as a child, which implies that it has a `raw_count` of 0.
+    /// - **Safety**: A node child's counted token belongs to its Frame handle.
     /// ## Postconditions
     /// - **Safety Invariants**: the `PTE`'s [safety invariants](EntryOwner::pte_invariants) are preserved.
-    /// - **Safety**: the entry's raw count is incremented by 1.
+    /// - **Ownership**: The node's original token moves into the PTE owner;
+    ///   the physical reference count is unchanged.
     /// - **Safety**: No frame other than the target entry's (if applicable) is impacted by the call.
     /// - **Correctness**: the `PTE` is equivalent to the original `Child`.
     /// ## Safety
@@ -69,7 +70,7 @@ impl<C: PageTableConfig> Child<C> {
         ensures
             final(owner).inv(),
             final(owner).match_pte(res, final(owner).parent_level),
-            *final(owner) == old(owner).into_pte_owner_spec(),
+            *final(owner) == old(owner).into_pte_owner_spec(self),
             old(owner).is_node() ==> res == C::E::new_pt_spec(
                 meta_to_frame(old(owner).node().slot_vaddr()),
             ),
@@ -80,8 +81,14 @@ impl<C: PageTableConfig> Child<C> {
         }
 
         match self {
-            Child::PageTable(node) => {
+            /* `mut` only permits transferring the erased token before forgetting the handle.
+             * Origin Rust: Child::PageTable(node) => {
+             */
+            Child::PageTable(mut node) => {
                 let paddr = node.start_paddr();
+                proof {
+                    owner.node_permission = Some(node.tracked_metadata_perm.tracked_take());
+                }
                 let _ = ManuallyDrop::new(node);
                 C::E::new_pt(paddr)
             },
@@ -102,8 +109,8 @@ impl<C: PageTableConfig> Child<C> {
     /// - **Safety**: No frame other than the target entry's (if applicable) is impacted by the call.
     /// - **Correctness**: the `Child` is equivalent to the original `PTE`.
     /// ## Safety
-    /// The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::into_pte`]
-    /// (or another function that calls `ManuallyDrop::new`, which is sufficient for safety).
+    /// A node PTE's owner must supply the original counted token transferred
+    /// by [`Self::into_pte`]. The returned Frame takes that token back.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<& MetaRegionOwners>,
              Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
@@ -112,7 +119,7 @@ impl<C: PageTableConfig> Child<C> {
             level == old(entry_own).parent_level,
         ensures
             res.invariants(*final(entry_own), *regions),
-            res == Child::<C>::from_pte_spec(pte, level, *regions),
+            res == Child::<C>::from_pte_spec(pte, level, *regions, old(entry_own).node_permission),
             *final(entry_own) == old(entry_own).from_pte_owner_spec(),
     )]
     pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> Self {
@@ -129,7 +136,8 @@ impl<C: PageTableConfig> Child<C> {
             }
             let tracked slot_perm = regions.tracked_borrow_slot(paddr);
 
-            proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None) }
+            let tracked permission = entry_own.tracked_take_node_permission();
+            proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(Some(permission)) }
             let node = PageTableNode::<C> {
                 ptr: PPtr::from_addr(frame_to_meta(paddr)),
                 _marker: PhantomData,
@@ -158,7 +166,7 @@ pub enum ChildRef<'a, C: PageTableConfig> {
 }
 
 #[verus_verify]
-impl<C: PageTableConfig> ChildRef<'_, C> {
+impl<'a, C: PageTableConfig> ChildRef<'a, C> {
     /// Converts a PTE to a reference to a child.
     ///
     /// # Verified Properties
@@ -170,25 +178,18 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     /// - **Correctness**: the `ChildRef` is equivalent to the original `PTE`.
     /// - **Safety**: No frame other than the target entry's (if applicable) is impacted by the call.
     /// ## Safety
-    /// - The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::from_pte`]
-    /// - The soundness of using the resulting `ChildRef` as a reference follows from `FrameRef` safety.
+    /// - The caller guarantees the physical node remains alive for `'a`.
+    /// - A node result is a raw handle without a retained count borrow. Metadata
+    ///   access requires an actual external permission; it does not satisfy
+    ///   `FrameRef::inv()` by itself.
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        with Tracked(regions): Tracked<&MetaRegionOwners>,
              Tracked(entry_owner): Tracked<&EntryOwner<C>>,
         requires
-            entry_owner.pte_invariants(*pte, *old(regions)),
+            entry_owner.pte_invariants(*pte, *regions),
             level == entry_owner.parent_level,
         ensures
-            res.invariants(*entry_owner, *final(regions)),
-            final(regions).slots == old(regions).slots,
-            final(regions).slot_owners == old(regions).slot_owners,
-            forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
-                    k,
-                ),
-            forall|k: int|
-                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
-                    == #[trigger] final(regions).slots[k],
+            res.invariants(*entry_owner, *regions),
     )]
     pub unsafe fn from_pte(pte: &C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
@@ -205,7 +206,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             let tracked node_owner = entry_owner.tracked_borrow_node();
             let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
             let node = unsafe {
-                #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
+                #[verus_spec(with Tracked(slot_perm), Tracked(None))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
 

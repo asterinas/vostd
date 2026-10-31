@@ -65,6 +65,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         &&& owner.inv()
         &&& regions.inv()
         &&& self.wf(owner)
+        &&& owner.is_node() ==> owner.node_permission is Some
         &&& owner.metaregion_sound(regions)
     }
 
@@ -74,6 +75,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         parent_owner: NodeOwner<C>,
         guard: PageTableGuard<'rcu, C>,
     ) -> bool {
+        &&& owner.is_node() ==> owner.node_permission is Some
         &&& parent_owner.level() == owner.parent_level
         &&& parent_owner.inv()
         &&& parent_owner.relate_guard(guard)

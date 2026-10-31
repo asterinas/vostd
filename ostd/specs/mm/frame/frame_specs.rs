@@ -144,7 +144,6 @@ impl<M: ?Sized> Frame<M> {
         self.ptr.addr()
     }
 
-    #[verifier::inline]
     pub open spec fn start_paddr_spec(self) -> Paddr {
         meta_to_frame(self.slot_vaddr())
     }

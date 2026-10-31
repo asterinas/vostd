@@ -4,7 +4,11 @@ use vstd_extra::{ghost_tree::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::{
-        frame::{mapping::*, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners},
+        frame::{
+            mapping::*,
+            meta_owners::{FracMetadataPerm, PageUsage},
+            meta_region_owners::MetaRegionOwners,
+        },
         page_table::*,
     },
 };
@@ -51,11 +55,37 @@ pub tracked enum EntryOwnerKind<C: PageTableConfig> {
 
 pub tracked struct EntryOwner<C: PageTableConfig> {
     pub kind: EntryOwnerKind<C>,
+    /// The incoming node PTE owns Some(token). While an owning Frame holds the
+    /// this field is None.
+    pub node_permission: Option<FracMetadataPerm>,
     pub ghost path: TreePath<NR_ENTRIES>,
     pub ghost parent_level: PagingLevel,
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
+    /// Borrows the counted reference owned by this parent PTE.
+    pub proof fn tracked_borrow_node_permission(tracked &self) -> (tracked permission:
+        &FracMetadataPerm)
+        requires
+            self.node_permission is Some,
+        returns
+            self.node_permission->0,
+    {
+        self.node_permission.tracked_borrow()
+    }
+
+    /// Transfers a removed PTE's counted reference back to its owning Frame.
+    pub proof fn tracked_take_node_permission(tracked &mut self) -> (tracked permission:
+        FracMetadataPerm)
+        requires
+            old(self).node_permission is Some,
+        ensures
+            permission == old(self).node_permission->0,
+            *final(self) == (EntryOwner { node_permission: None, ..*old(self) }),
+    {
+        self.node_permission.tracked_take()
+    }
+
     #[verifier::inline]
     pub open spec fn is_node(self) -> bool {
         self.kind is Node
@@ -103,7 +133,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
-        EntryOwner { kind: EntryOwnerKind::Absent, path, parent_level }
+        EntryOwner { kind: EntryOwnerKind::Absent, node_permission: None, path, parent_level }
     }
 
     pub open spec fn new_frame(
@@ -115,6 +145,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     ) -> Self {
         EntryOwner {
             kind: EntryOwnerKind::Frame(FrameEntryOwner { mapped_pa: paddr, prop, permission }),
+            node_permission: None,
             path,
             parent_level,
         }
@@ -123,6 +154,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> Self {
         EntryOwner {
             kind: EntryOwnerKind::Node(node),
+            node_permission: None,
             path,
             parent_level: (node.level() + 1) as PagingLevel,
         }
@@ -135,7 +167,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         returns
             Self::new_absent(path, parent_level),
     {
-        Self { kind: EntryOwnerKind::Absent, path, parent_level }
+        Self { kind: EntryOwnerKind::Absent, node_permission: None, path, parent_level }
     }
 
     pub proof fn tracked_take_node(tracked &mut self) -> (tracked res: NodeOwner<C>)
@@ -271,6 +303,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         Self {
             kind: EntryOwnerKind::Frame(FrameEntryOwner { mapped_pa: paddr, prop, permission }),
+            node_permission: None,
             path,
             parent_level,
         }
@@ -309,6 +342,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             kind: EntryOwnerKind::Frame(
                 FrameEntryOwner { mapped_pa: paddr, prop, permission: None },
             ),
+            node_permission: None,
             path: TreePath(Seq::empty()),
             parent_level,
         }
@@ -647,6 +681,10 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
                 ),
             )
             &&& C::E::new_page_req(self.frame().mapped_pa, self.parent_level, self.frame().prop)
+        }
+        &&& self.node_permission matches Some(permission) ==> {
+            &&& self.is_node()
+            &&& self.node().permission_matches(permission)
         }
         &&& self.path.inv()
     }

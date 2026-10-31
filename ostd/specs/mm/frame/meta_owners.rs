@@ -23,15 +23,6 @@ use crate::mm::{
 
 verus! {
 
-#[allow(non_camel_case_types)]
-pub ghost enum MetaSlotStatus {
-    UNUSED,
-    UNIQUE,
-    SHARED,
-    OVERFLOW,
-    UNDER_CONSTRUCTION,
-}
-
 pub ghost enum PageUsage {
     /// Initial purpose before metadata is installed. Reuse is governed by refcount.
     Unused,
@@ -183,15 +174,6 @@ impl MetaSlotOwner {
     pub open spec fn vtable_ptr_perm(self) -> vstd::simple_pptr::PointsTo<usize> {
         self.metadata_perm().vtable_ptr_perm
     }
-
-    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> tracked &MetadataPerm
-        requires
-            !self.metadata_perm.is_resource_vacant(),
-        returns
-            self.metadata_perm(),
-    {
-        self.metadata_perm.tracked_borrow()
-    }
 }
 
 /// Well-formedness of a concrete metadata representation.
@@ -264,6 +246,7 @@ impl Inv for MetaSlotOwner {
             &&& self.paths_in_pt.is_empty()
         }
         &&& 0 < self.ref_count() <= REF_COUNT_MAX ==> {
+            &&& !self.metadata_perm.is_resource_vacant()
             &&& self.metadata_perm.frac() + self.ref_count() == REF_COUNT_MAX
             &&& self.vtable_ptr_perm().is_init()
             &&& self.storage_perm().is_init()
