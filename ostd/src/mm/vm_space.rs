@@ -952,10 +952,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         assert_eq!(len % PAGE_SIZE, 0);
 
-        // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
-        assume(self.pt_cursor.0.va + len <= usize::MAX);
-
-        assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
+        /* Bounding `va + len` requires evaluating that sum, which wraps for a huge `len`
+         * (asterinas#3159). Split the bound so no addition is ever formed; both checks still
+         * panic exactly when the unmap would run past the cursor's barrier.
+         * Origin Rust: assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
+         */
+        assert!(self.virt_addr() <= self.pt_cursor.0.barrier_va.end);
+        assert!(len <= self.pt_cursor.0.barrier_va.end - self.virt_addr());
 
         assert(!self.pt_cursor.0.find_next_panic_condition(len));
 
