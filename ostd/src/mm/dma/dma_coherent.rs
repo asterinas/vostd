@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
+use vstd::{arithmetic::mul::lemma_mul_inequality, prelude::*};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    ownership::{Inv, OwnerOf},
+    resource_invariant::SimpleResourceInvariant,
+};
+
 use core::marker::PhantomData;
-
-use vstd::{predicate::Predicate, prelude::*};
-
-use vstd_extra::ownership::{Inv, OwnerOf};
 
 use crate::{
     error::Error,
@@ -13,16 +18,13 @@ use crate::{
         frame::{Segment, untyped::AnyUFrameMeta},
         io::{
             FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoMemView, VmIoOnce,
-            VmIoOwner, VmReader, VmWriter, axiom_kernel_mem_view,
+            VmIoOwner, VmReader, VmWriter,
         },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,
     },
-    specs::{
-        arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
-        mm::virt_mem::VirtPtr,
-    },
-    sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},
+    specs::{arch::*, mm::virt_mem::VirtPtr},
+    sync::{PreemptDisabled, RwArc, RwLockReadGuard},
 };
 
 use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
@@ -62,9 +64,17 @@ pub tracked struct DmaCoherentInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub _marker: PhantomData<M>,
 }
 
+// This owner contains only PhantomData and carries no subjective memory permissions.
+#[cfg(feature = "irc11")]
+unsafe impl<M: AnyUFrameMeta + ?Sized> Objective for DmaCoherentInnerOwner<M> {
+
+}
+
+pub ghost struct DmaCoherentInnerInvariant;
+
 pub type DmaCoherentInnerAtomic<M> = AtomicDataWithOwner<
     DmaCoherentInner<M>,
-    DmaCoherentInnerOwner<M>,
+    DmaCoherentInnerInvariant,
 >;
 
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherent<M> {
@@ -83,6 +93,17 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInner<M> {
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInnerOwner<M> {
     open spec fn inv(self) -> bool {
         true
+    }
+}
+
+impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
+    DmaCoherentInner<M>,
+> for DmaCoherentInnerInvariant {
+    type Resource = DmaCoherentInnerOwner<M>;
+
+    open spec fn inv(value: DmaCoherentInner<M>, resource: DmaCoherentInnerOwner<M>) -> bool {
+        &&& resource.inv()
+        &&& value.inv()
     }
 }
 
@@ -132,19 +153,16 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                 start_paddr as Daddr
             },
             DmaType::Iommu => {
-                let mut i = 0;
-
-                #[verus_spec(
+                for i in 0..frame_count
                     invariant
-                        i <= frame_count,
                         segment.inv(),
                         start_paddr == segment.start_paddr(),
                         frame_count == segment.size() / PAGE_SIZE,
-                    decreases
-                        frame_count - i,
-                )]
-                while i < frame_count {
-                    assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
+                        start_paddr + frame_count * PAGE_SIZE <= usize::MAX,
+                {
+                    proof {
+                        lemma_mul_inequality(i as int, frame_count as int, PAGE_SIZE as int);
+                    }
                     let _paddr = start_paddr + i * PAGE_SIZE;
                     /*
                     // Original IOMMU map (removed during Verus migration):
@@ -152,7 +170,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                         iommu::map(paddr as Daddr, paddr).unwrap();
                     }
                     */
-                    i += 1;
                 }
 
                 start_paddr as Daddr
@@ -165,6 +182,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             AtomicDataWithOwner::new(
                 DmaCoherentInner { segment, start_daddr, is_cache_coherent },
                 Tracked(inner_owner),
+                Ghost(DmaCoherentInnerInvariant),
             ),
         );
 
@@ -263,10 +281,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             proof_with!(Ghost(id) => Tracked(reader_owner));
             VmReader::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
-        }
         proof_with!(|= Tracked(reader_owner));
         reader
     }
@@ -314,10 +328,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             proof_with!(Ghost(id), Tracked(false) => Tracked(writer_owner));
             VmWriter::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
-        }
         proof_with!(|= Tracked(writer_owner));
         writer
     }
@@ -450,19 +460,11 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaCoherentInner<M>> for DmaCoherentInnerOwner<M> {
-    #[verifier::inline]
-    open spec fn predicate(&self, v: DmaCoherentInner<M>) -> bool {
-        &&& self.inv()
-        &&& v.inv()
-    }
-}
-
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized> Clone for DmaCoherent<M> {
-    #[verus_spec(r =>
-        ensures
-            r == self,
+    #[verus_spec(
+        returns
+            self,
     )]
     fn clone(&self) -> Self {
         DmaCoherent { inner: self.inner.clone() }

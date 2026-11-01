@@ -1,15 +1,7 @@
 pub mod entry_owners;
-pub mod entry_view;
 pub mod owners;
 
-pub use entry_owners::*;
-pub use entry_view::*;
-pub use owners::*;
-
-use core::marker::PhantomData;
-
 use vstd::prelude::*;
-
 use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
 
 use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
@@ -18,16 +10,18 @@ use crate::mm::{
     frame::Frame,
     page_table::{PageTableConfig, PageTableGuard, PageTablePageMeta},
 };
+use core::marker::PhantomData;
+pub use entry_owners::*;
+pub use owners::*;
 
 verus! {
 
-pub tracked struct Guards<'rcu> {
+pub tracked struct Guards {
     /// The set of node addresses that are currently guarded (locked).
     pub ghost guards: Set<usize>,
-    pub _phantom: PhantomData<&'rcu ()>,
 }
 
-impl<'rcu> Guards<'rcu> {
+impl Guards {
     pub open spec fn unlocked(self, addr: usize) -> bool {
         !self.guards.contains(addr)
     }
@@ -38,7 +32,7 @@ impl<'rcu> Guards<'rcu> {
 }
 
 impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
-    type State = Guards<'rcu>;
+    type State = Guards;
 
     /// The node address whose lock this guard holds. The token
     /// thus identifies *which* guard it tracks; `drop_requires`'s key
@@ -49,7 +43,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type Obligation = DropObligation<usize>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        s.lock_held(self.inner.inner@.ptr.addr())
+        s.lock_held(self.inner.inner@.slot_vaddr())
     }
 
     open spec fn tracked_redeem_ensures(
@@ -58,18 +52,18 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        &&& s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
-        &&& obl.value() == self.inner.inner@.ptr.addr()
+        &&& s1.guards == s0.guards.remove(self.inner.inner@.slot_vaddr())
+        &&& obl.value() == self.inner.inner@.slot_vaddr()
     }
 
     proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
-        s.guards = s.guards.remove(self.inner.inner@.ptr.addr());
-        DropObligation::tracked_mint(self.inner.inner@.ptr.addr())
+        s.guards = s.guards.remove(self.inner.inner@.slot_vaddr());
+        DropObligation::tracked_mint(self.inner.inner@.slot_vaddr())
     }
 
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& s.unlocked(self.inner.inner@.ptr.addr())
-        &&& obl.value() == self.inner.inner@.ptr.addr()
+        &&& s.unlocked(self.inner.inner@.slot_vaddr())
+        &&& obl.value() == self.inner.inner@.slot_vaddr()
     }
 
     open spec fn drop_ensures(
@@ -78,7 +72,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr())
+        s1.guards == s0.guards.insert(self.inner.inner@.slot_vaddr())
     }
 }
 
@@ -93,9 +87,9 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     }
 
     #[verifier::when_used_as_spec(into_spec)]
-    pub fn into(self) -> (res: StoredPageTablePageMeta)
-        ensures
-            res == self.into_spec(),
+    pub fn into(self) -> StoredPageTablePageMeta
+        returns
+            self.into_spec(),
     {
         StoredPageTablePageMeta {
             nr_children: self.nr_children,
@@ -118,9 +112,9 @@ impl StoredPageTablePageMeta {
     }
 
     #[verifier::when_used_as_spec(into_spec)]
-    pub fn into<C: PageTableConfig>(self) -> (res: PageTablePageMeta<C>)
-        ensures
-            res == self.into_spec::<C>(),
+    pub fn into<C: PageTableConfig>(self) -> PageTablePageMeta<C>
+        returns
+            self.into_spec::<C>(),
     {
         PageTablePageMeta::<C> {
             nr_children: self.nr_children,

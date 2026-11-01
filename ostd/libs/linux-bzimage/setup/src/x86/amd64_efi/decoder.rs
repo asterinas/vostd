@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! This module is used to decompress payload.
-
 extern crate alloc;
 
 use alloc::vec::Vec;

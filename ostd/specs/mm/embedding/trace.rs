@@ -5,7 +5,7 @@
 //! satisfies [`super::op_pre`] against the current store. Because
 //! [`super::Op::NewVmSpace`] has no precondition, such an op always
 //! exists, so `choose` is well-defined. The picked op is then
-//! discharged into [`super::step`], and the recursion continues with
+//! discharged into [`super::lemma_step`], and the recursion continues with
 //! the post-state.
 //!
 //! Compared to the previous `run_trace(trace: Seq<Op>)` design, this
@@ -15,7 +15,7 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use super::{Op, VmStore, op_pre, step};
+use super::{Op, VmStore, lemma_step, op_pre};
 
 verus! {
 
@@ -30,7 +30,7 @@ pub proof fn op_pre_satisfiable<'rcu>(s: VmStore<'rcu>)
 
 /// Generates a trace of `n` steps by repeatedly choosing some op that
 /// satisfies [`super::op_pre`] against the current store and applying
-/// it via [`super::step`]. Preserves [`VmStore::inv`] throughout.
+/// it via [`super::lemma_step`]. Preserves [`VmStore::inv`] throughout.
 ///
 /// This is the soundness story over arbitrary call sequences: no
 /// matter which `n` operations the system picks (subject only to
@@ -45,7 +45,7 @@ pub proof fn run<'rcu>(tracked s: &mut VmStore<'rcu>, n: nat)
     if n > 0 {
         op_pre_satisfiable(*s);
         let op: Op = choose|op: Op| op_pre(*s, op);
-        step(s, op);
+        lemma_step(s, op);
         run(s, (n - 1) as nat);
     }
 }

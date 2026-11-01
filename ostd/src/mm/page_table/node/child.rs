@@ -1,30 +1,29 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
-use vstd::prelude::*;
+use vstd::{prelude::*, simple_pptr::PPtr};
+use vstd_extra::{cast_ptr::*, ownership::*};
 
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        mapping::{group_page_meta, meta_to_index},
+        meta_region_owners::MetaRegionOwners,
+    },
+    *,
+};
+
+use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::page_table::*;
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{
-    mapping::{group_page_meta, meta_to_index},
-    meta_region_owners::MetaRegionOwners,
-};
-
-use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::*;
-use vstd_extra::ownership::*;
-
-use crate::specs::*;
-
 use crate::{
     mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty},
     //    sync::RcuDrop,
 };
-
-use super::*;
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 
 verus! {
 
@@ -63,18 +62,16 @@ impl<C: PageTableConfig> Child<C> {
     /// so that we can guarantee the safety condition on `from_pte`.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut EntryOwner<C>>,
-             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            self.invariants(*old(owner), *old(regions)),
-            self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                meta_to_index(node.ptr.addr()),
-            ) > 0,
+            old(owner).inv(),
+            self.wf(*old(owner)),
+            self matches Child::Frame(paddr, level, prop) ==> C::E::new_page_req(paddr, level, prop),
         ensures
-            final(owner).pte_invariants(res, *final(regions)),
-            *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
+            final(owner).inv(),
+            final(owner).match_pte(res, final(owner).parent_level),
             *final(owner) == old(owner).into_pte_owner_spec(),
             old(owner).is_node() ==> res == C::E::new_pt_spec(
-                meta_to_frame(old(owner).node().meta_vaddr()),
+                meta_to_frame(old(owner).node().slot_vaddr()),
             ),
     )]
     pub fn into_pte(self) -> C::E {
@@ -84,29 +81,8 @@ impl<C: PageTableConfig> Child<C> {
 
         match self {
             Child::PageTable(node) => {
-                let ghost node_owner = owner.node();
-                let ghost node_index = meta_to_index(node.ptr.addr());
-
-                let tracked node_slot_perm = regions.slots.tracked_borrow(node_index);
-                #[verus_spec(with Tracked(node_slot_perm))]
                 let paddr = node.start_paddr();
-
-                let ghost fo0 = regions.frame_obligations;
-
-                proof_decl! {
-                    let tracked redeem_obl = DropObligation::tracked_mint(node_index);
-                    regions.tracked_redeem_frame_obligation(redeem_obl);
-                    let tracked md_obl = DropObligation::tracked_mint(node_index);
-                }
-                proof_with!(Tracked(md_obl));
                 let _ = ManuallyDrop::new(node);
-
-                proof {
-                    // `MD::new` removed one entry at `node_index`, matching
-                    // `into_pte_regions_spec`'s `.remove(index)`.
-                    let spec_regions = owner.into_pte_regions_spec(*old(regions));
-                }
-
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => { C::E::new_page(paddr, level, prop) },
@@ -129,16 +105,15 @@ impl<C: PageTableConfig> Child<C> {
     /// The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::into_pte`]
     /// (or another function that calls `ManuallyDrop::new`, which is sufficient for safety).
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        with Tracked(regions): Tracked<& MetaRegionOwners>,
              Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
         requires
-            old(entry_own).pte_invariants(pte, *old(regions)),
+            old(entry_own).pte_invariants(pte, *regions),
             level == old(entry_own).parent_level,
         ensures
-            res.invariants(*final(entry_own), *final(regions)),
-            res == Child::<C>::from_pte_spec(pte, level, *final(regions)),
+            res.invariants(*final(entry_own), *regions),
+            res == Child::<C>::from_pte_spec(pte, level, *regions),
             *final(entry_own) == old(entry_own).from_pte_owner_spec(),
-            *final(regions) == final(entry_own).from_pte_regions_spec(*old(regions)),
     )]
     pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
@@ -150,30 +125,15 @@ impl<C: PageTableConfig> Child<C> {
             proof {
                 broadcast use group_page_meta;
 
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
             }
+            let tracked slot_perm = regions.tracked_borrow_slot(paddr);
 
-            proof_decl! {
-                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
-            }
-
-            let node = unsafe {
-                proof_with!(
-                    Tracked(regions) => Tracked(from_raw_obl)
-                );
-                PageTableNode::from_raw(paddr)
+            proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None) }
+            let node = PageTableNode::<C> {
+                ptr: PPtr::from_addr(frame_to_meta(paddr)),
+                _marker: PhantomData,
             };
-
-            proof {
-                // `from_raw_obl` is the freshly minted obligation token
-                // for this slot. It is silently dropped here; the
-                // corresponding `frame_obligations` entry persists and
-                // is consumed by `on_drop`'s teardown path (which mints
-                // its own token via the paired axiom when it calls
-                // `frame.drop`). Net effect over `from_pte` is +1 on
-                // the ledger, balancing the prior `-1` from
-                // `into_pte`'s `MD::new` consume.
-            }
 
             return Child::PageTable(node);
         }
@@ -220,6 +180,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             level == entry_owner.parent_level,
         ensures
             res.invariants(*entry_owner, *final(regions)),
+            final(regions).slots == old(regions).slots,
             final(regions).slot_owners == old(regions).slot_owners,
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
@@ -239,21 +200,14 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             proof {
                 broadcast use group_page_meta;
 
-                regions.inv_implies_correct_addr(paddr);
             }
 
+            let tracked node_owner = entry_owner.tracked_borrow_node();
+            let tracked slot_perm = *regions.slots.tracked_borrow(node_owner.slot_index);
             let node = unsafe {
-                #[verus_spec(with Tracked(regions))]
+                #[verus_spec(with Tracked(slot_perm), Tracked(&node_owner.frame_permission))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
-
-            proof {
-                // `borrow_paddr` preserves the region maps, so every old slot key keeps
-                // the same permission value.
-                assert forall|k: int| old(regions).slots.contains_key(k) implies old(
-                    regions,
-                ).slots[k] == #[trigger] regions.slots[k] by {};
-            }
 
             return ChildRef::PageTable(node);
         }

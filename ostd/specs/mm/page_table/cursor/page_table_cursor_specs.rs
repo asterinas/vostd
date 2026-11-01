@@ -1,8 +1,4 @@
-use core::ops::Range;
-
-use vstd::prelude::*;
-
-use vstd::set_lib::*;
+use vstd::{prelude::*, set_lib::*};
 use vstd_extra::{arithmetic::*, ownership::*};
 
 use crate::specs::{
@@ -14,12 +10,9 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_table::*,
 };
+use core::ops::Range;
 
 verus! {
-
-impl<C: PageTableConfig> PageTableOwner<C> {
-    pub uninterp spec fn new_cursor_owner_spec<'rcu>(self) -> (Self, CursorOwner<'rcu, C>);
-}
 
 /// A `CursorView` is not aware that the underlying structure of the page table is a tree.
 /// It treats the page table as an array of mappings of various sizes, and the cursor itself as the
@@ -27,8 +20,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 /// and provide a simple interface for reasoning about its behavior.
 impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn item_into_mapping(va: Vaddr, item: C::Item) -> Mapping {
-        let (paddr, level, prop) = C::item_into_raw_spec(item);
-        let size = page_size(level);
+        let (paddr, level, prop, _perm) = C::item_into_raw(item);
+        let size = page_size::<PagingConsts>(level);
         Mapping {
             va_range: va as int..va + size,
             pa_range: paddr..(paddr + size) as Paddr,
@@ -50,6 +43,22 @@ impl<C: PageTableConfig> CursorView<C> {
             self.present(),
     {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).choose()
+    }
+
+    /// The queried mapping belongs to the view, covers its cursor, and is well-formed.
+    pub proof fn lemma_query_mapping(self)
+        requires
+            self.inv(),
+            self.present(),
+        ensures
+            self.mappings.contains(self.query_mapping()),
+            self.query_mapping().va_range.start <= self.cur_va < self.query_mapping().va_range.end,
+            self.query_mapping().inv(),
+    {
+        let covering = self.mappings.filter(
+            |m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end,
+        );
+        vstd::set::lemma_set_choose_len(covering);
     }
 
     pub open spec fn query(self, paddr: Paddr, size: usize, prop: PageProperty) -> bool {
@@ -75,51 +84,13 @@ impl<C: PageTableConfig> CursorView<C> {
         recommends
             self.present(),
     {
-        let (paddr, level, prop) = C::item_into_raw_spec(item);
-        let size = page_size(level);
+        let (paddr, level, prop, _perm) = C::item_into_raw_spec(item);
+        let size = page_size::<PagingConsts>(level);
         if self.query(paddr, size, prop) {
             let r = self.query_range();
             Some(r.start as Vaddr..r.end as Vaddr)
         } else {
             None
-        }
-    }
-
-    /// The specification for the internal function, `find_next_impl`. It finds the next mapped virtual address
-    /// that is at most `len` bytes away from the current virtual address. TODO: add the specifications for
-    /// `find_unmap_subtree` and `split_huge`, which are used by other functions that call this one.
-    /// This returns a mapping rather than the address because that is useful when it's called as a subroutine.
-    pub open spec fn find_next_impl_spec(
-        self,
-        len: usize,
-        find_unmap_subtree: bool,
-        split_huge: bool,
-    ) -> (Self, Option<Mapping>) {
-        let mappings_in_range = self.mappings.filter(
-            |m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len,
-        );
-
-        if mappings_in_range.len() > 0 {
-            let mapping = mappings_in_range.find_unique_minimal(
-                |m: Mapping, n: Mapping| m.va_range.start < n.va_range.start,
-            );
-            let view = CursorView { cur_va: mapping.va_range.end as Vaddr, ..self };
-            (view, Some(mapping))
-        } else {
-            let view = CursorView { cur_va: (self.cur_va + len) as Vaddr, ..self };
-            (view, None)
-        }
-    }
-
-    /// Actual specification for `find_next`. The cursor finds the next mapped virtual address
-    /// that is at most `len` bytes away from the current virtual address, returns it, and then
-    /// moves the cursor forward to the next end of its range.
-    pub open spec fn find_next_spec(self, len: usize) -> (Self, Option<Vaddr>) {
-        let (cursor, mapping) = self.find_next_impl_spec(len, false, false);
-        if mapping is Some {
-            (cursor, Some(mapping->0.va_range.start as Vaddr))
-        } else {
-            (cursor, None)
         }
     }
 
@@ -273,41 +244,6 @@ impl<C: PageTableConfig> CursorView<C> {
                     && m.va_range.end <= parent.va_range.end && m.pa_range.start == (
                 parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
                     && m.property == parent.property
-    }
-
-    /// Models `protect_next`: find the next mapping in range, split it to
-    /// `target_page_size` if it is a huge page, then update its property via `op`.
-    ///
-    /// `target_page_size` corresponds to the cursor level after `find_next_impl`
-    /// with `split_huge = true` — this is determined by the page table structure
-    /// and cannot be derived from the abstract view alone.
-    pub open spec fn protect_spec(
-        self,
-        len: usize,
-        op: spec_fn(PageProperty) -> PageProperty,
-        target_page_size: usize,
-    ) -> (Self, Option<Range<Vaddr>>) {
-        let (find_cursor, next) = self.find_next_impl_spec(len, false, true);
-        if next is Some {
-            let found = next->0;
-            // Position cursor at the found mapping and split to target size
-            let at_found = CursorView { cur_va: found.va_range.start as Vaddr, ..self };
-            let split_view = at_found.split_while_huge(target_page_size);
-            // The mapping at cur_va in the split view is the one to protect
-            let split_mapping = split_view.query_mapping();
-            let new_mapping = Mapping { property: op(split_mapping.property), ..split_mapping };
-            let new_cursor = CursorView {
-                cur_va: split_mapping.va_range.end as Vaddr,
-                mappings: split_view.mappings - set![split_mapping] + set![new_mapping],
-                ..self
-            };
-            (
-                new_cursor,
-                Some(split_mapping.va_range.start as Vaddr..split_mapping.va_range.end as Vaddr),
-            )
-        } else {
-            (find_cursor, None)
-        }
     }
 }
 

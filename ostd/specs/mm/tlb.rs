@@ -1,8 +1,7 @@
 use vstd::prelude::*;
-
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::{cpu::*, page_table::*};
+use crate::specs::mm::page_table::*;
 
 use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
 
@@ -15,19 +14,9 @@ pub ghost struct TlbModel {
 
 impl Inv for TlbModel {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_vaddrs(
-                m,
-                n,
-            )
-        &&& forall|m: Mapping, n: Mapping|
-            #![auto]
-            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_paddrs(
-                m,
-                n,
-            )
+        &&& mappings_well_formed(self.mappings)
+        &&& mappings_disjoint_vaddrs(self.mappings)
+        &&& mappings_disjoint_paddrs(self.mappings)
     }
 }
 
@@ -94,16 +83,6 @@ impl TlbModel {
         }
     }
 
-    pub proof fn lemma_consistent_with_pt_implies_inv(self, pt: PageTableView)
-        requires
-            self.inv(),
-            self.consistent_with_pt(pt),
-            pt.inv(),
-        ensures
-            self.inv(),
-    {
-    }
-
     pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self {
         TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }
@@ -126,7 +105,7 @@ impl TlbModel {
     pub open spec fn dispatch_tlb_flush_spec(self) -> Self {
         let op = self.pending.last();
         let popped = TlbModel {
-            pending: self.pending.take(self.pending.len() - 1),
+            pending: self.pending[..self.pending.len() - 1],
             mappings: self.mappings,
         };
         match op {

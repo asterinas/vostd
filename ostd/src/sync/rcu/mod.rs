@@ -5,15 +5,19 @@
 //!
 //! Currently this RCU model assumes a sequential consistency (SC) memory model.
 //! We may explore weak memory models in the future.
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd::{
     atomic_ghost::AtomicPtr, atomic_with_ghost, map::Map, modes::tracked_static_ref, prelude::*,
     resource::Loc,
 };
-
 use vstd_extra::{
+    once::Once,
     prelude::*,
-    resource::ghost_resource::{count::Count, tokens::CountResource},
+    resource::ghost_resource::count_auth::{Count, CountResource},
 };
+
+use crate::specs::task::InAtomicMode;
 
 use core::{
     marker::PhantomData, mem::ManuallyDrop, ops::Deref,
@@ -28,9 +32,8 @@ use core::{
 
 use non_null::{NonNullPtr, NonNullPtrRef};
 // use spin::once::Once;
-use super::Once;
 
-use self::monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
+use self::monitor::{RcuMonitor, RcuMonitorInvariant, RcuMonitorPred};
 use crate::task::{
     DisabledPreemptGuard,
     //atomic_mode::{AsAtomicModeGuard, InAtomicMode},
@@ -39,8 +42,6 @@ use crate::task::{
 
 mod monitor;
 pub mod non_null;
-
-use crate::specs::task::InAtomicMode;
 
 verus! {
 
@@ -52,7 +53,7 @@ broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
 // `CountResource`; the final RCU proof should discharge the admission assumption
 // with an unbounded ghost registry or a CPU/epoch-based sharding model.
 
-const RCU_READER_SLOTS: u64 = 1u64 << 60;
+const RCU_READER_SLOTS: usize = 1usize << 60;
 
 type RcuReadPool<P> = CountResource<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
 
@@ -69,6 +70,13 @@ tracked struct RcuPtrGhost<P: NonNullPtr> {
     tracked current: Option<RcuReadPool<P>>,
     tracked retired: RcuRetiredPools<P>,
     tracked returned: RcuReturnedTokens<P>,
+}
+
+// This authority contains allocation ownership and bookkeeping only. Raw
+// addresses do not carry the pointee's subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl<P: NonNullPtr> Objective for RcuPtrGhost<P> {
+
 }
 
 closed spec fn retired_pools_inv<P: NonNullPtr>(retired: RcuRetiredPools<P>) -> bool {
@@ -446,7 +454,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             let tracked tracked_ref_perm = tracked_ref_perm.tracked_unwrap();
             let tracked tracked_ref_perm = tracked_static_ref(tracked_ref_perm);
             let tracked tracked_ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
-                P::borrow_perm_as_ref_perm(tracked_ref_perm.borrow());
+                P::borrow_perm_as_ref_perm(tracked_ref_perm.tracked_borrow());
         }
         // SAFETY:
         // 1. This pointer is not NULL.
@@ -517,7 +525,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                             ptr,
                             Tracked(
                                 P::borrow_perm_as_ref_perm(
-                                    self.tracked_ref_perm.tracked_borrow().borrow(),
+                                    self.tracked_ref_perm.tracked_borrow().tracked_borrow(),
                                 ),
                             ),
                         )
@@ -540,7 +548,6 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         }
         proof_decl! {
             let tracked mut tracked_ref_perm = self.tracked_ref_perm.get();
-            let ghost new_ptr_is_some = new_ptr is Some;
             let tracked mut old_perm: Option<RcuReadPool<P>> = None;
             let tracked mut err_new_perm: Option<Option<<P as NonNullPtr>::Permission>> = None;
         }
@@ -1043,7 +1050,7 @@ impl<T: Send + 'static> Drop for RcuDrop<T> {
 ///
 /// The caller must ensure that this CPU is not executing in a RCU read-side
 /// critical section.
-pub unsafe fn finish_grace_period() {
+pub(crate) unsafe fn finish_grace_period() {
     let rcu_monitor = RCU_MONITOR.get().unwrap();
     // SAFETY: The caller ensures safety.
     unsafe {
@@ -1053,7 +1060,7 @@ pub unsafe fn finish_grace_period() {
 
 */
 
-exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
+exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorInvariant, RcuMonitorPred>
     ensures
         RCU_MONITOR.wf(),
         RCU_MONITOR.inv() == RcuMonitorPred,
@@ -1061,7 +1068,7 @@ exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
     Once::new(Ghost(RcuMonitorPred))
 }
 
-pub fn init() {
+pub(super) fn init() {
     RCU_MONITOR.init(RcuMonitor::new_data());
 }
 

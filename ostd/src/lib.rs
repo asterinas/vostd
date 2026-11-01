@@ -31,16 +31,19 @@
 
 extern crate alloc;
 
-//#[cfg(target_arch = "x86_64")]
+#[cfg(target_arch = "x86_64")]
 #[path = "arch/x86/mod.rs"]
 pub mod arch;
-//#[cfg(target_arch = "riscv64")]
-//#[path = "arch/riscv/mod.rs"]
-//pub mod arch;
+#[cfg(target_arch = "riscv64")]
+#[path = "arch/riscv/mod.rs"]
+pub mod arch;
+#[cfg(target_arch = "loongarch64")]
+#[path = "arch/loongarch/mod.rs"]
+pub mod arch;
 pub mod boot;
 /*pub mod bus;
-pub mod console;
-pub mod cpu;*/
+pub mod console;*/
+pub mod cpu;
 pub mod error;
 /*pub mod io;
 pub mod logger;*/
@@ -50,7 +53,7 @@ pub mod prelude;
 pub mod smp;*/
 pub mod sync;
 pub mod task;
-// pub mod timer;
+pub mod timer;
 pub mod trap;
 // pub mod user;
 #[path = "../specs/mod.rs"]

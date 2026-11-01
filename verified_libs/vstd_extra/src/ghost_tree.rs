@@ -593,16 +593,35 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
         }
     }
 
-    pub axiom fn tracked_new_val(tracked val: T, lv: nat) -> (tracked res: Self)
+    /// Constructs a tracked node with the given value and no children.
+    pub proof fn tracked_new_val(tracked val: T, lv: nat) -> (tracked res: Self)
         requires
             0 <= lv < L,
             N > 0,
             val.inv(),
+            val.la_inv(lv),
+            forall|i: int| 0 <= i < N ==> #[trigger] val.rel_children(i, None),
         ensures
             res.inv(),
         returns
             Self::new_val(val, lv),
-    ;
+    {
+        proof fn tracked_none_seq<A>(n: nat) -> (tracked res: Seq<Option<A>>)
+            ensures
+                res == Seq::new(n, |i| None),
+            decreases n,
+        {
+            if n == 0 {
+                Seq::tracked_empty()
+            } else {
+                let tracked mut res = tracked_none_seq((n - 1) as nat);
+                res.tracked_push(None);
+                res
+            }
+        }
+        let tracked children = tracked_none_seq(N as nat);
+        Self::tracked_new(val, lv, children)
+    }
 
     pub proof fn lemma_new_default_preserves_inv(lv: nat)
         requires

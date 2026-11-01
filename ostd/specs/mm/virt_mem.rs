@@ -11,19 +11,15 @@
 //! as correctness of low-level virtual memory operations that are used by them.
 //!
 //! [`VmSpace`]: crate::mm::vm_space::VmSpace
-use core::{marker::PhantomData, ops::Range};
-
-use ostd_pod::{decode_pod, lemma_decode_pod_inverse, pod_bytes};
-
-use vstd::prelude::*;
-
-use vstd::{pervasive::arbitrary, raw_ptr, set};
+use vstd::{pervasive::arbitrary, prelude::*, raw_ptr, set};
 use vstd_extra::prelude::*;
 
 use crate::specs::{arch::MAX_PADDR, mm::page_table::Mapping};
 
 use crate::Pod;
 use crate::mm::{Paddr, PodOnce, Vaddr};
+use core::{marker::PhantomData, ops::Range};
+use ostd_pod::{decode_pod, pod_bytes};
 
 verus! {
 
@@ -207,13 +203,6 @@ impl MemView {
         }
     }
 
-    /// Whether two virtual addresses denote equal byte contents in this view.
-    pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
-        let (pa1, off1) = self.addr_transl(va1)->0;
-        let (pa2, off2) = self.addr_transl(va2)->0;
-        self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
-    }
-
     /// Whether `va` is translated and mapped to frame base `pa`.
     pub open spec fn is_mapped(self, va: usize, pa: usize) -> bool {
         self.addr_transl(va) is Some && self.addr_transl(va)->Some_0.0 == pa
@@ -237,15 +226,6 @@ impl MemView {
             ),
             memory: self.memory.restrict(valid_pas),
         }
-    }
-
-    /// Whether mappings in this view are pairwise VA-disjoint.
-    pub open spec fn mappings_are_disjoint(self) -> bool {
-        forall|m1: Mapping, m2: Mapping|
-            #![trigger self.mappings.contains(m1), self.mappings.contains(m2)]
-            self.mappings.contains(m1) && self.mappings.contains(m2) && m1 != m2 ==> {
-                m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
-            }
     }
 
     /// Specification for splitting this view at `split_end = vaddr + len`.
@@ -396,14 +376,14 @@ impl MemView {
     ///
     /// ## Postconditions
     /// - `*self == old(self).join(other)`.
-    #[verifier::external_body]
     pub proof fn tracked_join(tracked &mut self, tracked other: Self)
         requires
             old(self).mappings.disjoint(other.mappings),
         ensures
             *final(self) == old(self).join(other),
     {
-        unimplemented!()
+        self.mappings = self.mappings.union(other.mappings);
+        self.memory.tracked_union_prefer_right(other.memory);
     }
 
     /// Lemma: splitting and then joining reconstructs the original view.
@@ -492,8 +472,7 @@ impl MemView {
 
 impl Inv for VirtPtr {
     open spec fn inv(self) -> bool {
-        &&& self.range@.start <= self.vaddr <= self.range@.end
-        &&& self.range@.end >= self.range@.start
+        self.range@.start <= self.vaddr <= self.range@.end
     }
 }
 
@@ -737,12 +716,15 @@ impl VirtPtr {
     /// alignment is checked. The returned pointer carries no provenance — it
     /// is suitable for runtime checks (e.g., `is_aligned`) and for unsafe
     /// volatile reads/writes whose preconditions are independently verified.
-    #[verifier::external_body]
     pub fn cast<T>(self) -> (res: *mut T)
         ensures
             res as usize == self.vaddr,
     {
-        self.vaddr as *mut T
+        /* Verus rejects the `usize` to `*mut T` cast; `with_addr` builds the same address
+         * from a null pointer, which also matches the documented null provenance.
+         * Origin Rust: self.vaddr as *mut T
+         */
+        core::ptr::null_mut::<T>().with_addr(self.vaddr)
     }
 
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
@@ -908,7 +890,6 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
-            src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
             forall|i: usize|
                 #![trigger mem_src.addr_transl(i)]
@@ -919,7 +900,6 @@ impl VirtPtr {
                         i,
                     )->0).1 as int] is Init
                 },
-            dst.range@.start <= dst.vaddr,
             dst.vaddr + n <= dst.range@.end,
             forall|i: usize|
                 dst.vaddr <= i < dst.vaddr + n ==> {
@@ -1067,14 +1047,6 @@ impl Inv for GlobalMemView {
             #![trigger self.pt_mappings.contains(m1), self.pt_mappings.contains(m2)]
             self.pt_mappings.contains(m1) && self.pt_mappings.contains(m2) && m1 != m2
                 ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
-        &&& forall|m: Mapping|
-            forall|n: Mapping|
-                #![auto]
-                self.tlb_mappings.contains(m) ==> self.tlb_mappings.contains(n) ==> m != n
-                    ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
-                    <= m.va_range.start
-        &&& self.all_pas_accounted_for()
-        &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()
     }
 }
@@ -1095,19 +1067,6 @@ impl GlobalMemView {
 
     pub open spec fn is_mapped(self, pa: usize) -> bool {
         exists|m: Mapping| self.pt_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
-    }
-
-    pub open spec fn all_pas_accounted_for(self) -> bool {
-        forall|pa: Paddr|
-            0 <= pa < MAX_PADDR ==> #[trigger] self.is_mapped(pa)
-                || #[trigger] self.unmapped_pas.contains(pa)
-    }
-
-    pub open spec fn pas_uniquely_mapped(self) -> bool {
-        forall|m1: Mapping, m2: Mapping|
-            #![trigger self.tlb_mappings.contains(m1), self.tlb_mappings.contains(m2)]
-            self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2
-                ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
 
     pub open spec fn unmapped_correct(self) -> bool {

@@ -1,31 +1,34 @@
-use core::{marker::PhantomData, ops::Deref, ops::Range};
-
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{predicate::Predicate, prelude::*};
-
+use vstd::prelude::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd_extra::external::convert::AsRefSpec;
-use vstd_extra::ownership::{Inv, OwnerOf};
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    ownership::{Inv, OwnerOf},
+    resource_invariant::SimpleResourceInvariant,
+};
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
+
+use core::{marker::PhantomData, ops::Deref, ops::Range};
+
 use crate::{
     error::Error,
     mm::{
         Paddr,
         dma::{Daddr, DmaType, dma_type},
         frame::{AnyFrameMeta, Segment, untyped::AnyUFrameMeta},
-        io::{
-            FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader, VmWriter,
-            axiom_kernel_mem_view,
-        },
+        io::{FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader, VmWriter},
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,
     },
     specs::{
-        arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
+        arch::*,
         mm::io::{VmIoMemView, VmIoOwner},
         mm::virt_mem::{MemView, VirtPtr},
     },
-    sync::{AtomicDataWithOwner, PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
+    sync::{PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
 use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
@@ -241,10 +244,6 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     proof_with!(Ghost(id) => Tracked(reader_perm));
                                     VmReader::from_kernel_space(ptr, self.len)
                                 };
-                                proof {
-                                    let tracked mem_view = axiom_kernel_mem_view(range);
-                                    reader_perm.mem_view = Some(VmIoMemView::ReadView(mem_view));
-                                }
                                 proof_with!(|= Tracked(Some(reader_perm)));
                                 Ok(reader)
                             },
@@ -328,10 +327,6 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     proof_with!(Ghost(id), Tracked(false) => Tracked(writer_perm));
                                     VmWriter::from_kernel_space(ptr, self.len)
                                 };
-                                proof {
-                                    let tracked mem_view = axiom_kernel_mem_view(range);
-                                    writer_perm.mem_view = Some(VmIoMemView::WriteView(mem_view));
-                                }
                                 proof_with!(|= Tracked(Some(writer_perm)));
                                 Ok(writer)
                             },
@@ -378,7 +373,15 @@ pub tracked struct DmaStreamInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
 }
 
-pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerOwner<M>>;
+// This owner contains only PhantomData and carries no subjective memory permissions.
+#[cfg(feature = "irc11")]
+unsafe impl<M: AnyUFrameMeta + ?Sized> Objective for DmaStreamInnerOwner<M> {
+
+}
+
+pub ghost struct DmaStreamInnerInvariant;
+
+pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerInvariant>;
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
@@ -416,18 +419,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                 start_paddr as Daddr
             },
             DmaType::Iommu => {
-                let mut i = 0;
-
-                #[verus_spec(
+                for i in 0..frame_count
                     invariant
-                        i <= frame_count,
                         segment.inv(),
                         start_paddr == segment.start_paddr(),
                         frame_count == segment.size() / PAGE_SIZE,
-                    decreases
-                        frame_count - i,
-                )]
-                while i < frame_count {
+                {
                     assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let paddr = start_paddr + i * PAGE_SIZE;
 
@@ -437,8 +434,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                         iommu::map(paddr as Daddr, paddr)->0;
                     }
                     */
-
-                    i += 1;
                 }
 
                 start_paddr as Daddr
@@ -451,6 +446,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             AtomicDataWithOwner::new(
                 DmaStreamInner { segment, start_daddr, is_cache_coherent, direction },
                 Tracked(inner_owner),
+                Ghost(DmaStreamInnerInvariant),
             ),
         );
 
@@ -604,10 +600,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             proof_with!(Ghost(id) => Tracked(reader_owner));
             VmReader::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
-        }
         proof_with!(|= Tracked(reader_owner));
         reader
     }
@@ -663,10 +655,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             proof_with!(Ghost(id), Tracked(false) => Tracked(writer_owner));
             VmWriter::from_kernel_space(ptr, len)
         };
-        proof {
-            let tracked mem_view = axiom_kernel_mem_view(range);
-            writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
-        }
         proof_with!(|= Tracked(writer_owner));
         writer
     }
@@ -682,6 +670,17 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInner<M> {
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInnerOwner<M> {
     open spec fn inv(self) -> bool {
         true
+    }
+}
+
+impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
+    DmaStreamInner<M>,
+> for DmaStreamInnerInvariant {
+    type Resource = DmaStreamInnerOwner<M>;
+
+    open spec fn inv(value: DmaStreamInner<M>, resource: DmaStreamInnerOwner<M>) -> bool {
+        &&& resource.inv()
+        &&& value.inv()
     }
 }
 
@@ -1002,14 +1001,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaStreamInner<M>> for DmaStreamInnerOwner<M> {
-    #[verifier::inline]
-    open spec fn predicate(&self, v: DmaStreamInner<M>) -> bool {
-        &&& self.inv()
-        &&& v.inv()
-    }
-}
-
 /*
 // Original Drop impl for DmaStreamInner (removed during Verus migration):
 impl Drop for DmaStreamInner {
@@ -1219,9 +1210,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
 
             assert(reader_own.inv());
             assert(writer_own.inv());
-            assert((*writer_own).inv());
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
-            assert((*writer_own).mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
             assert(reader.remain_spec() >= len);

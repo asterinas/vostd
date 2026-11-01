@@ -1,19 +1,14 @@
-use vstd::prelude::*;
-
 use vstd::{
     cell::{self, pcell_maybe_uninit},
+    prelude::*,
     simple_pptr::*,
 };
 use vstd_extra::{array_ptr, ownership::*};
 
 use crate::specs::{
-    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
+    arch::*,
     mm::{
-        frame::{
-            mapping::{index_to_meta, max_meta_slots, meta_to_index},
-            meta_owners::*,
-            meta_region_owners::MetaRegionOwners,
-        },
+        frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
         page_table::owners::INC_LEVELS,
     },
 };
@@ -21,7 +16,7 @@ use crate::specs::{
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::meta::{META_SLOT_SIZE, MetaSlot, mapping::meta_to_frame},
+    frame::meta::{META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
     kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
     page_table::{PageTableGuard, *},
@@ -124,7 +119,7 @@ pub proof fn lemma_count_present_upto_update<E: PageTableEntryTrait>(
     if n - 1 == idx {
         // The first `idx` entries are unchanged.
         assert(count_present_upto(s2, n - 1) == count_present_upto(s, n - 1)) by {
-            lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+            lemma_count_present_upto_unchanged(s, s2, n - 1);
         }
     } else {
         lemma_count_present_upto_update(s, n - 1, idx, pte);
@@ -151,17 +146,16 @@ pub proof fn lemma_count_present_upto_unchanged<E: PageTableEntryTrait>(
     s: Seq<E>,
     s2: Seq<E>,
     n: int,
-    idx: int,
 )
     requires
-        0 <= n <= idx,
+        0 <= n,
         forall|k: int| 0 <= k < n ==> s[k] == s2[k],
     ensures
         count_present_upto(s2, n) == count_present_upto(s, n),
     decreases n,
 {
     if n > 0 {
-        lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+        lemma_count_present_upto_unchanged(s, s2, n - 1);
     }
 }
 
@@ -175,30 +169,6 @@ impl Inv for PageMetaOwner {
         &&& self.nr_children.is_init()
         &&& 0 <= self.nr_children.value() <= NR_ENTRIES
         &&& self.stray.is_init()
-    }
-}
-
-pub ghost struct PageMetaModel {
-    pub nr_children: u16,
-    pub stray: bool,
-}
-
-impl Inv for PageMetaModel {
-    open spec fn inv(self) -> bool {
-        true
-    }
-}
-
-impl View for PageMetaOwner {
-    type V = PageMetaModel;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        PageMetaModel { nr_children: self.nr_children.value(), stray: self.stray.value() }
-    }
-}
-
-impl InvView for PageMetaOwner {
-    proof fn view_preserves_inv(self) {
     }
 }
 
@@ -225,8 +195,8 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
+    pub frame_permission: FracMetadataPerm,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
-    pub ghost level: PagingLevel,
     pub ghost tree_level: int,
     pub ghost slot_index: int,
 }
@@ -234,46 +204,59 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
-        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
-        &&& 1 <= self.level <= NR_LEVELS
+        &&& self.frame_permission.frac() == 1
+        &&& 1 <= self.level() <= NR_LEVELS
+        &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(
             meta_to_frame(index_to_meta(self.slot_index)),
         )
-        &&& self.tree_level == INC_LEVELS - self.level - 1
+        &&& self.tree_level == INC_LEVELS - self.level() - 1
         &&& 0 <= self.slot_index < max_meta_slots()
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
         &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
-        &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == meta_to_index(index_to_meta(self.slot_index))
     }
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
+    pub proof fn tracked_borrow_frame_metadata_perm(
+        tracked permission: &FracMetadataPerm,
+    ) -> (tracked res: &MetadataPerm)
+        ensures
+            *res == permission.resource(),
+    {
+        permission.tracked_borrow()
+    }
+
+    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> tracked &MetadataPerm
+        returns
+            self.frame_permission.resource(),
+    {
+        self.frame_permission.tracked_borrow()
+    }
+
     /// The meta address of this node's slot, computed from `slot_index`.
-    pub open spec fn meta_vaddr(self) -> Vaddr {
+    pub open spec fn slot_vaddr(self) -> Vaddr {
         index_to_meta(self.slot_index)
     }
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<PageTablePageMeta<C>>(
             *regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].inner_perms.storage,
+            self.frame_permission.resource(),
             (),
         )
     }
 
-    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C>
-        recommends
-            self.meta_wf(regions),
-    {
-        typed_meta_value::<PageTablePageMeta<C>>(
-            regions.slot_owners[self.slot_index].inner_perms.storage,
-            (),
-        )
+    pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
+        typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
+    }
+
+    pub open spec fn level(self) -> PagingLevel {
+        self.meta_value().level
     }
 
     /// Regions-tied invariants that used to live in `NodeOwner::inv()` via
@@ -282,15 +265,15 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
         &&& regions.contains(idx)
+        &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
+        &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
         &&& self.meta_wf(regions)
-        &&& self.meta_value(regions).wf(self.meta_own)
-        &&& self.level == self.meta_value(regions).level
-        &&& self.meta_own.nr_children.id() == self.meta_value(
-            regions,
-        ).nr_children.id()
-        // A page-table node's slot is tracked with `PageTable` usage (set at
-        // allocation via `get_node_from_unused_spec`). This discriminates node
-        // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a
+        &&& self.meta_value().wf(
+            self.meta_own,
+        )
+        // A page-table node's slot is tracked with `PageTable` usage (guaranteed
+        // by `PageTableNode::alloc`). This discriminates node slots from
+        // data-frame slots (`Frame`) by `usage` alone, so a
         // freshly-allocated node (whose slot was `UNUSED`) can't collide with an
         // existing live node — giving `alloc_if_none`/`split` the parent≠child
         // slot distinctness without a PointsTo-linearity axiom.
@@ -314,7 +297,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     /// `nr_children < NR_ENTRIES`. Proven (no longer axiomatized) from the
     /// `count_consistent` invariant: `nr_children` counts present PTEs, and an
     /// absent slot means not all `NR_ENTRIES` slots are present.
-    pub proof fn nr_children_absent_slot_bound(self, idx: usize)
+    pub proof fn lemma_nr_children_absent_slot_bound(self, idx: usize)
         requires
             self.inv(),
             self.count_consistent(),
@@ -328,7 +311,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     /// If a slot in `children_perm` holds a present PTE, then `nr_children > 0`.
-    /// Dual of [`Self::nr_children_absent_slot_bound`]; proven from
+    /// Dual of [`Self::lemma_nr_children_absent_slot_bound`]; proven from
     /// `count_consistent`.
     pub proof fn nr_children_present_slot_bound(self, idx: usize)
         requires
@@ -346,32 +329,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_vaddr()
         &&& guard.inner.inner@.wf(self)
-    }
-}
-
-pub ghost struct NodeModel<C: PageTableConfig> {
-    pub level: PagingLevel,
-    pub _phantom: core::marker::PhantomData<C>,
-}
-
-impl<C: PageTableConfig> Inv for NodeModel<C> {
-    open spec fn inv(self) -> bool {
-        true
-    }
-}
-
-impl<C: PageTableConfig> View for NodeOwner<C> {
-    type V = NodeModel<C>;
-
-    open spec fn view(&self) -> <Self as View>::V {
-        NodeModel { level: self.level, _phantom: core::marker::PhantomData }
-    }
-}
-
-impl<C: PageTableConfig> InvView for NodeOwner<C> {
-    proof fn view_preserves_inv(self) {
+        &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
     }
 }
 
@@ -379,20 +338,15 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.meta_vaddr()
+        &&& self.slot_vaddr() == owner.slot_vaddr()
+        &&& self.ptr_inv()
     }
 }
 
 impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn invariants(self, owner: NodeOwner<C>) -> bool {
         &&& owner.inv()
-        &&& self.wf(
-            owner,
-        )
-        //        &&& owner.meta_perm.wf(&owner.meta_perm.inner_perms)
-        //        &&& owner.meta_perm.addr() == self.ptr.addr()
-        //        &&& owner.meta_perm.addr() == self.ptr.addr()
-
+        &&& self.wf(owner)
     }
 }
 

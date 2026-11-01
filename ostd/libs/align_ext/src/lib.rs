@@ -8,14 +8,13 @@
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
-use vstd::arithmetic::div_mod::*;
-use vstd::arithmetic::mul::*;
-use vstd::arithmetic::{power::pow, power2::*};
-use vstd::bits::*;
-use vstd::pervasive::trigger;
-use vstd::prelude::*;
-use vstd_extra::panic::*;
-use vstd_extra::prelude::*;
+use vstd::{
+    arithmetic::{div_mod::*, mul::*, power::pow, power2::*},
+    bits::*,
+    pervasive::trigger,
+    prelude::*,
+};
+use vstd_extra::{panic::*, prelude::*};
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a
@@ -127,10 +126,10 @@ macro_rules! impl_align_ext {
                     vstd_extra::assert!(align.is_power_of_two() && align >= 2);
                     proof!{
                         is_pow2_equiv(align as int);
-                        let x_int = self as int + align as int - 1;
+                        let x_int = self + align - 1;
                         let x = x_int as Self;
                         if self as int % align as int == 0 {
-                            assert((align as int - 1) % align as int == align - 1) by {
+                            assert((align - 1) % align as int == align - 1) by {
                                 lemma_small_mod((align - 1) as nat, align as nat);
                             }
                             assert(x_int % align as int == align - 1) by {

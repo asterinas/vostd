@@ -1,22 +1,17 @@
-use vstd::prelude::*;
+use vstd::{prelude::*, set_lib::*};
 
-use vstd::set_lib::*;
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE, lemma_vaddr_range_spec_user};
 
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
-
-use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
-
-use super::view::Mapping;
+use super::page_table_managed_end_spec;
+use super::view::{Mapping, mappings_disjoint_vaddrs, mappings_well_formed};
+use crate::mm::{MAX_USERSPACE_VADDR, Vaddr, vm_space::UserPtConfig};
 
 verus! {
 
 /// Well-formed mapping set: all inv(), pairwise VA-disjoint.
 pub open spec fn wf_mapping_set(s: Set<Mapping>) -> bool {
-    &&& forall|m: Mapping| #![auto] s.contains(m) ==> m.inv()
-    &&& forall|m: Mapping, n: Mapping|
-        #![auto]
-        s.contains(m) && s.contains(n) && m != n ==> m.va_range.end <= n.va_range.start
-            || n.va_range.end <= m.va_range.start
+    &&& mappings_well_formed(s)
+    &&& mappings_disjoint_vaddrs(s)
 }
 
 /// A well-formed mapping set whose VA ranges all lie within `[lo, hi)` has
@@ -117,26 +112,22 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
 }
 
 /// Corollary: the cardinality fits in usize.
-///
-/// The bound `0x0000_8000_0000_0000` (= 2^47) is the new upper end derived
-/// from `vaddr_range_spec::<UserPtConfig>` — one page looser than
-/// the old `MAX_USERSPACE_VADDR`, but still gives a comfortable
-/// `2^35 < usize::MAX`.
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
         forall|m: Mapping| #[trigger]
-            s.contains(m) ==> m.va_range.end <= 0x0000_8000_0000_0000_usize,
+            s.contains(m) ==> m.va_range.end <= page_table_managed_end_spec::<UserPtConfig>(),
     ensures
         s.len() < usize::MAX,
 {
+    lemma_vaddr_range_spec_user();
     // `0 <= m.va_range.start` follows from `wf_mapping_set(s)` ⇒ `m.inv()`,
     // which has `0 <= m.va_range.start`.
     assert forall|m: Mapping| #[trigger] s.contains(m) implies 0 <= m.va_range.start
-        && m.va_range.end <= 0x0000_8000_0000_0000_usize by {
+        && m.va_range.end <= page_table_managed_end_spec::<UserPtConfig>() by {
         assert(m.inv());
     };
-    lemma_mapping_set_cardinality_bound(s, 0x0000_8000_0000_0000_usize);
+    lemma_mapping_set_cardinality_bound(s, page_table_managed_end_spec::<UserPtConfig>() as usize);
     assert(0x0000_8000_0000_0000_usize / PAGE_SIZE < usize::MAX) by (compute_only);
 }
 
@@ -186,6 +177,44 @@ pub proof fn lemma_sub_mapping_pa_compose(m: Mapping, p: Mapping, orig: Mapping)
         m.property == orig.property,
 {
     assert(MAX_PADDR < usize::MAX) by (compute_only);
+}
+
+/// Extends an empty scanned range through an empty slot overlapping its endpoint.
+pub proof fn lemma_extend_empty_mapping_range(
+    mappings: Set<Mapping>,
+    start: Vaddr,
+    scanned_end: Vaddr,
+    slot_start: Vaddr,
+    slot_end: int,
+    next: Vaddr,
+)
+    requires
+        slot_start <= scanned_end,
+        next <= slot_end,
+        mappings.filter(|m: Mapping| start <= m.va_range.start < scanned_end) == Set::<
+            Mapping,
+        >::empty(),
+        mappings.filter(|m: Mapping| slot_start <= m.va_range.start < slot_end) == Set::<
+            Mapping,
+        >::empty(),
+    ensures
+        mappings.filter(|m: Mapping| start <= m.va_range.start < next) == Set::<Mapping>::empty(),
+{
+    assert forall|m: Mapping|
+        !(#[trigger] mappings.contains(m) && start <= m.va_range.start < next) by {
+        if mappings.contains(m) && start <= m.va_range.start < next {
+            if m.va_range.start < scanned_end {
+                assert(mappings.filter(
+                    |m2: Mapping| start <= m2.va_range.start < scanned_end,
+                ).contains(m));
+            } else {
+                assert(mappings.filter(
+                    |m2: Mapping| slot_start <= m2.va_range.start < slot_end,
+                ).contains(m));
+            }
+
+        }
+    };
 }
 
 } // verus!

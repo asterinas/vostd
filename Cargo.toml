@@ -3,9 +3,10 @@ resolver = "2"
 members = [
     "verified_libs/bitflags",
     "verified_libs/vstd_extra",
-    "verified_libs/ostd-pod",
     "ostd",
     "ostd/libs/align_ext",
+    "ostd/libs/id-alloc",
+    "ostd/libs/ostd-pod",
     # "ostd/libs/ostd-macros",
     # "ostd/libs/ostd-test",
     # "kernel/libs/int-to-c-enum",
@@ -19,6 +20,7 @@ exclude = [
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ktest)"] }
 
 [workspace.lints.clippy]
 allow_attributes = "warn"
@@ -49,4 +51,10 @@ codegen-units = 1
 
 [workspace.dependencies]
 # Verus
-vstd = { path = "tools/verus/source/vstd" }
+vstd = { path = "tools/verus/source/vstd", default-features = false, features = ["alloc"] }
+bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
+
+[workspace.package]
+edition = "2021"
+repository = "https://github.com/asterinas/vostd"
+license = "MPL-2.0"

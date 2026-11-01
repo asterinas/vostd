@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::{marker::PhantomData, ptr::NonNull};
-
-use core::num::NonZeroUsize;
-use vstd::raw_ptr::group_raw_ptr_axioms;
 use vstd::{
     bits,
     prelude::*,
+    raw_ptr::group_raw_ptr_axioms,
     std_specs::{nonzero::*, ops::BitOrSpec},
 };
 use vstd_extra::{prelude::*, sum::Sum};
 
 use super::{NonNullPtr, NonNullPtrRef};
 use crate::util::Either;
+use core::num::NonZeroUsize;
+use core::{marker::PhantomData, ptr::NonNull};
 
 verus! {
 
@@ -68,6 +67,8 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         let big = 1usize << l_align_bits;
                         let q = left_addr / big;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(left_addr as int, big as int);
+                        assert(left_addr % big == 0);
+                        assert(left_addr == q * big);
                         assert(left_addr == q * scale * tag) by (nonlinear_arith)
                         requires
                             left_addr == q * big,
@@ -85,7 +86,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(), */
                 let (right, Tracked(perm)) = right.into_raw();
-                let right_tagged = right.map_addr_v(
+                let right_tagged = right.map_addr(
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
                         ensures
                             ret@ == addr@ | (1usize << Self::ALIGN_BITS),
@@ -104,14 +105,10 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 proof! {
                     let addr = right.addr_spec()@;
                     let tagged_addr = right_tagged.addr_spec()@;
+                    lemma_aligned_addr_clears_tag_bit(addr, tag, align_bits, r_align_bits);
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,
-                        tag == 1usize << align_bits,
-                        1 <= r_align_bits < usize::BITS,
-                        align_bits < r_align_bits,
-                        addr % (1usize << r_align_bits) == 0,
-                        addr != 0,
                     ;
                     let extra_bits: u32 = (r_align_bits - align_bits) as u32;
                     let scale = 1usize << extra_bits;
@@ -121,11 +118,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     assert(tagged_addr == addr + tag) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,
-                        tag == 1usize << align_bits,
-                        1 <= r_align_bits < usize::BITS,
-                        align_bits < r_align_bits,
-                        addr % (1usize << r_align_bits) == 0,
-                        addr != 0,
+                        addr & tag == 0,
                     ;
                     assert(addr % tag == 0) by {
                         let big = 1usize << r_align_bits;
@@ -377,12 +370,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                         ;
                         vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q * scale, tag as int);
                     };
-                    assert(ptr_addr & tag == 0) by (bit_vector)
-                    requires
-                        ptr_addr % (1usize << l_align_bits) == 0,
-                        tag == 1usize << align_bits,
-                        align_bits < l_align_bits < usize::BITS,
-                    ;
+                    lemma_aligned_addr_clears_tag_bit(ptr_addr, tag, align_bits, l_align_bits);
                 }
                 (ptr.cast(), Tracked(Sum::Left(perm)))
             },
@@ -394,7 +382,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 proof! {
                     Self::lemma_align_bits_range();
                 }
-                let tagged_ptr = ptr.map_addr_v(
+                let tagged_ptr = ptr.map_addr(
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
                         ensures
                             ret@ == addr@ | (1usize << Self::ALIGN_BITS),
@@ -417,17 +405,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
                         tagged_addr == ptr_addr | tag,
-                        tag == 1usize << align_bits,
-                        align_bits < r_align_bits < usize::BITS,
-                        ptr_addr % (1usize << r_align_bits) == 0,
-                        ptr_addr != 0,
                     ;
-                    assert(ptr_addr & tag == 0) by (bit_vector)
-                    requires
-                        ptr_addr % (1usize << r_align_bits) == 0,
-                        tag == 1usize << align_bits,
-                        align_bits < r_align_bits < usize::BITS,
-                    ;
+                    lemma_aligned_addr_clears_tag_bit(ptr_addr, tag, align_bits, r_align_bits);
                     assert(tagged_addr & !tag == ptr_addr) by (bit_vector)
                     requires
                         tagged_addr == ptr_addr | tag,
@@ -489,8 +468,8 @@ verus! {
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     use core::num::NonZeroUsize;
 
-    let removed_bits = ptr.addr_v().get() & bits;
-    let result_ptr = ptr.map_addr_v(
+    let removed_bits = ptr.addr().get() & bits;
+    let result_ptr = ptr.map_addr(
         |addr| -> (ret: NonZeroUsize)
             requires
                 addr@ & !bits != 0,

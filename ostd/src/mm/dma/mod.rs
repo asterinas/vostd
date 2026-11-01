@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
+use vstd_extra::{
+    atomic_data::AtomicDataWithOwner,
+    once::Once,
+    resource_invariant::{SimpleResourceInvariant, TrivialResourceInvariant},
+};
+
 mod dma_coherent;
 pub use dma_coherent::DmaCoherent;
 mod dma_stream;
 #[cfg(ktest)]
 mod test;
 
+use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 use alloc::collections::BTreeSet;
-use vstd::{predicate::Predicate as DataPredicate, prelude::*};
-
-use crate::sync::{
-    AtomicDataWithOwner, Once, PreemptDisabled, SpinLock, SpinLockGuard, TrivialPred,
-};
 
 use super::Paddr;
 
@@ -18,33 +23,49 @@ verus! {
 
 pub tracked struct DmaMappingSetOwner {}
 
-impl DataPredicate<SpinLock<BTreeSet<Paddr>, PreemptDisabled>> for DmaMappingSetOwner {
-    open spec fn predicate(&self, v: SpinLock<BTreeSet<Paddr>, PreemptDisabled>) -> bool {
-        v.wf()
+// This empty owner carries no subjective weak-memory observations.
+#[cfg(feature = "irc11")]
+unsafe impl Objective for DmaMappingSetOwner {
+
+}
+
+pub ghost struct DmaMappingSetInvariant;
+
+impl SimpleResourceInvariant<
+    SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
+> for DmaMappingSetInvariant {
+    type Resource = DmaMappingSetOwner;
+
+    open spec fn inv(
+        v: SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
+        _resource: DmaMappingSetOwner,
+    ) -> bool {
+        v.type_inv()
     }
 }
 
 /// Set of all physical addresses with dma mapping.
 exec static DMA_MAPPING_SET: Once<
     SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
-    DmaMappingSetOwner,
-    TrivialPred,
+    DmaMappingSetInvariant,
+    TrivialResourceInvariant,
 >
     ensures
         DMA_MAPPING_SET.wf(),
 {
-    Once::new(Ghost(TrivialPred))
+    Once::new(Ghost(TrivialResourceInvariant))
 }
 
 #[inline(always)]
 pub fn init() {
-    let lock = SpinLock::new(BTreeSet::new());
+    let lock = SpinLock::new(BTreeSet::new(), Ghost(()), Tracked(()));
 
     proof {
         use_type_invariant(&lock);
     }
 
-    let data = AtomicDataWithOwner::new(lock, Tracked(DmaMappingSetOwner {  }));
+    let tracked owner = DmaMappingSetOwner {  };
+    let data = AtomicDataWithOwner::new(lock, Tracked(owner), Ghost(DmaMappingSetInvariant));
 
     DMA_MAPPING_SET.init(data);
 }
@@ -92,36 +113,23 @@ fn check_and_insert_dma_mapping(start_paddr: Paddr, num_pages: usize) -> bool {
         None => false,
         Some(mapping_set) => {
             let mut mapping_set = mapping_set.lock();
-            let mut i = 0;
-
-            #[verus_spec(
+            for i in 0..num_pages
                 invariant
-                    i <= num_pages,
                     start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
-                decreases
-                    num_pages - i,
-            )]
-            while i < num_pages {
+            {
                 let paddr = start_paddr + (i * crate::mm::PAGE_SIZE);
                 if mapping_set.contains(&paddr) {
                     return false;
                 }
-                i += 1;
             }
 
-            i = 0;
-            #[verus_spec(
+            for i in 0..num_pages
                 invariant
-                    i <= num_pages,
                     start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
-                decreases
-                    num_pages - i,
-            )]
-            while i < num_pages {
+            {
                 let paddr = start_paddr + (i * crate::mm::PAGE_SIZE);
                 // Failure: complex arguments to $mut parameters are currently unsupported
                 // mapping_set.insert(paddr);
-                i += 1;
             }
 
             true
@@ -166,7 +174,7 @@ pub fn dma_type() -> DmaType {
 }
 
 pub fn init() {
-    DMA_MAPPING_SET.call_once(|| SpinLock::new(BTreeSet::new()));
+    DMA_MAPPING_SET.call_once(|| SpinLock::new(BTreeSet::new(), Ghost(()), Tracked(())));
 }
 
 /// Checks whether the physical addresses has dma mapping.

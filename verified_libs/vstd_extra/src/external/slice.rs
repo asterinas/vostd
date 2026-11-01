@@ -50,4 +50,16 @@ pub assume_specification<'a, T>[ core::slice::from_raw_parts_mut::<'a, T> ](
         ret.len() == len,
 ;
 
+/// Fills every element with a clone of `value`; the length is unchanged.
+///
+/// Fills in place with no allocation, so there is no input-dependent panic; a panicking
+/// `T::clone` is assumed away by `cloned`.
+pub assume_specification<T: Clone>[ <[T]>::fill ](s: &mut [T], value: T)
+    ensures
+        final(s)@.len() == old(s)@.len(),
+        forall|i: int|
+            #![trigger final(s)@[i]]
+            0 <= i < final(s)@.len() ==> cloned::<T>(value, final(s)@[i]),
+;
+
 } // verus!

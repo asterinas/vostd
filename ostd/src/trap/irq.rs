@@ -233,11 +233,21 @@ impl !Send for DisabledLocalIrqGuard {
 
 }
 
+// Required by `InAtomicMode`. See the safety section of its doc comments.
+impl !Sync for DisabledLocalIrqGuard {
+
+}
+
 // SAFETY: The guard disables local IRQs, which meets the first
 // sufficient condition for atomic mode.
 /* unsafe impl InAtomicMode for DisabledLocalIrqGuard {} */
 
 impl DisabledLocalIrqGuard {
+    /// Whether this guard recorded that local IRQs were enabled.
+    pub closed spec fn was_enabled_spec(self) -> bool {
+        self.was_enabled
+    }
+
     #[verifier::external_body]
     fn new() -> Self {
         let was_enabled = irq::is_local_enabled();
@@ -249,8 +259,14 @@ impl DisabledLocalIrqGuard {
 }
 
 impl GuardTransfer for DisabledLocalIrqGuard {
-    #[verifier::external_body]
-    fn transfer_to(&mut self) -> Self {
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Transfers the recorded IRQ-enable flag to the returned guard and clears the receiver's flag.
+    fn transfer_to(&mut self) -> (ret: Self)
+        ensures
+            ret.was_enabled_spec() == old(self).was_enabled_spec(),
+            !final(self).was_enabled_spec(),
+    {
         let was_enabled = self.was_enabled;
         self.was_enabled = false;
         Self { was_enabled }

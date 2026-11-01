@@ -513,22 +513,26 @@ impl<V, const N: usize> Copy for ArrayPtr<V, N> {
 
 }
 
-#[verifier::external_body]
-#[inline(always)]
-pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
-    ensures
-        layout::valid_layout(
-            layout::size_of::<[V; N]>() as usize,
-            layout::align_of::<[V; N]>() as usize,
-        ),
-        layout::size_of::<[V; N]>() as usize as nat == layout::size_of::<[V; N]>(),
-        layout::align_of::<[V; N]>() as usize as nat == layout::align_of::<[V; N]>(),
-    opens_invariants none
-    no_unwind
-{
-}
-
 impl<V, const N: usize> ArrayPtr<V, N> {
+    /// Reconstructs a pointer to the selected array element.
+    #[inline(always)]
+    pub exec fn as_mut_ptr(&self, Tracked(perm): Tracked<&PointsTo<V, N>>) -> (res: *mut V)
+        requires
+            perm.wf(),
+            perm.is_pptr(*self),
+            self.index < N,
+        ensures
+            res.addr() == self.addr.wrapping_add(
+                self.index.wrapping_mul(core::mem::size_of::<V>()),
+            ),
+    {
+        raw_ptr::with_exposed_provenance(
+            self.addr.wrapping_add(self.index.wrapping_mul(core::mem::size_of::<V>())),
+            Tracked(perm.exposed),
+        )
+    }
+
+    #[cfg(feature = "std")]
     pub exec fn empty() -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>))
         requires
             layout::size_of::<[V; N]>() > 0,
@@ -537,7 +541,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             perm@.is_pptr(res),
             perm@.is_uninit_all(),
     {
-        layout_for_array_is_valid::<V, N>();
+        layout::layout_for_type_is_valid::<[V; N]>();
         let (p, Tracked(raw_perm), Tracked(dealloc)) = raw_ptr::allocate(
             core::mem::size_of::<[V; N]>(),
             core::mem::align_of::<[V; N]>(),
@@ -582,6 +586,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         ptr_mut_fill(ptr, Tracked(&mut perm.points_to), value);
     }
 
+    #[cfg(feature = "std")]
     pub exec fn new(dft: V) -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where
         V: Copy,
 

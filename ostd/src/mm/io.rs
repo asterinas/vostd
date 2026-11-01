@@ -38,22 +38,16 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
-use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
+use vstd::{arithmetic::power2::is_pow2, prelude::*, simple_pptr::*};
+use vstd_extra::{assert, ownership::Inv, panic::may_panic};
 
-use core::marker::PhantomData;
-use core::ops::Range;
-use vstd::arithmetic::power2::is_pow2;
-use vstd::prelude::*;
-use vstd::simple_pptr::*;
-use vstd_extra::assert;
-use vstd_extra::ownership::Inv;
-use vstd_extra::panic::may_panic;
-
-use crate::error::*;
 pub use crate::specs::mm::io::{
     VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
 };
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
+
+use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
+use crate::error::*;
 use crate::{
     Pod,
     mm::{
@@ -61,33 +55,10 @@ use crate::{
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
     },
 };
+use core::marker::PhantomData;
+use core::ops::Range;
 
 verus! {
-
-proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usize)
-    requires
-        align > 0,
-        start % align == 0,
-        len % align == 0,
-    ensures
-        (start + i * len) % align as int == 0,
-{
-    let a = align as int;
-    let q_start = start as int / a;
-    let q_len = len as int / a;
-    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
-    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
-    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
-    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
-    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
-}
-
-/// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a
-/// multiple of `align_of::<T>()`.
-pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
-    ensures
-        res <==> (_0 as usize) % core::mem::align_of::<T>() == 0,
-;
 
 /// Copies `len` bytes from `src` to `dst`, stopping early on page fault.
 /// Returns the number of bytes successfully copied (which is at most `len`).
@@ -491,11 +462,20 @@ impl<'a> VmWriter<'a, Infallible> {
             // write targets memory owned by this writer, and cursor is aligned.
             #[allow(unused_unsafe)]
             unsafe { cursor_i.write_volatile::<T>(Tracked(&mut mv), value) };
-            let ghost cursor_i_pre = cursor_i;
             cursor_i = cursor_i.wrapping_add(len);
             i = i + 1;
             proof {
-                lemma_add_aligned_stride(start, i, len, core::mem::align_of::<T>());
+                assert((start + i * len) % core::mem::align_of::<T>() as int == 0) by {
+                    let a = core::mem::align_of::<T>() as int;
+                    let q_start = start as int / a;
+                    let q_len = len as int / a;
+                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
+                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
+                    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a)
+                        by (nonlinear_arith);
+                    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
+                    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i * q_len, a);
+                }
             }
         }
 
@@ -635,7 +615,6 @@ impl<'a> VmWriter<'a, Infallible> {
             VmIoMemView::WriteView(mv) => mv,
             _ => { proof_from_false() },
         };
-        let ghost mem_dst_pre = mem_dst;
 
         proof {
             assert forall|i: usize|
@@ -1184,29 +1163,17 @@ type Result<T> = core::result::Result<T, Error>;
 pub trait VmIo<P: Sized>: Send + Sync + Sized {
     spec fn obeys_vmio_spec() -> bool;
 
-    open spec fn obeys_vmio_read_requires() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    {
+    open spec fn obeys_vmio_read_requires() -> bool {
         false
     }
 
-    open spec fn obeys_vmio_write_requires() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    {
+    open spec fn obeys_vmio_write_requires() -> bool {
         false
     }
 
-    spec fn obeys_vmio_read_spec() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    ;
+    spec fn obeys_vmio_read_spec() -> bool;
 
-    spec fn obeys_vmio_write_spec() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    ;
+    spec fn obeys_vmio_write_spec() -> bool;
 
     open spec fn read_requires(
         self,
@@ -1589,11 +1556,11 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// - `self` must satisfy its invariant.
     /// ## Postconditions
     /// - The returned value equals [`Self::remain_spec`].
-    #[verus_spec(r =>
+    #[verus_spec(
         requires
             self.inv(),
-        ensures
-            r == self.remain_spec(),
+        returns
+            self.remain_spec(),
     )]
     #[verifier::when_used_as_spec(remain_spec)]
     pub fn remain(&self) -> usize {
@@ -1723,11 +1690,11 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     /// ## Postconditions
     /// - The returned value equals [`Self::avail_spec`].
     #[inline]
-    #[verus_spec(r =>
+    #[verus_spec(
         requires
             self.inv(),
-        ensures
-            r == self.avail_spec(),
+        returns
+            self.avail_spec(),
     )]
     #[verifier::when_used_as_spec(avail_spec)]
     pub fn avail(&self) -> usize {
@@ -1894,18 +1861,12 @@ impl<'a> VmWriter<'a, Fallible> {
             final(self).cursor.range == old(self).cursor.range,
             final(self).cursor.vaddr >= old(self).cursor.vaddr,
             final(self).cursor.vaddr <= old(self).end.vaddr,
-            match r {
-                Ok(n) => {
-                    &&& n <= len
-                    &&& n <= old(self).avail_spec()
-                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                },
-                Err((_, n)) => {
-                    &&& n <= len
-                    &&& n <= old(self).avail_spec()
-                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                },
-            }
+            {
+                let n = match r { Ok(n) => n, Err((_, n)) => n };
+                &&& n <= len
+                &&& n <= old(self).avail_spec()
+                &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+            },
     )]
     pub fn fill_zeros(&mut self, len: usize) -> core::result::Result<usize, (Error, usize)> {
         let len_to_set = self.avail().min(len);
@@ -2100,20 +2061,13 @@ macro_rules! impl_read_fallible {
                     final(writer).cursor.range == old(writer).cursor.range,
                     final(self).inv(),
                     final(writer).inv(),
-                    match r {
-                        Ok(n) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
-                            &&& n <= old(self).remain_spec()
-                            &&& n <= old(writer).avail_spec()
-                        },
-                        Err((_, copied_len)) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
-                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + copied_len
-                            &&& copied_len <= old(self).remain_spec()
-                            &&& copied_len <= old(writer).avail_spec()
-                        },
-                    }
+                    {
+                        let n = match r { Ok(n) => n, Err((_, n)) => n };
+                        &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                        &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
+                        &&& n <= old(self).remain_spec()
+                        &&& n <= old(writer).avail_spec()
+                    },
             )]
             fn read_fallible(
                 &mut self,
@@ -2161,20 +2115,13 @@ macro_rules! impl_write_fallible {
                     final(reader).cursor.range == old(reader).cursor.range,
                     final(self).inv(),
                     final(reader).inv(),
-                    match r {
-                        Ok(n) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
-                            &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
-                            &&& n <= old(self).avail_spec()
-                            &&& n <= old(reader).remain_spec()
-                        },
-                        Err((_, copied_len)) => {
-                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
-                            &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + copied_len
-                            &&& copied_len <= old(self).avail_spec()
-                            &&& copied_len <= old(reader).remain_spec()
-                        },
-                    }
+                    {
+                        let n = match r { Ok(n) => n, Err((_, n)) => n };
+                        &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                        &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
+                        &&& n <= old(self).avail_spec()
+                        &&& n <= old(reader).remain_spec()
+                    },
             )]
             fn write_fallible(
                 &mut self,

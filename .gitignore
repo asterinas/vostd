@@ -50,11 +50,17 @@ doc
 
 # build artifacts
 *.rlib
+*.pyc
 
 # Agents
-.agents/
+.agents/*
+!/.agents/skills/
+.agents/skills/*
+!/.agents/skills/vostd-code-review/
+.claude/**
+!/.claude/skills/
+!/.claude/skills/vostd-code-review
 .codex/
-.claude/
 .copilot/
 .github/copilot-instructions.md
 .github/instructions.md

@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{self, CellId, pcell::*};
-use vstd::prelude::*;
-use vstd::resource::Loc;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
-use vstd_extra::sum::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
+use vstd::{
+    atomic_ghost::*,
+    cell::{self, CellId, pcell::*},
+    prelude::*,
+    resource::Loc,
+    std_specs::fmt::{DebugSpec, DebugSpecImpl},
+};
+use vstd_extra::{
+    resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*},
+    sum::*,
+};
 
 use core::{
     cell::UnsafeCell,
+    fmt,
     ops::{Deref, DerefMut},
     sync::atomic::{
         // AtomicUsize,
@@ -19,21 +27,6 @@ use super::WaitQueue;
 
 verus! {
 
-const MAX_READER_U64: u64 = MAX_READER as u64;
-
-spec const V_MAX_READ_RETRACT_FRACS_SPEC: u64 = (MAX_READER_MASK + 1) as u64;
-
-#[verifier::when_used_as_spec(V_MAX_READ_RETRACT_FRACS_SPEC)]
-exec const V_MAX_READ_RETRACT_FRACS: u64
-    ensures
-        V_MAX_READ_RETRACT_FRACS == V_MAX_READ_RETRACT_FRACS_SPEC,
-        V_MAX_READ_RETRACT_FRACS == MAX_READER_MASK + 1,
-        V_MAX_READ_RETRACT_FRACS < u64::MAX,
-{
-    assert(MAX_READER_MASK + 1 < u64::MAX) by (compute_only);
-    (MAX_READER_MASK + 1) as u64
-}
-
 type NoPerm<T> = EmptyCount<PointsTo<T>>;
 
 type HalfPerm<T> = Count<PointsTo<T>>;
@@ -42,13 +35,15 @@ type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
 
 tracked struct RwPerms<T> {
     core_token: SumResource<HalfPerm<T>, NoPerm<T>, 3>,
-    read_retract_token: TokenResource<V_MAX_READ_RETRACT_FRACS>,
+    read_retract_token: TokenResource<MAX_READER_MASK>,
     upread_retract_token: Option<UniqueToken>,
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
-    read_guard_token: Sum<
-        CountResource<ReadPerm<T>, MAX_READER_U64>,
-        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
-    >,
+    read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T> Objective for RwPerms<T> {
+
 }
 
 ghost struct RwId {
@@ -162,19 +157,26 @@ closed spec fn wf(self) -> bool {
 
         let active_writer: bool = g.core_token.is_right();
         let active_upgrade_guard: bool = !active_writer && g.upreader_guard_token is None;
-        let active_read_guards: int = if g.read_guard_token is Left {
-            MAX_READER_U64 - g.read_guard_token.left().frac()
-        } else {
+        let active_read_guards: int = if g.read_guard_token.is_resource_vacant() {
             0
+        } else {
+            MAX_READER - g.read_guard_token.frac()
         };
         let pending_failed_upread_attempt: bool = g.upread_retract_token is None;
-        let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
+        let failed_reader_attempts: int = MAX_READER_MASK - g.read_retract_token.frac();
 
         &&& if g.core_token.is_left() {
-            g.read_guard_token is Left
+            let resource = g.read_guard_token.resource();
+            let read_half_cell_perm = resource.0;
+            let mode_knowledge = resource.1;
+            &&& !g.read_guard_token.is_resource_vacant()
+            &&& mode_knowledge.id() == ghost_id@.core_token_id
+            &&& read_half_cell_perm.id() == ghost_id@.frac_id
+            &&& read_half_cell_perm.resource().id() == val.id()
+            &&& read_half_cell_perm.frac() == 1
         } else {
             &&& g.upreader_guard_token is None
-            &&& g.read_guard_token is Right
+            &&& g.read_guard_token.is_resource_vacant()
         }
         &&& has_upgrade_bit <==> (active_upgrade_guard || pending_failed_upread_attempt)
         &&& !(active_upgrade_guard && pending_failed_upread_attempt)
@@ -205,24 +207,8 @@ closed spec fn wf(self) -> bool {
             let token = g.upreader_guard_token->0;
             wf_upgradeable_guard_token(ghost_id@.core_token_id, ghost_id@.frac_id, val.id(), token)
         }
-        &&& match g.read_guard_token {
-            Sum::Left(token) => {
-                &&& token.wf()
-                &&& token.id() == ghost_id@.read_guard_token_id
-                &&& token.not_empty() ==> {
-                    let resource = token.resource();
-                    let read_half_cell_perm = resource.0;
-                    let mode_knowledge = resource.1;
-                    &&& mode_knowledge.id() == ghost_id@.core_token_id
-                    &&& read_half_cell_perm.id() == ghost_id@.frac_id
-                    &&& read_half_cell_perm.resource().id() == val.id()
-                    &&& read_half_cell_perm.frac() == 1
-                }
-            },
-            Sum::Right(empty) => {
-                &&& empty.id() == ghost_id@.read_guard_token_id
-            },
-        }
+        &&& g.read_guard_token.wf()
+        &&& g.read_guard_token.id() == ghost_id@.read_guard_token_id
     }
 }
 }
@@ -287,6 +273,7 @@ closed spec fn wf_upgradeable_guard_token<T>(
     &&& half_cell_perm.resource().id() == cell_id
     &&& token.has_resource()
     &&& half_cell_perm.frac() == 1
+    &&& half_cell_perm.has_authority()
     &&& token.wf()
 }
 
@@ -298,15 +285,15 @@ impl<T> RwMutex<T> {
         proof {
             lemma_consts_properties();
         }
-        let tracked mut frac_perm = Count::<PointsTo<T>>::new(perm);
+        let tracked mut frac_perm = Count::<PointsTo<T>>::alloc(perm);
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
         let tracked mut core_token = SumResource::alloc_left(frac_perm);
-        let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
+        let tracked read_retract_token = TokenResource::<MAX_READER_MASK>::alloc(());
         let tracked upread_retract_token = UniqueToken::alloc(());
         let tracked upreader_guard_token = core_token.split_one_left_owner();
         let tracked left_token = core_token.split_one_left_knowledge();
-        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
+        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER>::alloc(
             (read_half_cell_perm, left_token),
         );
         let ghost ghost_id = RwId {
@@ -321,14 +308,14 @@ impl<T> RwMutex<T> {
             read_retract_token,
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
-            read_guard_token: Sum::Left(read_guard_token),
+            read_guard_token,
         };
 
         Self {
-            // val: UnsafeCell::new(val),
-            val,
             lock: AtomicUsize::new(Ghost((val, Ghost(ghost_id))), 0, Tracked(perms)),
             queue: WaitQueue::new(),
+            // val: UnsafeCell::new(val),
+            val,
             ghost_id: Ghost(ghost_id),
         }
     }
@@ -379,8 +366,8 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
     #[verus_spec]
     pub fn try_read(&self) -> Option<RwMutexReadGuard<'_, T>> {
         proof_decl! {
-            let tracked mut read_token: Option<Count<ReadPerm<T>, MAX_READER_U64>> = None;
-            let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
+            let tracked mut read_token: Option<Count<ReadPerm<T>, MAX_READER>> = None;
+            let tracked mut retract_read_token: Option<Token<MAX_READER_MASK>> = None;
         }
         proof! {
             use_type_invariant(self);
@@ -398,9 +385,7 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
-                    let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                    read_token = Some(tmp.split_one());
-                    g.read_guard_token = Sum::Left(tmp);
+                    read_token = Some(g.read_guard_token.split_one());
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
                 }
@@ -451,9 +436,7 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
                 let prev_usize = prev as usize;
                 let next_usize = next as usize;
                 if res is Ok {
-                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
-                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
-                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked read_resource = g.read_guard_token.take_resource();
                     let tracked (read_half_cell_perm, left_token) = read_resource;
                     g.core_token.join_one_left_knowledge(left_token);
                     let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
@@ -552,8 +535,8 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
     }
 } */
 
-/// Because there can be more than one readers to get the T's immutable ref,
-/// so T must be Sync to guarantee the sharing safety.
+// There can be more than one readers to get the `T`'s immutable reference,
+// so `T` must be `Sync` to guarantee the sharing safety.
 #[verifier::external]
 unsafe impl<T:   /*: ?Sized +*/ Send> Send for RwMutex<T> {
 
@@ -597,7 +580,7 @@ unsafe impl<T:   /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {
 #[must_use]
 pub struct RwMutexReadGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
-    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
+    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER>>,
 }
 
 impl<'a, T> RwMutexReadGuard<'a, T> {
@@ -632,7 +615,21 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexReadGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.tracked_token.borrow().borrow().0.borrow()))
+        self.inner.val.borrow(
+            Tracked(self.tracked_token.borrow().tracked_borrow().0.tracked_borrow()),
+        )
+    }
+}
+
+impl<T: fmt::Debug> DebugSpecImpl for RwMutexReadGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RwMutexReadGuard<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 
@@ -656,10 +653,8 @@ impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
                 assume(no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
-                g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
-                let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                tmp.combine(token);
-                g.read_guard_token = Sum::Left(tmp);
+                g.core_token.validate_with_one_left_knowledge(&token.tracked_borrow().1);
+                g.read_guard_token.combine(token);
             }
         )
             == READER {
@@ -707,16 +702,27 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexWriteGuard<'_, T> {
     }
 }
 
+impl<T: fmt::Debug> DebugSpecImpl for RwMutexWriteGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RwMutexWriteGuard<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
 impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
     /// Atomically downgrades a write guard to an upgradeable reader guard.
     ///
     /// This method always succeeds because the lock is exclusively held by the writer.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn downgrade(self) -> RwMutexUpgradeableGuard<'a, T> {
-        let mut this = self;
+    pub fn downgrade(mut self) -> RwMutexUpgradeableGuard<'a, T> {
         loop {
-            this =
-            match this.try_downgrade() {
+            self =
+            match self.try_downgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -755,12 +761,7 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
                     g.core_token.change_to_left(full);
                     upgrade_guard_token = Some(g.core_token.split_one_left_owner());
                     let tracked left_token = g.core_token.split_one_left_knowledge();
-                    let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                    let tracked read_guard_token = CountResource::alloc_from_empty(
-                        read_guard_empty,
-                        (read_half_cell_perm, left_token),
-                    );
-                    g.read_guard_token = Sum::Left(read_guard_token);
+                    g.read_guard_token.put_resource((read_half_cell_perm, left_token));
                 } else {
                     err_perm = Some(perm);
                     err_write_guard_token = Some(token);
@@ -835,12 +836,7 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
                 let tracked upreader_guard_token = g.core_token.split_one_left_owner();
                 g.upreader_guard_token = Some(upreader_guard_token);
                 let tracked left_token = g.core_token.split_one_left_knowledge();
-                let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                let tracked read_guard_token = CountResource::alloc_from_empty(
-                    read_guard_empty,
-                    (read_half_cell_perm, left_token),
-                );
-                g.read_guard_token = Sum::Left(read_guard_token);
+                g.read_guard_token.put_resource((read_half_cell_perm, left_token));
             }
         };
         // When the current writer releases, wake up all the sleeping threads.
@@ -907,23 +903,22 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
     /// - First, it needs to sleep in an extra waiting queue and needs extra wake-up logic and overhead.
     /// - Second, upgrading method usually requires a high response time (because the mutex is being used now).
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(self) -> RwMutexWriteGuard<'a, T> {
-        let mut this = self;
+    pub fn upgrade(mut self) -> RwMutexWriteGuard<'a, T> {
         proof! {
-            use_type_invariant(&this);
-            use_type_invariant(&this.inner);
+            use_type_invariant(&self);
+            use_type_invariant(&self.inner);
             lemma_consts_properties();
         }
         atomic_with_ghost!(
-            this.inner.lock => fetch_or(BEING_UPGRADED);
+            self.inner.lock => fetch_or(BEING_UPGRADED);
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
             }
         );
         loop {
-            this =
-            match this.try_upgrade() {
+            self =
+            match self.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -965,9 +960,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
                         upread_guard_token.validate_with_one_left_owner(g.upreader_guard_token.tracked_borrow());
                     }
                     g.core_token.join_one_left_owner(upread_guard_token);
-                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
-                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
-                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked read_resource = g.read_guard_token.take_resource();
                     let tracked (read_half_cell_perm, left_token) = read_resource;
                     g.core_token.join_one_left_knowledge(left_token);
                     let tracked mut pointsto = g.core_token.take_resource_left();
@@ -1060,7 +1053,21 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.tracked_token.borrow().tracked_borrow().borrow()))
+        self.inner.val.borrow(
+            Tracked(self.tracked_token.borrow().tracked_borrow().tracked_borrow()),
+        )
+    }
+}
+
+impl<T: fmt::Debug> DebugSpecImpl for RwMutexUpgradeableGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RwMutexUpgradeableGuard<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 

@@ -1,0 +1,143 @@
+name: Set up Verus toolchain and caches
+description: >-
+  Shared CI setup: system dependencies, the Rust toolchain and cargo caches,
+  the dv build cache, and (optionally) the tools/verus cache with a
+  bootstrap-if-miss step. Expects a repository checkout (with submodules) in
+  the working directory.
+
+inputs:
+  verus:
+    description: Cache and bootstrap tools/verus ('true' or 'false')
+    default: 'true'
+  install-verusfmt:
+    description: Install verusfmt via its installer if missing ('true' or 'false')
+    default: 'false'
+  dv-cache:
+    description: "'save' (restore + save) or 'restore' (restore only) for dv/target"
+    default: 'save'
+
+outputs:
+  rust-version:
+    description: Rust toolchain channel from rust-toolchain.toml
+    value: ${{ steps.rust.outputs.rust-version }}
+  dv-commit:
+    description: dv submodule commit
+    value: ${{ steps.commits.outputs.dv-commit }}
+  verus-commit:
+    description: Upstream Verus commit used for the tools/verus cache key
+    value: ${{ steps.commits.outputs.verus-commit }}
+  verus-cache-hit:
+    description: Exact-match hit for the tools/verus cache ('true' or empty)
+    value: ${{ steps.verus-cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt update -qq
+        sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
+
+    - name: Get Rust toolchain version
+      id: rust
+      shell: bash
+      run: |
+        RUST_VERSION=$(sed -nE 's/^channel = "([^"]+)"/\1/p' rust-toolchain.toml)
+        if [[ -z "$RUST_VERSION" ]]; then
+          echo "Failed to extract the Rust version from rust-toolchain.toml" >&2
+          exit 1
+        fi
+        echo "rust-version=$RUST_VERSION" >> "$GITHUB_OUTPUT"
+        echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
+        echo "Rust version: $RUST_VERSION"
+
+    - name: Cache Rust toolchain
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.rustup/toolchains
+          ~/.rustup/update-hashes
+          ~/.rustup/tmp
+        key: ${{ runner.os }}-rust-toolchain-${{ steps.rust.outputs.rust-version }}
+
+    # Must run before tools/verus exists, or hashFiles sees it and the key
+    # becomes nondeterministic.
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Resolve dv and Verus commits
+      id: commits
+      shell: bash
+      run: |
+        DV_COMMIT=$(git rev-parse HEAD:dv)
+        echo "dv-commit=$DV_COMMIT" >> "$GITHUB_OUTPUT"
+        echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
+        echo "Using dv commit: $DV_COMMIT"
+        if [[ "${{ inputs.verus }}" == "true" ]]; then
+          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
+          echo "verus-commit=$VERUS_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
+          echo "Using Verus commit: $VERUS_COMMIT"
+        fi
+
+    - name: Cache dv build artifacts
+      if: inputs.dv-cache == 'save'
+      uses: actions/cache@v6
+      with:
+        path: dv/target
+        key: ${{ runner.os }}-dv-${{ steps.commits.outputs.dv-commit }}
+
+    - name: Restore dv build artifacts
+      if: inputs.dv-cache == 'restore'
+      uses: actions/cache/restore@v6
+      with:
+        path: dv/target
+        key: ${{ runner.os }}-dv-${{ steps.commits.outputs.dv-commit }}
+
+    - name: Cache Verus
+      id: verus-cache
+      if: inputs.verus == 'true'
+      uses: actions/cache@v6
+      with:
+        # Only needed when rebuilding from scratch, which re-clones anyway.
+        # Excluding them roughly halves the entry size.
+        path: |
+          tools/verus
+          !tools/verus/.git
+          !tools/verus/.git/**
+          !tools/verus/source/target
+          !tools/verus/source/target/**
+        key: ${{ runner.os }}-verus-${{ steps.commits.outputs.verus-commit }}
+
+    - name: Bootstrap Verus (if needed)
+      if: inputs.verus == 'true'
+      shell: bash
+      run: |
+        if [[ "${{ steps.verus-cache.outputs.cache-hit }}" == "true" ]] &&
+           [[ -x tools/verus/source/target-verus/release/cargo-verus ]] &&
+           [[ -f tools/verus/source/z3 ]]; then
+          echo "Using cached Verus (${{ steps.commits.outputs.verus-commit }})"
+        else
+          echo "Cache miss - bootstrapping Verus..."
+          rm -rf tools/verus
+          cargo dv bootstrap
+        fi
+
+    - name: Install verusfmt (if needed)
+      if: inputs.install-verusfmt == 'true'
+      shell: bash
+      run: |
+        if ! command -v verusfmt >/dev/null 2>&1; then
+          echo "verusfmt not found, installing via its installer..."
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/verus-lang/verusfmt/releases/latest/download/verusfmt-installer.sh | sh
+        fi
+        verusfmt --version

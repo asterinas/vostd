@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides a trait and some auxiliary types to help abstract and
 //! work with non-null pointers.
-use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
 use vstd_extra::prelude::*;
+
+use alloc::{boxed::Box, sync::Arc};
 
 mod either;
 
@@ -41,7 +44,11 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     where
         Self: 'a;*/
     /// A verification-only permission type that represents the ownership of the memory managed by the pointer.
+    #[cfg(not(feature = "irc11"))]
     type Permission: Inv;
+
+    #[cfg(feature = "irc11")]
+    type Permission: Inv + Objective;
 
     /// The power of two of the pointer alignment.
     const ALIGN_BITS: u32;

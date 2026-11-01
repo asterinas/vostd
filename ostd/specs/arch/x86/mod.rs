@@ -1,94 +1,68 @@
-use vstd::prelude::*;
-
-use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
+use vstd::{
+    arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2},
+    prelude::*,
+};
 use vstd_extra::prelude::*;
 
-use crate::specs::mm::{
-    frame::mapping::lemma_meta_to_frame_soundness,
-    page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
+use crate::specs::{
+    arch::{
+        CurrentArch, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties,
+        model::{ArchAddressSpaceModel, lemma_paddr_to_vaddr_aligned_for},
+    },
+    mm::{
+        frame::mapping::lemma_meta_to_frame_soundness,
+        page_table::{
+            leading_bits_spec, nr_page_table_coverage_bits_spec, nr_pte_index_bits_spec,
+            page_table_managed_end_spec, page_table_managed_start_spec, pte_index_bit_offset_spec,
+            vaddr_range_proofs, vaddr_range_spec,
+        },
+    },
 };
 
-use crate::mm::{
-    Paddr, PagingConstsTrait, Vaddr,
-    frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame},
-    kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr},
-    page_size,
+use crate::{
+    arch::mm::{NR_ENTRIES, PAGE_SIZE, PagingConsts},
+    mm::{
+        MAX_NR_PAGES, MAX_PADDR, Paddr, PagingConstsTrait, Vaddr,
+        frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame},
+        kspace::{
+            FRAME_METADATA_RANGE, KernelPtConfig, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
+            paddr_to_vaddr,
+        },
+        vm_space::UserPtConfig,
+    },
 };
 
 verus! {
 
-// Asterinas is designed for 64-bit architectures.
-global size_of usize == 8;
+/// The x86 instance of the architecture-wide specification contract.
+pub ghost struct X86Arch;
 
-global size_of isize == 8;
+impl ArchAddressSpaceModel for X86Arch {
+    type C = crate::arch::mm::PagingConsts;
 
-// The following constants are the same as those defined in `ostd::arch::mm::x86_64`,
-// but we record their actual values for better proof automation.
-/// Page size.
-pub const PAGE_SIZE: usize = 4096;
+    open spec fn max_paddr_spec() -> Paddr {
+        MAX_PADDR
+    }
 
-/// The maximum number of entries in a page table node
-pub const NR_ENTRIES: usize = 512;
+    open spec fn linear_mapping_base_vaddr_spec() -> Vaddr {
+        LINEAR_MAPPING_BASE_VADDR
+    }
 
-/// The maximum level of a page table node.
-pub const NR_LEVELS: usize = 4;
+    open spec fn vmalloc_base_vaddr_spec() -> Vaddr {
+        VMALLOC_BASE_VADDR
+    }
 
-/// Parameterized maximum physical address.
-pub const MAX_PADDR: usize = 0x8000_0000;
+    proof fn lemma_model_requirements() {
+        Self::C::lemma_paging_consts_requirements();
+        assert(Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE() == 0)
+            by (compute_only);
 
-pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
-
-pub open spec fn valid_frame_paddr(paddr: Paddr) -> bool {
-    &&& paddr % PAGE_SIZE == 0
-    &&& paddr < MAX_PADDR
-}
-
-} // verus!
-verus! {
-
-pub proof fn lemma_linear_mapping_base_vaddr_properties()
-    ensures
-        LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0,
-        LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR,
-{
-    assert(LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0) by (compute_only);
-    assert(LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR) by (compute_only);
-}
-
-/// There is not an executable version in the source code.
-#[verifier::inline]
-pub open spec fn vaddr_to_paddr(va: Vaddr) -> usize
-    recommends
-        LINEAR_MAPPING_BASE_VADDR <= va < VMALLOC_BASE_VADDR,
-{
-    (va - LINEAR_MAPPING_BASE_VADDR) as usize
-}
-
-pub broadcast proof fn lemma_paddr_to_vaddr_properties(pa: Paddr)
-    requires
-        pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
-    ensures
-        LINEAR_MAPPING_BASE_VADDR <= #[trigger] paddr_to_vaddr(pa) < VMALLOC_BASE_VADDR,
-        #[trigger] vaddr_to_paddr(paddr_to_vaddr(pa)) == pa,
-{
-}
-
-pub broadcast proof fn lemma_vaddr_to_paddr_properties(va: Vaddr)
-    requires
-        LINEAR_MAPPING_BASE_VADDR <= va < VMALLOC_BASE_VADDR,
-    ensures
-        #[trigger] vaddr_to_paddr(va) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
-        #[trigger] paddr_to_vaddr(vaddr_to_paddr(va)) == va,
-{
-}
-
-pub proof fn lemma_max_paddr_range()
-    ensures
-        MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
-        MAX_PADDR + LINEAR_MAPPING_BASE_VADDR < usize::MAX,
-{
-    assert(MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR) by (compute_only);
-    assert(MAX_PADDR + LINEAR_MAPPING_BASE_VADDR < usize::MAX) by (compute_only);
+        assert(0 < Self::max_paddr_spec()) by (compute_only);
+        assert(Self::C::BASE_PAGE_SIZE() <= Self::max_paddr_spec()) by (compute_only);
+        assert(Self::max_paddr_spec() % Self::C::BASE_PAGE_SIZE() == 0) by (compute_only);
+        assert(Self::max_paddr_spec() + Self::linear_mapping_base_vaddr_spec()
+            < Self::vmalloc_base_vaddr_spec()) by (compute_only);
+    }
 }
 
 pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
@@ -104,11 +78,8 @@ pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
     let pa = meta_to_frame(meta);
     lemma_meta_to_frame_soundness(meta);
     lemma_max_paddr_range();
-    let va = paddr_to_vaddr(pa);
-    lemma_linear_mapping_base_vaddr_properties();
-    assert(va % PAGE_SIZE == 0) by {
-        lemma_mod_0_add(pa as int, LINEAR_MAPPING_BASE_VADDR as int, PAGE_SIZE as int);
-    };
+    lemma_paddr_to_vaddr_properties(pa);
+    lemma_paddr_to_vaddr_aligned_for::<CurrentArch>(pa);
 }
 
 // Here are some architecture-specific const value properties.
@@ -127,13 +98,44 @@ pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>(
         0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint,
 {
     C::lemma_paging_consts_properties();
+    C::axiom_current_paging_consts_hardcoded();
     lemma2_to64();
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
-    lemma_usize_pow2_ilog2(12);
-    lemma_usize_pow2_ilog2(9);
     lemma_pow2_adds(8, 39);
+}
+
+/// Checks the user address range for x86-64 four-level paging.
+pub(crate) proof fn lemma_vaddr_range_spec_user()
+    ensures
+        leading_bits_spec::<UserPtConfig>() == 0,
+        page_table_managed_start_spec::<UserPtConfig>() == 0,
+        page_table_managed_end_spec::<UserPtConfig>() == 0x0000_8000_0000_0000int,
+        vaddr_range_spec::<UserPtConfig>().start == 0,
+        vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
+{
+    lemma_arch_specific_consts_properties::<PagingConsts>();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
+}
+
+/// Checks the kernel address range for x86-64 four-level paging.
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
+    ensures
+        leading_bits_spec::<KernelPtConfig>() == 0xffff,
+        page_table_managed_start_spec::<KernelPtConfig>() == 0xFFFF_8000_0000_0000,
+        page_table_managed_end_spec::<KernelPtConfig>() == 0x1_0000_0000_0000_0000int,
+        vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
+{
+    lemma_arch_specific_consts_properties::<PagingConsts>();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
+    vstd::layout::unsigned_int_max_values();
+    assert(nr_page_table_coverage_bits_spec::<PagingConsts>() == 48);
+    vaddr_range_proofs::lemma_leading_bits_properties::<KernelPtConfig>();
+    assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
 }
 
 } // verus!

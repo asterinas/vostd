@@ -8,37 +8,29 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 - `ostd`:
   - `ostd/src/`: Core OSTD implementation and proofs.
   - `ostd/specs/`: Verus specifications for OSTD.
+  - `ostd/libs/`: Auxiliary libraries for OSTD (e.g., `align_ext`, `id-alloc`, and `ostd-pod`).
 - `dv`: The main build system (you can think this as `xtask`-equivalent).
 
 ## Build, Test, and Development Commands
 
 - `git submodule update --init --recursive`: initialize required submodules.
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
-  - `make verus update` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
+  - `make verus-upgrade` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify`: verify the whole target.
-- `cargo dv verify --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`.
-- `cargo dv verify --targets vstd_extra`: compile and verify the `vstd_extra` library independently.
+- `cargo dv focus --package ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`, without re-checking dependency proofs.
+- `cargo dv verify --package vstd_extra`: compile and verify the `vstd_extra` library independently.
+- `--package` (`-p`) selects packages for `verify`, `focus`, `build`, `doc`, and `count`; `--target <TRIPLE>` selects the Rust target platform (default: `x86_64-unknown-none`).
+- `make verify-<TRIPLE>` verifies `ostd` for one Rust target (short aliases: `verify-x86`, `verify-riscv`, `verify-loongarch`); the pattern accepts any triple `cargo dv` supports, e.g. `make verify-loongarch64-unknown-none-softfloat`. Plain `make` / `make verify` stays on the default target.
+- `cargo dv count -p ostd --module sync::rwlock`: count one module; add `--print-all` (`-a`) to print annotated source lines.
+- `cargo dv doc -p ostd`: generate documentation after building dependencies for the same Rust target with `cargo dv build --target <TRIPLE>`.
 - `make fmt`: format Verus/Rust sources using the project formatter.
-- `make doc`: verify and generate API documentation in `doc/`.
+- `make doc`: build dependencies and generate API documentation in `doc/`.
 - `make clean`: remove Cargo and generated documentation artifacts.
 
-## Coding Style & Naming Conventions
+## Coding Guidelines
 
-- Use Rust 2021 style with Verus proof conventions.
-- Keep executable code, `spec` functions, proof blocks, and lemmas clearly separated so verification intent is visible in review.
-- Name modules and files in `snake_case`; use `CamelCase` for types and traits, `SCREAMING_SNAKE_CASE` for constants, prefix proof lemmas using `lemma_` like `lemma_page_table_mapping_preserved`, prefix axioms using `axiom_`, and prefix `tracked_` for helper functions that lift verus functions that return ghost types into `tracked`.
-- Formatting follows `rustfmt.toml`: 4-space indentation, crate-level import grouping, and reordered imports.
-- Public verified APIs should include rustdoc comments explaining both behavior and proof obligations. Suppress lints at the narrowest practical scope, preferably with `#[expect(...)]`.
-- Whenever there is proof-only objects inside executable Rust types, be sure to add prefixes to the variables. Example:
-  ```rs
-  pub struct Foo {
-      something: u64,
-      tracked_thing: Tracked<u8>,
-      //             ^^^^^^^
-      ghost_another: Ghost<u32>,
-      //             ^^^^^
-  }
-  ```
+Follow the [VOSTD Verus Coding Guidelines](docs/coding-guidelines/README.md)
+for coding, specification, proof, naming, and review conventions.
 
 ## Verus Requirements
 
@@ -53,7 +45,7 @@ For proof-sensitive changes, use Verus-related skills in `.agents/skills` only w
 
 ## Testing and Verification Guidelines
 
-Verification is the primary correctness gate. Run `make` before submitting changes that affect `ostd`, `verified_libs`, or proof code. For targeted work on specific modules, use the `--verify-only-module` flag to speed up iteration.
+Verification is the primary correctness gate. Run `make` before submitting changes that affect `ostd`, `verified_libs`, or proof code. For targeted work on specific modules, use `cargo dv focus` with the `--verify-only-module` flag to speed up iteration.
 
 ## Commit & Pull Request Guidelines
 

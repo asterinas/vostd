@@ -3,9 +3,8 @@
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-use core::fmt::Debug;
-
 use bitflags::bitflags;
+use core::fmt::Debug;
 
 /// The property of a mapped virtual memory page.
 #[verus_verify]

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(dead_code)]
 
+use vstd::{
+    prelude::*,
+    std_specs::{iter::IteratorSpec, slice::into_iter_elts},
+};
+
 use alloc::vec::Vec;
 use core::{fmt::Debug, slice::Iter};
 
@@ -10,6 +15,8 @@ use acpi::{
 };
 
 use super::remapping::{Andd, Atsr, Drhd, Rhsa, Rmrr, Satc, Sidp};
+
+verus! {
 
 /// DMA Remapping structure.
 ///
@@ -61,6 +68,14 @@ struct DmarHeader {
     reserved: [u8; 10],
 }
 
+impl Dmar {
+    /// The remapping structures parsed from the DMAR table, in table order.
+    pub closed spec fn remapping_structures_spec(self) -> Seq<Remapping> {
+        self.remapping_structures@
+    }
+}
+
+} // verus!
 // SAFETY: The `DmarHeader` is the header for the DMAR structure. All its fields are described in
 // the Intel manual.
 unsafe impl AcpiTable for DmarHeader {
@@ -70,8 +85,10 @@ unsafe impl AcpiTable for DmarHeader {
     }
 }
 
+#[verus_verify]
 impl Dmar {
     /// Creates a instance from ACPI table.
+    #[verus_verify(external_body)]
     pub fn new() -> Option<Self> {
         let acpi_table = super::get_acpi_tables()?;
 
@@ -127,6 +144,12 @@ impl Dmar {
         })
     }
 
+    #[verus_spec(ret =>
+        ensures
+            IteratorSpec::remaining(&ret) == self.remapping_structures_spec().as_ref(),
+            into_iter_elts(ret) == IteratorSpec::remaining(&ret).unref(),
+            IteratorSpec::decrease(&ret) is Some,
+    )]
     pub fn remapping_iter(&self) -> Iter<'_, Remapping> {
         self.remapping_structures.iter()
     }

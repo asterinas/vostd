@@ -1,18 +1,25 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU-related definitions.
-pub mod local;
+use vstd::{
+    prelude::*,
+    std_specs::{convert::TryFromSpecImpl, iter::IteratorSpec},
+};
+
+// pub mod local;
 pub mod set;
 
 pub use set::{AtomicCpuSet, CpuSet};
 
-pub use crate::arch::cpu::*;
-use crate::{cpu_local_cell, task::atomic_mode::InAtomicMode};
+// pub use crate::arch::cpu::*;
+// use crate::{cpu_local_cell, task::atomic_mode::InAtomicMode};
 
 /// The ID of a CPU in the system.
 ///
 /// If converting from/to an integer, the integer must start from 0 and be less
 /// than the number of CPUs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[verifier::allow(autoderive_clone_without_spec)]
+#[verus_verify]
 pub struct CpuId(u32);
 
 impl CpuId {
@@ -22,11 +29,13 @@ impl CpuId {
     }
 
     /// Converts the CPU ID to an `usize`.
+    #[verus_verify(dual_spec, closed)]
+    #[verus_spec(r => ensures r == self@, returns self.as_usize())]
     pub const fn as_usize(self) -> usize {
         self.0 as usize
     }
 
-    /// Returns the ID of the current CPU.
+    /* /// Returns the ID of the current CPU.
     ///
     /// This function is safe to call, but is vulnerable to races. The returned CPU
     /// ID may be outdated if the task migrates to another CPU.
@@ -38,17 +47,27 @@ impl CpuId {
         assert!(IS_CURRENT_CPU_INITED.load());
 
         Self(CURRENT_CPU.load())
-    }
+    } */
 }
 
 /// The error type returned when converting an out-of-range integer to [`CpuId`].
 #[derive(Debug, Clone, Copy)]
+#[verus_verify]
 pub struct CpuIdFromIntError;
 
+#[verus_verify]
 impl TryFrom<usize> for CpuId {
     type Error = CpuIdFromIntError;
 
+    #[verus_spec(ret =>
+        ensures
+            ret matches Ok(id) ==> id@ == value && cpu_count() > value,
+            cpu_count() > value ==> ret is Ok,
+    )]
     fn try_from(value: usize) -> Result<Self, Self::Error> {
+        proof! {
+            broadcast use { axiom_cpu_count_bounds };
+        }
         if value < num_cpus() {
             Ok(CpuId(value as u32))
         } else {
@@ -86,6 +105,10 @@ unsafe fn init_num_cpus(num_cpus: u32) {
 }
 
 /// Returns the number of CPUs.
+#[verus_verify(external_body)]
+#[verus_spec(
+    returns cpu_count() as usize,
+)]
 pub fn num_cpus() -> usize {
     // SAFETY: As far as the safe APIs are concerned, `NUM_CPUS` is
     // read-only, so it is always valid to read.
@@ -93,11 +116,110 @@ pub fn num_cpus() -> usize {
 }
 
 /// Returns an iterator over all CPUs.
+///
+/// # Verified Properties
+///
+/// If iteration completes, CPU IDs are yielded exactly once in ascending order.
+#[verus_verify]
+#[verus_spec(ret =>
+    ensures
+        IteratorSpec::obeys_prophetic_iter_laws(&ret),
+        IteratorSpec::decrease(&ret) is Some,
+        IteratorSpec::remaining(&ret).len() == cpu_count(),
+        IteratorSpec::produces(&ret).len() == cpu_count(),
+        forall|i: int| 0 <= i < IteratorSpec::remaining(&ret).len()
+            && IteratorSpec::produces(&ret)[i] ==>
+            #[trigger] IteratorSpec::remaining(&ret)[i]@ == i,
+)]
 pub fn all_cpus() -> impl Iterator<Item = CpuId> {
-    (0..num_cpus()).map(|id| CpuId(id as u32))
+    proof! {
+        broadcast use { axiom_cpu_count_bounds, vstd::std_specs::iter::group_iter_axioms };
+    }
+    (0..num_cpus()).map(
+        #[verus_spec(ret: CpuId =>
+            requires
+                id < cpu_count(),
+            ensures
+                ret@ == id,
+        )]
+        |id| CpuId(id as u32),
+    )
 }
 
-cpu_local_cell! {
+verus! {
+
+/// The underlying numeric CPU id.
+impl View for CpuId {
+    type V = int;
+
+    closed spec fn view(&self) -> int {
+        self.0 as int
+    }
+}
+
+/// The trusted value of the system CPU count. The exec reads `NUM_CPUS`, a `u32`
+/// initialized to 1 and set once at boot (never decreased, no hot-plug), so it is a
+/// stable constant; Verus cannot mention an `exec static` in a spec, so this uninterp
+/// is the explicit specification boundary (mirrors io_port's num_cpus-style pattern).
+pub uninterp spec fn cpu_count() -> int;
+
+/// The count is a positive value that fits a `u32` (the exec reads `static NUM_CPUS: u32`),
+/// hence also a `usize`; the `u32` bound is what lets a `CpuSet` bitset fit in its backing
+/// `SmallVec` without overflowing `isize::MAX`.
+pub broadcast axiom fn axiom_cpu_count_bounds()
+    ensures
+        #![trigger cpu_count()]
+        1 <= cpu_count() <= u32::MAX,
+;
+
+impl CpuId {
+    /// A CPU id is always in the range of CPUs present in the system.
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        0 <= self@ < cpu_count()
+    }
+}
+
+/// The `CpuId` at numeric index `i`.
+pub closed spec fn cpu_id_from_index(i: int) -> CpuId {
+    CpuId(i as u32)
+}
+
+/// Re-exposes the range fact of a `CpuId` beyond the closed `type_inv`.
+pub broadcast proof fn lemma_type_inv_range(cpu_id: CpuId)
+    requires
+        CpuId::type_inv(cpu_id),
+    ensures
+        #![trigger cpu_id@]
+        0 <= cpu_id@ < cpu_count(),
+{
+}
+
+/// `as_usize` and its `u32` re-encoding equal the numeric view of a `CpuId`.
+pub broadcast proof fn lemma_cpu_id_model(cpu_id: CpuId)
+    ensures
+        #![trigger cpu_id.as_usize()]
+        cpu_id.as_usize() == cpu_id@,
+        (cpu_id.as_usize() as u32) == cpu_id@,
+{
+}
+
+impl TryFromSpecImpl<usize> for CpuId {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(v: usize) -> Result<Self, Self::Error> {
+        if cpu_count() > v {
+            Ok(cpu_id_from_index(v as int))
+        } else {
+            Err(arbitrary())
+        }
+    }
+}
+
+} // verus!
+/* cpu_local_cell! {
     /// The current CPU ID.
     static CURRENT_CPU: u32 = 0;
     /// The initialization state of the current CPU ID.
@@ -122,8 +244,7 @@ unsafe fn set_this_cpu_id(id: u32) {
 
     #[cfg(debug_assertions)]
     IS_CURRENT_CPU_INITED.store(true);
-}
-
+} */
 /// A marker trait for guard types that can "pin" the current task to the
 /// current CPU.
 ///
@@ -141,11 +262,14 @@ unsafe fn set_this_cpu_id(id: u32) {
 /// [`DisabledPreemptGuard`]: crate::task::DisabledPreemptGuard
 pub unsafe trait PinCurrentCpu {
     /// Returns the ID of the current CPU.
-    fn current_cpu(&self) -> CpuId {
+    /* fn current_cpu(&self) -> CpuId {
         CpuId::current_racy()
     }
+    */
+    fn current_cpu(&self) -> CpuId;
 }
 
+/*
 // SAFETY: A guard that enforces the atomic mode requires disabling any
 // context switching. So naturally, the current task is pinned on the CPU.
 unsafe impl<T: InAtomicMode> PinCurrentCpu for T {}
@@ -182,4 +306,4 @@ pub(crate) unsafe fn init_on_bsp() {
 pub(crate) unsafe fn init_on_ap(cpu_id: u32) {
     // SAFETY: The safety is upheld by the caller.
     unsafe { set_this_cpu_id(cpu_id) };
-}
+} */

@@ -1,15 +1,27 @@
 [package]
 name = "id-alloc"
 version = "0.1.0"
-edition = "2021"
-license = "MPL-2.0"
 description = "An id allocator implemented by the bitmap"
-repository = "https://github.com/asterinas/asterinas"
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+verus = []
+verify = ["verus"]
+alloc = []
+default = ["verify", "alloc"]
+
+[package.metadata.verus]
+path = "src/lib.rs"
+verify = true
+
 [dependencies]
-bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
+bitvec.workspace = true
+vstd = { workspace = true }
+vstd_extra = { path = "../../../verified_libs/vstd_extra" }
 
 [lints]
 workspace = true

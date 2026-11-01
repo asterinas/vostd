@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! A serial console.
-
 use core::fmt::{self, Write};
 
 use uart_16550::SerialPort;

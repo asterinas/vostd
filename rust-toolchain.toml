@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.97.1"
+channel = "1.99.1"
 components = [
     "rustc",
     "rust-std",
@@ -9,4 +9,9 @@ components = [
     "llvm-tools",
     "clippy",
     "rust-analyzer",
+]
+targets = [
+    "x86_64-unknown-none",
+    "riscv64imac-unknown-none-elf",
+    "loongarch64-unknown-none-softfloat",
 ]

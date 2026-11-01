@@ -1,12 +1,11 @@
 use vstd::prelude::*;
 use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 
+use super::linked_list_owners::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{linked_list::Link, *},
 };
-
-use super::linked_list_owners::*;
 
 verus! {
 
@@ -75,10 +74,7 @@ impl CursorModel {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
-    pub open spec fn remove_owner_spec(self, post: Self) -> bool
-        recommends
-            self.index < self.length(),
-    {
+    pub open spec fn remove_owner_spec(self, post: Self) -> bool {
         &&& post.list_own.list == self.list_own.list.remove(self.index)
         &&& post.index == self.index
     }
@@ -94,47 +90,27 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         let s = self.list_own.list;
         let ps = post.list_own.list;
 
-        LinkedListOwner::<M>::view_preserves_len(s);
-        LinkedListOwner::<M>::view_preserves_len(ps);
-
         let vh_s = LinkedListOwner::<M>::view_helper(s);
         let vh_ps = LinkedListOwner::<M>::view_helper(ps);
 
         assert(post@.fore == self@.fore) by {
-            assert forall|j: int| 0 <= j < vh_ps.take(idx).len() implies vh_ps.take(idx)[j]
-                == vh_s.take(idx)[j] by {
-                LinkedListOwner::<M>::view_helper_index(ps, j);
-                LinkedListOwner::<M>::view_helper_index(s, j);
-            };
+            assert forall|j: int| 0 <= j < vh_ps[..idx].len() implies #[trigger] vh_ps[..idx][j]
+                == vh_s[..idx][j] by {};
         };
 
         assert(post@.rear == self@.remove().rear) by {
-            assert forall|j: int| 0 <= j < vh_ps.skip(idx).len() implies #[trigger] vh_ps.skip(
-                idx,
-            )[j] == vh_s.skip(idx).remove(0)[j] by {
-                LinkedListOwner::<M>::view_helper_index(ps, idx + j);
-                LinkedListOwner::<M>::view_helper_index(s, idx + j + 1);
-            };
+            assert forall|j: int| 0 <= j < vh_ps[idx..].len() implies #[trigger] vh_ps[idx..][j]
+                == vh_s[idx..].remove(0)[j] by {};
         };
 
-        assert forall|j: int| 0 <= j < vh_ps.len() implies #[trigger] vh_ps[j] == vh_s.take(
-            idx,
-        ).add(vh_s.skip(idx).remove(0))[j] by {
-            LinkedListOwner::<M>::view_helper_index(ps, j);
-            if j < idx {
-                LinkedListOwner::<M>::view_helper_index(s, j);
-            } else {
-                LinkedListOwner::<M>::view_helper_index(s, j + 1);
-            }
-        };
-        assert(vh_ps == vh_s.take(idx).add(vh_s.skip(idx).remove(0)));
+        assert forall|j: int| 0 <= j < vh_ps.len() implies #[trigger] vh_ps[j] == vh_s[..idx].add(
+            vh_s[idx..].remove(0),
+        )[j] by {};
+        assert(vh_ps == vh_s[..idx].add(vh_s[idx..].remove(0)));
         assert(post@.list_model == self@.remove().list_model);
     }
 
-    pub open spec fn insert_owner_spec(self, link: LinkOwner, post: Self) -> bool
-        recommends
-            self.index < self.length(),
-    {
+    pub open spec fn insert_owner_spec(self, link: LinkOwner, post: Self) -> bool {
         // The list model (`view_helper`) depends only on the element sequence,
         // not on `list_id`, so this carries no `list_id` clause — letting it
         // hold even when the insert mints a fresh id for a previously-empty list.
@@ -152,44 +128,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         let idx = self.index;
         let s = self.list_own.list;
         let ps = post.list_own.list;
-
-        LinkedListOwner::<M>::view_preserves_len(s);
-        LinkedListOwner::<M>::view_preserves_len(ps);
-        LinkedListOwner::<M>::view_helper_insert(s, idx, link);
+        LinkedListOwner::<M>::lemma_view_helper_insert(s, idx, link);
 
         let vh_s = LinkedListOwner::<M>::view_helper(s);
         let vh_ps = LinkedListOwner::<M>::view_helper(ps);
 
         assert(post@.fore == self@.insert(link@).fore) by {
-            assert forall|j: int| 0 <= j < vh_ps.take(idx + 1).len() implies vh_ps.take(idx + 1)[j]
-                == vh_s.take(idx).insert(idx as int, link@)[j] by {
-                LinkedListOwner::<M>::view_helper_index(ps, j);
-                if j < idx {
-                    LinkedListOwner::<M>::view_helper_index(s, j);
-                }
-            };
+            assert forall|j: int| 0 <= j < vh_ps[..idx + 1].len() implies #[trigger] vh_ps[..idx
+                + 1][j] == vh_s[..idx].insert(idx as int, link@)[j] by {};
         };
 
         assert(post@.rear == self@.insert(link@).rear) by {
-            assert forall|j: int| 0 <= j < vh_ps.skip(idx + 1).len() implies vh_ps.skip(idx + 1)[j]
-                == vh_s.skip(idx)[j] by {
-                LinkedListOwner::<M>::view_helper_index(ps, idx + 1 + j);
-                LinkedListOwner::<M>::view_helper_index(s, idx + j);
-            };
+            assert forall|j: int| 0 <= j < vh_ps[idx + 1..].len() implies #[trigger] vh_ps[idx
+                + 1..][j] == vh_s[idx..][j] by {};
         };
 
-        let new_fore = vh_s.take(idx).insert(idx as int, link@);
+        let new_fore = vh_s[..idx].insert(idx as int, link@);
         assert forall|j: int| 0 <= j < vh_ps.len() implies #[trigger] vh_ps[j] == new_fore.add(
-            vh_s.skip(idx),
-        )[j] by {
-            LinkedListOwner::<M>::view_helper_index(ps, j);
-            if j < idx {
-                LinkedListOwner::<M>::view_helper_index(s, j);
-            } else if j > idx {
-                LinkedListOwner::<M>::view_helper_index(s, j - 1);
-            }
-        };
-        assert(vh_ps == new_fore.add(vh_s.skip(idx)));
+            vh_s[idx..],
+        )[j] by {};
+        assert(vh_ps == new_fore.add(vh_s[idx..]));
         assert(post@.list_model == self@.insert(link@).list_model);
     }
 
@@ -198,8 +156,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
             self
         } else if self.index == self.length() {
             Self { list_own: self.list_own, index: 0 }
-        } else if self.index == self.length() - 1 {
-            Self { list_own: self.list_own, index: self.index + 1 }
         } else {
             Self { list_own: self.list_own, index: self.index + 1 }
         }
@@ -208,8 +164,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     pub open spec fn move_prev_owner_spec(self) -> Self {
         if self.length() == 0 {
             self
-        } else if self.index == self.length() {
-            Self { list_own: self.list_own, index: self.index - 1 }
         } else if self.index == 0 {
             Self { list_own: self.list_own, index: self.length() }
         } else {

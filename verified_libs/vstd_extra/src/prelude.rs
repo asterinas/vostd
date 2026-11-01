@@ -18,6 +18,8 @@ pub use super::trans_macros::*;
 
 pub use super::raw_ptr_extra::*;
 
+pub use super::resource_invariant::*;
+
 pub use super::seq_extra::*;
 
 pub use super::set_extra::*;

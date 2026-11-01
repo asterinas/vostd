@@ -8,19 +8,17 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::OwnerOf;
 
+use crate::specs::{
+    arch::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
+    mm::{frame::meta_owners::MetaSlotStorage, io::VmIoOwner, virt_mem::VirtPtr},
+};
+
 use super::*;
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
-    kspace::{
-        KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
-        paddr_to_vaddr_spec,
-    },
+    kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     paddr_to_vaddr,
 };
-use crate::specs::arch::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::io::VmIoOwner;
-use crate::specs::mm::virt_mem::VirtPtr;
 
 verus! {
 
@@ -111,7 +109,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.inv(),
             owner@.inv(),
             r.wf(owner@),
-            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
+            r.cursor.vaddr == paddr_to_vaddr(self.start_paddr()),
             r.remain_spec() == self.size(),
             owner@.is_kernel,
     )]
@@ -153,7 +151,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.inv(),
             owner@.inv(),
             r.wf(owner@),
-            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
+            r.cursor.vaddr == paddr_to_vaddr(self.start_paddr()),
             r.avail_spec() == self.size(),
             owner@.is_kernel,
             !owner@.is_fallible,

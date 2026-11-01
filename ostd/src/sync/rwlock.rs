@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::atomic_ghost::*;
-use vstd::cell::{self, CellId, pcell::*};
-use vstd::prelude::*;
-use vstd::resource::Loc;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
-use vstd_extra::sum::*;
-use vstd_extra::{prelude::*, resource};
+#[cfg(feature = "irc11")]
+use vstd::thread_view::Objective;
+use vstd::{
+    atomic_ghost::*,
+    cell::{self, CellId, pcell::*},
+    prelude::*,
+    resource::Loc,
+};
+use vstd_extra::{
+    prelude::*,
+    resource::{
+        self,
+        ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*},
+    },
+    sum::*,
+};
 
 use alloc::sync::Arc;
 use core::char::MAX;
@@ -27,21 +36,6 @@ use super::{
 
 verus! {
 
-const MAX_READER_U64: u64 = MAX_READER as u64;
-
-spec const V_MAX_READ_RETRACT_FRACS_SPEC: u64 = (MAX_READER_MASK + 1) as u64;
-
-#[verifier::when_used_as_spec(V_MAX_READ_RETRACT_FRACS_SPEC)]
-exec const V_MAX_READ_RETRACT_FRACS: u64
-    ensures
-        V_MAX_READ_RETRACT_FRACS == V_MAX_READ_RETRACT_FRACS_SPEC,
-        V_MAX_READ_RETRACT_FRACS == MAX_READER_MASK + 1,
-        V_MAX_READ_RETRACT_FRACS < u64::MAX,
-{
-    assert(MAX_READER_MASK + 1 < u64::MAX) by (compute_only);
-    (MAX_READER_MASK + 1) as u64
-}
-
 /// The token reserved in the lock when the write permission is given out.
 type NoPerm<T> = EmptyCount<PointsTo<T>>;
 
@@ -60,19 +54,20 @@ tracked struct RwPerms<T> {
     /// The permission to retract a `READER` count. Its total quantity tracks the gap between
     /// the number of `try_read` increments recorded in the lock atomic and the number of active
     /// `RwLockReadGuard`s (created and ongoing creation that will succeed) represented by `read_guard_token`.
-    /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
-    /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock.
-    read_retract_token: TokenResource<V_MAX_READ_RETRACT_FRACS>,
+    /// It can be splited up to `MAX_READER_MASK` pieces,
+    /// which allows at most `MAX_READER_MASK - 1` `try_read` attempts that will fail to acquire the lock.
+    read_retract_token: TokenResource<MAX_READER_MASK>,
     /// The permission to retract the set of `UPGRADEABLE_READER` bit.
     upread_retract_token: Option<UniqueToken>,
     /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
-    /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
-    /// If it is `Right`, it stores an empty token indicating the permission has been given out.
-    read_guard_token: Sum<
-        CountResource<ReadPerm<T>, MAX_READER_U64>,
-        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
-    >,
+    /// Tracks the remaining read permissions, or an empty state while a writer owns the resource.
+    read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
+}
+
+#[cfg(feature = "irc11")]
+unsafe impl<T> Objective for RwPerms<T> {
+
 }
 
 ghost struct RwId {
@@ -93,7 +88,7 @@ pub closed spec fn no_max_reader_overflow(v: usize) -> bool {
 }
 
 struct_with_invariants! {
-/// Spin-based Read-write Lock
+/// A spin lock that provides data access to either one writer or many readers.
 ///
 /// # Overview
 ///
@@ -210,21 +205,28 @@ closed spec fn wf(self) -> bool {
         // The number of active `RwLockUpgradeableGuard`, which can only be 0 or 1.
         let active_upgrade_guard: bool = !active_writer && g.upreader_guard_token is None;
         // The number of active `RwLockReadGuard`s.
-        let active_read_guards: int = if g.read_guard_token is Left {
-            MAX_READER_U64 - g.read_guard_token.left().frac()
-        } else {
+        let active_read_guards: int = if g.read_guard_token.is_resource_vacant() {
             0
+        } else {
+            MAX_READER - g.read_guard_token.frac()
         };
         // The first `try_upread` that fails, which has not returned yet.
         let pending_failed_upread_attempt: bool = g.upread_retract_token is None;
         // The number of `try_read` attempts that will fail.
-        let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
+        let failed_reader_attempts: int = MAX_READER_MASK - g.read_retract_token.frac();
 
         &&& if g.core_token.is_left() {
-            g.read_guard_token is Left
+            let resource = g.read_guard_token.resource();
+            let read_half_cell_perm = resource.0;
+            let mode_knowledge = resource.1;
+            &&& !g.read_guard_token.is_resource_vacant()
+            &&& mode_knowledge.id() == ghost_id@.core_token_id
+            &&& read_half_cell_perm.id() == ghost_id@.frac_id
+            &&& read_half_cell_perm.resource().id() == val.id()
+            &&& read_half_cell_perm.frac() == 1
         } else {
             &&& g.upreader_guard_token is None
-            &&& g.read_guard_token is Right
+            &&& g.read_guard_token.is_resource_vacant()
         }
         // The `UPGRADEABLE_READER` bit is set iff there is an active `RwLockUpgradeableGuard` or a pending failed `try_upread` attempt.
         &&& has_upgrade_bit <==> (active_upgrade_guard || pending_failed_upread_attempt)
@@ -262,25 +264,8 @@ closed spec fn wf(self) -> bool {
             let token = g.upreader_guard_token->0;
             wf_upgradeable_guard_token(ghost_id@.core_token_id, ghost_id@.frac_id, val.id(), token)
         }
-        &&& match g.read_guard_token {
-            Sum::Left(token) => {
-                &&& token.wf()
-                &&& token.id() == ghost_id@.read_guard_token_id
-                &&& token.not_empty() ==> {
-                    let resource = token.resource();
-                    let read_half_cell_perm = resource.0;
-                    let mode_knowledge = resource.1;
-                    &&& mode_knowledge.id() == ghost_id@.core_token_id
-                    &&& read_half_cell_perm.id() == ghost_id@.frac_id
-                    &&& read_half_cell_perm.resource().id() == val.id()
-                    &&& read_half_cell_perm.frac() == 1
-                }
-            },
-            Sum::Right(empty) => {
-                &&& empty.id() == ghost_id@.read_guard_token_id
-            },
-        }
-
+        &&& g.read_guard_token.wf()
+        &&& g.read_guard_token.id() == ghost_id@.read_guard_token_id
     }
 }
 
@@ -357,6 +342,7 @@ closed spec fn wf_upgradeable_guard_token<T>(
     &&& half_cell_perm.resource().id() == cell_id
     &&& token.has_resource()
     &&& half_cell_perm.frac() == 1
+    &&& half_cell_perm.has_authority()
     &&& token.wf()
 }
 
@@ -369,15 +355,15 @@ impl<T, G> RwLock<T, G> {
         proof {
             lemma_consts_properties();
         }
-        let tracked mut frac_perm = Count::<PointsTo<T>>::new(perm);
+        let tracked mut frac_perm = Count::<PointsTo<T>>::alloc(perm);
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
         let tracked mut core_token = SumResource::alloc_left(frac_perm);
-        let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
+        let tracked read_retract_token = TokenResource::<MAX_READER_MASK>::alloc(());
         let tracked upread_retract_token = UniqueToken::alloc(());
         let tracked upreader_guard_token = core_token.split_one_left_owner();
         let tracked left_token = core_token.split_one_left_knowledge();
-        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
+        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER>::alloc(
             (read_half_cell_perm, left_token),
         );
         let ghost ghost_id = RwId {
@@ -392,7 +378,7 @@ impl<T, G> RwLock<T, G> {
             read_retract_token,
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
-            read_guard_token: Sum::Left(read_guard_token),
+            read_guard_token,
         };
 
         Self {
@@ -469,8 +455,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T, G>> {
         proof_decl!{
-            let tracked mut read_token: Option<Count<ReadPerm<T>,MAX_READER_U64>> = None;
-            let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
+            let tracked mut read_token: Option<Count<ReadPerm<T>,MAX_READER>> = None;
+            let tracked mut retract_read_token: Option<Token<MAX_READER_MASK>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -490,9 +476,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                    read_token = Some(tmp.split_one());
-                    g.read_guard_token = Sum::Left(tmp);
+                    read_token = Some(g.read_guard_token.split_one());
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
                 }
@@ -501,8 +485,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
             Some(
                 RwLockReadGuard {
-                    inner: self,
                     guard,
+                    inner: self,
                     tracked_token: Tracked(read_token.tracked_unwrap()),
                 },
             )
@@ -551,9 +535,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 let next_usize = next as usize;
                 if res is Ok {
                     // Retract the fractional permission for read access.
-                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
-                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
-                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked read_resource = g.read_guard_token.take_resource();
                     let tracked (read_half_cell_perm, left_token) = read_resource;
                     g.core_token.join_one_left_knowledge(left_token);
                     // Retract the fractional permission for upgradeable reader.
@@ -571,8 +553,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         ).is_ok() {
             Some(
                 RwLockWriteGuard {
-                    inner: self,
                     guard,
+                    inner: self,
                     tracked_perm: Tracked(guard_perm.tracked_unwrap()),
                     tracked_token: Tracked(guard_token.tracked_unwrap()),
                 },
@@ -615,8 +597,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         if lock == 0 {
             return Some(
                 RwLockUpgradeableGuard {
-                    inner: self,
                     guard,
+                    inner: self,
                     tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()),
                 },
             );
@@ -641,11 +623,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             );
         }
         None
-    }
-}
-
-/*
-impl<T, G: SpinGuardian> RwLock<T, G> {
+    }/*
     /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
@@ -660,8 +638,9 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
     /// is still safe.
     pub(super) fn as_ptr(&self) -> *mut T {
         self.val.get()
-    }
-}*/
+    }*/
+
+}
 
 /* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
@@ -670,8 +649,8 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     }
 }*/
 
-/// Because there can be more than one readers to get the T's immutable ref,
-/// so T must be Sync to guarantee the sharing safety.
+// There can be more than one readers to get the `T`'s immutable reference,
+// so `T` must be `Sync` to guarantee the sharing safety.
 #[verifier::external]
 unsafe impl<T: Send, G> Send for RwLock<T, G> {
 
@@ -682,12 +661,12 @@ unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {
 
 }
 
+// `G::Guard` and `G::ReadGuard` are `!Send` and `!Sync`, so are the guards.
 impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {
 
 }
 
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {
+impl<T, G: SpinGuardian> !Sync for RwLockWriteGuard<'_, T, G> {
 
 }
 
@@ -695,8 +674,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {
 
 }
 
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {
+impl<T, G: SpinGuardian> !Sync for RwLockReadGuard<'_, T, G> {
 
 }
 
@@ -704,8 +682,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, 
 
 }
 
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {
+impl<T, G: SpinGuardian> !Sync for RwLockUpgradeableGuard<'_, T, G> {
 
 }
 
@@ -718,7 +695,7 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 pub struct RwLockReadGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
-    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
+    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER>>,
 }
 
 /*
@@ -752,15 +729,6 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     pub open spec fn view(self) -> T {
         self.value()
     }
-
-    /// Borrows the inner value in tracked mode.
-    #[verifier::external_body]
-    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
-        returns
-            self.view(),
-    {
-        unimplemented!()
-    }
 }
 
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
@@ -774,7 +742,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(self.tracked_token.borrow().borrow().0.borrow()))
+        self.inner.val.borrow(
+            Tracked(self.tracked_token.borrow().tracked_borrow().0.tracked_borrow()),
+        )
     }
 }
 
@@ -809,10 +779,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
                 assume (no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
-                g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
-                let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                tmp.combine(token);
-                g.read_guard_token = Sum::Left(tmp);
+                g.core_token.validate_with_one_left_knowledge(&token.tracked_borrow().1);
+                g.read_guard_token.combine(token);
             }
         );
     }
@@ -851,15 +819,6 @@ impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     /// The value stored in the lock. It is an alias of `Self::value`.
     pub open spec fn view(self) -> T {
         self.value()
-    }
-
-    /// Borrows the inner value in tracked mode.
-    #[verifier::external_body]
-    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
-        returns
-            self.view(),
-    {
-        unimplemented!()
     }
 }
 
@@ -938,12 +897,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
                 let tracked upreader_guard_token = g.core_token.split_one_left_owner();
                 g.upreader_guard_token = Some(upreader_guard_token);
                 let tracked left_token = g.core_token.split_one_left_knowledge();
-                let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                let tracked read_guard_token = CountResource::alloc_from_empty(
-                    read_guard_empty,
-                    (read_half_cell_perm, left_token),
-                );
-                g.read_guard_token = Sum::Left(read_guard_token);
+                g.read_guard_token.put_resource((read_half_cell_perm, left_token));
             }
         };
     }
@@ -957,7 +911,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 }*/
 
 /// A guard that provides immutable data access but can be atomically
-/// upgraded to `RwLockWriteGuard`.
+/// upgraded to [`RwLockWriteGuard`].
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 pub struct RwLockUpgradeableGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
@@ -1002,25 +956,23 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     /// while previous readers remain unaffected. The calling thread
     /// will spin-wait until previous readers finish.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(  /* mut */ self) -> RwLockWriteGuard<'a, T, G> {
-        let mut this = self;
+    pub fn upgrade(mut self) -> RwLockWriteGuard<'a, T, G> {
         proof! {
-            use_type_invariant(&this);
-            use_type_invariant(&this.inner);
+            use_type_invariant(&self);
+            use_type_invariant(&self.inner);
             lemma_consts_properties();
         }
         // self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
         atomic_with_ghost!(
-            this.inner.lock => fetch_or(BEING_UPGRADED);
+            self.inner.lock => fetch_or(BEING_UPGRADED);
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
             }
         );
         loop {
-            // self = match self.try_upgrade() {
-            this =
-            match this.try_upgrade() {
+            self =
+            match self.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -1034,15 +986,14 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     ///
     /// This function is not exposed publicly because the `BEING_UPGRADED` bit
     /// is set only in [`Self::upgrade`].
-    fn try_upgrade(  /* mut */ self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
+    fn try_upgrade(mut self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let mut this = self;
         proof_decl! {
-            let tracked mut upread_guard_token = this.tracked_token.get();
+            let tracked mut upread_guard_token = self.tracked_token.get();
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -1057,7 +1008,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         // );
         let res =
             atomic_with_ghost!(
-            this.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
+            self.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
             update prev -> next;
             returning res;
             ghost g => {
@@ -1068,9 +1019,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                         upread_guard_token.validate_with_one_left_owner(g.upreader_guard_token.tracked_borrow());
                     }
                     g.core_token.join_one_left_owner(upread_guard_token);
-                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
-                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
-                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked read_resource = g.read_guard_token.take_resource();
                     let tracked (read_half_cell_perm, left_token) = read_resource;
                     g.core_token.join_one_left_knowledge(left_token);
                     let tracked mut pointsto = g.core_token.take_resource_left();
@@ -1086,8 +1035,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             }
         );
         if res.is_ok() {
-            let inner = this.inner;
-            let guard = this.guard.transfer_to();
+            let guard = self.guard.transfer_to();
+            let inner = self.inner;
             // drop(self);
             atomic_with_ghost!(
                 inner.lock => fetch_sub(UPGRADEABLE_READER);
@@ -1106,8 +1055,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             );
             Ok(
                 RwLockWriteGuard {
-                    inner,
                     guard,
+                    inner,
                     tracked_perm: Tracked(write_perm.tracked_unwrap()),
                     tracked_token: Tracked(write_guard_token.tracked_unwrap()),
                 },
@@ -1115,8 +1064,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         } else {
             Err(
                 RwLockUpgradeableGuard {
-                    inner: this.inner,
-                    guard: this.guard,
+                    guard: self.guard,
+                    inner: self.inner,
                     tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )
@@ -1135,7 +1084,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, 
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(self.tracked_token.borrow().tracked_borrow().borrow()))
+        self.inner.val.borrow(
+            Tracked(self.tracked_token.borrow().tracked_borrow().tracked_borrow()),
+        )
     }
 }
 

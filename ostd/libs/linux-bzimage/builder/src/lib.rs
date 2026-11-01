@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The linux bzImage builder.
 //!
 //! This crate is responsible for building the bzImage. It contains methods to build
@@ -12,7 +11,6 @@
 //!
 //! The setup code should be built into the ELF target and we convert it to a flat binary
 //! in the builder.
-
 pub mod encoder;
 mod mapping;
 mod pe_header;
@@ -24,7 +22,7 @@ use std::{
 };
 
 use align_ext::AlignExt;
-pub use encoder::{encode_kernel, PayloadEncoding};
+pub use encoder::{PayloadEncoding, encode_kernel};
 use mapping::{SetupFileOffset, SetupVA};
 use xmas_elf::{program::SegmentData, sections::SectionData};
 

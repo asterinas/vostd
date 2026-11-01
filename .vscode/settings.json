@@ -37,13 +37,13 @@
     "verus-analyzer.cargo.cfgs": [
         "debug_assertions",
         "miri",
-        "verus_keep_ghost"
+        "verus_keep_ghost",
     ],
     "verus-analyzer.check.overrideCommand": [
         "cargo",
         "dv",
         "verify",
-        "--targets",
+        "--package",
         "ostd",
     ],
     "verus-analyzer.checkOnSave": false,

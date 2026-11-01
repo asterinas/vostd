@@ -25,7 +25,7 @@ buddy_system_allocator = { version = "0.10", default-features = false, features 
 bitflags_upstream = { package = "bitflags", version = "1.3" }
 cfg-if = "1.0"
 gimli = { version = "0.28", default-features = false, features = ["read-core"] }
-#id-alloc = { path = "libs/id-alloc", version = "0.1.0" }
+id-alloc = { path = "libs/id-alloc", version = "0.1.0" }
 inherit-methods-macro = { git = "https://github.com/asterinas/inherit-methods-macro", rev = "98f7e3e", version = "0.1.0" }
 #int-to-c-enum = { path = "../kernel/libs/int-to-c-enum", version = "0.1.0" }
 # intrusive-collections = { version = "0.9.6", features = ["nightly"] }
@@ -35,7 +35,7 @@ num-traits = { version = "0.2", default-features = false }
 #ostd-macros = { version = "0.15.1", path = "libs/ostd-macros" }
 #ostd-test = { version = "0.15.1", path = "libs/ostd-test" }
 #ostd-pod = { git = "https://github.com/asterinas/ostd-pod", rev = "c4644be", version = "0.1.1" }
-ostd-pod = { path = "../verified_libs/ostd-pod" }
+ostd-pod = { path = "libs/ostd-pod" }
 spin = "0.9.4"
 smallvec = "1.13.2"
 volatile = "0.6.1"
@@ -53,7 +53,7 @@ minicov = { version = "0.3", optional = true }
 # - `loongarch64-unknown-none-softfloat` is rather self-explaining.
 
 [target.x86_64-unknown-none.dependencies]
-x86_64 = "0.14.13"
+x86_64 = "0.15.5"
 x86 = "0.52.0"
 acpi = "=5.2.0" # This upstream often bump minor versions with API changes
 multiboot2 = "0.24.0"
@@ -63,13 +63,13 @@ iced-x86 = { version = "1.21.0", default-features = false, features = [
     "gas",
 ], optional = true }
 tdx-guest = { version = "0.2.1", optional = true }
-unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
+unwinding = { version = "=0.2.10", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 
 [target.riscv64imac-unknown-none-elf.dependencies]
 riscv = { version = "0.11.1", features = ["s-mode"] }
 sbi-rt = "0.0.3"
 fdt = { version = "0.1.5", features = ["pretty-printing"] }
-unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
+unwinding = { version = "=0.2.10", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 
 [target.loongarch64-unknown-none-softfloat.dependencies]
 loongArch64 = "0.2.5"
@@ -78,6 +78,10 @@ fdt = { version = "0.1.5", features = ["pretty-printing"] }
 [features]
 # default = ["cvm_guest"]
 default = []
+allow_panic = []
+# Source gate only. The isolated IRC11 CI enables `vstd/weak-memory`
+# explicitly because the mainline Verus toolchain does not define it.
+irc11 = ["vstd_extra/irc11"]
 # The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
 cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
 coverage = ["minicov"]
