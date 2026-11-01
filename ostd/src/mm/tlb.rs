@@ -187,8 +187,12 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
 verus! {
 
 /// The operation to flush TLB entries.
-#[verifier::allow(autoderive_clone_without_spec)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+/* Verus gives a derived `Clone` no specification unless the type is `Copy`,
+ * and `OpsStack::push_from` must know that a cloned request is the same
+ * request, so the `Clone` impl is written out below.
+ * Origin Rust: #[derive(Debug, Clone, PartialEq, Eq)]
+ */
+#[derive(Debug, PartialEq, Eq)]
 pub enum TlbFlushOp {
     /// Flush all TLB entries except for the global entries.
     All,
@@ -196,6 +200,21 @@ pub enum TlbFlushOp {
     Address(Vaddr),
     /// Flush the TLB entries for the specified virtual address range.
     Range(Range<Vaddr>),
+}
+
+impl Clone for TlbFlushOp {
+    fn clone(&self) -> Self
+        returns
+            *self,
+    {
+        match self {
+            TlbFlushOp::All => TlbFlushOp::All,
+            TlbFlushOp::Address(va) => TlbFlushOp::Address(*va),
+            TlbFlushOp::Range(range) => {
+                TlbFlushOp::Range(Range { start: range.start, end: range.end })
+            },
+        }
+    }
 }
 
 impl TlbFlushOp {
@@ -283,6 +302,38 @@ const FLUSH_ALL_RANGE_THRESHOLD: usize = 32 * PAGE_SIZE;
 /// TLB entries instead of flushing them one by one.
 const FLUSH_ALL_OPS_THRESHOLD: usize = 32;
 
+/// Pending requests, or a whole-TLB flush that subsumes them.
+ghost struct OpsStackView {
+    /// The requests that are yet to be flushed, in issue order.
+    pub pending: Seq<Option<TlbFlushOp>>,
+    /// Whether the stack has collapsed into a whole-TLB flush.
+    pub need_flush_all: bool,
+}
+
+impl OpsStackView {
+    /// The state of the stack after recording `op` on top of it.
+    spec fn pushed(self, op: Option<TlbFlushOp>) -> Self {
+        OpsStackView { pending: self.pending.push(op), need_flush_all: false }
+    }
+
+    /// The state of the stack after appending the requests of `other`.
+    spec fn merged(self, other: Self) -> Self {
+        OpsStackView { pending: self.pending + other.pending, need_flush_all: false }
+    }
+
+    /// Whether the stack holds no requests at all.
+    spec fn is_empty(self) -> bool {
+        self.pending.len() == 0 && !self.need_flush_all
+    }
+}
+
+impl Inv for OpsStackView {
+    /// A collapsed stack records no individual requests.
+    closed spec fn inv(self) -> bool {
+        self.need_flush_all ==> self.pending.len() == 0
+    }
+}
+
 struct OpsStack {
     ops: [Option<TlbFlushOp>; FLUSH_ALL_OPS_THRESHOLD],
     need_flush_all: bool,
@@ -291,6 +342,18 @@ struct OpsStack {
 }
 
 impl OpsStack {
+    /// The pending requests and whole-TLB flush obligation.
+    spec fn view(&self) -> OpsStackView {
+        OpsStackView { pending: self.ops@[..self.size], need_flush_all: self.need_flush_all }
+    }
+
+    /// The occupied prefix fits the array and contains only requests.
+    spec fn inv(&self) -> bool {
+        &&& self.size <= FLUSH_ALL_OPS_THRESHOLD
+        &&& self.view().inv()
+        &&& forall|i: int| 0 <= i < self.size ==> #[trigger] self.ops@[i].is_some()
+    }
+
     #[verifier::external_body]
     const fn new() -> Self {
         Self {
@@ -301,13 +364,27 @@ impl OpsStack {
         }
     }
 
-    #[verifier::external_body]
-    fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool
+        requires
+            self.inv(),
+        returns
+            self.view().is_empty(),
+    {
         !self.need_flush_all && self.size == 0
     }
 
-    #[verifier::external_body]
-    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>) {
+    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>)
+        requires
+            old(self).inv(),
+        ensures
+            final(self).inv(),
+            old(self).view().need_flush_all ==> final(self).view() == old(self).view(),
+            !old(self).view().need_flush_all ==> {
+                ||| final(self).view() == old(self).view().pushed(Some(op))
+                ||| final(self).view() == old(self).view().pushed(Some(TlbFlushOp::All))
+                ||| final(self).view().need_flush_all
+            },
+    {
         if let Some(frame) = drop_after_flush {
             //            self.page_keeper.push(frame);
         }
@@ -320,12 +397,26 @@ impl OpsStack {
             self.size = 0;
             return;
         }
+        proof {
+            lemma_update_take(self.ops@, self.size as int, Some(op));
+        }
         self.ops[self.size] = Some(op);
         self.size += 1;
     }
 
-    #[verifier::external_body]
-    fn push_from(&mut self, other: &OpsStack) {
+    fn push_from(&mut self, other: &OpsStack)
+        requires
+            old(self).inv(),
+            other.inv(),
+        ensures
+            final(self).inv(),
+            old(self).view().need_flush_all ==> final(self).view() == old(self).view(),
+            other.view().need_flush_all ==> final(self).view().need_flush_all,
+            !old(self).view().need_flush_all ==> {
+                ||| final(self).view() == old(self).view().merged(other.view())
+                ||| final(self).view().need_flush_all
+            },
+    {
         //        self.page_keeper.extend(other.page_keeper.iter().cloned());
         if self.need_flush_all {
             return;
@@ -335,7 +426,21 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        for i in 0..other.size {
+        let ghost start_size = self.size as int;
+        for i in 0..other.size
+            invariant
+                old(self).inv(),
+                other.inv(),
+                self.inv(),
+                !self.need_flush_all,
+                self.size == start_size + i,
+                i <= other.size,
+                start_size + other.size < FLUSH_ALL_OPS_THRESHOLD,
+                self.ops@[..self.size] == old(self).ops@[..start_size] + other.ops@[..i],
+        {
+            proof {
+                lemma_update_take(self.ops@, self.size as int, other.ops@[i as int]);
+            }
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
         }
@@ -357,12 +462,26 @@ impl OpsStack {
         self.clear_without_flush();
     }
 
-    #[verifier::external_body]
-    fn clear_without_flush(&mut self) {
+    fn clear_without_flush(&mut self)
+        requires
+            old(self).inv(),
+        ensures
+            final(self).inv(),
+            final(self).view().is_empty(),
+    {
         self.need_flush_all = false;
         self.size = 0;
         //        self.page_keeper.clear();
     }
+}
+
+/// Updating the next slot extends the prefix by that value.
+proof fn lemma_update_take<A>(s: Seq<A>, i: int, v: A)
+    requires
+        0 <= i < s.len(),
+    ensures
+        s.update(i, v)[..i + 1] == s[..i].push(v),
+{
 }
 
 } // verus!
