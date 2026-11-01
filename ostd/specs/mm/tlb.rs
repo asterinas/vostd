@@ -87,6 +87,7 @@ impl TlbModel {
         TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }
 
+    /// Records a borrowed request without consuming its executable value.
     pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: &TlbFlushOp)
         requires
             old(self).inv(),
