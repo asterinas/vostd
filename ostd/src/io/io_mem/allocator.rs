@@ -13,8 +13,10 @@ use vstd::{
     resource::{Loc, set::GhostSubset},
 };
 use vstd_extra::{
-    once::OnceImpl, range::RangeExtraFns, resource::range::GhostSubRange,
-    resource_invariant::TrivialResourceInvariant, set_extra::pairwise_disjoint,
+    once::OnceImpl,
+    range::{RangeExtraFns, lemma_ranges_disjoint, ranges_disjoint, ranges_separated},
+    resource::range::GhostSubRange,
+    resource_invariant::TrivialResourceInvariant,
 };
 
 use crate::specs::arch::PAGE_SIZE;
@@ -156,7 +158,7 @@ impl IoMemAllocatorBuilder {
         with
             -> state_out: Tracked<RangeAllocatorPermits>,
         requires
-            usize_ranges_disjoint(ranges@),
+            ranges_disjoint(ranges@),
             usize_ranges_match_registered(ranges@),
         ensures
             ret@.map_values(|allocator: RangeAllocator| allocator@) == ranges@,
@@ -183,7 +185,7 @@ impl IoMemAllocatorBuilder {
                     &&& allocators@[j]@.start == it.seq()[j].start
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
-                usize_ranges_disjoint(it.seq()),
+                ranges_disjoint(it.seq()),
                 ranges_separated(it.seq()),
                 usize_ranges_match_registered(it.seq()),
                 forall|j: int| #![trigger registered_io_mem_windows()[j]] 0 <= j < it.index() ==>
@@ -315,21 +317,7 @@ broadcast use vstd::std_specs::vec::group_vec_axioms;
 /// The MMIO windows are pairwise disjoint, so the first overlapping window found by
 /// `find_allocator` is the window containing a registered range, regardless of window order.
 pub open spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
-    usize_ranges_disjoint(allocators.map_values(|allocator: RangeAllocator| allocator@))
-}
-
-/// The ranges handed to [`IoMemAllocatorBuilder::new`] are pairwise disjoint.
-pub open spec fn usize_ranges_disjoint(ranges: Seq<Range<usize>>) -> bool {
-    &&& pairwise_disjoint(
-        ranges.map_values(|range: Range<usize>| range.view_set()).to_set(),
-    )
-    // A set collapses duplicate windows and omits empty ranges' positions. Preserve the
-    // per-window separation needed by `find_allocator` for these cases.
-    &&& forall|i: int, j: int|
-        #![trigger ranges[i], ranges[j]]
-        0 <= i < j < ranges.len() && (ranges[i] == ranges[j] || ranges[i].start >= ranges[i].end
-            || ranges[j].start >= ranges[j].end) ==> ranges[i].end <= ranges[j].start
-            || ranges[j].end <= ranges[i].start
+    ranges_disjoint(allocators.map_values(|allocator: RangeAllocator| allocator@))
 }
 
 /// The abstract MMIO windows registered by platform boot code.
@@ -582,14 +570,6 @@ mod test {
 
 verus! {
 
-/// Endpoint separation for distinct windows, including empty ranges.
-closed spec fn ranges_separated(ranges: Seq<Range<usize>>) -> bool {
-    forall|i: int, j: int|
-        #![trigger ranges[i], ranges[j]]
-        0 <= i < j < ranges.len() ==> ranges[i].end <= ranges[j].start || ranges[j].end
-            <= ranges[i].start
-}
-
 /// Exposes endpoint separation directly on allocator views for lookup proofs.
 proof fn lemma_windows_disjoint(allocators: Seq<RangeAllocator>)
     requires
@@ -607,59 +587,6 @@ proof fn lemma_windows_disjoint(allocators: Seq<RangeAllocator>)
         0 <= i < j < allocators.len() implies allocators[i]@.end <= allocators[j]@.start
         || allocators[j]@.end <= allocators[i]@.start by {
         assert(ranges[i].end <= ranges[j].start || ranges[j].end <= ranges[i].start);
-    }
-}
-
-/// Relates the set-based disjointness model to the endpoint bounds used by allocator lookup.
-proof fn lemma_ranges_disjoint(ranges: Seq<Range<usize>>)
-    ensures
-        usize_ranges_disjoint(ranges) == ranges_separated(ranges),
-{
-    let sets = ranges.map_values(|r: Range<usize>| r.view_set());
-    if usize_ranges_disjoint(ranges) {
-        assert forall|i: int, j: int|
-            #![trigger ranges[i], ranges[j]]
-            0 <= i < j < ranges.len() implies ranges[i].end <= ranges[j].start || ranges[j].end
-            <= ranges[i].start by {
-            assert(sets.to_set().contains(sets[i]));
-            assert(sets.to_set().contains(sets[j]));
-            if ranges[i] != ranges[j] && ranges[i].start < ranges[i].end && ranges[j].start
-                < ranges[j].end {
-                assert(sets[i] != sets[j]) by {
-                    if ranges[i].start < ranges[j].start {
-                        assert(sets[i].contains(ranges[i].start));
-                    } else if ranges[j].start < ranges[i].start {
-                        assert(sets[j].contains(ranges[j].start));
-                    } else if ranges[i].end < ranges[j].end {
-                        assert(sets[j].contains(ranges[i].end));
-                    } else {
-                        assert(sets[i].contains(ranges[j].end));
-                    }
-                }
-                assert(sets[i].disjoint(sets[j]));
-                if ranges[i].start < ranges[j].end && ranges[j].start < ranges[i].end {
-                    let address = if ranges[i].start < ranges[j].start {
-                        ranges[j].start
-                    } else {
-                        ranges[i].start
-                    };
-                    assert(sets[i].contains(address) && sets[j].contains(address));
-                }
-            }
-        }
-    } else if ranges_separated(ranges) {
-        assert forall|left: Set<usize>, right: Set<usize>|
-            #![trigger sets.to_set().contains(left), sets.to_set().contains(right)]
-            sets.to_set().contains(left) && sets.to_set().contains(right) && left
-                != right implies left.disjoint(right) by {
-            let i = choose|i: int| 0 <= i < sets.len() && sets[i] == left;
-            let j = choose|j: int| 0 <= j < sets.len() && sets[j] == right;
-            assert(i != j);
-            assert(ranges[i].end <= ranges[j].start || ranges[j].end <= ranges[i].start);
-            assert forall|address: usize| #[trigger] left.contains(address) implies !right.contains(
-                address,
-            ) by {}
-        }
     }
 }
 
