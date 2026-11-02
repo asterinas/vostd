@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The architecture support of context switch.
+//!
+//! # Verified Properties
+//!
+//! The saved-register contracts cover the Rust data operations; the assembly
+//! `context_switch` remains outside verification.
+use vstd::prelude::*;
+
 use crate::task::TaskContextApi;
 
 core::arch::global_asm!(include_str!("switch.S"));
 
+verus! {
+
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub(crate) struct TaskContext {
@@ -12,27 +22,52 @@ pub(crate) struct TaskContext {
     pub fsbase: usize,
 }
 
+// Closed projections let public method contracts describe this crate-private type.
 impl TaskContext {
+    /// The saved callee registers, exposed through a closed specification.
+    pub closed spec fn regs_spec(&self) -> CalleeRegs {
+        self.regs
+    }
+
+    /// The saved instruction pointer, exposed through a closed specification.
+    pub closed spec fn rip_spec(&self) -> usize {
+        self.rip
+    }
+
+    /// The saved TLS pointer, exposed through a closed specification.
+    pub closed spec fn fsbase_spec(&self) -> usize {
+        self.fsbase
+    }
+}
+
+#[verus_verify]
+impl TaskContext {
+    /// Creates a context with all saved registers cleared.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::new())]
     pub const fn new() -> Self {
-        Self {
-            regs: CalleeRegs::new(),
-            rip: 0,
-            fsbase: 0,
-        }
+        Self { regs: CalleeRegs::new(), rip: 0, fsbase: 0 }
     }
 
     /// Sets thread-local storage pointer.
+    #[verus_spec(ensures
+        final(self).fsbase_spec() == tls,
+        final(self).regs_spec() == old(self).regs_spec(),
+        final(self).rip_spec() == old(self).rip_spec(),
+    )]
     pub fn set_tls_pointer(&mut self, tls: usize) {
         self.fsbase = tls;
     }
 
     /// Gets thread-local storage pointer.
+    #[verus_spec(returns self.fsbase_spec())]
     pub fn tls_pointer(&self) -> usize {
         self.fsbase
     }
 }
 
 /// Callee-saved registers.
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct CalleeRegs {
@@ -52,39 +87,52 @@ pub struct CalleeRegs {
     pub r15: u64,
 }
 
+#[verus_verify]
 impl CalleeRegs {
     /// Creates new `CalleeRegs`
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::new())]
     pub const fn new() -> Self {
-        CalleeRegs {
-            rsp: 0,
-            rbx: 0,
-            rbp: 0,
-            r12: 0,
-            r13: 0,
-            r14: 0,
-            r15: 0,
-        }
+        CalleeRegs { rsp: 0, rbx: 0, rbp: 0, r12: 0, r13: 0, r14: 0, r15: 0 }
     }
 }
 
+#[verus_verify]
 impl TaskContextApi for TaskContext {
+    /// Sets the saved instruction pointer.
+    #[verus_spec(ensures
+        final(self).rip_spec() == ip,
+        final(self).regs_spec() == old(self).regs_spec(),
+        final(self).fsbase_spec() == old(self).fsbase_spec(),
+    )]
     fn set_instruction_pointer(&mut self, ip: usize) {
         self.rip = ip;
     }
 
+    /// Gets the saved instruction pointer.
+    #[verus_spec(returns self.rip_spec())]
     fn instruction_pointer(&self) -> usize {
         self.rip
     }
 
+    /// Sets the saved stack pointer.
+    #[verus_spec(ensures
+        final(self).regs_spec() == (CalleeRegs { rsp: sp as u64, ..old(self).regs_spec() }),
+        final(self).rip_spec() == old(self).rip_spec(),
+        final(self).fsbase_spec() == old(self).fsbase_spec(),
+    )]
     fn set_stack_pointer(&mut self, sp: usize) {
         self.regs.rsp = sp as u64;
     }
 
+    /// Gets the saved stack pointer without truncation on x86-64.
+    #[verus_spec(returns self.regs_spec().rsp as usize)]
     fn stack_pointer(&self) -> usize {
         self.regs.rsp as usize
     }
 }
 
+} // verus!
 extern "C" {
     pub(crate) fn context_switch(cur: *mut TaskContext, nxt: *const TaskContext);
 }
