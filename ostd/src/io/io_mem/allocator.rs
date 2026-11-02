@@ -3,13 +3,10 @@
 //!
 //! # Verified Properties
 //!
-//! The allocatable windows are the boot-time registered MMIO windows, handed
-//! to [`IoMemAllocatorBuilder::new`] in their registered order; every
-//! allocator built from a builder inherits them. Construction returns one
-//! splittable free-address permission per window. A builder removal consumes
-//! the requested portion of the corresponding permission, proving that the
-//! underlying range allocation cannot panic. The registered-window registry
-//! is trusted boot-time data.
+//! Allocators preserve the ordered boot-time MMIO windows and their permission
+//! identities through abstract views. Construction returns a splittable permission
+//! per window; builder removal consumes the requested portion without panicking
+//! when its preconditions hold. The boot-time window registry is trusted.
 use vstd::{
     arithmetic::power2::is_pow2,
     prelude::*,
@@ -132,7 +129,7 @@ impl IoMemAllocator {
             windows_disjoint(allocators@),
             windows_match_registered(allocators@),
         ensures
-            ret.allocators@ == allocators@,
+            ret@ == allocators@,
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }
@@ -162,7 +159,7 @@ impl IoMemAllocatorBuilder {
             usize_ranges_disjoint(ranges@),
             usize_ranges_match_registered(ranges@),
         ensures
-            ret.type_inv(),
+            ret@.map_values(|allocator: RangeAllocator| allocator@) == ranges@,
             ret.state_matches(state_out@),
             forall|i: int| 0 <= i < ranges@.len() ==>
                 #[trigger] state_out@[i]@ == ranges@[i].view_set(),
@@ -354,8 +351,26 @@ pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> boo
         }
 }
 
+impl View for IoMemAllocatorBuilder {
+    type V = Seq<RangeAllocator>;
+
+    /// The ordered windows and permission identities preserved when building the allocator.
+    closed spec fn view(&self) -> Seq<RangeAllocator> {
+        self.allocators@
+    }
+}
+
+impl View for IoMemAllocator {
+    type V = Seq<RangeAllocator>;
+
+    /// The ordered windows and their allocation/free permission identities.
+    closed spec fn view(&self) -> Seq<RangeAllocator> {
+        self.allocators@
+    }
+}
+
 /// Every window has a matching free-address permission.
-closed spec fn allocator_states_match(
+pub open spec fn allocator_states_match(
     allocators: Seq<RangeAllocator>,
     state: RangeAllocatorPermits,
 ) -> bool {
@@ -371,11 +386,11 @@ closed spec fn allocator_states_match(
 impl IoMemAllocatorBuilder {
     /// Whether some matching window permission covers `range`, proving that
     /// `remove` succeeds without panicking.
-    pub closed spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
+    pub open spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
         exists|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && i < state.len() && {
-                let allocator = self.allocators@[i];
+            #![trigger self@[i]]
+            0 <= i < self@.len() && i < state.len() && {
+                let allocator = self@[i];
                 &&& allocator@.start <= range.start < range.end <= allocator@.end
                 &&& state[i].id() == allocator.allocate_id()
                 &&& range.view_set() <= state[i]@
@@ -383,8 +398,8 @@ impl IoMemAllocatorBuilder {
     }
 
     /// Whether every window has a permission with the matching identity.
-    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
-        allocator_states_match(self.allocators@, state)
+    pub open spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
+        allocator_states_match(self@, state)
     }
 
     /// The builder always holds the disjoint windows handed to [`IoMemAllocatorBuilder::new`].
@@ -396,27 +411,27 @@ impl IoMemAllocatorBuilder {
 
 impl IoMemAllocator {
     /// Whether `id` is the free-permission identity of a window containing `range`.
-    pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
+    pub open spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
         exists|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
-                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
+            #![trigger self@[i]]
+            0 <= i < self@.len() && self@[i].allocate_id() == id && self@[i]@.start <= range.start
+                < range.end <= self@[i]@.end
     }
 
     /// Whether `id` is the allocation-token identity of a window containing `range`.
-    pub closed spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
+    pub open spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
         exists|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
-                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
+            #![trigger self@[i]]
+            0 <= i < self@.len() && self@[i].free_id() == id && self@[i]@.start <= range.start
+                < range.end <= self@[i]@.end
     }
 
     /// Whether some window wholly covers `range`.
-    pub closed spec fn covers_range(self, range: Range<usize>) -> bool {
+    pub open spec fn covers_range(self, range: Range<usize>) -> bool {
         exists|k: int|
-            #![trigger self.allocators@[k]]
-            0 <= k < self.allocators@.len() && {
-                let window = self.allocators@[k]@;
+            #![trigger self@[k]]
+            0 <= k < self@.len() && {
+                let window = self@[k]@;
                 &&& window.start <= range.start
                 &&& range.end <= window.end
             }
@@ -474,14 +489,10 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
         ret matches Some(res) ==> {
             &&& res@.start < range.end
             &&& res@.end > range.start
-            &&& exists|k: int| #![trigger allocators@[k]]
-                0 <= k < allocators@.len()
-                    && allocators@[k]@ == res@
-                    && allocators@[k].allocate_id() == res.allocate_id()
-                    && allocators@[k].free_id() == res.free_id()
+            &&& allocators@.contains(*res)
         },
-        ret is None ==> forall|i: int| #![trigger allocators@[i]] 0 <= i < allocators@.len()
-            ==> allocators@[i]@.start >= range.end || allocators@[i]@.end <= range.start,
+        ret is None ==> allocators@.all(|allocator: RangeAllocator|
+            allocator@.start >= range.end || allocator@.end <= range.start),
 )]
 fn find_allocator<'a>(
     allocators: &'a [RangeAllocator],

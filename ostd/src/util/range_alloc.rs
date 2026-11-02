@@ -671,28 +671,28 @@ impl RangeAllocator {
                     merged_left = true;
                 }
             }
-            proof! {
+        }
+        proof_decl! {
+            if prev_cursor_model.position > 0 {
+                let prev_va = prev_cursor_model.keys[prev_cursor_model.position - 1];
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies freelist@[key].block.end != free_range.start by {
                     if freelist@[key].block.end == free_range.start {
                         lemma_upper_bound_prev_is_maximal(
                             prev_cursor_model,
                             before_left_range.start,
-                            *prev_va,
+                            prev_va,
                             key,
                         );
-                        if key != *prev_va {
-                            assert(before_left_map.contains_key(*prev_va));
+                        if key != prev_va {
+                            assert(before_left_map.contains_key(prev_va));
                             assert(false);
                         } else {
                             assert(false);
                         }
                     }
                 }
-            }
-        }
-        proof! {
-            if prev_cursor_model.position == 0 {
+            } else {
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies freelist@[key].block.end != free_range.start by {
                     if freelist@[key].block.end == free_range.start {
@@ -705,8 +705,6 @@ impl RangeAllocator {
                     }
                 }
             }
-        }
-        proof_decl! {
             if !merged_left {
                 assert(freelist@ == before_left_map);
             }
@@ -760,7 +758,10 @@ impl RangeAllocator {
                     merged_right = true;
                 }
             }
-            proof! {
+        }
+        proof! {
+            if next_cursor_model.position < next_cursor_model.keys.len() {
+                let next_va = next_cursor_model.keys[next_cursor_model.position];
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies key == free_range.start
                         || freelist@[key].block.start != free_range.end by {
@@ -769,29 +770,26 @@ impl RangeAllocator {
                         lemma_lower_bound_next_is_minimal(
                             next_cursor_model,
                             before_right_range.start,
-                            *next_va,
+                            next_va,
                             key,
                         );
                         if merged_right {
                             assert(false);
                         } else {
-                            if key == *next_va {
+                            if key == next_va {
                                 assert(false);
                             } else {
-                                assert(before_right_map.contains_key(*next_va));
+                                assert(before_right_map.contains_key(next_va));
                                 assert(before_right_map.contains_key(before_right_range.start));
-                                assert(before_right_map[*next_va].block.view_set().contains(
-                                    *next_va,
+                                assert(before_right_map[next_va].block.view_set().contains(
+                                    next_va,
                                 ));
                                 assert(false);
                             }
                         }
                     }
                 }
-            }
-        }
-        proof! {
-            if next_cursor_model.position == next_cursor_model.keys.len() {
+            } else {
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies key == free_range.start
                         || freelist@[key].block.start != free_range.end by {
