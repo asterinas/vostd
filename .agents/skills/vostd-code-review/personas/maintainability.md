@@ -43,7 +43,11 @@ below; if a rule named below no longer exists on the page, drop it.
      `-> (ret: ())` declarations are removed.
    - `bind-option-payloads`: two or more facts over the same `Option` bind the payload once
      with `matches` and group the facts in one implication; leave a lone implication
-     ungrouped when binding would not aid clarity.
+     ungrouped when binding would not aid clarity. Preserve whether `Some` is required:
+     `x matches Some(v) ==> P(v)` is true for `None`, so it cannot by itself replace
+     `x is Some` together with payload constraints. Keep the presence requirement or
+     use a match whose `None` arm is false. See the corrected suggestion in
+     [PR #860](https://github.com/asterinas/vostd/pull/860#discussion_r4392170062).
    - `qualified-verus-spec-calls`: a `#[verus_spec(...)]` call site uses a qualified path
      when an import would block Verus from finding the specification, rather than adding an
      import solely to change resolution.

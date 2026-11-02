@@ -63,6 +63,16 @@ report a finding merely because the code diverges from a pattern.
    because some implementations mutate through shared references). If the external
    signature must stay generic, the validity predicate must name the relevant storage,
    ordering, and index types.
+   Do not infer a missing `S: Send` bound just from `unsafe impl<S> Send` or
+   `PhantomData<S>`. Trace actual runtime storage, captures, constructor bounds
+   (including supertraits), destruction, and invocation. Distinguish an actual stored
+   `S` or queued certificate from a marker and a separately supplied invocation-time
+   `Tracked<S>`. A manual `Send` impl may be justified by `C: Send + 'static`, private
+   paired construction, and consuming dispatch even when automatic trait derivation
+   would impose `S: Send`. A missing-bound finding needs a concrete unsafe transfer
+   or access path not excluded by those constraints; phantom or erased parameters
+   alone establish neither soundness nor unsoundness. See the
+   [retracted PR #860 finding](https://github.com/asterinas/vostd/pull/860#discussion_r4396503947).
 5. Reuse sweep (`reuse-existing-specifications`). Inventory every spec fn, proof fn,
    lemma, axiom, model, and external specification introduced or materially changed in
    the reporting scope. Search for equivalent semantics and signatures across all active
@@ -82,6 +92,9 @@ report a finding merely because the code diverges from a pattern.
    a bridge lemma, call the verified fact directly and remove the cheat so the trusted
    surface net-shrinks. Also flag restated postconditions that merely unfold the lemma's
    own `requires` and inflate the SMT goal for every downstream lemma.
+   Validate a reuse suggestion in the caller's actual signature: identify the receiver
+   owning the predicate, its visibility and mode, and each argument's type. Preserve
+   the original conditions when factoring the predicate.
 6. Model-choice review (`canonical-spec-models`, `distinguish-spec-and-exec-indexing`,
    `quantifiers-and-triggers`). Is each model the simplest standard mathematical type
    (`Range<int>` for an integer range, `Map` for a map view, a sequence plus a position for
@@ -101,13 +114,31 @@ report a finding merely because the code diverges from a pattern.
    from the sequence definition.
 7. Invariant modeling (`implement-inv-for-models`). When the target defines spec structs,
    check whether intrinsic validity is expressed as an `impl Inv` through `inv()` rather
-   than a stand-alone `wf(...)` predicate; `wf(...)` is only for well-formedness that
-   depends on another value. Require `inv()` before operations that assume a valid state
-   and ensure it after those that promise to preserve it (`old(self).inv()` /
+   than a stand-alone `wf(...)` predicate, applying the pure-spec distinction below.
+   The guideline reserves `wf(...)` for relationships depending on another value;
+   distinguish that naming convention from a claim that a validity condition is
+   redundant. Require `inv()` before operations that assume a valid state and ensure
+   it after those that promise to preserve it (`old(self).inv()` /
    `final(self).inv()` for mutable operations). Private fields give representation hiding
    but do not make Verus establish `inv()` automatically; when no intrinsic invariant
    applies, record N/A with the reason.
+   Before proposing removal of `wf`/`inv` because a type has a `type_invariant`,
+   classify its consumers by mode. Type invariants apply to exec and tracked objects,
+   not arbitrary spec values, quantified variables, or values selected from spec
+   collections. `use_type_invariant` needs an exec/tracked variable; a broadcast lemma
+   requiring `type_inv(x)` only exports consequences after that premise is established.
+   It cannot manufacture validity for a spec-only `x`. Explicit validity predicates
+   may therefore coexist with type invariants to serve pure-spec invariants and
+   quantified conditions. Report redundancy only when every affected consumer can
+   obtain the same facts through a legal proof path; never remove a spec premise merely
+   because exec/tracked callers obtain it implicitly. Check the active
+   `source/docs/guide/src/reference-type-invariants.md` and the
+   [acknowledged PR #860 correction](https://github.com/asterinas/vostd/pull/860#discussion_r4396558740).
 
 You own contract completeness, trust placement, and model reuse — not documentation
 phrasing (Maintainability persona), the `rlimit > 200` threshold, or whether a changed
 standard-library external spec should be proposed upstream (Workflow persona).
+The Specification persona separately audits API precondition permissiveness and
+caller-visible postcondition sufficiency, including natural-client checks. Keep this
+pass focused on external-model soundness, vacuity, and proof/model engineering;
+return overlapping evidence for consolidation rather than duplicating its API audit.

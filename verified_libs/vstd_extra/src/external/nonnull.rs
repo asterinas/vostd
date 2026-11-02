@@ -47,10 +47,14 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
     axiom fn lemma_addr_is_nonnull(self);
 
     open spec fn addr_spec(self) -> NonZeroUsize {
-        nonzero_from_primitive(self.view_ptr_mut()@.addr)
+        nonzero_from_primitive(self.view_ptr_mut().addr())
     }
 
-    axiom fn lemma_addr_view_eq_view_ptr_mut(self);
+    proof fn lemma_addr_view_eq_view_ptr_mut(self) {
+        broadcast use axiom_nonzero_from_primitive_view_eq;
+
+        self.lemma_addr_is_nonnull();
+    }
 }
 
 #[verifier::inline]
