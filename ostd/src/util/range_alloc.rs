@@ -294,8 +294,6 @@ impl RangeAllocator {
             let ghost initial_map = lock_guard@->0@;
             let ghost initial_freelist = freelist_model(initial_map);
             let ghost mut checked = Set::<(usize, FreeRange)>::empty();
-        }
-        proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             permit.tracked_borrow().agree(&resource.free);
             lemma_contiguous_subset_has_covering_block(
@@ -632,7 +630,6 @@ impl RangeAllocator {
         proof_decl! {
             let ghost before_left_map = freelist@;
             let ghost before_left_range = free_range;
-            let ghost mut merged_left = false;
         }
 
         /* Retaining the cursor in a local keeps its verified position model available to the
@@ -648,17 +645,21 @@ impl RangeAllocator {
             let ghost prev_cursor_model = prev_cursor@;
         }
         if let Some((prev_va, prev_node)) = prev_cursor.peek_prev() {
-            proof! {
-                assert(before_upper_bound(
-                    *prev_va,
-                    core::ops::Bound::Excluded(&free_range.start),
-                ));
-            }
             if prev_node.block.end == free_range.start {
                 let prev_va = *prev_va;
                 free_range.start = prev_node.block.start;
                 freelist.remove(&prev_va);
-                proof! {
+            }
+        }
+        proof_decl! {
+            let ghost merged_left = free_range.start != before_left_range.start;
+            if prev_cursor_model.position > 0 {
+                let prev_va = prev_cursor_model.keys[prev_cursor_model.position - 1];
+                assert(before_upper_bound(
+                    prev_va,
+                    core::ops::Bound::Excluded(&before_left_range.start),
+                ));
+                if merged_left {
                     assert(freelist@ == before_left_map.remove(prev_va));
                     lemma_remove_left_neighbor(
                         self@,
@@ -668,13 +669,7 @@ impl RangeAllocator {
                         before_left_range,
                         free_range,
                     );
-                    merged_left = true;
                 }
-            }
-        }
-        proof_decl! {
-            if prev_cursor_model.position > 0 {
-                let prev_va = prev_cursor_model.keys[prev_cursor_model.position - 1];
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies freelist@[key].block.end != free_range.start by {
                     if freelist@[key].block.end == free_range.start {
@@ -715,7 +710,6 @@ impl RangeAllocator {
             lemma_insert_free_range(self@, before_insert_map, freelist@, free_range);
             let ghost before_right_map = freelist@;
             let ghost before_right_range = free_range;
-            let ghost mut merged_right = false;
         }
         // 2. check if we can merge the current block with the next block, if we can, do so.
         /* Retaining the cursor in a local keeps its verified position model available to the
@@ -731,18 +725,22 @@ impl RangeAllocator {
             let ghost next_cursor_model = next_cursor@;
         }
         if let Some((next_va, next_node)) = next_cursor.peek_next() {
-            proof! {
-                assert(!before_lower_bound(
-                    *next_va,
-                    core::ops::Bound::Excluded(&free_range.start),
-                ));
-            }
             if free_range.end == next_node.block.start {
                 let next_va = *next_va;
                 free_range.end = next_node.block.end;
                 freelist.remove(&next_va);
                 freelist.get_mut(&free_range.start).unwrap().block.end = free_range.end;
-                proof! {
+            }
+        }
+        proof! {
+            let ghost merged_right = free_range.end != before_right_range.end;
+            if next_cursor_model.position < next_cursor_model.keys.len() {
+                let next_va = next_cursor_model.keys[next_cursor_model.position];
+                assert(!before_lower_bound(
+                    next_va,
+                    core::ops::Bound::Excluded(&before_right_range.start),
+                ));
+                if merged_right {
                     assert(freelist@ == before_right_map.remove(next_va).insert(
                         before_right_range.start,
                         FreeRange { block: free_range },
@@ -755,13 +753,7 @@ impl RangeAllocator {
                         before_right_range,
                         free_range,
                     );
-                    merged_right = true;
                 }
-            }
-        }
-        proof! {
-            if next_cursor_model.position < next_cursor_model.keys.len() {
-                let next_va = next_cursor_model.keys[next_cursor_model.position];
                 assert forall|key: usize| #[trigger] freelist@.contains_key(key)
                     implies key == free_range.start
                         || freelist@[key].block.start != free_range.end by {
