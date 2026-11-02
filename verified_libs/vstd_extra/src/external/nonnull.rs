@@ -206,8 +206,6 @@ impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
     axiom fn lemma_with_addr_properties(self, addr: NonZeroUsize);
 }
 
-/// Trusted model of Rust 1.99.1's `core/src/ptr/non_null.rs::NonNull::with_addr`:
-/// replaces the address while preserving the pointer's metadata and provenance.
 #[verifier::when_used_as_spec(nonnull_with_addr_spec_wrapper)]
 pub assume_specification<T: PointeeSized>[ NonNull::<T>::with_addr ](
     ptr: NonNull<T>,
