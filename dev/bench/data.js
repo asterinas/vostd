@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793420165298,
+  "lastUpdate": 1793595621160,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -8820,6 +8820,90 @@ window.BENCHMARK_DATA = {
             "value": 1951392,
             "unit": "rlimit",
             "extra": "smt-run=917ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b39a0b35efef9a55e08d93f7639f1c405ed300c3",
+          "message": "fmt: cargo lock (#884)",
+          "timestamp": "2026-11-02T12:44:40+08:00",
+          "tree_id": "05cdc46b34efe181414dba0b2705b4961f255be5",
+          "url": "https://github.com/asterinas/vostd/commit/b39a0b35efef9a55e08d93f7639f1c405ed300c3"
+        },
+        "date": 1793595620529,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 906071585,
+            "unit": "rlimit",
+            "extra": "verified=4268 errors=0 smt-run=336,121ms wall=233,701ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 362982336,
+            "unit": "rlimit",
+            "extra": "smt-run=158,536ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 84319312,
+            "unit": "rlimit",
+            "extra": "smt-run=24,068ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78893838,
+            "unit": "rlimit",
+            "extra": "smt-run=26,548ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=2,650ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,704ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,547ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=1,029ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=790ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951392,
+            "unit": "rlimit",
+            "extra": "smt-run=857ms"
           }
         ]
       }
