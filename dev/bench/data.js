@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793595621160,
+  "lastUpdate": 1793600752895,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -8904,6 +8904,90 @@ window.BENCHMARK_DATA = {
             "value": 1951392,
             "unit": "rlimit",
             "extra": "smt-run=857ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c3b9f7a6376ca57e9cd4380974ed2d257f84448",
+          "message": "chore: minor adjustment of `NonNull::with_addr` and remove `nonzero_internals` configs (#885)\n\n* Update config.toml\n\n* use `assume_specification` for `NonNull::with_addr``\n\n* minor",
+          "timestamp": "2026-11-02T14:13:09+08:00",
+          "tree_id": "33fd7f79f773ace489b383ba0abbafd933fe894f",
+          "url": "https://github.com/asterinas/vostd/commit/0c3b9f7a6376ca57e9cd4380974ed2d257f84448"
+        },
+        "date": 1793600752541,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 906071585,
+            "unit": "rlimit",
+            "extra": "verified=4268 errors=0 smt-run=344,995ms wall=238,548ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 362982336,
+            "unit": "rlimit",
+            "extra": "smt-run=165,387ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 84319312,
+            "unit": "rlimit",
+            "extra": "smt-run=23,039ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78893838,
+            "unit": "rlimit",
+            "extra": "smt-run=24,539ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=2,578ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,731ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,761ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=1,008ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=797ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951392,
+            "unit": "rlimit",
+            "extra": "smt-run=894ms"
           }
         ]
       }
