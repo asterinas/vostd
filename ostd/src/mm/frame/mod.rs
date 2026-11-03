@@ -455,7 +455,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             res.slot_vaddr() == self.slot_vaddr(),
             res.inv(),
             res.frac_metadata_perm() == self.frac_metadata_perm(),
-            MetaSlot::perms_related(res.inner@.slot_perm(), self.metadata_perm()),
+            MetaSlot::perms_related(res@.slot_perm(), self.metadata_perm()),
     )]
     pub fn borrow<'a>(&'a self) -> FrameRef<'a, M> {
         let tracked slot_perm = *self.tracked_slot_perm.borrow();

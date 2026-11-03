@@ -308,11 +308,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.wf(self)
-        &&& guard.inner.inner@.external_meta_wf(self.metadata, ())
-        &&& guard.inner.tracked_metadata_perm@ matches Some(permission) ==> {
+        &&& guard.inner@.wf(self)
+        &&& guard.inner.external_meta_wf(self.metadata, ())
+        &&& guard.inner@.tracked_metadata_perm@ matches Some(permission) ==> {
             &&& guard.inner.inv()
-            &&& self.matches_permission(*permission)
+            &&& self.matches_permission(permission)
         }
     }
 }
