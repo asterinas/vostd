@@ -144,8 +144,10 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
     iter.filter(pred)
 }
 
+verus! {
 
 proof fn lemma_filter_laws<I: Iterator, P: FnMut(&I::Item) -> bool>(
+    iter: I,
     pred: P,
     ret: core::iter::Filter<I, P>,
 )
