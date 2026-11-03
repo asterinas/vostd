@@ -30,8 +30,7 @@ verus! {
 pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
     pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
-    /// An ordinary borrow retains the owning handle's counted permission.
-    /// Raw node handles carry None and require external permissions for access.
+    /// A reference to one fractional permission for the currently installed metadata.
     #[cfg(verus_keep_ghost_body)]
     pub tracked_metadata_perm: Tracked<Option<&'a FracMetadataPerm>>,
 }
