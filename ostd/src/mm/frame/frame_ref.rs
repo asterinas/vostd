@@ -248,9 +248,8 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
             #[cfg(verus_keep_ghost_body)]
             tracked_metadata_perm: Tracked(None),
         };
-        let dropped = ManuallyDrop::<Frame<M>>::new(frame);
         Self::Ref {
-            inner: dropped,
+            inner: ManuallyDrop::new(frame),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_metadata_perm: Tracked(Some(&permission.metadata_perm)),
