@@ -1,7 +1,11 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::frame::{mapping::meta_to_index, meta_region_owners::MetaRegionOwners};
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, meta_to_index},
+    meta_owners::FracMetadataPerm,
+    meta_region_owners::MetaRegionOwners,
+};
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
@@ -65,7 +69,7 @@ impl<C: PageTableConfig> Child<C> {
         pte: C::E,
         level: PagingLevel,
         regions: MetaRegionOwners,
-        permission: Option<crate::specs::mm::frame::meta_owners::FracMetadataPerm>,
+        permission: Option<FracMetadataPerm>,
     ) -> Self {
         if !pte.is_present() {
             Self::None
@@ -75,7 +79,7 @@ impl<C: PageTableConfig> Child<C> {
             Self::PageTable(
                 PageTableNode::from_raw_spec(
                     pte.paddr(),
-                    regions.slots[crate::specs::mm::frame::mapping::frame_to_index(pte.paddr())],
+                    regions.slots[frame_to_index(pte.paddr())],
                     permission,
                 ),
             )
