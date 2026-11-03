@@ -47,20 +47,17 @@ impl<C: PageTableConfig> Child<C> {
         matches!(self, Child::None)
     }
 
-    /// Converts the child to a raw PTE value.
     /// # Verified Properties
     /// ## Preconditions
-    /// - **Safety Invariants**: all [safety invariants](Child::invariants) must hold on the child.
-    /// - **Safety**: A node child's counted token belongs to its Frame handle.
+    /// - The child must match the supplied entry owner. For a page table node,
+    ///   the owning frame must hold the metadata permission and the
+    ///   entry owner's `node_permission` must be `None`.
+    /// - A mapped frame must satisfy the PTE implementation's
+    ///   [`new_page_req`](PageTableEntryTrait::new_page_req) requirements.
     /// ## Postconditions
-    /// - **Safety Invariants**: the `PTE`'s [safety invariants](EntryOwner::pte_invariants) are preserved.
-    /// - **Ownership**: The node's original token moves into the PTE owner;
-    ///   the physical reference count is unchanged.
-    /// - **Safety**: No frame other than the target entry's (if applicable) is impacted by the call.
-    /// - **Correctness**: the `PTE` is equivalent to the original `Child`.
-    /// ## Safety
-    /// The `PTE` safety invariants ensure that the raw pointer to the entry is tracked correctly
-    /// so that we can guarantee the safety condition on `from_pte`.
+    /// - For a page table node, its metadata permission moves into the
+    ///   entry owner's `node_permission`. All other owner fields are preserved;
+    ///   for a mapped frame or absent child, the owner is unchanged.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut EntryOwner<C>>,
         requires
@@ -97,20 +94,26 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    /// Converts a `PTE` to a `Child`.
+    /// # Safety
     ///
+    /// The provided PTE must be the output of [`Self::into_pte`], and the PTE:
+    ///  - must not be used to created a [`Child`] twice;
+    ///  - must not be referenced by a living [`ChildRef`].
+    ///
+    /// The level must match the original level of the child.
     /// # Verified Properties
     /// ## Preconditions
-    /// - **Safety Invariants**: the `PTE`'s [safety invariants](EntryOwner::pte_invariants) must hold.
-    /// - **Safety**: `level` must match the original level of the child.
+    /// - The PTE, entry owner, and metadata region must satisfy
+    ///   [`EntryOwner::pte_invariants`], including ownership of the counted
+    ///   metadata permission for a page table node.
+    /// - `level` must equal the entry owner's parent level.
     /// ## Postconditions
-    /// - **Safety Invariants**: the [safety invariants](Child::invariants) are preserved.
-    /// - **Safety**: the `EntryOwner` is aware that it is tracking an entry in `Child` form.
-    /// - **Safety**: No frame other than the target entry's (if applicable) is impacted by the call.
-    /// - **Correctness**: the `Child` is equivalent to the original `PTE`.
-    /// ## Safety
-    /// A node PTE's owner must supply the original counted token transferred
-    /// by [`Self::into_pte`]. The returned Frame takes that token back.
+    /// - For a page table node, the returned frame takes the entry owner's
+    ///   metadata permission, leaving `node_permission` as `None`.
+    ///   All other owner fields are preserved; for a mapped frame or absent
+    ///   entry, the owner is unchanged.
+    /// - The returned child satisfies [`Child::invariants`] with the updated
+    ///   entry owner and the supplied metadata region.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<& MetaRegionOwners>,
              Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
