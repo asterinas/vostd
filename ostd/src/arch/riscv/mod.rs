@@ -8,8 +8,8 @@ pub(crate) mod irq;
 pub(crate) mod mm;
 pub(crate) mod pci;
 /*pub mod qemu;
-pub(crate) mod serial;
-pub(crate) mod task; */
+pub(crate) mod serial;*/
+pub(crate) mod task;
 pub mod timer;
 /* pub mod trap; */
 
