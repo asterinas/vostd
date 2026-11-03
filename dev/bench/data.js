@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793695534549,
+  "lastUpdate": 1793696883804,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -9240,6 +9240,90 @@ window.BENCHMARK_DATA = {
             "value": 1951386,
             "unit": "rlimit",
             "extra": "smt-run=450ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "09a889abadf5a5a965fb848b2d835459bed4c00c",
+          "message": "Restore prelude module and commented imports (#888)\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-03T16:59:14+08:00",
+          "tree_id": "8e7937537dd9279afd890e01c3cf941f8c8d88c9",
+          "url": "https://github.com/asterinas/vostd/commit/09a889abadf5a5a965fb848b2d835459bed4c00c"
+        },
+        "date": 1793696882933,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 952145688,
+            "unit": "rlimit",
+            "extra": "verified=4289 errors=0 smt-run=380,103ms wall=249,782ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 376782727,
+            "unit": "rlimit",
+            "extra": "smt-run=185,122ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 82417845,
+            "unit": "rlimit",
+            "extra": "smt-run=30,416ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 62172257,
+            "unit": "rlimit",
+            "extra": "smt-run=27,694ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=2,727ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,792ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,822ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=1,024ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=800ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951386,
+            "unit": "rlimit",
+            "extra": "smt-run=880ms"
           }
         ]
       }
