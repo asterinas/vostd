@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793607069214,
+  "lastUpdate": 1793675938543,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -9072,6 +9072,90 @@ window.BENCHMARK_DATA = {
             "value": 1951392,
             "unit": "rlimit",
             "extra": "smt-run=819ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afb02bd685c8a496edacf50734c6f442601b81cc",
+          "message": "Verify memory region constructors and normalization (#797)\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-03T11:06:10+08:00",
+          "tree_id": "d68776b4eadd48c1b3978a8207bdc22cc669111f",
+          "url": "https://github.com/asterinas/vostd/commit/afb02bd685c8a496edacf50734c6f442601b81cc"
+        },
+        "date": 1793675937866,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 918763863,
+            "unit": "rlimit",
+            "extra": "verified=4291 errors=0 smt-run=227,333ms wall=163,511ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 362982336,
+            "unit": "rlimit",
+            "extra": "smt-run=114,301ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 78893838,
+            "unit": "rlimit",
+            "extra": "smt-run=16,642ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 57981152,
+            "unit": "rlimit",
+            "extra": "smt-run=15,431ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 11845978,
+            "unit": "rlimit",
+            "extra": "smt-run=912ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=1,366ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=908ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=591ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=545ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951386,
+            "unit": "rlimit",
+            "extra": "smt-run=510ms"
           }
         ]
       }
