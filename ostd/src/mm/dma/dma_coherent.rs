@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::prelude::*;
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
+use vstd::{arithmetic::mul::lemma_mul_inequality, prelude::*};
 use vstd_extra::{
     atomic_data::AtomicDataWithOwner,
     ownership::{Inv, OwnerOf},
@@ -158,8 +158,11 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                         segment.inv(),
                         start_paddr == segment.start_paddr(),
                         frame_count == segment.size() / PAGE_SIZE,
+                        start_paddr + frame_count * PAGE_SIZE <= usize::MAX,
                 {
-                    assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
+                    proof {
+                        lemma_mul_inequality(i as int, frame_count as int, PAGE_SIZE as int);
+                    }
                     let _paddr = start_paddr + i * PAGE_SIZE;
                     /*
                     // Original IOMMU map (removed during Verus migration):
