@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793675938543,
+  "lastUpdate": 1793695534549,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -9156,6 +9156,90 @@ window.BENCHMARK_DATA = {
             "value": 1951386,
             "unit": "rlimit",
             "extra": "smt-run=510ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "803512311e091d65e4b6e3d0839ba30afc729b22",
+          "message": "refactor: `FrameRef` permssions (#854)\n\n* fix: `Frame::borrow` lifetime\n\n* progress\n\n* minor fix\n\n* remove `borrow_with_permission`\n\n* minor\n\n* simplify\n\n* minor\n\n* remove `MetaSlotStatus`\n\n* simplify\n\n* minor\n\n* simplify\n\n* minor\n\n* add `FrameRef:start_paddr_spec`\n\n* fmt\n\n* minor\n\n* fix\n\n* add `FrameRef::slot_vaddr`\n\n* fmt\n\n* fix\n\n* change some names\n\n* fmt\n\n* minor\n\n* fix doc\n\n* minor\n\n* fix documentation",
+          "timestamp": "2026-11-03T16:07:56+08:00",
+          "tree_id": "9fca4e9a7c6e20414cf7f7d83c21d8321365a1a1",
+          "url": "https://github.com/asterinas/vostd/commit/803512311e091d65e4b6e3d0839ba30afc729b22"
+        },
+        "date": 1793695533767,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 952145688,
+            "unit": "rlimit",
+            "extra": "verified=4289 errors=0 smt-run=236,776ms wall=164,340ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 376782727,
+            "unit": "rlimit",
+            "extra": "smt-run=122,274ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 82417845,
+            "unit": "rlimit",
+            "extra": "smt-run=17,282ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 62172257,
+            "unit": "rlimit",
+            "extra": "smt-run=16,934ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 11845978,
+            "unit": "rlimit",
+            "extra": "smt-run=872ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=1,331ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=963ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=567ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=535ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951386,
+            "unit": "rlimit",
+            "extra": "smt-run=450ms"
           }
         ]
       }
