@@ -364,8 +364,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         with Tracked(guards): Tracked<&mut Guards>,
             Tracked(metadata_perm): Tracked<&MetadataPerm>,
         requires
-            self.inner@.external_meta_wf(*metadata_perm, ()),
-            self.tracked_metadata_perm@ is Some ==> self.inv(),
+            self.external_meta_wf(*metadata_perm, ()),
+            self@.tracked_metadata_perm@ is Some ==> self.inv(),
             old(guards).unlocked(self.slot_vaddr()),
         ensures
             final(guards).lock_held(self.slot_vaddr()),
@@ -389,8 +389,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     #[verus_spec(res =>
         with Tracked(guards): Tracked<&mut Guards>,
         requires
-            self.inner@.ptr_inv(),
-            self.tracked_metadata_perm@ is Some ==> self.inv(),
+            self@.ptr_inv(),
+            self@.tracked_metadata_perm@ is Some ==> self.inv(),
             old(guards).unlocked(self.slot_vaddr()),
         ensures
             final(guards).lock_held(self.slot_vaddr()),
@@ -466,7 +466,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             nr_children_perm.is_init(),
             nr_children_perm.id() == typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).nr_children.id(),
-            self.inner.inner@.external_meta_wf(*metadata_perm, ()),
+            self.inner.external_meta_wf(*metadata_perm, ()),
         returns
             nr_children_perm.value(),
     )]
@@ -487,7 +487,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(repr_perm): Tracked<&'a ()>,
             Ghost(stray_id): Ghost<vstd::cell::CellId>,
         requires
-            old(self).inner.inner@.external_meta_wf(*metadata_perms, *repr_perm),
+            old(self).inner.external_meta_wf(*metadata_perms, *repr_perm),
             typed_meta_value::<PageTablePageMeta<C>>(
                 *metadata_perms,
                 *repr_perm,
@@ -520,7 +520,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner): Tracked<&NodeOwner<C>>,
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
-            self.inner.inner@.invariants(*owner),
+            self.inner@.invariants(*owner),
             regions.inv(),
             regions.contains(owner.slot_index),
             idx < NR_ENTRIES,
@@ -558,7 +558,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner): Tracked<&mut NodeOwner<C>>,
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
-            old(self).inner.inner@.invariants(*old(owner)),
+            old(self).inner@.invariants(*old(owner)),
             regions.inv(),
             regions.contains(old(owner).slot_index),
             idx < NR_ENTRIES,
@@ -601,7 +601,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(metadata_perms): Tracked<&'a MetadataPerm>,
             Ghost(nr_children_id): Ghost<vstd::cell::CellId>,
         requires
-            old(self).inner.inner@.external_meta_wf(*metadata_perms, ()),
+            old(self).inner.external_meta_wf(*metadata_perms, ()),
             typed_meta_value::<PageTablePageMeta<C>>(
                 *metadata_perms,
                 (),
