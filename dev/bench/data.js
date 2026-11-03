@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793698213752,
+  "lastUpdate": 1793710384724,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -9408,6 +9408,90 @@ window.BENCHMARK_DATA = {
             "value": 1451900,
             "unit": "rlimit",
             "extra": "smt-run=1,756ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f36812787af1c3ef658210259c674f91e73c94c6",
+          "message": "prove: verify RISC-V and LoongArch task contexts (#891)\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-03T20:44:31+08:00",
+          "tree_id": "c0adbc8a3ab07d3e4f3160fe1e4a53f89046e42f",
+          "url": "https://github.com/asterinas/vostd/commit/f36812787af1c3ef658210259c674f91e73c94c6"
+        },
+        "date": 1793710383955,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1082302323,
+            "unit": "rlimit",
+            "extra": "verified=4290 errors=0 smt-run=480,986ms wall=295,112ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 466341996,
+            "unit": "rlimit",
+            "extra": "smt-run=244,517ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 91170810,
+            "unit": "rlimit",
+            "extra": "smt-run=37,302ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 89301135,
+            "unit": "rlimit",
+            "extra": "smt-run=37,745ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=2,836ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,826ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,819ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=1,049ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=826ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951386,
+            "unit": "rlimit",
+            "extra": "smt-run=955ms"
           }
         ]
       }
