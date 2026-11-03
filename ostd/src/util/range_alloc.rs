@@ -432,6 +432,7 @@ impl RangeAllocator {
     ///   `size` addresses.
     ///
     /// ## Preconditions
+    /// - The requested size is non-zero.
     /// - Supply the remaining free-address permission and borrow the allocation
     ///   tokens that together account for this allocator's full range.
     /// - Split permissions can be used independently with `alloc_specific`;
@@ -449,6 +450,7 @@ impl RangeAllocator {
             Tracked(allocations): Tracked<&Seq<FreePermit>>,
             -> allocated: Tracked<Option<FreePermit>>,
         requires
+            size > 0,
             self.permits_cover_fullrange(*old(permit), *allocations),
         ensures
             res matches Ok(res) ==> {
