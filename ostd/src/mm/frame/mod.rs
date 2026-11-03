@@ -452,60 +452,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         requires
             self.inv(),
         ensures
-            res.inner@.slot_vaddr() == self.slot_vaddr(),
-            res.inner@.ptr_inv(),
-            res.inner@.slot_perm() == self.slot_perm(),
-            res.inner@.tracked_metadata_perm@ is None,
+            res.slot_vaddr() == self.slot_vaddr(),
+            res.inv(),
+            res.frac_metadata_perm() == self.frac_metadata_perm(),
             MetaSlot::perms_related(res.inner@.slot_perm(), self.metadata_perm()),
-            forall|repr_perm: M::ReprPerm|
-                #[trigger] typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), repr_perm)
-                ==> res.inner@.external_meta_wf(self.metadata_perm(), repr_perm),
     )]
-    pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
+    pub fn borrow<'a>(&'a self) -> FrameRef<'a, M> {
         let tracked slot_perm = *self.tracked_slot_perm.borrow();
         let tracked metadata_perm = self.tracked_metadata_perm.borrow().tracked_borrow();
         // SAFETY: Both the lifetime and the type matches `self`.
         unsafe {
-            #[verus_spec(with Tracked(slot_perm), Tracked(metadata_perm))]
-            FrameRef::borrow_paddr(self.start_paddr())
-        }
-    }
-
-    /// Borrows a frame whose owning handle is represented by an external
-    /// counting permission, as is the case for page-table nodes stored raw in
-    /// PTEs.
-    #[verus_spec(res =>
-        with
-            Tracked(frame_permission): Tracked<&FracMetadataPerm>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
-        requires
-            self.ptr_inv(),
-            regions.inv(),
-            frame_permission.frac() == 1,
-            frame_permission.id() == regions.slot_owners[self.index()].metadata_perm.id(),
-            MetaSlot::perms_related(
-                *regions.slots[self.index()],
-                frame_permission.resource(),
-            ),
-        ensures
-            res.inner@.slot_vaddr() == self.slot_vaddr(),
-            res.inner@.ptr_inv(),
-            res.inner@.tracked_slot_perm@ == regions.slots[self.index()],
-            res.inner@.tracked_metadata_perm@ is None,
-            MetaSlot::perms_related(res.inner@.slot_perm(), frame_permission.resource()),
-            forall|repr_perm: M::ReprPerm|
-                #[trigger] typed_meta_wf::<M>(self.slot_perm(), frame_permission.resource(), repr_perm)
-                ==> res.inner@.external_meta_wf(frame_permission.resource(), repr_perm),
-    )]
-    pub(in crate::mm) fn borrow_with_permission<'a>(&self) -> FrameRef<'a, M> {
-        unsafe {
-            proof {
-                broadcast use group_page_meta;
-
-                regions.lemma_contains_valid_frame_paddr(self.start_paddr_spec());
-            }
-            let tracked slot_perm = regions.tracked_borrow_slot(self.start_paddr_spec());
-            #[verus_spec(with Tracked(slot_perm), Tracked(frame_permission))]
+            #[verus_spec(with Tracked(slot_perm), Tracked(Some(metadata_perm)))]
             FrameRef::borrow_paddr(self.start_paddr())
         }
     }
@@ -642,8 +599,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& pre.inc_frame_reference_region_spec(self.start_paddr_spec(), post)
         &&& post.inv()
         &&& res.tracked_metadata_perm@ is Some
-        &&& res.tracked_metadata_perm@->0.frac() == 1
-        &&& res.tracked_metadata_perm@->0.id() == post.slot_owners[idx].metadata_perm.id()
+        &&& res.frac_metadata_perm().frac() == 1
+        &&& res.frac_metadata_perm().id() == post.slot_owners[idx].metadata_perm.id()
         &&& res.tracked_slot_perm@ == post.slots[idx]
         &&& res.ptr == self.ptr
     }
