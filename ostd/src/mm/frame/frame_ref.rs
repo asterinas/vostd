@@ -51,10 +51,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Safety
-    /// The caller must keep the physical node alive for `'a`. A counted
-    /// permission, when supplied, is retained for that lifetime. Without one,
-    /// the result is only a raw handle: it does not establish `FrameRef::inv()`,
-    /// and metadata access requires an external permission.
+    ///
+    /// The caller must ensure that:
+    ///  - the frame outlives the created reference, so that the reference can
+    ///    be seen as borrowed from that frame.
+    ///  - the type of the [`FrameRef`] (`M`) matches the borrowed frame.
     #[verus_spec(r =>
         with
             Tracked(slot_perm): Tracked<&'static PointsTo<MetaSlot>>,
