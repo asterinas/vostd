@@ -883,7 +883,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             invariant
                 new_page.inv(),
                 new_owner.value().node_permission is None,
-                new_owner.value().node().permission_matches(new_page.frac_metadata_perm()),
+                new_owner.value().node().matches_permission(new_page.frac_metadata_perm()),
                 nr_subpage_per_huge_spec::<C>() == NR_ENTRIES,
                 1 < level < NR_LEVELS,
                 *self == *old(self),
@@ -1319,9 +1319,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 
         proof {
             owner.tracked_set_frame_prop(new_prop);
-            // The PTE at `idx` stayed present (only `prop` changed), so the
-            // present-count is unchanged by the `write_pte` update — preserving
-            // `count_consistent` for the caller.
             crate::specs::mm::page_table::node::owners::lemma_count_present_upto_update(
                 cp_old,
                 NR_ENTRIES as int,
@@ -1463,7 +1460,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Child::from_pte(pte, level)
         };
 
-        // For restoring `count_consistent` after the PTE swap below.
         let ghost cp0 = parent_owner.children_perm.value();
 
         if old_child.is_none() && !new_child.is_none() {
@@ -1654,19 +1650,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 
         let ghost old_path = owner.value().path;
 
-        // Discharge `nr_children < NR_ENTRIES` PRE-`alloc`, while the parent
-        // slot at `idx` is still absent and `count_consistent` holds (from
-        // `metaregion_sound_node`). Snapshot the parent meta perm so the
-        // `nr_children` id-clause can be framed across `alloc`/`write_pte`,
-        // which momentarily break `count_consistent`.
         proof {
             parent_owner.lemma_nr_children_absent_slot_bound(idx);
         }
-        // Snapshot the parent's PTE array for restoring `count_consistent`
-        // after the absent→present (`new_pte`) install below.
         let ghost cp0 = parent_owner.children_perm.value();
-        // The original (absent) entry value, for the fresh-node region/
-        // tree-predicate discharge after `owner` is rebuilt as the new node.
         let ghost old_owner_val = owner.value();
 
         proof_decl! {

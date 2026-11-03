@@ -249,7 +249,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.slot_vaddr() == owner@.value().node().slot_vaddr(),
             res.inv(),
             owner@.value().node_permission is None,
-            owner@.value().node().permission_matches(res.frac_metadata_perm()),
+            owner@.value().node().matches_permission(res.frac_metadata_perm()),
             typed_meta_wf::<PageTablePageMeta<C>>(res.slot_perm(), res.metadata_perm(), ()),
             res.tracked_slot_perm@ == final(regions).slots[owner@.value().node().slot_index],
             guards.unlocked(owner@.value().node().slot_vaddr()),

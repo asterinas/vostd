@@ -63,17 +63,6 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
-    /// Borrows the counted reference owned by this parent PTE.
-    pub proof fn tracked_borrow_node_permission(tracked &self) -> (tracked permission:
-        &FracMetadataPerm)
-        requires
-            self.node_permission is Some,
-        returns
-            self.node_permission->0,
-    {
-        self.node_permission.tracked_borrow()
-    }
-
     /// Transfers a removed PTE's counted reference back to its owning Frame.
     pub proof fn tracked_take_node_permission(tracked &mut self) -> (tracked permission:
         FracMetadataPerm)
@@ -684,7 +673,7 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
         }
         &&& self.node_permission matches Some(permission) ==> {
             &&& self.is_node()
-            &&& self.node().permission_matches(permission)
+            &&& self.node().matches_permission(permission)
         }
         &&& self.path.inv()
     }

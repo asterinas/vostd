@@ -22,7 +22,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
                 &&& node.ptr_inv()
                 &&& node.inv()
                 &&& owner.node_permission is None
-                &&& owner.node().permission_matches(node.frac_metadata_perm())
+                &&& owner.node().matches_permission(node.frac_metadata_perm())
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -47,7 +47,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
                 &&& node.inner@.external_meta_wf(owner.node().metadata, ())
                 &&& node.tracked_metadata_perm@ matches Some(permission) ==> {
                     &&& node.inv()
-                    &&& owner.node().permission_matches(*permission)
+                    &&& owner.node().matches_permission(*permission)
                 }
             },
             Self::Frame(paddr, level, prop) => {

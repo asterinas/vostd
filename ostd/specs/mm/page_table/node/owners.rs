@@ -227,7 +227,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 
 impl<C: PageTableConfig> NodeOwner<C> {
     /// Relates an actual counted token to this non-owning node identity.
-    pub open spec fn permission_matches(self, permission: FracMetadataPerm) -> bool {
+    pub open spec fn matches_permission(self, permission: FracMetadataPerm) -> bool {
         &&& permission.frac() == 1
         &&& permission.id() == self.metadata_id
         &&& permission.resource() == self.metadata
@@ -312,7 +312,7 @@ impl<'rcu, C: PageTableConfig> NodeOwner<C> {
         &&& guard.inner.inner@.external_meta_wf(self.metadata, ())
         &&& guard.inner.tracked_metadata_perm@ matches Some(permission) ==> {
             &&& guard.inner.inv()
-            &&& self.permission_matches(*permission)
+            &&& self.matches_permission(*permission)
         }
     }
 }

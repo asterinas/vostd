@@ -1103,7 +1103,7 @@ impl<C: PageTableConfig> PageTable<C> {
         &&& owner.inv()
         &&& self.root.slot_vaddr() == owner.0.value().node().slot_vaddr()
         &&& self.root.inv()
-        &&& owner.0.value().node().permission_matches(self.root.frac_metadata_perm())
+        &&& owner.0.value().node().matches_permission(self.root.frac_metadata_perm())
         &&& owner.0.value().node_permission is None
         &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
         &&& owner.0.value().node().level() == NR_LEVELS
