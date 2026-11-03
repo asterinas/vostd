@@ -3,7 +3,6 @@
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
-    assert_seqs_equal,
     prelude::*,
     resource::set::{GhostSetAuth, GhostSubset},
     std_specs::iter::IteratorSpec,
@@ -31,23 +30,8 @@ verus! {
 pub uninterp spec fn io_port_allocator_instance_id() -> InstanceId;
 
 /// Allocated ids of a bitmap prefix `[0, end)`: `i` is in iff `s[i]`.
-pub(crate) closed spec fn id_alloc_bits(s: Seq<bool>, end: int) -> Set<usize> {
-    Seq::new(
-        if 0 <= end {
-            end as nat
-        } else {
-            0
-        },
-        |i: int| i as usize,
-    ).fold_left(
-        Set::empty(),
-        |acc: Set<usize>, i: usize|
-            if s[i as int] {
-                acc.insert(i)
-            } else {
-                acc
-            },
-    )
+spec fn id_alloc_bits(s: Seq<bool>, end: int) -> Set<usize> {
+    Set::<usize>::range(0, end as usize).filter(|id: usize| s[id as int])
 }
 
 /// Set of ids currently allocated by `allocator`.
@@ -571,38 +555,14 @@ verus! {
 
 /// Characterizes `id_alloc_bits`: `id_alloc_bits(s, end).contains(j)` holds exactly when
 /// `0 <= j < end` and `s[j]` is `true`.
-pub(crate) proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
+proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
     requires
         0 <= end <= usize::MAX,
         s.len() >= end,
-        0 <= j,
     ensures
         id_alloc_bits(s, end).contains(j) == (j < end && s[j as int]),
-    decreases end,
 {
     reveal(id_alloc_bits);
-    if end <= 0 {
-        assert(Seq::new(end as nat, |i: int| i as usize).len() == 0);
-        assert(id_alloc_bits(s, end) =~= Set::empty());
-    } else {
-        lemma_id_alloc_bits_char(s, end - 1, j);
-        assert_seqs_equal!(
-            Seq::new(end as nat, |i: int| i as usize).drop_last()
-                == Seq::new((end - 1) as nat, |i: int| i as usize)
-        );
-        assert(Seq::new(end as nat, |i: int| i as usize).last() == (end - 1) as usize);
-        assert(((end - 1) as usize) == end - 1);
-        if s[end - 1] {
-            if j == (end - 1) as usize {
-                assert(id_alloc_bits(s, end).contains(j));
-            } else {
-                assert(j != (end - 1) as usize);
-                assert(id_alloc_bits(s, end).contains(j) == id_alloc_bits(s, end - 1).contains(j));
-            }
-        } else {
-            assert(id_alloc_bits(s, end).contains(j) == id_alloc_bits(s, end - 1).contains(j));
-        }
-    }
 }
 
 /// For an in-bounds id, `id_alloc_view` membership coincides with the allocated bitmap bit.

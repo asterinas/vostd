@@ -13,11 +13,17 @@ static PCI_BASE_ADDR: Once<IoMem> = Once::new();
 verus! {
 
 /// Whether the PCI MMIO base address (`PCI_BASE_ADDR`) has been initialized.
+///
+/// Initialization is necessary for successful access; MMIO bounds checks can still fail afterward.
 pub uninterp spec fn pci_base_addr_initialized() -> bool;
 
 } // verus!
 #[verus_verify(external_body)]
-#[verus_spec(requires pci_base_addr_initialized(),)]
+#[verus_spec(res =>
+    ensures
+        res is Ok ==> pci_base_addr_initialized(),
+        !pci_base_addr_initialized() ==> res == Err(Error::IoError),
+)]
 pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> Result<()> {
     PCI_BASE_ADDR.get().ok_or(Error::IoError)?.write_once(
         (encode_as_address_offset(location) | (offset & 0xfc)) as usize,
@@ -26,7 +32,11 @@ pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> 
 }
 
 #[verus_verify(external_body)]
-#[verus_spec(requires pci_base_addr_initialized(),)]
+#[verus_spec(res =>
+    ensures
+        res is Ok ==> pci_base_addr_initialized(),
+        !pci_base_addr_initialized() ==> res == Err(Error::IoError),
+)]
 pub(crate) fn read32(location: &PciDeviceLocation, offset: u32) -> Result<u32> {
     PCI_BASE_ADDR
         .get()
