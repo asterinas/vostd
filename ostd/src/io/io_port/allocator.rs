@@ -8,9 +8,11 @@ use vstd::{
     std_specs::iter::IteratorSpec,
     tokens::InstanceId,
 };
-use vstd_extra::{ownership::Inv, resource_invariant::SimpleResourceInvariant};
+use vstd_extra::{
+    external::valid_io_port_access, ownership::Inv, resource_invariant::SimpleResourceInvariant,
+};
 
-use crate::arch::{device::io_port::valid_io_port_access, io::MAX_IO_PORT};
+use crate::arch::io::MAX_IO_PORT;
 
 use core::ops::Range;
 
@@ -324,11 +326,13 @@ impl IoPortAllocator {
         }
 
         // SAFETY: The created `IoPort` is guaranteed not to access system device I/O.
-        /* The optional claim records allocator ownership in the existing constructor.
-         * Origin Rust: unsafe { Some(IoPort::new_overlapping(port, is_overlapping)) }
-         */
-        let tracked_claim = verus_exec_expr! { Some(Tracked(range_claim)) };
-        let io_port = unsafe { IoPort::new_overlapping(port, is_overlapping, tracked_claim) };
+        let io_port = unsafe {
+            IoPort::new_overlapping(
+                port,
+                is_overlapping,
+                verus_exec_expr! { Tracked(Some(range_claim)) },
+            )
+        };
         let result = Some(io_port);
         proof! {
             assert(id_alloc_view(&allocator.value()) == allocation_start_view.union(ids));

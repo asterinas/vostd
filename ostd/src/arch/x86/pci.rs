@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! PCI bus access
 use vstd::prelude::*;
+use vstd_extra::external::group_io_port_models;
 
 use super::device::io_port::{ReadWriteAccess, WriteOnlyAccess};
 use crate::{bus::pci::PciDeviceLocation, io::IoPort, prelude::*};
 
 verus! {
 
-broadcast use super::device::io_port::group_io_port_models;
+broadcast use group_io_port_models;
 
 exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
 

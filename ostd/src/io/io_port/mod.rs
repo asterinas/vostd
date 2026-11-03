@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port and its allocator that allocates port I/O (PIO) to device drivers.
 use vstd::{prelude::*, resource::set::GhostSubset};
-
-use crate::arch::device::io_port::valid_io_port_access;
+use vstd_extra::external::{group_io_port_models, valid_io_port_access};
 
 use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
 mod allocator;
@@ -14,7 +13,7 @@ use crate::{Error, prelude::*};
 
 verus! {
 
-broadcast use crate::arch::device::io_port::group_io_port_models;
+broadcast use group_io_port_models;
 
 } // verus!
 /// An I/O port, representing a specific address in the I/O address of x86.
@@ -29,12 +28,13 @@ broadcast use crate::arch::device::io_port::group_io_port_models;
 /// }
 /// ```
 ///
-#[derive(Debug)]
 #[verus_verify]
+#[derive(Debug)]
 pub struct IoPort<T, A> {
     port: u16,
     is_overlapping: bool,
-    tracked_claim: Option<Tracked<GhostSubset<usize>>>,
+    // Erased allocator ownership; statically reserved ports carry no claim.
+    tracked_claim: Tracked<Option<GhostSubset<usize>>>,
     value_marker: PhantomData<T>,
     access_marker: PhantomData<A>,
 }
@@ -61,15 +61,15 @@ impl<T, A> IoPort<T, A> {
 
     /// Whether this port owns a claim minted by the allocator.
     pub closed spec fn is_allocated(&self) -> bool {
-        self.tracked_claim is Some
+        self.tracked_claim@ is Some
     }
 
-    /// The invariant relating the runtime allocation marker to its tracked claim.
+    /// An allocator-issued claim belongs to the global allocator and covers this port.
     pub closed spec fn allocator_claim_inv(&self) -> bool {
-        self.tracked_claim matches Some(claim) ==> {
+        self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
-            &&& self.claim_matches_set(claim@@)
-            &&& claim@.id() == allocator::io_port_allocator_instance_id()
+            &&& self.claim_matches_set(claim@)
+            &&& claim.id() == allocator::io_port_allocator_instance_id()
         }
     }
 
@@ -189,10 +189,7 @@ impl<T, A> IoPort<T, A> {
     )]
     pub(crate) const unsafe fn new(port: u16) -> Self {
         // SAFETY: The safety is upheld by the caller.
-        /* The optional claim distinguishes statically reserved ports from allocator-owned ports.
-         * Origin Rust: unsafe { Self::new_overlapping(port, false) }
-         */
-        unsafe { Self::new_overlapping(port, false, None) }
+        unsafe { Self::new_overlapping(port, false, verus_exec_expr! { Tracked(None) }) }
     }
 
     /// Creates an I/O port.
@@ -210,10 +207,10 @@ impl<T, A> IoPort<T, A> {
             port + size_of::<T>() <= u16::MAX,
             is_overlapping ==> port + 1 <= u16::MAX,
             valid_io_port_access::<T>(port),
-            tracked_claim matches Some(claim) ==> {
+            tracked_claim@ matches Some(claim) ==> {
                 &&& allocator::io_port_allocator_initialized()
-                &&& claim@.id() == allocator::io_port_allocator_instance_id()
-                &&& claim@@ == Set::<usize>::range(
+                &&& claim.id() == allocator::io_port_allocator_instance_id()
+                &&& claim@ == Set::<usize>::range(
                     port as usize,
                     if is_overlapping {
                         (port as usize + 1) as usize
@@ -225,12 +222,12 @@ impl<T, A> IoPort<T, A> {
         ensures
             ret@ == port,
             ret.is_overlapping() == is_overlapping,
-            ret.is_allocated() == (tracked_claim is Some),
+            ret.is_allocated() == (tracked_claim@ is Some),
     )]
     const unsafe fn new_overlapping(
         port: u16,
         is_overlapping: bool,
-        tracked_claim: Option<Tracked<GhostSubset<usize>>>,
+        tracked_claim: Tracked<Option<GhostSubset<usize>>>,
     ) -> Self {
         Self {
             port,
@@ -241,7 +238,12 @@ impl<T, A> IoPort<T, A> {
         }
     }
 
-    /// Releases this port's allocator claim, if it was dynamically acquired.
+    /// Releases this dynamically acquired port's allocator claim.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - The port owns an allocator-issued claim from `acquire` or `acquire_overlapping`.
     /* VERUS LIMITATION: Verus cannot verify a lock-taking `Drop` implementation under
      * `opens_invariants none`.
      * Origin Rust:
@@ -258,19 +260,17 @@ impl<T, A> IoPort<T, A> {
      *     }
      * }
      */
+    #[verus_spec(requires self.is_allocated())]
     pub fn drop(self) {
         proof! { use_type_invariant(&self); }
-        let Some(claim) = self.tracked_claim else {
-            return;
-        };
-        let range = if self.is_overlapping {
-            self.port..(self.port + 1)
-        } else {
+        let range = if !self.is_overlapping {
             self.port..(self.port + size_of::<T>() as u16)
+        } else {
+            self.port..(self.port + 1)
         };
 
         proof_decl! {
-            let tracked claim = claim.get();
+            let tracked claim = self.tracked_claim.get().tracked_unwrap();
         }
         unsafe {
             #[verus_spec(with Tracked(claim))]
@@ -369,10 +369,10 @@ macro_rules! sensitive_io_port {
 pub(crate) use reserve_io_port_range;
 pub(crate) use sensitive_io_port;
 
+#[verus_verify]
 #[doc(hidden)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-#[verus_verify]
 pub(crate) struct RawIoPortRange {
     pub(crate) begin: u16,
     pub(crate) end: u16,
