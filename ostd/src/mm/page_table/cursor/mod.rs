@@ -449,12 +449,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
             let ghost cont0 = continuation;
             let tracked child_owner = continuation.tracked_take_child();
-            let tracked parent_owner = continuation.entry_own.tracked_borrow_node();
             let ghost regions_before_ref = *regions;
 
             let cur_child = {
                 let tracked child_value = child_owner.tracked_borrow_value();
-                #[verus_spec(with Tracked(child_value), Tracked(&parent_owner), Tracked(regions))]
+                #[verus_spec(with Tracked(child_value), Tracked(regions.tracked_borrow_slot_owner(entry.node.inner.start_paddr_spec()).metadata_perm.tracked_borrow()), Tracked(&*regions))]
                 entry.to_ref()
             };
 
@@ -493,7 +492,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     // SAFETY: The `pt` must be locked and no other guards exist.
 
                     let guard = unsafe {
-                        #[verus_spec(with Tracked(&child_node), Tracked(guards))]
+                        #[verus_spec(with Tracked(guards))]
                         pt.make_guard_unchecked(rcu_guard)
                     };
 
@@ -917,12 +916,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
             let ghost cont0 = continuation;
             let tracked child_owner = continuation.tracked_take_child();
-            let tracked node_owner = continuation.entry_own.tracked_borrow_node();
 
             let ghost regions_before_ref = *regions;
 
             let cur_child = {
-                #[verus_spec(with Tracked(child_owner.tracked_borrow_value()), Tracked(&node_owner), Tracked(regions))]
+                proof {
+                    assert(!regions.slot_owner(
+                        cur_entry.node.inner.start_paddr_spec(),
+                    ).metadata_perm.is_resource_vacant()) by {
+                        reveal(<MetaRegionOwners as Inv>::inv);
+                    };
+                }
+                #[verus_spec(with Tracked(child_owner.tracked_borrow_value()), Tracked(regions.tracked_borrow_slot_owner(cur_entry.node.inner.start_paddr_spec()).metadata_perm.tracked_borrow()), Tracked(&*regions))]
                 cur_entry.to_ref()
             };
 
@@ -971,11 +976,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     // SAFETY: The `pt` must be locked and no other guards exist.
                     let mut pt_guard = unsafe {
-                        #[verus_spec(with Tracked(&child_node_owner), Tracked(guards))]
+                        #[verus_spec(with Tracked(guards))]
                         pt.make_guard_unchecked(rcu_guard)
                     };
 
-                    #[verus_spec(with Tracked(&mut child_node_owner))]
+                    proof {
+                        assert(!regions.slot_owner(
+                            pt_guard.inner.start_paddr_spec(),
+                        ).metadata_perm.is_resource_vacant()) by {
+                            reveal(<MetaRegionOwners as Inv>::inv);
+                        };
+                    }
+                    #[verus_spec(with Tracked(&child_node_owner.meta_own.nr_children), Tracked(regions.tracked_borrow_slot_owner(pt_guard.inner.start_paddr_spec()).metadata_perm.tracked_borrow()))]
                     let nr_children = pt_guard.nr_children();
 
                     proof {
@@ -1718,7 +1730,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).metaregion_sound(*regions),
             !old(owner).popped_too_high,
             old(owner).in_barrier_va(),
-            guards.lock_held(child_pt.inner.inner@.slot_vaddr()),
+            guards.lock_held(child_pt.inner.slot_vaddr()),
         ensures
             final(owner).inv(),
             final(owner).children_not_locked(*guards),
@@ -2221,7 +2233,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         // SAFETY: The `pt` must be locked and no other guards exist.
         let pt_guard = unsafe {
-            #[verus_spec(with Tracked(&child_node), Tracked(guards))]
+            #[verus_spec(with Tracked(guards))]
             pt.make_guard_unchecked(rcu_guard)
         };
 
@@ -2284,6 +2296,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     pub fn map_loop(&mut self, level: PagingLevel, rcu_guard: &'rcu A) {
         // Keep quantified continuation and region predicates local to this loop proof.
+        hide(CursorView::split_while_huge);
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::inv_children_rel);
@@ -2387,14 +2400,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                 let tracked child_owner = continuation.tracked_take_child();
-                let tracked parent_owner = continuation.entry_own.tracked_borrow_node();
 
                 let ghost regions_before_ref = *regions;
 
                 let cur_child = {
+                    proof {
+                        reveal(<MetaRegionOwners as Inv>::inv);
+                    }
                     let tracked child_value = child_owner.tracked_borrow_value();
-                    #[verus_spec(with Tracked(child_value), Tracked(&parent_owner),
-                        Tracked(regions))]
+                    #[verus_spec(with Tracked(child_value), Tracked(regions.tracked_borrow_slot_owner(cur_entry.node.inner.start_paddr_spec()).metadata_perm.tracked_borrow()),
+                        Tracked(&*regions))]
                     cur_entry.to_ref()
                 };
 
@@ -3670,11 +3685,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     old_child_value.tracked_take_node()
                 };
 
-                #[verus_spec(with
-                    Tracked(&old_node_owner.frame_permission),
-                    Tracked(regions)
-                )]
-                let borrow_pt = pt.borrow_with_permission();
+                let borrow_pt = pt.borrow();
 
                 let ghost guards0 = *guards;
 
@@ -3685,7 +3696,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     );
                 }
                 let locked_pt = unsafe {
-                    #[verus_spec(with Tracked(&old_node_owner), Tracked(guards))]
+                    #[verus_spec(with Tracked(guards))]
                     borrow_pt.make_guard_unchecked(rcu_guard)
                 };
 
@@ -3779,13 +3790,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     C::axiom_current_paging_consts_hardcoded();
                 }
                 let ghost regions_before_clone = *regions;
-                proof_decl! {
-                    let tracked NodeOwner { frame_permission, .. } = old_node_owner;
-                }
-                #[cfg(verus_keep_ghost_body)]
-                {
-                    pt.tracked_metadata_perm = Tracked(Some(frame_permission));
-                }
                 /// Origin Rust: pt: (*pt).clone().into(),
                 let cloned_pt = pt.clone(Tracked(regions));
                 proof {

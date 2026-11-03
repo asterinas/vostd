@@ -43,7 +43,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type Obligation = DropObligation<usize>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        s.lock_held(self.inner.inner@.slot_vaddr())
+        s.lock_held(self.inner.slot_vaddr())
     }
 
     open spec fn tracked_redeem_ensures(
@@ -52,18 +52,18 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        &&& s1.guards == s0.guards.remove(self.inner.inner@.slot_vaddr())
-        &&& obl.value() == self.inner.inner@.slot_vaddr()
+        &&& s1.guards == s0.guards.remove(self.inner.slot_vaddr())
+        &&& obl.value() == self.inner.slot_vaddr()
     }
 
     proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
-        s.guards = s.guards.remove(self.inner.inner@.slot_vaddr());
-        DropObligation::tracked_mint(self.inner.inner@.slot_vaddr())
+        s.guards = s.guards.remove(self.inner.slot_vaddr());
+        DropObligation::tracked_mint(self.inner.slot_vaddr())
     }
 
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& s.unlocked(self.inner.inner@.slot_vaddr())
-        &&& obl.value() == self.inner.inner@.slot_vaddr()
+        &&& s.unlocked(self.inner.slot_vaddr())
+        &&& obl.value() == self.inner.slot_vaddr()
     }
 
     open spec fn drop_ensures(
@@ -72,7 +72,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        s1.guards == s0.guards.insert(self.inner.inner@.slot_vaddr())
+        s1.guards == s0.guards.insert(self.inner.slot_vaddr())
     }
 }
 
