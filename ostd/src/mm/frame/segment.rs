@@ -943,8 +943,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
             self.metadata_perms().len() as nat,
             |i: int|
                 {
-                    Frame::<M>::from_raw_spec(
-                        (self.range().start + i * PAGE_SIZE) as usize,
+                    Frame::<M>::from_perms_spec(
                         self.slot_perms()[i],
                         Some(self.metadata_perms()[i]),
                     )
@@ -964,8 +963,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
         if 0 <= index < self.metadata_perms().len() {
             Some(
-                Frame::<M>::from_raw_spec(
-                    (self.range().start + index * PAGE_SIZE) as usize,
+                Frame::<M>::from_perms_spec(
                     self.slot_perms()[index],
                     Some(self.metadata_perms()[index]),
                 ),

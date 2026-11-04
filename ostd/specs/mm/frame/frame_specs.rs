@@ -157,8 +157,8 @@ impl<M: ?Sized> Frame<M> {
 }
 
 impl<M: ?Sized> Frame<M> {
-    pub open spec fn from_raw_spec(
-        paddr: Paddr,
+    /// Models a frame handle using the pointer and metadata permissions supplied.
+    pub open spec fn from_perms_spec(
         slot_perm: &'static ExposedPointsTo<MetaSlot>,
         metadata_perm: Option<FracMetadataPerm>,
     ) -> Self {
