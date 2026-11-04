@@ -3,58 +3,38 @@ use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
-use vstd::std_specs::{cmp::*, nonzero::*};
+use vstd::std_specs::{cmp::*, nonzero::*, ptr::*};
 
 verus! {
 
-#[verifier::external_type_specification]
-#[verifier::reject_recursive_types(T)]
-#[verifier::external_body]
-pub struct ExNonNull<T: PointeeSized>(NonNull<T>);
-
 pub trait NonNullAdditionalFns<T: PointeeSized> {
-    // The model for NonNull<T> is *mut T, so that we can reuse the existing pointer infrastructure.
-    // See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html.
-    spec fn view_ptr_mut(self) -> *mut T;
-
     /// Specification for `NonNull::cast`.
     spec fn cast_spec<U>(self) -> NonNull<U>;
 
     /// Specification for `NonNull::dangling()`.
     spec fn dangling_spec() -> NonNull<T>;
 
-    /// Type invariant: the address of the pointer is non-null.
-    broadcast proof fn lemma_addr_is_nonnull(self)
-        ensures
-            !(#[trigger] self.view_ptr_mut()).is_null(),
-    ;
-
     spec fn addr_spec(self) -> NonZeroUsize;
-
-    broadcast proof fn lemma_addr_view_eq_view_ptr_mut(self)
-        ensures
-            (#[trigger] self.addr_spec()).view() == self.view_ptr_mut().addr(),
-    ;
 }
 
 impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
-    uninterp spec fn view_ptr_mut(self) -> *mut T;
-
     uninterp spec fn cast_spec<U>(self) -> NonNull<U>;
 
     uninterp spec fn dangling_spec() -> NonNull<T>;
 
-    axiom fn lemma_addr_is_nonnull(self);
-
     open spec fn addr_spec(self) -> NonZeroUsize {
-        nonzero_from_primitive(self.view_ptr_mut().addr())
+        nonzero_from_primitive(self.as_ptr().addr())
     }
+}
 
-    proof fn lemma_addr_view_eq_view_ptr_mut(self) {
-        broadcast use axiom_nonzero_from_primitive_view_eq;
+/// Relates the nonzero address model to the standard raw-pointer accessor.
+pub broadcast proof fn lemma_addr_view_eq_as_ptr<T: PointeeSized>(ptr: NonNull<T>)
+    ensures
+        (#[trigger] ptr.addr_spec()).view() == ptr.as_ptr().addr(),
+{
+    broadcast use axiom_nonzero_from_primitive_view_eq;
 
-        self.lemma_addr_is_nonnull();
-    }
+    axiom_nonnull_addr_nonzero(ptr);
 }
 
 #[verifier::inline]
@@ -81,15 +61,10 @@ pub assume_specification<T: PointeeSized>[ NonNull::<T>::map_addr ](
     requires
         f.requires((ptr.addr_spec(),)),
     ensures
-        ret.view_ptr_mut()@.metadata == ptr.view_ptr_mut()@.metadata,
-        ret.view_ptr_mut()@.provenance == ptr.view_ptr_mut()@.provenance,
+        ret.as_ptr()@.metadata == ptr.as_ptr()@.metadata,
+        ret.as_ptr()@.provenance == ptr.as_ptr()@.provenance,
         f.ensures((ptr.addr_spec(),), ret.addr_spec()),
 ;
-
-#[verifier::inline]
-pub open spec fn nonnull_view_ptr_mut_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> *mut T {
-    ptr.view_ptr_mut()
-}
 
 #[verifier::inline]
 pub open spec fn nonnull_cast_spec_wrapper<T: PointeeSized, U>(ptr: NonNull<T>) -> NonNull<U> {
@@ -113,56 +88,28 @@ pub broadcast axiom fn axiom_nonnull_from_ptr_mut_spec_eq<T: PointeeSized>(ptr: 
     requires
         !ptr.is_null(),
     ensures
-        (#[trigger] nonnull_from_ptr_mut_spec(ptr)).view_ptr_mut() == ptr,
+        (#[trigger] nonnull_from_ptr_mut_spec(ptr)).as_ptr() == ptr,
 ;
 
 /// The `NonNull` constructed from the view of a `NonNull<T>` should be exactly that `NonNull<T>`.
-/// Implies that `a.view_ptr_mut() == b.view_ptr_mut() ==> a == b`.
+/// Implies that `a.as_ptr() == b.as_ptr() ==> a == b`.
 pub broadcast axiom fn axiom_view_ptr_mut_eq<T: PointeeSized>(a: NonNull<T>)
     ensures
-        nonnull_from_ptr_mut_spec(#[trigger] a.view_ptr_mut()) == a,
+        nonnull_from_ptr_mut_spec(#[trigger] a.as_ptr()) == a,
 ;
 
 /// The semantic of casting a `NonNull<T>` should be the same as casting the underlying raw pointer
 /// (including the address, metadata, and provenance).
 pub broadcast axiom fn axiom_cast_spec_eq<T: PointeeSized, U>(ptr: NonNull<T>)
     ensures
-        (#[trigger] ptr.cast_spec::<U>()).view_ptr_mut() == ptr.view_ptr_mut() as *mut U,
-;
-
-#[verifier::when_used_as_spec(nonnull_from_ptr_mut_spec)]
-pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T) -> (ret: NonNull<
-    T,
->)
-    requires
-        !ptr.is_null(),
-    ensures
-        ret.view_ptr_mut() == ptr,
-    returns
-        nonnull_from_ptr_mut_spec(ptr),
-;
-
-#[verifier::when_used_as_spec(nonnull_new_spec)]
-pub assume_specification<T: PointeeSized>[ core::ptr::NonNull::<T>::new ](ptr: *mut T) -> (ret:
-    core::option::Option<core::ptr::NonNull<T>>)
-    ensures
-        ret matches Some(nn) ==> nn.view_ptr_mut() == ptr,
-    returns
-        nonnull_new_spec(ptr),
-;
-
-#[verifier::when_used_as_spec(nonnull_view_ptr_mut_wrapper)]
-pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](ptr: NonNull<T>) -> (ret: *mut T)
-    ensures
-        !ret.is_null(),
-        ptr.view_ptr_mut() == ret,
+        ((#[trigger] ptr.cast_spec::<U>())).as_ptr() == ptr.as_ptr() as *mut U,
 ;
 
 #[verifier::when_used_as_spec(nonnull_cast_spec_wrapper)]
 pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](ptr: NonNull<T>) -> (ret:
     NonNull<U>)
     ensures
-        ret.view_ptr_mut() == ptr.view_ptr_mut() as *mut U,
+        ret.as_ptr() == ptr.as_ptr() as *mut U,
     returns
         ptr.cast_spec::<U>(),
 ;
@@ -174,8 +121,8 @@ pub uninterp spec fn nonnull_dangling_spec<T>() -> NonNull<T>;
 #[verifier::when_used_as_spec(nonnull_dangling_spec)]
 pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
     ensures
-        ret.view_ptr_mut()@.addr as nat % align_of::<T>() as nat == 0,
-        ret.view_ptr_mut()@.provenance == Provenance::null(),
+        ret.as_ptr()@.addr as nat % align_of::<T>() as nat == 0,
+        ret.as_ptr()@.provenance == Provenance::null(),
     returns
         nonnull_dangling_spec::<T>(),
 ;
@@ -191,20 +138,18 @@ pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(
 // To prevent circular dependency
 pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeSized {
     spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
-
-    proof fn lemma_with_addr_properties(self, addr: NonZeroUsize)
-        ensures
-            self.with_addr_spec(addr).view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
-            self.with_addr_spec(addr).view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
-            self.with_addr_spec(addr).view_ptr_mut()@.addr == addr.view(),
-    ;
 }
 
 impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
     uninterp spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
-
-    axiom fn lemma_with_addr_properties(self, addr: NonZeroUsize);
 }
+
+pub axiom fn lemma_with_addr_properties<T: PointeeSized>(ptr: NonNull<T>, addr: NonZeroUsize)
+    ensures
+        ptr.with_addr_spec(addr).as_ptr()@.metadata == ptr.as_ptr()@.metadata,
+        ptr.with_addr_spec(addr).as_ptr()@.provenance == ptr.as_ptr()@.provenance,
+        ptr.with_addr_spec(addr).as_ptr()@.addr == addr.view(),
+;
 
 #[verifier::when_used_as_spec(nonnull_with_addr_spec_wrapper)]
 pub assume_specification<T: PointeeSized>[ NonNull::<T>::with_addr ](
@@ -221,8 +166,8 @@ pub broadcast group group_nonull_axioms {
     axiom_nonnull_from_ptr_mut_spec_eq,
     axiom_cast_spec_eq,
     axiom_view_ptr_mut_eq,
-    NonNullAdditionalFns::lemma_addr_view_eq_view_ptr_mut,
-    NonNullAdditionalFns::lemma_addr_is_nonnull,
+    lemma_addr_view_eq_as_ptr,
+    axiom_nonnull_addr_nonzero,
 }
 
 } // verus!
