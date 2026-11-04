@@ -2966,10 +2966,11 @@ diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
 index 0674e2ea..3fb12455 100644
 --- a/source/vstd/vstd.rs
 +++ b/source/vstd/vstd.rs
-@@ -27,6 +27,7 @@
+@@ -27,7 +27,8 @@
  #![cfg_attr(verus_keep_ghost, feature(fmt_arguments_from_str))]
  #![cfg_attr(all(feature = "alloc", verus_keep_ghost), feature(btree_cursors))]
  #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
+ #![cfg_attr(verus_keep_ghost, feature(maybe_uninit_array_assume_init))]
 +#![cfg_attr(verus_keep_ghost, feature(auto_traits))]
  
  #[cfg(feature = "alloc")]
