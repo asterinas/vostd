@@ -57,7 +57,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 // left.into_raw().cast(),
                 let (left, Tracked(perm)) = left.into_raw();
                 proof! {
-                    let left_addr = left.cast::<Self::Target>().view_ptr_mut().addr();
+                    let left_addr = left.cast::<Self::Target>().as_ptr().addr();
                     let extra_bits: u32 = (l_align_bits - align_bits) as u32;
                     let scale = 1usize << extra_bits;
                     vstd::bits::lemma_usize_pow2_no_overflow(extra_bits as nat);
@@ -156,7 +156,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         proof_decl! {
             let ghost align_bits = Self::ALIGN_BITS;
             let ghost tag = 1usize << Self::ALIGN_BITS;
-            let ghost ptr_addr = ptr.view_ptr_mut()@.addr;
+            let ghost ptr_addr = ptr.as_ptr()@.addr;
         }
         proof! {
             assert(tag > 0) by (bit_vector)
@@ -209,7 +209,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 let right_nonnull = nonnull_from_ptr_mut_spec(untagged_ptr);
                 &&& ptr.addr() & tag == tag
                 &&& (ptr.addr() & !tag) != 0
-                &&& R::ptr_perm_match(right_nonnull.cast().view_ptr_mut(), right)
+                &&& R::ptr_perm_match(right_nonnull.cast().as_ptr(), right)
             },
         }
     }
@@ -280,7 +280,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         proof_decl! {
             let ghost align_bits = Self::ALIGN_BITS;
             let ghost tag = 1usize << align_bits;
-            let ghost raw_addr = raw.view_ptr_mut()@.addr;
+            let ghost raw_addr = raw.as_ptr()@.addr;
         }
         proof! {
             Self::lemma_align_bits_range();
@@ -352,7 +352,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 // L::ref_as_raw(left).cast()
                 let (ptr, Tracked(perm)) = L::ref_as_raw(left);
                 proof! {
-                    let ghost ptr_addr = ptr.view_ptr_mut().addr();
+                    let ghost ptr_addr = ptr.as_ptr().addr();
                     L::lemma_ref_perm_inv_impl_perm_inv(perm);
                     let extra_bits: u32 = (l_align_bits - align_bits) as u32;
                     let scale = 1usize << extra_bits;
@@ -399,8 +399,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                         },
                 );
                 proof! {
-                    let ghost ptr_addr = ptr.view_ptr_mut().addr();
-                    let ghost tagged_addr = tagged_ptr.view_ptr_mut().addr();
+                    let ghost ptr_addr = ptr.as_ptr().addr();
+                    let ghost tagged_addr = tagged_ptr.as_ptr().addr();
                     R::lemma_ref_perm_inv_impl_perm_inv(perm);
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
@@ -459,11 +459,11 @@ verus! {
 // FIXEME: fix when verus attribute syntax supports closure postconditions.
 #[verus_spec(ret =>
     requires
-        (ptr.view_ptr_mut().addr() & bits) < ptr.view_ptr_mut().addr(),
-        (ptr.view_ptr_mut().addr() & !bits) != 0,
+        (ptr.as_ptr().addr() & bits) < ptr.as_ptr().addr(),
+        (ptr.as_ptr().addr() & !bits) != 0,
     ensures
-        ret.0 == (ptr.view_ptr_mut().addr() & bits),
-        ret.1.view_ptr_mut() == ptr.view_ptr_mut().with_addr((ptr.view_ptr_mut().addr() & !bits) as usize),
+        ret.0 == (ptr.as_ptr().addr() & bits),
+        ret.1.as_ptr() == ptr.as_ptr().with_addr((ptr.as_ptr().addr() & !bits) as usize),
 )]
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     use core::num::NonZeroUsize;

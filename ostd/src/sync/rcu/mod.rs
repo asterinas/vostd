@@ -464,10 +464,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         NonNull::new(obj_ptr).map(
             |ptr|
                 requires
-                    P::ptr_perm_match(
-                        ptr.view_ptr_mut(),
-                        P::ref_perm_view_permission(tracked_ref_perm),
-                    ),
+                    P::ptr_perm_match(ptr.as_ptr(), P::ref_perm_view_permission(tracked_ref_perm)),
                 {
                     unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) }
                 },
@@ -518,7 +515,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             |ptr|
                 requires
                     self.tracked_ref_perm@ is Some,
-                    P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_ref_perm->0.resource()),
+                    P::ptr_perm_match(ptr.as_ptr(), self.tracked_ref_perm->0.resource()),
                 {
                     unsafe {
                         P::raw_as_ref(
