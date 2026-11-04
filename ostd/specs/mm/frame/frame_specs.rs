@@ -1,9 +1,5 @@
-use vstd::{
-    cell::CellId,
-    prelude::*,
-    simple_pptr::{self, PPtr, PointsTo},
-};
-use vstd_extra::{cast_ptr::*, ownership::*};
+use vstd::{cell::CellId, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{
     arch::*,
@@ -38,7 +34,7 @@ pub open spec fn valid_slot_vaddr(addr: Vaddr) -> bool {
 
 /// The permission that is given out by `Frame::into_raw`
 pub tracked struct FrameRawPerms {
-    pub slot_perm: &'static simple_pptr::PointsTo<MetaSlot>,
+    pub slot_perm: &'static ExposedPointsTo<MetaSlot>,
     pub metadata_perm: FracMetadataPerm,
 }
 
@@ -51,7 +47,7 @@ unsafe impl vstd::thread_view::Objective for FrameRawPerms {
 
 impl FrameRawPerms {
     pub open spec fn slot_vaddr(self) -> Vaddr {
-        self.slot_perm.pptr().addr()
+        self.slot_perm.ptr().addr()
     }
 }
 
@@ -78,7 +74,7 @@ impl<M: ?Sized> Frame<M> {
     }
 
     /// Accessor for the [`MetaSlot`] permission tracked by this `Frame` handle.
-    pub open spec fn slot_perm(self) -> PointsTo<MetaSlot> {
+    pub open spec fn slot_perm(self) -> ExposedPointsTo<MetaSlot> {
         *self.tracked_slot_perm@
     }
 
@@ -99,7 +95,7 @@ impl<M: ?Sized> Frame<M> {
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
         &&& valid_slot_vaddr(self.slot_vaddr())
-        &&& self.slot_perm().pptr() == self.ptr
+        &&& self.slot_perm().ptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
 
@@ -163,11 +159,11 @@ impl<M: ?Sized> Frame<M> {
 impl<M: ?Sized> Frame<M> {
     pub open spec fn from_raw_spec(
         paddr: Paddr,
-        slot_perm: &'static PointsTo<MetaSlot>,
+        slot_perm: &'static ExposedPointsTo<MetaSlot>,
         metadata_perm: Option<FracMetadataPerm>,
     ) -> Self {
         Frame::<M> {
-            ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),
+            ptr: slot_perm.ptr(),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(slot_perm),

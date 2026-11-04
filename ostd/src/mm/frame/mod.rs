@@ -34,10 +34,15 @@ use vstd::{
     atomic::PermissionU64,
     map::assert_maps_equal_internal,
     prelude::*,
-    simple_pptr::{self, PPtr},
+    simple_pptr::PPtr,
     std_specs::cmp::PartialEqSpecImpl,
 };
-use vstd_extra::{cast_ptr::*, ownership::*, panic::may_panic};
+use vstd_extra::{
+    cast_ptr::*,
+    ownership::*,
+    panic::may_panic,
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
+};
 
 pub mod allocator;
 pub mod linked_list;
@@ -115,11 +120,11 @@ fn acquire_fence() {
 /// frame is a untyped frame. Otherwise, it is a typed frame.
 // #[repr(transparent)]
 pub struct Frame<M: ?Sized> {
-    pub ptr: PPtr<MetaSlot>,
+    pub ptr: *const MetaSlot,
     pub _marker: PhantomData<M>,
     /// The permission to access the `MetaSlot` fields.
     #[cfg(verus_keep_ghost_body)]
-    pub tracked_slot_perm: Tracked<&'static simple_pptr::PointsTo<MetaSlot>>,
+    pub tracked_slot_perm: Tracked<&'static ExposedPointsTo<MetaSlot>>,
     /// One fractional permission for the currently installed metadata.
     #[cfg(verus_keep_ghost_body)]
     pub tracked_metadata_perm: Tracked<Option<FracMetadataPerm>>,
@@ -532,7 +537,7 @@ impl<M: ?Sized> Frame<M> {
         proof_decl! {
             let tracked slot_perm = *self.tracked_slot_perm;
         }
-        self.ptr.borrow(Tracked(slot_perm))
+        ptr_ref(self.ptr, Tracked(slot_perm))
     }
 }
 
@@ -568,8 +573,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     {
         // debug_assert!(paddr < max_paddr());
         let vaddr = frame_to_meta(paddr);
-        // let ptr = vaddr as *const MetaSlot;
-        let ptr = PPtr(vaddr, PhantomData);
+        /* vstd requires the exposed provenance witness retained by the slot permission.
+         * Origin Rust: let ptr = vaddr as *const MetaSlot;
+         */
+        let ptr = ptr_from_addr(vaddr, Tracked(perm.slot_perm));
 
         proof_with!{ tracked_slot_perm: Tracked(perm.slot_perm), tracked_metadata_perm: Tracked(Some(perm.metadata_perm)) }
         Self { ptr, _marker: PhantomData }
@@ -624,7 +631,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         };
 
         Self {
-            ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
+            ptr: self.ptr,
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(slot_perm),
@@ -824,11 +831,11 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) -> (permission: Tr
     let vaddr: Vaddr = frame_to_meta(paddr);
     // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
     // an immutable reference to it is always safe.
-    let slot = PPtr::<MetaSlot>(vaddr, PhantomData);
+    let slot = ptr_from_addr::<MetaSlot>(vaddr, Tracked(perm));
 
     unsafe {
         #[verus_spec(with Tracked(&mut slot_own.ref_count_perm))]
-        slot.borrow(Tracked(perm)).inc_ref_count()
+        ptr_ref(slot, Tracked(perm)).inc_ref_count()
     };
     let tracked frame_permission = slot_own.metadata_perm.split_one();
 
@@ -850,7 +857,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> Frame<M> {
     /// Verus has no built-in spec for.
     #[verifier::external_body]
     pub fn into_dyn(self) -> Frame<dyn AnyFrameMeta> {
-        // SAFETY: `Frame<M>` is `#[repr(transparent)]` over `PPtr<MetaSlot>`
+        // SAFETY: `Frame<M>` is `#[repr(transparent)]` over `*const MetaSlot`
         // plus a zero-size `PhantomData<M>`. `Frame<dyn AnyFrameMeta>` has
         // the same runtime layout (thin pointer + ZST phantom).
         unsafe { core::mem::transmute(self) }

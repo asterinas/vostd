@@ -1,4 +1,4 @@
-use vstd::{modes::tracked_swap, prelude::*, simple_pptr::PointsTo};
+use vstd::{modes::tracked_swap, prelude::*};
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{

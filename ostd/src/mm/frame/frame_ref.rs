@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::{
+use vstd::{prelude::*, simple_pptr::PPtr};
+use vstd_extra::{
+    cast_ptr::Repr,
     prelude::*,
-    simple_pptr::{PPtr, PointsTo},
+    raw_ptr::{ExposedPointsTo, ptr_from_addr},
 };
-use vstd_extra::{cast_ptr::Repr, prelude::*};
 
 use crate::specs::{
     arch::valid_frame_paddr,
@@ -75,11 +76,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     ///  - the type of the [`FrameRef`] (`M`) matches the borrowed frame.
     #[verus_spec(r =>
         with
-            Tracked(slot_perm): Tracked<&'static PointsTo<MetaSlot>>,
+            Tracked(slot_perm): Tracked<&'static ExposedPointsTo<MetaSlot>>,
             Tracked(permission): Tracked<Option<&'a FracMetadataPerm>>,
         requires
             valid_frame_paddr(raw),
-            slot_perm.pptr().addr() == frame_to_meta(raw),
+            slot_perm.ptr().addr() == frame_to_meta(raw),
             slot_perm.is_init(),
             permission matches Some(counted) ==> {
                 &&& counted.frac() == 1
@@ -103,7 +104,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None)}
         let frame = Frame::<M> {
-            ptr: PPtr::<MetaSlot>::from_addr(frame_to_meta(raw)),
+            ptr: ptr_from_addr(frame_to_meta(raw), Tracked(slot_perm)),
             _marker: PhantomData,
         };
 
@@ -249,7 +250,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     unsafe fn from_raw(raw: PPtr<Self::Target>, Tracked(perm): Tracked<Self::Permission>) -> Self {
         Self {
-            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
+            ptr: ptr_from_addr(raw.addr(), Tracked(perm.slot_perm)),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(perm.slot_perm),
@@ -263,7 +264,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         Tracked(permission): Tracked<&'a Self::Permission>,
     ) -> Self::Ref<'a> {
         let frame = Frame::<M> {
-            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
+            ptr: ptr_from_addr(raw.addr(), Tracked(permission.slot_perm)),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(permission.slot_perm),

@@ -601,6 +601,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value(),
             self.0.level(),
         ));
+        assert(self.0.inv_children());
+        assert(self.0.level() < INC_LEVELS - 1);
+        assert(self.0.has_child(i));
+        assert(self.0.child(i).level() == self.0.level() + 1);
     }
 
     pub proof fn pt_inv_non_node(self, i: int)
