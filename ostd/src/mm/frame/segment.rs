@@ -942,11 +942,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
         Seq::new(
             self.metadata_perms().len() as nat,
             |i: int|
-                {
-                    Frame::<M>::from_perms_spec(
-                        self.slot_perms()[i],
-                        Some(self.metadata_perms()[i]),
-                    )
+                { Frame::<M>::from_perms_spec(self.slot_perms()[i], Some(self.metadata_perms()[i]))
                 },
         )
     }
