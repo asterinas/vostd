@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! IRQ line and IRQ guards.
 use vstd::prelude::*;
+use vstd_extra::ownership::Inv;
+
+use crate::specs::task::{
+    cpu_local::CpuLocalAuth,
+    irq::{IrqRestorePermission, LocalIrqGuardOwner, LocalIrqGuardView},
+};
 
 use core::{fmt::Debug, ops::Deref};
 
@@ -207,6 +213,10 @@ verus! {
 ///
 /// [`SpinLock`]: crate::sync::SpinLock
 ///
+/// Verification: this entry remains trusted until callers supply `new`'s
+/// CPU-local proof resources. The x86 read/disable functions still panic;
+/// `Drop` is disabled, so automatic restoration is absent in this target.
+///
 /// # Example
 ///
 /// ```rust
@@ -217,6 +227,7 @@ verus! {
 ///     todo!("do something when irqs are disabled");
 /// }
 /// ```
+#[verifier::external_body]
 pub fn disable_local() -> DisabledLocalIrqGuard {
     DisabledLocalIrqGuard::new()
 }
@@ -247,16 +258,55 @@ impl DisabledLocalIrqGuard {
     pub closed spec fn was_enabled_spec(self) -> bool {
         self.was_enabled
     }
+}
 
-    #[verifier::external_body]
+} // verus!
+#[verus_verify]
+impl DisabledLocalIrqGuard {
+    /// Constructs a guard from a coherent CPU-bound owner and matching authority.
+    /// On normal return, IRQs are disabled, depth increases, and the saved flag
+    /// matches the restore permission. Hardware effects use trusted IRQ contracts.
+    #[verus_spec(ret =>
+        with Tracked(owner): Tracked<&mut LocalIrqGuardOwner>,
+            Tracked(auth): Tracked<&mut CpuLocalAuth<bool>>
+            -> permission: Tracked<IrqRestorePermission>
+        requires
+            old(owner).inv(),
+            old(owner).coherent(),
+            old(owner).id() == old(auth).id(),
+        ensures
+            final(owner).inv(),
+            final(owner).coherent(),
+            final(owner).id() == old(owner).id(),
+            final(owner)@ == (LocalIrqGuardView {
+                cpu: old(owner)@.cpu,
+                enabled: false,
+                depth: old(owner)@.depth + 1,
+            }),
+            permission@.inv(),
+            permission@.id() == old(owner).id(),
+            permission@.previous() == old(owner)@,
+            ret.was_enabled_spec() == old(owner)@.enabled,
+            final(auth).id() == old(auth).id(),
+            final(auth)@ == old(auth)@.insert(old(owner)@.cpu, false),
+            final(auth).cpus() == old(auth).cpus(),
+    )]
     fn new() -> Self {
+        #[verus_spec(with Tracked(&*owner))]
         let was_enabled = irq::is_local_enabled();
         if was_enabled {
+            #[verus_spec(with Tracked(owner))]
             irq::disable_local();
         }
+        proof_decl! {
+            let tracked permission = owner.tracked_disable(auth);
+        }
+        #[verus_spec(with |= Tracked(permission))]
         Self { was_enabled }
     }
 }
+
+verus! {
 
 impl GuardTransfer for DisabledLocalIrqGuard {
     /// # Verified Properties
