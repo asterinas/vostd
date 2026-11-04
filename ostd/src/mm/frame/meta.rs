@@ -85,9 +85,9 @@ use vstd::{
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
-    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     panic::{may_panic, panic_diverge},
     prelude::*,
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     sum::Sum,
 };
 
@@ -599,7 +599,12 @@ impl MetaSlot {
                     ).is_ok() {
                         let tracked permission = slot_own.metadata_perm.split_one();
                         return #[verus_spec(with |= Tracked(Some(permission)))]
-                        Ok(ptr_from_addr(frame_to_meta(paddr), Tracked(slot_perm.tracked_borrow())));
+                        Ok(
+                            ptr_from_addr(
+                                frame_to_meta(paddr),
+                                Tracked(slot_perm.tracked_borrow()),
+                            ),
+                        );
                     }
                     proof {
                         vstd_extra::auxiliary::axiom_permission_u64_ext_eq(

@@ -208,7 +208,10 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     returns
         typed_meta_value::<M>(*metadata_perm, *repr_perm),
 {
-    let slot = ptr_ref(ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)), Tracked(slot_perm));
+    let slot = ptr_ref(
+        ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)),
+        Tracked(slot_perm),
+    );
     M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perm.storage_perm)), Tracked(repr_perm))
 }
 
@@ -226,7 +229,10 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         *final(res) == typed_meta_value::<M>(*final(metadata_perms), *final(repr_perm)),
         typed_meta_wf::<M>(*slot_perm, *final(metadata_perms), *final(repr_perm)),
 {
-    let slot = ptr_ref(ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)), Tracked(slot_perm));
+    let slot = ptr_ref(
+        ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)),
+        Tracked(slot_perm),
+    );
     M::from_borrowed_mut(
         slot.storage.borrow_mut(Tracked(&mut metadata_perms.storage_perm)),
         Tracked(repr_perm),

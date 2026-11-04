@@ -1,5 +1,4 @@
 //! Raw-pointer permissions retaining exposed provenance for address round trips.
-
 use vstd::{
     prelude::*,
     raw_ptr::{IsExposed, PointsTo},
@@ -41,10 +40,8 @@ impl<T> ExposedPointsTo<T> {
     }
 
     /// Packages an existing access permission with its provenance exposure proof.
-    pub proof fn new(
-        tracked points_to: PointsTo<T>,
-        tracked exposed: IsExposed,
-    ) -> (tracked perm: Self)
+    pub proof fn new(tracked points_to: PointsTo<T>, tracked exposed: IsExposed) -> (tracked perm:
+        Self)
         requires
             points_to.ptr()@.provenance == exposed.provenance(),
         ensures
