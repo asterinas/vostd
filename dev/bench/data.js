@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793710384724,
+  "lastUpdate": 1793775186931,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -9492,6 +9492,90 @@ window.BENCHMARK_DATA = {
             "value": 1951386,
             "unit": "rlimit",
             "extra": "smt-run=955ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6686001fc39720b71d8b79c96246150924ed4d5a",
+          "message": "fix: use `NonNull` specification from vstd (#893)\n\n* fix: use `NonNull` specification from vstd\n\n* Update ci-irc11.yml\n\n* Update verus-irc11.patch",
+          "timestamp": "2026-11-04T14:39:08+08:00",
+          "tree_id": "58187dbf947c925a64634d90cdf80798b821911f",
+          "url": "https://github.com/asterinas/vostd/commit/6686001fc39720b71d8b79c96246150924ed4d5a"
+        },
+        "date": 1793775186240,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1083106826,
+            "unit": "rlimit",
+            "extra": "verified=4290 errors=0 smt-run=254,367ms wall=164,969ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 466341996,
+            "unit": "rlimit",
+            "extra": "smt-run=136,123ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 91170810,
+            "unit": "rlimit",
+            "extra": "smt-run=20,764ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 89301135,
+            "unit": "rlimit",
+            "extra": "smt-run=18,295ms"
+          },
+          {
+            "name": "rlimit: endian",
+            "value": 11845978,
+            "unit": "rlimit",
+            "extra": "smt-run=837ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9707228,
+            "unit": "rlimit",
+            "extra": "smt-run=1,378ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=895ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3175071,
+            "unit": "rlimit",
+            "extra": "smt-run=521ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=483ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1951386,
+            "unit": "rlimit",
+            "extra": "smt-run=442ms"
           }
         ]
       }
