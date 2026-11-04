@@ -24,6 +24,8 @@ fi
     cd "$source_dir"
     cargo build --release --target-dir "$target_dir" \
         -p rust_verify -p verus -p cargo-verus -p verusdoc \
+        --features rust_verify/singular
+
     "$release_dir/cargo-verus" build --release --target-dir "$target_dir" \
         --manifest-path vstd/Cargo.toml --features weak-memory
 )
