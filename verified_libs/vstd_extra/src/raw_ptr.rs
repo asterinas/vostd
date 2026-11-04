@@ -78,6 +78,8 @@ pub fn ptr_ref<'a, T>(ptr: *const T, Tracked(perm): Tracked<&'a ExposedPointsTo<
         perm.is_init(),
     returns
         perm.value(),
+    opens_invariants none
+    no_unwind
 {
     /* vstd checks raw dereferences through an explicit permission argument.
      * Origin Rust: unsafe { &*ptr }

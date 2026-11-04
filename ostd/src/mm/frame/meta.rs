@@ -398,7 +398,8 @@ impl MetaSlot {
             },
             res matches Ok(res) ==> {
                 &&& valid_frame_paddr(paddr)
-                &&& res == old(regions).slots[frame_to_index(paddr)].ptr()
+                &&& res.addr() == frame_to_meta(paddr)
+                &&& res == final(regions).slots[frame_to_index(paddr)].ptr()
                 &&& final(regions).inv()
                 &&& permissions@ is Some
                 &&& Self::get_from_unused_spec(
@@ -528,7 +529,8 @@ impl MetaSlot {
                 &&& Self::get_from_in_use_success_spec(paddr, *old(regions), *final(regions), permission@->0)
                 &&& valid_frame_paddr(paddr)
                 &&& permission@ is Some
-                &&& ptr == old(regions).slots[frame_to_index(paddr)].ptr()
+                &&& ptr.addr() == frame_to_meta(paddr)
+                &&& ptr == final(regions).slots[frame_to_index(paddr)].ptr()
             },
             res is Err ==> {
                 &&& *final(regions) == *old(regions)
