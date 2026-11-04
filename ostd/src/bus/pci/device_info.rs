@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! PCI device Information
+use vstd::prelude::*;
+
 use core::iter;
 
 use super::cfg_space::PciDeviceCommonCfgOffset;
@@ -50,6 +52,7 @@ impl PciDeviceId {
 }
 
 /// PCI device Location
+#[verus_verify]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PciDeviceLocation {
     /// Bus number
@@ -88,9 +91,14 @@ impl PciDeviceLocation {
             },
         )
     }
+}
 
+#[verus_verify]
+impl PciDeviceLocation {
     /// The page table of all devices is the same. So we can use any device ID.
     /// FIXME: distinguish different device id.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::zero())]
     pub fn zero() -> Self {
         Self {
             bus: 0,

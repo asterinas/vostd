@@ -2,12 +2,6 @@
 //! Interrupts.
 use vstd::prelude::*;
 
-/* use spin::Once;
-use x86_64::registers::rflags::{self, RFlags};
-
-use super::iommu::{alloc_irt_entry, has_interrupt_remapping, IrtEntryHandle};
-use crate::cpu::PinCurrentCpu;
-
 // Intel(R) 64 and IA-32 rchitectures Software Developer's Manual,
 // Volume 3A, Section 6.2 says "Vector numbers in the range 32 to 255
 // are designated as user-defined interrupts and are not reserved by
@@ -15,41 +9,43 @@ use crate::cpu::PinCurrentCpu;
 pub(crate) const IRQ_NUM_MIN: u8 = 32;
 pub(crate) const IRQ_NUM_MAX: u8 = 255;
 
-pub(crate) struct IrqRemapping {
-    entry: Once<IrtEntryHandle>,
-}
+/* The IOMMU module is outside the active verified module graph, so interrupt remapping is
+ * unavailable in this build. This preserves the original no-IOMMU branch: initialization is a
+ * no-op and the query returns `None`. TODO: restore the IOMMU-backed path when that module enters
+ * the verified graph.
+ * Origin Rust:
+ * pub(crate) struct IrqRemapping { entry: Once<IrtEntryHandle> }
+ * impl IrqRemapping {
+ *     pub(crate) const fn new() -> Self { Self { entry: Once::new() } }
+ *     pub(crate) fn init(&self, irq_num: u8) {
+ *         if !has_interrupt_remapping() { return; }
+ *         self.entry.call_once(|| {
+ *             let handle = alloc_irt_entry().unwrap();
+ *             handle.enable(irq_num as u32);
+ *             handle
+ *         });
+ *     }
+ *     pub(crate) fn remapping_index(&self) -> Option<u16> {
+ *         Some(self.entry.get()?.index())
+ *     }
+ * }
+ */
+pub(crate) struct IrqRemapping;
 
 impl IrqRemapping {
     pub(crate) const fn new() -> Self {
-        Self { entry: Once::new() }
+        Self
     }
 
-    /// Initializes the remapping entry for the specific IRQ number.
-    ///
-    /// This will do nothing if the entry is already initialized or interrupt
-    /// remapping is disabled or not supported by the architecture.
-    pub(crate) fn init(&self, irq_num: u8) {
-        if !has_interrupt_remapping() {
-            return;
-        }
+    pub(crate) fn init(&self, _irq_num: u8) {}
 
-        self.entry.call_once(|| {
-            // Allocate and enable the IRT entry.
-            let handle = alloc_irt_entry().unwrap();
-            handle.enable(irq_num as u32);
-            handle
-        });
-    }
-
-    /// Gets the remapping index of the IRQ line.
-    ///
-    /// This method will return `None` if interrupt remapping is disabled or
-    /// not supported by the architecture.
     pub(crate) fn remapping_index(&self) -> Option<u16> {
-        Some(self.entry.get()?.index())
+        None
     }
 }
 
+/* Local IRQ hardware operations are not required by the PCI dependency slice.
+ * Origin Rust:
 // FIXME: Mark this as unsafe. See
 // <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
 pub(crate) fn enable_local() {

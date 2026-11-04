@@ -56,11 +56,30 @@ mod device_info;
 
 pub use device_info::{PciDeviceId, PciDeviceLocation};
 
+use spin::Once;
+
 use self::{bus::PciBus, common_device::PciCommonDevice};
-use crate::{arch::pci::has_pci_bus, sync::Mutex};
+use crate::{
+    arch::pci::has_pci_bus,
+    sync::{Mutex, MutexGuard},
+};
 
 /// PCI bus instance
-pub static PCI_BUS: Mutex<PciBus> = Mutex::new(PciBus::new());
+///
+/// Origin Rust: `pub static PCI_BUS: Mutex<PciBus> = Mutex::new(PciBus::new());`
+pub struct PciBusCell(Once<Mutex<PciBus>>);
+
+impl PciBusCell {
+    const fn new() -> Self {
+        Self(Once::new())
+    }
+
+    pub fn lock(&self) -> MutexGuard<'_, PciBus> {
+        self.0.call_once(|| Mutex::new(PciBus::new())).lock()
+    }
+}
+
+pub static PCI_BUS: PciBusCell = PciBusCell::new();
 
 pub(crate) fn init() {
     if !has_pci_bus() {

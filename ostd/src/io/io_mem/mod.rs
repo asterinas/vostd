@@ -2,6 +2,10 @@
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
 mod allocator;
 
+use vstd::prelude::*;
+
+use crate::specs::{mm::virt_mem::VirtPtr, task::AnyAtomicGuard};
+
 use core::ops::{Deref, Range};
 
 use align_ext::AlignExt;
@@ -11,8 +15,8 @@ pub(super) use self::allocator::init;
 use crate::{
     Error,
     mm::{
-        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, PAGE_SIZE, Paddr, PodOnce, VmIo,
-        VmIoOnce, VmReader, VmWriter,
+        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, PAGE_SIZE, Paddr, PodOnce, VmReader,
+        VmWriter,
         kspace::kvirt_area::KVirtArea,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
@@ -123,7 +127,10 @@ impl IoMem {
 
         // SAFETY: The caller of `IoMem::new()` ensures that the given
         // physical address range is I/O memory, so it is safe to map.
-        let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
+        // Origin Rust: KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop)
+        let kva = unsafe {
+            KVirtArea::map_untracked_frames::<AnyAtomicGuard>(area_size, 0, frames_range, prop)
+        };
 
         Self {
             kvirt_area: Arc::new(kva),
@@ -145,9 +152,15 @@ impl IoMem {
     fn reader(&self) -> VmReader<'_, Infallible> {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of reading from the mapped physical address, and the mapping is valid.
+        // Origin Rust: VmReader::from_kernel_space(
+        //     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
+        let vaddr = self.kvirt_area.deref().start() + self.offset;
         unsafe {
             VmReader::from_kernel_space(
-                (self.kvirt_area.deref().start() + self.offset) as *mut u8,
+                VirtPtr {
+                    vaddr,
+                    range: Ghost::new(vaddr..vaddr + self.limit),
+                },
                 self.limit,
             )
         }
@@ -156,15 +169,24 @@ impl IoMem {
     fn writer(&self) -> VmWriter<'_, Infallible> {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of writing to the mapped physical address, and the mapping is valid.
+        // Origin Rust: VmWriter::from_kernel_space(
+        //     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
+        let vaddr = self.kvirt_area.deref().start() + self.offset;
         unsafe {
             VmWriter::from_kernel_space(
-                (self.kvirt_area.deref().start() + self.offset) as *mut u8,
+                VirtPtr {
+                    vaddr,
+                    range: Ghost::new(vaddr..vaddr + self.limit),
+                },
                 self.limit,
             )
         }
     }
 }
 
+/* The generic verified `VmIo<P>` interface requires an ownership model for MMIO side effects.
+ * TODO: restore this implementation after introducing that hardware ownership model.
+ * Origin Rust:
 impl VmIo for IoMem {
     fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> {
         let offset = offset + self.offset;
@@ -204,13 +226,19 @@ impl VmIo for IoMem {
         Ok(())
     }
 }
+*/
 
-impl VmIoOnce for IoMem {
-    fn read_once<T: PodOnce>(&self, offset: usize) -> Result<T> {
+/* The verified `VmIoOnce` trait requires a memory owner that the current method signatures cannot
+ * carry. Keep the executable API available without adding a trusted implementation. TODO: restore
+ * the trait implementation together with the MMIO ownership model.
+ * Origin Rust: `impl VmIoOnce for IoMem`.
+ */
+impl IoMem {
+    pub fn read_once<T: PodOnce>(&self, offset: usize) -> Result<T> {
         self.reader().skip(offset).read_once()
     }
 
-    fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()> {
+    pub fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()> {
         self.writer().skip(offset).write_once(new_val)
     }
 }
