@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Interrupts.
+//!
+//! Trusted local IRQ contracts observe `sstatus.SIE`; `riscv`'s `s-mode` feature
+//! makes enable/disable access the same bit. Requires supervisor privilege
+//! and the CPU ownership obligations of `LocalIrqGuardOwner`.
+use vstd::prelude::*;
+use vstd_extra::ownership::Inv;
+
+use crate::specs::task::irq::LocalIrqGuardOwner;
+
 use crate::cpu::PinCurrentCpu;
 
 pub(crate) const IRQ_NUM_MIN: u8 = 0;
@@ -31,6 +40,21 @@ impl IrqRemapping {
 
 // FIXME: Mark this as unsafe. See
 // <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqGuardOwner>
+    requires
+        old(hw).inv(),
+        old(hw)@.depth == 0,
+        old(hw)@.enabled,
+    ensures
+        final(hw).inv(),
+        final(hw).hardware_enabled(),
+        final(hw)@ == old(hw)@,
+        final(hw).id() == old(hw).id(),
+    opens_invariants none
+    no_unwind
+)]
 pub(crate) fn enable_local() {
     // SAFETY: The safety is upheld by the caller.
     unsafe { riscv::interrupt::enable() }
@@ -57,10 +81,30 @@ pub(crate) fn enable_local_and_halt() {
     unsafe { riscv::interrupt::enable() }
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqGuardOwner>
+    requires
+        old(hw).inv(),
+    ensures
+        final(hw).inv(),
+        !final(hw).hardware_enabled(),
+        final(hw)@ == old(hw)@,
+        final(hw).id() == old(hw).id(),
+    opens_invariants none
+)]
 pub(crate) fn disable_local() {
     riscv::interrupt::disable();
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&LocalIrqGuardOwner>
+    requires
+        hw.inv(),
+    returns hw.hardware_enabled()
+    opens_invariants none
+)]
 pub(crate) fn is_local_enabled() -> bool {
     riscv::register::sstatus::read().sie()
 }

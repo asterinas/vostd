@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Interrupts.
+//!
+//! Trusted local IRQ contracts map to `CRMD.IE` (`set_ie`/`ie`), requiring PLV0
+//! and the CPU ownership obligations of `LocalIrqGuardOwner`.
+use vstd::prelude::*;
+use vstd_extra::ownership::Inv;
+
+use crate::specs::task::irq::LocalIrqGuardOwner;
+
 use crate::cpu::PinCurrentCpu;
 
 pub(crate) const IRQ_NUM_MIN: u8 = 32;
@@ -29,6 +37,21 @@ impl IrqRemapping {
     }
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqGuardOwner>
+    requires
+        old(hw).inv(),
+        old(hw)@.depth == 0,
+        old(hw)@.enabled,
+    ensures
+        final(hw).inv(),
+        final(hw).hardware_enabled(),
+        final(hw)@ == old(hw)@,
+        final(hw).id() == old(hw).id(),
+    opens_invariants none
+    no_unwind
+)]
 pub(crate) fn enable_local() {
     loongArch64::register::crmd::set_ie(true);
 }
@@ -49,10 +72,30 @@ pub(crate) fn enable_local_and_halt() {
     // spurious wakeups are acceptable for this method.
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqGuardOwner>
+    requires
+        old(hw).inv(),
+    ensures
+        final(hw).inv(),
+        !final(hw).hardware_enabled(),
+        final(hw)@ == old(hw)@,
+        final(hw).id() == old(hw).id(),
+    opens_invariants none
+)]
 pub(crate) fn disable_local() {
     loongArch64::register::crmd::set_ie(false);
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&LocalIrqGuardOwner>
+    requires
+        hw.inv(),
+    returns hw.hardware_enabled()
+    opens_invariants none
+)]
 pub(crate) fn is_local_enabled() -> bool {
     loongArch64::register::crmd::read().ie()
 }
