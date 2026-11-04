@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
-use vstd::{prelude::*, simple_pptr::PPtr};
-use vstd_extra::{cast_ptr::*, ownership::*};
+use vstd::prelude::*;
+use vstd_extra::{cast_ptr::*, ownership::*, raw_ptr::ptr_from_addr};
 
 use crate::specs::{
     arch::*,
@@ -142,7 +142,7 @@ impl<C: PageTableConfig> Child<C> {
             let tracked permission = entry_own.tracked_take_node_permission();
             proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(Some(permission)) }
             let node = PageTableNode::<C> {
-                ptr: PPtr::from_addr(frame_to_meta(paddr)),
+                ptr: ptr_from_addr(frame_to_meta(paddr), Tracked(slot_perm)),
                 _marker: PhantomData,
             };
 

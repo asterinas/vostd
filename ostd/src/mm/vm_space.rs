@@ -1693,10 +1693,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) -> Self::Item {
         MappedItem {
             frame: UFrame {
-                ptr: vstd::simple_pptr::PPtr(
-                    crate::mm::frame::meta::mapping::frame_to_meta(paddr),
-                    PhantomData,
-                ),
+                ptr: (perm@->0).slot_perm.ptr(),
                 _marker: PhantomData,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_slot_perm: Tracked((perm@->0).slot_perm),

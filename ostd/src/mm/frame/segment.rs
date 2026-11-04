@@ -2,13 +2,14 @@
 //! A contiguous range of frames.
 use vstd::{
     prelude::*,
-    simple_pptr::{PPtr, PointsTo},
     std_specs::{
         convert::FromSpecImpl,
         iter::{IteratorSpec, IteratorSpecImpl},
     },
 };
-use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
+use vstd_extra::{
+    assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*, raw_ptr::ExposedPointsTo,
+};
 
 use crate::specs::{
     arch::*,
@@ -567,7 +568,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         self.tracked_perms@ is Some
     }
 
-    pub open spec fn slot_perms(&self) -> Seq<&'static PointsTo<MetaSlot>> {
+    pub open spec fn slot_perms(&self) -> Seq<&'static ExposedPointsTo<MetaSlot>> {
         self.raw_perms().map_values(|perm: FrameRawPerms| perm.slot_perm)
     }
 }
