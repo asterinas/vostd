@@ -682,6 +682,7 @@ dependencies = [
  "bitvec",
  "smallvec",
  "vstd",
+ "x86_64 0.15.5",
 ]
 
 [[package]]

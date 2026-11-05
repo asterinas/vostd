@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 //! PCI bus access
-use core::alloc::Layout;
+/*use core::alloc::Layout;
 
 use align_ext::AlignExt;
-use fdt::node::FdtNode;
+use fdt::node::FdtNode;*/
 use spin::Once;
 
-use super::boot::DEVICE_TREE;
+/*use super::boot::DEVICE_TREE;*/
 use crate::{
-    Error, bus::pci::PciDeviceLocation, io::IoMem, mm::VmIoOnce, prelude::*, sync::SpinLock,
+    Error, bus::pci::PciDeviceLocation, io::IoMem, mm::VmIoOnce,
+    prelude::*, /*sync::SpinLock,*/
 };
 
 static PCI_IO_MEM: Once<IoMem> = Once::new();
@@ -38,6 +39,7 @@ fn encode_as_address_offset(location: &PciDeviceLocation) -> u32 {
         | ((location.function as u32) << 8)
 }
 
+/*
 pub(crate) fn init() -> Result<()> {
     let pci = DEVICE_TREE
         .get()
@@ -158,3 +160,4 @@ fn init_mmio_allocator_from_fdt(node: &FdtNode) {
 pub(crate) fn alloc_mmio(layout: Layout) -> Option<Paddr> {
     MMIO_ALLOCATOR.get().unwrap().lock().allocate(layout)
 }
+*/

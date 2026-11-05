@@ -2,6 +2,24 @@ use vstd::prelude::*;
 
 use crate::panic::*;
 
+/* Verus cannot translate formatting machinery used by `core::panic!`; select the modeled
+ * diverging boundary only while retaining ghost bodies.
+ * Origin Rust: <none; new executable code>
+ */
+#[macro_export]
+macro_rules! panic {
+    ($($arg:tt)*) => {{
+        #[cfg(verus_keep_ghost_body)]
+        {
+            $crate::panic::panic_diverge()
+        }
+        #[cfg(not(verus_keep_ghost_body))]
+        {
+            ::core::panic!($($arg)*)
+        }
+    }};
+}
+
 #[macro_export]
 macro_rules! assert {
     ($cond:expr) => {
