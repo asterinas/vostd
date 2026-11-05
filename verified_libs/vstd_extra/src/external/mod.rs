@@ -7,7 +7,6 @@ pub mod bits;
 mod bitvec;
 pub mod cmp;
 pub mod convert;
-pub mod deref;
 pub mod ilog2;
 pub mod int_specs;
 pub mod iter;
