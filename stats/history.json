@@ -498,6 +498,19 @@
       "spec": 19328,
       "proof": 18414,
       "verified_apis": 279
+    },
+    {
+      "date": "2026-11-05T14:45:14+08:00",
+      "sha": "4ec330ec227b59f22c4f079db4a757379c3222b7",
+      "total": 15836,
+      "verified_exec": 5040,
+      "trusted": 608,
+      "unverified": 6597,
+      "unplanned": 3591,
+      "rust_mode": 20002,
+      "spec": 19328,
+      "proof": 18417,
+      "verified_apis": 279
     }
   ]
 }
