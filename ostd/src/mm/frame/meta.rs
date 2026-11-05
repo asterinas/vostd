@@ -336,11 +336,12 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError>
         return Err(GetFrameError::OutOfBound);
     }
     let vaddr = mapping::frame_to_meta(paddr);
+    // Origin Rust: let ptr = vaddr as *mut MetaSlot;
     let ptr = ptr_from_addr(vaddr, Tracked(slot_perm.tracked_borrow()));
 
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
-    // Ok(unsafe { &*ptr })
+    // Origin Rust: Ok(unsafe { &*ptr })
     Ok(ptr_ref(ptr, Tracked(slot_perm.tracked_borrow())))
 }
 
@@ -497,7 +498,7 @@ impl MetaSlot {
         } else {
             Some(Sum::Left(slot_own.metadata_perm.split_one()))
         };
-        // Ok(slot as *const MetaSlot)
+        // Origin Rust: Ok(slot as *const MetaSlot)
         proof_with!(|= Tracked(perm));
         Ok(ptr_from_addr(frame_to_meta(paddr), Tracked(slot_perm.tracked_borrow())))
     }
@@ -600,6 +601,7 @@ impl MetaSlot {
                         last_ref_cnt + 1,
                     ).is_ok() {
                         let tracked permission = slot_own.metadata_perm.split_one();
+                        // Origin Rust: return Ok(slot as *const MetaSlot);
                         return #[verus_spec(with |= Tracked(Some(permission)))]
                         Ok(
                             ptr_from_addr(

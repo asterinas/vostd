@@ -764,6 +764,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 assert(paddr == (self.range.start + perm_idx * PAGE_SIZE) as usize);
+                assert(regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX ==> may_panic()) by {
+                    if regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX {
+                        assert(self.page_in_range_saturated(range, *old(regions)));
+                    }
+                }
             }
 
             let tracked_permission = unsafe {

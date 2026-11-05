@@ -460,6 +460,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     )]
     pub(crate) unsafe fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
+        // Origin Rust: let ptr = vaddr as *const MetaSlot;
         let ptr = ptr_from_addr(vaddr, Tracked(slot_perm));
 
         let tracked owner = UniqueFrameOwner {
@@ -489,6 +490,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
         // mutably borrowed, so taking an immutable reference to it is safe.
         let tracked slot_perm = *self.tracked_slot_perm;
+        // Origin Rust: unsafe { &*self.ptr }
         ptr_ref(self.ptr, Tracked(slot_perm))
     }
 }

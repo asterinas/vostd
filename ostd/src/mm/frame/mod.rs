@@ -533,6 +533,7 @@ impl<M: ?Sized> Frame<M> {
         proof_decl! {
             let tracked slot_perm = *self.tracked_slot_perm;
         }
+        // Origin Rust: unsafe { &*self.ptr }
         ptr_ref(self.ptr, Tracked(slot_perm))
     }
 }
@@ -827,8 +828,10 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) -> (permission: Tr
     let vaddr: Vaddr = frame_to_meta(paddr);
     // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
     // an immutable reference to it is always safe.
+    // Origin Rust: let slot = unsafe { &*(vaddr as *const MetaSlot) };
     let slot = ptr_from_addr::<MetaSlot>(vaddr, Tracked(perm));
 
+    // Origin Rust: unsafe { slot.inc_ref_count() };
     unsafe {
         #[verus_spec(with Tracked(&mut slot_own.ref_count_perm))]
         ptr_ref(slot, Tracked(perm)).inc_ref_count()
@@ -853,9 +856,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> Frame<M> {
     /// Verus has no built-in spec for.
     #[verifier::external_body]
     pub fn into_dyn(self) -> Frame<dyn AnyFrameMeta> {
-        // SAFETY: `Frame<M>` is `#[repr(transparent)]` over `*const MetaSlot`
-        // plus a zero-size `PhantomData<M>`. `Frame<dyn AnyFrameMeta>` has
-        // the same runtime layout (thin pointer + ZST phantom).
+        // SAFETY: Both frame types have the same runtime fields: a `*const MetaSlot`
+        // and a zero-sized, alignment-one `PhantomData`. Their size and alignment
+        // are equal, and the metadata type parameter does not change the pointer.
+        // Tracked permission fields are erased.
         unsafe { core::mem::transmute(self) }
     }
 }
