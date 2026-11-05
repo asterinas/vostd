@@ -5,8 +5,8 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 verus_dir="$repo_root/tools/verus"
 source_dir="$verus_dir/source"
-vargo_manifest="$verus_dir/tools/vargo/Cargo.toml"
-vargo_bin="$verus_dir/tools/vargo/target/release/vargo"
+target_dir="$source_dir/target-verus"
+release_dir="$target_dir/release"
 
 if [[ ! -f "$source_dir/vstd/atomic_weak.rs" ]]; then
     echo "The pinned Verus checkout does not contain IRC11 support" >&2
@@ -21,25 +21,18 @@ if [[ ! -x "$source_dir/z3" ]]; then
 fi
 
 (
-    cd "$verus_dir"
-    cargo build --release --manifest-path "$vargo_manifest"
-)
-
-# The IRC11 patch predates weak-memory in Vargo's build fingerprint, so force
-# vstd to rebuild whenever this bootstrap path is invoked.
-rm -f "$source_dir/target-verus/release/.vstd-fingerprint"
-
-(
     cd "$source_dir"
-    "$vargo_bin" build --release --features singular --vstd-weak-memory
-    "$vargo_bin" build --release -p verusdoc
+    cargo build --release --target-dir "$target_dir" \
+        -p rust_verify -p verus -p cargo-verus -p verusdoc \
+        --features rust_verify/singular
+
+    "$release_dir/cargo-verus" build --release --target-dir "$target_dir" \
+        --manifest-path vstd/Cargo.toml --features weak-memory
 )
 
-# Vargo places standalone package builds in its Cargo target directory,
-# while dv searches beside the Verus binary.
-cp "$source_dir/target/release/verusdoc" "$source_dir/target-verus/release/verusdoc"
+# Keep standalone verification able to find Z3 beside the Verus executable.
+cp "$source_dir/z3" "$release_dir/z3"
 
 test -x "$source_dir/target-verus/release/verus"
 test -x "$source_dir/target-verus/release/verusdoc"
-test -f "$source_dir/target-verus/release/verus-root"
 test -f "$source_dir/target-verus/release/vstd.vir"
