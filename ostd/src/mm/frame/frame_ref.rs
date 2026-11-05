@@ -38,7 +38,8 @@ pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
 impl<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        self.inner@.tracked_metadata_perm@ is None
+        &&& self.inner@.ptr_inv()
+        &&& self.inner@.tracked_metadata_perm@ is None
     }
 }
 
@@ -219,10 +220,7 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     ;
 
     /// Converts a shared reference to a raw pointer.
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target>
-        requires
-            ptr_ref.inv(),
-    ;
+    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target>;
 
     /// A specification function that constraints the nonnull pointer and the permission returned by `into_raw`.
     /// This design is to support the tagged pointer trick used in `Either`.
@@ -296,7 +294,13 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         }
     }
 
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
+    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> (res: NonNull<Self::Target>)
+        ensures
+            res.as_ptr().cast_const().cast::<MetaSlot>() == ptr_ref@.ptr,
+    {
+        proof {
+            use_type_invariant(&ptr_ref);
+        }
         NonNull::new(ptr_ref.inner.ptr.cast_mut()).unwrap().cast()
     }
 
