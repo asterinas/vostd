@@ -261,7 +261,10 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         (ptr.cast(), Tracked(perm))
     }
 
-    unsafe fn from_raw(raw: NonNull<Self::Target>, Tracked(perm): Tracked<Self::Permission>) -> Self {
+    unsafe fn from_raw(
+        raw: NonNull<Self::Target>,
+        Tracked(perm): Tracked<Self::Permission>,
+    ) -> Self {
         Self {
             ptr: raw.as_ptr().cast_const().cast(),
             _marker: PhantomData,
@@ -277,14 +280,16 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         Tracked(permission): Tracked<&'a Self::Permission>,
     ) -> Self::Ref<'a> {
         Self::Ref {
-            inner: ManuallyDrop::new(Frame {
-                ptr: raw.as_ptr().cast_const().cast(),
-                _marker: PhantomData,
-                #[cfg(verus_keep_ghost_body)]
-                tracked_slot_perm: Tracked(permission.slot_perm),
-                #[cfg(verus_keep_ghost_body)]
-                tracked_metadata_perm: Tracked(None),
-            }),
+            inner: ManuallyDrop::new(
+                Frame {
+                    ptr: raw.as_ptr().cast_const().cast(),
+                    _marker: PhantomData,
+                    #[cfg(verus_keep_ghost_body)]
+                    tracked_slot_perm: Tracked(permission.slot_perm),
+                    #[cfg(verus_keep_ghost_body)]
+                    tracked_metadata_perm: Tracked(None),
+                },
+            ),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_metadata_perm: Tracked(Some(&permission.metadata_perm)),
