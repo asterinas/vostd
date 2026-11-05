@@ -12,8 +12,8 @@ use vstd::thread_view::Objective;
 use vstd::{
     prelude::*,
     resource::{
-        set::{GhostSetAuth, GhostSubset},
         Loc,
+        set::{GhostSetAuth, GhostSubset},
     },
     seq_lib::lemma_seq_contains_after_push,
 };
