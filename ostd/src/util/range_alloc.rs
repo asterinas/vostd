@@ -12,8 +12,8 @@ use vstd::thread_view::Objective;
 use vstd::{
     prelude::*,
     resource::{
-        Loc,
         set::{GhostSetAuth, GhostSubset},
+        Loc,
     },
     seq_lib::lemma_seq_contains_after_push,
 };
@@ -436,6 +436,9 @@ impl RangeAllocator {
             if let Some(freenode) = freelist.get_mut(&key) {
                 if freenode.block.end - size == freenode.block.start {
                     freelist.remove(&key);
+                    proof! {
+                        assert(freelist@ =~= initial_map.remove(key));
+                    }
                 } else {
                     freenode.block.end -= size;
                 }
