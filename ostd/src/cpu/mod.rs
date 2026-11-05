@@ -5,12 +5,15 @@ use vstd::{
     std_specs::{convert::TryFromSpecImpl, iter::IteratorSpec},
 };
 
+pub use crate::specs::cpu::{axiom_cpu_count_bounds, cpu_count};
+
 // pub mod local;
 pub mod set;
 
 pub use set::{AtomicCpuSet, CpuSet};
 
-// pub use crate::arch::cpu::*;
+#[cfg(target_arch = "x86_64")]
+pub use crate::arch::cpu::*;
 // use crate::{cpu_local_cell, task::atomic_mode::InAtomicMode};
 
 /// The ID of a CPU in the system.
@@ -156,21 +159,6 @@ impl View for CpuId {
         self.0 as int
     }
 }
-
-/// The trusted value of the system CPU count. The exec reads `NUM_CPUS`, a `u32`
-/// initialized to 1 and set once at boot (never decreased, no hot-plug), so it is a
-/// stable constant; Verus cannot mention an `exec static` in a spec, so this uninterp
-/// is the explicit specification boundary (mirrors io_port's num_cpus-style pattern).
-pub uninterp spec fn cpu_count() -> int;
-
-/// The count is a positive value that fits a `u32` (the exec reads `static NUM_CPUS: u32`),
-/// hence also a `usize`; the `u32` bound is what lets a `CpuSet` bitset fit in its backing
-/// `SmallVec` without overflowing `isize::MAX`.
-pub broadcast axiom fn axiom_cpu_count_bounds()
-    ensures
-        #![trigger cpu_count()]
-        1 <= cpu_count() <= u32::MAX,
-;
 
 impl CpuId {
     /// A CPU id is always in the range of CPUs present in the system.

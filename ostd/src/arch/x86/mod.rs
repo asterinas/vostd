@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the x86 platform.
-/*pub mod boot;
+/*pub mod boot;*/
 pub(crate) mod cpu;
-pub mod device;
+/*pub mod device;
 pub(crate) mod ex_table;
 pub(crate) mod io;
 pub(crate) mod iommu;*/
@@ -14,7 +14,7 @@ pub mod qemu;
 pub(crate) mod serial; */
 pub(crate) mod task;
 pub mod timer;
-/* pub mod trap; */
+pub mod trap;
 
 /*use io::construct_io_mem_allocator_builder;
 use spin::Once;
