@@ -6,14 +6,9 @@
 //! modeled physical-address bound is page-aligned and that its linear mapping
 //! has room for those addresses without overflow. The bound limits tracked
 //! memory; it does not describe the processor's physical-address width.
-//! Within each architecture's linear mapping window, the address conversions
-//! preserve bounds and are mutual inverses. Physical-to-virtual conversion also
-//! preserves base-page alignment.
-//! `CurrentArch` selects the instance for this target. Calls to
-//! `PagingConstsTrait::axiom_current_paging_consts_hardcoded` mark proofs that
-//! still depend on the constants used by executable page-table layouts.
+//! Physical-to-virtual conversion preserves bounds within the model's linear
+//! mapping window. All definitions depend only on the architecture contract.
 use vstd::prelude::*;
-use vstd_extra::arithmetic::lemma_mod_0_add;
 
 use crate::mm::{Paddr, PagingConstsTrait, Vaddr};
 
@@ -58,48 +53,14 @@ pub open spec fn paddr_to_vaddr_for<A: ArchAddressSpaceModel>(pa: Paddr) -> Vadd
     (pa + A::linear_mapping_base_vaddr_spec()) as usize
 }
 
-/// Convert a linear-mapped virtual address back to a physical address.
-pub open spec fn vaddr_to_paddr_for<A: ArchAddressSpaceModel>(va: Vaddr) -> Paddr {
-    (va - A::linear_mapping_base_vaddr_spec()) as usize
-}
-
-/// Maps a physical offset into the linear mapping window and back without loss.
+/// Maps a physical offset into the linear mapping window without overflow.
 pub proof fn lemma_paddr_to_vaddr_properties_for<A: ArchAddressSpaceModel>(pa: Paddr)
     requires
         pa < A::vmalloc_base_vaddr_spec() - A::linear_mapping_base_vaddr_spec(),
     ensures
         A::linear_mapping_base_vaddr_spec() <= paddr_to_vaddr_for::<A>(pa)
             < A::vmalloc_base_vaddr_spec(),
-        vaddr_to_paddr_for::<A>(paddr_to_vaddr_for::<A>(pa)) == pa,
 {
-}
-
-/// Maps a linear-mapped virtual address to a physical offset and back without loss.
-pub proof fn lemma_vaddr_to_paddr_properties_for<A: ArchAddressSpaceModel>(va: Vaddr)
-    requires
-        A::linear_mapping_base_vaddr_spec() <= va < A::vmalloc_base_vaddr_spec(),
-    ensures
-        vaddr_to_paddr_for::<A>(va) < A::vmalloc_base_vaddr_spec()
-            - A::linear_mapping_base_vaddr_spec(),
-        paddr_to_vaddr_for::<A>(vaddr_to_paddr_for::<A>(va)) == va,
-{
-}
-
-/// Preserves base-page alignment when mapping a physical offset into the linear window.
-pub proof fn lemma_paddr_to_vaddr_aligned_for<A: ArchAddressSpaceModel>(pa: Paddr)
-    requires
-        pa < A::vmalloc_base_vaddr_spec() - A::linear_mapping_base_vaddr_spec(),
-        pa % A::C::BASE_PAGE_SIZE() == 0,
-    ensures
-        paddr_to_vaddr_for::<A>(pa) % A::C::BASE_PAGE_SIZE() == 0,
-{
-    A::C::lemma_paging_consts_requirements();
-    A::lemma_model_requirements();
-    lemma_mod_0_add(
-        pa as int,
-        A::linear_mapping_base_vaddr_spec() as int,
-        A::C::BASE_PAGE_SIZE() as int,
-    );
 }
 
 } // verus!

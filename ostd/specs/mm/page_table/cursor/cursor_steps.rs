@@ -195,7 +195,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard).max_steps() < self.max_steps(),
     {
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         let new_self = self.push_level_owner(guard);
         let l = self.level as usize;
@@ -231,7 +231,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         broadcast use {
             CursorContinuation::group_lemmas,
             CursorOwner::group_lemmas,
@@ -288,7 +288,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard).inv(),
     {
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
         let new_owner = self.push_level_owner(guard);
 
@@ -376,7 +376,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         reveal(CursorContinuation::map_children);
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
@@ -502,7 +502,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *final(self) == old(self).push_level_owner(guard),
     {
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_pte_index_bound::<C>(self.cur_va(), (self.level - 1) as PagingLevel);
 
         let ghost self0 = *self;
@@ -756,7 +756,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level,
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         reveal(PageTableOwner::pt_inv_at_depth);
         if self.level == self.guard_level && self.index() + 1 == NR_ENTRIES {
             self.lemma_move_forward_guard_end();
@@ -904,7 +904,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         use vstd::arithmetic::div_mod::*;
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         self.lemma_cur_pte_index();
         self.lemma_locked_range_span();
         self.lemma_va_plus_page_size_no_overflow(self.level);

@@ -222,22 +222,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         lemma_pow2_subtracts(pte.ilog2() as nat, page.ilog2() as nat);
         lemma_pow2_is_pow2((page.ilog2() - pte.ilog2()) as nat);
     }
-
-    /// Assumes the paging constants match the build-selected architecture.
-    ///
-    /// TODO: Generalize the proofs at these calls and remove this axiom before
-    /// verifying configurations with a different page-table layout. This
-    /// restriction is trusted and is not enforced by Verus.
-    /// Verus does not support `axiom fn` in traits, so this default proof method
-    /// uses `external_body` to declare the temporary assumption.
-    #[verifier::external_body]
-    proof fn axiom_current_paging_consts_hardcoded()
-        ensures
-            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
-            Self::NR_LEVELS() == NR_LEVELS as PagingLevel,
-            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
-    {
-    }
 }
 
 pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {

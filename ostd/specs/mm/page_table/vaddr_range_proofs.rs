@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Bounded-arithmetic proofs for `vaddr_range`'s body.
+//! Page-table address-range proofs and the current user/kernel layout.
 //!
 //! Factored into a leaf module because the `nonlinear_arith` tactic
 //! triggers a Verus internal panic when used in `page_table/mod.rs`
@@ -8,20 +8,56 @@
 use vstd::{
     arithmetic::{
         div_mod::{lemma_mod_bound, lemma_mod_breakdown, lemma_mod_decreases},
-        power2::{lemma_pow2_adds, lemma_pow2_pos, lemma_pow2_strictly_increases, pow2},
+        power2::{
+            lemma_pow2_adds, lemma_pow2_pos, lemma_pow2_strictly_increases, lemma2_to64,
+            lemma2_to64_rest, pow2,
+        },
     },
     prelude::*,
 };
-use vstd_extra::arithmetic::nat_align_down;
+use vstd_extra::{arithmetic::nat_align_down, external::ilog2::lemma_usize_ilog2_to32};
 
 use crate::specs::mm::page_table::*;
 
 use crate::mm::{
-    PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,
-    page_table::PageTableConfig,
+    PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig, nr_subpage_per_huge, page_size,
+    page_table::PageTableConfig, vm_space::UserPtConfig,
 };
 
 verus! {
+
+/// Checks the user address range for the current 48-bit, four-level configuration.
+pub(crate) proof fn lemma_vaddr_range_spec_user()
+    ensures
+        leading_bits_spec::<UserPtConfig>() == 0,
+        page_table_managed_start_spec::<UserPtConfig>() == 0,
+        page_table_managed_end_spec::<UserPtConfig>() == 0x0000_8000_0000_0000int,
+        vaddr_range_spec::<UserPtConfig>().start == 0,
+        vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
+{
+    lemma_current_paging_layout_bits::<UserPtConfig>();
+    lemma2_to64();
+    lemma2_to64_rest();
+}
+
+/// Checks the paged kernel range for the current 48-bit, four-level configuration.
+/// The LoongArch direct-mapping window is separate from this page-table range.
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
+    ensures
+        leading_bits_spec::<KernelPtConfig>() == 0xffff,
+        page_table_managed_start_spec::<KernelPtConfig>() == 0xFFFF_8000_0000_0000,
+        page_table_managed_end_spec::<KernelPtConfig>() == 0x1_0000_0000_0000_0000int,
+        vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
+{
+    lemma_current_paging_layout_bits::<KernelPtConfig>();
+    lemma2_to64();
+    lemma2_to64_rest();
+    vstd::layout::unsigned_int_max_values();
+    assert(KernelPtConfig::ADDRESS_WIDTH() == 48);
+    lemma_leading_bits_properties::<KernelPtConfig>();
+    assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
+}
 
 /// Derives the sign-extension mask and its width from the paging constants.
 pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
@@ -288,6 +324,34 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             e_pre == i_end * p_off,
             i_end > 0,
             p_off > 0,
+    ;
+}
+
+/// Derives the bit widths used by the current page-table configurations: 4 KiB pages,
+/// 512 entries per table, and four levels. Each configuration proves that it
+/// matches this layout through `lemma_page_table_config_constant_requirements`.
+pub(super) proof fn lemma_current_paging_layout_bits<C: PageTableConfig>()
+    ensures
+        C::BASE_PAGE_SIZE().ilog2() == 12u32,
+        nr_pte_index_bits_spec::<C>() == 9usize,
+        pte_index_bit_offset_spec::<C>(4) == 39,
+        nr_page_table_coverage_bits_spec::<C>() == 48,
+{
+    C::lemma_paging_consts_properties();
+    C::lemma_page_table_config_constant_requirements();
+    lemma_usize_ilog2_to32();
+    assert(C::BASE_PAGE_SIZE().ilog2() == 12);
+    assert(nr_pte_index_bits_spec::<C>() == 9);
+    assert(pte_index_bit_offset_spec::<C>(4) == 39) by (nonlinear_arith)
+        requires
+            C::BASE_PAGE_SIZE().ilog2() == 12,
+            nr_pte_index_bits_spec::<C>() == 9,
+    ;
+    assert(nr_page_table_coverage_bits_spec::<C>() == 48) by (nonlinear_arith)
+        requires
+            C::BASE_PAGE_SIZE().ilog2() == 12,
+            nr_pte_index_bits_spec::<C>() == 9,
+            C::NR_LEVELS() == 4,
     ;
 }
 

@@ -900,7 +900,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             *final(self) == old(self).inc_index().zero_below_level(),
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_page_table_managed_index_bounds::<C>(old(self).va);
         lemma_inc_slot_indices::<C>(old(self).va, old(self).level);
         old(self).lemma_inc_index_va();
@@ -1182,7 +1182,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix % page_size::<PagingConsts>((self.guard_level + 1) as PagingLevel) == 0,
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_lower_indices_aligned::<C>(self.prefix, (self.guard_level + 1) as PagingLevel);
     }
 
@@ -1193,7 +1193,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix as nat % page_size::<PagingConsts>(self.guard_level) as nat == 0,
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_lower_indices_aligned::<C>(self.prefix, self.guard_level);
     }
 
@@ -1211,7 +1211,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             (va as nat) - nat_align_down(self_va as nat, node_size as nat) < node_size as nat,
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         self.lemma_locked_range_span();
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
@@ -1243,7 +1243,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.va + page_size::<PagingConsts>(level) < page_table_coverage_end_spec::<C>(),
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_leading_bits_properties::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>((C::NR_LEVELS() + 1) as PagingLevel);
         lemma_page_size_monotone::<C>(level, self.guard_level);
@@ -1261,7 +1261,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.lemma_locked_range_span();
         lemma_page_size_base::<PagingConsts>();
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_page_size_divides::<PagingConsts>(1, (self.guard_level + 1) as PagingLevel);
         lemma_fundamental_div_mod(
             page_size::<PagingConsts>((self.guard_level + 1) as PagingLevel) as int,
@@ -1688,9 +1688,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 {
     C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
+    C::lemma_page_table_config_constant_requirements();
     C::lemma_page_table_config_constant_properties();
-    lemma_arch_specific_consts_properties::<C>();
 
     lemma_page_table_managed_bounds::<C>();
     let end = C::TOP_LEVEL_INDEX_RANGE().end as int;

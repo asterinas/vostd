@@ -15,3 +15,12 @@ mod sync;
 #[allow(unused_parens)]
 #[allow(unused_braces)]
 pub mod task;
+
+vstd::prelude::verus! {
+
+// All supported OSTD targets use 64-bit pointers.
+global size_of usize == 8;
+
+global size_of isize == 8;
+
+} // verus!

@@ -8,7 +8,10 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::*,
-            vaddr_range_proofs::{lemma_leading_bits_properties, lemma_page_table_managed_bounds},
+            vaddr_range_proofs::{
+                lemma_leading_bits_properties, lemma_page_table_managed_bounds,
+                lemma_vaddr_range_spec_kernel,
+            },
             *,
         },
     },
@@ -31,7 +34,7 @@ use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::{
     //task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
     Pod,
-    arch::mm::{PageTableEntry, PagingConsts},
+    arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, PageTableEntry, PagingConsts},
 };
 use core::{
     fmt::Debug,
@@ -430,6 +433,10 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE(),
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end
                 <= nr_subpage_per_huge::<Self::C>(),
+            // Each configuration proves the layout facts that generic proofs rely on.
+            Self::C::BASE_PAGE_SIZE() == PAGE_SIZE,
+            Self::C::NR_LEVELS() == NR_LEVELS as PagingLevel,
+            Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES,
     ;
 
     // The derived properties of the page table config constants.

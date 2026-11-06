@@ -27,7 +27,8 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::page_size_lemmas::lemma_page_size_spec_values,
-            vaddr_range_proofs::lemma_leading_bits_properties, *,
+            vaddr_range_proofs::{lemma_current_paging_layout_bits, lemma_leading_bits_properties},
+            *,
         },
     },
 };
@@ -126,11 +127,10 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     C::lemma_page_table_config_constant_properties();
     lemma_leading_bits_properties::<C>();
     C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
+    C::lemma_page_table_config_constant_requirements();
     lemma_vaddr_strict_bound(path);
-    lemma_arch_specific_consts_properties::<C>();
+    lemma_current_paging_layout_bits::<C>();
     vstd::arithmetic::power2::lemma2_to64();
-    assert(nr_page_table_coverage_bits_spec::<C>() == 48);
     assert(leading_bits_spec::<C>() < 65536);
     let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
@@ -155,7 +155,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
     decreases path.len(),
 {
     C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
+    C::lemma_page_table_config_constant_requirements();
     let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
     let size = page_size::<C>(level) as int;
@@ -986,8 +986,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         lemma_vaddr_of_eq_int::<C>(path);
         lemma_vaddr_top_index_cell(path);
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
-        lemma_arch_specific_consts_properties::<C>();
+        C::lemma_page_table_config_constant_requirements();
+        lemma_current_paging_layout_bits::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma_page_size_spec_values();
         lemma_mul_inequality(path[0] + 1, t, page_size::<C>(C::NR_LEVELS()) as int);
@@ -1263,10 +1263,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
             C::lemma_paging_consts_properties();
-            C::axiom_current_paging_consts_hardcoded();
-            lemma_arch_specific_consts_properties::<C>();
+            C::lemma_page_table_config_constant_requirements();
+            lemma_current_paging_layout_bits::<C>();
             lemma_leading_bits_properties::<C>();
-            assert(nr_page_table_coverage_bits_spec::<C>() == 48);
             lemma_vaddr_strict_bound(path);
             let lb = leading_bits_spec::<C>() as int;
             lemma2_to64();

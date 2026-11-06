@@ -67,7 +67,7 @@ use super::{
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
 use crate::{
-    arch::mm::{PageTableEntry, PagingConsts},
+    arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, PageTableEntry, PagingConsts},
     boot::memory_region::MemoryRegionType,
     mm::{PagingLevel, largest_pages},
     //task::disable_preempt,
@@ -164,6 +164,11 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     proof fn lemma_page_table_config_constant_requirements() {
         PageTableEntry::lemma_layout();
+        // Layout facts that generic page-table proofs require of every configuration.
+        assert(PagingConsts::BASE_PAGE_SIZE() == PAGE_SIZE);
+        assert(PagingConsts::NR_LEVELS() == NR_LEVELS as PagingLevel);
+        assert(PagingConsts::BASE_PAGE_SIZE() / PagingConsts::PTE_SIZE() == NR_ENTRIES)
+            by (compute);
     }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {
