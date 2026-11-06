@@ -98,6 +98,13 @@ impl RcuRootGhost {
         self.domain.id()
     }
 
+    /// Relates the root's public identity to its allocation authority.
+    pub proof fn lemma_domain_identity(self)
+        ensures
+            self.domain_auth().id() == self.domain(),
+    {
+    }
+
     /// All allocation registrations, including historical publications.
     pub closed spec fn objects(self) -> Map<nat, usize> {
         self.domain.objects()
@@ -143,14 +150,18 @@ impl RcuRootGhost {
     /// History and registration agree. A non-null pointer receives one fresh
     /// registration whose linear permission is returned to the caller.
     pub proof fn tracked_initial<T>(
+        tracked mut domain: RcuDomainAuth,
         ptr: *mut T,
         history: AtomicHistory<*mut T>,
         timestamp: nat,
         message_view: ThreadView,
     ) -> (tracked res: (Self, Option<RcuRegistration<T>>))
         requires
+            domain.inv(),
+            domain.objects() == Map::<nat, usize>::empty(),
             history.is_singleton(timestamp, (ptr, message_view)),
         ensures
+            res.0.domain() == domain.id(),
             rcu_root_history_inv(history, res.0),
             res.0.current_timestamp() == timestamp,
             current_registration_matches(res.0, res.1),
@@ -167,7 +178,6 @@ impl RcuRootGhost {
                 None => res.0.objects() == Map::empty(),
             },
     {
-        let tracked mut domain = RcuDomainAuth::tracked_new();
         assert(history.is_max_timestamp(timestamp));
         assert(history.dom() == Set::empty().insert(timestamp)) by {
             assert forall|ts: nat|
@@ -360,7 +370,13 @@ pub proof fn lemma_republication_preserves_allocation_id<T>(ptr: *mut T) -> (tra
 {
     let ghost view = ThreadView::empty();
     let ghost initial = AtomicHistory(Map::empty().insert(3nat, (ptr, view)));
-    let tracked (mut root, registration) = RcuRootGhost::tracked_initial(ptr, initial, 3, view);
+    let tracked (mut root, registration) = RcuRootGhost::tracked_initial(
+        RcuDomainAuth::tracked_new(),
+        ptr,
+        initial,
+        3,
+        view,
+    );
     let tracked registration = registration.tracked_unwrap();
     let ghost next = initial.insert(8, ptr, view);
     root.tracked_push_registered(initial, next, 8, ptr, view, &registration.0);
@@ -393,7 +409,13 @@ pub proof fn lemma_history_distinguishes_reused_address<T>(ptr: *mut T) -> (trac
 {
     let ghost view = ThreadView::empty();
     let ghost initial = AtomicHistory(Map::empty().insert(3nat, (ptr, view)));
-    let tracked (mut root, first) = RcuRootGhost::tracked_initial(ptr, initial, 3, view);
+    let tracked (mut root, first) = RcuRootGhost::tracked_initial(
+        RcuDomainAuth::tracked_new(),
+        ptr,
+        initial,
+        3,
+        view,
+    );
     let tracked first = first.tracked_unwrap();
     let ghost null = ptr_null_mut::<T>();
     let ghost removed = initial.insert(8, null, view);

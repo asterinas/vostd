@@ -40,8 +40,18 @@ use crate::task::{
     disable_preempt,
 };
 
+#[cfg(feature = "irc11")]
+mod acceptance;
+#[cfg(feature = "irc11")]
+pub mod irc11;
 mod monitor;
 pub mod non_null;
+#[cfg(feature = "irc11")]
+pub mod weak_lock;
+#[cfg(feature = "irc11")]
+pub mod weak_monitor;
+#[cfg(feature = "irc11")]
+pub mod weak_root;
 
 verus! {
 
