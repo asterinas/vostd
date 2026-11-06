@@ -2,6 +2,8 @@
 //! The PCI configuration space.
 //!
 //! Reference: <https://wiki.osdev.org/PCI>
+use vstd::prelude::*;
+
 use alloc::sync::Arc;
 use core::mem::size_of;
 
@@ -297,7 +299,8 @@ impl MemoryBar {
             io_memory: unsafe {
                 IoMem::new(
                     (base as usize)..((base + size as u64) as usize),
-                    PageFlags::RW,
+                    // Origin Rust: PageFlags::RW,
+                    PageFlags::RW(),
                     CachePolicy::Uncacheable,
                 )
             },
@@ -315,23 +318,30 @@ pub enum AddrLen {
 }
 
 /// I/O port BAR.
+#[verus_verify]
 #[derive(Debug, Clone, Copy)]
 pub struct IoBar {
     base: u32,
     size: u32,
 }
-
+#[verus_verify]
 impl IoBar {
     /// Base port
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.base())]
     pub fn base(&self) -> u32 {
         self.base
     }
 
     /// Size of the port
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.size())]
     pub fn size(&self) -> u32 {
         self.size
     }
+}
 
+impl IoBar {
     /// Reads from port
     pub fn read<T: PortRead>(&self, offset: u32) -> Result<T> {
         // Check alignment

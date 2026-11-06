@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
+use vstd::prelude::*;
+
 use core::ops::Range;
 
 use id_alloc::IdAlloc;
@@ -93,6 +95,9 @@ pub(crate) unsafe fn init() {
     }
 
     IO_PORT_ALLOCATOR.call_once(|| IoPortAllocator {
-        allocator: SpinLock::new(allocator),
+        /* The verified `SpinLock` constructor now requires its trivial invariant resources.
+         * Origin Rust: allocator: SpinLock::new(allocator),
+         */
+        allocator: SpinLock::new(allocator, Ghost::new(()), Tracked::new(())),
     });
 }

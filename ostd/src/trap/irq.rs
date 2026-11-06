@@ -2,22 +2,23 @@
 //! IRQ line and IRQ guards.
 use vstd::prelude::*;
 
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{fmt::Debug, ops::Deref};
 
-// use id_alloc::IdAlloc;
-// use spin::Once;
+use id_alloc::IdAlloc;
+use spin::Once;
 
 use crate::{
+    // task::atomic_mode::InAtomicMode,
+    Error,
     arch::{
-        irq::{self /* , IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN */},
-        /* trap::TrapFrame, */
+        irq::{self, IRQ_NUM_MAX, IRQ_NUM_MIN, IrqRemapping},
+        trap::TrapFrame,
     },
     prelude::*,
-    sync::{GuardTransfer, RwLock, SpinLock /* WriteIrqDisabled */},
-    // task::atomic_mode::InAtomicMode,
-    // Error,
+    sync::{GuardTransfer, PreemptDisabled, RwLock, SpinLock, WriteIrqDisabled},
 };
-/*
+// Origin Rust: the following IRQ-line implementation was inside a block comment.
 /// A type alias for the IRQ callback function.
 pub type IrqCallbackFunction = dyn Fn(&TrapFrame) + Sync + Send + 'static;
 
@@ -136,10 +137,17 @@ impl Inner {
 const NUMBER_OF_IRQS: usize = (IRQ_NUM_MAX - IRQ_NUM_MIN) as usize + 1;
 
 static INNERS: [Inner; NUMBER_OF_IRQS] = [const { Inner::new() }; NUMBER_OF_IRQS];
-static ALLOCATOR: Once<SpinLock<IdAlloc>> = Once::new();
+static ALLOCATOR: Once<SpinLock<IdAlloc, PreemptDisabled>> = Once::new();
 
-fn get_or_init_allocator() -> &'static SpinLock<IdAlloc> {
-    ALLOCATOR.call_once(|| SpinLock::new(IdAlloc::with_capacity(NUMBER_OF_IRQS)))
+fn get_or_init_allocator() -> &'static SpinLock<IdAlloc, PreemptDisabled> {
+    // Origin Rust: SpinLock::new(IdAlloc::with_capacity(NUMBER_OF_IRQS))
+    ALLOCATOR.call_once(|| {
+        SpinLock::new(
+            IdAlloc::with_capacity(NUMBER_OF_IRQS),
+            Ghost::new(()),
+            Tracked::new(()),
+        )
+    })
 }
 
 /// A handle for an allocated IRQ line.
@@ -191,7 +199,7 @@ pub(super) fn process_top_half(trap_frame: &TrapFrame, irq_num: usize) {
     for callback in &*inner.callbacks.read() {
         callback(trap_frame);
     }
-}*/
+}
 
 // ####### IRQ Guards #######
 verus! {

@@ -41,12 +41,14 @@ pub mod arch;
 #[path = "arch/loongarch/mod.rs"]
 pub mod arch;
 pub mod boot;
-/*pub mod bus;
-pub mod console;*/
+// Origin Rust: this declaration was inside a block comment.
+pub mod bus;
+/*pub mod console;*/
 pub mod cpu;
 pub mod error;
-/*pub mod io;
-pub mod logger;*/
+// Origin Rust: this declaration was inside a block comment.
+pub mod io;
+/*pub mod logger;*/
 pub mod mm;
 /*pub mod panic;*/
 pub mod prelude;
@@ -67,6 +69,8 @@ pub use ostd_macros::{
     panic_handler,
 };*/
 pub use ostd_pod::Pod;
+// Origin Rust: this declaration was inside the block comment below.
+pub use self::{error::Error, prelude::Result};
 /*
 pub use self::{error::Error, prelude::Result};
 

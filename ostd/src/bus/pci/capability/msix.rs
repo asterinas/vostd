@@ -3,6 +3,8 @@
 #![expect(dead_code)]
 #![expect(unused_variables)]
 
+use vstd::prelude::*;
+
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
@@ -186,6 +188,14 @@ impl CapabilityMsixData {
     }
 }
 
+#[verus_verify]
+#[verus_verify(dual_spec)]
+#[verus_spec(
+    requires
+        offset < 16,
+    returns
+        set_bit(origin_value, offset, set),
+)]
 fn set_bit(origin_value: u16, offset: usize, set: bool) -> u16 {
     (origin_value & (!(1 << offset))) | ((set as u16) << offset)
 }
