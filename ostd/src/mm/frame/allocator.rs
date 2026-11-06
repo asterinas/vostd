@@ -1,8 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
-use vstd::prelude::*;
-use vstd_extra::{cast_ptr::Repr, ownership::Inv, prelude::*};
+use vstd::{
+    arithmetic::{
+        power::{lemma_pow_increases, pow},
+        power2::{is_pow2, is_pow2_equiv},
+    },
+    math::max,
+    prelude::*,
+};
+use vstd_extra::{
+    arithmetic::nat_align_up,
+    cast_ptr::Repr,
+    external::{LayoutAdditionalSpecFns, axiom_layout_model},
+    ownership::Inv,
+    prelude::*,
+};
 
+use crate::mm::{PagingConsts, PagingConstsTrait};
 use crate::specs::mm::frame::{meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners};
 
 use super::{Frame, meta::AnyFrameMeta, segment::Segment};
@@ -258,6 +272,8 @@ pub(crate) unsafe fn init() {
         }
     }
 }
+*/
+verus! {
 
 /// An allocator in the early boot phase when frame metadata is not available.
 pub(super) struct EarlyFrameAllocator {
@@ -265,13 +281,13 @@ pub(super) struct EarlyFrameAllocator {
     // the higher region is not constructed yet.
     under_4g_range: Range<Paddr>,
     under_4g_end: Paddr,
-
     // And also sometimes 4G is not enough for early phase. This, if not `0..0`,
     // is the largest region above 4G.
     max_range: Range<Paddr>,
     max_end: Paddr,
 }
 
+} // verus!
 /// The global frame allocator in the early boot phase.
 ///
 /// It is used to allocate frames before the frame metadata is initialized.
@@ -286,12 +302,90 @@ pub(super) struct EarlyFrameAllocator {
 pub(super) static EARLY_ALLOCATOR: spin::Mutex<Option<EarlyFrameAllocator>> =
     spin::Mutex::new(None);
 
+verus! {
+
+impl EarlyFrameAllocator {
+    /// The bump tails stay within their regions, and the regions respect the
+    /// x86-64 boot contract (the below-4G region ends under 4 GiB; physical
+    /// addresses stay under 2^52).
+    ///
+    /// The upper bounds are literalized for this spec: `0x1_0000_0000`
+    /// mirrors exec `PADDR4G` (local const in `new`); `0x10_0000_0000_0000`
+    /// is the 2^52 physical-address bound of the boot contract (no exec
+    /// const to mirror, cf. the deliberately smaller `MAX_PADDR`).
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.under_4g_range.start <= self.under_4g_end <= self.under_4g_range.end <= 0x1_0000_0000
+            && self.max_range.start <= self.max_end <= self.max_range.end <= 0x10_0000_0000_0000
+    }
+
+    /// The below-4G managed region.
+    pub closed spec fn under_4g_range(&self) -> Range<Paddr> {
+        self.under_4g_range
+    }
+
+    /// The bump tail within the below-4G region.
+    pub closed spec fn under_4g_end(&self) -> Paddr {
+        self.under_4g_end
+    }
+
+    /// The above-4G managed region.
+    pub closed spec fn max_range(&self) -> Range<Paddr> {
+        self.max_range
+    }
+
+    /// The bump tail within the above-4G region.
+    pub closed spec fn max_end(&self) -> Paddr {
+        self.max_end
+    }
+}
+
+// Early-allocation models.
+/// The size of an early allocation, in bytes, page-aligned.
+pub open spec fn alloc_size(l: Layout) -> int {
+    nat_align_up(l.spec_size() as nat, PAGE_SIZE as nat) as int
+}
+
+/// The alignment of an early allocation: the layout alignment, at least
+/// `PAGE_SIZE`.
+pub open spec fn alloc_align(l: Layout) -> int {
+    max(l.spec_align() as int, PAGE_SIZE as int)
+}
+
+/// Trusted model of the two regions the early allocator manages (selected
+/// from the bootloader memory regions by `EarlyFrameAllocator::new`).
+pub uninterp spec fn early_allocator_region_1() -> Range<Paddr>;
+
+/// Trusted model of the early allocator's above-4G region (companion of
+/// `early_allocator_region_1`).
+pub uninterp spec fn early_allocator_region_2() -> Range<Paddr>;
+
+/// The two regions are well-formed and respect the x86-64 physical address
+/// bounds (below 4 GiB, and below 2^52 respectively).
+pub(crate) axiom fn axiom_early_regions_wf()
+    ensures
+        early_allocator_region_1().start <= early_allocator_region_1().end <= 0x1_0000_0000,
+        early_allocator_region_2().start <= early_allocator_region_2().end <= 0x10_0000_0000_0000,
+;
+
+} // verus!
+#[verus_verify]
 impl EarlyFrameAllocator {
     /// Creates a new early frame allocator.
     ///
     /// It uses at most 2 regions, the first is the maximum usable region below
     /// 4 GiB. The other is the maximum usable region above 4 GiB and is only
     /// usable when linear mapping is constructed.
+    #[verus_verify(external_body)]
+    #[verus_spec(ret =>
+        ensures
+            ret.under_4g_end() == ret.under_4g_range().start,
+            ret.max_end() == ret.max_range().start,
+            ret.under_4g_range().start == early_allocator_region_1().start,
+            ret.under_4g_range().end == early_allocator_region_1().end,
+            ret.max_range().start == early_allocator_region_2().start,
+            ret.max_range().end == early_allocator_region_2().end,
+    )]
     pub fn new() -> Self {
         let regions = &crate::boot::EARLY_INFO.get().unwrap().memory_regions;
 
@@ -333,19 +427,96 @@ impl EarlyFrameAllocator {
     }
 
     /// Allocates a contiguous range of frames.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Safety
+    /// - the body is verified; the trust it rests on is the `Layout` model
+    ///   of `vstd_extra::external::layout` and the entry `type_inv` (values
+    ///   come from the trusted external `new`).
+    ///
+    /// ## Functional Correctness
+    /// - on `Some(pa)`, `pa` is aligned to `alloc_align(layout)` and
+    ///   `[pa, pa + alloc_size(layout))` lies within one managed range,
+    ///   between its old and new bump tails.
+    ///
+    /// ## Postconditions
+    /// - the managed ranges are unchanged, the bump tails only move forward
+    ///   (neither moves on `None`), and the call does not panic.
+    #[verus_spec(ret =>
+        ensures
+            final(self).under_4g_range().start == old(self).under_4g_range().start,
+            final(self).under_4g_range().end == old(self).under_4g_range().end,
+            final(self).max_range().start == old(self).max_range().start,
+            final(self).max_range().end == old(self).max_range().end,
+            old(self).under_4g_end() <= final(self).under_4g_end(),
+            old(self).max_end() <= final(self).max_end(),
+            ret matches Some(pa) ==> {
+                &&& pa as int % alloc_align(layout) == 0
+                &&& (old(self).under_4g_end() <= pa
+                    && pa + alloc_size(layout) <= final(self).under_4g_end()
+                    || old(self).max_end() <= pa && pa + alloc_size(layout) <= final(self).max_end())
+            },
+            ret is None ==> {
+                &&& final(self).under_4g_end() == old(self).under_4g_end()
+                &&& final(self).max_end() == old(self).max_end()
+            },
+    )]
     pub fn alloc(&mut self, layout: Layout) -> Option<Paddr> {
+        proof! {
+            // The overflow precondition of the first `align_up` call below.
+            axiom_layout_model(layout);
+            reveal(is_pow2);
+            PagingConsts::lemma_paging_consts_requirements();
+        }
         let size = layout.size().align_up(PAGE_SIZE);
         let align = layout.align().max(PAGE_SIZE);
 
-        for (tail, end) in [
-            (&mut self.under_4g_end, self.under_4g_range.end),
-            (&mut self.max_end, self.max_range.end),
-        ] {
-            let allocated = tail.align_up(align);
-            if let Some(allocated_end) = allocated.checked_add(size)
-                && allocated_end <= end
-            {
-                *tail = allocated_end;
+        proof! {
+            // The entry invariant provides the tail bounds.
+            use_type_invariant(&*self);
+            is_pow2_equiv(layout.spec_align() as int);
+            let align_exponent = choose|e: nat| pow(2, e) == layout.spec_align();
+            reveal(pow);
+            if align_exponent >= 64 {
+                lemma_pow_increases(2, 64, align_exponent);
+                assert(pow(2, 64) == 0x1_0000_0000_0000_0000) by (compute);
+                assert(false);
+            }
+            lemma_pow_increases(2, align_exponent, 63);
+            assert(pow(2, 63) == 0x8000_0000_0000_0000) by (compute);
+        }
+
+        /* Verus loop invariants cannot read fields that are mutably borrowed
+         * across the loop head (E0502), and reborrowing the array per iteration
+         * leaves the `*tail` bounds out of the invariants' reach; the upstream
+         * let-chain also needs edition 2024. The loop is unrolled into the two
+         * attempts below with the same tail/end pairing, branch conditions,
+         * and writes.
+         * Origin Rust: for (tail, end) in [
+         *     (&mut self.under_4g_end, self.under_4g_range.end),
+         *     (&mut self.max_end, self.max_range.end),
+         * ] {
+         *     let allocated = tail.align_up(align);
+         *     if let Some(allocated_end) = allocated.checked_add(size)
+         *         && allocated_end <= end
+         *     {
+         *         *tail = allocated_end;
+         *         return Some(allocated);
+         *     }
+         * }
+         */
+        let allocated = self.under_4g_end.align_up(align);
+        if let Some(allocated_end) = allocated.checked_add(size) {
+            if allocated_end <= self.under_4g_range.end {
+                self.under_4g_end = allocated_end;
+                return Some(allocated);
+            }
+        }
+        let allocated = self.max_end.align_up(align);
+        if let Some(allocated_end) = allocated.checked_add(size) {
+            if allocated_end <= self.max_range.end {
+                self.max_end = allocated_end;
                 return Some(allocated);
             }
         }
@@ -353,6 +524,11 @@ impl EarlyFrameAllocator {
         None
     }
 
+    /// Returns the regions allocated so far (the two `[start, tail)` ranges).
+    #[verus_spec(returns
+        (self.under_4g_range().start..self.under_4g_end(),
+            self.max_range().start..self.max_end()),
+    )]
     pub(super) fn allocated_regions(&self) -> (Range<Paddr>, Range<Paddr>) {
         (
             self.under_4g_range.start..self.under_4g_end,
@@ -361,6 +537,7 @@ impl EarlyFrameAllocator {
     }
 }
 
+/*
 /// Metadata for frames allocated in the early boot phase.
 ///
 /// Frames allocated with [`early_alloc`] are not immediately tracked with
@@ -369,7 +546,7 @@ impl EarlyFrameAllocator {
 pub(crate) struct EarlyAllocatedFrameMeta;
 
 impl_frame_meta_for!(EarlyAllocatedFrameMeta);
-
+*/
 /// Allocates a contiguous range of frames in the early boot phase.
 ///
 /// The early allocated frames will not be reclaimable, until the metadata is
@@ -381,6 +558,32 @@ impl_frame_meta_for!(EarlyAllocatedFrameMeta);
 /// This function panics if:
 ///  - it is called before [`init_early_allocator`],
 ///  - or if is called after [`init`].
+///
+/// # Verified Properties
+/// ## Safety
+/// - the body is external and trusted (global state behind a `spin::Mutex`):
+///   the per-call properties below are honest, while the cross-call
+///   progression (distinct allocations never overlap) is trusted — it is
+///   provided by [`EarlyFrameAllocator::alloc`];
+/// - containment is relative to the trusted `early_allocator_region_1/2`
+///   models, and the panicking cases are those documented under `# Panics`
+///   above.
+///
+/// ## Postconditions
+/// - on `Some(pa)`, `pa` is aligned to `alloc_align(layout)` and
+///   `[pa, pa + alloc_size(layout))` lies within one of the two regions.
+#[verus_verify(external_body)]
+#[verus_spec(ret =>
+    ensures
+        ret matches Some(pa) ==> {
+            &&& pa as int % alloc_align(layout) == 0
+            &&& (early_allocator_region_1().start <= pa
+                && pa + alloc_size(layout) <= early_allocator_region_1().end
+                || early_allocator_region_2().start <= pa
+                    && pa + alloc_size(layout) <= early_allocator_region_2().end)
+        },
+        ret is None ==> true,
+)]
 pub(crate) fn early_alloc(layout: Layout) -> Option<Paddr> {
     let mut early_allocator = EARLY_ALLOCATOR.lock();
     early_allocator.as_mut().unwrap().alloc(layout)
@@ -394,8 +597,8 @@ pub(crate) fn early_alloc(layout: Layout) -> Option<Paddr> {
 /// # Safety
 ///
 /// This function should be called only once after the memory regions are ready.
+#[verus_verify(external_body)]
 pub(crate) unsafe fn init_early_allocator() {
     let mut early_allocator = EARLY_ALLOCATOR.lock();
     *early_allocator = Some(EarlyFrameAllocator::new());
 }
-*/
