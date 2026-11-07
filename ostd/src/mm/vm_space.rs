@@ -21,14 +21,18 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
-        page_table::{cursor::owners::CursorOwner, *},
+        page_table::{
+            cursor::owners::CursorOwner, vaddr_range_proofs::lemma_vaddr_range_spec_user, *,
+        },
         tlb::TlbModel,
         virt_mem::{MemView, VirtPtr},
     },
     task::InAtomicMode,
 };
 
-use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
+use crate::arch::mm::{
+    NR_ENTRIES, NR_LEVELS, PAGE_SIZE, PageTableEntry, PagingConsts, current_page_table_paddr,
+};
 use crate::cpu::{AtomicCpuSet, CpuSet};
 use crate::error::Error;
 use crate::mm::frame::meta::mapping::meta_to_frame;
@@ -1839,6 +1843,11 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     proof fn lemma_page_table_config_constant_requirements() {
         PageTableEntry::lemma_layout();
+        // Layout facts that generic page-table proofs require of every configuration.
+        assert(PagingConsts::BASE_PAGE_SIZE() == PAGE_SIZE);
+        assert(PagingConsts::NR_LEVELS() == NR_LEVELS as PagingLevel);
+        assert(PagingConsts::BASE_PAGE_SIZE() / PagingConsts::PTE_SIZE() == NR_ENTRIES)
+            by (compute);
     }
 }
 

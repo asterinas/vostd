@@ -1,6 +1,9 @@
 use vstd::{prelude::*, set_lib::*};
 
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE, lemma_vaddr_range_spec_user};
+use crate::specs::{
+    arch::{MAX_PADDR, PAGE_SIZE},
+    mm::page_table::vaddr_range_proofs::lemma_vaddr_range_spec_user,
+};
 
 use super::page_table_managed_end_spec;
 use super::view::{Mapping, mappings_disjoint_vaddrs, mappings_well_formed};

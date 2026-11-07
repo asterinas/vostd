@@ -20,7 +20,9 @@ use crate::specs::{
         },
         page_table::{
             cursor::{CursorOwner, CursorView},
-            is_valid_range_spec, *,
+            is_valid_range_spec,
+            vaddr_range_proofs::lemma_vaddr_range_spec_kernel,
+            *,
         },
     },
     task::InAtomicMode,
