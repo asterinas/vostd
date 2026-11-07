@@ -32,7 +32,7 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-use vstd::{atomic::PermissionU64, prelude::*, simple_pptr::PointsTo};
+use vstd::{atomic::PermissionU64, prelude::*};
 use vstd_extra::{
     once::OnceImpl, ownership::*, prelude::*, resource_invariant::TrivialResourceInvariant,
 };
@@ -269,7 +269,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         if prop.flags.contains(PageFlags::AVAIL1()) {
             MappedItem::Tracked(
                 Frame::<MetaSlotStorage> {
-                    ptr: vstd::simple_pptr::PPtr(mapping::frame_to_meta(paddr), PhantomData),
+                    ptr: (perm@->0).slot_perm.ptr(),
                     _marker: PhantomData,
                     #[cfg(verus_keep_ghost_body)]
                     tracked_slot_perm: Tracked((perm@->0).slot_perm),

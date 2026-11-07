@@ -526,6 +526,9 @@ impl RangeAllocator {
             if let Some(freenode) = freelist.get_mut(&key) {
                 if freenode.block.end - size == freenode.block.start {
                     freelist.remove(&key);
+                    proof! {
+                        assert(freelist@ =~= initial_map.remove(key));
+                    }
                 } else {
                     freenode.block.end -= size;
                 }

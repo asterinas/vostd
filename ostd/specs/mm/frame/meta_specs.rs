@@ -1,5 +1,5 @@
-use vstd::{atomic::*, prelude::*, simple_pptr::PointsTo};
-use vstd_extra::{cast_ptr::*, ownership::*, sum::Sum};
+use vstd::{atomic::*, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, raw_ptr::ExposedPointsTo, sum::Sum};
 
 use crate::specs::{
     arch::*,
@@ -33,7 +33,7 @@ impl MetaSlot {
     /// The relation between the [`MetaSlot`] permission and a metadata permission fraction.
     #[verifier::inline]
     pub open spec fn perms_related(
-        slot_perm: PointsTo<MetaSlot>,
+        slot_perm: ExposedPointsTo<MetaSlot>,
         metadata_perm: MetadataPerm,
     ) -> bool {
         &&& metadata_perm.storage_perm.is_init()
@@ -134,7 +134,7 @@ impl MetaSlot {
         rc_perm.value() >= REF_COUNT_MAX
     }
 
-    pub open spec fn frame_paddr_safety_cond(perm: PointsTo<MetaSlot>) -> bool {
+    pub open spec fn frame_paddr_safety_cond(perm: ExposedPointsTo<MetaSlot>) -> bool {
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end
         &&& perm.addr() % META_SLOT_SIZE == 0
     }

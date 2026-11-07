@@ -2,13 +2,14 @@
 //! A contiguous range of frames.
 use vstd::{
     prelude::*,
-    simple_pptr::{PPtr, PointsTo},
     std_specs::{
         convert::FromSpecImpl,
         iter::{IteratorSpec, IteratorSpecImpl},
     },
 };
-use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
+use vstd_extra::{
+    assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*, raw_ptr::ExposedPointsTo,
+};
 
 use crate::specs::{
     arch::*,
@@ -567,7 +568,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         self.tracked_perms@ is Some
     }
 
-    pub open spec fn slot_perms(&self) -> Seq<&'static PointsTo<MetaSlot>> {
+    pub open spec fn slot_perms(&self) -> Seq<&'static ExposedPointsTo<MetaSlot>> {
         self.raw_perms().map_values(|perm: FrameRawPerms| perm.slot_perm)
     }
 }
@@ -763,6 +764,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 assert(paddr == (self.range.start + perm_idx * PAGE_SIZE) as usize);
+                assert(regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX ==> may_panic()) by {
+                    if regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX {
+                        assert(self.page_in_range_saturated(range, *old(regions)));
+                    }
+                }
             }
 
             let tracked_permission = unsafe {
@@ -941,12 +947,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
         Seq::new(
             self.metadata_perms().len() as nat,
             |i: int|
-                {
-                    Frame::<M>::from_raw_spec(
-                        (self.range().start + i * PAGE_SIZE) as usize,
-                        self.slot_perms()[i],
-                        Some(self.metadata_perms()[i]),
-                    )
+                { Frame::<M>::from_perms_spec(self.slot_perms()[i], Some(self.metadata_perms()[i]))
                 },
         )
     }
@@ -963,8 +964,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
         if 0 <= index < self.metadata_perms().len() {
             Some(
-                Frame::<M>::from_raw_spec(
-                    (self.range().start + index * PAGE_SIZE) as usize,
+                Frame::<M>::from_perms_spec(
                     self.slot_perms()[index],
                     Some(self.metadata_perms()[index]),
                 ),

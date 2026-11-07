@@ -77,8 +77,7 @@ impl<C: PageTableConfig> Child<C> {
             Self::Frame(pte.paddr(), level, pte.prop())
         } else {
             Self::PageTable(
-                PageTableNode::from_raw_spec(
-                    pte.paddr(),
+                PageTableNode::from_perms_spec(
                     regions.slots[frame_to_index(pte.paddr())],
                     permission,
                 ),

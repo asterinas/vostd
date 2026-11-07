@@ -2,7 +2,6 @@ use vstd::{
     cell::{self, pcell_maybe_uninit},
     prelude::*,
     resource::Loc,
-    simple_pptr::*,
 };
 use vstd_extra::{array_ptr, ownership::*};
 
