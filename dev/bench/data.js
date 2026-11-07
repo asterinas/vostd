@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793863030740,
+  "lastUpdate": 1794055718788,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -9744,6 +9744,90 @@ window.BENCHMARK_DATA = {
             "value": 2027793,
             "unit": "rlimit",
             "extra": "smt-run=690ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e4b202d69d1eb706a5fec2f8c3f26f03f841893",
+          "message": "Use raw pointer in `Frame` (#892)\n\n* Use raw pointer in `Frame`\n\n* more\n\n* fmt\n\n* minor\n\n* refine\n\n* fmt\n\n* fix `NonNullPtr` for Frame\n\n* fmt\n\n* Update frame_ref.rs\n\n* fix: error in split_while_huge_lemmas in risc-v/loongarch\n\n---------\n\nCo-authored-by: Marsman1996 <lqliuyuwei@outlook.com>",
+          "timestamp": "2026-11-07T20:29:05+08:00",
+          "tree_id": "7c284965c5abc178c65cd28268a409956dff8a8a",
+          "url": "https://github.com/asterinas/vostd/commit/8e4b202d69d1eb706a5fec2f8c3f26f03f841893"
+        },
+        "date": 1794055717991,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1016760822,
+            "unit": "rlimit",
+            "extra": "verified=4311 errors=0 smt-run=268,571ms wall=177,327ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 409862457,
+            "unit": "rlimit",
+            "extra": "smt-run=130,527ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 97497722,
+            "unit": "rlimit",
+            "extra": "smt-run=34,417ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 77978304,
+            "unit": "rlimit",
+            "extra": "smt-run=17,741ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8778479,
+            "unit": "rlimit",
+            "extra": "smt-run=1,316ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=996ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=860ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=604ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2036235,
+            "unit": "rlimit",
+            "extra": "smt-run=468ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=511ms"
           }
         ]
       }
