@@ -31,7 +31,7 @@ mod child_specs;
 #[path = "../../../../specs/mm/page_table/node/entry.rs"]
 mod entry_specs;
 
-use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*, simple_pptr::PPtr};
+use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*};
 use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
