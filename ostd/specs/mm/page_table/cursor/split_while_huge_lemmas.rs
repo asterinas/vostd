@@ -489,6 +489,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
             vstd::arithmetic::div_mod::lemma_div_nonincreasing(ps as int, ns);
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ns, count);
 
             vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
             lemma_mul_is_distributive_add_other_way(ns, k, 1);
