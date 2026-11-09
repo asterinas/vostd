@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-use crate::{sync::GuardTransfer /*, task::atomic_mode::InAtomicMode*/};
+use crate::{
+    sync::GuardTransfer,
+    trap::irq::{disable_local, DisabledLocalIrqGuard},
+};
 
 #[cfg(feature = "irc11")]
 use {
@@ -92,51 +95,48 @@ impl RunningTaskContext {
 }
 
 } // verus!
-/// A guard for disable preempt.
+/// A guard that prevents preemption until it is dropped.
+///
+/// The task scheduler and its CPU-local preemption count are not active yet.
+/// Until they are restored, this guard masks local IRQs, including the timer
+/// interrupt that could request preemption.
+/// Nested guards must be dropped in reverse order.
 #[verus_verify]
 #[clippy::has_significant_drop]
 #[must_use]
 #[derive(Debug)]
 pub struct DisabledPreemptGuard {
-    // This private field prevents user from constructing values of this type directly.
-    _private: (),
+    irq_guard: DisabledLocalIrqGuard,
 }
 
 impl !Send for DisabledPreemptGuard {}
 
-// Required by `InAtomicMode`. See the safety section of its doc comments.
 impl !Sync for DisabledPreemptGuard {}
 
-/*
-// SAFETY: The guard disables preemptions, which meets the second
-// sufficient condition for atomic mode.
-unsafe impl InAtomicMode for DisabledPreemptGuard {}
+verus! {
 
 impl DisabledPreemptGuard {
-    fn new() -> Self {
-        super::cpu_local::inc_guard_count();
-        Self { _private: () }
+    /// Whether this guard will restore local IRQs when dropped.
+    pub closed spec fn restores_irqs_spec(self) -> bool {
+        self.irq_guard.was_enabled_spec()
     }
 }
-*/
-#[verus_verify]
+
 impl GuardTransfer for DisabledPreemptGuard {
-    #[verifier::external_body]
-    fn transfer_to(&mut self) -> Self {
-        disable_preempt()
+    fn transfer_to(&mut self) -> (ret: Self)
+        ensures
+            ret.restores_irqs_spec() == old(self).restores_irqs_spec(),
+            !final(self).restores_irqs_spec(),
+    {
+        Self { irq_guard: self.irq_guard.transfer_to() }
     }
 }
 
-/*
-impl Drop for DisabledPreemptGuard {
-    fn drop(&mut self) {
-        super::cpu_local::dec_guard_count();
-    }
-} */
-
+} // verus!
 /// Disables preemption.
-#[verifier::external_body]
+#[verus_verify]
 pub fn disable_preempt() -> DisabledPreemptGuard {
-    // DisabledPreemptGuard::new()
-    unimplemented!()
+    DisabledPreemptGuard {
+        irq_guard: disable_local(),
+    }
 }

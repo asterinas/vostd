@@ -198,9 +198,9 @@ verus! {
 
 /// Disables all IRQs on the current CPU (i.e., locally).
 ///
-/// This function returns a guard object, which will automatically enable local IRQs again when
-/// it is dropped. This function works correctly even when it is called in a _nested_ way.
-/// The local IRQs shall only be re-enabled when the most outer guard is dropped.
+/// This function returns a guard object, which restores the prior local IRQ
+/// state when dropped. Nested guards must be dropped in reverse order; local
+/// IRQs are re-enabled when the outermost guard is dropped.
 ///
 /// This function can play nicely with [`SpinLock`] as the type uses this function internally.
 /// One can invoke this function even after acquiring a spin lock. And the reversed order is also ok.
@@ -274,13 +274,13 @@ impl GuardTransfer for DisabledLocalIrqGuard {
 }
 
 } // verus!
-/*impl Drop for DisabledLocalIrqGuard {
+impl Drop for DisabledLocalIrqGuard {
     fn drop(&mut self) {
         if self.was_enabled {
             irq::enable_local();
         }
     }
-} */
+}
 #[cfg(ktest)]
 mod test {
     use super::*;

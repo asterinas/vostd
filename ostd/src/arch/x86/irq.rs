@@ -83,14 +83,20 @@ pub(crate) fn enable_local_and_halt() {
     };
 } */
 
+/// Enables maskable interrupts on this CPU.
+pub(crate) fn enable_local() {
+    // The instruction wrapper includes a NOP after STI.
+    x86_64::instructions::interrupts::enable();
+}
+
 pub(crate) fn disable_local() {
-    // x86_64::instructions::interrupts::disable();
-    unimplemented!()
+    x86_64::instructions::interrupts::disable();
 }
 
 pub(crate) fn is_local_enabled() -> bool {
-    // (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
-    unimplemented!()
+    use x86_64::registers::rflags::{self, RFlags};
+
+    (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
 }
 
 // ####### Inter-Processor Interrupts (IPIs) #######

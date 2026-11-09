@@ -6,6 +6,12 @@
 //! transfers those resources to the task. Runtime CPU-local access temporarily
 //! opens the owner into a linear [`CpuCoreOwnerHandle`] and its typed local
 //! state, then restores that state before returning the owner to the scheduler.
+//!
+//! Local IRQ guard transitions model both `DisabledLocalIrqGuard` and the
+//! current `DisabledPreemptGuard`, which owns an IRQ guard. The executable
+//! guard constructors, `Drop`, and hardware instructions are not yet tied to
+//! this proof state; callers must establish that link before using the model
+//! as an end-to-end guarantee.
 use vstd::{prelude::*, resource::Loc};
 use vstd_extra::resource::ghost_resource::excl::ExclusiveGhost;
 
@@ -25,6 +31,56 @@ pub ghost struct CpuCoreOwnerView {
     pub current_task: Option<Loc>,
     /// Ordered identities of the CPU-local resources assigned to this core.
     pub locals_key: Seq<Loc>,
+    /// Whether maskable local interrupts are enabled on this CPU.
+    pub irq_enabled: bool,
+    /// Number of outstanding local IRQ guards on this CPU.
+    pub irq_guard_depth: nat,
+}
+
+/// Linear proof of one outstanding local IRQ guard on a particular CPU.
+///
+/// The recorded state belongs to the CPU, not to the task currently running
+/// on it. The depth enforces reverse-order release of nested guards.
+pub tracked struct LocalIrqGuardToken {
+    /// Unique release obligation, moved rather than copied on transfer.
+    nonce: ExclusiveGhost<()>,
+    ghost core_id: Loc,
+    ghost cpu: CpuId,
+    ghost depth: nat,
+    ghost was_enabled: bool,
+}
+
+impl LocalIrqGuardToken {
+    /// CPU core that issued this guard.
+    pub closed spec fn core_id(&self) -> Loc {
+        self.core_id
+    }
+
+    /// CPU on which this guard must be released.
+    pub closed spec fn cpu(&self) -> CpuId {
+        self.cpu
+    }
+
+    /// Nesting depth before this guard was acquired.
+    pub closed spec fn depth(&self) -> nat {
+        self.depth
+    }
+
+    /// Local IRQ state captured when this guard was acquired.
+    pub closed spec fn was_enabled(&self) -> bool {
+        self.was_enabled
+    }
+
+    /// Moves the unique release obligation to a replacement guard.
+    pub proof fn tracked_transfer(tracked self) -> (tracked res: Self)
+        ensures
+            res.core_id() == self.core_id(),
+            res.cpu() == self.cpu(),
+            res.depth() == self.depth(),
+            res.was_enabled() == self.was_enabled(),
+    {
+        self
+    }
 }
 
 /// A typed collection of resources that belongs permanently to one CPU.
@@ -124,7 +180,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
 
     /// Internal validity of the exclusive core state.
     pub closed spec fn wf(&self) -> bool {
-        self.state.wf()
+        self.state.wf() && (self@.irq_guard_depth > 0 ==> !self@.irq_enabled)
     }
 
     /// Ordered resource identities expected when restoring the core.
@@ -151,7 +207,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
 
 impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
     /// Creates an idle core with its permanent CPU-local resource aggregate.
-    pub proof fn new(cpu: CpuId, tracked locals: L) -> (tracked res: Self)
+    pub proof fn new(cpu: CpuId, tracked locals: L, irq_enabled: bool) -> (tracked res: Self)
         requires
             locals.belongs_to_cpu(cpu),
         ensures
@@ -159,10 +215,18 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             res.is_idle(),
             res.wf(),
             res.locals() == locals,
+            res.irq_enabled() == irq_enabled,
+            res.irq_guard_depth() == 0,
     {
         let ghost locals_key = locals.local_key();
         let tracked state = ExclusiveGhost::alloc(
-            CpuCoreOwnerView { cpu, current_task: None, locals_key },
+            CpuCoreOwnerView {
+                cpu,
+                current_task: None,
+                locals_key,
+                irq_enabled,
+                irq_guard_depth: 0,
+            },
         );
         let tracked handle = CpuCoreOwnerHandle { state, marker: PhantomData };
         CpuCoreOwner { handle, locals }
@@ -198,11 +262,86 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
         self.handle.expected_locals_key()
     }
 
+    /// Whether this CPU currently accepts maskable local interrupts.
+    pub closed spec fn irq_enabled(&self) -> bool {
+        self@.irq_enabled
+    }
+
+    /// Number of local IRQ guards that have not yet been released.
+    pub closed spec fn irq_guard_depth(&self) -> nat {
+        self@.irq_guard_depth
+    }
+
     /// The core identity is valid and every local resource belongs to its CPU.
     pub closed spec fn wf(&self) -> bool {
         &&& self.handle.wf()
         &&& self.locals().belongs_to_cpu(self.cpu())
         &&& self.locals().local_key() == self.locals_key()
+    }
+
+    /// Models acquiring a local IRQ guard and masking local interrupts.
+    pub proof fn tracked_disable_local(tracked &mut self) -> (tracked guard: LocalIrqGuardToken)
+        requires
+            old(self).wf(),
+        ensures
+            final(self).wf(),
+            final(self).id() == old(self).id(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).current_task() == old(self).current_task(),
+            final(self).locals() == old(self).locals(),
+            guard.core_id() == old(self).id(),
+            guard.cpu() == old(self).cpu(),
+            guard.depth() == old(self).irq_guard_depth(),
+            guard.was_enabled() == old(self).irq_enabled(),
+            final(self).irq_guard_depth() == old(self).irq_guard_depth() + 1,
+            !final(self).irq_enabled(),
+    {
+        let tracked guard = LocalIrqGuardToken {
+            nonce: ExclusiveGhost::alloc(()),
+            core_id: self.id(),
+            cpu: self.cpu(),
+            depth: self.irq_guard_depth(),
+            was_enabled: self.irq_enabled(),
+        };
+        let ghost next = CpuCoreOwnerView {
+            cpu: self.cpu(),
+            current_task: self.current_task(),
+            locals_key: self.locals_key(),
+            irq_enabled: false,
+            irq_guard_depth: self.irq_guard_depth() + 1,
+        };
+        self.handle.state.update(next);
+        guard
+    }
+
+    /// Models dropping the most recently acquired local IRQ guard.
+    ///
+    /// The hardware `Drop` implementation is outside Verus; this transition
+    /// records the state it must establish when it is connected to the model.
+    pub proof fn tracked_restore_local(tracked &mut self, tracked guard: LocalIrqGuardToken)
+        requires
+            old(self).wf(),
+            guard.core_id() == old(self).id(),
+            guard.cpu() == old(self).cpu(),
+            guard.depth() + 1 == old(self).irq_guard_depth(),
+            guard.depth() > 0 ==> !guard.was_enabled(),
+        ensures
+            final(self).wf(),
+            final(self).id() == old(self).id(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).current_task() == old(self).current_task(),
+            final(self).locals() == old(self).locals(),
+            final(self).irq_guard_depth() == guard.depth(),
+            final(self).irq_enabled() == guard.was_enabled(),
+    {
+        let ghost next = CpuCoreOwnerView {
+            cpu: self.cpu(),
+            current_task: self.current_task(),
+            locals_key: self.locals_key(),
+            irq_enabled: guard.was_enabled(),
+            irq_guard_depth: guard.depth(),
+        };
+        self.handle.state.update(next);
     }
 
     /// Associates a task with an idle CPU core.
@@ -216,12 +355,16 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).current_task() == Some(task),
             final(self).locals() == old(self).locals(),
             final(self).locals_key() == old(self).locals_key(),
+            final(self).irq_enabled() == old(self).irq_enabled(),
+            final(self).irq_guard_depth() == old(self).irq_guard_depth(),
             final(self).wf(),
     {
         let ghost next = CpuCoreOwnerView {
             cpu: self.cpu(),
             current_task: Some(task),
             locals_key: self.locals_key(),
+            irq_enabled: self.irq_enabled(),
+            irq_guard_depth: self.irq_guard_depth(),
         };
         self.handle.state.update(next);
     }
@@ -238,6 +381,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).is_idle(),
             final(self).locals() == old(self).locals(),
             final(self).locals_key() == old(self).locals_key(),
+            final(self).irq_enabled() == old(self).irq_enabled(),
+            final(self).irq_guard_depth() == old(self).irq_guard_depth(),
             final(self).wf(),
     {
         let task = self.current_task()->0;
@@ -245,9 +390,33 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             cpu: self.cpu(),
             current_task: None,
             locals_key: self.locals_key(),
+            irq_enabled: self.irq_enabled(),
+            irq_guard_depth: self.irq_guard_depth(),
         };
         self.handle.state.update(next);
         task
+    }
+
+    /// Models a timer interrupt preempting the current task.
+    ///
+    /// Masked local interrupts cannot enter this transition. Voluntary
+    /// scheduling uses `tracked_schedule_out` and has separate preconditions.
+    pub proof fn tracked_timer_preempt(tracked &mut self) -> (task: Loc)
+        requires
+            old(self).wf(),
+            !old(self).is_idle(),
+            old(self).irq_enabled(),
+        ensures
+            old(self).current_task() == Some(task),
+            final(self).id() == old(self).id(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).is_idle(),
+            final(self).locals() == old(self).locals(),
+            final(self).irq_enabled(),
+            final(self).irq_guard_depth() == 0,
+            final(self).wf(),
+    {
+        self.tracked_schedule_out()
     }
 
     /// Temporarily separates the typed CPU-local state from the core handle.
@@ -279,7 +448,7 @@ proof fn cpu_core_owns_cpu_local_points_to<V>(initial: Map<CpuId, V>, cpu: CpuId
 {
     let tracked (mut auth, mut points_to_set) = CpuLocalAuth::new(initial);
     let tracked points_to = points_to_set.tracked_take(cpu);
-    let tracked mut core = CpuCoreOwner::new(cpu, points_to);
+    let tracked mut core = CpuCoreOwner::new(cpu, points_to, true);
 
     let ghost task = auth.id();
     core.tracked_schedule_in(task);
@@ -295,6 +464,46 @@ proof fn cpu_core_owns_cpu_local_points_to<V>(initial: Map<CpuId, V>, cpu: CpuId
     let finished_task = core.tracked_schedule_out();
     assert(finished_task == task);
     assert(core.is_idle());
+}
+
+/// Regression proof for nested IRQ masking, transfer, LIFO restoration, and
+/// the timer-preemption gate. It covers both initially enabled and disabled IRQs.
+proof fn nested_local_irq_guards_restore_state<L: CpuCoreLocalState>(
+    cpu: CpuId,
+    tracked locals: L,
+    task: Loc,
+    initially_enabled: bool,
+)
+    requires
+        locals.belongs_to_cpu(cpu),
+{
+    let tracked mut core = CpuCoreOwner::new(cpu, locals, initially_enabled);
+    core.tracked_schedule_in(task);
+
+    let tracked outer = core.tracked_disable_local();
+    assert(!core.irq_enabled());
+    assert(core.irq_guard_depth() == 1);
+    assert(outer.was_enabled() == initially_enabled);
+
+    let tracked inner = core.tracked_disable_local();
+    assert(!inner.was_enabled());
+    assert(core.irq_guard_depth() == 2);
+    let tracked inner = inner.tracked_transfer();
+    core.tracked_restore_local(inner);
+    assert(!core.irq_enabled());
+    assert(core.irq_guard_depth() == 1);
+
+    core.tracked_restore_local(outer);
+    assert(core.irq_guard_depth() == 0);
+    assert(core.irq_enabled() == initially_enabled);
+
+    if initially_enabled {
+        let preempted = core.tracked_timer_preempt();
+        assert(preempted == task);
+    } else {
+        let switched = core.tracked_schedule_out();
+        assert(switched == task);
+    }
 }
 
 } // verus!
