@@ -199,13 +199,9 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
             core::mem::align_of::<MetaSlot>() == 1usize << Self::ALIGN_BITS,
     {
         MetaSlot::lemma_layout();
-        assert(Self::ALIGN_BITS == 3);
-        assert(core::mem::align_of::<MetaSlot>() == 8);
         assert(1usize << 3 == 8) by (bit_vector);
     }
 
-    // Raw frame handles require a valid slot; metadata access and explicit drop
-    // additionally require `Frame::inv`, propagated conditionally by `rel_perm`.
     open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
         &&& ptr.cast_const().cast::<MetaSlot>() == perm.slot_perm.ptr()
         &&& valid_slot_vaddr(perm.slot_vaddr())
