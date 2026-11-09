@@ -86,7 +86,6 @@ closed spec fn retired_pools_inv<P: NonNullPtr>(retired: RcuRetiredPools<P>) -> 
             &&& !(entry.0@).is_null()
             &&& entry.1.id() == id
             &&& P::ptr_perm_match(entry.0@, entry.1@)
-            &&& entry.1@.inv()
             &&& entry.1.wf()
             &&& entry.1.not_empty()
         }
@@ -97,7 +96,6 @@ closed spec fn returned_tokens_inv<P: NonNullPtr>(returned: RcuReturnedTokens<P>
         returned.contains_key(id) ==> {
             let token = returned[id];
             &&& token.id() == id
-            &&& token.resource().inv()
             &&& token.frac() > 0
         }
 }
@@ -207,7 +205,6 @@ closed spec fn wf(self) -> bool {
             Some(perm) => {
                 &&& !v.is_null()
                 &&& P::ptr_perm_match(v, perm@)
-                &&& perm@.inv()
                 &&& perm.wf()
                 &&& perm.not_empty()
             },
@@ -364,7 +361,6 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 Some(perm) => {
                     &&& !obj_ptr.is_null()
                     &&& P::ptr_perm_match(obj_ptr, perm.resource())
-                    &&& perm.resource().inv()
                     &&& perm.frac() == 1
                 },
                 None => obj_ptr.is_null(),
@@ -388,7 +384,6 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                         assert(loaded == prev);
                         assert(!loaded.is_null());
                         assert(P::ptr_perm_match(loaded, perm@));
-                        assert(perm@.inv());
                     let ghost perm_snapshot = perm@;
 
                     // Verification-only admission for the bounded read-token pool.
@@ -660,15 +655,12 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                         if prev == obj_ptr && pool.id() == id {
                             assert(!obj_ptr.is_null());
                             assert(P::ptr_perm_match(obj_ptr, token.resource()));
-                            assert(token.resource().inv());
                             assert(token.frac() == 1);
                             assert(P::ptr_perm_match(prev, pool@));
-                            assert(pool@.inv());
                             assert(pool.wf());
                             assert(pool.not_empty());
                             pool.combine(token);
                             assert(P::ptr_perm_match(prev, pool@));
-                            assert(pool@.inv());
                             assert(pool.wf());
                             assert(pool.not_empty());
                             g.current = Some(pool);
@@ -679,12 +671,10 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                                 let tracked mut pool = entry.1;
                                 assert(pool.id() == id);
                                 assert(P::ptr_perm_match(entry.0@, pool@));
-                                assert(pool@.inv());
                                 assert(pool.wf());
                                 assert(pool.not_empty());
                                 pool.combine(token);
                                 assert(P::ptr_perm_match(entry.0@, pool@));
-                                assert(pool@.inv());
                                 assert(pool.wf());
                                 assert(pool.not_empty());
                                 g.retired.tracked_insert(id, (entry.0, pool));
@@ -698,12 +688,10 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                             let tracked mut pool = entry.1;
                             assert(pool.id() == id);
                             assert(P::ptr_perm_match(entry.0@, pool@));
-                            assert(pool@.inv());
                             assert(pool.wf());
                             assert(pool.not_empty());
                             pool.combine(token);
                             assert(P::ptr_perm_match(entry.0@, pool@));
-                            assert(pool@.inv());
                             assert(pool.wf());
                             assert(pool.not_empty());
                             g.retired.tracked_insert(id, (entry.0, pool));
@@ -716,7 +704,6 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                     Some(pool) => {
                         assert(!prev.is_null());
                         assert(P::ptr_perm_match(prev, pool@));
-                        assert(pool@.inv());
                         assert(pool.wf());
                         assert(pool.not_empty());
                     },
@@ -1119,7 +1106,6 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
             Some(perm) => {
                 &&& !self.obj_ptr.is_null()
                 &&& P::ptr_perm_match(self.obj_ptr, perm.resource())
-                &&& perm.resource().inv()
                 &&& perm.frac() == 1
             },
             None => self.obj_ptr.is_null(),

@@ -245,13 +245,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
     }
 
     open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
-        true
-    }
-
-    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
-        match perm {
-            Sum::Left(left) => L::lemma_ref_perm_inv_impl_perm_inv(left),
-            Sum::Right(right) => R::lemma_ref_perm_inv_impl_perm_inv(right),
+        match (r, perm) {
+            (Either::Left(r), Sum::Left(perm)) => L::ref_rel_perm(r, perm),
+            (Either::Right(r), Sum::Right(perm)) => R::ref_rel_perm(r, perm),
+            _ => false,
         }
     }
 
@@ -353,7 +350,6 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 let (ptr, Tracked(perm)) = L::ref_as_raw(left);
                 proof! {
                     let ghost ptr_addr = ptr.as_ptr().addr();
-                    L::lemma_ref_perm_inv_impl_perm_inv(perm);
                     let extra_bits: u32 = (l_align_bits - align_bits) as u32;
                     let scale = 1usize << extra_bits;
                     vstd::bits::lemma_usize_pow2_no_overflow(extra_bits as nat);
@@ -401,7 +397,6 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 proof! {
                     let ghost ptr_addr = ptr.as_ptr().addr();
                     let ghost tagged_addr = tagged_ptr.as_ptr().addr();
-                    R::lemma_ref_perm_inv_impl_perm_inv(perm);
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
                         tagged_addr == ptr_addr | tag,

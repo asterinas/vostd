@@ -45,10 +45,10 @@ pub unsafe trait NonNullPtr: Sized + 'static {
         Self: 'a;*/
     /// A verification-only permission type that represents the ownership of the memory managed by the pointer.
     #[cfg(not(feature = "irc11"))]
-    type Permission: Inv;
+    type Permission;
 
     #[cfg(feature = "irc11")]
-    type Permission: Inv + Objective;
+    type Permission: Objective;
 
     /// The power of two of the pointer alignment.
     const ALIGN_BITS: u32;
@@ -66,7 +66,6 @@ pub unsafe trait NonNullPtr: Sized + 'static {
         ensures
             Self::ptr_perm_match(res_ptr.as_ptr(), perm@),
             self.rel_perm(perm@),
-            perm@.inv(),
             res_ptr.as_ptr().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
 
@@ -88,7 +87,6 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<Self::Permission>) -> (ret: Self)
         requires
             Self::ptr_perm_match(ptr.as_ptr(), perm@),
-            perm@.inv(),
         ensures
             ret.rel_perm(perm@),
     ;
@@ -123,7 +121,7 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
     type Ref: 'a;
 
     /// A verification-only permission type that represents the reading permission of the memory managed by the pointer.
-    type RefPermission: Inv;
+    type RefPermission;
 
     /// The RefPermission must be able to be viewed as the owned Permission.
     spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission;
@@ -131,31 +129,17 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
     /// A specification function that relates the `Ref` type and the `RefPermission`.
     spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool;
 
-    /// The `RefPermission` must present the invariant of the `Permission`.
-    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission)
-        requires
-            perm.inv(),
-        ensures
-            Self::ref_perm_view_permission(perm).inv(),
-    ;
-
     /// Borrows a reusable reading permission from an existing reading permission.
     proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
         Self::RefPermission)
-        requires
-            perm.inv(),
         ensures
-            ret.inv(),
             Self::ref_perm_view_permission(ret) == Self::ref_perm_view_permission(*perm),
     ;
 
     /// Borrows a reusable reading permission from the owned permission.
     proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
         Self::RefPermission)
-        requires
-            perm.inv(),
         ensures
-            ret.inv(),
             Self::ref_perm_view_permission(ret) == *perm,
     ;
 
@@ -169,7 +153,6 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
         Self::Ref)
         requires
             Self::ptr_perm_match(raw.as_ptr(), Self::ref_perm_view_permission(perm@)),
-            perm@.inv(),
         ensures
             Self::ref_rel_perm(ret, perm@),
     ;
@@ -182,7 +165,6 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
         ensures
             Self::ref_rel_perm(ptr_ref, perm@),
             Self::ptr_perm_match(res_ptr.as_ptr(), Self::ref_perm_view_permission(perm@)),
-            perm@.inv(),
             res_ptr.as_ptr().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
 }
@@ -289,7 +271,8 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     }
 
     open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
-        ptr == perm.ptr()
+        &&& ptr == perm.ptr()
+        &&& perm.inv()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -311,9 +294,7 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
     open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
         &&& r.value() == perm@.value()
         &&& r.ptr() == perm@.ptr()
-    }
-
-    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
+        &&& perm.inv()
     }
 
     proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
@@ -443,7 +424,8 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }
 
     open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
-        ptr == perm.ptr()
+        &&& ptr == perm.ptr()
+        &&& perm.inv()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -463,10 +445,8 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Arc<T> {
     }
 
     open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
-        perm.view_target() == *r@
-    }
-
-    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
+        &&& perm.view_target() == *r@
+        &&& perm.inv()
     }
 
     proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
