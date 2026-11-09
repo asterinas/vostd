@@ -21,7 +21,10 @@ use super::{
     meta::{AnyFrameMeta, MetaSlot},
 };
 use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::mm::{Paddr, Vaddr,sync::non_null::{NonNullPtr, NonNullPtrRef}};
+use crate::{
+    mm::{Paddr, Vaddr},
+    sync::non_null::NonNullPtr,
+};
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 verus! {
@@ -142,6 +145,10 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     type Permission = FrameRawPerms;
 
+    type Ref<'a> = FrameRef<'a, M>;
+
+    type RefPermission<'a> = FrameRawPermsRef<'a>;
+
     /* Verus cannot verify the original trait-constant expression. `MetaSlot` has
      * alignment 8 on the supported targets, as checked by `lemma_align_bits_range`.
      * Origin Rust: const ALIGN_BITS: u32 = core::mem::align_of::<MetaSlot>().trailing_zeros();
@@ -211,64 +218,32 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         &&& self.ptr_inv()
         &&& perm.inv() ==> self.inv()
     }
-}
 
-pub tracked struct FrameRawPermsRef<'a> {
-    slot_perm: &'static ExposedPointsTo<MetaSlot>,
-    metadata_perm: Option<&'a FracMetadataPerm>,
-}
-
-impl View for FrameRawPermsRef<'_> {
-    type V = FrameRawPerms;
-
-    closed spec fn view(&self) -> FrameRawPerms {
-        FrameRawPerms {
-            slot_perm: self.slot_perm,
-            metadata_perm: match self.metadata_perm {
-                Some(permission) => *permission,
-                None => arbitrary(),
-            },
-        }
-    }
-}
-
-impl Inv for FrameRawPermsRef<'_> {
-    closed spec fn inv(self) -> bool {
-        self.metadata_perm is Some && self@.inv()
-    }
-}
-
-// SAFETY: The borrowed handle retains the raw pointer without dropping its frame.
-unsafe impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtrRef<'a> for Frame<M> {
-    type Ref = FrameRef<'a, M>;
-
-    type RefPermission = FrameRawPermsRef<'a>;
-
-    open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
+    open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
         perm@
     }
 
-    open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
+    open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
         r.inv() ==> {
             &&& perm.inv()
             &&& r@.rel_perm(perm@)
         }
     }
 
-    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
-        Self::RefPermission) {
+    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
+        Self::RefPermission<'a>) {
         FrameRawPermsRef { slot_perm: perm.slot_perm, metadata_perm: perm.metadata_perm }
     }
 
-    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission) {
+    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission<'a>) {
         FrameRawPermsRef { slot_perm: perm.slot_perm, metadata_perm: Some(&perm.metadata_perm) }
     }
 
-    unsafe fn raw_as_ref(
+    unsafe fn raw_as_ref<'a>(
         raw: NonNull<Self::Target>,
-        Tracked(permission): Tracked<Self::RefPermission>,
-    ) -> (res: Self::Ref)
+        Tracked(permission): Tracked<Self::RefPermission<'a>>,
+    ) -> (res: Self::Ref<'a>)
         ensures
             permission.inv() ==> res.inv(),
     {
@@ -289,9 +264,9 @@ unsafe impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtrRef
         }
     }
 
-    fn ref_as_raw(ptr_ref: Self::Ref) -> (res: (
+    fn ref_as_raw<'a>(ptr_ref: Self::Ref<'a>) -> (res: (
         NonNull<Self::Target>,
-        Tracked<Self::RefPermission>,
+        Tracked<Self::RefPermission<'a>>,
     ))
         ensures
             res.0.as_ptr().cast_const().cast::<MetaSlot>() == ptr_ref@.ptr,
@@ -318,6 +293,31 @@ unsafe impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtrRef
             metadata_perm,
         };
         (NonNull::new(ptr_ref.inner.ptr.cast_mut()).unwrap().cast(), Tracked(permission))
+    }
+}
+
+pub tracked struct FrameRawPermsRef<'a> {
+    slot_perm: &'static ExposedPointsTo<MetaSlot>,
+    metadata_perm: Option<&'a FracMetadataPerm>,
+}
+
+impl View for FrameRawPermsRef<'_> {
+    type V = FrameRawPerms;
+
+    closed spec fn view(&self) -> FrameRawPerms {
+        FrameRawPerms {
+            slot_perm: self.slot_perm,
+            metadata_perm: match self.metadata_perm {
+                Some(permission) => *permission,
+                None => arbitrary(),
+            },
+        }
+    }
+}
+
+impl Inv for FrameRawPermsRef<'_> {
+    closed spec fn inv(self) -> bool {
+        self.metadata_perm is Some && self@.inv()
     }
 }
 

@@ -30,7 +30,7 @@ use core::{
     */
 };
 
-use non_null::{NonNullPtr, NonNullPtrRef};
+use non_null::NonNullPtr;
 // use spin::once::Once;
 
 use self::monitor::{RcuMonitor, RcuMonitorInvariant, RcuMonitorPred};
@@ -431,7 +431,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     pub fn read_with<'a, A: InAtomicMode>(
         &'a self,
         _guard: &'a A,  // &'a dyn InAtomicMode is not well-supported in Verus.
-    ) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a> {
+    ) -> Option<P::Ref<'a>> {
         proof_decl! {
             let tracked mut tracked_ref_perm: Option<RcuReadToken<P>> = None;
         }
@@ -448,7 +448,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             // atomic-mode/CPU epoch state instead.
             let tracked tracked_ref_perm = tracked_ref_perm.tracked_unwrap();
             let tracked tracked_ref_perm = tracked_static_ref(tracked_ref_perm);
-            let tracked tracked_ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
+            let tracked tracked_ref_perm: P::RefPermission<'a> =
                 P::borrow_perm_as_ref_perm(tracked_ref_perm.tracked_borrow());
         }
         // SAFETY:
@@ -498,7 +498,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         ensures
             self.tracked_ref_perm@ is Some ==> r is Some,
     )]
-    fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref> where P: NonNullPtrRef<'b> {
+    fn get<'b>(&'b self) -> Option<P::Ref<'b>> {
         proof {
             use_type_invariant(self);
         }
@@ -756,7 +756,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
     }
     // #[inline]
     // pub fn read_with<'a, G: AsAtomicModeGuard + ?Sized>(&'a self, guard: &'a G) -> P::Ref<'a> where
-    //     P: NonNullPtrRef<'a>,
+    //     P: NonNullPtr,
     // {
     //     self.0.read_with(guard.as_atomic_mode_guard()).unwrap()
     // }
@@ -831,7 +831,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
 
     /// Gets the reference of the protected data.
     #[inline]
-    pub fn get<'a>(&'a self) -> <P as NonNullPtrRef<'a>>::Ref where P: NonNullPtrRef<'a> {
+    pub fn get<'a>(&'a self) -> P::Ref<'a> {
         proof {
             use_type_invariant(self);
         }
@@ -878,7 +878,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     }
 
     #[inline]
-    pub fn get<'a>(&'a self) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a> {
+    pub fn get<'a>(&'a self) -> Option<P::Ref<'a>> {
         self.0.get()
     }
 

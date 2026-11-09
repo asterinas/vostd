@@ -7,7 +7,7 @@ use vstd::{
 };
 use vstd_extra::{prelude::*, sum::Sum};
 
-use super::{NonNullPtr, NonNullPtrRef};
+use super::NonNullPtr;
 use crate::util::Either;
 use core::num::NonZeroUsize;
 use core::{marker::PhantomData, ptr::NonNull};
@@ -22,11 +22,11 @@ broadcast use {group_nonull_axioms, group_nonzero_axioms, group_raw_ptr_axioms};
 unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
-    // type Ref<'a>
-    //     = Either<L::Ref<'a>, R::Ref<'a>>
-    // where
-    //     Self: 'a;
     type Permission = Sum<L::Permission, R::Permission>;
+
+    type Ref<'a> = Either<L::Ref<'a>, R::Ref<'a>>;
+
+    type RefPermission<'a> = Sum<L::RefPermission<'a>, R::RefPermission<'a>>;
 
     #[verifier::external_body]
     const ALIGN_BITS: u32 = min(L::ALIGN_BITS, R::ALIGN_BITS).checked_sub(1).expect(
@@ -230,21 +230,15 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 R::ALIGN_BITS - 1
             },
     ;
-}
 
-unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> for Either<L, R> {
-    type Ref = Either<L::Ref, R::Ref>;
-
-    type RefPermission = Sum<L::RefPermission, R::RefPermission>;
-
-    open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
+    open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
         match perm {
             Sum::Left(left) => Sum::Left(L::ref_perm_view_permission(left)),
             Sum::Right(right) => Sum::Right(R::ref_perm_view_permission(right)),
         }
     }
 
-    open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
+    open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
         match (r, perm) {
             (Either::Left(r), Sum::Left(perm)) => L::ref_rel_perm(r, perm),
             (Either::Right(r), Sum::Right(perm)) => R::ref_rel_perm(r, perm),
@@ -252,8 +246,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
     }
 
-    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
-        Self::RefPermission) {
+    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
+        Self::RefPermission<'a>) {
         if perm is Left {
             Sum::Left(L::borrow_ref_perm(perm.tracked_borrow_left()))
         } else {
@@ -261,8 +255,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
     }
 
-    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission) {
+    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission<'a>) {
         if perm is Left {
             Sum::Left(L::borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
         } else {
@@ -270,10 +264,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
     }
 
-    unsafe fn raw_as_ref(
+    unsafe fn raw_as_ref<'a>(
         raw: NonNull<Self::Target>,
-        Tracked(perm): Tracked<Self::RefPermission>,
-    ) -> Self::Ref {
+        Tracked(perm): Tracked<Self::RefPermission<'a>>,
+    ) -> Self::Ref<'a> {
         proof_decl! {
             let ghost align_bits = Self::ALIGN_BITS;
             let ghost tag = 1usize << align_bits;
@@ -324,7 +318,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
     }
 
     #[verifier::spinoff_prover]
-    fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
+    fn ref_as_raw<'a>(ptr_ref: Self::Ref<'a>) -> (
+        NonNull<Self::Target>,
+        Tracked<Self::RefPermission<'a>>,
+    ) {
         proof!{
             Self::lemma_align_bits_range();
         }
