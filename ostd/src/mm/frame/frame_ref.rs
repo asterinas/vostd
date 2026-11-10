@@ -184,7 +184,6 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
      * Origin Rust: fn into_raw(self) -> NonNull<Self::Target> {
      */
     fn into_raw(mut self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
-        assume(self.inv());
         proof_decl! {
             let tracked perm = FrameRawPerms {
                 slot_perm: *self.tracked_slot_perm.borrow(),

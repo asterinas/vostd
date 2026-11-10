@@ -32,7 +32,7 @@ broadcast use {group_nonull_axioms, group_raw_ptr_axioms};
 ///
 /// [`Rcu`]: super::Rcu
 #[verus_verify]
-pub unsafe trait NonNullPtr: Sized + 'static {
+pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     /// The target type that this pointer refers to.
     // TODO: Support `Target: ?Sized`.
     type Target;
@@ -44,10 +44,10 @@ pub unsafe trait NonNullPtr: Sized + 'static {
 
     /// A verification-only permission type that represents the ownership of the memory managed by the pointer.
     #[cfg(not(feature = "irc11"))]
-    type Permission;
+    type Permission: Inv;
 
     #[cfg(feature = "irc11")]
-    type Permission: Objective;
+    type Permission: Inv + Objective;
 
     /// A verification-only permission type that represents the reading permission of the memory managed by the pointer.
     type RefPermission<'a>;
@@ -65,9 +65,12 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// `1 << Self::ALIGN_BITS`.
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     fn into_raw(self) -> ((res_ptr, perm): (NonNull<Self::Target>, Tracked<Self::Permission>))
+        requires
+            self.inv(),
         ensures
             Self::ptr_perm_match(res_ptr.as_ptr(), perm@),
             self.rel_perm(perm@),
+            perm@.inv(),
             res_ptr.as_ptr().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
 
@@ -89,8 +92,10 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<Self::Permission>) -> (ret: Self)
         requires
             Self::ptr_perm_match(ptr.as_ptr(), perm@),
+            perm@.inv(),
         ensures
             ret.rel_perm(perm@),
+            ret.inv(),
     ;
 
     /// A specification function that constraints the nonnull pointer and the permission returned by `into_raw`.

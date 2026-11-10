@@ -86,6 +86,7 @@ closed spec fn retired_pools_inv<P: NonNullPtr>(retired: RcuRetiredPools<P>) -> 
             &&& !(entry.0@).is_null()
             &&& entry.1.id() == id
             &&& P::ptr_perm_match(entry.0@, entry.1@)
+            &&& entry.1@.inv()
             &&& entry.1.wf()
             &&& entry.1.not_empty()
         }
@@ -96,6 +97,7 @@ closed spec fn returned_tokens_inv<P: NonNullPtr>(returned: RcuReturnedTokens<P>
         returned.contains_key(id) ==> {
             let token = returned[id];
             &&& token.id() == id
+            &&& token.resource().inv()
             &&& token.frac() > 0
         }
 }
@@ -205,6 +207,7 @@ closed spec fn wf(self) -> bool {
             Some(perm) => {
                 &&& !v.is_null()
                 &&& P::ptr_perm_match(v, perm@)
+                &&& perm@.inv()
                 &&& perm.wf()
                 &&& perm.not_empty()
             },
@@ -269,6 +272,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     #[verus_spec(r =>
         with
             Ghost(ghost_nullable): Ghost<bool>,
+        requires
+            pointer.inv(),
         ensures
             r.type_inv(),
             r.is_nullable() == ghost_nullable,
@@ -296,6 +301,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     #[verus_spec(
         requires
             self.is_nullable() || new_ptr is Some,
+            new_ptr.inv(),
     )]
     fn update(&self, new_ptr: Option<P>) {
         let (new_ptr, Tracked(new_perm)) = if let Some(new_ptr) = new_ptr {
@@ -361,6 +367,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 Some(perm) => {
                     &&& !obj_ptr.is_null()
                     &&& P::ptr_perm_match(obj_ptr, perm.resource())
+                    &&& perm.resource().inv()
                     &&& perm.frac() == 1
                 },
                 None => obj_ptr.is_null(),
@@ -529,8 +536,10 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
     #[verus_spec(r =>
         requires
             self.rcu.is_nullable() || new_ptr is Some,
+            new_ptr.inv(),
         ensures
             new_ptr is Some && r is Err ==> r->Err_0 is Some,
+            r matches Err(pointer) ==> pointer.inv(),
     )]
     fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
         let obj_ptr = self.obj_ptr;
@@ -721,7 +730,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
 #[verus_verify]
 impl<P: NonNullPtr + Send> Rcu<P> {
     /// Creates a new RCU primitive with the given pointer `pointer`.
-    #[verus_spec]
+    #[verus_spec(requires pointer.inv())]
     pub fn new(pointer: P) -> Self {
         Self(
             #[verus_spec(with Ghost(false))]
@@ -739,6 +748,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
     /// writes with locks. Otherwise, you can use [`Self::read`] and then
     /// [`RcuReadGuard::compare_exchange`] to update the pointer.
     #[inline]
+    #[verus_spec(requires new_ptr.inv())]
     pub fn update(&self, new_ptr: P) {
         self.0.update(Some(new_ptr));
     }
@@ -776,7 +786,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuOption<P> {
     /// Creates a new RCU primitive with the given pointer.
-    #[verus_spec]
+    #[verus_spec(requires pointer.inv())]
     pub fn new(pointer: Option<P>) -> Self {
         if let Some(pointer) = pointer {
             Self(
@@ -798,6 +808,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
     /// synchronized writes with locks. Otherwise, you can use [`Self::read`]
     /// and then [`RcuOptionReadGuard::compare_exchange`] to update the pointer.
     #[inline]
+    #[verus_spec(requires new_ptr.inv())]
     pub fn update(&self, new_ptr: Option<P>) {
         proof {
             use_type_invariant(self);
@@ -852,11 +863,18 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
     /// This API does not help to avoid
     /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
     #[inline]
+    #[verus_spec(r =>
+        requires new_ptr.inv(),
+        ensures r matches Err(pointer) ==> pointer.inv(),
+    )]
     pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
         self.0.compare_exchange(Some(new_ptr)).map_err(
-            |err|
+            |err| -> (pointer: P)
                 requires
                     err is Some,
+                    err.inv(),
+                ensures
+                    pointer.inv(),
                 { err.unwrap() },
         )
     }
@@ -888,6 +906,10 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     }
 
     #[inline]
+    #[verus_spec(r =>
+        requires new_ptr.inv(),
+        ensures r matches Err(pointer) ==> pointer.inv(),
+    )]
     pub fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
         proof {
             use_type_invariant(&self);
@@ -1106,6 +1128,7 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
             Some(perm) => {
                 &&& !self.obj_ptr.is_null()
                 &&& P::ptr_perm_match(self.obj_ptr, perm.resource())
+                &&& perm.resource().inv()
                 &&& perm.frac() == 1
             },
             None => self.obj_ptr.is_null(),
