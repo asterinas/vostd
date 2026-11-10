@@ -42,30 +42,33 @@ pub struct VirtPtr {
 /// Byte contents of one physical frame range tracked in a [`MemView`].
 ///
 /// This is the physical-memory side of the model: each frame base `Paddr` maps
-/// to a [`FrameContents`] value whose metadata (`size`, `range`) constrains how
+/// to a [`FrameContents`] value whose physical range constrains how
 /// `contents` can be interpreted.
 pub ghost struct FrameContents {
     /// Per-byte initialization/value state for this frame.
     pub contents: Seq<raw_ptr::MemContents<u8>>,
-    /// Frame size in bytes.
-    pub size: usize,
     /// Physical range covered by this frame, modeled as `[start, end)`.
     pub range: Range<Paddr>,
+}
+
+impl FrameContents {
+    /// The frame size in bytes, derived from its physical range.
+    pub open spec fn size(self) -> int {
+        self.range.end - self.range.start
+    }
 }
 
 impl Inv for FrameContents {
     /// Well-formedness invariant for [`FrameContents`].
     ///
     /// # Invariant
-    /// - `contents.len() == size`.
-    /// - `size == range.end - range.start`.
-    /// - `range.start` and `range.end` are aligned to `size`.
+    /// - `contents.len() == size()`.
+    /// - `range.start` and `range.end` are aligned to `size()`.
     /// - `range` is ordered and remains below [`MAX_PADDR`].
     open spec fn inv(self) -> bool {
-        &&& self.contents.len() == self.size@
-        &&& self.size@ == self.range.end - self.range.start
-        &&& self.range.start % self.size == 0
-        &&& self.range.end % self.size == 0
+        &&& self.contents.len() == self.size()
+        &&& (self.range.start as int) % self.size() == 0
+        &&& (self.range.end as int) % self.size() == 0
         &&& self.range.start <= self.range.end < MAX_PADDR
     }
 }
@@ -1031,7 +1034,7 @@ impl Inv for GlobalMemView {
                         &&& self.memory.dom().contains(pa)
                     }
                 &&& self.memory.contains_key(m.pa_range.start)
-                &&& self.memory[m.pa_range.start].size == m.page_size
+                &&& self.memory[m.pa_range.start].size() == m.page_size
                 &&& self.memory[m.pa_range.start].inv()
             }
         &&& forall|m: Mapping|
