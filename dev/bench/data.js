@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794301728259,
+  "lastUpdate": 1794318249373,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -10416,6 +10416,90 @@ window.BENCHMARK_DATA = {
             "value": 2027793,
             "unit": "rlimit",
             "extra": "smt-run=709ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db6611b8066458efe90f0bce701cccfd046ea833",
+          "message": "fix: NonNullPtr (#897)\n\n* use `NonNullPtr` in `sync`\n\n* remove `NonNullPtrRef`\n\n* minor\n\n* minor\n\n* add Inv back\n\n* Update frame_ref.rs\n\n* add Inv\n\n* minor",
+          "timestamp": "2026-11-10T21:36:54+08:00",
+          "tree_id": "f52baeef64dad9984d863679e926e37ac63a8222",
+          "url": "https://github.com/asterinas/vostd/commit/db6611b8066458efe90f0bce701cccfd046ea833"
+        },
+        "date": 1794318248817,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 971836089,
+            "unit": "rlimit",
+            "extra": "verified=4368 errors=0 smt-run=360,132ms wall=239,659ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 398510715,
+            "unit": "rlimit",
+            "extra": "smt-run=175,699ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83275612,
+            "unit": "rlimit",
+            "extra": "smt-run=29,485ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53622018,
+            "unit": "rlimit",
+            "extra": "smt-run=23,350ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8778479,
+            "unit": "rlimit",
+            "extra": "smt-run=2,472ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,736ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,624ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=984ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=795ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=918ms"
           }
         ]
       }
