@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The unique frame pointer that is not shared with others.
-use vstd::{prelude::*, simple_pptr::PPtr};
+use vstd::{
+    prelude::*,
+    simple_pptr::PPtr,
+    std_specs::fmt::{DebugSpecImpl, group_fmt_axioms},
+};
 use vstd_extra::{
     auxiliary::OptionExtraFns,
     cast_ptr::*,
@@ -44,12 +48,21 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Sync> Sync for U
 
 }
 
-/*
-impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> DebugSpecImpl for UniqueFrame<M> {
+    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
+        self.ptr_inv()
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> core::fmt::Debug for UniqueFrame<
+    M,
+> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        broadcast use group_fmt_axioms;
+
         write!(f, "UniqueFrame({:#x})", self.start_paddr())
     }
-}*/
+}
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
