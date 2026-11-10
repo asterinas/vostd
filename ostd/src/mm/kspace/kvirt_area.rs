@@ -23,8 +23,9 @@ use crate::specs::{
             is_valid_range_spec, *,
         },
     },
-    task::InAtomicMode,
 };
+
+use crate::task::disable_preempt;
 
 use super::{
     FRAME_METADATA_BASE_VADDR, KERNEL_BASE_VADDR, KERNEL_END_VADDR, KERNEL_PAGE_TABLE,
@@ -135,11 +136,6 @@ impl RangeAllocator {
     pub fn alloc(&self, size: usize) -> Result<core::ops::Range<Vaddr>, RangeAllocError> {
         unimplemented!()
     }
-}
-
-#[verifier::external_body]
-pub fn disable_preempt<'a, G: InAtomicMode + 'a>() -> &'a G {
-    unimplemented!()
 }
 
 exec static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
@@ -460,7 +456,7 @@ impl KVirtArea {
             // with `rc > 0` in the current regions. The runtime invariant of `Frame<M>`
             // implies this; the caller is responsible for projecting it into spec form.
             forall|i: int|
-                0 <= i < frames.len() ==> CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                0 <= i < frames.len() ==> CursorMut::<'a, KernelPtConfig>::item_slot_in_regions(
                     MappedItem::Tracked(#[trigger] frames[i], prop),
                     *old(regions),
                 ),
@@ -471,7 +467,7 @@ impl KVirtArea {
     )]
     #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
-    pub fn map_frames<'a, A: InAtomicMode + 'a>(
+    pub fn map_frames<'a>(
         area_size: usize,
         map_offset: usize,
         frames: alloc::vec::Vec<DynFrame>,
@@ -504,7 +500,7 @@ impl KVirtArea {
             #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
             get_kernel_page_table()
         };
-        let preempt_guard = disable_preempt::<A>();
+        let preempt_guard = disable_preempt();
 
         let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
@@ -514,13 +510,13 @@ impl KVirtArea {
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
         }
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
-        let cursor_res = page_table.cursor_mut(preempt_guard, &cursor_range);
+        let cursor_res = page_table.cursor_mut(&preempt_guard, &cursor_range);
 
         assert!(cursor_res.is_ok());
         let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
 
         proof {
-            CursorMut::<'a, KernelPtConfig, A>::lemma_all_item_slots_preserved(
+            CursorMut::<'a, KernelPtConfig>::lemma_all_item_slots_preserved(
                 pre_cursor_regions,
                 *regions,
             );
@@ -561,7 +557,6 @@ impl KVirtArea {
                     it.index() <= i < it.seq().len() ==> CursorMut::<
                         'a,
                         KernelPtConfig,
-                        A,
                     >::item_slot_in_regions(
                         MappedItem::Tracked(#[trigger] it.seq()[i], prop),
                         *regions,
@@ -606,17 +601,16 @@ impl KVirtArea {
                 assert forall|i: int| it.index() + 1 <= i < it.seq().len() implies CursorMut::<
                     'a,
                     KernelPtConfig,
-                    A,
                 >::item_slot_in_regions(
                     MappedItem::Tracked(#[trigger] it.seq()[i], prop),
                     *regions,
                 ) by {
                     let remaining = MappedItem::Tracked(it.seq()[i], prop);
-                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(
+                    CursorMut::<'a, KernelPtConfig>::lemma_item_slot_in_regions_facts(
                         remaining,
                         regions_before_map,
                     );
-                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_preserved(
+                    CursorMut::<'a, KernelPtConfig>::lemma_item_slot_in_regions_preserved(
                         remaining,
                         regions_before_map,
                         *regions,
@@ -740,7 +734,7 @@ impl KVirtArea {
     )]
     #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
-    pub unsafe fn map_untracked_frames<A: InAtomicMode + 'a, 'a>(
+    pub unsafe fn map_untracked_frames<'a>(
         area_size: usize,
         map_offset: usize,
         pa_range: Range<Paddr>,
@@ -767,7 +761,7 @@ impl KVirtArea {
                 #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
                 get_kernel_page_table()
             };
-            let preempt_guard = disable_preempt::<A>();
+            let preempt_guard = disable_preempt();
 
             proof {
                 lemma_page_size_spec_values();
@@ -775,7 +769,7 @@ impl KVirtArea {
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             }
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
-            let cursor_res = page_table.cursor_mut(preempt_guard, &va_range);
+            let cursor_res = page_table.cursor_mut(&preempt_guard, &va_range);
 
             let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
 
@@ -859,7 +853,7 @@ impl KVirtArea {
                     assert(cursor.item_wf(item, entry_owner)) by {
                         reveal(<CursorOwner<KernelPtConfig> as Inv>::inv);
                     };
-                    CursorMut::<'a, KernelPtConfig, A>::lemma_item_slot_in_regions_facts(
+                    CursorMut::<'a, KernelPtConfig>::lemma_item_slot_in_regions_facts(
                         item,
                         *regions,
                     );

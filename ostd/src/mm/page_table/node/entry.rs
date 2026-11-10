@@ -12,8 +12,9 @@ use crate::specs::{
         },
         page_table::{INC_LEVELS, PageTableOwner},
     },
-    task::InAtomicMode,
 };
+
+use crate::task::atomic_mode::InAtomicMode;
 
 use super::*;
 use crate::arch::mm::PagingConsts;
@@ -546,7 +547,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
     )]
     #[verifier::spinoff_prover]
-    pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
+    pub(in crate::mm) fn alloc_if_none(&mut self, guard: &'rcu dyn InAtomicMode) -> Option<
         PageTableGuard<'rcu, C>,
     > {
         let entry_is_present = self.pte.is_present();
@@ -792,7 +793,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     #[trigger] final(parent_owner).children_perm.value()[j]
                         == old(parent_owner).children_perm.value()[j],
     )]
-    pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
+    pub(in crate::mm) fn split_if_mapped_huge(&mut self, guard: &'rcu dyn InAtomicMode) -> Option<
         PageTableGuard<'rcu, C>,
     > {
         #[verus_spec(with Tracked(Some(regions.tracked_borrow_slot_owner(self.node.inner.start_paddr_spec()).metadata_perm.tracked_borrow())))]
@@ -1640,10 +1641,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
     )]
-    pub(in crate::mm) fn alloc_absent_child<A: InAtomicMode>(
+    pub(in crate::mm) fn alloc_absent_child(
         &mut self,
         idx: usize,
-        guard: &'rcu A,
+        guard: &'rcu dyn InAtomicMode,
     ) -> PageTableGuard<'rcu, C> {
         #[verus_spec(with Tracked(Some(regions.tracked_borrow_slot_owner(self.inner.start_paddr_spec()).metadata_perm.tracked_borrow())))]
         let level = self.level();

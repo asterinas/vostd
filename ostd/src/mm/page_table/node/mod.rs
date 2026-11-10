@@ -40,6 +40,8 @@ use crate::specs::mm::{
     page_table::node::owners::*,
 };
 
+use crate::task::atomic_mode::InAtomicMode;
+
 use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::mm::frame::{
     allocator::FrameAllocOptions,
@@ -50,17 +52,14 @@ use crate::mm::frame::{
 };
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr};
-use crate::{
-    mm::{
-        PagingConstsTrait,
-        PagingLevel,
-        //        FrameAllocOptions, Infallible,
-        //        VmReader,
-        frame::{Frame, FrameRef, meta::AnyFrameMeta},
-        paddr_to_vaddr,
-        page_table::{load_pte, store_pte},
-    },
-    specs::task::InAtomicMode,
+use crate::mm::{
+    PagingConstsTrait,
+    PagingLevel,
+    //        FrameAllocOptions, Infallible,
+    //        VmReader,
+    frame::{Frame, FrameRef, meta::AnyFrameMeta},
+    paddr_to_vaddr,
+    page_table::{load_pte, store_pte},
 };
 pub use child::*;
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
@@ -372,7 +371,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(self.slot_vaddr(), *old(guards), *final(guards)),
             res.inner == self,
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
+    pub fn lock<'rcu>(self, _guard: &'rcu dyn InAtomicMode) -> PageTableGuard<'rcu, C> where
         'a: 'rcu,
      {
         unimplemented!()
@@ -397,9 +396,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(self.slot_vaddr(), *old(guards), *final(guards)),
             res.inner == self,
     )]
-    pub unsafe fn make_guard_unchecked<'rcu, A: InAtomicMode>(
+    pub unsafe fn make_guard_unchecked<'rcu>(
         self,
-        _guard: &'rcu A,
+        _guard: &'rcu dyn InAtomicMode,
     ) -> PageTableGuard<'rcu, C> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
 

@@ -17,7 +17,7 @@ use vstd_extra::{
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
-use crate::specs::task::InAtomicMode;
+use crate::task::atomic_mode::InAtomicMode;
 
 use core::{
     marker::PhantomData, mem::ManuallyDrop, ops::Deref,
@@ -435,10 +435,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     }
 
     #[verus_spec(r => ensures r.inv())]
-    pub fn read_with<'a, A: InAtomicMode>(
-        &'a self,
-        _guard: &'a A,  // &'a dyn InAtomicMode is not well-supported in Verus.
-    ) -> Option<P::Ref<'a>> {
+    pub fn read_with<'a>(&'a self, _guard: &'a dyn InAtomicMode) -> Option<P::Ref<'a>> {
         proof_decl! {
             let tracked mut tracked_ref_perm: Option<RcuReadToken<P>> = None;
         }
