@@ -6,6 +6,7 @@ use vstd::{
         pcell::{self, *},
     },
     prelude::*,
+    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::{prelude::*, resource::ghost_resource::excl::*};
 
@@ -290,12 +291,17 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
     }
 }
 
-/* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
-    #[verifier::external_body]
+impl<T: fmt::Debug> DebugSpecImpl for MutexGuard<'_, T> {
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+
+impl<T: /*?Sized + */fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-} */
+}
 
 impl<T  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
 
