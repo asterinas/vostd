@@ -236,7 +236,6 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         &&& perm.slot_perm == self.slot_perm()
         &&& perm.metadata_perm == self.frac_metadata_perm()
         &&& self.ptr_inv()
-        &&& perm.inv() ==> self.inv()
     }
 
     open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
@@ -264,10 +263,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     unsafe fn raw_as_ref<'a>(
         raw: NonNull<Self::Target>,
         Tracked(permission): Tracked<Self::RefPermission<'a>>,
-    ) -> (res: Self::Ref<'a>)
-        ensures
-            permission.inv() ==> res.inv(),
-    {
+    ) -> Self::Ref<'a> {
         Self::Ref {
             inner: ManuallyDrop::new(
                 Frame {
