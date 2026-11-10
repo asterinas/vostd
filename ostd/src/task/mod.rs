@@ -7,6 +7,7 @@ mod kernel_stack; */
 mod preempt;
 // mod processor;
 pub mod scheduler;
+mod stack_size;
 /* mod utils;
 
 use core::{
