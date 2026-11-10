@@ -211,13 +211,7 @@ pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -
     let tracked list = Seq::<LinkOwner>::tracked_empty();
     let tracked repr_perms = Seq::<LinkInnerPerms<M>>::tracked_empty();
     let tracked metadata_perms = Seq::<MetadataPerm>::tracked_empty();
-    let tracked res = LinkedListOwner::<M> {
-        list,
-        repr_perms,
-        metadata_perms,
-        list_id: 0,
-        _marker: core::marker::PhantomData,
-    };
+    let tracked res = LinkedListOwner::<M> { list, repr_perms, metadata_perms, list_id: 0 };
     res
 }
 
