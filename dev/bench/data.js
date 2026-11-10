@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794299298578,
+  "lastUpdate": 1794301728259,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -10332,6 +10332,90 @@ window.BENCHMARK_DATA = {
             "value": 1451900,
             "unit": "rlimit",
             "extra": "smt-run=1,736ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24317fd3c8b086a637c239cf7c9f426b3c7e368d",
+          "message": "prove: several Debug Impls (#904)\n\n* prove: several Debug impls\n\n* Update mutex.rs\n\n* more\n\n* Update fmt.rs",
+          "timestamp": "2026-11-10T16:59:19+08:00",
+          "tree_id": "e6a30c4936f839fb39f329142d439ffd704a0967",
+          "url": "https://github.com/asterinas/vostd/commit/24317fd3c8b086a637c239cf7c9f426b3c7e368d"
+        },
+        "date": 1794301727600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1142722738,
+            "unit": "rlimit",
+            "extra": "verified=4367 errors=0 smt-run=472,606ms wall=299,511ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 428357402,
+            "unit": "rlimit",
+            "extra": "smt-run=233,195ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 216795755,
+            "unit": "rlimit",
+            "extra": "smt-run=40,057ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 88947765,
+            "unit": "rlimit",
+            "extra": "smt-run=36,893ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8778479,
+            "unit": "rlimit",
+            "extra": "smt-run=2,379ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,873ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,504ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=1,078ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2036235,
+            "unit": "rlimit",
+            "extra": "smt-run=869ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=709ms"
           }
         ]
       }
