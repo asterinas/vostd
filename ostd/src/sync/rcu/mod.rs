@@ -434,7 +434,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         }
     }
 
-    #[verus_spec]
+    #[verus_spec(r => ensures r.inv())]
     pub fn read_with<'a, A: InAtomicMode>(
         &'a self,
         _guard: &'a A,  // &'a dyn InAtomicMode is not well-supported in Verus.
@@ -464,9 +464,12 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         //    `'a`, the pointer is valid because other writers won't release the
         //    allocation until this task passes the quiescent state.
         NonNull::new(obj_ptr).map(
-            |ptr|
+            |ptr| -> (reference: P::Ref<'a>)
                 requires
                     P::ptr_perm_match(ptr.as_ptr(), P::ref_perm_view_permission(tracked_ref_perm)),
+                    tracked_ref_perm.inv(),
+                ensures
+                    reference.inv(),
                 {
                     unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) }
                 },
@@ -504,6 +507,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
     #[verus_spec(r =>
         ensures
             self.tracked_ref_perm@ is Some ==> r is Some,
+            r.inv(),
     )]
     fn get<'b>(&'b self) -> Option<P::Ref<'b>> {
         proof {
@@ -514,10 +518,13 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         // outlives the lifetime of `&self`. Additionally, during this period,
         // it is impossible to create a mutable reference to `P`.
         NonNull::new(self.obj_ptr).map(
-            |ptr|
+            |ptr| -> (reference: P::Ref<'b>)
                 requires
                     self.tracked_ref_perm@ is Some,
                     P::ptr_perm_match(ptr.as_ptr(), self.tracked_ref_perm->0.resource()),
+                    self.tracked_ref_perm->0.resource().inv(),
+                ensures
+                    reference.inv(),
                 {
                     unsafe {
                         P::raw_as_ref(
@@ -842,6 +849,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
 
     /// Gets the reference of the protected data.
     #[inline]
+    #[verus_spec(r => ensures r.inv())]
     pub fn get<'a>(&'a self) -> P::Ref<'a> {
         proof {
             use_type_invariant(self);
@@ -896,6 +904,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     }
 
     #[inline]
+    #[verus_spec(r => ensures r.inv())]
     pub fn get<'a>(&'a self) -> Option<P::Ref<'a>> {
         self.0.get()
     }

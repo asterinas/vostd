@@ -9,7 +9,7 @@ use vstd_extra::{
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
-        frame_specs::{FrameRawPerms, valid_slot_vaddr},
+        frame_specs::FrameRawPerms,
         mapping::meta_to_index,
         meta_owners::{FracMetadataPerm, MetaSlotStorage, MetadataPerm, typed_meta_wf},
         meta_region_owners::MetaRegionOwners,
@@ -227,15 +227,13 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     }
 
     open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
-        &&& ptr.cast_const().cast::<MetaSlot>() == perm.slot_perm.ptr()
-        &&& valid_slot_vaddr(perm.slot_vaddr())
-        &&& perm.slot_perm.is_init()
+        ptr.cast_const().cast::<MetaSlot>() == perm.slot_perm.ptr()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
         &&& perm.slot_perm == self.slot_perm()
-        &&& perm.metadata_perm == self.frac_metadata_perm()
-        &&& self.ptr_inv()
+        &&& self.tracked_metadata_perm@ == Some(perm.metadata_perm)
+        &&& self.ptr == perm.slot_perm.ptr()
     }
 
     open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
@@ -243,11 +241,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     }
 
     open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
-        &&& perm.inv() ==> r.inv()
-        &&& r.inv() ==> {
-            &&& perm.inv()
-            &&& r@.rel_perm(perm@)
-        }
+        r@.rel_perm(perm@)
     }
 
     proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:

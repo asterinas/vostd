@@ -40,7 +40,7 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     /// A type that behaves just like a shared reference to the owning pointer.
     /// `Self: 'a` is implied by `Self: 'static`; omit that redundant GAT where-clause
     /// because the current Verus translator rejects it in associated-type impls.
-    type Ref<'a>: 'a;
+    type Ref<'a>: Inv + 'a;
 
     /// A verification-only permission type that represents the ownership of the memory managed by the pointer.
     #[cfg(not(feature = "irc11"))]
@@ -50,7 +50,7 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     type Permission: Inv + Objective;
 
     /// A verification-only permission type that represents the reading permission of the memory managed by the pointer.
-    type RefPermission<'a>;
+    type RefPermission<'a>: Inv;
 
     /// The power of two of the pointer alignment.
     const ALIGN_BITS: u32;
@@ -120,15 +120,21 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     /// Borrows a reusable reading permission from an existing reading permission.
     proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
         Self::RefPermission<'a>)
+        requires
+            perm.inv(),
         ensures
             Self::ref_perm_view_permission(ret) == Self::ref_perm_view_permission(*perm),
+            ret.inv(),
     ;
 
     /// Borrows a reusable reading permission from the owned permission.
     proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
         Self::RefPermission<'a>)
+        requires
+            perm.inv(),
         ensures
             Self::ref_perm_view_permission(ret) == *perm,
+            ret.inv(),
     ;
 
     /// Obtains a shared reference to the original pointer.
@@ -143,8 +149,10 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     ) -> (ret: Self::Ref<'a>)
         requires
             Self::ptr_perm_match(raw.as_ptr(), Self::ref_perm_view_permission(perm@)),
+            perm@.inv(),
         ensures
             Self::ref_rel_perm(ret, perm@),
+            ret.inv(),
     ;
 
     /// Converts a shared reference to a raw pointer.
@@ -152,8 +160,11 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
         NonNull<Self::Target>,
         Tracked<Self::RefPermission<'a>>,
     ))
+        requires
+            ptr_ref.inv(),
         ensures
             Self::ref_rel_perm(ptr_ref, perm@),
+            perm@.inv(),
             Self::ptr_perm_match(res_ptr.as_ptr(), Self::ref_perm_view_permission(perm@)),
             res_ptr.as_ptr().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
@@ -261,8 +272,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     }
 
     open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
-        &&& ptr == perm.ptr()
-        &&& perm.inv()
+        ptr == perm.ptr()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -278,7 +288,6 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
         &&& r.value() == perm@.value()
         &&& r.ptr() == perm@.ptr()
-        &&& perm.inv()
     }
 
     proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
@@ -308,6 +317,13 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         }
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.tracked_perm)
+    }
+}
+
+// BoxRef's memory validity is enforced by its type invariant.
+impl<T> Inv for BoxRef<'_, T> {
+    open spec fn inv(self) -> bool {
+        true
     }
 }
 
@@ -410,8 +426,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }
 
     open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
-        &&& ptr == perm.ptr()
-        &&& perm.inv()
+        ptr == perm.ptr()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -425,8 +440,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }
 
     open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
-        &&& perm.view_target() == *r@
-        &&& perm.inv()
+        perm.view_target() == *r@
     }
 
     proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
@@ -459,6 +473,13 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         Tracked<Self::RefPermission<'a>>,
     ) {
         NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
+    }
+}
+
+// ArcRef stores a Rust-owned Arc and has no additional validity condition.
+impl<T> Inv for ArcRef<'_, T> {
+    open spec fn inv(self) -> bool {
+        true
     }
 }
 
