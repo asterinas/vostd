@@ -138,6 +138,31 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M>
     }
 }
 
+pub tracked struct FrameRawPermsRef<'a> {
+    slot_perm: &'static ExposedPointsTo<MetaSlot>,
+    metadata_perm: Option<&'a FracMetadataPerm>,
+}
+
+impl View for FrameRawPermsRef<'_> {
+    type V = FrameRawPerms;
+
+    closed spec fn view(&self) -> FrameRawPerms {
+        FrameRawPerms {
+            slot_perm: self.slot_perm,
+            metadata_perm: match self.metadata_perm {
+                Some(permission) => *permission,
+                None => arbitrary(),
+            },
+        }
+    }
+}
+
+impl Inv for FrameRawPermsRef<'_> {
+    closed spec fn inv(self) -> bool {
+        self.metadata_perm is Some && self@.inv()
+    }
+}
+
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
 unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Frame<M> {
@@ -220,7 +245,8 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     }
 
     open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
-        r.inv() ==> {
+        &&& perm.inv() ==> r.inv()
+        &&& r.inv() ==> {
             &&& perm.inv()
             &&& r@.rel_perm(perm@)
         }
@@ -289,31 +315,6 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
             metadata_perm,
         };
         (NonNull::new(ptr_ref.inner.ptr.cast_mut()).unwrap().cast(), Tracked(permission))
-    }
-}
-
-pub tracked struct FrameRawPermsRef<'a> {
-    slot_perm: &'static ExposedPointsTo<MetaSlot>,
-    metadata_perm: Option<&'a FracMetadataPerm>,
-}
-
-impl View for FrameRawPermsRef<'_> {
-    type V = FrameRawPerms;
-
-    closed spec fn view(&self) -> FrameRawPerms {
-        FrameRawPerms {
-            slot_perm: self.slot_perm,
-            metadata_perm: match self.metadata_perm {
-                Some(permission) => *permission,
-                None => arbitrary(),
-            },
-        }
-    }
-}
-
-impl Inv for FrameRawPermsRef<'_> {
-    closed spec fn inv(self) -> bool {
-        self.metadata_perm is Some && self@.inv()
     }
 }
 
