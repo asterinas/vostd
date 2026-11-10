@@ -21,5 +21,4 @@ acpi = "=5.2.0"
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
-
-
+x86 = "0.52.0"
