@@ -30,8 +30,15 @@
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 use vstd::{
-    assert_maps_equal, assert_sets_equal, atomic::PermissionU64, map::assert_maps_equal_internal,
-    prelude::*, simple_pptr::PPtr, std_specs::cmp::PartialEqSpecImpl,
+    assert_maps_equal, assert_sets_equal,
+    atomic::PermissionU64,
+    map::assert_maps_equal_internal,
+    prelude::*,
+    simple_pptr::PPtr,
+    std_specs::{
+        cmp::PartialEqSpecImpl,
+        fmt::{DebugSpecImpl, group_fmt_axioms},
+    },
 };
 use vstd_extra::{
     cast_ptr::*,
@@ -136,13 +143,19 @@ unsafe impl<M: AnyFrameMeta + ?Sized> Sync for Frame<M> {
 
 }
 
-/*
-impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> DebugSpecImpl for Frame<M> {
+    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
+        self.ptr_inv()
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> core::fmt::Debug for Frame<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        broadcast use group_fmt_axioms;
+
         write!(f, "Frame({:#x})", self.start_paddr())
     }
 }
-*/
 
 verus!{
 
