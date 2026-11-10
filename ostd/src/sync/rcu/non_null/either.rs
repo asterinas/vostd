@@ -246,21 +246,13 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
     }
 
-    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
-        Self::RefPermission<'a>) {
+    proof fn tracked_borrow_perm_as_ref_perm<'a>(
+        tracked perm: &'a Self::Permission,
+    ) -> tracked Self::RefPermission<'a> {
         if perm is Left {
-            Sum::Left(L::borrow_ref_perm(perm.tracked_borrow_left()))
+            Sum::Left(L::tracked_borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
         } else {
-            Sum::Right(R::borrow_ref_perm(perm.tracked_borrow_right()))
-        }
-    }
-
-    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission<'a>) {
-        if perm is Left {
-            Sum::Left(L::borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
-        } else {
-            Sum::Right(R::borrow_perm_as_ref_perm(perm.tracked_borrow_right()))
+            Sum::Right(R::tracked_borrow_perm_as_ref_perm(perm.tracked_borrow_right()))
         }
     }
 

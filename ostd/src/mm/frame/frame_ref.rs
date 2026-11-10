@@ -244,13 +244,9 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         r@.rel_perm(perm@)
     }
 
-    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
-        Self::RefPermission<'a>) {
-        FrameRawPermsRef { slot_perm: perm.slot_perm, metadata_perm: perm.metadata_perm }
-    }
-
-    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission<'a>) {
+    proof fn tracked_borrow_perm_as_ref_perm<'a>(
+        tracked perm: &'a Self::Permission,
+    ) -> tracked Self::RefPermission<'a> {
         FrameRawPermsRef { slot_perm: perm.slot_perm, metadata_perm: Some(&perm.metadata_perm) }
     }
 

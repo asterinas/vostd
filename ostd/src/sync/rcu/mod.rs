@@ -456,7 +456,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             let tracked tracked_ref_perm = tracked_ref_perm.tracked_unwrap();
             let tracked tracked_ref_perm = tracked_static_ref(tracked_ref_perm);
             let tracked tracked_ref_perm: P::RefPermission<'a> =
-                P::borrow_perm_as_ref_perm(tracked_ref_perm.tracked_borrow());
+                P::tracked_borrow_perm_as_ref_perm(tracked_ref_perm.tracked_borrow());
         }
         // SAFETY:
         // 1. This pointer is not NULL.
@@ -530,7 +530,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                         P::raw_as_ref(
                             ptr,
                             Tracked(
-                                P::borrow_perm_as_ref_perm(
+                                P::tracked_borrow_perm_as_ref_perm(
                                     self.tracked_ref_perm.tracked_borrow().tracked_borrow(),
                                 ),
                             ),

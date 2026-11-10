@@ -117,19 +117,10 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     /// A specification function that relates the `Ref` type and the `RefPermission`.
     spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool;
 
-    /// Borrows a reusable reading permission from an existing reading permission.
-    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
-        Self::RefPermission<'a>)
-        requires
-            perm.inv(),
-        ensures
-            Self::ref_perm_view_permission(ret) == Self::ref_perm_view_permission(*perm),
-            ret.inv(),
-    ;
-
     /// Borrows a reusable reading permission from the owned permission.
-    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission<'a>)
+    proof fn tracked_borrow_perm_as_ref_perm<'a>(
+        tracked perm: &'a Self::Permission,
+    ) -> (tracked ret: Self::RefPermission<'a>)
         requires
             perm.inv(),
         ensures
@@ -290,13 +281,9 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         &&& r.ptr() == perm@.ptr()
     }
 
-    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
-        Self::RefPermission<'a>) {
-        BoxPointsToRef(perm.0)
-    }
-
-    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission<'a>) {
+    proof fn tracked_borrow_perm_as_ref_perm<'a>(
+        tracked perm: &'a Self::Permission,
+    ) -> tracked Self::RefPermission<'a> {
         BoxPointsToRef(perm)
     }
 
@@ -443,13 +430,9 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         perm.view_target() == *r@
     }
 
-    proof fn borrow_ref_perm<'a>(tracked perm: &Self::RefPermission<'a>) -> (tracked ret:
-        Self::RefPermission<'a>) {
-        ArcPointsTo { perm: perm.perm }
-    }
-
-    proof fn borrow_perm_as_ref_perm<'a>(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission<'a>) {
+    proof fn tracked_borrow_perm_as_ref_perm<'a>(
+        tracked perm: &'a Self::Permission,
+    ) -> tracked Self::RefPermission<'a> {
         ArcPointsTo { perm: perm.perm }
     }
 
