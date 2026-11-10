@@ -3,10 +3,10 @@
 //!
 //! # Verified Properties
 //!
-//! Allocators preserve the ordered boot-time MMIO windows and their permission
-//! identities through abstract views. Construction returns a splittable permission
-//! per window; builder removal consumes the requested portion without panicking
-//! when its preconditions hold. The boot-time window registry is trusted.
+//! Construction returns splittable permissions related to the allocator by closed
+//! predicates. Public lemmas preserve that relation for subranges without exposing
+//! the internal allocators. Builder removal consumes the requested portion without
+//! panicking when its preconditions hold. The boot-time window registry is trusted.
 use vstd::{
     arithmetic::power2::is_pow2,
     prelude::*,
@@ -127,11 +127,14 @@ impl IoMemAllocator {
     ///
     /// User must ensure the range doesn't belong to physical memory or system device I/O.
     #[verus_spec(ret =>
+        with Ghost(builder): Ghost<IoMemAllocatorBuilder>,
         requires
             windows_disjoint(allocators@),
             windows_match_registered(allocators@),
+            allocators@ == builder.allocators@,
         ensures
-            ret@ == allocators@,
+            forall|state: RangeAllocatorPermits| builder.state_matches(state)
+                ==> #[trigger] ret.state_matches(state),
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }
@@ -161,7 +164,7 @@ impl IoMemAllocatorBuilder {
             ranges_disjoint(ranges@),
             usize_ranges_match_registered(ranges@),
         ensures
-            ret@.map_values(|allocator: RangeAllocator| allocator@) == ranges@,
+            state_out@.len() == ranges@.len(),
             ret.state_matches(state_out@),
             forall|i: int| 0 <= i < ranges@.len() ==>
                 #[trigger] state_out@[i]@ == ranges@[i].view_set(),
@@ -316,7 +319,7 @@ broadcast use vstd::std_specs::vec::group_vec_axioms;
 
 /// The MMIO windows are pairwise disjoint, so the first overlapping window found by
 /// `find_allocator` is the window containing a registered range, regardless of window order.
-pub open spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
+closed spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
     ranges_disjoint(allocators.map_values(|allocator: RangeAllocator| allocator@))
 }
 
@@ -324,7 +327,7 @@ pub open spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
 pub uninterp spec fn registered_io_mem_windows() -> Seq<Range<usize>>;
 
 /// The concrete range allocators represent the abstract boot-time windows exactly.
-pub open spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bool {
+closed spec fn windows_match_registered(allocators: Seq<RangeAllocator>) -> bool {
     allocators.map_values(|allocator: RangeAllocator| allocator@) == registered_io_mem_windows()
 }
 
@@ -339,26 +342,8 @@ pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> boo
         }
 }
 
-impl View for IoMemAllocatorBuilder {
-    type V = Seq<RangeAllocator>;
-
-    /// The ordered windows and permission identities preserved when building the allocator.
-    closed spec fn view(&self) -> Seq<RangeAllocator> {
-        self.allocators@
-    }
-}
-
-impl View for IoMemAllocator {
-    type V = Seq<RangeAllocator>;
-
-    /// The ordered windows and their allocation/free permission identities.
-    closed spec fn view(&self) -> Seq<RangeAllocator> {
-        self.allocators@
-    }
-}
-
 /// Every window has a matching free-address permission.
-pub open spec fn allocator_states_match(
+closed spec fn allocator_states_match(
     allocators: Seq<RangeAllocator>,
     state: RangeAllocatorPermits,
 ) -> bool {
@@ -374,11 +359,11 @@ pub open spec fn allocator_states_match(
 impl IoMemAllocatorBuilder {
     /// Whether some matching window permission covers `range`, proving that
     /// `remove` succeeds without panicking.
-    pub open spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
+    pub closed spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
         exists|i: int|
-            #![trigger self@[i]]
-            0 <= i < self@.len() && i < state.len() && {
-                let allocator = self@[i];
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && i < state.len() && {
+                let allocator = self.allocators@[i];
                 &&& allocator@.start <= range.start < range.end <= allocator@.end
                 &&& state[i].id() == allocator.allocate_id()
                 &&& range.view_set() <= state[i]@
@@ -386,8 +371,29 @@ impl IoMemAllocatorBuilder {
     }
 
     /// Whether every window has a permission with the matching identity.
-    pub open spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
-        allocator_states_match(self@, state)
+    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
+        allocator_states_match(self.allocators@, state)
+    }
+
+    /// A non-empty subrange of a matching permission can be removed from the builder.
+    pub proof fn lemma_can_remove(
+        tracked &self,
+        state: RangeAllocatorPermits,
+        window: int,
+        range: Range<usize>,
+    )
+        requires
+            self.state_matches(state),
+            0 <= window < state.len(),
+            range.start < range.end,
+            range.view_set() <= state[window]@,
+        ensures
+            self.can_remove(state, range),
+            io_mem_range_registered(range),
+    {
+        use_type_invariant(self);
+        lemma_permission_range(self.allocators@, state, window, range);
+        assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
     }
 
     /// The builder always holds the disjoint windows handed to [`IoMemAllocatorBuilder::new`].
@@ -398,28 +404,77 @@ impl IoMemAllocatorBuilder {
 }
 
 impl IoMemAllocator {
+    /// Whether the free-address permissions belong to this allocator.
+    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
+        allocator_states_match(self.allocators@, state)
+    }
+
+    /// A matching permission authorizes any non-empty subrange it still owns.
+    pub proof fn lemma_has_free_permission(
+        tracked &self,
+        state: RangeAllocatorPermits,
+        window: int,
+        range: Range<usize>,
+    )
+        requires
+            self.state_matches(state),
+            0 <= window < state.len(),
+            range.start < range.end,
+            range.view_set() <= state[window]@,
+        ensures
+            self.has_free_permission(state[window].id(), range),
+            io_mem_range_registered(range),
+    {
+        use_type_invariant(self);
+        lemma_permission_range(self.allocators@, state, window, range);
+        assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
+    }
+
+    /// Membership is preserved when a permission is split to a non-empty subrange.
+    pub proof fn lemma_has_free_permission_subrange(
+        tracked &self,
+        id: Loc,
+        range: Range<usize>,
+        subrange: Range<usize>,
+    )
+        requires
+            self.has_free_permission(id, range),
+            range.start <= subrange.start < subrange.end <= range.end,
+        ensures
+            self.has_free_permission(id, subrange),
+            io_mem_range_registered(subrange),
+    {
+        use_type_invariant(self);
+        let window = choose|i: int|
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
+                && self.allocators@[i]@.start <= range.start < range.end
+                <= self.allocators@[i]@.end;
+        assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
+    }
+
     /// Whether `id` is the free-permission identity of a window containing `range`.
-    pub open spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
+    pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
         exists|i: int|
-            #![trigger self@[i]]
-            0 <= i < self@.len() && self@[i].allocate_id() == id && self@[i]@.start <= range.start
-                < range.end <= self@[i]@.end
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
+                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
     }
 
     /// Whether `id` is the allocation-token identity of a window containing `range`.
-    pub open spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
+    pub closed spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
         exists|i: int|
-            #![trigger self@[i]]
-            0 <= i < self@.len() && self@[i].free_id() == id && self@[i]@.start <= range.start
-                < range.end <= self@[i]@.end
+            #![trigger self.allocators@[i]]
+            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
+                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
     }
 
     /// Whether some window wholly covers `range`.
-    pub open spec fn covers_range(self, range: Range<usize>) -> bool {
+    pub closed spec fn covers_range(self, range: Range<usize>) -> bool {
         exists|k: int|
-            #![trigger self@[k]]
-            0 <= k < self@.len() && {
-                let window = self@[k]@;
+            #![trigger self.allocators@[k]]
+            0 <= k < self.allocators@.len() && {
+                let window = self.allocators@[k]@;
                 &&& window.start <= range.start
                 &&& range.end <= window.end
             }
@@ -466,9 +521,15 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     proof! {
         use_type_invariant(&io_mem_builder);
     }
+    proof_decl! {
+        let ghost builder = io_mem_builder;
+    }
     // SAFETY: The safety is upheld by the caller.
     // Original Rust: IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
-    IO_MEM_ALLOCATOR.init(unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
+    IO_MEM_ALLOCATOR.init(unsafe {
+        #[verus_spec(with Ghost(builder))]
+        IoMemAllocator::new(io_mem_builder.allocators)
+    });
 }
 
 #[verus_verify]
@@ -569,6 +630,27 @@ mod test {
 }
 
 verus! {
+
+/// A non-empty range owned by a window's permission lies within that window.
+proof fn lemma_permission_range(
+    allocators: Seq<RangeAllocator>,
+    state: RangeAllocatorPermits,
+    window: int,
+    range: Range<usize>,
+)
+    requires
+        allocator_states_match(allocators, state),
+        0 <= window < state.len(),
+        range.start < range.end,
+        range.view_set() <= state[window]@,
+    ensures
+        0 <= window < allocators.len(),
+        state[window].id() == allocators[window].allocate_id(),
+        allocators[window]@.start <= range.start < range.end <= allocators[window]@.end,
+{
+    assert(range.view_set().contains(range.start));
+    assert(range.view_set().contains((range.end - 1) as usize));
+}
 
 /// Exposes endpoint separation directly on allocator views for lookup proofs.
 proof fn lemma_windows_disjoint(allocators: Seq<RangeAllocator>)
