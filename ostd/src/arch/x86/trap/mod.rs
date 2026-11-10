@@ -14,6 +14,17 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
+//!
+//! # Verified Properties
+//!
+//! The frame data types are connected for context-data verification. Assembly
+//! entry, descriptor initialization and trap dispatch still await their contracts.
+use vstd::prelude::*;
+
+use super::cpu::context::GeneralRegs;
+
+/* Trap dispatch awaits CPU-local, descriptor and interrupt-state contracts.
+ * Origin Rust:
 pub(super) mod gdt;
 mod idt;
 mod syscall;
@@ -50,6 +61,7 @@ cfg_if! {
 cpu_local_cell! {
     static KERNEL_INTERRUPT_NESTED_LEVEL: u8 = 0;
 }
+*/
 
 /// Trap frame of kernel interrupt
 ///
@@ -70,6 +82,7 @@ cpu_local_cell! {
 /// }
 /// ```
 #[derive(Debug, Default, Clone, Copy)]
+#[verus_verify]
 #[repr(C)]
 #[expect(missing_docs)]
 pub struct TrapFrame {
@@ -101,6 +114,8 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
+/* Descriptor initialization depends on the unverified trap-entry protocol.
+ * Origin Rust:
 /// Initializes interrupt handling on x86_64.
 ///
 /// This function will:
@@ -126,9 +141,11 @@ pub(crate) unsafe fn init() {
     // SAFETY: `gdt::init` has been called before.
     unsafe { syscall::init() };
 }
+*/
 
 /// Userspace context.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[verus_verify]
 #[repr(C)]
 pub(super) struct RawUserContext {
     pub(super) general: GeneralRegs,
@@ -136,6 +153,10 @@ pub(super) struct RawUserContext {
     pub(super) error_code: usize,
 }
 
+// TODO: Use PageFaultErrorCode flag factories (e.g. PRESENT()) in
+// handle_kernel_page_fault before re-enabling trap dispatch.
+/* Trap dispatch awaits CPU-local, descriptor and interrupt-state contracts.
+ * Origin Rust:
 /// Returns true if this function is called within the context of an IRQ handler
 /// and the IRQ occurs while the CPU is executing in the kernel mode.
 /// Otherwise, it returns false.
@@ -300,3 +321,4 @@ fn handle_kernel_page_fault(info: RawPageFaultInfo) {
     //    correctness follows the semantics of the direct mapping of physical memory.
     unsafe { cursor.map(crate::mm::kspace::MappedItem::Untracked(paddr, 1, prop)) }.unwrap();
 }
+*/

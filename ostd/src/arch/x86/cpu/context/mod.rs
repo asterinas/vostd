@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
+//!
+//! # Verified Properties
+//!
+//! The data interfaces preserve all context fields outside the requested update.
+//! Exception classification covers every variant and vectors 0 through 31.
+//! Hardware exception construction, execution and FPU state are not yet connected.
+//! TLS activation is a trusted FSBASE write; its hardware effect is not modeled.
+use vstd::prelude::*;
+
+/* Execution and FPU imports await their hardware and scheduling contracts.
+ * Origin Rust:
 use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
+*/
 
-use bitflags_upstream::bitflags;
+/* The verified bitflags macro supplies specifications for the generated accessors.
+ * Origin Rust: use bitflags_upstream::bitflags;
+ */
+use bitflags::bitflags;
+use x86::bits64::segmentation::wrfsbase;
+/* Execution and FPU imports await their hardware and scheduling contracts.
+ * Origin Rust:
 use cfg_if::cfg_if;
 use log::debug;
 use ostd_pod::Pod;
@@ -35,9 +53,13 @@ cfg_if! {
 }
 
 pub use x86::cpuid;
+*/
+
+use crate::{arch::trap::RawUserContext, mm::Vaddr, user::UserContextApi};
 
 /// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Default, Debug)]
+#[verus_verify]
 #[repr(C)]
 pub struct UserContext {
     user_context: RawUserContext,
@@ -46,6 +68,7 @@ pub struct UserContext {
 
 /// General registers.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[verus_verify]
 #[repr(C)]
 #[expect(missing_docs)]
 pub struct GeneralRegs {
@@ -88,6 +111,7 @@ pub struct GeneralRegs {
 //       error code onto the stack, but that detail is not yet represented
 //       in this type definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[verus_verify]
 pub enum CpuException {
     ///  0 – #DE  Divide-by-zero error.
     DivisionError,
@@ -144,7 +168,10 @@ pub enum CpuException {
     Reserved,
 }
 
+#[verus_verify]
 impl CpuException {
+    /* Exception construction needs a CR2 contract and valid hardware error codes.
+     * Origin Rust:
     pub(crate) fn new(trap_num: usize, error_code: usize) -> Option<Self> {
         let exception = match trap_num {
             0 => Self::DivisionError,
@@ -197,7 +224,10 @@ impl CpuException {
 
         Some(exception)
     }
+    */
 
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.type_())]
     const fn type_(&self) -> CpuExceptionType {
         match self {
             Self::Debug => CpuExceptionType::FaultOrTrap,
@@ -209,6 +239,11 @@ impl CpuException {
         }
     }
 
+    #[verus_verify(dual_spec)]
+    #[verus_spec(r => ensures
+        r == (trap_num <= 31),
+        returns Self::is_cpu_exception(trap_num),
+    )]
     pub(crate) const fn is_cpu_exception(trap_num: usize) -> bool {
         trap_num <= 31
     }
@@ -218,30 +253,94 @@ impl CpuException {
 ///
 /// Reference: <https://wiki.osdev.org/Exceptions#Selector_Error_Code>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[verus_verify]
 pub struct SelectorErrorCode(usize);
 
+verus! {
+
+impl UserContext {
+    /// The saved general registers, including instruction, flags and TLS registers.
+    pub closed spec fn general_regs_spec(&self) -> GeneralRegs {
+        self.user_context.general
+    }
+
+    /// The saved trap vector number.
+    pub closed spec fn trap_number_spec(&self) -> usize {
+        self.user_context.trap_num
+    }
+
+    /// The saved hardware trap error code.
+    pub closed spec fn trap_error_code_spec(&self) -> usize {
+        self.user_context.error_code
+    }
+
+    /// The exception waiting to be consumed by the caller.
+    pub closed spec fn exception_spec(&self) -> Option<CpuException> {
+        self.exception
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl UserContext {
     /// Returns a reference to the general registers.
+    #[verus_spec(r => ensures *r == self.general_regs_spec())]
     pub fn general_regs(&self) -> &GeneralRegs {
         &self.user_context.general
     }
 
     /// Returns a mutable reference to the general registers
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Changes through the returned reference update the saved registers while
+    ///   preserving the trap number, trap error code and pending exception.
+    #[verus_spec(r => ensures
+        *r == old(self).general_regs_spec(),
+        *final(r) == final(self).general_regs_spec(),
+        final(self).trap_number_spec() == old(self).trap_number_spec(),
+        final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+        final(self).exception_spec() == old(self).exception_spec(),
+    )]
     pub fn general_regs_mut(&mut self) -> &mut GeneralRegs {
         &mut self.user_context.general
     }
 
     /// Takes the CPU exception out.
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Clears the pending exception and preserves the saved registers and trap metadata.
+    #[verus_spec(ensures
+        final(self).exception_spec() == None::<CpuException>,
+        final(self).general_regs_spec() == old(self).general_regs_spec(),
+        final(self).trap_number_spec() == old(self).trap_number_spec(),
+        final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+        returns old(self).exception_spec(),
+    )]
     pub fn take_exception(&mut self) -> Option<CpuException> {
         self.exception.take()
     }
 
     /// Sets thread-local storage pointer.
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves every other saved register, the trap metadata and the pending exception.
+    #[verus_spec(ensures
+        final(self).general_regs_spec() == (GeneralRegs {
+            fsbase: tls, ..old(self).general_regs_spec()
+        }),
+        final(self).trap_number_spec() == old(self).trap_number_spec(),
+        final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+        final(self).exception_spec() == old(self).exception_spec(),
+    )]
     pub fn set_tls_pointer(&mut self, tls: usize) {
         self.set_fsbase(tls)
     }
 
     /// Gets thread-local storage pointer.
+    #[verus_spec(returns self.general_regs_spec().fsbase)]
     pub fn tls_pointer(&self) -> usize {
         self.fsbase()
     }
@@ -253,11 +352,20 @@ impl UserContext {
     /// The method by itself is safe because the value of the TLS register won't affect kernel code.
     /// But if the user relies on the TLS pointer, make sure that the pointer is correctly set when
     /// entering the user space.
+    ///
+    /// # Trusted Boundary
+    ///
+    /// The FSBASE write is compiled but not verified. No hardware-state
+    /// postcondition is supplied until the CPU register model is connected.
+    #[verus_verify(external_body)]
+    #[verus_spec]
     pub fn activate_tls_pointer(&self) {
         unsafe { wrfsbase(self.fsbase() as u64) }
     }
 }
 
+/* Execution depends on trap entry, scheduling and interrupt-state contracts.
+ * Origin Rust:
 impl UserContextApiInternal for UserContext {
     fn execute<F>(&mut self, mut has_kernel_event: F) -> ReturnReason
     where
@@ -343,6 +451,7 @@ impl UserContextApiInternal for UserContext {
         }
     }
 }
+*/
 
 /// As Osdev Wiki defines(<https://wiki.osdev.org/Exceptions>):
 /// CPU exceptions are classified as:
@@ -356,6 +465,7 @@ impl UserContextApiInternal for UserContext {
 /// But there exists some vector which are special. Vector 1 can be both fault or trap and vector 2 is interrupt.
 /// So here we also define FaultOrTrap and Interrupt
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[verus_verify]
 pub enum CpuExceptionType {
     /// CPU faults. Faults can be corrected, and the program may continue as if nothing happened.
     Fault,
@@ -371,8 +481,11 @@ pub enum CpuExceptionType {
     Reserved,
 }
 
+#[verus_verify]
 impl CpuExceptionType {
     /// Returns whether this exception type is a fault or a trap.
+    #[verus_verify(dual_spec, open)]
+    #[verus_spec(returns self.is_fault_or_trap())]
     pub fn is_fault_or_trap(self) -> bool {
         match self {
             CpuExceptionType::Trap | CpuExceptionType::Fault | CpuExceptionType::FaultOrTrap => {
@@ -387,6 +500,7 @@ impl CpuExceptionType {
 
 /// Architecture-specific data reported with a page-fault exception.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[verus_verify]
 pub struct RawPageFaultInfo {
     /// The error code pushed by the CPU for this page fault.
     pub error_code: PageFaultErrorCode,
@@ -394,34 +508,71 @@ pub struct RawPageFaultInfo {
     pub addr: Vaddr,
 }
 
+/* The verified bitflags macro needs usize literals for its spec-level shifts.
+ * The bit values are unchanged; flags are now constant-function factories.
+ * Origin Rust:
+ * bitflags! {
+ *     pub struct PageFaultErrorCode : usize{
+ *         const PRESENT       = 1 << 0;
+ *         const WRITE         = 1 << 1;
+ *         const USER          = 1 << 2;
+ *         const RESERVED      = 1 << 3;
+ *         const INSTRUCTION   = 1 << 4;
+ *         const PROTECTION    = 1 << 5;
+ *         const SHADOW_STACK  = 1 << 6;
+ *         const HLAT          = 1 << 7;
+ *         const SGX           = 1 << 15;
+ *     }
+ * }
+ */
 bitflags! {
     /// Page Fault error code. Following the Intel Architectures Software Developer's Manual Volume 3
+    ///
+    /// Flag values are exposed as constant functions, such as `Self::PRESENT()`.
     pub struct PageFaultErrorCode : usize{
         /// 0 if no translation for the linear address.
-        const PRESENT       = 1 << 0;
+        const PRESENT       = 1usize << 0;
         /// 1 if the access was a write.
-        const WRITE         = 1 << 1;
+        const WRITE         = 1usize << 1;
         /// 1 if the access was a user-mode access.
-        const USER          = 1 << 2;
+        const USER          = 1usize << 2;
         /// 1 if there is no translation for the linear address
         /// because a reserved bit was set.
-        const RESERVED      = 1 << 3;
+        const RESERVED      = 1usize << 3;
         /// 1 if the access was an instruction fetch.
-        const INSTRUCTION   = 1 << 4;
+        const INSTRUCTION   = 1usize << 4;
         /// 1 if the access was a data access to a linear address with a protection key for which
         /// the protection-key rights registers disallow access.
-        const PROTECTION    = 1 << 5;
+        const PROTECTION    = 1usize << 5;
         /// 1 if the access was a shadow-stack access.
-        const SHADOW_STACK  = 1 << 6;
+        const SHADOW_STACK  = 1usize << 6;
         /// 1 if there is no translation for the linear address using HLAT paging.
-        const HLAT          = 1 << 7;
+        const HLAT          = 1usize << 7;
         /// 1 if the exception is unrelated to paging and resulted from violation of SGX-specific
         /// access-control requirements.
-        const SGX           = 1 << 15;
+        const SGX           = 1usize << 15;
     }
 }
 
+verus! {
+
 impl UserContextApi for UserContext {
+    open spec fn trap_number_spec(&self) -> usize {
+        UserContext::trap_number_spec(self)
+    }
+
+    open spec fn trap_error_code_spec(&self) -> usize {
+        UserContext::trap_error_code_spec(self)
+    }
+
+    open spec fn instruction_pointer_spec(&self) -> usize {
+        self.general_regs_spec().rip
+    }
+
+    open spec fn stack_pointer_spec(&self) -> usize {
+        self.general_regs_spec().rsp
+    }
+
     fn trap_number(&self) -> usize {
         self.user_context.trap_num
     }
@@ -430,11 +581,35 @@ impl UserContextApi for UserContext {
         self.user_context.error_code
     }
 
-    fn set_instruction_pointer(&mut self, ip: usize) {
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves every other saved register, the trap metadata and the pending exception.
+    fn set_instruction_pointer(&mut self, ip: usize)
+        ensures
+            final(self).general_regs_spec() == (GeneralRegs {
+                rip: ip,
+                ..old(self).general_regs_spec()
+            }),
+            final(self).trap_number_spec() == old(self).trap_number_spec(),
+            final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+            final(self).exception_spec() == old(self).exception_spec(),
+    {
         self.set_rip(ip);
     }
 
-    fn set_stack_pointer(&mut self, sp: usize) {
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves every other saved register, the trap metadata and the pending exception.
+    fn set_stack_pointer(&mut self, sp: usize)
+        ensures
+            final(self).general_regs_spec() == (GeneralRegs {
+                rsp: sp,
+                ..old(self).general_regs_spec()
+            }),
+            final(self).trap_number_spec() == old(self).trap_number_spec(),
+            final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+            final(self).exception_spec() == old(self).exception_spec(),
+    {
         self.set_rsp(sp)
     }
 
@@ -447,18 +622,33 @@ impl UserContextApi for UserContext {
     }
 }
 
+} // verus!
 macro_rules! cpu_context_impl_getter_setter {
     ( $( [ $field: ident, $setter_name: ident] ),*) => {
+        #[verus_verify]
         impl UserContext {
             $(
                 #[doc = concat!("Gets the value of ", stringify!($field))]
                 #[inline(always)]
+                #[verus_spec(returns self.general_regs_spec().$field)]
                 pub fn $field(&self) -> usize {
                     self.user_context.general.$field
                 }
 
-                #[doc = concat!("Sets the value of ", stringify!(field))]
+                #[doc = concat!("Sets the value of ", stringify!($field))]
+                ///
+                /// # Verified Properties
+                /// ## Postconditions
+                /// - Preserves every other saved register, the trap metadata and the pending exception.
                 #[inline(always)]
+                #[verus_spec(ensures
+                    final(self).general_regs_spec() == (GeneralRegs {
+                        $field: $field, ..old(self).general_regs_spec()
+                    }),
+                    final(self).trap_number_spec() == old(self).trap_number_spec(),
+                    final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+                    final(self).exception_spec() == old(self).exception_spec(),
+                )]
                 pub fn $setter_name(&mut self, $field: usize) {
                     self.user_context.general.$field = $field;
                 }
@@ -490,6 +680,8 @@ cpu_context_impl_getter_setter!(
     [gsbase, set_gsbase]
 );
 
+/* FPU operations require XSAVE/FXSAVE buffer and hardware-state contracts.
+ * Origin Rust:
 /// The FPU context of user task.
 ///
 /// This could be used for saving both legacy and modern state format.
@@ -680,3 +872,4 @@ pub(in crate::arch) fn enable_essential_features() {
         }
     }
 }
+*/
