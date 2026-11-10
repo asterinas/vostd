@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794293367487,
+  "lastUpdate": 1794297366703,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -10164,6 +10164,90 @@ window.BENCHMARK_DATA = {
             "value": 1451900,
             "unit": "rlimit",
             "extra": "smt-run=1,316ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "64428fa0f4d3366172d686319b2fe64a44f2fb4f",
+          "message": "chore: delete some redundant fields in ghost structs (#902)\n\n* chore: remove some dead field\n\n* Update virt_mem.rs",
+          "timestamp": "2026-11-10T15:49:25+08:00",
+          "tree_id": "d1498682b98ef9a71a35f081c1026a3a5a998a04",
+          "url": "https://github.com/asterinas/vostd/commit/64428fa0f4d3366172d686319b2fe64a44f2fb4f"
+        },
+        "date": 1794297366074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1134164723,
+            "unit": "rlimit",
+            "extra": "verified=4375 errors=0 smt-run=310,345ms wall=208,707ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 412898007,
+            "unit": "rlimit",
+            "extra": "smt-run=137,120ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 216784574,
+            "unit": "rlimit",
+            "extra": "smt-run=32,291ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 98034902,
+            "unit": "rlimit",
+            "extra": "smt-run=26,784ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8778479,
+            "unit": "rlimit",
+            "extra": "smt-run=1,820ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,278ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,195ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=806ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 2036235,
+            "unit": "rlimit",
+            "extra": "smt-run=691ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=593ms"
           }
         ]
       }
