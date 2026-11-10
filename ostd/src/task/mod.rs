@@ -7,6 +7,7 @@ pub mod atomic_mode;
 mod preempt;
 // mod processor;
 pub mod scheduler;
+mod stack_size;
 /* mod utils;
 
 use core::{

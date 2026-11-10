@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use core::sync::atomic::Ordering;
 
+use super::stack_size::parse_u32_or_default;
+
 use crate::{
     arch::mm::tlb_flush_addr_range,
     cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
@@ -20,6 +22,8 @@ use crate::{
 /// OSTD users can choose a smaller size by specifying
 /// the `OSTD_TASK_STACK_SIZE_IN_PAGES` environment variable
 /// at build time.
+// TODO: Before verifying this initializer, establish valid_decimal for the build-time
+// environment value; option_env! alone provides no decimal or u32-range guarantee.
 pub static STACK_SIZE_IN_PAGES: u32 = parse_u32_or_default(
     option_env!("OSTD_TASK_STACK_SIZE_IN_PAGES"),
     DEFAULT_STACK_SIZE_IN_PAGES,
@@ -92,6 +96,11 @@ impl KernelStack {
     }
 }
 
+/* Moved to the private stack_size module so the parser can be verified while
+ * the rest of kernel_stack is disabled. The function bodies are unchanged.
+ * The wrapper becomes pub(super) inside the private sibling module so this
+ * module can still call it; it does not become part of the crate's public API.
+ * Origin Rust:
 const fn parse_u32_or_default(size: Option<&str>, default: u32) -> u32 {
     match size {
         Some(value) => parse_u32(value),
@@ -110,3 +119,4 @@ const fn parse_u32(input: &str) -> u32 {
     }
     output
 }
+*/
