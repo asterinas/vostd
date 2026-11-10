@@ -1,6 +1,6 @@
 use ostd_pod::Pod;
 
-/* #[test]
+#[test]
 fn derive_const_generic() {
     #[derive(Debug, Clone, Copy, Pod, PartialEq, Eq)]
     #[repr(C)]
@@ -47,4 +47,4 @@ fn derive_union() {
     let u2 = Union::from_bytes(bytes);
     let integer = unsafe { u2.integer };
     assert_eq!(integer, 0x11111111);
-} */
+}

@@ -176,7 +176,7 @@ impl Debug for IdAlloc {
     }
 }
 
-/* #[cfg(test)]
+#[cfg(test)]
 mod test {
     use super::IdAlloc;
 
@@ -193,4 +193,4 @@ mod test {
         // bitmap's `first_available_id` + `count` is out of bounds.
         assert!(bitmap.alloc_consecutive(1).is_none());
     }
-} */
+}
