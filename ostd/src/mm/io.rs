@@ -542,6 +542,8 @@ impl<'a> VmWriter<'a, Infallible> {
             final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
             final(reader).remain_spec() == old(reader).remain_spec() - r as usize,
             final(reader).cursor.vaddr == old(reader).cursor.vaddr + r as usize,
+            final(owner_w).has_write_view(),
+            final(owner_r).read_view_initialized(),
     )]
     pub fn write(&mut self, reader: &mut VmReader<'_, Infallible>) -> usize {
         proof_decl! {
@@ -788,6 +790,8 @@ impl<'a> VmReader<'a, Infallible> {
             consumed_w@.range.start == old(owner_w).range.start,
             consumed_w@.range.end == old(owner_w).range.start + r as usize,
             consumed_w@.has_write_view(),
+            final(owner_w).has_write_view(),
+            final(owner_r).read_view_initialized(),
     )]
     pub fn read(&mut self, writer: &mut VmWriter<'_, Infallible>) -> usize {
         let copy_len = self.remain().min(writer.avail());
