@@ -55,7 +55,6 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub ghost idx: usize,
     pub ghost tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
-    pub ghost path: TreePath<NR_ENTRIES>,
     pub ghost guard: PageTableGuard<'rcu, C>,
 }
 
@@ -139,7 +138,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
             children: self.children[self.idx as int]->0.children(),
-            path: self.path.push_tail(self.idx as int),
             guard: guard,
         };
         let cont = Self { children: self.children.update(self.idx as int, None), ..self };
@@ -164,14 +162,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
         self.children.tracked_insert(old(self).idx as int, None);
         let tracked (entry_own, children) = child.tracked_into_parts();
-        Self {
-            entry_own,
-            tree_level: (old(self).tree_level + 1) as nat,
-            idx,
-            children,
-            path: old(self).path.push_tail(old(self).idx as int),
-            guard,
-        }
+        Self { entry_own, tree_level: (old(self).tree_level + 1) as nat, idx, children, guard }
     }
 
     pub open spec fn restore(self, child: Self) -> (Self, PageTableGuard<'rcu, C>) {
@@ -213,7 +204,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             idx: idx,
             tree_level: owner_subtree.level(),
             children: owner_subtree.children(),
-            path: TreePath::new(Seq::empty()),
             guard: guard,
         }
     }
@@ -228,7 +218,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     {
         let ghost tree_level = owner_subtree.level();
         let tracked (entry_own, children) = owner_subtree.tracked_into_parts();
-        Self { entry_own, idx, tree_level, children, path: TreePath::new(Seq::empty()), guard }
+        Self { entry_own, idx, tree_level, children, guard }
     }
 
     /// Every present child subtree satisfies `f` at its corresponding tree path.
@@ -523,7 +513,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.idx == cont_old.idx,
             self.tree_level == cont_old.tree_level,
             self.guard == cont_old.guard,
-            self.path == cont_old.path,
             // entry_own changed only by the Node payload and otherwise keeps
             // the surrounding owner metadata.
             self.entry_own.is_absent() == cont_old.entry_own.is_absent(),
