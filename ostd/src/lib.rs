@@ -51,13 +51,13 @@ pub mod mm;
 /*pub mod panic;*/
 pub mod prelude;
 /*pub mod smp;*/
+#[path = "../specs/mod.rs"]
+pub mod specs;
 pub mod sync;
 pub mod task;
 pub mod timer;
 pub mod trap;
-// pub mod user;
-#[path = "../specs/mod.rs"]
-pub mod specs;
+pub mod user;
 pub mod util;
 
 /*use core::sync::atomic::{AtomicBool, Ordering};

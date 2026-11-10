@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! User mode.
+use vstd::prelude::*;
+
+/* User-mode execution depends on the unverified context-switch protocol.
+ * Origin Rust:
 use crate::{cpu::context::UserContext, trap::TrapFrame};
 
 /// Specific architectures need to implement this trait. This should only used in [`UserMode`]
@@ -14,28 +18,83 @@ pub(crate) trait UserContextApiInternal {
     /// Uses the information inside CpuContext to build a trapframe
     fn as_trap_frame(&self) -> TrapFrame;
 }
+*/
+
+verus! {
 
 /// The common interface that every CPU architecture-specific [`UserContext`] implements.
+///
+/// # Verified Properties
+///
+/// Architecture-independent observations describe the saved pointers and trap
+/// metadata. Pointer updates preserve the other pointer and both trap fields.
 pub trait UserContextApi {
+    /// The saved trap vector number.
+    spec fn trap_number_spec(&self) -> usize;
+
+    /// The saved trap error code.
+    spec fn trap_error_code_spec(&self) -> usize;
+
+    /// The saved instruction pointer.
+    spec fn instruction_pointer_spec(&self) -> usize;
+
+    /// The saved stack pointer.
+    spec fn stack_pointer_spec(&self) -> usize;
+
     /// Gets the trap number of this interrupt.
-    fn trap_number(&self) -> usize;
+    fn trap_number(&self) -> usize
+        returns
+            self.trap_number_spec(),
+    ;
 
     /// Gets the trap error code of this interrupt.
-    fn trap_error_code(&self) -> usize;
+    fn trap_error_code(&self) -> usize
+        returns
+            self.trap_error_code_spec(),
+    ;
 
     /// Sets the instruction pointer
-    fn set_instruction_pointer(&mut self, ip: usize);
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves the saved stack pointer and trap metadata.
+    fn set_instruction_pointer(&mut self, ip: usize)
+        ensures
+            final(self).instruction_pointer_spec() == ip,
+            final(self).stack_pointer_spec() == old(self).stack_pointer_spec(),
+            final(self).trap_number_spec() == old(self).trap_number_spec(),
+            final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+    ;
 
     /// Gets the instruction pointer
-    fn instruction_pointer(&self) -> usize;
+    fn instruction_pointer(&self) -> usize
+        returns
+            self.instruction_pointer_spec(),
+    ;
 
     /// Sets the stack pointer
-    fn set_stack_pointer(&mut self, sp: usize);
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves the saved instruction pointer and trap metadata.
+    fn set_stack_pointer(&mut self, sp: usize)
+        ensures
+            final(self).stack_pointer_spec() == sp,
+            final(self).instruction_pointer_spec() == old(self).instruction_pointer_spec(),
+            final(self).trap_number_spec() == old(self).trap_number_spec(),
+            final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+    ;
 
     /// Gets the stack pointer
-    fn stack_pointer(&self) -> usize;
+    fn stack_pointer(&self) -> usize
+        returns
+            self.stack_pointer_spec(),
+    ;
 }
 
+} // verus!
+/* UserMode remains outside compilation until the execution protocol is verified.
+ * Origin Rust:
 /// Code execution in the user mode.
 ///
 /// This type enables executing the code in user space from a task in the kernel
@@ -115,3 +174,4 @@ pub enum ReturnReason {
     /// A kernel event is pending
     KernelEvent,
 }
+*/
