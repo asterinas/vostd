@@ -691,10 +691,6 @@ impl<'a> VmSpace<'a> {
 }
 
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
-    pub open spec fn query_success_requires(self) -> bool {
-        self.0.barrier_va.start <= self.0.va < self.0.barrier_va.end
-    }
-
     pub open spec fn query_success_ensures(
         self,
         view: CursorView<UserPtConfig>,

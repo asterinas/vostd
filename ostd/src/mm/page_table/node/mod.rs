@@ -679,32 +679,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     {
     }
 
-    /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
-    pub proof fn lemma_uniqueness_at_pair(
-        self,
-        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        view: crate::specs::mm::virt_mem::MemView,
-        c1: usize,
-        c2: usize,
-    )
-        requires
-            self.walk_uniqueness_from_view(reader, view),
-            reader.cursor.vaddr <= c1,
-            c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
-            (c1 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
-            reader.cursor.vaddr <= c2,
-            c2 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
-            (c2 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
-            c1 != c2,
-            Self::walk_pte_at_view(view, c1).is_present(),
-            !Self::walk_pte_at_view(view, c1).is_last(self.level),
-            Self::walk_pte_at_view(view, c2).is_present(),
-            !Self::walk_pte_at_view(view, c2).is_last(self.level),
-        ensures
-            Self::walk_pte_at_view(view, c1).paddr() != Self::walk_pte_at_view(view, c2).paddr(),
-    {
-    }
-
     /// Caller-side dom-membership obligation: every present non-last PTE
     /// position in the walk (over `view`) has its child-frame index in
     /// `dom`. Phrased over a frozen `(view, dom)` pair so the body can
