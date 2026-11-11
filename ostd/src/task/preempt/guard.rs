@@ -107,9 +107,8 @@ impl !Send for DisabledPreemptGuard {}
 // Required by `InAtomicMode`. See the safety section of its doc comments.
 impl !Sync for DisabledPreemptGuard {}
 
-// SAFETY: `disable_preempt` is the trusted boundary that establishes atomic
-// mode. Its preemption counter and the guard destructor are not migrated yet.
-// The guard and its references stay on the creating task (`!Send` and `!Sync`).
+// SAFETY: The guard disables preemptions, which meets the second
+// sufficient condition for atomic mode.
 #[verus_verify]
 unsafe impl InAtomicMode for DisabledPreemptGuard {}
 
