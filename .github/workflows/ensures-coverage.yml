@@ -1,4 +1,4 @@
-# ensures-coverage for vostd.  Copy this file to vostd's .github/workflows/.
+# ensures-coverage for vostd.
 #
 # This workflow only prepares the machine: it checks out vostd, sets up
 # Verus and Racket, checks out ensures-coverage, and runs its ci/vostd.sh,
@@ -7,8 +7,7 @@
 # version, so a release changes the CI without touching vostd.  For trying
 # an unreleased version, run the workflow by hand with `ec_ref: dev`.
 #
-# Advisory only: it never blocks a pull request.  See the README of
-# ensures-coverage, "在CI中运行".
+# Advisory only: it never blocks a pull request.
 name: ensures-coverage
 
 on:
