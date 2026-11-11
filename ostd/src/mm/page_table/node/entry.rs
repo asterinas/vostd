@@ -14,8 +14,6 @@ use crate::specs::{
     },
 };
 
-use crate::task::atomic_mode::InAtomicMode;
-
 use super::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
@@ -25,7 +23,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::{
     mm::{nr_subpage_per_huge, nr_subpage_per_huge_spec, page_prop::PageProperty},
     //    sync::RcuDrop,
-    //    task::atomic_mode::InAtomicMode,
+    task::atomic_mode::InAtomicMode,
 };
 use core::marker::PhantomData;
 use core::ops::Deref;

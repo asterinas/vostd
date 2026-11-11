@@ -40,8 +40,6 @@ use crate::specs::mm::{
     page_table::node::owners::*,
 };
 
-use crate::task::atomic_mode::InAtomicMode;
-
 use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::mm::frame::{
     allocator::FrameAllocOptions,
@@ -60,6 +58,7 @@ use crate::mm::{
     frame::{Frame, FrameRef, meta::AnyFrameMeta},
     paddr_to_vaddr,
     page_table::{load_pte, store_pte},
+    task::atomic_mode::InAtomicMode,
 };
 pub use child::*;
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
