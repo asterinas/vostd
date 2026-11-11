@@ -17,8 +17,6 @@ use vstd_extra::{
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
-use crate::task::atomic_mode::InAtomicMode;
-
 use core::{
     marker::PhantomData, mem::ManuallyDrop, ops::Deref,
     ptr::NonNull,
@@ -36,7 +34,7 @@ use non_null::NonNullPtr;
 use self::monitor::{RcuMonitor, RcuMonitorInvariant, RcuMonitorPred};
 use crate::task::{
     DisabledPreemptGuard,
-    //atomic_mode::{AsAtomicModeGuard, InAtomicMode},
+    atomic_mode::{/*AsAtomicModeGuard, */ InAtomicMode},
     disable_preempt,
 };
 
