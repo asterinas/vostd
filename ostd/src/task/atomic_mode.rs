@@ -25,10 +25,11 @@
 //! 2. Switching to user space.
 //!
 //! This module provides API to detect such "sleep-like" actions.
-//! The verified subset currently exposes the guard traits; sleep checks are not migrated.
-/* The preemption counter and IRQ sleep checks are not migrated yet.
+
 use core::sync::atomic::Ordering;
 
+use vstd::prelude::*;
+/*
 /// Marks a function as one that might sleep.
 ///
 /// This function will panic if it is executed in atomic mode.
@@ -44,10 +45,7 @@ pub fn might_sleep() {
             preempt_count, is_local_irq_enabled
         );
     }
-}
-
-*/
-use vstd::prelude::*;
+}*/
 
 /// A marker trait for guard types that enforce the atomic mode.
 ///
