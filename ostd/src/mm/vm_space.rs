@@ -17,7 +17,6 @@ use crate::specs::{
             mapping::{
                 group_page_meta, lemma_meta_to_paddr_biinjective, lemma_paddr_to_meta_biinjective,
             },
-            meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
@@ -27,32 +26,36 @@ use crate::specs::{
     },
 };
 
-use crate::task::atomic_mode::AsAtomicModeGuard;
+use crate::mm::{
+    KERNEL_VADDR_RANGE, Paddr, Vaddr,
+    frame::MetaSlot,
+    kspace::KernelPtConfig,
+    page_table::*,
+    page_table::{EntryOwner, PageTableGuard},
+    tlb::*,
+};
 
-use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
-use crate::cpu::{AtomicCpuSet, CpuSet};
-use crate::error::Error;
-use crate::mm::frame::meta::mapping::meta_to_frame;
-use crate::mm::frame::untyped::UFrame;
-use crate::mm::frame::{Frame, MetaSlot};
-use crate::mm::kspace::KERNEL_PAGE_TABLE;
-use crate::mm::kspace::KernelPtConfig;
-use crate::mm::page_table::*;
-use crate::mm::tlb::*;
-use crate::mm::{
-    KERNEL_VADDR_RANGE,
-    page_table::{EntryOwner, PageTableFrag, PageTableGuard},
-};
-use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    io::{Fallible, VmReader, VmWriter},
-    page_prop::PageProperty,
-};
 use crate::sync::RoArc;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
+
+use crate::{
+    arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr},
+    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    error::Error, //Error
+    // cpu_local_cell,
+    mm::{
+        AnyUFrameMeta, Frame, MAX_USERSPACE_VADDR, PageProperty, PagingLevel, UFrame, VmReader,
+        VmWriter,
+        io::Fallible,
+        kspace::KERNEL_PAGE_TABLE,
+        page_table::{self, PageTable, PageTableConfig, PageTableFrag},
+        tlb::{TlbFlushOp, TlbFlusher},
+    },
+    prelude::*,
+    task::{DisabledPreemptGuard, atomic_mode::AsAtomicModeGuard, disable_preempt},
+};
 
 #[path = "../../specs/mm/vm_space.rs"]
 pub mod vm_space_specs;
