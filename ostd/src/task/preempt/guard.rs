@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-use crate::{sync::GuardTransfer /*, task::atomic_mode::InAtomicMode*/};
+use crate::{sync::GuardTransfer, task::atomic_mode::InAtomicMode};
 
 #[cfg(feature = "irc11")]
 use {
@@ -107,11 +107,12 @@ impl !Send for DisabledPreemptGuard {}
 // Required by `InAtomicMode`. See the safety section of its doc comments.
 impl !Sync for DisabledPreemptGuard {}
 
-/*
 // SAFETY: The guard disables preemptions, which meets the second
 // sufficient condition for atomic mode.
+#[verus_verify]
 unsafe impl InAtomicMode for DisabledPreemptGuard {}
 
+/*
 impl DisabledPreemptGuard {
     fn new() -> Self {
         super::cpu_local::inc_guard_count();

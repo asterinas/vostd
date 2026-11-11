@@ -29,7 +29,6 @@ use crate::specs::{
         },
         page_table::{owners::*, vaddr_range_proofs::*, *},
     },
-    task::InAtomicMode,
 };
 
 use crate::arch::mm::PagingConsts;
@@ -1749,7 +1748,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 }
 
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> Inv for Cursor<'rcu, C> {
     open spec fn inv(self) -> bool {
         // `level <= guard_level + 1` (not `<= guard_level`) admits the
         // transient "popped one above the guard" state: `pop_level` at
@@ -1774,7 +1773,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
     }
 }
 
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> OwnerOf for Cursor<'rcu, C> {
     type Owner = CursorOwner<'rcu, C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
