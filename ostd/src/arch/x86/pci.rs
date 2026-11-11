@@ -43,8 +43,10 @@ pub(crate) fn has_pci_bus() -> bool {
 pub(crate) const MSIX_DEFAULT_MSG_ADDR: u32 = 0xFEE0_0000;
 
 #[verus_verify]
-#[verus_spec(returns
-    MSIX_DEFAULT_MSG_ADDR | 0b1_1000
+#[verus_spec(ret =>
+    ensures
+        (((ret >> 5) & 0x7fff) | ((ret & 4) << 13)) == (remapping_index & 0xffff),
+    returns MSIX_DEFAULT_MSG_ADDR | 0b1_1000
         | ((remapping_index & 0x7FFF) << 5)
         | ((remapping_index & 0x8000) >> 13),
 )]
@@ -56,13 +58,46 @@ pub(crate) fn construct_remappable_msix_address(remapping_index: u32) -> u32 {
     address |= (remapping_index & 0x7FFF) << 5;
     address |= (remapping_index & 0x8000) >> 13;
 
+    proof! {
+        assert((((address >> 5) & 0x7fff) | ((address & 4) << 13))
+            == (remapping_index & 0xffff)) by (bit_vector)
+            requires
+                MSIX_DEFAULT_MSG_ADDR == 0xfee0_0000u32,
+                address == (MSIX_DEFAULT_MSG_ADDR | 0x18)
+                    | ((remapping_index & 0x7fff) << 5)
+                    | ((remapping_index & 0x8000) >> 13);
+    }
     address
 }
 
 /// Encodes the bus, device, and function into a port address for use with the PCI I/O port.
 #[verus_verify(dual_spec)]
-#[verus_spec(returns encode_as_port(location))]
+#[verus_spec(ret =>
+    ensures
+        ((ret >> 16) & 0xff) == location.bus as u32,
+        ((ret >> 11) & 0x1f) == (location.device as u32 & 0x1f),
+        ((ret >> 8) & 7) == (location.function as u32 & 7),
+    returns encode_as_port(location),
+)]
 fn encode_as_port(location: &PciDeviceLocation) -> u32 {
+    proof! {
+        let bus = location.bus;
+        let device = location.device;
+        let function = location.function;
+        let address = (1u32 << 31) | ((bus as u32) << 16)
+            | (((device as u32) & 0x1f) << 11)
+            | (((function as u32) & 7) << 8);
+        assert(
+            (1u32 << 31) == 0x8000_0000u32
+            && ((address >> 16) & 0xff) == bus as u32
+            && ((address >> 11) & 0x1f) == (device as u32 & 0x1f)
+            && ((address >> 8) & 7) == (function as u32 & 7)
+        ) by (bit_vector)
+            requires
+                address == (1u32 << 31) | ((bus as u32) << 16)
+                    | (((device as u32) & 0x1f) << 11)
+                    | (((function as u32) & 7) << 8);
+    }
     // 1 << 31: Configuration enable
     (1 << 31)
         | ((location.bus as u32) << 16)
