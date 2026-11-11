@@ -134,13 +134,14 @@ function renderHistoryChart(points) {
   const series = SERIES.map((s) => ({
     name: s.name,
     type: "line",
+    showSymbol: false,
     symbol: "circle",
     symbolSize: 7,
     itemStyle: { color: css(s.cssVar) },
     lineStyle: { width: 2, color: css(s.cssVar) },
     emphasis: { focus: "series" },
     dimension: 0,
-    data: points.map((p) => p[s.key] ?? 0),
+    data: points.map((p) => [p.date, p[s.key] ?? 0]),
   }));
 
   chart.setOption({
@@ -170,21 +171,20 @@ function renderHistoryChart(points) {
           esc(new Date(point.date).toISOString().slice(0, 10));
         const rows = params
           .slice()
-          .sort((a, b) => b.value - a.value)
+          .sort((a, b) => b.value[1] - a.value[1])
           .map(
             (p) =>
               `<div><span style="display:inline-block;width:10px;height:3px;` +
               `background:${p.color};border-radius:1px;margin-right:5px"></span>` +
               `<span class="tt-label">${esc(p.seriesName)}</span>` +
-              ` <span class="tt-value">${fmtFull(p.value)}</span></div>`,
+              ` <span class="tt-value">${fmtFull(p.value[1])}</span></div>`,
           )
           .join("");
         return `<div class="echarts-tooltip">${head}${rows}</div>`;
       },
     },
     xAxis: {
-      type: "category",
-      data: points.map((p) => String(p.sha || "").slice(0, 8)),
+      type: "time",
       axisLine: { lineStyle: { color: text.baseline } },
       axisLabel: { color: text.ink3, hideOverlap: true },
       splitLine: { show: false },
