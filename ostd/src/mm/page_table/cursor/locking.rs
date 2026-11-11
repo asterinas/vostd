@@ -472,7 +472,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
         let tracked node_owner = cont.entry_own.tracked_borrow_node();
         #[verus_spec(with
             Tracked(regions.tracked_borrow_slot_owner(cur_pt_addr).metadata_perm.tracked_borrow()),
-            Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
         let stray = pt_guard.stray_mut();
@@ -548,7 +547,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
     let tracked node_owner = cont.entry_own.tracked_borrow_node();
     #[verus_spec(with
         Tracked(regions.tracked_borrow_slot_owner(cur_pt_addr).metadata_perm.tracked_borrow()),
-        Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]
     let stray = pt_guard.stray_mut();

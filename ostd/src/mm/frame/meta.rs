@@ -14,6 +14,8 @@
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
 use vstd::prelude::*;
+use vstd_extra::substructural::{cell::CellUnwrap, struct_field::StructToField};
+use vstd_extra::typing::tagged::{MaxSize, TaggedArray};
 
 verus! {
 
@@ -76,14 +78,17 @@ pub(crate) mod mapping {
 }
 
 } // verus!
+#[cfg(feature = "type_id")]
+use core::any::TypeId;
 use vstd::{
     atomic::{PAtomicU64, PermissionU64},
     cell::pcell_maybe_uninit,
     prelude::*,
     simple_pptr::PPtr,
 };
+#[cfg(feature = "type_id")]
+use vstd_extra::typing::types::Any;
 use vstd_extra::{
-    cast_ptr::{Repr, ReprPtr},
     ownership::*,
     panic::{may_panic, panic_diverge},
     prelude::*,
@@ -99,7 +104,6 @@ use crate::specs::{
 use align_ext::AlignExt;
 use core::{
     alloc::Layout,
-    any::Any,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
@@ -158,8 +162,8 @@ pub struct MetaSlot {
     /// placeholder for the metadata of a frame.
     // storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>
     /// # Verification Design
-    /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
-    /// types of metadata defined in the development.
+    /// We model the metadata of the slot as a `MetaSlotStorage`, which is
+    /// an array of bytes with a ghost tag indicating which type it currently holds
     pub storage: pcell_maybe_uninit::PCell<MetaSlotStorage>,
     /// The reference count of the page.
     ///
@@ -221,7 +225,9 @@ type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 /// If `on_drop` reads the page using the provided `VmReader`, the
 /// implementer must ensure that the frame is safe to read.
 pub unsafe trait AnyFrameMeta:   /*Any +*/
-Send + Sync {
+// `Any` is unavailable under Verus, but its `'static` is what makes
+// `is_::<M>` and `&dyn Any` coercions legal; supply it directly.
+'static + Send + Sync {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region invariants) override this; the trait method's
@@ -259,7 +265,34 @@ Send + Sync {
     {
     }
 
+    /// Whether this metadata describes an untyped frame, at the spec level.
+    ///
+    /// Not `where Self: Sized`: the segment downcast observes it through
+    /// `&dyn AnyFrameMeta`. Defaulted so [`Self::is_untyped`]'s default body can be
+    /// checked against it, which means an impl overriding either must override both.
+    open spec fn is_untyped_spec(&self) -> bool {
+        false
+    }
+
+    /// The purpose a slot serves while it holds this metadata, at the spec level.
+    ///
+    /// Defaulted to `Frame` because that is what almost all metadata describes;
+    /// page-table nodes are the exception and override it. Defaulted also so
+    /// that, like [`Self::is_untyped_spec`], it can be named at `dyn
+    /// AnyFrameMeta` -- which is the whole point, since the open-world
+    /// representation reaches it only through the recorded id.
+    open spec fn usage_spec(&self) -> PageUsage {
+        PageUsage::Frame
+    }
+
+    /// The runtime answer is *sound* with respect to the spec one.
+    ///
+    /// An implication, not an equality: Verus checks the default body below
+    /// generically, where `is_untyped_spec` is abstract. It is also the only
+    /// direction callers need -- a `false` answer hands the input back untouched.
     fn is_untyped(&self) -> (res: bool)
+        ensures
+            res ==> self.is_untyped_spec(),
         default_ensures
             res == false,
     {
@@ -267,6 +300,44 @@ Send + Sync {
     }
 
     spec fn vtable_ptr(&self) -> usize where Self: Sized;
+
+    /// The identity of this metadata's concrete type.
+    ///
+    /// Upstream gets this from `AnyFrameMeta: Any`. We cannot: Verus propagates an
+    /// unsized-blanket-impl rejection from supertrait to subtrait
+    /// (`vir/src/traits.rs`) -- `dyn AnyFrameMeta` would stop being a legal type.
+    #[cfg(feature = "type_id")]
+    spec fn meta_id(&self) -> TypeId;
+
+    /// [`Self::meta_id`] really is `Self`'s identity.
+    ///
+    /// An obligation rather than a free lemma, for the reason the `erase` module
+    /// of the `typeid-example` repo gives: over a parameter `M: AnyFrameMeta`
+    /// nothing is known about `meta_id`, because `M` could be any impl. Moving it
+    /// to a trait method relocates the proof to where `Self` *is* concrete, and
+    /// there every impl discharges it with an empty body -- `meta_id` is `open`
+    /// and defined as `type_id::<Self>()`, so the statement is true by unfolding.
+    ///
+    /// It cannot be discharged falsely: an impl that defined `meta_id` as
+    /// anything else would fail to prove this. Same shape as
+    /// [`vstd_extra::typing::types::Any::type_id_correct`].
+    #[cfg(feature = "type_id")]
+    proof fn meta_id_correct(&self) where Self: Sized
+        ensures
+            self.meta_id() == type_id::<Self>(),
+    ;
+
+    /// Mimics the upcast `self as &dyn core::any::Any`.
+    ///
+    /// Upstream writes that upcast directly, which is legal for it because
+    /// `AnyFrameMeta: Any` makes `Any` a supertrait. We make it a method
+    /// instead: each impl performs the *sized* coercion `&Self -> &dyn Any`, which
+    /// is the same operation the vtable would have performed.
+    #[cfg(feature = "type_id")]
+    fn to_any(&self) -> (r: &dyn Any)
+        ensures
+            r.type_id_spec() == self.meta_id(),
+    ;
 }
 
 /*/// Makes a structure usable as a frame metadata.
@@ -345,6 +416,58 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError>
     Ok(ptr_ref(ptr, Tracked(slot_perm.tracked_borrow())))
 }
 
+/// The vtable word for `m`'s concrete type.
+///
+/// `external_body`, and it is the *only* trusted step between a concrete metadata
+/// value and the word the slot stores. The operation is `core::ptr::metadata`,
+/// which `vstd` does not specify -- `raw_ptr` models a pointer's metadata as
+/// `PtrData::metadata` but gives no way to read it off a reference.
+///
+/// Isolated here deliberately. Until that specification exists this is where the
+/// vtable's provenance is taken on trust, and when it does exist this function is
+/// what it replaces. The `usize` return is a second, smaller debt: upstream stores
+/// a `DynMetadata<dyn AnyFrameMeta>` directly, and narrowing it to an address is
+/// what forces the transmute below.
+#[verifier::external_body]
+pub fn vtable_ptr_of<M: AnyFrameMeta>(m: &M) -> (r: usize)
+    ensures
+        r == m.vtable_ptr(),
+{
+    let meta = core::ptr::metadata(m as &dyn AnyFrameMeta);
+    // SAFETY: `DynMetadata` for a trait object is a pointer to the vtable, so it
+    // is word-sized and may be read as an address.
+    unsafe { core::mem::transmute(meta) }
+}
+
+/// Reads whether the metadata a slot holds describes untyped memory.
+///
+/// Takes a *borrowed* permission: a segment being downcast hands its permissions
+/// to the result, so it cannot spare the owned `FrameRawPerms` that
+/// [`Frame::dyn_meta`] would need. Sound rather than exact, matching
+/// [`AnyFrameMeta::is_untyped`].
+///
+/// Trusted, and unimplemented like [`MetaSlot::dyn_meta_ptr`] and
+/// [`Frame::dyn_meta`] -- this fork models slot metadata as a `MetaSlotStorage`
+/// rather than a trait object, so there is no `&dyn` to dispatch on. The address
+/// is carried, and tied to the permission, so the body can be written when
+/// there is.
+#[cfg(feature = "type_id")]
+#[verifier::external_body]
+pub fn is_untyped_at(
+    slot: PPtr<MetaSlot>,
+    Tracked(perm): Tracked<&crate::specs::mm::frame::frame_specs::FrameRawPerms>,
+) -> (r: bool)
+    requires
+        perm.inv(),
+        slot.addr() == perm.slot_vaddr(),
+    ensures
+        r ==> crate::specs::mm::frame::meta_owners::id_is_untyped(
+            perm.metadata_perm.resource().meta_type_id,
+        ),
+{
+    unimplemented!()
+}
+
 #[verus_verify]
 impl MetaSlot {
     /// This is the equivalent of &self as *const as Vaddr, but we need to axiomatize it.
@@ -360,7 +483,7 @@ impl MetaSlot {
         returns
             perm.addr(),
     )]
-    fn addr_of(&self) -> Vaddr {
+    pub(super) fn addr_of(&self) -> Vaddr {
         unimplemented!()
     }
 
@@ -388,7 +511,6 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             -> permissions: Tracked<Option<Sum<FracMetadataPerm, MetadataPerm>>>
         requires
             old(regions).inv(),
@@ -409,12 +531,11 @@ impl MetaSlot {
                     as_unique_ptr,
                     *old(regions),
                     *final(regions),
-                    *final(repr_perm),
                     permissions@->0,
                 )
             },
     )]
-    pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) fn get_from_unused<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
@@ -472,10 +593,7 @@ impl MetaSlot {
         // SAFETY: The slot now has a reference count of `0`, other threads will
         // not access the metadata slot so it is safe to have a mutable reference.
         unsafe {
-            #[verus_spec(with
-                Tracked(&mut metadata_perm),
-                Tracked(repr_perm)
-            )]
+            #[verus_spec(with Tracked(&mut metadata_perm))]
             slot.write_meta(metadata)
         };
 
@@ -710,20 +828,24 @@ impl MetaSlot {
         meta_ptr
     }
 
+    */
     /// Gets the stored metadata as type `M`.
     ///
-    /// Calling the method should be safe, but using the returned pointer would
-    /// be unsafe. Specifically, the derefernecer should ensure that:
-    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and
-    ///    valid;
-    ///  - the initialized metadata is of type `M`;
-    ///  - the returned pointer should not be dereferenced as mutable unless
-    ///    having exclusive access to the metadata slot.
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta>(&self) -> *mut M {
-        self.storage.get() as *mut M
+    /// Upstream this is one cast -- `self.storage.get() as *mut M`
+    #[verus_spec(res =>
+        with
+            Tracked(slot_perm): Tracked<&ExposedPointsTo<MetaSlot>>,
+        requires
+            *self == slot_perm.value(),
+        ensures
+            res.addr() == slot_perm.addr(),
+    )]
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta>(&self) -> PPtr<M> {
+        proof_with!(Tracked(slot_perm));
+        let addr = self.addr_of();
+        PPtr::from_addr(addr)
     }
 
-    */
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
     /// # Safety
@@ -741,7 +863,6 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(metadata_perm): Tracked<&mut MetadataPerm>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             self.storage.id() == old(metadata_perm).storage_perm.id(),
             self.vtable_ptr == old(metadata_perm).vtable_ptr_perm.pptr(),
@@ -751,23 +872,19 @@ impl MetaSlot {
             final(metadata_perm).storage_perm.is_init(),
             final(metadata_perm).vtable_ptr_perm.pptr() == old(metadata_perm).vtable_ptr_perm.pptr(),
             final(metadata_perm).vtable_ptr_perm.is_init(),
-            <M as Repr<MetaSlotStorage>>::wf(
-                final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
-            ),
-            M::from_repr_spec(
-                final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
-            ) == metadata,
+            final(metadata_perm).vtable_ptr_perm.value() == metadata.vtable_ptr(),
+            final(metadata_perm).storage_perm.value().holds::<M>(),
+            final(metadata_perm).storage_perm.value().value::<M>() == metadata,
+            final(metadata_perm).meta_type_id == recorded_meta_id::<M>(),
     )]
-    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
         &self,
         metadata: M,
     ) {
-        // SAFETY: Caller ensures that the access to the fields are exclusive.
-        //        let vtable_ptr = unsafe { &mut *self.vtable_ptr.get() };
-        //        vtable_ptr.write(core::ptr::metadata(&metadata as &dyn AnyFrameMeta));
-        self.vtable_ptr.put(Tracked(&mut metadata_perm.vtable_ptr_perm), 0);
+        // The vtable word for `M`, taken before `metadata` is moved into the
+        // storage below.
+        let vtable = vtable_ptr_of(&metadata);
+        self.vtable_ptr.put(Tracked(&mut metadata_perm.vtable_ptr_perm), vtable);
 
         // SAFETY:
         // 1. `ptr` points to the metadata storage.
@@ -775,12 +892,17 @@ impl MetaSlot {
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
         // unsafe { ptr.cast::<M>().write(metadata) };
-        write_metadata_into_storage(
-            &self.storage,
-            Tracked(metadata_perm),
-            Tracked(repr_perm),
-            metadata,
-        );
+        //
+        // `store` is what tags the bytes with `recorded_id::<M>()` and names the
+        // stored value; the cell write then installs them. Upstream's single
+        // `ptr.cast::<M>().write` is these two steps, which the cell model
+        // separates: one to build the storage value, one to put it in the cell.
+        let repr = MetaSlotStorage(TaggedArray::<META_STORAGE_SIZE>::store(metadata));
+        self.storage.write(Tracked(&mut metadata_perm.storage_perm), repr);
+
+        proof {
+            metadata_perm.meta_type_id = recorded_meta_id::<M>();
+        }
     }
 
     /// Drops the metadata and deallocates the frame.
