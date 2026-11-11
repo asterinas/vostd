@@ -471,6 +471,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ostd-test"
+version = "0.16.0"
+dependencies = [
+ "vstd",
+ "vstd_extra",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

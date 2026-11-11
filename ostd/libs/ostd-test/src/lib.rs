@@ -62,12 +62,23 @@
 //! Doctest is not taken into consideration yet, and the interface is subject to
 //! change.
 //!
+//! # Verified Properties
+//!
+//! Verification covers iterator construction and panic-info formatting calls.
+//! Formatting uses the trusted `Formatter::write_fmt` specification; output text,
+//! writer errors, and unwinding are not specified. Test execution, iteration,
+//! and OSDK-generated data remain outside the verified portion.
+//!
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
+use vstd::{prelude::*, std_specs::fmt::DisplaySpecImpl};
+use vstd_extra::external::fmt::*;
+
 use alloc::{boxed::Box, string::String};
 
 #[derive(Clone, Debug)]
+#[verus_verify]
 pub struct PanicInfo {
     pub message: String,
     pub file: String,
@@ -75,6 +86,17 @@ pub struct PanicInfo {
     pub col: usize,
 }
 
+verus! {
+
+impl DisplaySpecImpl for PanicInfo {
+    /// Panic information can be formatted without restricting its field values.
+    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
+        true
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl core::fmt::Display for PanicInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         writeln!(f, "Panicked at {}:{}:{}", self.file, self.line, self.col)?;
@@ -191,20 +213,50 @@ macro_rules! ktest_array {
 }
 
 /// The iterator of the ktest array.
+#[verus_verify]
 pub struct KtestIter {
     index: usize,
 }
 
+verus! {
+
+impl View for KtestIter {
+    type V = usize;
+
+    /// The position of the next test in the ktest array.
+    closed spec fn view(&self) -> usize {
+        self.index
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl Default for KtestIter {
+    #[verus_spec(ret =>
+        ensures
+            ret@ == 0,
+    )]
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[verus_verify]
 impl KtestIter {
     /// Create a new [`KtestIter`].
     ///
     /// It will iterate over all the tests (marked with `#[ktest]`).
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - The iterator starts at position zero in the ktest array.
+    /// ## Safety
+    /// - Construction does not panic.
+    #[verus_spec(ret =>
+        ensures
+            ret@ == 0,
+        no_unwind
+    )]
     pub fn new() -> Self {
         Self { index: 0 }
     }
