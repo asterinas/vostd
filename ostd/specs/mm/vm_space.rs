@@ -668,7 +668,7 @@ impl<'a> VmSpaceOwner {
     }
 }
 
-impl<'a> VmSpace<'a> {
+impl VmSpace {
     pub open spec fn reader_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
         &&& current_page_table_paddr() == self.pt.root_paddr_spec()
