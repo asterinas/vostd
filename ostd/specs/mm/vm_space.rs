@@ -13,7 +13,6 @@ use crate::specs::{
         },
         virt_mem::MemView,
     },
-    task::InAtomicMode,
 };
 
 use crate::arch::mm::PagingConsts;
@@ -669,7 +668,7 @@ impl<'a> VmSpaceOwner {
     }
 }
 
-impl<'a> VmSpace<'a> {
+impl VmSpace {
     pub open spec fn reader_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
         &&& current_page_table_paddr() == self.pt.root_paddr_spec()
@@ -690,11 +689,7 @@ impl<'a> VmSpace<'a> {
     }
 }
 
-impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
-    pub open spec fn query_success_requires(self) -> bool {
-        self.0.barrier_va.start <= self.0.va < self.0.barrier_va.end
-    }
-
+impl<'rcu> Cursor<'rcu> {
     pub open spec fn query_success_ensures(
         self,
         view: CursorView<UserPtConfig>,
@@ -711,7 +706,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 }
 
-impl<'a, A: InAtomicMode> CursorMut<'a, A> {
+impl<'a> CursorMut<'a> {
     pub open spec fn item_wf(
         self,
         frame: UFrame,
@@ -733,7 +728,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             <= self.pt_cursor.0.barrier_va.end
         &&& entry_owner.inv()
         &&& self.pt_cursor.0.va % page_size::<PagingConsts>(level) == 0
-        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig>::item_slot_in_regions(
             item,
             regions,
         )

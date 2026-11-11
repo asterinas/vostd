@@ -60,29 +60,6 @@ impl TlbModel {
     {
     }
 
-    pub proof fn lemma_update_preserves_consistent(self, pt: PageTableView, va: Vaddr)
-        requires
-            pt.inv(),
-            self.inv(),
-            self.consistent_with_pt(pt),
-            exists|m: Mapping| pt.mappings has m && m.va_range.start <= va < m.va_range.end,
-        ensures
-            self.update(pt, va).consistent_with_pt(pt),
-    {
-        let filtered = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
-        let m = filtered.choose();
-
-        let witness: Mapping = choose|a: Mapping|
-            pt.mappings has a && a.va_range.start <= va < a.va_range.end;
-        assert(filtered.contains(witness));
-
-        if self.mappings.contains(m) {
-        } else {
-            assert(filtered.contains(m));
-            assert(pt.mappings.contains(m));
-        }
-    }
-
     pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self {
         TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }

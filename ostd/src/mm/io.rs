@@ -38,7 +38,7 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
-use vstd::{arithmetic::power2::is_pow2, prelude::*, simple_pptr::*};
+use vstd::{arithmetic::power2::is_pow2, prelude::*};
 use vstd_extra::{assert, ownership::Inv, panic::may_panic};
 
 pub use crate::specs::mm::io::{
@@ -542,6 +542,8 @@ impl<'a> VmWriter<'a, Infallible> {
             final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
             final(reader).remain_spec() == old(reader).remain_spec() - r as usize,
             final(reader).cursor.vaddr == old(reader).cursor.vaddr + r as usize,
+            final(owner_w).has_write_view(),
+            final(owner_r).read_view_initialized(),
     )]
     pub fn write(&mut self, reader: &mut VmReader<'_, Infallible>) -> usize {
         proof_decl! {
@@ -788,6 +790,8 @@ impl<'a> VmReader<'a, Infallible> {
             consumed_w@.range.start == old(owner_w).range.start,
             consumed_w@.range.end == old(owner_w).range.start + r as usize,
             consumed_w@.has_write_view(),
+            final(owner_w).has_write_view(),
+            final(owner_r).read_view_initialized(),
     )]
     pub fn read(&mut self, writer: &mut VmWriter<'_, Infallible>) -> usize {
         let copy_len = self.remain().min(writer.avail());

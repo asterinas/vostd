@@ -1,4 +1,4 @@
-use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, simple_pptr::*};
+use vstd::{atomic::*, modes::tracked_swap, prelude::*, seq_lib::*, set_lib::*, simple_pptr::PPtr};
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
@@ -239,7 +239,6 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     /// list.
     pub metadata_perms: Seq<MetadataPerm>,
     pub ghost list_id: u64,
-    pub ghost _marker: core::marker::PhantomData<M>,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
@@ -259,8 +258,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         regions.slots[meta_to_index(self.list[i].slot_vaddr)].addr()
     }
 
-    pub open spec fn meta_pptr_at(self, regions: MetaRegionOwners, i: int) -> PPtr<MetaSlot> {
-        regions.slots[meta_to_index(self.list[i].slot_vaddr)].pptr()
+    pub open spec fn meta_ptr_at(self, regions: MetaRegionOwners, i: int) -> *const MetaSlot {
+        regions.slots[meta_to_index(self.list[i].slot_vaddr)].ptr()
     }
 
     /// Per-link structural invariant: the link's own `inv()` holds and its
@@ -604,7 +603,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     );
                     &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].slot_vaddr
-                    &&& fr.slots[i].pptr() == r0.slots[i].pptr()
+                    &&& fr.slots[i].ptr() == r0.slots[i].ptr()
                     &&& fr.ref_count(i) == REF_COUNT_UNIQUE
                     &&& fr.slot_owners[i].metadata_perm.is_resource_vacant()
                     &&& new.metadata_perms[np].storage_perm.id() == fr.slots[i].value().storage.id()
@@ -668,7 +667,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 m + 1
             };
             &&& new.meta_addr_at(fr, m) == old.meta_addr_at(r0, pm)
-            &&& new.meta_pptr_at(fr, m) == old.meta_pptr_at(r0, pm)
+            &&& new.meta_ptr_at(fr, m) == old.meta_ptr_at(r0, pm)
         } by {
             let pm = if m < n {
                 m
@@ -752,7 +751,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& fr.contains(i)
         &&& fr.slots[i].is_init()
         &&& fr.slots[i].addr() == old.list[p].slot_vaddr
-        &&& fr.slots[i].pptr() == r0.slots[i].pptr()
+        &&& fr.slots[i].ptr() == r0.slots[i].ptr()
         &&& fr.ref_count(i) == REF_COUNT_UNIQUE
         &&& fr.slot_owners[i].metadata_perm.is_resource_vacant()
         &&& self.metadata_perms[np].storage_perm.id() == fr.slots[i].value().storage.id()
@@ -767,13 +766,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& (p == n - 1 ==> {
             &&& fp.next is Some
             &&& fp.next->0.addr() == link.slot_vaddr
-            &&& fp.next->0.ptr.addr() == fr.slots[ins].pptr().addr()
+            &&& fp.next->0.ptr.addr() == fr.slots[ins].ptr().addr()
         })
         &&& (p != n - 1 ==> fp.next == old.meta_value_at(r0, p).next)
         &&& (p == n ==> {
             &&& fp.prev is Some
             &&& fp.prev->0.addr() == link.slot_vaddr
-            &&& fp.prev->0.ptr.addr() == fr.slots[ins].pptr().addr()
+            &&& fp.prev->0.ptr.addr() == fr.slots[ins].ptr().addr()
         })
         &&& (p != n ==> fp.prev == old.meta_value_at(r0, p).prev)
     }
@@ -854,12 +853,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& (n > 0 ==> {
                     &&& fpn.prev is Some
                     &&& fpn.prev->0.addr() == old.list[n - 1].slot_vaddr
-                    &&& fpn.prev->0.ptr.addr() == old.meta_pptr_at(r0, n - 1).addr()
+                    &&& fpn.prev->0.ptr.addr() == old.meta_ptr_at(r0, n - 1).addr()
                 })
                 &&& (n < old.list.len() ==> {
                     &&& fpn.next is Some
                     &&& fpn.next->0.addr() == old.list[n].slot_vaddr
-                    &&& fpn.next->0.ptr.addr() == old.meta_pptr_at(r0, n).addr()
+                    &&& fpn.next->0.ptr.addr() == old.meta_ptr_at(r0, n).addr()
                 })
             }),
             forall|p: int|
@@ -902,12 +901,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         }
 
         assert forall|m: int| #![trigger new.meta_addr_at(fr, m)] 0 <= m < nlen implies ({
-            &&& (m < n ==> new.meta_addr_at(fr, m) == old.meta_addr_at(r0, m) && new.meta_pptr_at(
+            &&& (m < n ==> new.meta_addr_at(fr, m) == old.meta_addr_at(r0, m) && new.meta_ptr_at(
                 fr,
                 m,
-            ) == old.meta_pptr_at(r0, m))
+            ) == old.meta_ptr_at(r0, m))
             &&& (m > n ==> new.meta_addr_at(fr, m) == old.meta_addr_at(r0, m - 1)
-                && new.meta_pptr_at(fr, m) == old.meta_pptr_at(r0, m - 1))
+                && new.meta_ptr_at(fr, m) == old.meta_ptr_at(r0, m - 1))
         }) by {
             if m < n {
                 let _ = old.list[m];
@@ -1104,9 +1103,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         &&& self.front is None <==> owner.list.len() == 0
         &&& self.back is None <==> owner.list.len() == 0
         &&& owner.list.len() > 0 ==> self.front is Some && self.front->0.addr()
-            == owner.list[0].slot_vaddr && owner.meta_pptr_at(regions, 0).addr()
+            == owner.list[0].slot_vaddr && owner.meta_ptr_at(regions, 0).addr()
             == self.front->0.addr() && self.back is Some && self.back->0.addr()
-            == owner.list[owner.list.len() - 1].slot_vaddr && owner.meta_pptr_at(
+            == owner.list[owner.list.len() - 1].slot_vaddr && owner.meta_ptr_at(
             regions,
             owner.list.len() - 1,
         ).addr() == self.back->0.addr()
@@ -1120,7 +1119,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     /// are stated over the corresponding region-owned slot pointer.
     pub open spec fn wf_region(self, owner: CursorOwner<M>, regions: MetaRegionOwners) -> bool {
         &&& 0 <= owner.index < owner.length() ==> self.current.is_some() && self.current->0.addr()
-            == owner.list_own.list[owner.index].slot_vaddr && owner.list_own.meta_pptr_at(
+            == owner.list_own.list[owner.index].slot_vaddr && owner.list_own.meta_ptr_at(
             regions,
             owner.index,
         ).addr() == self.current->0.addr()

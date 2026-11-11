@@ -41,7 +41,11 @@ pub mod arch;
 #[path = "arch/loongarch/mod.rs"]
 pub mod arch;
 pub mod boot;
-// Origin Rust: this declaration was inside a block comment.
+/* PCI is connected only to the x86 device and trap modules in this verification slice.
+ * Keep the other architectures' previously disabled bus module out of the module graph.
+ * Origin Rust: pub mod bus; (inside a block comment)
+ */
+#[cfg(target_arch = "x86_64")]
 pub mod bus;
 /*pub mod console;*/
 pub mod cpu;
@@ -69,11 +73,10 @@ pub use ostd_macros::{
     panic_handler,
 };*/
 pub use ostd_pod::Pod;
-// Origin Rust: this declaration was inside the block comment below.
-pub use self::{error::Error, prelude::Result};
-/*
+
 pub use self::{error::Error, prelude::Result};
 
+/*
 /// Initializes OSTD.
 ///
 /// This function represents the first phase booting up the system. It makes

@@ -3,7 +3,7 @@
 //!
 //! This module leverages the customizability of the metadata system (see
 //! [super::meta]) to allow any type of frame to be used in a linked list.
-use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
+use vstd::{prelude::*, seq_lib::*, simple_pptr::PPtr};
 use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{
@@ -1120,7 +1120,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let fp = owner.list_own.meta_value_at(*regions, np);
                 &&& regions.contains(i)
                 &&& regions.slots[i].addr() == oldl.list[p].slot_vaddr
-                &&& regions.slots[i].pptr() == regions0.slots[i].pptr()
+                &&& regions.slots[i].ptr() == regions0.slots[i].ptr()
                 &&& regions.ref_count(i) == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[i].metadata_perm.is_resource_vacant()
                 &&& owner.list_own.metadata_perms[np].storage_perm.id()

@@ -1,4 +1,4 @@
-use vstd::{prelude::*, set_lib::*};
+use vstd::{arithmetic::mul::lemma_mul_is_distributive_add_other_way, prelude::*, set_lib::*};
 use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -324,51 +324,6 @@ impl<C: PageTableConfig> CursorView<C> {
         self.split_if_mapped_huge_spec(new_size).lemma_split_while_huge_compose(s1, s2);
     }
 
-    /// When `split_while_huge(size)` is a no-op and the view is `present()`,
-    /// the mapping at `cur_va` already has `page_size <= size`.
-    pub proof fn split_while_huge_noop_implies_page_size_le(self, size: usize)
-        requires
-            self.inv(),
-            size >= PAGE_SIZE,
-            self.split_while_huge(size) == self,
-            self.present(),
-        ensures
-            self.query_mapping().page_size <= size,
-    {
-        let m = self.query_mapping();
-        if m.page_size > size {
-            let new_size = m.page_size / NR_ENTRIES;
-            self.lemma_query_mapping();
-            assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                if m.page_size == 2097152 {
-                } else if m.page_size == 1073741824 {
-                } else {
-                    assert(false);
-                }
-            };
-            Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
-            let new_self = self.split_if_mapped_huge_spec(new_size);
-            new_self.split_while_huge_refinement(size, m);
-            let p = choose|p: Mapping| #[trigger]
-                new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
-                    && m.va_range.end <= p.va_range.end && m.pa_range.start == (p.pa_range.start + (
-                m.va_range.start - p.va_range.start)) as Paddr && m.property == p.property;
-            if self.mappings.contains(p) {
-            } else {
-                let new_mappings = Set::<int>::range(
-                    0int,
-                    m.page_size as int / new_size as int,
-                ).map(|n: int| Self::split_index(m, new_size, n as usize));
-                let k = choose|k: int|
-                    0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
-                        m,
-                        new_size,
-                        k as usize,
-                    ) == p;
-            }
-        }
-    }
-
     /// When the mapping at `cur_va` is exactly one split-step above `size`
     /// (i.e. `query_mapping().page_size / NR_ENTRIES == size`), one step of
     /// `split_while_huge` equals `split_if_mapped_huge_spec`:
@@ -489,8 +444,10 @@ impl<C: PageTableConfig> CursorView<C> {
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
             vstd::arithmetic::div_mod::lemma_div_nonincreasing(ps as int, ns);
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ns, count);
 
             vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
+            lemma_mul_is_distributive_add_other_way(ns, k, 1);
         }
     }
 

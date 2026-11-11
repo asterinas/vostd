@@ -5,4 +5,6 @@ dv = "run --manifest-path dv/Cargo.toml --bin rust-dv --"
 pre-commit = "run --manifest-path dv/Cargo.toml --bin pre_commit --"
 
 [build]
+# Incremental span identities trigger false callee mismatches in Verus proof_with checks.
+incremental = false
 rustflags = []

@@ -9,7 +9,6 @@ use crate::specs::{
             vaddr_range_proofs::lemma_page_table_managed_index_bounds, *,
         },
     },
-    task::InAtomicMode,
 };
 
 use crate::arch::mm::PagingConsts;
@@ -50,7 +49,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     /// Checks the range validity, ordering, and alignment enforced by the executable constructor.
     pub open spec fn cursor_new_input_valid(va: Range<Vaddr>) -> bool {
         &&& va.start < va.end
@@ -175,7 +174,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 }
 
 // ─── CursorMut specs ──────────────────────────────────────────────────────────
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     /// Runtime checks for mapping an item, matching the source's range and alignment checks.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.0.va >= self.0.barrier_va.end

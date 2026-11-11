@@ -3,29 +3,36 @@
 use vstd::prelude::*;
 use vstd_extra::{array_ptr::*, ghost_tree::*, ownership::*};
 
-use crate::specs::{
-    mm::{
-        frame::meta_region_owners::MetaRegionOwners,
-        page_table::{
-            node::{Guards, entry_owners::EntryOwner},
-            page_table_coverage_end_spec,
-        },
+use crate::specs::mm::{
+    frame::meta_region_owners::MetaRegionOwners,
+    page_table::{
+        node::{Guards, entry_owners::EntryOwner},
+        page_table_coverage_end_spec,
     },
-    task::InAtomicMode,
 };
 
-use crate::mm::frame::{
-    MetaSlot,
-    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-};
-use crate::mm::page_table::*;
 use crate::mm::{
-    NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
-    nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
+    NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts,
+    frame::{
+        MetaSlot,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    },
+    page_table::*,
 };
 use align_ext::AlignExt;
-use core::ops::IndexMut;
+
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ordering};
+
+use crate::{
+    mm::{
+        Vaddr, nr_subpage_per_huge, paddr_to_vaddr,
+        page_table::{
+            ChildRef, PageTable, PageTableConfig, PageTableEntryTrait, PageTableGuard,
+            PageTableNodeRef, PagingConstsTrait, PagingLevel, load_pte, page_size, pte_index,
+        },
+    },
+    task::atomic_mode::InAtomicMode,
+};
 
 verus! {
 
@@ -41,7 +48,7 @@ broadcast use group_ghost_tree_lemmas;
         pt_own.0.value().node().relate_guard(root_guard),
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.has_child(i),
         va.start < va.end,
-        Cursor::<C, A>::cursor_new_success_conditions(*va),
+        Cursor::<C>::cursor_new_success_conditions(*va),
     ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -94,17 +101,17 @@ broadcast use group_ghost_tree_lemmas;
             ==> final(regions).ref_count(idx)
                     == old(regions).ref_count(idx),
         // Frames that were item_not_mapped before remain so after locking.
-        forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
-            CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-            CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
+        forall|item: C::Item| #![trigger CursorMut::<C>::item_not_mapped(item, *old(regions))]
+            CursorMut::<C>::item_not_mapped(item, *old(regions)) ==>
+            CursorMut::<C>::item_not_mapped(item, *final(regions)),
 )]
 #[verifier::spinoff_prover]
 #[verifier::exec_allows_no_decreases_clause]
-pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
+pub fn lock_range<'rcu, C: PageTableConfig>(
     pt: &'rcu PageTable<C>,
-    guard: &'rcu A,
+    guard: &'rcu dyn InAtomicMode,
     va: &Range<Vaddr>,
-) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
+) -> (Cursor<'rcu, C>, Tracked<CursorOwner<'rcu, C>>) {
     proof {
         C::lemma_paging_consts_properties();
         C::axiom_current_paging_consts_hardcoded();
@@ -127,7 +134,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         invariant
             cursor_own.va == va.start,
             cursor_own.barrier_va == *va,
-            Cursor::<C, A>::cursor_new_success_conditions(*va),
+            Cursor::<C>::cursor_new_success_conditions(*va),
             regions.slots == old(regions).slots,
             forall|idx: int| #![trigger regions.slot_owners[idx]]
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
@@ -138,9 +145,9 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             forall|idx: int| #![trigger old(regions).slot_owners[idx].ref_count()]
                 old(regions).ref_count(idx) >= REF_COUNT_MAX ==>
                     regions.ref_count(idx) == old(regions).ref_count(idx),
-            forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
-                CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-                    CursorMut::<C, A>::item_not_mapped(item, *regions),
+            forall|item: C::Item| #![trigger CursorMut::<C>::item_not_mapped(item, *old(regions))]
+                CursorMut::<C>::item_not_mapped(item, *old(regions)) ==>
+                    CursorMut::<C>::item_not_mapped(item, *regions),
             subtree_root is None ==> {
                 &&& *regions == *old(regions)
                 &&& cursor_own.level == NR_LEVELS
@@ -228,7 +235,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     path[guard_level as usize - 1] = Some(subtree_root);
 
     let res = (
-        Cursor::<'rcu, C, A> {
+        Cursor::<'rcu, C> {
             path,
             rcu_guard: guard,
             level: guard_level,
@@ -267,7 +274,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 }
 
 #[verifier::external_body]
-pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_, C, A>) {
+pub fn unlock_range<C: PageTableConfig>(cursor: &mut Cursor<'_, C>) {
     unimplemented!()/*    let end = cursor.guard_level as usize - 1;
     for i in (0..end) {
         if let Some(guard) = cursor.path[end - i].take() {
@@ -307,7 +314,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         old(cursor_own).continuations[NR_LEVELS - 1].level() == NR_LEVELS,
         old(cursor_own).va == va.start,
         old(cursor_own).barrier_va == *va,
-        Cursor::<C, A>::cursor_new_success_conditions(*va),
+        Cursor::<C>::cursor_new_success_conditions(*va),
     ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -393,14 +400,14 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // the paddr range's slots either had non-UNUSED ref_count (preserved
         // per above) or UNUSED ref_count (and freshly-allocated PT nodes go
         // into OTHER slot indices, so frame paddrs' paths_in_pt stays empty).
-        forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
-            CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-            CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
+        forall|item: C::Item| #![trigger CursorMut::<C>::item_not_mapped(item, *old(regions))]
+            CursorMut::<C>::item_not_mapped(item, *old(regions)) ==>
+            CursorMut::<C>::item_not_mapped(item, *final(regions)),
 )]
 #[verifier::external_body]
-fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>(
+fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
     pt: &PageTable<C>,
-    guard: &'rcu A,
+    guard: &'rcu dyn InAtomicMode,
     va: &Range<Vaddr>,
 ) -> Option<PageTableGuard<'rcu, C>> {
     let mut cur_node_guard: Option<PageTableGuard<'rcu, C>> = None;
@@ -595,8 +602,8 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         final(regions).slot_owners == old(regions).slot_owners,
 )]
 #[verifier::external_body]
-fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
-    guard: &A,
+fn dfs_acquire_lock<'rcu, C: PageTableConfig>(
+    guard: &dyn InAtomicMode,
     cur_node: &mut PageTableGuard<'rcu, C>,
     cur_node_va: Vaddr,
     va_range: Range<Vaddr>,
@@ -634,8 +641,8 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         Tracked(guards): Tracked<&mut Guards>
 )]
 #[verifier::external_body]
-unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
-    guard: &'rcu A,
+unsafe fn dfs_release_lock<'rcu, C: PageTableConfig>(
+    guard: &'rcu dyn InAtomicMode,
     cur_node: &mut PageTableGuard<'rcu, C>,
     cur_node_va: Vaddr,
     va_range: Range<Vaddr>,
@@ -728,8 +735,8 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         forall |addr: usize| addr != locked_addr && old(guards).lock_held(addr) ==> final(guards).lock_held(addr),
 )]
 #[verifier::external_body]
-pub unsafe fn dfs_mark_stray_and_unlock<'a, 'rcu, C: PageTableConfig, A: InAtomicMode>(
-    rcu_guard: &A,
+pub unsafe fn dfs_mark_stray_and_unlock<'a, 'rcu, C: PageTableConfig>(
+    rcu_guard: &dyn InAtomicMode,
     sub_tree: &PageTableGuard<'a, C>,
 ) -> usize {
     unimplemented!();

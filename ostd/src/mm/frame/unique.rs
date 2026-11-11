@@ -2,9 +2,15 @@
 //! The unique frame pointer that is not shared with others.
 use vstd::{
     prelude::*,
-    simple_pptr::{self, PPtr},
+    simple_pptr::PPtr,
+    std_specs::fmt::{DebugSpecImpl, group_fmt_axioms},
 };
-use vstd_extra::{auxiliary::OptionExtraFns, cast_ptr::*, ownership::*};
+use vstd_extra::{
+    auxiliary::OptionExtraFns,
+    cast_ptr::*,
+    ownership::*,
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
+};
 
 use crate::specs::{
     arch::*,
@@ -22,11 +28,11 @@ use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 verus! {
 
 pub struct UniqueFrame<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
-    pub ptr: PPtr<MetaSlot>,
+    pub ptr: *const MetaSlot,
     pub _marker: PhantomData<M>,
     /// The permission to access the `MetaSlot` fields.
     #[cfg(verus_keep_ghost_body)]
-    pub tracked_slot_perm: Tracked<&'static simple_pptr::PointsTo<MetaSlot>>,
+    pub tracked_slot_perm: Tracked<&'static ExposedPointsTo<MetaSlot>>,
     /// The complete permission for the currently installed metadata.
     #[cfg(verus_keep_ghost_body)]
     pub tracked_metadata_perm: Tracked<Option<MetadataPerm>>,
@@ -42,12 +48,21 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Sync> Sync for U
 
 }
 
-/*
-impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> DebugSpecImpl for UniqueFrame<M> {
+    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
+        self.ptr_inv()
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> core::fmt::Debug for UniqueFrame<
+    M,
+> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        broadcast use group_fmt_axioms;
+
         write!(f, "UniqueFrame({:#x})", self.start_paddr())
     }
-}*/
+}
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
@@ -435,7 +450,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// a forgotten frame that was previously casted by [`Self::into_raw`].
     #[verus_spec(res =>
         with
-            Tracked(slot_perm): Tracked<&'static simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(slot_perm): Tracked<&'static ExposedPointsTo<MetaSlot>>,
             Tracked(meta_own): Tracked<M::Owner>,
             Tracked(repr_perm): Tracked<M::ReprPerm>,
             Tracked(metadata_perm): Tracked<MetadataPerm>,
@@ -458,7 +473,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     )]
     pub(crate) unsafe fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
-        let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
+        // Origin Rust: let ptr = vaddr as *const MetaSlot;
+        let ptr = ptr_from_addr(vaddr, Tracked(slot_perm));
 
         let tracked owner = UniqueFrameOwner {
             meta_own,
@@ -487,7 +503,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
         // mutably borrowed, so taking an immutable reference to it is safe.
         let tracked slot_perm = *self.tracked_slot_perm;
-        self.ptr.borrow(Tracked(slot_perm))
+        // Origin Rust: unsafe { &*self.ptr }
+        ptr_ref(self.ptr, Tracked(slot_perm))
     }
 }
 

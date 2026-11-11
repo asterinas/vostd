@@ -4,7 +4,7 @@ mod allocator;
 
 use vstd::prelude::*;
 
-use crate::specs::{mm::virt_mem::VirtPtr, task::AnyAtomicGuard};
+use crate::specs::mm::virt_mem::VirtPtr;
 
 use core::ops::{Deref, Range};
 
@@ -127,10 +127,7 @@ impl IoMem {
 
         // SAFETY: The caller of `IoMem::new()` ensures that the given
         // physical address range is I/O memory, so it is safe to map.
-        // Origin Rust: KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop)
-        let kva = unsafe {
-            KVirtArea::map_untracked_frames::<AnyAtomicGuard>(area_size, 0, frames_range, prop)
-        };
+        let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
 
         Self {
             kvirt_area: Arc::new(kva),

@@ -1,5 +1,8 @@
 use core::marker::PointeeSized;
-use vstd::prelude::*;
+use vstd::{
+    prelude::*,
+    raw_ptr::{MemContents, PointsTo, PtrData, ptr_mut_from_data},
+};
 
 verus! {
 
@@ -114,4 +117,92 @@ pub assume_specification<T>[ <*mut T>::is_aligned ](ptr: *mut T) -> bool
     opens_invariants none
 ;
 
+/// Models wrapping pointer addition.
+#[verifier::inline]
+pub open spec fn ptr_mut_add_spec<T: PointeeSized + Sized>(p: *mut T, count: usize) -> *mut T {
+    ptr_mut_from_data(
+        PtrData::<T> {
+            addr: ((p.addr() + count * size_of::<T>()) % (usize::MAX as int + 1)) as usize,
+            ..p@
+        },
+    )
+}
+
 } // verus!
+/// Volatile read with optional Rust allocation permission.
+///
+/// # Safety
+/// Classify the pointer correctly and uphold [`core::ptr::read_volatile`]'s requirements.
+/* Trusted: extra permission arguments require wrappers.
+ * Origin Rust: <none; new executable wrappers>
+ */
+#[verus_verify(external_body)]
+#[verus_spec(ret =>
+    with
+        Ghost(is_rust_allocation): Ghost<bool>,
+        Tracked(perm): Tracked<Option<&mut PointsTo<T>>>,
+    requires
+        ptr.addr() % align_of::<T>() == 0,
+        is_rust_allocation ==> (perm matches Some(p) && {
+            &&& p.ptr() == ptr
+            &&& p.is_init()
+        }),
+        !is_rust_allocation ==> perm is None,
+    ensures
+        is_rust_allocation ==> (perm matches Some(p) && {
+            &&& final(p).ptr() == ptr
+            &&& final(p).is_uninit()
+            &&& ret == p.value()
+        }),
+    opens_invariants none
+    no_unwind when ptr.addr() % align_of::<T>() == 0
+)]
+pub unsafe fn read_volatile_wrapper<T>(ptr: *const T) -> T {
+    // SAFETY: guaranteed by the caller.
+    unsafe { core::ptr::read_volatile(ptr) }
+}
+
+/// Volatile write with optional Rust allocation permission.
+///
+/// # Safety
+/// Classify the pointer correctly and uphold [`core::ptr::write_volatile`]'s requirements.
+#[verus_verify(external_body)]
+#[verus_spec(
+    with
+        Ghost(is_rust_allocation): Ghost<bool>,
+        Tracked(perm): Tracked<Option<&mut PointsTo<T>>>,
+    requires
+        ptr.addr() % align_of::<T>() == 0,
+        is_rust_allocation ==> (perm matches Some(p) && p.ptr() == ptr),
+        !is_rust_allocation ==> perm is None,
+    ensures
+        is_rust_allocation ==> (perm matches Some(p) && {
+            &&& final(p).ptr() == ptr
+            &&& final(p).opt_value() == MemContents::Init(value)
+        }),
+    opens_invariants none
+    no_unwind when ptr.addr() % align_of::<T>() == 0
+)]
+pub unsafe fn write_volatile_wrapper<T>(ptr: *mut T, value: T) {
+    // SAFETY: guaranteed by the caller.
+    unsafe { core::ptr::write_volatile(ptr, value) }
+}
+
+/// Temporary xAPIC workaround until vstd supports `wrapping_add`. Do not reuse elsewhere.
+///
+/// # Safety
+/// Uphold `pointer::add`'s allocation and arithmetic requirements.
+#[verus_verify(external_body)]
+#[verus_spec(
+    requires
+        p.addr() + count * size_of::<T>() <= usize::MAX,
+        count * size_of::<T>() <= isize::MAX,
+    returns ptr_mut_add_spec(p, count),
+    opens_invariants none
+    no_unwind when p.addr() + count * size_of::<T>() <= usize::MAX
+        && count * size_of::<T>() <= isize::MAX
+)]
+pub unsafe fn ptr_mut_add<T>(p: *mut T, count: usize) -> *mut T {
+    // SAFETY: guaranteed by the caller.
+    unsafe { p.add(count) }
+}
