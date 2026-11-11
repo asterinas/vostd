@@ -14,8 +14,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
-/* Only the trap-frame data type is needed by PCI's IRQ dependency; trap dispatch remains
- * outside this migration until its CPU-local and descriptor protocols are verified.
+/* Only TrapFrame is enabled for IRQ callbacks; trap dispatch is not enabled.
  * Origin Rust:
 pub(super) mod gdt;
 mod idt;
@@ -104,8 +103,7 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
-/* Trap initialization, user-context data, and dispatch are not needed by the PCI dependency slice.
- * Origin Rust:
+/*
 /// Initializes interrupt handling on x86_64.
 ///
 /// This function will:

@@ -9,10 +9,8 @@ use vstd::prelude::*;
 pub(crate) const IRQ_NUM_MIN: u8 = 32;
 pub(crate) const IRQ_NUM_MAX: u8 = 255;
 
-/* The IOMMU module is outside the active verified module graph, so interrupt remapping is
- * unavailable in this build. This preserves the original no-IOMMU branch: initialization is a
- * no-op and the query returns `None`. TODO: restore the IOMMU-backed path when that module enters
- * the verified graph.
+/* IOMMU support is not enabled, so this stub leaves interrupt remapping disabled.
+ * TODO: restore the implementation below when enabling the IOMMU module.
  * Origin Rust:
  * pub(crate) struct IrqRemapping { entry: Once<IrtEntryHandle> }
  * impl IrqRemapping {
@@ -44,8 +42,7 @@ impl IrqRemapping {
     }
 }
 
-/* Local IRQ hardware operations are not required by the PCI dependency slice.
- * Origin Rust:
+/*
 // FIXME: Mark this as unsafe. See
 // <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
 pub(crate) fn enable_local() {

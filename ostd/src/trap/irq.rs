@@ -6,10 +6,7 @@ use core::fmt::Debug;
 
 use crate::{arch::irq, sync::GuardTransfer};
 
-/* IRQ lines require the TrapFrame module enabled by the x86 PCI migration. IRQ guards below
- * remain available on every architecture, as they were before the PCI migration.
- * Origin Rust: the IRQ-line implementation below was inside a block comment.
- */
+// IRQ lines depend on TrapFrame, which is currently enabled only on x86.
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "x86_64")] {
         use alloc::{boxed::Box, sync::Arc, vec::Vec};
@@ -148,8 +145,10 @@ cfg_if::cfg_if! {
         static ALLOCATOR: Once<SpinLock<IdAlloc, PreemptDisabled>> = Once::new();
 
         fn get_or_init_allocator() -> &'static SpinLock<IdAlloc, PreemptDisabled> {
-            // Origin Rust: SpinLock::new(IdAlloc::with_capacity(NUMBER_OF_IRQS))
             ALLOCATOR.call_once(|| {
+                /* Supply the trivial invariant resources required by SpinLock::new.
+                 * Origin Rust: SpinLock::new(IdAlloc::with_capacity(NUMBER_OF_IRQS))
+                 */
                 SpinLock::new(
                     IdAlloc::with_capacity(NUMBER_OF_IRQS),
                     Ghost::new(()),

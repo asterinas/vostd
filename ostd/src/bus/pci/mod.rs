@@ -64,9 +64,7 @@ use crate::{
     sync::{Mutex, MutexGuard},
 };
 
-/// PCI bus instance
-///
-/// Origin Rust: `pub static PCI_BUS: Mutex<PciBus> = Mutex::new(PciBus::new());`
+/// A PCI bus mutex initialized on the first call to `lock`.
 pub struct PciBusCell(Once<Mutex<PciBus>>);
 
 impl PciBusCell {
@@ -79,6 +77,10 @@ impl PciBusCell {
     }
 }
 
+/* Defer mutex construction until the first lock so the static holds an empty Once.
+ * Origin Rust: pub static PCI_BUS: Mutex<PciBus> = Mutex::new(PciBus::new());
+ */
+/// PCI bus instance
 pub static PCI_BUS: PciBusCell = PciBusCell::new();
 
 pub(crate) fn init() {

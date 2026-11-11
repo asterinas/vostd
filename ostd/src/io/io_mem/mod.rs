@@ -149,8 +149,10 @@ impl IoMem {
     fn reader(&self) -> VmReader<'_, Infallible> {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of reading from the mapped physical address, and the mapping is valid.
-        // Origin Rust: VmReader::from_kernel_space(
-        //     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
+        /* VmReader now takes a VirtPtr with a ghost address range instead of a raw pointer.
+         * Origin Rust: VmReader::from_kernel_space(
+         *     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
+         */
         let vaddr = self.kvirt_area.deref().start() + self.offset;
         unsafe {
             VmReader::from_kernel_space(
@@ -166,8 +168,10 @@ impl IoMem {
     fn writer(&self) -> VmWriter<'_, Infallible> {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of writing to the mapped physical address, and the mapping is valid.
-        // Origin Rust: VmWriter::from_kernel_space(
-        //     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
+        /* VmWriter now takes a VirtPtr with a ghost address range instead of a raw pointer.
+         * Origin Rust: VmWriter::from_kernel_space(
+         *     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
+         */
         let vaddr = self.kvirt_area.deref().start() + self.offset;
         unsafe {
             VmWriter::from_kernel_space(
@@ -181,8 +185,8 @@ impl IoMem {
     }
 }
 
-/* The generic verified `VmIo<P>` interface requires an ownership model for MMIO side effects.
- * TODO: restore this implementation after introducing that hardware ownership model.
+/* IoMem does not yet implement the ownership specifications required by VmIo<P>.
+ * TODO: model MMIO ownership and restore this trait implementation.
  * Origin Rust:
 impl VmIo for IoMem {
     fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> {
@@ -225,10 +229,9 @@ impl VmIo for IoMem {
 }
 */
 
-/* The verified `VmIoOnce` trait requires a memory owner that the current method signatures cannot
- * carry. Keep the executable API available without adding a trusted implementation. TODO: restore
- * the trait implementation together with the MMIO ownership model.
- * Origin Rust: `impl VmIoOnce for IoMem`.
+/* These remain inherent methods because IoMem does not implement VmIoOnce's spec predicates.
+ * TODO: supply those predicates and restore the trait implementation.
+ * Origin Rust: impl VmIoOnce for IoMem
  */
 impl IoMem {
     pub fn read_once<T: PodOnce>(&self, offset: usize) -> Result<T> {

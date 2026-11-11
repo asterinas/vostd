@@ -41,16 +41,14 @@ pub mod arch;
 #[path = "arch/loongarch/mod.rs"]
 pub mod arch;
 pub mod boot;
-/* PCI is connected only to the x86 device and trap modules in this verification slice.
- * Keep the other architectures' previously disabled bus module out of the module graph.
- * Origin Rust: pub mod bus; (inside a block comment)
+/* PCI's device and trap dependencies are currently enabled only on x86.
+ * Origin Rust: pub mod bus;
  */
 #[cfg(target_arch = "x86_64")]
 pub mod bus;
 /*pub mod console;*/
 pub mod cpu;
 pub mod error;
-// Origin Rust: this declaration was inside a block comment.
 pub mod io;
 /*pub mod logger;*/
 pub mod mm;

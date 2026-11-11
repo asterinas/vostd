@@ -299,7 +299,9 @@ impl MemoryBar {
             io_memory: unsafe {
                 IoMem::new(
                     (base as usize)..((base + size as u64) as usize),
-                    // Origin Rust: PageFlags::RW,
+                    /* The migrated bitflags API exposes composite flags through a function.
+                     * Origin Rust: PageFlags::RW,
+                     */
                     PageFlags::RW(),
                     CachePolicy::Uncacheable,
                 )
