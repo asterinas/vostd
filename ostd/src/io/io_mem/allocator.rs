@@ -29,10 +29,7 @@ impl IoMemAllocator {
         debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end);
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
-        /* The migrated bitflags API exposes composite flags through a function.
-         * Origin Rust: unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
-         */
-        unsafe { Some(IoMem::new(range, PageFlags::RW(), CachePolicy::Uncacheable)) }
+        unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
     }
 
     /// Recycles an MMIO range.

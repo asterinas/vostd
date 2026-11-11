@@ -2,213 +2,196 @@
 //! IRQ line and IRQ guards.
 use vstd::prelude::*;
 
-use core::fmt::Debug;
+use core::{fmt::Debug, ops::Deref};
 
-use crate::{arch::irq, sync::GuardTransfer};
+// use id_alloc::IdAlloc;
+// use spin::Once;
 
-// IRQ lines depend on TrapFrame, which is currently enabled only on x86.
-cfg_if::cfg_if! {
-    if #[cfg(target_arch = "x86_64")] {
-        use alloc::{boxed::Box, sync::Arc, vec::Vec};
-        use core::ops::Deref;
+use crate::{
+    arch::{
+        irq::{self /* , IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN */},
+        /* trap::TrapFrame, */
+    },
+    prelude::*,
+    sync::{GuardTransfer, RwLock, SpinLock /* WriteIrqDisabled */},
+    // task::atomic_mode::InAtomicMode,
+    // Error,
+};
+/*
+/// A type alias for the IRQ callback function.
+pub type IrqCallbackFunction = dyn Fn(&TrapFrame) + Sync + Send + 'static;
 
-        use id_alloc::IdAlloc;
-        use spin::Once;
+/// An Interrupt ReQuest (IRQ) line.
+///
+/// Users can use [`alloc`] or [`alloc_specific`] to allocate a (specific) IRQ line.
+///
+/// The IRQ number is guaranteed to be an external IRQ number and users can use [`on_active`] to
+/// safely register callback functions on this IRQ line. When the IRQ line is dropped, all the
+/// registered callbacks will be unregistered automatically.
+///
+/// [`alloc`]: Self::alloc
+/// [`alloc_specific`]: Self::alloc_specific
+/// [`on_active`]: Self::on_active
+#[derive(Debug)]
+#[must_use]
+pub struct IrqLine {
+    inner: Arc<InnerHandle>,
+    callbacks: Vec<CallbackHandle>,
+}
 
-        use crate::{
-            Error,
-            arch::{
-                irq::{IRQ_NUM_MAX, IRQ_NUM_MIN, IrqRemapping},
-                trap::TrapFrame,
-            },
-            prelude::*,
-            sync::{PreemptDisabled, RwLock, SpinLock, WriteIrqDisabled},
+impl IrqLine {
+    /// Allocates an available IRQ line.
+    pub fn alloc() -> Result<Self> {
+        get_or_init_allocator()
+            .lock()
+            .alloc()
+            .map(|id| Self::new(id as u8))
+            .ok_or(Error::NotEnoughResources)
+    }
+
+    /// Allocates a specific IRQ line.
+    pub fn alloc_specific(irq_num: u8) -> Result<Self> {
+        get_or_init_allocator()
+            .lock()
+            .alloc_specific((irq_num - IRQ_NUM_MIN) as usize)
+            .map(|id| Self::new(id as u8))
+            .ok_or(Error::NotEnoughResources)
+    }
+
+    fn new(index: u8) -> Self {
+        let inner = InnerHandle { index };
+        inner.remapping.init(index + IRQ_NUM_MIN);
+
+        Self {
+            inner: Arc::new(inner),
+            callbacks: Vec::new(),
+        }
+    }
+
+    /// Gets the IRQ number.
+    pub fn num(&self) -> u8 {
+        self.inner.index + IRQ_NUM_MIN
+    }
+
+    /// Registers a callback that will be invoked when the IRQ is active.
+    ///
+    /// For each IRQ line, multiple callbacks may be registered.
+    pub fn on_active<F>(&mut self, callback: F)
+    where
+        F: Fn(&TrapFrame) + Sync + Send + 'static,
+    {
+        let callback_handle = {
+            let callback_box = Box::new(callback);
+            let callback_addr = core::ptr::from_ref(&*callback_box).addr();
+
+            let mut callbacks = self.inner.callbacks.write();
+            callbacks.push(callback_box);
+
+            CallbackHandle {
+                irq_index: self.inner.index,
+                callback_addr,
+            }
         };
-        /// A type alias for the IRQ callback function.
-        pub type IrqCallbackFunction = dyn Fn(&TrapFrame) + Sync + Send + 'static;
 
-        /// An Interrupt ReQuest (IRQ) line.
-        ///
-        /// Users can use [`alloc`] or [`alloc_specific`] to allocate a (specific) IRQ line.
-        ///
-        /// The IRQ number is guaranteed to be an external IRQ number and users can use [`on_active`] to
-        /// safely register callback functions on this IRQ line. When the IRQ line is dropped, all the
-        /// registered callbacks will be unregistered automatically.
-        ///
-        /// [`alloc`]: Self::alloc
-        /// [`alloc_specific`]: Self::alloc_specific
-        /// [`on_active`]: Self::on_active
-        #[derive(Debug)]
-        #[must_use]
-        pub struct IrqLine {
-            inner: Arc<InnerHandle>,
-            callbacks: Vec<CallbackHandle>,
-        }
+        self.callbacks.push(callback_handle);
+    }
 
-        impl IrqLine {
-            /// Allocates an available IRQ line.
-            pub fn alloc() -> Result<Self> {
-                get_or_init_allocator()
-                    .lock()
-                    .alloc()
-                    .map(|id| Self::new(id as u8))
-                    .ok_or(Error::NotEnoughResources)
-            }
+    /// Checks if there are no registered callbacks.
+    pub fn is_empty(&self) -> bool {
+        self.callbacks.is_empty()
+    }
 
-            /// Allocates a specific IRQ line.
-            pub fn alloc_specific(irq_num: u8) -> Result<Self> {
-                get_or_init_allocator()
-                    .lock()
-                    .alloc_specific((irq_num - IRQ_NUM_MIN) as usize)
-                    .map(|id| Self::new(id as u8))
-                    .ok_or(Error::NotEnoughResources)
-            }
+    /// Gets the remapping index of the IRQ line.
+    ///
+    /// This method will return `None` if interrupt remapping is disabled or
+    /// not supported by the architecture.
+    pub fn remapping_index(&self) -> Option<u16> {
+        self.inner.remapping.remapping_index()
+    }
+}
 
-            fn new(index: u8) -> Self {
-                let inner = InnerHandle { index };
-                inner.remapping.init(index + IRQ_NUM_MIN);
-
-                Self {
-                    inner: Arc::new(inner),
-                    callbacks: Vec::new(),
-                }
-            }
-
-            /// Gets the IRQ number.
-            pub fn num(&self) -> u8 {
-                self.inner.index + IRQ_NUM_MIN
-            }
-
-            /// Registers a callback that will be invoked when the IRQ is active.
-            ///
-            /// For each IRQ line, multiple callbacks may be registered.
-            pub fn on_active<F>(&mut self, callback: F)
-            where
-                F: Fn(&TrapFrame) + Sync + Send + 'static,
-            {
-                let callback_handle = {
-                    let callback_box = Box::new(callback);
-                    let callback_addr = core::ptr::from_ref(&*callback_box).addr();
-
-                    let mut callbacks = self.inner.callbacks.write();
-                    callbacks.push(callback_box);
-
-                    CallbackHandle {
-                        irq_index: self.inner.index,
-                        callback_addr,
-                    }
-                };
-
-                self.callbacks.push(callback_handle);
-            }
-
-            /// Checks if there are no registered callbacks.
-            pub fn is_empty(&self) -> bool {
-                self.callbacks.is_empty()
-            }
-
-            /// Gets the remapping index of the IRQ line.
-            ///
-            /// This method will return `None` if interrupt remapping is disabled or
-            /// not supported by the architecture.
-            pub fn remapping_index(&self) -> Option<u16> {
-                self.inner.remapping.remapping_index()
-            }
-        }
-
-        impl Clone for IrqLine {
-            fn clone(&self) -> Self {
-                Self {
-                    inner: self.inner.clone(),
-                    callbacks: Vec::new(),
-                }
-            }
-        }
-
-        struct Inner {
-            callbacks: RwLock<Vec<Box<IrqCallbackFunction>>, WriteIrqDisabled>,
-            remapping: IrqRemapping,
-        }
-
-        impl Inner {
-            const fn new() -> Self {
-                Self {
-                    callbacks: RwLock::new(Vec::new()),
-                    remapping: IrqRemapping::new(),
-                }
-            }
-        }
-
-        const NUMBER_OF_IRQS: usize = (IRQ_NUM_MAX - IRQ_NUM_MIN) as usize + 1;
-
-        static INNERS: [Inner; NUMBER_OF_IRQS] = [const { Inner::new() }; NUMBER_OF_IRQS];
-        static ALLOCATOR: Once<SpinLock<IdAlloc, PreemptDisabled>> = Once::new();
-
-        fn get_or_init_allocator() -> &'static SpinLock<IdAlloc, PreemptDisabled> {
-            ALLOCATOR.call_once(|| {
-                /* Supply the trivial invariant resources required by SpinLock::new.
-                 * Origin Rust: SpinLock::new(IdAlloc::with_capacity(NUMBER_OF_IRQS))
-                 */
-                SpinLock::new(
-                    IdAlloc::with_capacity(NUMBER_OF_IRQS),
-                    Ghost::new(()),
-                    Tracked::new(()),
-                )
-            })
-        }
-
-        /// A handle for an allocated IRQ line.
-        ///
-        /// When the handle is dropped, the IRQ line will be released automatically.
-        #[must_use]
-        #[derive(Debug)]
-        struct InnerHandle {
-            index: u8,
-        }
-
-        impl Deref for InnerHandle {
-            type Target = Inner;
-
-            fn deref(&self) -> &Self::Target {
-                &INNERS[self.index as usize]
-            }
-        }
-
-        impl Drop for InnerHandle {
-            fn drop(&mut self) {
-                ALLOCATOR.get().unwrap().lock().free(self.index as usize);
-            }
-        }
-
-        /// A handle for a registered callback on an IRQ line.
-        ///
-        /// When the handle is dropped, the callback will be unregistered automatically.
-        #[must_use]
-        #[derive(Debug)]
-        struct CallbackHandle {
-            irq_index: u8,
-            callback_addr: usize,
-        }
-
-        impl Drop for CallbackHandle {
-            fn drop(&mut self) {
-                let mut callbacks = INNERS[self.irq_index as usize].callbacks.write();
-
-                let pos = callbacks
-                    .iter()
-                    .position(|element| core::ptr::from_ref(&**element).addr() == self.callback_addr);
-                let _ = callbacks.swap_remove(pos.unwrap());
-            }
-        }
-
-        pub(super) fn process_top_half(trap_frame: &TrapFrame, irq_num: usize) {
-            let inner = &INNERS[irq_num - (IRQ_NUM_MIN as usize)];
-            for callback in &*inner.callbacks.read() {
-                callback(trap_frame);
-            }
+impl Clone for IrqLine {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            callbacks: Vec::new(),
         }
     }
 }
+
+struct Inner {
+    callbacks: RwLock<Vec<Box<IrqCallbackFunction>>, WriteIrqDisabled>,
+    remapping: IrqRemapping,
+}
+
+impl Inner {
+    const fn new() -> Self {
+        Self {
+            callbacks: RwLock::new(Vec::new()),
+            remapping: IrqRemapping::new(),
+        }
+    }
+}
+
+const NUMBER_OF_IRQS: usize = (IRQ_NUM_MAX - IRQ_NUM_MIN) as usize + 1;
+
+static INNERS: [Inner; NUMBER_OF_IRQS] = [const { Inner::new() }; NUMBER_OF_IRQS];
+static ALLOCATOR: Once<SpinLock<IdAlloc>> = Once::new();
+
+fn get_or_init_allocator() -> &'static SpinLock<IdAlloc> {
+    ALLOCATOR.call_once(|| SpinLock::new(IdAlloc::with_capacity(NUMBER_OF_IRQS)))
+}
+
+/// A handle for an allocated IRQ line.
+///
+/// When the handle is dropped, the IRQ line will be released automatically.
+#[must_use]
+#[derive(Debug)]
+struct InnerHandle {
+    index: u8,
+}
+
+impl Deref for InnerHandle {
+    type Target = Inner;
+
+    fn deref(&self) -> &Self::Target {
+        &INNERS[self.index as usize]
+    }
+}
+
+impl Drop for InnerHandle {
+    fn drop(&mut self) {
+        ALLOCATOR.get().unwrap().lock().free(self.index as usize);
+    }
+}
+
+/// A handle for a registered callback on an IRQ line.
+///
+/// When the handle is dropped, the callback will be unregistered automatically.
+#[must_use]
+#[derive(Debug)]
+struct CallbackHandle {
+    irq_index: u8,
+    callback_addr: usize,
+}
+
+impl Drop for CallbackHandle {
+    fn drop(&mut self) {
+        let mut callbacks = INNERS[self.irq_index as usize].callbacks.write();
+
+        let pos = callbacks
+            .iter()
+            .position(|element| core::ptr::from_ref(&**element).addr() == self.callback_addr);
+        let _ = callbacks.swap_remove(pos.unwrap());
+    }
+}
+
+pub(super) fn process_top_half(trap_frame: &TrapFrame, irq_num: usize) {
+    let inner = &INNERS[irq_num - (IRQ_NUM_MIN as usize)];
+    for callback in &*inner.callbacks.read() {
+        callback(trap_frame);
+    }
+}*/
 
 // ####### IRQ Guards #######
 verus! {
@@ -298,7 +281,7 @@ impl GuardTransfer for DisabledLocalIrqGuard {
         }
     }
 } */
-#[cfg(all(ktest, target_arch = "x86_64"))]
+#[cfg(ktest)]
 mod test {
     use super::*;
 

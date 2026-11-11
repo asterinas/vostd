@@ -14,8 +14,6 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
-/* Only TrapFrame is enabled for IRQ callbacks; trap dispatch is not enabled.
- * Origin Rust:
 pub(super) mod gdt;
 mod idt;
 mod syscall;
@@ -52,7 +50,7 @@ cfg_if! {
 cpu_local_cell! {
     static KERNEL_INTERRUPT_NESTED_LEVEL: u8 = 0;
 }
-*/
+
 /// Trap frame of kernel interrupt
 ///
 /// # Trap handler
@@ -103,7 +101,6 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
-/*
 /// Initializes interrupt handling on x86_64.
 ///
 /// This function will:
@@ -303,4 +300,3 @@ fn handle_kernel_page_fault(info: RawPageFaultInfo) {
     //    correctness follows the semantics of the direct mapping of physical memory.
     unsafe { cursor.map(crate::mm::kspace::MappedItem::Untracked(paddr, 1, prop)) }.unwrap();
 }
-*/

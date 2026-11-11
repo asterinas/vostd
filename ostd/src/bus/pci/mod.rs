@@ -48,40 +48,21 @@
 //!     PCI_BUS.lock().register_driver(driver_a);
 //! }
 //! ```
-pub mod bus;
+// Only data types and pure helpers are enabled; hardware access remains commented out.
+/*pub mod bus;*/
 pub mod capability;
 pub mod cfg_space;
-pub mod common_device;
+/*pub mod common_device;*/
 mod device_info;
 
 pub use device_info::{PciDeviceId, PciDeviceLocation};
 
-use spin::Once;
-
+/*
 use self::{bus::PciBus, common_device::PciCommonDevice};
-use crate::{
-    arch::pci::has_pci_bus,
-    sync::{Mutex, MutexGuard},
-};
+use crate::{arch::pci::has_pci_bus, sync::Mutex};
 
-/// A PCI bus mutex initialized on the first call to `lock`.
-pub struct PciBusCell(Once<Mutex<PciBus>>);
-
-impl PciBusCell {
-    const fn new() -> Self {
-        Self(Once::new())
-    }
-
-    pub fn lock(&self) -> MutexGuard<'_, PciBus> {
-        self.0.call_once(|| Mutex::new(PciBus::new())).lock()
-    }
-}
-
-/* Defer mutex construction until the first lock so the static holds an empty Once.
- * Origin Rust: pub static PCI_BUS: Mutex<PciBus> = Mutex::new(PciBus::new());
- */
 /// PCI bus instance
-pub static PCI_BUS: PciBusCell = PciBusCell::new();
+pub static PCI_BUS: Mutex<PciBus> = Mutex::new(PciBus::new());
 
 pub(crate) fn init() {
     if !has_pci_bus() {
@@ -96,3 +77,4 @@ pub(crate) fn init() {
         lock.register_common_device(device);
     }
 }
+*/

@@ -4,7 +4,7 @@ use vstd::prelude::*;
 
 use core::iter;
 
-use super::cfg_space::PciDeviceCommonCfgOffset;
+// use super::cfg_space::PciDeviceCommonCfgOffset;
 
 /// PCI device ID
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -27,6 +27,7 @@ pub struct PciDeviceId {
     pub subsystem_id: u16,
 }
 
+/*
 impl PciDeviceId {
     pub(super) fn new(location: PciDeviceLocation) -> Self {
         let vendor_id = location.read16(PciDeviceCommonCfgOffset::VendorId as u16);
@@ -50,6 +51,8 @@ impl PciDeviceId {
         }
     }
 }
+
+*/
 
 /// PCI device Location
 #[verus_verify]
@@ -108,6 +111,7 @@ impl PciDeviceLocation {
     }
 }
 
+/*
 impl PciDeviceLocation {
     pub(super) const BIT32_ALIGN_MASK: u16 = 0xFFFC;
 
@@ -157,3 +161,4 @@ impl PciDeviceLocation {
         crate::arch::pci::write32(self, offset as u32, val).unwrap()
     }
 }
+*/

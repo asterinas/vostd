@@ -5,6 +5,7 @@
 
 use vstd::prelude::*;
 
+/*
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
@@ -187,6 +188,8 @@ impl CapabilityMsixData {
         msg_ctrl & 0x8000 != 0
     }
 }
+
+*/
 
 #[verus_verify]
 #[verus_verify(dual_spec)]

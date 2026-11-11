@@ -3,8 +3,8 @@
 use vstd::prelude::*;
 
 use crate::{
-    Error, Result,
-    bus::pci::{common_device::PciCommonDevice, device_info::PciDeviceLocation},
+    /*Error, Result,*/
+    bus::pci::{/*common_device::PciCommonDevice,*/ device_info::PciDeviceLocation},
 };
 
 /// Vendor specific capability. Users can access this capability area at will,
@@ -16,6 +16,7 @@ pub struct CapabilityVndrData {
     cap_ptr: u16,
     length: u16,
 }
+/*
 impl CapabilityVndrData {
     pub(super) fn new(dev: &PciCommonDevice, cap_ptr: u16, length: u16) -> Self {
         Self {
@@ -25,6 +26,8 @@ impl CapabilityVndrData {
         }
     }
 }
+
+*/
 
 #[verus_verify]
 impl CapabilityVndrData {
@@ -37,6 +40,7 @@ impl CapabilityVndrData {
     }
 }
 
+/*
 impl CapabilityVndrData {
     /// Reads u8 from the capability.
     pub fn read8(&self, offset: u16) -> Result<u8> {
@@ -84,3 +88,4 @@ impl CapabilityVndrData {
         Ok(())
     }
 }
+*/

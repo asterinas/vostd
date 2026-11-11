@@ -2,10 +2,6 @@
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
 mod allocator;
 
-use vstd::prelude::*;
-
-use crate::specs::mm::virt_mem::VirtPtr;
-
 use core::ops::{Deref, Range};
 
 use align_ext::AlignExt;
@@ -15,8 +11,8 @@ pub(super) use self::allocator::init;
 use crate::{
     Error,
     mm::{
-        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, PAGE_SIZE, Paddr, PodOnce, VmReader,
-        VmWriter,
+        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, PAGE_SIZE, Paddr, PodOnce, VmIo,
+        VmIoOnce, VmReader, VmWriter,
         kspace::kvirt_area::KVirtArea,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
@@ -149,17 +145,9 @@ impl IoMem {
     fn reader(&self) -> VmReader<'_, Infallible> {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of reading from the mapped physical address, and the mapping is valid.
-        /* VmReader now takes a VirtPtr with a ghost address range instead of a raw pointer.
-         * Origin Rust: VmReader::from_kernel_space(
-         *     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
-         */
-        let vaddr = self.kvirt_area.deref().start() + self.offset;
         unsafe {
             VmReader::from_kernel_space(
-                VirtPtr {
-                    vaddr,
-                    range: Ghost::new(vaddr..vaddr + self.limit),
-                },
+                (self.kvirt_area.deref().start() + self.offset) as *mut u8,
                 self.limit,
             )
         }
@@ -168,26 +156,15 @@ impl IoMem {
     fn writer(&self) -> VmWriter<'_, Infallible> {
         // SAFETY: The constructor of the `IoMem` structure has already ensured the
         // safety of writing to the mapped physical address, and the mapping is valid.
-        /* VmWriter now takes a VirtPtr with a ghost address range instead of a raw pointer.
-         * Origin Rust: VmWriter::from_kernel_space(
-         *     (self.kvirt_area.deref().start() + self.offset) as *mut u8, self.limit)
-         */
-        let vaddr = self.kvirt_area.deref().start() + self.offset;
         unsafe {
             VmWriter::from_kernel_space(
-                VirtPtr {
-                    vaddr,
-                    range: Ghost::new(vaddr..vaddr + self.limit),
-                },
+                (self.kvirt_area.deref().start() + self.offset) as *mut u8,
                 self.limit,
             )
         }
     }
 }
 
-/* IoMem does not yet implement the ownership specifications required by VmIo<P>.
- * TODO: model MMIO ownership and restore this trait implementation.
- * Origin Rust:
 impl VmIo for IoMem {
     fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> {
         let offset = offset + self.offset;
@@ -227,18 +204,13 @@ impl VmIo for IoMem {
         Ok(())
     }
 }
-*/
 
-/* These remain inherent methods because IoMem does not implement VmIoOnce's spec predicates.
- * TODO: supply those predicates and restore the trait implementation.
- * Origin Rust: impl VmIoOnce for IoMem
- */
-impl IoMem {
-    pub fn read_once<T: PodOnce>(&self, offset: usize) -> Result<T> {
+impl VmIoOnce for IoMem {
+    fn read_once<T: PodOnce>(&self, offset: usize) -> Result<T> {
         self.reader().skip(offset).read_once()
     }
 
-    pub fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()> {
+    fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()> {
         self.writer().skip(offset).write_once(new_val)
     }
 }

@@ -41,16 +41,12 @@ pub mod arch;
 #[path = "arch/loongarch/mod.rs"]
 pub mod arch;
 pub mod boot;
-/* PCI's device and trap dependencies are currently enabled only on x86.
- * Origin Rust: pub mod bus;
- */
-#[cfg(target_arch = "x86_64")]
 pub mod bus;
 /*pub mod console;*/
 pub mod cpu;
 pub mod error;
-pub mod io;
-/*pub mod logger;*/
+/*pub mod io;
+pub mod logger;*/
 pub mod mm;
 /*pub mod panic;*/
 pub mod prelude;

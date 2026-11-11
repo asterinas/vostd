@@ -4,6 +4,7 @@
 //! Reference: <https://wiki.osdev.org/PCI>
 use vstd::prelude::*;
 
+/*
 use alloc::sync::Arc;
 use core::mem::size_of;
 
@@ -299,10 +300,7 @@ impl MemoryBar {
             io_memory: unsafe {
                 IoMem::new(
                     (base as usize)..((base + size as u64) as usize),
-                    /* The migrated bitflags API exposes composite flags through a function.
-                     * Origin Rust: PageFlags::RW,
-                     */
-                    PageFlags::RW(),
+                    PageFlags::RW,
                     CachePolicy::Uncacheable,
                 )
             },
@@ -318,6 +316,8 @@ pub enum AddrLen {
     /// 64 bits
     Bits64,
 }
+
+*/
 
 /// I/O port BAR.
 #[verus_verify]
@@ -343,6 +343,7 @@ impl IoBar {
     }
 }
 
+/*
 impl IoBar {
     /// Reads from port
     pub fn read<T: PortRead>(&self, offset: u32) -> Result<T> {
@@ -388,3 +389,4 @@ impl IoBar {
         })
     }
 }
+*/
