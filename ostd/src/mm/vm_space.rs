@@ -41,9 +41,9 @@ use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 
 use crate::{
+    Error,
     arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr},
     cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    Error,
     // cpu_local_cell,
     mm::{
         AnyUFrameMeta, Frame, MAX_USERSPACE_VADDR, PageProperty, PagingLevel, UFrame, VmReader,
@@ -301,9 +301,11 @@ impl VmSpace {
             // See `cursor` above for the derivation.
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor_mut<'a, G: AsAtomicModeGuard>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a>,
-    > {
+    pub fn cursor_mut<'a, G: AsAtomicModeGuard>(
+        &'a self,
+        guard: &'a G,
+        va: &Range<Vaddr>,
+    ) -> Result<CursorMut<'a>> {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
