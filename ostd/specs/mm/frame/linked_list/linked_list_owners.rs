@@ -239,7 +239,6 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     /// list.
     pub metadata_perms: Seq<MetadataPerm>,
     pub ghost list_id: u64,
-    pub ghost _marker: core::marker::PhantomData<M>,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {

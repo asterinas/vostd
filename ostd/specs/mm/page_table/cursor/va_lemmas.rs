@@ -25,7 +25,7 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
-use crate::specs::task::InAtomicMode;
+
 use core::ops::Range;
 
 verus! {
@@ -212,7 +212,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 }
 
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     /// Connects the executable cursor address to the architecture-parameterized index owned by
     /// its ghost continuation, without exposing the owner's decomposed address representation.
     pub proof fn lemma_pte_index_matches_owner(self, owner: CursorOwner<'rcu, C>)

@@ -158,6 +158,18 @@ impl<T> ArcPointsTo<T> {
     }
 }
 
+impl<T> Inv for Box<T> {
+    open spec fn inv(self) -> bool {
+        true
+    }
+}
+
+impl<T> Inv for Arc<T> {
+    open spec fn inv(self) -> bool {
+        true
+    }
+}
+
 impl<T> Inv for BoxPointsTo<T> {
     open spec fn inv(self) -> bool {
         &&& self.perm.inv()

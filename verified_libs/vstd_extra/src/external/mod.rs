@@ -7,6 +7,7 @@ pub mod bits;
 mod bitvec;
 pub mod cmp;
 pub mod convert;
+pub mod fmt;
 pub mod ilog2;
 pub mod int_specs;
 #[cfg(target_arch = "x86_64")]

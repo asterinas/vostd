@@ -46,6 +46,7 @@ impl MetaSlot {
         ensures
             core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
             vstd::layout::size_of::<MetaSlot>() == META_SLOT_SIZE,
+            core::mem::align_of::<MetaSlot>() == 8,
     {
         broadcast use VERUS_layout_of_MetaSlot;
 

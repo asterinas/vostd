@@ -69,6 +69,7 @@ pub use ostd_macros::{
 pub use ostd_pod::Pod;
 
 pub use self::{error::Error, prelude::Result};
+
 /*
 /// Initializes OSTD.
 ///

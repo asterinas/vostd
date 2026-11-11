@@ -12,7 +12,6 @@ use crate::specs::{
             *,
         },
     },
-    task::InAtomicMode,
 };
 
 use super::{
@@ -27,11 +26,10 @@ use crate::mm::frame::MetaSlot;
 use crate::mm::frame::meta::{
     REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
 };
-use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::{
-    //task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
     Pod,
     arch::mm::{PageTableEntry, PagingConsts},
+    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
 };
 use core::{
     fmt::Debug,
@@ -906,11 +904,7 @@ impl PageTable<KernelPtConfig> {
         ensures
             final(regions).inv(),
     )]
-    pub(in crate::mm) fn create_user_page_table<'rcu, G: InAtomicMode + 'static>(
-        &'static self,
-    ) -> PageTable<UserPtConfig> {
-        let preempt_guard: &'rcu G = disable_preempt::<G>();
-
+    pub(in crate::mm) fn create_user_page_table(&'static self) -> PageTable<UserPtConfig> {
         proof_decl! {
             let tracked mut new_pt_owner: Option<PageTableOwner<UserPtConfig>> = None;
         }
@@ -919,6 +913,7 @@ impl PageTable<KernelPtConfig> {
         #[verus_spec(with Tracked(&mut new_pt_owner), Tracked(regions), Tracked(guards))]
         PageTable::empty_with_owner());
         let new_root = new_pt.root;
+        let preempt_guard = disable_preempt();
         // Capture new_idx as a ghost BEFORE the tracked_take below empties new_pt_owner.
         let ghost new_idx_g: int = frame_to_index(
             new_pt_owner@.unwrap().0.value().meta_slot_paddr().unwrap(),
@@ -954,12 +949,12 @@ impl PageTable<KernelPtConfig> {
         let mut root_node = {
             let root_ref = self.root.borrow();
             #[verus_spec(with Tracked(guards), Tracked(regions.tracked_borrow_slot_owner(root_ref.start_paddr_spec()).metadata_perm.tracked_borrow()))]
-            root_ref.lock(preempt_guard)
+            root_ref.lock(&preempt_guard)
         };
         let mut new_node: PageTableGuard<'_, UserPtConfig> = {
             let new_ref = new_root.borrow();
             #[verus_spec(with Tracked(guards), Tracked(regions.tracked_borrow_slot_owner(new_ref.start_paddr_spec()).metadata_perm.tracked_borrow()))]
-            new_ref.lock(preempt_guard)
+            new_ref.lock(&preempt_guard)
         };
         for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE()
             invariant
@@ -1221,8 +1216,8 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards>
         requires
             self.relates_owner(owner, *old(regions)),
-            Cursor::<C, G>::cursor_new_input_valid(*va)
-                ==> Cursor::<C, G>::cursor_new_success_conditions(*va),
+            Cursor::<C>::cursor_new_input_valid(*va)
+                ==> Cursor::<C>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
@@ -1230,7 +1225,7 @@ impl<C: PageTableConfig> PageTable<C> {
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
                     final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
-            Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
+            Cursor::<C>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_barrier_va()
@@ -1239,10 +1234,10 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
-            !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
-            forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
-                CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
-                CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),
+            !Cursor::<C>::cursor_new_success_conditions(*va) ==> r is Err,
+            forall |item: C::Item| #![trigger CursorMut::<'rcu, C>::item_not_mapped(item, *old(regions))]
+                CursorMut::<'rcu, C>::item_not_mapped(item, *old(regions)) ==>
+                CursorMut::<'rcu, C>::item_not_mapped(item, *final(regions)),
             // CursorMut::new inherits Cursor::new's weakened preservation:
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
@@ -1260,13 +1255,13 @@ impl<C: PageTableConfig> PageTable<C> {
                     && final(regions).slot_owners[idx].usage
                         == old(regions).slot_owners[idx].usage,
     )]
-    pub fn cursor_mut<'rcu, G: InAtomicMode>(
+    pub fn cursor_mut<'rcu, G: AsAtomicModeGuard>(
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+    ) -> Result<(CursorMut<'rcu, C>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
-        CursorMut::new(self, guard, va)
+        CursorMut::new(self, guard.as_atomic_mode_guard(), va)
     }
 
     /// Create a new cursor exclusively accessing the virtual address range for querying.
@@ -1281,8 +1276,8 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards>
         requires
             self.relates_owner(owner, *old(regions)),
-            Cursor::<C, G>::cursor_new_input_valid(*va)
-                ==> Cursor::<C, G>::cursor_new_success_conditions(*va),
+            Cursor::<C>::cursor_new_input_valid(*va)
+                ==> Cursor::<C>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
@@ -1290,7 +1285,7 @@ impl<C: PageTableConfig> PageTable<C> {
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).contains(idx) && old(regions).ref_count(idx) != REF_COUNT_UNUSED ==>
                     final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
-            Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
+            Cursor::<C>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_barrier_va()
@@ -1301,7 +1296,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().1@.as_page_table_owner() == owner
                 &&& r.unwrap().1@.continuations[3].path() == owner.0.value().path
             },
-            !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
+            !Cursor::<C>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).contains(idx) && old(regions).ref_count(idx)
                     != REF_COUNT_UNUSED
@@ -1332,12 +1327,13 @@ impl<C: PageTableConfig> PageTable<C> {
                 ==> final(regions).ref_count(idx)
                         == old(regions).ref_count(idx),
     )]
-    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
-        (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    > {
+    pub fn cursor<'rcu, G: AsAtomicModeGuard>(
+        &'rcu self,
+        guard: &'rcu G,
+        va: &Range<Vaddr>,
+    ) -> Result<(Cursor<'rcu, C>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
-        Cursor::new(self, guard, va)
+        Cursor::new(self, guard.as_atomic_mode_guard(), va)
     }/*
     /// Create a new reference to the same page table.
     /// The caller must ensure that the kernel page table is not copied.
