@@ -11,20 +11,28 @@ use crate::specs::mm::{
     },
 };
 
-use crate::mm::frame::{
-    MetaSlot,
-    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-};
-use crate::mm::page_table::*;
 use crate::mm::{
-    NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
-    nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
+    NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts,
+    frame::{
+        MetaSlot,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    },
+    page_table::*,
 };
-use crate::task::atomic_mode::InAtomicMode;
 use align_ext::AlignExt;
 
-use core::ops::IndexMut;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ordering};
+
+use crate::{
+    mm::{
+        Vaddr, nr_subpage_per_huge, paddr_to_vaddr,
+        page_table::{
+            ChildRef, PageTable, PageTableConfig, PageTableEntryTrait, PageTableGuard,
+            PageTableNodeRef, PagingConstsTrait, PagingLevel, load_pte, page_size, pte_index,
+        },
+    },
+    task::atomic_mode::InAtomicMode,
+};
 
 verus! {
 
