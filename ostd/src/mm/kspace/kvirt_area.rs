@@ -25,30 +25,37 @@ use crate::specs::{
     },
 };
 
-use crate::task::disable_preempt;
+use crate::arch::mm::PagingConsts;
+use crate::mm::{
+    PagingLevel,
+    frame::{
+        DynFrame, Segment,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
+        untyped::AnyUFrameMeta,
+    },
+    kspace::{KernelPtConfig, MappedItem},
+    page_size,
+    page_table::{Child, CursorMut, PageTable, PageTableConfig, PageTableGuard},
+};
+
+use core::marker::PhantomData;
+use core::ops::Range;
 
 use super::{
     FRAME_METADATA_BASE_VADDR, KERNEL_BASE_VADDR, KERNEL_END_VADDR, KERNEL_PAGE_TABLE,
     VMALLOC_VADDR_RANGE,
 };
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::DynFrame;
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
-use crate::mm::kspace::AnyFrameMeta;
-use crate::mm::nr_subpage_per_huge;
-use crate::mm::page_table::PageTableGuard;
-use crate::mm::{
-    PAGE_SIZE, Paddr, Vaddr,
-    frame::{Frame, Segment, untyped::AnyUFrameMeta},
-    kspace::{KernelPtConfig, MappedItem},
-    largest_pages,
-    page_prop::PageProperty,
-    page_size,
-    page_table::{Child, CursorMut, PageTable, PageTableConfig},
+use crate::{
+    mm::{
+        PAGE_SIZE, Paddr, Vaddr,
+        frame::{Frame, meta::AnyFrameMeta},
+        kspace::{KernelPtConfig, MappedItem},
+        page_prop::PageProperty,
+        page_table::largest_pages,
+    },
+    task::disable_preempt,
+    util::range_alloc::RangeAllocator,
 };
-use crate::mm::{PagingConstsTrait, PagingLevel};
-use core::marker::PhantomData;
-use core::ops::Range;
 
 //static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
 
