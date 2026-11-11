@@ -5,7 +5,6 @@ use vstd::{arithmetic::power2::is_pow2, prelude::*};
 use crate::specs::{
     arch::PAGE_SIZE,
     mm::{io::VmIoOwner, virt_mem::VirtPtr},
-    task::AnyAtomicGuard,
 };
 
 mod allocator;
@@ -205,9 +204,7 @@ impl IoMem {
 
         // SAFETY: The caller of `IoMem::new()` ensures that the given
         // physical address range is I/O memory, so it is safe to map.
-        let kva = unsafe {
-            KVirtArea::map_untracked_frames::<AnyAtomicGuard>(area_size, 0, frames_range, prop)
-        };
+        let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
 
         Self {
             kvirt_area: Arc::new(kva),
