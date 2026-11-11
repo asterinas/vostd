@@ -44,22 +44,33 @@ use crate::specs::mm::{
     },
 };
 
-use crate::task::atomic_mode::InAtomicMode;
+use crate::arch::mm::PagingConsts;
+use crate::mm::{
+    MAX_PADDR, Paddr,
+    frame::meta::{
+        META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
+    },
+    page_size,
+    page_table::*,
+};
+
+use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
+
+use align_ext::AlignExt;
 
 use super::{
     Child, ChildRef, Entry, EntryOwner, PageTable, PageTableConfig, PageTableError, PageTableGuard,
     PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
 };
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::{
-    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
+
+use crate::{
+    mm::{
+        PageProperty, Vaddr,
+        frame::{Frame, meta::AnyFrameMeta},
+        page_table::is_valid_range,
+    },
+    task::atomic_mode::InAtomicMode,
 };
-use crate::mm::frame::{AnyFrameMeta, Frame};
-use crate::mm::page_table::*;
-use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
-use crate::mm::{page_prop::PageProperty, page_table::is_valid_range};
-use align_ext::AlignExt;
-use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 
 verus! {
 

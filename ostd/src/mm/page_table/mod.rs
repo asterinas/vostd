@@ -27,9 +27,9 @@ use crate::mm::frame::meta::{
     REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
 };
 use crate::{
-    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
     Pod,
     arch::mm::{PageTableEntry, PagingConsts},
+    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
 };
 use core::{
     fmt::Debug,
@@ -905,14 +905,13 @@ impl PageTable<KernelPtConfig> {
             final(regions).inv(),
     )]
     pub(in crate::mm) fn create_user_page_table(&'static self) -> PageTable<UserPtConfig> {
-        
         proof_decl! {
             let tracked mut new_pt_owner: Option<PageTableOwner<UserPtConfig>> = None;
         }
         let ghost regions_before_alloc = *regions;
         let new_pt: PageTable<UserPtConfig> = (
-            #[verus_spec(with Tracked(&mut new_pt_owner), Tracked(regions), Tracked(guards))]
-            PageTable::empty_with_owner());
+        #[verus_spec(with Tracked(&mut new_pt_owner), Tracked(regions), Tracked(guards))]
+        PageTable::empty_with_owner());
         let new_root = new_pt.root;
         let preempt_guard = disable_preempt();
         // Capture new_idx as a ghost BEFORE the tracked_take below empties new_pt_owner.
