@@ -27,7 +27,7 @@ use crate::specs::{
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    PagingLevel, PagingConstsTrait,
+    PagingConstsTrait, PagingLevel,
     frame::{
         DynFrame, Segment,
         meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
