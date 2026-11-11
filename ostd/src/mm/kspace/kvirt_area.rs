@@ -33,7 +33,6 @@ use crate::mm::{
         meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
         untyped::AnyUFrameMeta,
     },
-    kspace::{KernelPtConfig, MappedItem},
     page_size,
     page_table::{Child, CursorMut, PageTable, PageTableConfig, PageTableGuard},
 };
@@ -54,7 +53,7 @@ use crate::{
         page_table::largest_pages,
     },
     task::disable_preempt,
-    util::range_alloc::RangeAllocator,
+    //util::range_alloc::RangeAllocator,
 };
 
 //static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
