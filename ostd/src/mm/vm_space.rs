@@ -41,9 +41,9 @@ use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 
 use crate::{
+    Error,
     arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr},
     cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    error::Error, //Error
     // cpu_local_cell,
     mm::{
         AnyUFrameMeta, Frame, MAX_USERSPACE_VADDR, PageProperty, PagingLevel, UFrame, VmReader,
@@ -142,16 +142,15 @@ verus! {
 ///    }
 /// }
 /// ```
-pub struct VmSpace<'a> {
+pub struct VmSpace {
     pub pt: PageTable<UserPtConfig>,
     pub cpus: AtomicCpuSet,
-    pub _marker: PhantomData<&'a ()>,
 }
 
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl<'a> VmSpace<'a> {
+impl VmSpace {
     #[inline]
     #[verus_spec(r =>
         with
@@ -202,7 +201,7 @@ impl<'a> VmSpace<'a> {
             #[verus_spec(with Tracked(kernel_owner), Tracked(regions), Tracked(guards))]
             kpt.create_user_page_table()
         };
-        Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()), _marker: PhantomData }
+        Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()) }
     }
 
     /// Gets an immutable cursor in the virtual address range.
@@ -241,7 +240,7 @@ impl<'a> VmSpace<'a> {
             // hold ⇒ cursor_owner.inv().
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor<G: AsAtomicModeGuard>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+    pub fn cursor<'a, G: AsAtomicModeGuard>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
         Cursor<'a>,
     > {
         proof_decl! {
@@ -302,9 +301,11 @@ impl<'a> VmSpace<'a> {
             // See `cursor` above for the derivation.
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor_mut<G: AsAtomicModeGuard>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a>,
-    > {
+    pub fn cursor_mut<'a, G: AsAtomicModeGuard>(
+        &'a self,
+        guard: &'a G,
+        va: &Range<Vaddr>,
+    ) -> Result<CursorMut<'a>> {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
@@ -372,7 +373,7 @@ impl<'a> VmSpace<'a> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&'a mut VmSpaceOwner>,
+            Tracked(owner): Tracked<&mut VmSpaceOwner>,
                 -> reader_owner: Tracked<Option<VmIoOwner>>,
         requires
             old(owner).inv(),
@@ -389,7 +390,7 @@ impl<'a> VmSpace<'a> {
             // reader. `nat` arithmetic subsumes the overflow case.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a, Fallible>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -446,7 +447,7 @@ impl<'a> VmSpace<'a> {
             // Range bound is necessary for success: see `reader` above.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
-    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a, Fallible>> {
+    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
