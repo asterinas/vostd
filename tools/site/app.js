@@ -134,14 +134,13 @@ function renderHistoryChart(points) {
   const series = SERIES.map((s) => ({
     name: s.name,
     type: "line",
-    showSymbol: true,
     symbol: "circle",
-    symbolSize: 8,
-    itemStyle: { color: css(s.cssVar), borderColor: text.surface, borderWidth: 2 },
+    symbolSize: 7,
+    itemStyle: { color: css(s.cssVar) },
     lineStyle: { width: 2, color: css(s.cssVar) },
     emphasis: { focus: "series" },
     dimension: 0,
-    data: points.map((p) => [p.date, p[s.key] ?? 0]),
+    data: points.map((p) => p[s.key] ?? 0),
   }));
 
   chart.setOption({
@@ -156,7 +155,7 @@ function renderHistoryChart(points) {
       itemHeight: 4,
       textStyle: { color: text.ink2 },
     },
-    grid: { left: 56, right: 20, top: 34, bottom: 75 },
+    grid: { left: 65, right: 24, top: 55, bottom: 75 },
     tooltip: {
       trigger: "axis",
       confine: true,
@@ -165,27 +164,27 @@ function renderHistoryChart(points) {
       borderColor: "transparent",
       textStyle: { color: text.ink },
       formatter: (params) => {
-        const [date] = params[0].value;
         const point = points[params[0].dataIndex];
         const sha = String(point.sha || "").slice(0, 8);
         const head = (sha ? `<strong>${esc(sha)}</strong> · ` : "") +
-          esc(new Date(date).toISOString().slice(0, 10));
+          esc(new Date(point.date).toISOString().slice(0, 10));
         const rows = params
           .slice()
-          .sort((a, b) => b.value[1] - a.value[1])
+          .sort((a, b) => b.value - a.value)
           .map(
             (p) =>
               `<div><span style="display:inline-block;width:10px;height:3px;` +
               `background:${p.color};border-radius:1px;margin-right:5px"></span>` +
               `<span class="tt-label">${esc(p.seriesName)}</span>` +
-              ` <span class="tt-value">${fmtFull(p.value[1])}</span></div>`,
+              ` <span class="tt-value">${fmtFull(p.value)}</span></div>`,
           )
           .join("");
         return `<div class="echarts-tooltip">${head}${rows}</div>`;
       },
     },
     xAxis: {
-      type: "time",
+      type: "category",
+      data: points.map((p) => String(p.sha || "").slice(0, 8)),
       axisLine: { lineStyle: { color: text.baseline } },
       axisLabel: { color: text.ink3, hideOverlap: true },
       splitLine: { show: false },
