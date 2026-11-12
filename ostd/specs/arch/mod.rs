@@ -43,11 +43,6 @@ mod loongarch;
 pub use loongarch::*;
 verus! {
 
-// Asterinas is designed for 64-bit architectures.
-global size_of usize == 8;
-
-global size_of isize == 8;
-
 /// The architecture selected by the current verification target.
 #[cfg(target_arch = "x86_64")]
 pub type CurrentArch = x86::X86Arch;
