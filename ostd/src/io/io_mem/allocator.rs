@@ -1,12 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
-//!
-//! # Verified Properties
-//!
-//! Construction returns splittable permissions related to the allocator by closed
-//! predicates. Public lemmas preserve that relation for subranges without exposing
-//! the internal allocators. Builder removal consumes the requested portion without
-//! panicking when its preconditions hold. The boot-time window registry is trusted.
 use vstd::{
     arithmetic::power2::is_pow2,
     prelude::*,

@@ -54,8 +54,6 @@ impl<T, A> IoPort<T, A> {
     #[verifier::type_invariant]
     pub open spec fn type_inv(&self) -> bool {
         &&& valid_io_port_access::<T>(self@)
-        &&& self@ + size_of::<T>() <= u16::MAX
-        &&& self.is_overlapping() ==> self@ + 1 <= u16::MAX
         &&& self.allocator_claim_inv()
     }
 
@@ -65,9 +63,15 @@ impl<T, A> IoPort<T, A> {
     }
 
     /// An allocator-issued claim belongs to the global allocator and covers this port.
+    /// Its exclusive end fits in `u16` for release.
     pub closed spec fn allocator_claim_inv(&self) -> bool {
         self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
+            &&& self@ + (if self.is_overlapping() {
+                1
+            } else {
+                size_of::<T>()
+            }) <= u16::MAX
             &&& self.claim_matches_set(claim@)
             &&& claim.id() == allocator::io_port_allocator_instance_id()
         }
