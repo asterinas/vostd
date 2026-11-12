@@ -354,6 +354,13 @@ constants, methods, or modules. If Verus requires an executable change, keep it
 minimal, demonstrate unchanged runtime behavior, and show the original form in
 review.
 
+When the target code or its module is commented out, enable it in place by
+uncommenting only the target code and its necessary dependencies; leave the
+rest commented out. Do not extract a new module, widen visibility, or change
+call paths merely to isolate verification.
+
+See also: PR [#906](https://github.com/asterinas/vostd/pull/906#discussion_r4525740735).
+
 Preserve existing comments and rustdoc verbatim during proof work, including
 wording, units, and references. An apparent documentation error is a separate
 upstream correction; do not silently fix it while adding verification.
