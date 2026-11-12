@@ -67,11 +67,7 @@ impl<T, A> IoPort<T, A> {
     pub closed spec fn allocator_claim_inv(&self) -> bool {
         self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
-            &&& self@ + (if self.is_overlapping() {
-                1
-            } else {
-                size_of::<T>()
-            }) <= u16::MAX
+            &&& self@ + size_of::<T>() <= u16::MAX
             &&& self.claim_matches_set(claim@)
             &&& claim.id() == allocator::io_port_allocator_instance_id()
         }

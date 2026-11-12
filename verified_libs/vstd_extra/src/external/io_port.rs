@@ -16,6 +16,16 @@ verus! {
 /// device decoding, access permission, or ownership.
 pub uninterp spec fn valid_io_port_access<T>(port: u16) -> bool;
 
+/// Trusted: a valid access has nonzero width and fits in the PIO address space.
+/// This implication does not establish access validity for additional types.
+pub broadcast axiom fn axiom_valid_io_port_access_bounds<T>(port: u16)
+    ensures
+        #[trigger] valid_io_port_access::<T>(port) ==> {
+            &&& size_of::<T>() >= 1
+            &&& port + size_of::<T>() <= u16::MAX + 1
+        },
+;
+
 /// Trusted: `u8` ports are written and read via `outb`/`inb`.
 pub broadcast axiom fn axiom_u8_pio_model(port: u16)
     ensures
@@ -36,6 +46,7 @@ pub broadcast axiom fn axiom_u32_pio_model(port: u16)
 
 /// The trusted instances of the PIO model.
 pub broadcast group group_io_port_models {
+    axiom_valid_io_port_access_bounds,
     axiom_u8_pio_model,
     axiom_u16_pio_model,
     axiom_u32_pio_model,
