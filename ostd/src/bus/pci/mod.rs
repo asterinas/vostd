@@ -48,7 +48,6 @@
 //!     PCI_BUS.lock().register_driver(driver_a);
 //! }
 //! ```
-// Only data types and pure helpers are enabled; hardware access remains commented out.
 /*pub mod bus;*/
 pub mod capability;
 pub mod cfg_space;
