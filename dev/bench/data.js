@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794465976407,
+  "lastUpdate": 1794474276636,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11172,6 +11172,90 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=852ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "157275997+YuQuuu@users.noreply.github.com",
+            "name": "YuQuuu",
+            "username": "YuQuuu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "30581d3014f3ddf537d406f997ddc3abe416b514",
+          "message": "prove: verify ostd-test initialization and formatting (#918)\n\n* Prove ostd-test iterator initialization and formatting\n\n* Count ostd-test in verification coverage\n\n* Remove redundant verification overview",
+          "timestamp": "2026-11-12T16:56:31+08:00",
+          "tree_id": "5f0d780120037648088ba94f305a36ccf21ecdd9",
+          "url": "https://github.com/asterinas/vostd/commit/30581d3014f3ddf537d406f997ddc3abe416b514"
+        },
+        "date": 1794474275716,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 945774166,
+            "unit": "rlimit",
+            "extra": "verified=4375 errors=0 smt-run=423,005ms wall=272,521ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 373645598,
+            "unit": "rlimit",
+            "extra": "smt-run=208,756ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83275612,
+            "unit": "rlimit",
+            "extra": "smt-run=31,489ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53622018,
+            "unit": "rlimit",
+            "extra": "smt-run=28,800ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,672ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,844ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,792ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=1,061ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=733ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=923ms"
           }
         ]
       }
