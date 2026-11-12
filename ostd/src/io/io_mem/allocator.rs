@@ -52,7 +52,6 @@ impl IoMemAllocator {
             self.overlaps_range(range) ==> range.start < range.end,
             self.covers_range(range) && range.start < range.end ==> {
                 &&& range.end <= usize::MAX - (PAGE_SIZE - 1)
-                &&& io_mem_range_registered(range)
                 &&& permit matches Some(token)
                     && token.range() == range
                     && self.has_free_permission(token.id(), range)
@@ -443,18 +442,19 @@ impl IoMemAllocator {
         range: Range<usize>,
     )
         requires
-            self.has_registered_windows(),
             self.state_matches(state),
             0 <= window < state.len(),
             range.start < range.end,
             range.view_set() <= state[window]@,
         ensures
             self.has_free_permission(state[window].id(), range),
-            io_mem_range_registered(range),
+            self.has_registered_windows() ==> io_mem_range_registered(range),
     {
         use_type_invariant(self);
         lemma_permission_range(self.allocators@, state, window, range);
-        assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
+        if self.has_registered_windows() {
+            assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
+        }
     }
 
     /// Membership is preserved when a permission is split to a non-empty subrange.
@@ -465,12 +465,11 @@ impl IoMemAllocator {
         subrange: Range<usize>,
     )
         requires
-            self.has_registered_windows(),
             self.has_free_permission(id, range),
             range.start <= subrange.start < subrange.end <= range.end,
         ensures
             self.has_free_permission(id, subrange),
-            io_mem_range_registered(subrange),
+            self.has_registered_windows() ==> io_mem_range_registered(subrange),
     {
         use_type_invariant(self);
         let window = choose|i: int|
@@ -478,7 +477,9 @@ impl IoMemAllocator {
             0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
                 && self.allocators@[i]@.start <= range.start < range.end
                 <= self.allocators@[i]@.end;
-        assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
+        if self.has_registered_windows() {
+            assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
+        }
     }
 
     /// Whether `id` is the free-permission identity of a window containing `range`.
@@ -597,12 +598,14 @@ fn find_allocator<'a>(
 #[cfg(any(ktest, verus_keep_ghost))]
 mod test {
     use vstd::prelude::*;
+    use vstd_extra::{range::RangeExtraFns, resource::range::GhostSubRange};
 
     use alloc::vec;
 
     use super::{IoMemAllocator, IoMemAllocatorBuilder};
+    use crate::mm::PAGE_SIZE;
     #[cfg(ktest)]
-    use crate::{mm::PAGE_SIZE, prelude::ktest};
+    use crate::prelude::ktest;
 
     #[expect(clippy::reversed_empty_ranges)]
     #[expect(clippy::single_range_in_vec_init)]
@@ -642,8 +645,8 @@ mod test {
         );
     }
 
-    #[cfg(ktest)]
-    #[ktest]
+    #[cfg_attr(ktest, ktest)]
+    #[verus_spec]
     fn conflict_region() {
         let max_paddr = 0x100_000_000_000; // 16 TB
 
@@ -652,40 +655,66 @@ mod test {
             (io_mem_region_a.end + PAGE_SIZE)..(io_mem_region_a.end + 10 * PAGE_SIZE);
         let range = vec![io_mem_region_a.clone(), io_mem_region_b.clone()];
 
-        let allocator =
-            unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
+        proof_decl! {
+            let tracked mut state: super::RangeAllocatorPermits;
+        }
+        proof! {
+            super::lemma_ranges_disjoint(range@);
+        }
+        let allocator = unsafe {
+            IoMemAllocator::new(
+                (#[verus_spec(with => Tracked(state))]
+                IoMemAllocatorBuilder::new(range))
+                .allocators,
+            )
+        };
+        proof_decl! {
+            let ghost first_range = io_mem_region_a.start..((io_mem_region_a.start + 1) as usize);
+            let ghost last_range = ((io_mem_region_a.end - 1) as usize)..io_mem_region_a.end;
+            let tracked first_permit: super::AllocRangePermit;
+            let tracked last_permit: super::AllocRangePermit;
+        }
+        proof! {
+            allocator.lemma_has_free_permission(state, 0, first_range);
+            allocator.lemma_has_free_permission(state, 0, last_range);
+            let tracked mut window_permit = state.tracked_remove(0);
+            let tracked first_subset = window_permit.split(first_range.view_set());
+            let tracked last_subset = window_permit.split(last_range.view_set());
+            first_permit = GhostSubRange::tracked_new(first_subset, first_range);
+            last_permit = GhostSubRange::tracked_new(last_subset, last_range);
+        }
 
         assert!(
-            allocator
-                .acquire((io_mem_region_a.start - 1)..io_mem_region_a.start)
-                .is_none()
+            (#[verus_spec(with Tracked(None))]
+            allocator.acquire((io_mem_region_a.start - 1)..io_mem_region_a.start))
+            .is_none()
         );
         assert!(
-            allocator
-                .acquire(io_mem_region_a.start..(io_mem_region_a.start + 1))
-                .is_some()
-        );
-
-        assert!(
-            allocator
-                .acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1))
-                .is_none()
-        );
-        assert!(
-            allocator
-                .acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1))
-                .is_none()
+            (#[verus_spec(with Tracked(Some(first_permit)))]
+            allocator.acquire(io_mem_region_a.start..(io_mem_region_a.start + 1)))
+            .is_some()
         );
 
         assert!(
-            allocator
-                .acquire((io_mem_region_a.end - 1)..io_mem_region_a.end)
-                .is_some()
+            (#[verus_spec(with Tracked(None))]
+            allocator.acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1)))
+            .is_none()
         );
         assert!(
-            allocator
-                .acquire(io_mem_region_a.end..(io_mem_region_a.end + 1))
-                .is_none()
+            (#[verus_spec(with Tracked(None))]
+            allocator.acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1)))
+            .is_none()
+        );
+
+        assert!(
+            (#[verus_spec(with Tracked(Some(last_permit)))]
+            allocator.acquire((io_mem_region_a.end - 1)..io_mem_region_a.end))
+            .is_some()
+        );
+        assert!(
+            (#[verus_spec(with Tracked(None))]
+            allocator.acquire(io_mem_region_a.end..(io_mem_region_a.end + 1)))
+            .is_none()
         );
     }
 }
