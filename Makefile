@@ -34,7 +34,7 @@ build:
 	cargo dv build
 
 doc:
-	cargo dv build -- --no-verify
+	cargo dv build --package ostd -- --no-verify
 	cargo dv doc --package ostd
 
 verus:
