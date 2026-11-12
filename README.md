@@ -82,6 +82,13 @@ Partial verification selectors such as `--verify-only-module` require the
 `--package` (`-p`) selects packages; `--target` selects the Rust target triple
 (default: `x86_64-unknown-none`).
 
+Verify bzImage mappings on the [Linux host target](dv/README.md#linux-host-target),
+assuming valid setup ELF address and offset ranges:
+
+```bash
+cargo dv verify -p linux-bzimage-builder --target x86_64-unknown-linux-gnu
+```
+
 ### Clean
 
 ```bash

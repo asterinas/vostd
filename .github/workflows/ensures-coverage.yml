@@ -1,0 +1,111 @@
+# ensures-coverage for vostd.
+#
+# This workflow only prepares the machine: it checks out vostd, sets up
+# Verus and Racket, checks out ensures-coverage, and runs its ci/vostd.sh,
+# which decides everything else (what is checked, the report, when to
+# stop).  ensures-coverage is taken from its main branch, the released
+# version, so a release changes the CI without touching vostd.  For trying
+# an unreleased version, run the workflow by hand with `ec_ref: dev`.
+#
+# Advisory only: it never blocks a pull request.
+name: ensures-coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Commit to diff against (default HEAD~1)
+        required: false
+        default: ''
+      ec_ref:
+        description: Branch, tag or commit of ensures-coverage to use (default main)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  EC_REPOSITORY: alpha-beta-eta/ensures-coverage
+  RACKET_VERSION: '9.3'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ensures-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # push: the pushed commit; pull_request: the merge commit.
+          ref: ${{ github.sha }}
+          submodules: recursive
+          # the base commit is needed for `git diff`
+          fetch-depth: 0
+
+      - name: Set up toolchain and caches
+        id: setup
+        uses: ./.github/actions/setup-verus
+        with:
+          dv-cache: restore
+
+      - name: Checkout ensures-coverage
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.EC_REPOSITORY }}
+          ref: ${{ inputs.ec_ref || 'main' }}
+          path: .ensures-coverage
+
+      - name: Cache Racket
+        uses: actions/cache@v6
+        with:
+          path: ~/racket
+          key: ${{ runner.os }}-racket-minimal-${{ env.RACKET_VERSION }}
+
+      - name: Install Racket
+        run: |
+          if [[ ! -x ~/racket/bin/racket ]]; then
+            curl -fsSLo "$RUNNER_TEMP/racket.sh" \
+              "https://download.racket-lang.org/installers/$RACKET_VERSION/racket-minimal-$RACKET_VERSION-x86_64-linux-cs.sh"
+            sh "$RUNNER_TEMP/racket.sh" --in-place --dest ~/racket </dev/null
+          fi
+          echo "$HOME/racket/bin" >> "$GITHUB_PATH"
+
+      - name: Cache item-index
+        uses: actions/cache@v6
+        with:
+          path: .ensures-coverage/item-index/target
+          key: ${{ runner.os }}-item-index-${{ steps.setup.outputs.verus-commit }}-${{ hashFiles('.ensures-coverage/item-index/**/*.rs', '.ensures-coverage/item-index/Cargo.toml') }}
+
+      - name: Run ensures-coverage
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          INPUT_BASE: ${{ inputs.base }}
+          OUT: ${{ runner.temp }}/ensures-coverage
+        run: .ensures-coverage/ci/vostd.sh
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ensures-coverage
+          path: ${{ runner.temp }}/ensures-coverage/*.*
+          retention-days: 7
+          if-no-files-found: ignore
