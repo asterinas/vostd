@@ -38,6 +38,23 @@ Use these two skill-defined check IDs in the evidence contract's `guideline` fie
   private representation or freeze incidental implementation choices just to obtain
   a stronger formula. Propose the strongest useful abstract guarantee supported by
   the API, not every provable detail of its body.
+  Output-position coverage discipline: pin every output — return values
+  (including named binders `res/r =>` and `returns` exact shapes), the final
+  state of every exec or tracked `&mut` argument (`final(p)`/`*final(p)`,
+  both Ok and Err arms), `&mut self` via `final(self)`, and arrow-form ghost
+  out-params (`with -> name: Tracked<T>`; value-consumption form `with
+  Tracked(x)` is an input, not an output). A diverging `-> !` function has no
+  return-position obligation. Mentioning only `old(p)`, only a negated or
+  projected fragment of an output, does not pin it.
+  Strength caveats: an `ensures /* */` empty attr text or a vacuously
+  inherited contract (`obeys false`) is coverage in name only; a trait-impl
+  inherits the declaration's strength, so when the declaration itself misses
+  an output, anchor the finding at the trait declaration — one fix at the
+  declaration heals every impl site, and a per-impl patch heals nothing.
+  Exemption boundaries: a bare zero-clause constructor is exempt, one with
+  `requires` is not; a one-hop pure reader is getter-exempt, multi-hop or
+  side-effecting readers are not; plain-Rust scope findings are
+  severity-capped, never ignored.
 
 ## Method
 
