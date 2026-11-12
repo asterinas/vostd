@@ -9,6 +9,10 @@ use x86_64::{
 
 verus! {
 
+/// Whether `T` follows the standard x86 PIO width and address-validity model.
+/// Implementing `PortRead` or `PortWrite` alone does not establish this law.
+pub uninterp spec fn obeys_io_port_access_spec<T>() -> bool;
+
 /// Whether a `T`-typed access at `port` fits in the PIO byte range `0..=u16::MAX`.
 ///
 /// Uninterpreted: `PortRead`/`PortWrite` are user-implementable, so meaning comes only from
@@ -16,40 +20,40 @@ verus! {
 /// device decoding, access permission, or ownership.
 pub uninterp spec fn valid_io_port_access<T>(port: u16) -> bool;
 
-/// Trusted: a valid access has nonzero width and fits in the PIO address space.
-/// This implication does not establish access validity for additional types.
-pub broadcast axiom fn axiom_valid_io_port_access_bounds<T>(port: u16)
+/// Trusted: types obeying the model use a 1-, 2-, or 4-byte access within the PIO space.
+pub broadcast axiom fn axiom_io_port_access_spec<T>(port: u16)
     ensures
-        #[trigger] valid_io_port_access::<T>(port) ==> {
-            &&& size_of::<T>() >= 1
+        #[trigger] obeys_io_port_access_spec::<T>() ==> (#[trigger] valid_io_port_access::<T>(port)
+            <==> {
+            &&& size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4
             &&& port + size_of::<T>() <= u16::MAX + 1
-        },
+        }),
 ;
 
 /// Trusted: `u8` ports are written and read via `outb`/`inb`.
-pub broadcast axiom fn axiom_u8_pio_model(port: u16)
+pub broadcast axiom fn axiom_u8_obeys_io_port_access_spec()
     ensures
-        #[trigger] valid_io_port_access::<u8>(port) <==> port + size_of::<u8>() <= u16::MAX + 1,
+        #[trigger] obeys_io_port_access_spec::<u8>(),
 ;
 
 /// Trusted: `u16` ports are written and read via `outw`/`inw`.
-pub broadcast axiom fn axiom_u16_pio_model(port: u16)
+pub broadcast axiom fn axiom_u16_obeys_io_port_access_spec()
     ensures
-        #[trigger] valid_io_port_access::<u16>(port) <==> port + size_of::<u16>() <= u16::MAX + 1,
+        #[trigger] obeys_io_port_access_spec::<u16>(),
 ;
 
 /// Trusted: `u32` ports are written and read via `outl`/`inl`.
-pub broadcast axiom fn axiom_u32_pio_model(port: u16)
+pub broadcast axiom fn axiom_u32_obeys_io_port_access_spec()
     ensures
-        #[trigger] valid_io_port_access::<u32>(port) <==> port + size_of::<u32>() <= u16::MAX + 1,
+        #[trigger] obeys_io_port_access_spec::<u32>(),
 ;
 
 /// The trusted instances of the PIO model.
 pub broadcast group group_io_port_models {
-    axiom_valid_io_port_access_bounds,
-    axiom_u8_pio_model,
-    axiom_u16_pio_model,
-    axiom_u32_pio_model,
+    axiom_io_port_access_spec,
+    axiom_u8_obeys_io_port_access_spec,
+    axiom_u16_obeys_io_port_access_spec,
+    axiom_u32_obeys_io_port_access_spec,
 }
 
 /// Opaque specification boundary for the third-party read/write access marker.

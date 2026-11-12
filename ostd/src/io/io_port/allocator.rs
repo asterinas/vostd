@@ -9,7 +9,9 @@ use vstd::{
     tokens::InstanceId,
 };
 use vstd_extra::{
-    external::valid_io_port_access, ownership::Inv, resource_invariant::SimpleResourceInvariant,
+    external::{obeys_io_port_access_spec, valid_io_port_access},
+    ownership::Inv,
+    resource_invariant::SimpleResourceInvariant,
 };
 
 use crate::arch::io::MAX_IO_PORT;
@@ -159,7 +161,7 @@ impl IoPortAllocator {
     /// otherwise, all ports in the PIO range will be marked as occupied.
     #[verus_spec(result =>
         requires
-            size_of::<T>() <= u16::MAX,
+            obeys_io_port_access_spec::<T>(),
             is_overlapping ==> port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             io_port_allocator_initialized(),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port and its allocator that allocates port I/O (PIO) to device drivers.
 use vstd::{prelude::*, resource::set::GhostSubset};
-use vstd_extra::external::{group_io_port_models, valid_io_port_access};
+use vstd_extra::external::{group_io_port_models, obeys_io_port_access_spec, valid_io_port_access};
 
 use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
 mod allocator;
@@ -52,20 +52,10 @@ impl<T, A> View for IoPort<T, A> {
 impl<T, A> IoPort<T, A> {
     /// The complete byte range occupied by this typed port lies in the x86 PIO address space.
     #[verifier::type_invariant]
-    pub open spec fn type_inv(&self) -> bool {
+    pub closed spec fn type_inv(self) -> bool {
+        &&& obeys_io_port_access_spec::<T>()
         &&& valid_io_port_access::<T>(self@)
-        &&& self.allocator_claim_inv()
-    }
-
-    /// Whether this port owns a claim minted by the allocator.
-    pub closed spec fn is_allocated(&self) -> bool {
-        self.tracked_claim@ is Some
-    }
-
-    /// An allocator-issued claim belongs to the global allocator and covers this port.
-    /// Its exclusive end fits in `u16` for release.
-    pub closed spec fn allocator_claim_inv(&self) -> bool {
-        self.tracked_claim@ matches Some(claim) ==> {
+        &&& self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
             &&& self@ + size_of::<T>() <= u16::MAX
             &&& self.claim_matches_set(claim@)
@@ -73,24 +63,25 @@ impl<T, A> IoPort<T, A> {
         }
     }
 
-    /// Whether the port was acquired as overlapping: it occupies only its first port.
-    ///
-    /// Marks the occupied range of [`Self::claim_matches_set`] and the released range of
-    /// [`Self::drop`].
-    pub closed spec fn is_overlapping(&self) -> bool {
+    /// Whether this port owns a claim minted by the allocator.
+    pub closed spec fn is_allocated(self) -> bool {
+        self.tracked_claim@ is Some
+    }
+
+    pub closed spec fn is_overlapping(self) -> bool {
         self.is_overlapping
     }
 
     /// Whether `claim` is the allocator-issued ownership token for this port's occupied range:
     /// the complete typed range, or only the first port if the port was acquired as
     /// overlapping.
-    pub open spec fn claim_matches_set(&self, claim: Set<usize>) -> bool {
+    pub open spec fn claim_matches_set(self, claim: Set<usize>) -> bool {
         claim == Set::<usize>::range(
             self@ as usize,
             if self.is_overlapping() {
-                (self@ as usize + 1) as usize
+                (self@ + 1) as usize
             } else {
-                (self@ as usize + size_of::<T>()) as usize
+                (self@ + size_of::<T>()) as usize
             },
         )
     }
@@ -117,7 +108,7 @@ impl<T, A> IoPort<T, A> {
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
         requires
-            size_of::<T>() <= u16::MAX,
+            obeys_io_port_access_spec::<T>(),
             port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
@@ -141,7 +132,7 @@ impl<T, A> IoPort<T, A> {
     /// This method will only mark the first port in the PIO range as occupied.
     #[verus_spec(result =>
         requires
-            size_of::<T>() <= u16::MAX,
+            obeys_io_port_access_spec::<T>(),
             port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
@@ -180,7 +171,7 @@ impl<T, A> IoPort<T, A> {
     /// not cause soundness problems (e.g., they must not corrupt the kernel memory).
     #[verus_spec(ret =>
         requires
-            size_of::<T>() <= u16::MAX,
+            obeys_io_port_access_spec::<T>(),
             port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
         ensures
@@ -203,9 +194,8 @@ impl<T, A> IoPort<T, A> {
     /// not cause soundness problems (e.g., they must not corrupt the kernel memory).
     #[verus_spec(ret =>
         requires
-            size_of::<T>() <= u16::MAX,
+            obeys_io_port_access_spec::<T>(),
             port + size_of::<T>() <= u16::MAX,
-            is_overlapping ==> port + 1 <= u16::MAX,
             valid_io_port_access::<T>(port),
             tracked_claim@ matches Some(claim) ==> {
                 &&& allocator::io_port_allocator_initialized()
@@ -213,9 +203,9 @@ impl<T, A> IoPort<T, A> {
                 &&& claim@ == Set::<usize>::range(
                     port as usize,
                     if is_overlapping {
-                        (port as usize + 1) as usize
+                        (port + 1) as usize
                     } else {
-                        (port as usize + size_of::<T>()) as usize
+                        (port + size_of::<T>()) as usize
                     },
                 )
             },
