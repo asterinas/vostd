@@ -6,6 +6,10 @@ documentation.
 
 Use Rust 2021 style and the project formatter configured by `rustfmt.toml`.
 Reference guidelines in reviews by their stable kebab-case names.
+Request additional comments only when concrete caller or maintainer information
+is missing. Do not treat verification documentation templates as a checklist;
+preserve existing comments during proof work (see PR
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4525099006)).
 
 ## Guidelines
 
@@ -34,7 +38,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — stack verification-added imports (`vstd`/`vstd_extra`, then `crate::specs`) above the original import list in blank-line-separated groups the formatter cannot cross, combine same-crate definitions into one `use`, and keep verification-added spec imports separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
 - [`match-enum-results`](maintainability.md#match-enum-results) — express `Option`/`Result` shapes with `ret is Ok` and `ret matches Ok(id)`, and state each exhaustiveness direction once.
-- [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code and source layout while adding proofs, and mark any executable rewrite with a block comment carrying the divergence reason plus the `Origin Rust:` original.
+- [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code, existing comments, and source layout; distinguish actual rewrites from wrapping unchanged code in comments.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
 - [`avoid-unused-spec-helpers`](maintainability.md#avoid-unused-spec-helpers) — add spec and proof helpers only for a current caller or a documented abstraction boundary.
 - [`inline-single-use-proof-helpers`](maintainability.md#inline-single-use-proof-helpers) — keep one-off proof steps in their caller instead of adding module-level or associated helpers with a single call site.
@@ -42,7 +46,7 @@ Reference guidelines in reviews by their stable kebab-case names.
 - [`avoid-redundant-mode-markers`](maintainability.md#avoid-redundant-mode-markers) — do not add `ghost` or `tracked` markers where the enclosing mode already determines the value's role.
 - [`prefer-ghost-model-structs`](maintainability.md#prefer-ghost-model-structs) — actively use `ghost struct` for newly added specification- and proof-only types.
 - [`keep-internal-spec-helpers-closed`](maintainability.md#keep-internal-spec-helpers-closed) — keep representation-reflecting spec helpers closed and private; reserve `pub open` for the model callers reason about.
-- [`document-verified-apis`](maintainability.md#document-verified-apis) — document public verified APIs: a `Verified Properties` block for executable code (fields state only nontrivial content; a proved absence of panic is a `Safety` claim) and one-sentence summaries for spec and proof functions, omitting the block for trivial contracts (field getters, invariant-only mutators).
+- [`document-verified-apis`](maintainability.md#document-verified-apis) — preserve existing rustdoc; add prose only for concrete missing caller information, without requiring verification sections or helper summaries.
 - [`narrow-lint-suppressions`](maintainability.md#narrow-lint-suppressions) — suppress a lint only at the smallest scope that requires it.
 - [`right-size-spec-placement`](maintainability.md#right-size-spec-placement) — keep small local models near their implementation unless they form a reusable subsystem.
 - [`generate-repeated-spec-helpers`](maintainability.md#generate-repeated-spec-helpers) — derive spec functions that repeat verbatim across per-type instantiations from a `macro_rules!` macro.

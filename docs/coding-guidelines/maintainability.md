@@ -35,7 +35,10 @@ form a chain.
 <!-- guideline: use-returns-for-exact-results -->
 
 Use `returns expr` for an exact return value and `ensures` for other result or
-state properties. This also applies to `assume_specification`. Omit unused named
+state properties. This also applies to `assume_specification` and attribute-mode
+`#[verus_spec]`, including contracts with `with Tracked(..)`: keep state
+clauses such as `final(samples)@.inv()` in `ensures` and put the exact result
+expression in `returns`. Omit unused named
 return binders and unit return declarations such as `-> (ret: ())`.
 
 The expression must match the return type. Keep required casts, such as
@@ -46,7 +49,8 @@ See also: PR [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3940
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946316792),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3946322891),
 [#742](https://github.com/asterinas/vostd/pull/742#discussion_r3947067359), and
-[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023879416).
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4023879416), and
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4535785273).
 
 ### Avoid redundant `as int` casts
 
@@ -350,39 +354,50 @@ constants, methods, or modules. If Verus requires an executable change, keep it
 minimal, demonstrate unchanged runtime behavior, and show the original form in
 review.
 
-When verification does add, remove, or rewrite executable Rust relative to the
-original source, mark the modification with one block comment immediately
-before the modified code — at the original location for a pure removal with no
-replacement. The comment contains, in this order: a brief, concrete reason the
-executable code must differ, naming the Verus or vstd limitation when there is
-one instead of a vague "needed for verification"; and the original code,
-introduced by the exact label `Origin Rust:`, preserved accurately enough to
-compare control flow, calls, arguments, operators, and side effects:
+Preserve existing comments and rustdoc verbatim during proof work, including
+wording, units, and references. An apparent documentation error is a separate
+upstream correction; do not silently fix it while adding verification.
+
+When temporarily disabling unchanged imports or code outside the verified
+scope, wrap the original text directly in `/* ... */`. Do not add a reason,
+`Origin Rust:` label, or repeated status narration to each block. Put the
+closing delimiter immediately after the last original line:
 
 ```rust
-/* `Iterator::sum` has no model in the active vstd, so use an indexed loop with a
- * prefix-sum invariant while preserving the same word order and arithmetic.
- * Origin Rust: self.bits
- *     .iter()
- *     .map(|part| part.count_ones() as usize)
- *     .sum()
- */
+/*use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+use log::info;*/
 ```
 
-Continue a multi-line original on the following `*` lines; a one-line original
-stays on the label line. One comment covers one contiguous modified block, and
-neither a distant comment nor Git history substitutes for it. For executable
-code with no corresponding original statement, write `Origin Rust: <none; new
-executable code>`. Changes confined to `spec`, `proof`, ghost/tracked state,
-Verus attributes, or comments carry no marker. (The literalized constant below
-keeps its original on adjacent line comments — the single-line form of the same
-practice.)
+For an actual executable rewrite required by Verus, retain a concise adjacent
+`Origin Rust:` block with the original code and the concrete reason for the
+change. This requirement applies to executable replacements, additions, or
+removals, not to wrapping unchanged code in a comment or adding specs, proofs,
+ghost/tracked state, or Verus attributes. Do not request such markers for those
+cases.
 
-In review, treat a modification as noncompliant when its comment is missing,
-not immediately adjacent, not a block comment, omits the reason or the `Origin
-Rust:` label, puts the original before the reason, or does not faithfully
-represent the original. A compliant comment records why the executable code
-must differ; whether runtime behavior is preserved is reviewed separately.
+If verification exposes a potential runtime bug, check the latest upstream
+Asterinas code and establish whether the input can arise before changing
+behavior. Do not introduce overflow rejection or new `None` returns just to
+make a proof pass. PR #905's reviewers accepted a narrowly scoped no-overflow
+assumption for hardware inputs instead of a runtime change; this is a specific
+review decision, not permission to add assumptions elsewhere. New `assume`,
+`admit`, or `external_body` still requires explicit user authorization under
+`AGENTS.md`.
+
+When an `assume` is authorized, add a brief adjacent comment explaining why
+the assumption is justified, such as a hardware bound or an environmental
+guarantee. State the reason in one sentence rather than repeating the assumed
+predicate or saying only that it is needed for verification.
+
+See also: PR [#905](https://github.com/asterinas/vostd/pull/905#discussion_r4525095238),
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4525099006),
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4537787219),
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4537793407),
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4537795023),
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4537796815),
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4535699456), and
+[#905](https://github.com/asterinas/vostd/pull/905#discussion_r4535895602).
 
 Preserve upstream API shapes and round-trip conversion directions. Adapt
 ownership with local proof lemmas; do not reverse conversion lemmas, reconstruct
@@ -566,81 +581,27 @@ See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4044
 
 <!-- guideline: document-verified-apis -->
 
-Preserve runtime documentation. Add rustdoc for public verified APIs and proof
-functions or modules whose properties matter to callers or maintainers. Explain
-critical contracts and invariants in language kernel developers can understand,
-without restating every Verus clause.
+Preserve existing runtime documentation when adding verification, following
+[`preserve-exec-code`](#preserve-exec-code). Adding a contract or proving a
+function does not by itself require additional rustdoc, a `Verified Properties`
+block, or `Preconditions`, `Postconditions`, `Safety`, and `Functional
+Correctness` subsections. Existing examples using these sections are not a
+mandatory template.
 
-For public executable APIs, append a `Verified Properties` section containing:
+Add documentation only when it supplies information a caller needs that is not
+already clear from the name, signature, existing rustdoc, or formal contract.
+For a new spec or proof API, explain a non-obvious mathematical meaning or usage
+constraint when necessary; do not require a summary sentence on every helper.
+Keep any added prose brief and claim only what verification establishes.
 
-- `Preconditions`: State caller obligations.
-- `Postconditions`: State return guarantees.
-- `Safety`: Identify the classes of undefined behavior ruled out, any proved
-  absence of panic, and the remaining trusted boundaries. Claim only what
-  verification establishes.
-- `Functional Correctness`, when applicable: Summarize the verified behavior.
+In review, identify the concrete missing caller information before requesting
+an explanation. Missing headings, absence of a verification summary, or the
+mere presence of a public verified API are not findings. Do not request prose
+that translates `requires`/`ensures`, narrates proof steps, or repeats a trust
+boundary already described at its owning module.
 
-A proved absence of panic is a `Safety` claim, never a `Postconditions` one.
-Every field states only what verification adds beyond the function's name,
-signature, ordinary rustdoc, and the type's own invariant: a clause evident
-from those — one that restates the spec, the summary line, or the signature —
-is dropped, not enumerated, and a field left with nothing to state is omitted.
-Never write that there are no caller obligations, and never restate the
-summary line as bullets.
-
-Format the section as level-2 rustdoc subsections, not inline fields: write
-`## Preconditions`, `## Postconditions`, and `## Safety` in that order
-(`## Functional Correctness`, when present, immediately after `## Safety`),
-with each field covered in `-` bullets; a bullet groups the conjuncts that
-belong to one behavior — the *field coverage* mirrors the contract, not the
-bullet count. Do not merge the fields into single inline entries such as
-`- Safety: ...`. Keep a verified module's `Verified
-Properties` paragraph as prose.
-
-Omit the section when the verified contract adds nothing beyond the signature
-and the type's own invariant. Two common cases:
-
-- **Field getters** — the spec only fixes the return value to a field or a spec
-  function of it (`returns` / `ret == self.field`); the one-line rustdoc
-  summary ("Gets the end physical address of the contiguous frames.") already
-  says everything the section would.
-- **Invariant-only mutators** — the only `requires`/`ensures` clauses are
-  `inv()` being required and re-established, with no verified functional
-  relationship between `old(self)` and `final(self)`.
-
-In both cases keep the ordinary rustdoc summary — the exemption is from the
-`Verified Properties` block, not from documenting the item. Write the block
-once any clause goes further: a functional postcondition relating `old(self)`
-and `final(self)`, a `Safety` claim, or a guarantee not evident from the
-accessor's body. When the only clause that goes further is a proved absence
-of panic, the block is that single line — a `## Safety` subsection with no
-other fields.
-
-The `Preconditions` and `Postconditions` fields apply to executable APIs only.
-Spec and proof functions are erased at runtime; their `requires` and `ensures`
-clauses already state obligations and results formally, so do not add
-`Preconditions` or `Postconditions` sections that merely restate them (see
-[`document-real-proof-debt`](#document-real-proof-debt)). Document a `spec fn`
-with the mathematical meaning of the value it denotes, and a `proof fn` with one
-sentence summarizing the proved fact; add further prose only when an obligation
-or guarantee is non-obvious and not apparent from the signature.
-
-A module that introduces a new verified API layer documents it at introduction
-time with a `Verified Properties` paragraph — verification design, critical
-invariants, safety, and any verified functional correctness. A diff that
-extends an already-verified module does not owe new module prose: update the
-paragraph only where the added verification changes a documented claim.
-
-See also:
-[`SpinLock`](../../ostd/src/sync/spin.rs#L18),
-[`AlignExt`](../../ostd/libs/align_ext/src/lib.rs#L98), and
-[`entails_and_temp_reverse`](../../verified_libs/vstd_extra/src/temporal_logic/rules.rs#L793).
-A canonical subsection-formatted block:
-[`VmSpace::reader`](../../ostd/src/mm/vm_space.rs#L347).
-An omitted block for a field getter:
-[`Segment::start_paddr`](../../ostd/src/mm/frame/segment.rs#L507).
-The minimal one-line form for a trivial contract:
-[PR #797](https://github.com/asterinas/vostd/pull/797#discussion_r4309982983).
+See also: PR [#905](https://github.com/asterinas/vostd/pull/905#discussion_r4525099006)
+and [`document-real-proof-debt`](#document-real-proof-debt).
 
 ### Narrow lint suppressions
 
@@ -711,7 +672,8 @@ Keep proof comments brief and focused on non-obvious, current constraints and
 their consequences. Document shared trust boundaries once at module level.
 Avoid restating code, speculating about tool limitations, or recounting failed
 proof attempts. Update or remove comments when the constraints change.
-Add a `TODO` for temporary limitations that need follow-up.
+Add a `TODO` only for a concrete unresolved task that needs follow-up; a
+comment is not required merely because verification has limited scope.
 
 Wordiness is reviewed explicitly: comments repeating neighboring
 code ("Redundant comment"), multi-clause narration of a step the
