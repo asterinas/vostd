@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794453294402,
+  "lastUpdate": 1794464656000,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11004,6 +11004,90 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=623ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7dca80845ef30e69bb19cfe7293f9bfa5fc3d3a2",
+          "message": "docs: update coding guidelines for comments and spec check (#917)\n\n* docs: update coding guidelines for comments\n\n* docs: spec check\n\n* doc: update",
+          "timestamp": "2026-11-12T14:07:32+08:00",
+          "tree_id": "4281b3ad9be056c4878675f57eb8f0ba907d801a",
+          "url": "https://github.com/asterinas/vostd/commit/7dca80845ef30e69bb19cfe7293f9bfa5fc3d3a2"
+        },
+        "date": 1794464655372,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 945689111,
+            "unit": "rlimit",
+            "extra": "verified=4373 errors=0 smt-run=303,729ms wall=216,861ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 373645598,
+            "unit": "rlimit",
+            "extra": "smt-run=137,498ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83275612,
+            "unit": "rlimit",
+            "extra": "smt-run=26,873ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53622018,
+            "unit": "rlimit",
+            "extra": "smt-run=16,505ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,125ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,464ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,347ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=932ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=664ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=744ms"
           }
         ]
       }
