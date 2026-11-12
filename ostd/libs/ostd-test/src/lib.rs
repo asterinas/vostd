@@ -62,13 +62,6 @@
 //! Doctest is not taken into consideration yet, and the interface is subject to
 //! change.
 //!
-//! # Verified Properties
-//!
-//! Verification covers iterator construction and panic-info formatting calls.
-//! Formatting uses the trusted `Formatter::write_fmt` specification; output text,
-//! writer errors, and unwinding are not specified. Test execution, iteration,
-//! and OSDK-generated data remain outside the verified portion.
-//!
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
