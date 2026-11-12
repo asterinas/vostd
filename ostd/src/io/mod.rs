@@ -38,11 +38,15 @@ cfg_if!(
 /// 3. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to
 ///    exceed the maximum value specified by architecture.
 #[cfg_attr(target_arch = "x86_64", verus_spec(
+    requires
+        io_mem_builder.has_registered_windows(),
     ensures
         io_mem::io_mem_allocator_initialized(),
         io_port::io_port_allocator_initialized(),
 ))]
 #[cfg_attr(not(target_arch = "x86_64"), verus_spec(
+    requires
+        io_mem_builder.has_registered_windows(),
     ensures
         io_mem::io_mem_allocator_initialized(),
 ))]

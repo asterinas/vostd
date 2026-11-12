@@ -274,33 +274,39 @@ impl RangeAllocator {
     ///   [`RangeAllocator::free`].
     #[verus_spec(res =>
         with
-            Tracked(permit): Tracked<AllocRangePermit>,
-            -> allocated: Tracked<FreePermit>,
+            Tracked(permit): Tracked<Option<AllocRangePermit>>,
+            -> allocated: Tracked<Option<FreePermit>>,
         requires
-            self@.start <= allocate_range.start < allocate_range.end <= self@.end,
-            permit.id() == self.allocate_id(),
-            permit.range() == allocate_range,
+            allocate_range.start < allocate_range.end,
+            self@.start <= allocate_range.start && allocate_range.end <= self@.end ==> {
+                permit matches Some(token)
+                    && token.id() == self.allocate_id()
+                    && token.range() == *allocate_range
+            },
         ensures
-            res is Ok,
-            allocated@.id() == self.free_id(),
-            allocated@.range() == allocate_range,
+            res is Ok <==> self@.start <= allocate_range.start && allocate_range.end <= self@.end,
+            res is Ok <==> allocated@ is Some,
+            allocated@ matches Some(token) ==> {
+                &&& token.id() == self.free_id()
+                &&& token.range() == *allocate_range
+            },
     )]
     pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
         debug_assert!(allocate_range.start < allocate_range.end);
 
         let mut lock_guard = self.get_freelist_guard();
         proof_decl! {
-            let tracked allocated: FreePermit;
+            let tracked allocated: Option<FreePermit>;
             let ghost initial_map = lock_guard@->0@;
             let ghost initial_freelist = freelist_model(initial_map);
             let ghost mut checked = Set::<(usize, FreeRange)>::empty();
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            permit.tracked_borrow().agree(&resource.free);
-            lemma_contiguous_subset_has_covering_block(
-                self@,
-                initial_map,
-                *allocate_range,
-            );
+            if self@.start <= allocate_range.start && allocate_range.end <= self@.end {
+                if let Some(token) = &permit {
+                    token.tracked_borrow().agree(&resource.free);
+                }
+                lemma_contiguous_subset_has_covering_block(self@, initial_map, *allocate_range);
+            }
         }
         let freelist = lock_guard.as_mut().unwrap();
         let mut target_node = None;
@@ -308,7 +314,7 @@ impl RangeAllocator {
         let mut right_length = 0;
         #[verus_spec(it =>
             invariant
-                self@.start <= allocate_range.start < allocate_range.end <= self@.end,
+                allocate_range.start < allocate_range.end,
                 right_length <= usize::MAX - allocate_range.end,
                 concrete_freelist_wf(self@, freelist@),
                 freelist_blocks_not_adjacent(freelist@),
@@ -391,27 +397,25 @@ impl RangeAllocator {
         };
         proof! {
             if res is Err {
-                let key = choose|key: usize|
-                    #![trigger initial_map.contains_key(key)]
-                    initial_map.contains_key(key)
-                        && block_contains(initial_map[key].block, *allocate_range);
-                assert(freelist@.kv_pairs().contains((key, freelist@[key])));
-                assert(false);
+                if self@.start <= allocate_range.start && allocate_range.end <= self@.end {
+                    let key = choose|key: usize|
+                        #![trigger initial_map.contains_key(key)]
+                        initial_map.contains_key(key)
+                            && block_contains(initial_map[key].block, *allocate_range);
+                    assert(freelist@.kv_pairs().contains((key, freelist@[key])));
+                    assert(false);
+                }
+                allocated = None;
+            } else {
+                let tracked resource = lock_guard.tracked_borrow_mut_resource();
+                let ghost key = target_node->0;
+                lemma_alloc_specific_model(self@, initial_map, freelist@, key, *allocate_range);
+                resource.free.delete(permit.tracked_unwrap().tracked_into_subset());
+                let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
+                allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
+                assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
+                    - resource.free@);
             }
-            let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            let ghost key = target_node->0;
-            lemma_alloc_specific_model(
-                self@,
-                initial_map,
-                freelist@,
-                key,
-                *allocate_range,
-            );
-            resource.free.delete(permit.tracked_into_subset());
-            let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
-            allocated = GhostSubRange::tracked_new(subset, *allocate_range);
-            assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
-                - resource.free@);
         }
         lock_guard.drop();
         #[verus_spec(with |= Tracked(allocated))]
