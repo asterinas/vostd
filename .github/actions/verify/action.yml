@@ -1,0 +1,89 @@
+name: Verify OSTD
+description: >-
+  Set up Verus, verify one target, check warnings, and publish the verification log.
+  Expects a checkout with submodules.
+inputs:
+  rust-target:
+    description: Rust target triple to verify
+    required: true
+  runner-label:
+    description: Matrix runner label used in the log artifact name and summary
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up toolchain and caches
+      uses: ./.github/actions/setup-verus
+      with:
+        verus: 'true'
+        install-verusfmt: 'false'
+
+    # `make` plus --time-expanded for the perf job's log. `--target` selects
+    # the architecture whose `cfg(target_arch)` module gets verified.
+    - name: Run verification
+      shell: bash
+      run: |
+        set -o pipefail
+        if ! cargo dv verify --package ostd --target ${{ inputs.rust-target }} -- --time-expanded 2>&1 | tee verify_output.txt; then
+          echo "❌ Verification failed"
+          echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
+          exit 1
+        else
+          echo "✅ Verification passed!"
+        fi
+
+    - name: Check for verification warnings
+      if: always() && runner.os == 'Linux'
+      shell: bash
+      run: |
+        WARNINGS=(
+          "note: automatically chose triggers for this expression:|auto-trigger notes"
+          "warning: use of deprecated method \`vstd::set::Set::<A>::finite\`|deprecated Set::finite()"
+          "warning: use of deprecated associated function \`vstd::set::Set::<A>::new_assuming_finite\`|deprecated Set::new_assuming_finite()"
+        )
+
+        FAILED=0
+        for ITEM in "${WARNINGS[@]}"; do
+          PATTERN="${ITEM%%|*}"
+          LABEL="${ITEM##*|}"
+          if grep -q "$PATTERN" verify_output.txt 2>/dev/null; then
+            echo "❌ Found $LABEL"
+            grep -n "$PATTERN" verify_output.txt
+            FAILED=1
+          else
+            echo "✅ No $LABEL found"
+          fi
+        done
+
+        if [[ "$FAILED" == "1" ]]; then
+          echo "VERIFY_WARNINGS_FOUND=1" >> "$GITHUB_ENV"
+          exit 1
+        fi
+
+    - name: Upload verification log
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: verify-log-${{ inputs.runner-label }}-${{ inputs.rust-target }}
+        path: verify_output.txt
+        retention-days: 7
+        if-no-files-found: warn
+
+    - name: Publish summary
+      if: always()
+      shell: bash
+      run: |
+        {
+          echo "# CI Summary (${{ inputs.runner-label }} / ${{ inputs.rust-target }})"
+          if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
+            echo "- Verification: ❌ failed"
+          else
+            echo "- Verification: ✅ passed"
+          fi
+          if [[ "${VERIFY_WARNINGS_FOUND:-0}" == "1" ]]; then
+            echo "- Verification warnings: ❌ found"
+          else
+            echo "- Verification warnings: ✅ none"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"

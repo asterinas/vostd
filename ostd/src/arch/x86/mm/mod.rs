@@ -63,8 +63,17 @@ pub const VA_SIGN_EXT: bool = true;
 #[derive(Clone, Debug, Default)]
 pub struct PagingConsts {}
 
+/* Origin Rust:
+ * impl PagingConstsTrait for PagingConsts {
+ *     const BASE_PAGE_SIZE: usize = 4096;
+ *     const NR_LEVELS: PagingLevel = 4;
+ *     const ADDRESS_WIDTH: usize = 48;
+ *     const VA_SIGN_EXT: bool = true;
+ *     const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 2;
+ *     const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
+ * }
+ */
 impl PagingConstsTrait for PagingConsts {
-    // Expansion for BASE_PAGE_SIZE
     #[verifier::inline]
     open spec fn BASE_PAGE_SIZE_spec() -> usize {
         PAGE_SIZE
@@ -73,13 +82,9 @@ impl PagingConstsTrait for PagingConsts {
     #[inline(always)]
     fn BASE_PAGE_SIZE() -> usize
     {
-        /* Share the base page size with const-generic layouts and the paging model.
-         * Origin Rust: 4096
-         */
         PAGE_SIZE
     }
 
-    // Expansion for NR_LEVELS
     #[verifier::inline]
     open spec fn NR_LEVELS_spec() -> PagingLevel {
         NR_LEVELS as PagingLevel
@@ -88,13 +93,9 @@ impl PagingConstsTrait for PagingConsts {
     #[inline(always)]
     fn NR_LEVELS() -> PagingLevel
     {
-        /* Share the translation-level count while preserving the u8 return value.
-         * Origin Rust: 4
-         */
         NR_LEVELS as PagingLevel
     }
 
-    // Expansion for ADDRESS_WIDTH
     #[verifier::inline]
     open spec fn ADDRESS_WIDTH_spec() -> usize {
         ADDRESS_WIDTH
@@ -103,13 +104,9 @@ impl PagingConstsTrait for PagingConsts {
     #[inline(always)]
     fn ADDRESS_WIDTH() -> usize
     {
-        /* Share the canonical-address width with the paging model.
-         * Origin Rust: 48
-         */
         ADDRESS_WIDTH
     }
 
-    // Expansion for HIGHEST_TRANSLATION_LEVEL
     #[verifier::inline]
     open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
         HIGHEST_TRANSLATION_LEVEL
@@ -118,9 +115,6 @@ impl PagingConstsTrait for PagingConsts {
     #[inline(always)]
     fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
     {
-        /* Share the translation limit with the page-table entry model.
-         * Origin Rust: 2
-         */
         HIGHEST_TRANSLATION_LEVEL
     }
 
@@ -131,13 +125,9 @@ impl PagingConstsTrait for PagingConsts {
 
     #[inline(always)]
     fn VA_SIGN_EXT() -> bool {
-        /* Share the address-extension policy with the paging model.
-         * Origin Rust: true
-         */
         VA_SIGN_EXT
     }
 
-    // Expansion for PTE_SIZE
     #[verifier::inline]
     open spec fn PTE_SIZE_spec() -> usize {
         PTE_SIZE
@@ -146,9 +136,6 @@ impl PagingConstsTrait for PagingConsts {
     #[inline(always)]
     fn PTE_SIZE() -> (res: usize)
     {
-        /* Share the entry size with the page-table layout model.
-         * Origin Rust: 8
-         */
         PTE_SIZE
     }
 

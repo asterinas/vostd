@@ -277,7 +277,7 @@ pub assume_specification<A: Array>[ <SmallVec<A> as IntoIterator>::into_iter ](
     ensures
         obeys_smallvec_array::<A>() ==> {
             &&& IteratorSpec::obeys_prophetic_iter_laws(&iter)
-            &&& IteratorSpec::will_return_none(&iter)
+            &&& IteratorSpec::produces(&iter) == Seq::new(smallvec_view(&v).len(), |i: int| true)
             &&& IteratorSpec::remaining(&iter) == smallvec_view(&v)
             &&& IteratorSpec::decrease(&iter) == Some(smallvec_view(&v).len())
         },
@@ -288,15 +288,16 @@ pub assume_specification<A: Array>[ <SmallVec<A> as IntoIterator>::into_iter ](
 /// (E0117) prevents implementing `FromIteratorSpecImpl` for `SmallVec` here.
 pub broadcast axiom fn axiom_smallvec_from_iter_ensures<A: Array>(
     remaining: Seq<A::Item>,
-    will_return_none: bool,
+    produces: Seq<bool>,
     s: SmallVec<A>,
 )
     ensures
         obeys_smallvec_array::<A>() ==> #[trigger] FromIteratorSpec::from_iter_ensures(
             remaining,
-            will_return_none,
+            produces,
             s,
-        ) == (will_return_none && remaining == smallvec_view(&s)),
+        ) == (produces.len() == remaining.len() && produces.all(|p: bool| p) && remaining
+            == smallvec_view(&s)),
 ;
 
 } // verus!

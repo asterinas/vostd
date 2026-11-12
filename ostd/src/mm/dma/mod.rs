@@ -113,36 +113,23 @@ fn check_and_insert_dma_mapping(start_paddr: Paddr, num_pages: usize) -> bool {
         None => false,
         Some(mapping_set) => {
             let mut mapping_set = mapping_set.lock();
-            let mut i = 0;
-
-            #[verus_spec(
+            for i in 0..num_pages
                 invariant
-                    i <= num_pages,
                     start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
-                decreases
-                    num_pages - i,
-            )]
-            while i < num_pages {
+            {
                 let paddr = start_paddr + (i * crate::mm::PAGE_SIZE);
                 if mapping_set.contains(&paddr) {
                     return false;
                 }
-                i += 1;
             }
 
-            i = 0;
-            #[verus_spec(
+            for i in 0..num_pages
                 invariant
-                    i <= num_pages,
                     start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
-                decreases
-                    num_pages - i,
-            )]
-            while i < num_pages {
+            {
                 let paddr = start_paddr + (i * crate::mm::PAGE_SIZE);
                 // Failure: complex arguments to $mut parameters are currently unsupported
                 // mapping_set.insert(paddr);
-                i += 1;
             }
 
             true

@@ -90,7 +90,8 @@ pub proof fn lemma_range_difference_set<T: FiniteRange + Ord>(a: Range<T>, b: Ra
         finite_range_matches_ord::<T>(),
         forall |x: T, y: T| #[trigger] cloned::<T>(x,y) ==> x == y,
     ensures
-        ret.obeys_prophetic_iter_laws() && ret.will_return_none() ==> {
+        ret.obeys_prophetic_iter_laws(),
+        ret.produces().all(|p: bool| p) ==> {
             &&& ret.remaining() == range_difference_spec(*a, *b)
             &&& ret.remaining().len() <= 2
             &&& ret.remaining().all(
@@ -131,15 +132,35 @@ pub fn range_difference<T: Ord + Copy + FiniteRange>(
     proof! {
         lemma_range_difference_set(*a, *b);
         assert forall|ret: core::iter::Filter<_, _>|
-            #[trigger] filter_post(iter, pred, ret) &&
-            ret.will_return_none() implies
-            ret.remaining() == range_difference_spec(*a, *b) by {
+            #[trigger] filter_post(iter, pred, ret) implies {
+                &&& ret.obeys_prophetic_iter_laws()
+                &&& ret.produces().all(|p: bool| p) ==>
+                    ret.remaining() == range_difference_spec(*a, *b)
+            } by {
             filter_postcondition(iter, pred, ret);
+            lemma_filter_laws(iter, pred, ret);
         }
     }
     iter.filter(pred)
 }
 
+verus! {
+
+proof fn lemma_filter_laws<I: Iterator, P: FnMut(&I::Item) -> bool>(
+    iter: I,
+    pred: P,
+    ret: core::iter::Filter<I, P>,
+)
+    requires
+        iter.obeys_prophetic_iter_laws(),
+        filter_post(iter, pred, ret),
+    ensures
+        ret.obeys_prophetic_iter_laws(),
+{
+    filter_postcondition(iter, pred, ret);
+}
+
+} // verus!
 #[cfg(ktest)]
 #[expect(clippy::single_range_in_vec_init)]
 mod test {

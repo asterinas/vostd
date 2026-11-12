@@ -32,7 +32,7 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-use vstd::{atomic::PermissionU64, prelude::*, simple_pptr::PointsTo};
+use vstd::{atomic::PermissionU64, prelude::*};
 use vstd_extra::{
     once::OnceImpl, ownership::*, prelude::*, resource_invariant::TrivialResourceInvariant,
 };
@@ -122,17 +122,13 @@ pub const VMALLOC_VADDR_RANGE: Range<Vaddr> = VMALLOC_BASE_VADDR..FRAME_METADATA
 
 /// The base address of the linear mapping of all physical
 /// memory in the kernel address space.
-pub const LINEAR_MAPPING_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000 << ADDR_WIDTH_SHIFT;
-
-pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..VMALLOC_BASE_VADDR;
-
-/*
 #[cfg(not(target_arch = "loongarch64"))]
 pub const LINEAR_MAPPING_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000 << ADDR_WIDTH_SHIFT;
+
 #[cfg(target_arch = "loongarch64")]
 pub const LINEAR_MAPPING_BASE_VADDR: Vaddr = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
+
 pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..VMALLOC_BASE_VADDR;
-*/
 
 /// Convert physical address to virtual address using offset, only available inside `ostd`
 #[verus_verify(dual_spec, open)]
@@ -216,7 +212,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) {
         match item {
             MappedItem::Tracked(frame, prop) => (
-                crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr()),
+                crate::mm::frame::meta::mapping::meta_to_frame(frame.slot_vaddr()),
                 1,
                 Self::encode_tracked_prop(prop),
                 Tracked(
@@ -273,7 +269,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         if prop.flags.contains(PageFlags::AVAIL1()) {
             MappedItem::Tracked(
                 Frame::<MetaSlotStorage> {
-                    ptr: vstd::simple_pptr::PPtr(mapping::frame_to_meta(paddr), PhantomData),
+                    ptr: (perm@->0).slot_perm.ptr(),
                     _marker: PhantomData,
                     #[cfg(verus_keep_ghost_body)]
                     tracked_slot_perm: Tracked((perm@->0).slot_perm),
@@ -440,7 +436,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         match item {
             MappedItem::Tracked(frame, _) => {
-                let frame_idx = meta_to_index(frame.ptr.addr());
+                let frame_idx = meta_to_index(frame.slot_vaddr());
                 assert(frame.index() == frame_to_index(pa));
                 assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
             },

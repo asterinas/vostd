@@ -1,9 +1,5 @@
-use vstd::{
-    atomic::*,
-    prelude::*,
-    simple_pptr::{self, *},
-};
-use vstd_extra::{cast_ptr::Repr, ownership::*};
+use vstd::{atomic::*, prelude::*};
+use vstd_extra::{cast_ptr::Repr, ownership::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{arch::*, mm::frame::mapping::*};
 
@@ -27,7 +23,7 @@ verus! {
 /// Likewise, every slot has an permission stored in `slots`.
 #[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
-    pub slots: Map<int, &'static simple_pptr::PointsTo<MetaSlot>>,
+    pub slots: Map<int, &'static ExposedPointsTo<MetaSlot>>,
     pub slot_owners: Map<int, MetaSlotOwner>,
 }
 
@@ -107,7 +103,7 @@ impl MetaRegionOwners {
     pub proof fn tracked_borrow_slot(
         tracked &self,
         paddr: Paddr,
-    ) -> tracked &'static simple_pptr::PointsTo<MetaSlot>
+    ) -> tracked &'static ExposedPointsTo<MetaSlot>
         requires
             valid_frame_paddr(paddr),
             self.inv(),

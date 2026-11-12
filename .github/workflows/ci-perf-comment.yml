@@ -2,7 +2,7 @@ name: Comment on PR verification cost
 
 on:
   workflow_run:
-    workflows: ["Format and Verify VOSTD (Main)"]
+    workflows: ["Verify VOSTD"]
     types: [completed]
 
 permissions:

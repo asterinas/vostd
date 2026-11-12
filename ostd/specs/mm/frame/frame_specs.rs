@@ -1,9 +1,5 @@
-use vstd::{
-    cell::CellId,
-    prelude::*,
-    simple_pptr::{self, PPtr, PointsTo},
-};
-use vstd_extra::{cast_ptr::*, ownership::*};
+use vstd::{cell::CellId, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{
     arch::*,
@@ -38,7 +34,7 @@ pub open spec fn valid_slot_vaddr(addr: Vaddr) -> bool {
 
 /// The permission that is given out by `Frame::into_raw`
 pub tracked struct FrameRawPerms {
-    pub slot_perm: &'static simple_pptr::PointsTo<MetaSlot>,
+    pub slot_perm: &'static ExposedPointsTo<MetaSlot>,
     pub metadata_perm: FracMetadataPerm,
 }
 
@@ -51,7 +47,7 @@ unsafe impl vstd::thread_view::Objective for FrameRawPerms {
 
 impl FrameRawPerms {
     pub open spec fn slot_vaddr(self) -> Vaddr {
-        self.slot_perm.pptr().addr()
+        self.slot_perm.ptr().addr()
     }
 }
 
@@ -78,7 +74,7 @@ impl<M: ?Sized> Frame<M> {
     }
 
     /// Accessor for the [`MetaSlot`] permission tracked by this `Frame` handle.
-    pub open spec fn slot_perm(self) -> PointsTo<MetaSlot> {
+    pub open spec fn slot_perm(self) -> ExposedPointsTo<MetaSlot> {
         *self.tracked_slot_perm@
     }
 
@@ -98,8 +94,8 @@ impl<M: ?Sized> Frame<M> {
     /// `ManuallyDrop<Frame>` values embedded in `FrameRef`.
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
-        &&& valid_slot_vaddr(self.ptr.addr())
-        &&& self.slot_perm().pptr() == self.ptr
+        &&& valid_slot_vaddr(self.slot_vaddr())
+        &&& self.slot_perm().ptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
 
@@ -139,35 +135,13 @@ impl<M: ?Sized> Frame<M> {
         frame_to_index(self.start_paddr_spec())
     }
 
+    #[verifier::inline]
+    pub open spec fn slot_vaddr(self) -> Vaddr {
+        self.ptr.addr()
+    }
+
     pub open spec fn start_paddr_spec(self) -> Paddr {
-        meta_to_frame(self.ptr.addr())
-    }
-
-    pub open spec fn drop_requires(self, region: MetaRegionOwners) -> bool {
-        let idx = self.index();
-        let slot_own = region.slot_owners[idx];
-        &&& self.inv()
-        &&& region.inv()
-        &&& self.wf_with_region(region)
-        &&& 0 < slot_own.ref_count() <= REF_COUNT_MAX
-        &&& slot_own.ref_count() == 1 ==> {
-            &&& slot_own.paths_in_pt.is_empty()
-        }
-    }
-
-    pub open spec fn drop_ensures(self, old: MetaRegionOwners, new: MetaRegionOwners) -> bool {
-        let paddr = self.start_paddr_spec();
-        let old_owner = old.slot_owner(paddr);
-        let new_owner = new.slot_owner(paddr);
-        &&& new.inv()
-        &&& new =~= old.insert_slot_owner(paddr, new_owner)
-        &&& new_owner.slot_vaddr == old_owner.slot_vaddr
-        &&& new_owner.usage == old_owner.usage
-        &&& new_owner.paths_in_pt == old_owner.paths_in_pt
-        &&& new_owner.metadata_perm.id() == old_owner.metadata_perm.id()
-        &&& old_owner.ref_count() == 1 ==> { new_owner.ref_count() == REF_COUNT_UNUSED }
-        &&& old_owner.ref_count() > 1 ==> new_owner.ref_count() == (old_owner.ref_count()
-            - 1) as u64
+        meta_to_frame(self.slot_vaddr())
     }
 }
 
@@ -183,13 +157,13 @@ impl<M: ?Sized> Frame<M> {
 }
 
 impl<M: ?Sized> Frame<M> {
-    pub open spec fn from_raw_spec(
-        paddr: Paddr,
-        slot_perm: &'static PointsTo<MetaSlot>,
+    /// Models a frame handle using the pointer and metadata permissions supplied.
+    pub open spec fn from_perms_spec(
+        slot_perm: &'static ExposedPointsTo<MetaSlot>,
         metadata_perm: Option<FracMetadataPerm>,
     ) -> Self {
         Frame::<M> {
-            ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),
+            ptr: slot_perm.ptr(),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(slot_perm),

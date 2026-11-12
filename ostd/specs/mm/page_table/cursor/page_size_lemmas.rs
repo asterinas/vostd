@@ -192,16 +192,6 @@ pub proof fn lemma_va_align_page_size<C: PagingConstsTrait>(va: Vaddr, level: Pa
     }
 }
 
-/// When `va` is aligned to `BASE_PAGE_SIZE`, then `va` is aligned to `page_size(1)`.
-pub proof fn lemma_va_align_page_size_level_1<C: PagingConstsTrait>(va: Vaddr)
-    requires
-        va % C::BASE_PAGE_SIZE() == 0,
-    ensures
-        va % page_size::<C>(1) == 0,
-{
-    lemma_page_size_base::<C>();
-}
-
 /// Concrete page sizes for the x86_64 `PagingConsts`, kept for numeric automation.
 pub proof fn lemma_page_size_spec_values()
     ensures

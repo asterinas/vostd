@@ -1,11 +1,11 @@
 # Formal Verification of Asterinas OSTD with Verus
 
-[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/)
+[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/verusdoc)
 [![verify](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci.yml?branch=main&label=verify)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
 > [!NOTE]
-> This repository is currently in a transitional state: the components under `ostd/src/sync` and `ostd/libs/id-alloc` track Asterinas [v0.19.0](https://github.com/asterinas/asterinas/releases/tag/v0.19.0), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+> This repository is currently in a transitional state: `ostd/src/sync`, `ostd/libs/id-alloc`, and `ostd/src/boot/memory_region.rs` track Asterinas [v0.19.0](https://github.com/asterinas/asterinas/releases/tag/v0.19.0), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
 
 ## Overview
 
@@ -63,15 +63,14 @@ make verus      # or: cargo dv bootstrap
 Verus is cloned and built under `tools/verus`. If the download fails, clone it manually into `tools/verus` and re-run `cargo dv bootstrap`.
 
 > [!NOTE]
-> We use our [own fork](https://github.com/asterinas/verus) of Verus, kept in sync with upstream. To build against upstream Verus instead, use `cargo dv bootstrap --upstream-verus` (our CI tracks upstream; breaking changes are usually resolved within about a week).
-
-> [!TIP]
-> If Verus is already installed elsewhere and you only want to reproduce a verification result (not the recommended way to set up the project), point `CARGO_VERUS_PATH` at the directory containing the `cargo-verus` binary (or add it to your `PATH`) and run `cargo verus verify`.
+> We use our [own fork](https://github.com/asterinas/verus) of Verus, kept in sync with upstream. To build against upstream Verus instead, use `cargo dv bootstrap --upstream-verus` (however, we do not guarantee our code will always verify with the upstream version).
 
 ### Verify
 
 ```bash
 make                                                               # verify OSTD and its dependencies (or: cargo dv verify)
+make verify-riscv                                                   # verify the RISC-V arch code of OSTD (or: cargo dv verify --target riscv64imac-unknown-none-elf)
+make verify-loongarch                                               # verify the LoongArch arch code of OSTD (or: cargo dv verify --target loongarch64-unknown-none-softfloat)
 cargo dv focus --package ostd                                       # ostd only, skip dependency proofs
 cargo dv focus --package ostd -- --verify-only-module sync::rwlock  # verify one ostd module
 cargo dv verify --package vstd_extra                                # the verified dependency crate
@@ -100,7 +99,7 @@ make doc        # or: cargo dv doc --package ostd  # generate API docs at doc/in
 > Run `cargo dv build` before invoking `cargo dv doc` directly.
 
 The generated documentation can be found at `doc/`.
-An [online version](https://asterinas.github.io/vostd/) is also available.
+An [online version](https://asterinas.github.io/vostd/verusdoc) is also available.
 
 ### IDE Support
 

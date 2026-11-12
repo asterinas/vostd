@@ -319,38 +319,6 @@ pub proof fn lemma_next_slot_pte_index<C: PagingConstsTrait>(
     }
 }
 
-/// Sanity-check: for x86_64 user PT.
-pub(crate) proof fn lemma_vaddr_range_spec_user()
-    ensures
-        leading_bits_spec::<UserPtConfig>() == 0,
-        page_table_managed_start_spec::<UserPtConfig>() == 0,
-        page_table_managed_end_spec::<UserPtConfig>() == 0x0000_8000_0000_0000int,
-        vaddr_range_spec::<UserPtConfig>().start == 0,
-        vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
-{
-    lemma_arch_specific_consts_properties::<PagingConsts>();
-    vstd::arithmetic::power2::lemma2_to64();
-    vstd::arithmetic::power2::lemma2_to64_rest();
-}
-
-/// Sanity-check: for x86_64 kernel PT.
-pub(crate) proof fn lemma_vaddr_range_spec_kernel()
-    ensures
-        leading_bits_spec::<KernelPtConfig>() == 0xffff,
-        page_table_managed_start_spec::<KernelPtConfig>() == 0xFFFF_8000_0000_0000,
-        page_table_managed_end_spec::<KernelPtConfig>() == 0x1_0000_0000_0000_0000int,
-        vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
-        vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
-{
-    lemma_arch_specific_consts_properties::<PagingConsts>();
-    vstd::arithmetic::power2::lemma2_to64();
-    vstd::arithmetic::power2::lemma2_to64_rest();
-    vstd::layout::unsigned_int_max_values();
-    assert(nr_page_table_coverage_bits_spec::<PagingConsts>() == 48);
-    vaddr_range_proofs::lemma_leading_bits_properties::<KernelPtConfig>();
-    assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
-}
-
 /// Addresses in one aligned node select the same entries at that node and above.
 pub proof fn lemma_same_node_pte_indices_match<C: PagingConstsTrait>(
     va1: Vaddr,

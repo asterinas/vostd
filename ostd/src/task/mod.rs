@@ -2,8 +2,8 @@
 //! Tasks are the unit of code execution.
 use vstd::prelude::*;
 
-/* pub mod atomic_mode;
-mod kernel_stack; */
+pub mod atomic_mode;
+/* mod kernel_stack; */
 mod preempt;
 // mod processor;
 pub mod scheduler;
@@ -343,6 +343,7 @@ impl Borrow<Task> for CurrentTask {
     }
 }
 
+*/
 /// Trait for manipulating the task context.
 pub trait TaskContextApi {
     /// Sets instruction pointer
@@ -357,6 +358,8 @@ pub trait TaskContextApi {
     /// Gets stack pointer
     fn stack_pointer(&self) -> usize;
 }
+
+/*
 
 #[cfg(ktest)]
 mod test {

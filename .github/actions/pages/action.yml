@@ -1,0 +1,136 @@
+name: Publish verification dashboard
+description: >-
+  Generate verification statistics, record history, and deploy Verusdoc, the dashboard,
+  and benchmark history. Call only for eligible main runs; expects a checkout with
+  submodules and Pages permissions.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up toolchain and caches
+      uses: ./.github/actions/setup-verus
+      with:
+        # 'true' is required: tools/verus is gitignored, so the setup
+        # action must bootstrap it (and cache it) for the line_count build.
+        verus: 'true'
+        dv-cache: 'restore'
+
+    - name: Cache line_count build
+      uses: actions/cache@v6
+      with:
+        # Distinct from the Verus cache, which excludes source/target.
+        path: tools/verus/source/target
+        key: ${{ runner.os }}-line-count-${{ hashFiles('tools/verus/source/Cargo.lock', 'tools/verus/source/tools/line_count/**') }}
+        restore-keys: |
+          ${{ runner.os }}-line-count-
+
+    - name: Build line_count
+      shell: bash
+      run: cargo build --release -p line_count --manifest-path tools/verus/source/Cargo.toml
+
+    - name: Fetch mainline baseline
+      shell: bash
+      run: |
+        git fetch --depth=1 origin phaseII/mainline ||
+          git fetch --depth=1 https://github.com/asterinas/vostd.git phaseII/mainline
+        git worktree add --detach "$PWD/mainline" FETCH_HEAD
+        echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+
+    - name: Download rustdoc JSON
+      uses: actions/download-artifact@v8
+      with:
+        name: doc-api-json
+        path: api-json
+      continue-on-error: true
+
+    - name: Take verification snapshot
+      shell: bash
+      run: |
+        DOC_JSON_ARG=""
+        if [[ -f api-json/ostd.json ]]; then
+          DOC_JSON_ARG="--doc-json api-json/ostd.json"
+        else
+          echo "no rustdoc JSON artifact; the verified-API count is skipped this run"
+        fi
+        python3 tools/verus_stats.py snapshot \
+          --line-count tools/verus/source/target/release/line_count \
+          --mainline-source src=mainline/ostd/src \
+          --mainline-source libs=mainline/ostd/libs \
+          --mainline-sha "$MAINLINE_SHA" \
+          --sha "$GITHUB_SHA" \
+          --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
+          $DOC_JSON_ARG \
+          -o stats-snapshot.json
+        mkdir -p fresh-stats
+        cp stats-snapshot.json fresh-stats/snapshot.json
+
+    - name: Upload stats artifact
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: stats-snapshot
+        path: stats-snapshot.json
+        retention-days: 7
+        if-no-files-found: error
+
+    # gh-pages holds the long-lived data: dev/bench (benchmark chart, pushed
+    # by `perf-history` just before) and stats/history.json (this job's line).
+    - name: Record verification stats on gh-pages
+      shell: bash
+      run: |
+        set -e
+        if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+          git worktree add "$PWD/gh-pages" FETCH_HEAD
+        else
+          git worktree add --orphan -b gh-pages "$PWD/gh-pages"
+        fi
+        cd gh-pages
+        mkdir -p stats
+        python3 ../tools/verus_stats.py record \
+          --snapshot ../stats-snapshot.json \
+          --history stats/history.json
+        git add stats
+        git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+          commit -m "chore: record verification stats for ${GITHUB_SHA}"
+        if ! git push origin HEAD:gh-pages; then
+          echo "push rejected; rebasing once and retrying"
+          git fetch origin gh-pages
+          git rebase FETCH_HEAD
+          git push origin HEAD:gh-pages
+        fi
+        echo "recorded stats point for ${GITHUB_SHA}"
+
+    - name: Download doc artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: doc-site
+        path: site/verusdoc
+
+    - name: Assemble and deploy the site
+      shell: bash
+      run: |
+        set -e
+        mkdir -p site
+        # Fresh snapshot/history just committed to the gh-pages worktree.
+        mkdir -p site/stats
+        cp gh-pages/stats/history.json site/stats/history.json
+        cp fresh-stats/snapshot.json site/stats/snapshot.json
+        if [[ -d gh-pages/dev/bench ]]; then
+          mkdir -p site/dev
+          cp -r gh-pages/dev/bench site/dev/bench
+          echo "embedded dev/bench"
+        else
+          echo "no dev/bench on gh-pages yet; the bench card will 404 until the first perf push"
+        fi
+        # Apply the shared dashboard/bench UI after copying benchmark data.
+        cp -r tools/site/. site/
+        echo "site root:"; ls site
+
+    - name: Upload pages artifact
+      uses: actions/upload-pages-artifact@v5
+      with:
+        path: site
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v5

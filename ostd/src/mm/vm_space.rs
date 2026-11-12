@@ -13,7 +13,10 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            frame_specs::FrameRawPerms, meta_owners::MetaSlotStorage,
+            frame_specs::FrameRawPerms,
+            mapping::{
+                group_page_meta, lemma_meta_to_paddr_biinjective, lemma_paddr_to_meta_biinjective,
+            },
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
@@ -21,33 +24,38 @@ use crate::specs::{
         tlb::TlbModel,
         virt_mem::{MemView, VirtPtr},
     },
-    task::InAtomicMode,
 };
 
-use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
-use crate::cpu::{AtomicCpuSet, CpuSet};
-use crate::error::Error;
-use crate::mm::frame::meta::mapping::meta_to_frame;
-use crate::mm::frame::untyped::UFrame;
-use crate::mm::frame::{Frame, MetaSlot};
-use crate::mm::kspace::KERNEL_PAGE_TABLE;
-use crate::mm::kspace::KernelPtConfig;
-use crate::mm::page_table::*;
-use crate::mm::tlb::*;
 use crate::mm::{
-    KERNEL_VADDR_RANGE,
-    page_table::{EntryOwner, PageTableFrag, PageTableGuard},
+    KERNEL_VADDR_RANGE, Paddr, Vaddr,
+    frame::MetaSlot,
+    kspace::KernelPtConfig,
+    page_table::*,
+    page_table::{EntryOwner, PageTableGuard},
+    tlb::*,
 };
-use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    io::{Fallible, VmReader, VmWriter},
-    page_prop::PageProperty,
-};
+
 use crate::sync::RoArc;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
+
+use crate::{
+    Error,
+    arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr},
+    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    // cpu_local_cell,
+    mm::{
+        AnyUFrameMeta, Frame, MAX_USERSPACE_VADDR, PageProperty, PagingLevel, UFrame, VmReader,
+        VmWriter,
+        io::Fallible,
+        kspace::KERNEL_PAGE_TABLE,
+        page_table::{self, PageTable, PageTableConfig, PageTableFrag},
+        tlb::{TlbFlushOp, TlbFlusher},
+    },
+    prelude::*,
+    task::{DisabledPreemptGuard, atomic_mode::AsAtomicModeGuard, disable_preempt},
+};
 
 #[path = "../../specs/mm/vm_space.rs"]
 pub mod vm_space_specs;
@@ -134,16 +142,15 @@ verus! {
 ///    }
 /// }
 /// ```
-pub struct VmSpace<'a> {
+pub struct VmSpace {
     pub pt: PageTable<UserPtConfig>,
     pub cpus: AtomicCpuSet,
-    pub _marker: PhantomData<&'a ()>,
 }
 
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl<'a> VmSpace<'a> {
+impl VmSpace {
     #[inline]
     #[verus_spec(r =>
         with
@@ -192,9 +199,9 @@ impl<'a> VmSpace<'a> {
         }
         let pt = {
             #[verus_spec(with Tracked(kernel_owner), Tracked(regions), Tracked(guards))]
-            kpt.create_user_page_table::<crate::specs::task::AnyAtomicGuard>()
+            kpt.create_user_page_table()
         };
-        Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()), _marker: PhantomData }
+        Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()) }
     }
 
     /// Gets an immutable cursor in the virtual address range.
@@ -225,7 +232,7 @@ impl<'a> VmSpace<'a> {
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
-            crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
+            crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // On the success branch, the returned cursor owner satisfies
             // its invariant. Follows from the underlying PT::cursor's
             // ensures: r is Ok ⇒ cursor_new_success_conditions (by
@@ -233,8 +240,8 @@ impl<'a> VmSpace<'a> {
             // hold ⇒ cursor_owner.inv().
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        Cursor<'a, G>,
+    pub fn cursor<'a, G: AsAtomicModeGuard>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        Cursor<'a>,
     > {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
@@ -290,13 +297,15 @@ impl<'a> VmSpace<'a> {
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
-            crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
+            crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // See `cursor` above for the derivation.
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    pub fn cursor_mut<'a, G: AsAtomicModeGuard>(
+        &'a self,
+        guard: &'a G,
+        va: &Range<Vaddr>,
+    ) -> Result<CursorMut<'a>> {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
@@ -364,7 +373,7 @@ impl<'a> VmSpace<'a> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&'a mut VmSpaceOwner>,
+            Tracked(owner): Tracked<&mut VmSpaceOwner>,
                 -> reader_owner: Tracked<Option<VmIoOwner>>,
         requires
             old(owner).inv(),
@@ -381,7 +390,7 @@ impl<'a> VmSpace<'a> {
             // reader. `nat` arithmetic subsumes the overflow case.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a, Fallible>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -438,7 +447,7 @@ impl<'a> VmSpace<'a> {
             // Range bound is necessary for success: see `reader` above.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
-    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a, Fallible>> {
+    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -468,10 +477,10 @@ impl<'a> VmSpace<'a> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
-pub struct Cursor<'a, A: InAtomicMode>(pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>);
+pub struct Cursor<'a>(pub crate::mm::page_table::Cursor<'a, UserPtConfig>);
 
 #[verus_verify]
-impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
+impl<'rcu> Cursor<'rcu> {
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
@@ -631,15 +640,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 ///
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
-pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
+pub struct CursorMut<'a> {
+    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
 }
 
 #[verus_verify]
-impl<'a, A: InAtomicMode> CursorMut<'a, A> {
+impl<'a> CursorMut<'a> {
     /// Queries the mapping at the current virtual address.
     ///
     /// This is the same as [`Cursor::query`].
@@ -1689,10 +1698,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) -> Self::Item {
         MappedItem {
             frame: UFrame {
-                ptr: vstd::simple_pptr::PPtr(
-                    crate::mm::frame::meta::mapping::frame_to_meta(paddr),
-                    PhantomData,
-                ),
+                ptr: (perm@->0).slot_perm.ptr(),
                 _marker: PhantomData,
                 #[cfg(verus_keep_ghost_body)]
                 tracked_slot_perm: Tracked((perm@->0).slot_perm),
@@ -1723,12 +1729,12 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let item = Self::item_from_raw(pa, level, prop, perm);
         assert(Self::raw_item_well_formed((pa, level, prop, perm)));
-        assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
-        crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
+        assert(item.frame.slot_vaddr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
+        lemma_paddr_to_meta_biinjective(pa);
     }
 
     proof fn lemma_item_from_raw_roundtrip(
@@ -1738,10 +1744,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         assert(Self::item_well_formed(item));
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
+        lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
     }
 
     open spec fn item_well_formed(item: Self::Item) -> bool {
@@ -1801,10 +1807,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let item = Self::item_from_raw(pa, level, prop, perm);
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
+        lemma_meta_to_paddr_biinjective(item.frame.slot_vaddr());
     }
 
     proof fn lemma_clone_ensures_concrete(
@@ -1815,7 +1821,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         res: Self::Item,
     ) {
         use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
-        let frame_idx = meta_to_index(item.frame.ptr.addr());
+        let frame_idx = meta_to_index(item.frame.slot_vaddr());
         assert(frame_to_index(pa) == frame_idx);
         assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
         assert(item.frame.clone_ensures(old_regions, new_regions, res.frame));
@@ -1829,7 +1835,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         regions: MetaRegionOwners,
     ) {
         use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let perm = Self::item_into_raw(item).3;
         Self::lemma_item_from_raw_well_formed(pa, level, prop, perm);

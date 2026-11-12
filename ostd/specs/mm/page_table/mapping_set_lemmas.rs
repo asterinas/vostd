@@ -1,9 +1,9 @@
 use vstd::{prelude::*, set_lib::*};
 
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE, lemma_vaddr_range_spec_user};
 
+use super::page_table_managed_end_spec;
 use super::view::{Mapping, mappings_disjoint_vaddrs, mappings_well_formed};
-use super::{lemma_vaddr_range_spec_user, page_table_managed_end_spec};
 use crate::mm::{MAX_USERSPACE_VADDR, Vaddr, vm_space::UserPtConfig};
 
 verus! {

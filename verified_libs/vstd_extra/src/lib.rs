@@ -2,7 +2,6 @@
 //! Contains various utilities and general datatypes for proofs useful in Asterinas verification,
 //! as well as extending [Verus standard library(vstd)](https://verus-lang.github.io/verus/verusdoc/vstd) with additional functionality.
 #![no_std]
-#![feature(nonzero_internals)]
 #![feature(sized_hierarchy)]
 #![feature(btree_cursors)]
 #![feature(proc_macro_hygiene)]
@@ -42,6 +41,7 @@ pub mod map_extra;
 pub mod prelude;
 pub mod range;
 pub mod raw_callback;
+pub mod raw_ptr;
 pub mod raw_ptr_extra;
 pub mod rcu_objects;
 pub mod rcu_read_lease;

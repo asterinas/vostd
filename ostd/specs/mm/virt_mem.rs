@@ -42,30 +42,33 @@ pub struct VirtPtr {
 /// Byte contents of one physical frame range tracked in a [`MemView`].
 ///
 /// This is the physical-memory side of the model: each frame base `Paddr` maps
-/// to a [`FrameContents`] value whose metadata (`size`, `range`) constrains how
+/// to a [`FrameContents`] value whose physical range constrains how
 /// `contents` can be interpreted.
 pub ghost struct FrameContents {
     /// Per-byte initialization/value state for this frame.
     pub contents: Seq<raw_ptr::MemContents<u8>>,
-    /// Frame size in bytes.
-    pub size: usize,
     /// Physical range covered by this frame, modeled as `[start, end)`.
     pub range: Range<Paddr>,
+}
+
+impl FrameContents {
+    /// The frame size in bytes, derived from its physical range.
+    pub open spec fn size(self) -> int {
+        self.range.end - self.range.start
+    }
 }
 
 impl Inv for FrameContents {
     /// Well-formedness invariant for [`FrameContents`].
     ///
     /// # Invariant
-    /// - `contents.len() == size`.
-    /// - `size == range.end - range.start`.
-    /// - `range.start` and `range.end` are aligned to `size`.
+    /// - `contents.len() == size()`.
+    /// - `range.start` and `range.end` are aligned to `size()`.
     /// - `range` is ordered and remains below [`MAX_PADDR`].
     open spec fn inv(self) -> bool {
-        &&& self.contents.len() == self.size@
-        &&& self.size@ == self.range.end - self.range.start
-        &&& self.range.start % self.size == 0
-        &&& self.range.end % self.size == 0
+        &&& self.contents.len() == self.size()
+        &&& (self.range.start as int) % self.size() == 0
+        &&& (self.range.end as int) % self.size() == 0
         &&& self.range.start <= self.range.end < MAX_PADDR
     }
 }
@@ -157,49 +160,6 @@ impl MemView {
             Seq::empty()
         } else {
             seq![self.read(va).value()].add(self.read_bytes((va + 1) as usize, (len - 1) as usize))
-        }
-    }
-
-    /// Lemma: [`Self::write_bytes`] preserves [`Self::mappings`].
-    pub proof fn lemma_write_bytes_mappings(self, va: usize, bytes: Seq<u8>)
-        ensures
-            self.write_bytes(va, bytes).mappings == self.mappings,
-        decreases bytes.len(),
-    {
-        if bytes.len() > 0 {
-            self.write(va, bytes[0]).lemma_write_bytes_mappings(
-                (va + 1) as usize,
-                bytes.drop_first(),
-            );
-        }
-    }
-
-    /// Lemma: [`Self::write_bytes`] preserves [`Self::addr_transl`] at every address.
-    pub proof fn lemma_write_bytes_addr_transl(self, va: usize, bytes: Seq<u8>, query: usize)
-        ensures
-            self.write_bytes(va, bytes).addr_transl(query) == self.addr_transl(query),
-        decreases bytes.len(),
-    {
-        if bytes.len() > 0 {
-            self.write(va, bytes[0]).lemma_write_bytes_addr_transl(
-                (va + 1) as usize,
-                bytes.drop_first(),
-                query,
-            );
-        }
-    }
-
-    /// Lemma: [`Self::write_bytes`] only grows [`Self::memory`]'s domain.
-    pub proof fn lemma_write_bytes_memory_dom_grows(self, va: usize, bytes: Seq<u8>)
-        ensures
-            self.memory.dom().subset_of(self.write_bytes(va, bytes).memory.dom()),
-        decreases bytes.len(),
-    {
-        if bytes.len() > 0 {
-            self.write(va, bytes[0]).lemma_write_bytes_memory_dom_grows(
-                (va + 1) as usize,
-                bytes.drop_first(),
-            );
         }
     }
 
@@ -376,46 +336,14 @@ impl MemView {
     ///
     /// ## Postconditions
     /// - `*self == old(self).join(other)`.
-    #[verifier::external_body]
     pub proof fn tracked_join(tracked &mut self, tracked other: Self)
         requires
             old(self).mappings.disjoint(other.mappings),
         ensures
             *final(self) == old(self).join(other),
     {
-        unimplemented!()
-    }
-
-    /// Lemma: splitting and then joining reconstructs the original view.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Preconditions
-    /// - `this.split(vaddr, len) == (lhs, rhs)`.
-    /// - Every mapping in `this` starts at or after `vaddr`.
-    /// - Every physical frame tracked by `this.memory` is reachable from some
-    ///   virtual address at or after `vaddr`.
-    ///
-    /// ## Postconditions
-    /// - `lhs.join(rhs)` has the same mappings and memory contents as `this`.
-    pub proof fn lemma_split_join_identity(
-        this: MemView,
-        lhs: MemView,
-        rhs: MemView,
-        vaddr: usize,
-        len: usize,
-    )
-        requires
-            this.split(vaddr, len) == (lhs, rhs),
-            forall|m: Mapping| #[trigger]
-                this.mappings.contains(m) ==> vaddr <= m.va_range.start < m.va_range.end,
-            forall|pa: Paddr| #[trigger]
-                this.memory.contains_key(pa) ==> exists|va: usize|
-                    vaddr <= va && #[trigger] this.is_mapped(va, pa),
-        ensures
-            this.mappings == lhs.join(rhs).mappings,
-            this.memory == lhs.join(rhs).memory,
-    {
+        self.mappings = self.mappings.union(other.mappings);
+        self.memory.tracked_union_prefer_right(other.memory);
     }
 
     /// Lemma: byte-level reads agree on the right half of a split.
@@ -452,21 +380,6 @@ impl MemView {
             assert(original.is_mapped(va, pa));
 
         }
-    }
-
-    /// Lemma: pointwise [`Self::read`] equality implies [`Self::read_bytes`] equality.
-    pub proof fn lemma_read_bytes_eq_pointwise(a: MemView, b: MemView, va: usize, n: usize)
-        requires
-            forall|i: usize| va <= i < va + n ==> a.read(i) == b.read(i),
-            va + n <= usize::MAX,
-        ensures
-            a.read_bytes(va, n) == b.read_bytes(va, n),
-        decreases n,
-    {
-        if n == 0 {
-            return;
-        }
-        Self::lemma_read_bytes_eq_pointwise(a, b, (va + 1) as usize, (n - 1) as usize);
     }
 }
 
@@ -716,12 +629,15 @@ impl VirtPtr {
     /// alignment is checked. The returned pointer carries no provenance — it
     /// is suitable for runtime checks (e.g., `is_aligned`) and for unsafe
     /// volatile reads/writes whose preconditions are independently verified.
-    #[verifier::external_body]
     pub fn cast<T>(self) -> (res: *mut T)
         ensures
             res as usize == self.vaddr,
     {
-        self.vaddr as *mut T
+        /* Verus rejects the `usize` to `*mut T` cast; `with_addr` builds the same address
+         * from a null pointer, which also matches the documented null provenance.
+         * Origin Rust: self.vaddr as *mut T
+         */
+        core::ptr::null_mut::<T>().with_addr(self.vaddr)
     }
 
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
@@ -1028,7 +944,7 @@ impl Inv for GlobalMemView {
                         &&& self.memory.dom().contains(pa)
                     }
                 &&& self.memory.contains_key(m.pa_range.start)
-                &&& self.memory[m.pa_range.start].size == m.page_size
+                &&& self.memory[m.pa_range.start].size() == m.page_size
                 &&& self.memory[m.pa_range.start].inv()
             }
         &&& forall|m: Mapping|
@@ -1244,18 +1160,6 @@ impl GlobalMemView {
                     old(self).pt_mappings.contains(n) && n.pa_range.start <= pa < n.pa_range.end;
             }
         };
-    }
-
-    pub proof fn lemma_va_mapping_unique(self, va: usize)
-        requires
-            self.inv(),
-            // Some mapping must cover `va` for the filter to be non-empty.
-            self.addr_transl(va) is Some,
-        ensures
-            self.tlb_mappings.filter(
-                |m: Mapping| m.va_range.start <= va < m.va_range.end,
-            ).is_singleton(),
-    {
     }
 }
 
