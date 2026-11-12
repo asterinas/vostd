@@ -57,7 +57,7 @@ impl<T, A> IoPort<T, A> {
         &&& valid_io_port_access::<T>(self@)
         &&& self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
-            &&& self@ + size_of::<T>() <= u16::MAX
+            &&& claim@.subset_of(Set::<usize>::range(0, u16::MAX as usize))
             &&& self.claim_matches_set(claim@)
             &&& claim.id() == allocator::io_port_allocator_instance_id()
         }
@@ -109,7 +109,6 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             obeys_io_port_access_spec::<T>(),
-            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
@@ -133,7 +132,6 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             obeys_io_port_access_spec::<T>(),
-            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             allocator::io_port_allocator_initialized(),
         ensures
@@ -195,9 +193,9 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(ret =>
         requires
             obeys_io_port_access_spec::<T>(),
-            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             tracked_claim@ matches Some(claim) ==> {
+                &&& claim@.subset_of(Set::<usize>::range(0, u16::MAX as usize))
                 &&& allocator::io_port_allocator_initialized()
                 &&& claim.id() == allocator::io_port_allocator_instance_id()
                 &&& claim@ == Set::<usize>::range(
@@ -252,7 +250,14 @@ impl<T, A> IoPort<T, A> {
      */
     #[verus_spec(requires self.is_allocated())]
     pub fn drop(self) {
-        proof! { use_type_invariant(&self); }
+        proof! {
+            use_type_invariant(&self);
+            let claim = self.tracked_claim@.unwrap()@;
+            assert(claim.contains(self@ as usize));
+            assert(!self.is_overlapping() ==> claim.contains(
+                (self@ + size_of::<T>() - 1) as usize,
+            ));
+        }
         let range = if !self.is_overlapping {
             self.port..(self.port + size_of::<T>() as u16)
         } else {

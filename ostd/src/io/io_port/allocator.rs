@@ -162,7 +162,6 @@ impl IoPortAllocator {
     #[verus_spec(result =>
         requires
             obeys_io_port_access_spec::<T>(),
-            is_overlapping ==> port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
             io_port_allocator_initialized(),
         ensures
