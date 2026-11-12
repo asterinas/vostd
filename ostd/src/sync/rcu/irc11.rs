@@ -970,7 +970,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
 impl<P: NonNullPtr> Inv for PendingRcuDrop<P> {
     closed spec fn inv(self) -> bool {
         &&& self.tracked_retired@.inv()
-        &&& equal(self.ptr.view_ptr_mut(), self.tracked_retired@.ptr())
+        &&& equal(self.ptr.as_ptr(), self.tracked_retired@.ptr())
         &&& self.tracked_retired@.registry() == self.key().reclaim
         &&& self.record().domain == self.key().domain
         &&& self.record().retire_observation_registry == self.key().observations

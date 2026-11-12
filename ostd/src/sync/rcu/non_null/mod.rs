@@ -259,8 +259,8 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         Tracked(perm): Tracked<Self::Permission>,
     ) -> Self {
         proof! {
-            assert(perm.perm.ptr() == ptr.view_ptr_mut());
-            assert(perm.perm.points_to.ptr() == ptr.view_ptr_mut());
+            assert(perm.perm.ptr() == ptr.as_ptr());
+            assert(perm.perm.points_to.ptr() == ptr.as_ptr());
             assert(PtrPointsToTrait::view_target(perm) == perm.perm.points_to.value());
         }
         proof_decl!{
