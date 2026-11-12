@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794464656000,
+  "lastUpdate": 1794465976407,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11088,6 +11088,90 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=744ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "35a5722f5a802ac0f594d780306f61afa9f37370",
+          "message": "Verify x86 TSC frequency calculation via CPUID (#905)\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-12T14:38:52+08:00",
+          "tree_id": "1a412723f7ab474ef4640533c92d856fc177e223",
+          "url": "https://github.com/asterinas/vostd/commit/35a5722f5a802ac0f594d780306f61afa9f37370"
+        },
+        "date": 1794465975637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 945774166,
+            "unit": "rlimit",
+            "extra": "verified=4375 errors=0 smt-run=325,926ms wall=229,585ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 373645598,
+            "unit": "rlimit",
+            "extra": "smt-run=154,710ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83275612,
+            "unit": "rlimit",
+            "extra": "smt-run=28,110ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53622018,
+            "unit": "rlimit",
+            "extra": "smt-run=16,938ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,162ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,539ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,444ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=942ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=678ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=852ms"
           }
         ]
       }
