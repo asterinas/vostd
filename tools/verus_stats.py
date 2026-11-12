@@ -41,7 +41,7 @@ TEST_DIRECTORY_NAMES = {"test", "tests"}
 # whole executable-LoC budget is drawn as unplanned and vostd counts are
 # ignored for them.
 UNPLANNED_ARCH_MODULES = {"boot", "iommu", "tdx_guest"}
-UNPLANNED_LIBS = {"linux-bzimage", "ostd-macros", "ostd-test"}
+UNPLANNED_LIBS = {"ostd-macros", "ostd-test"}
 # code_treemap.py's special case: vostd's align_ext is plain Rust, so its
 # verified line count comes from this constant instead of line_count.
 ALIGN_EXT_VERIFIED_EXEC = 24
