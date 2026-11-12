@@ -11,7 +11,7 @@ pub mod arch;
 pub mod mm;
 #[allow(unused_parens)]
 #[allow(unused_braces)]
-mod sync;
+pub mod sync;
 #[allow(unused_parens)]
 #[allow(unused_braces)]
 pub mod task;

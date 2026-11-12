@@ -237,6 +237,16 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
                 perm: PointsTowithDealloc::new(perm.0, perm.1),
             };
         }
+        proof! {
+            // Expose each ownership adapter explicitly instead of relying on
+            // incidental solver unfolding through the nested pointer models.
+            assert(box_points_to.perm.ptr() == ptr);
+            assert(box_points_to.ptr() == ptr);
+            assert(box_points_to.perm.value() == *self);
+            assert(PtrPointsToTrait::view_target(box_points_to) == *self);
+            assert(Self::ptr_perm_match(ptr, box_points_to));
+            assert(self.rel_perm(box_points_to));
+        }
         assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
 
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
@@ -248,6 +258,11 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         ptr: NonNull<Self::Target>,
         Tracked(perm): Tracked<Self::Permission>,
     ) -> Self {
+        proof! {
+            assert(perm.perm.ptr() == ptr.as_ptr());
+            assert(perm.perm.points_to.ptr() == ptr.as_ptr());
+            assert(PtrPointsToTrait::view_target(perm) == perm.perm.points_to.value());
+        }
         proof_decl!{
             let tracked perm = perm.tracked_get_points_to_with_dealloc();
         }
