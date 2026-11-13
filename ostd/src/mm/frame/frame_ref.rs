@@ -6,6 +6,7 @@ use vstd_extra::{
     raw_ptr::{ExposedPointsTo, ptr_from_addr},
 };
 
+use crate::mm::{Vaddr, frame::meta::mapping::frame_to_meta};
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
@@ -16,16 +17,14 @@ use crate::specs::{
     },
 };
 
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+
 use super::{
     Frame,
     meta::{AnyFrameMeta, MetaSlot},
 };
-use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::{
-    mm::{Paddr, Vaddr},
-    sync::non_null::NonNullPtr,
-};
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+
+use crate::{mm::Paddr, sync::non_null::NonNullPtr};
 
 verus! {
 

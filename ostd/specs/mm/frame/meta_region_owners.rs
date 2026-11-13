@@ -7,7 +7,7 @@ use super::{meta_owners::MetaSlotOwner, *};
 use crate::mm::{
     Paddr,
     frame::{
-        Link,
+        linked_list::Link,
         meta::{AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::frame_to_meta},
     },
     kspace::FRAME_METADATA_RANGE,

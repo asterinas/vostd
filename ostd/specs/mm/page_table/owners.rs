@@ -27,7 +27,9 @@ use crate::specs::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
             cursor::page_size_lemmas::lemma_page_size_spec_values,
-            vaddr_range_proofs::lemma_leading_bits_properties, *,
+            node::entry_owners::{EntryOwner, EntryOwnerKind},
+            vaddr_range_proofs::lemma_leading_bits_properties,
+            *,
         },
     },
 };
@@ -37,7 +39,7 @@ use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     page_size, page_size_spec,
-    page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
+    page_table::{PageTableEntryTrait, PageTableGuard},
 };
 use core::ops::{Deref, Range};
 

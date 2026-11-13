@@ -4,7 +4,11 @@ use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 use super::linked_list_owners::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
-    frame::{linked_list::Link, *},
+    frame::{
+        linked_list::{CursorMut, Link, LinkedList},
+        meta::AnyFrameMeta,
+        *,
+    },
 };
 
 verus! {
