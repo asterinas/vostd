@@ -361,6 +361,37 @@ call paths merely to isolate verification.
 
 See also: PR [#906](https://github.com/asterinas/vostd/pull/906#discussion_r4525740735).
 
+When the enabled code needs items the original source imported at the top of
+the file, restore the original import statement in place instead of rewriting
+it as new flat `use` lines at another position. Entries the enabled code uses
+stay live at their original position in the import tree; entries still unused
+stay commented exactly where they stood, wrapped per item, keeping the tree's
+original order and shape:
+
+```rust
+use crate::{
+    mm::{
+        /* Frame, FrameAllocOptions, PAGE_SIZE, Paddr,
+        frame::max_paddr, */
+        kspace::{
+            LINEAR_MAPPING_BASE_VADDR, /* MappedItem, VMALLOC_VADDR_RANGE, kvirt_area::KVirtArea, */
+            paddr_to_vaddr,
+        },
+        /* page_prop::{CachePolicy, PageFlags, PageProperty}, */
+    },
+    /* prelude::*, */
+};
+```
+
+When an original line fails to compile only because one item is unavailable in
+this fork — for example a derive macro that is not vendored — keep the line
+verbatim and comment out just that item in place, rather than hand-writing a
+replacement implementation: `#[derive(Clone, Copy, PartialEq, Debug /*, Pod */)]`
+stands for the original `#[derive(Clone, Copy, PartialEq, Debug, Pod)]`.
+
+See also: PR [#924](https://github.com/asterinas/vostd/pull/924#discussion_r4560742281) and
+[#924](https://github.com/asterinas/vostd/pull/924#discussion_r4560759102).
+
 Preserve existing comments and rustdoc verbatim during proof work, including
 wording, units, and references. An apparent documentation error is a separate
 upstream correction; do not silently fix it while adding verification.

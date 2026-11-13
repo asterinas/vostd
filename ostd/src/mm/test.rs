@@ -4,35 +4,35 @@ use vstd::prelude::*;
 /* use alloc::vec;
 use core::mem::size_of;
 
-use ostd_pod::Pod;
+use ostd_pod::Pod; */
 
 use crate::{
-    Error,
+    /* Error, */
     mm::{
-        CachePolicy, FallibleVmRead, FallibleVmWrite, FrameAllocOptions, PageFlags, PageProperty,
-        UFrame, VmSpace,
-        io::{VmIo, VmReader, VmWriter},
-        tlb::TlbFlushOp,
-        vm_space::get_activated_vm_space,
+        /* CachePolicy, FallibleVmRead, FallibleVmWrite, FrameAllocOptions, PageFlags, PageProperty,
+        UFrame, VmSpace, */
+        io::{/* VmIo, */ VmReader, VmWriter},
+        /* tlb::TlbFlushOp,
+        vm_space::get_activated_vm_space, */
     },
-    prelude::*,
-    task::disable_preempt,
-}; */
+    /* prelude::*,
+    task::disable_preempt, */
+};
 
 mod io {
-    use crate::specs::mm::io::VmIoOwner;
     use vstd_extra::{assert_eq, ownership::Inv};
 
-    use super::*;
-    use crate::mm::io::{VmReader, VmWriter};
+    use crate::specs::mm::io::VmIoOwner;
 
-    /* /// A dummy Pod struct for testing complex types.
+    use super::*;
+
+    /// A dummy Pod struct for testing complex types.
     #[repr(C)]
-    #[derive(Clone, Copy, PartialEq, Debug, Pod)]
+    #[derive(Clone, Copy, PartialEq, Debug /*, Pod */)]
     pub struct TestPodStruct {
         pub a: u32,
         pub b: u64,
-    } */
+    }
 
     /// Tests reading and writing u32 values in Infallible mode.
     /* #[ktest] */
