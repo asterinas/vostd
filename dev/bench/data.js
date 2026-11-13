@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794562487134,
+  "lastUpdate": 1794563615744,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11592,6 +11592,90 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=668ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "90087275ebd4b974596947d11d3da27d722e05d3",
+          "message": "prove: mm ktests with strengthened VmReader/VmWriter contracts (#924)\n\n* prove: ktest in mm\n\n* stats: count test code as the verified code\n\n* refine\n\n* refine and doc",
+          "timestamp": "2026-11-13T17:44:51+08:00",
+          "tree_id": "c370301db95574852e2de0ebaff63fcb265ed77f",
+          "url": "https://github.com/asterinas/vostd/commit/90087275ebd4b974596947d11d3da27d722e05d3"
+        },
+        "date": 1794563614864,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 961567225,
+            "unit": "rlimit",
+            "extra": "verified=4406 errors=0 smt-run=250,575ms wall=173,110ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 392002662,
+            "unit": "rlimit",
+            "extra": "smt-run=120,415ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83288148,
+            "unit": "rlimit",
+            "extra": "smt-run=21,795ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53624162,
+            "unit": "rlimit",
+            "extra": "smt-run=16,417ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=1,567ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,273ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=724ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=499ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=551ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::mod_internals",
+            "value": 1451900,
+            "unit": "rlimit",
+            "extra": "smt-run=1,005ms"
           }
         ]
       }
