@@ -377,16 +377,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
             1 < self.parent_level <= C::NR_LEVELS(),
             idx < NR_ENTRIES,
         ensures
-            self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            ) < MAX_PADDR,
+            self.frame().mapped_pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)
+                < MAX_PADDR,
             ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % page_size::<C>((self.parent_level - 1) as PagingLevel) == 0,
             ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel)
-                <= MAX_PADDR,
+            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
             ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % PAGE_SIZE == 0,
@@ -394,9 +392,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_requirements();
         let pa = self.frame().mapped_pa;
-        let child_pa = (pa + idx * page_size::<C>(
-            (self.parent_level - 1) as PagingLevel,
-        )) as Paddr;
+        let child_pa = (pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)) as Paddr;
         lemma_page_size_spec_values::<C>();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         lemma_page_size_base::<C>();

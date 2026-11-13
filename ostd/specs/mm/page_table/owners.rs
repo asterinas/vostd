@@ -26,7 +26,7 @@ use crate::specs::{
         page_table::{
             cursor::page_size_lemmas::lemma_page_size_spec_values,
             node::entry_owners::{EntryOwner, EntryOwnerKind},
-            vaddr_range_proofs::{lemma_paging_layout_bits, lemma_leading_bits_properties},
+            vaddr_range_proofs::{lemma_leading_bits_properties, lemma_paging_layout_bits},
             *,
         },
     },
@@ -708,9 +708,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let level = old.0.value().parent_level;
         let size = page_size::<C>((level - 1) as PagingLevel);
         let huge = Mapping {
-            va_range: vaddr_of::<C>(path) as int..vaddr_of::<C>(path) + page_size::<C>(
-                level,
-            ),
+            va_range: vaddr_of::<C>(path) as int..vaddr_of::<C>(path) + page_size::<C>(level),
             pa_range: old.0.value().frame().mapped_pa..(old.0.value().frame().mapped_pa
                 + page_size::<C>(level)) as usize,
             page_size: page_size::<C>(level),
@@ -903,7 +901,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let entry_size = page_size::<C>(
             (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
         ) as int;
-        assert(vaddr::<C>(path) + (i + 1) * entry_size == vaddr::<C>(pt) + entry_size) by (nonlinear_arith)
+        assert(vaddr::<C>(path) + (i + 1) * entry_size == vaddr::<C>(pt) + entry_size)
+            by (nonlinear_arith)
             requires
                 vaddr::<C>(pt) == vaddr::<C>(path) + i * entry_size,
         ;
@@ -1158,9 +1157,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             } else {
                 self.pt_inv_unroll(i1);
                 self.pt_inv_unroll(i2);
-                let child_ps = page_size::<C>(
-                    (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
-                );
+                let child_ps = page_size::<C>((C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel);
                 PageTableOwner(self.0.children()[i1].unwrap()).lemma_view_rec_vaddr_range(
                     path.push_tail(i1),
                     m1,
@@ -1233,7 +1230,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() <= C::NR_LEVELS(),
             1 <= C::NR_LEVELS() + 1 - path.len() <= C::NR_LEVELS(),
         ensures
-            vaddr::<C>(path) % page_size::<C>((C::NR_LEVELS() + 1 - path.len()) as PagingLevel) == 0,
+            vaddr::<C>(path) % page_size::<C>((C::NR_LEVELS() + 1 - path.len()) as PagingLevel)
+                == 0,
             vaddr::<C>(path) + page_size::<C>((C::NR_LEVELS() + 1 - path.len()) as PagingLevel)
                 <= usize::MAX,
     {
@@ -1588,9 +1586,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() < C::NR_LEVELS(),
             self.view_rec(path).contains(m),
         ensures
-            m.page_size <= page_size::<C>(
-                ((C::NR_LEVELS() + 1 - path.len()) - 1) as PagingLevel,
-            ),
+            m.page_size <= page_size::<C>(((C::NR_LEVELS() + 1 - path.len()) - 1) as PagingLevel),
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         broadcast use PageTableOwner::group_lemmas;
@@ -1775,8 +1771,8 @@ proof fn lemma_rec_vaddr_suffix_bound<C: PageTableConfig>(path: TreePath<NR_ENTR
                 0 <= path[idx] + 1 <= NR_ENTRIES,
                 0 <= entry_size,
         ;
-        assert(entry_size * path[idx] + rec_vaddr::<C>(path, idx + 1) + mapped_page_size <= (path[idx]
-            + 1) * entry_size) by (nonlinear_arith)
+        assert(entry_size * path[idx] + rec_vaddr::<C>(path, idx + 1) + mapped_page_size <= (
+        path[idx] + 1) * entry_size) by (nonlinear_arith)
             requires
                 rec_vaddr::<C>(path, idx + 1) + mapped_page_size <= entry_size,
                 0 <= entry_size,
@@ -1861,7 +1857,11 @@ proof fn lemma_rec_vaddr_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>,
         lemma_mul_is_associative(path[idx], entry_ratio, mapped_page_size);
         assert(path[idx] * entry_size == (path[idx] * entry_ratio) * mapped_page_size);
         assert((path[idx] * entry_size) % mapped_page_size == 0);
-        lemma_mod_0_add(path[idx] * entry_size, rec_vaddr::<C>(path, idx + 1) as int, mapped_page_size);
+        lemma_mod_0_add(
+            path[idx] * entry_size,
+            rec_vaddr::<C>(path, idx + 1) as int,
+            mapped_page_size,
+        );
         assert((path[idx] * entry_size + rec_vaddr::<C>(path, idx + 1)) % mapped_page_size == 0);
         assert((rec_vaddr::<C>(path, idx) as int) % mapped_page_size == 0);
         assert(rec_vaddr::<C>(path, idx) % page_size::<C>(mapped_level) == ((rec_vaddr::<C>(

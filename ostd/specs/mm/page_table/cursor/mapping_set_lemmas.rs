@@ -337,9 +337,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
                 );
                 &&& idx_path_va <= subtree_va
-                &&& subtree_va + page_size::<C>(self.level) <= idx_path_va + page_size::<
-                    C,
-                >((lvl + 1) as PagingLevel)
+                &&& subtree_va + page_size::<C>(self.level) <= idx_path_va + page_size::<C>(
+                    (lvl + 1) as PagingLevel,
+                )
             }),
     {
         C::lemma_paging_consts_properties();
@@ -351,10 +351,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let fine = page_size::<C>(self.level as PagingLevel) as nat;
         let coarse = page_size::<C>((lvl + 1) as PagingLevel) as nat;
 
-        lemma_page_size_divides::<C>(
-            self.level as PagingLevel,
-            (lvl + 1) as PagingLevel,
-        );
+        lemma_page_size_divides::<C>(self.level as PagingLevel, (lvl + 1) as PagingLevel);
         lemma_nat_align_down_monotone(x, fine, coarse);
         lemma_nat_align_down_within_block(x, fine, coarse);
     }
@@ -402,8 +399,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             vaddr::<C>(self.continuations[i].path().push_tail(j)) + vaddr_leading_part_spec::<C>(
                 self.cur_va(),
-            ) + page_size::<C>((i + 1) as PagingLevel) <= self.cur_va() || self.cur_va()
-                < vaddr::<C>(self.continuations[i].path().push_tail(j)) + vaddr_leading_part_spec::<C>(
+            ) + page_size::<C>((i + 1) as PagingLevel) <= self.cur_va() || self.cur_va() < vaddr::<
+                C,
+            >(self.continuations[i].path().push_tail(j)) + vaddr_leading_part_spec::<C>(
                 self.cur_va(),
             ),
     {
@@ -673,6 +671,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pto.lemma_view_rec_disjoint_vaddrs(root_path, m, n);
         };
     }
+
     proof fn lemma_view_mappings_through_contains(self, level: PagingLevel, m: Mapping)
         requires
             self.inv(),

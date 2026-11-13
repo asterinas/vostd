@@ -218,7 +218,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
+                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(
+            regions1,
+        ) by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 // Same sub-page bridge as above (continuations branch).
@@ -476,7 +478,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
+                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(
+            regions1,
+        ) by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
@@ -538,9 +542,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ghost sv = vaddr_of::<C>(removed_path) as int;
         let ghost sz = page_size::<C>(owner_before_replace.level) as int;
         assert(sz > 0) by {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
-                C,
-            >(owner_before_replace.level);
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<C>(
+                owner_before_replace.level,
+            );
         };
         assert forall|mm: Mapping| #[trigger] self@.mappings.contains(mm) implies mm.va_range.start
             != sv by {};

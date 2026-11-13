@@ -640,8 +640,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_node(),
             self.level > 1,
         ensures
-            self@.split_while_huge(page_size::<C>((self.level - 1) as PagingLevel))
-                == self@,
+            self@.split_while_huge(page_size::<C>((self.level - 1) as PagingLevel)) == self@,
     {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_requirements();
@@ -698,22 +697,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
             self@.cur_va == old_view.cur_va,
             old_view.present(),
-            old_view.query_mapping().page_size > page_size::<C>(
-                self.level as PagingLevel,
-            ),
+            old_view.query_mapping().page_size > page_size::<C>(self.level as PagingLevel),
             old_view.query_mapping().page_size / NR_ENTRIES == page_size::<C>(
                 self.level as PagingLevel,
             ),
-            old_view.query_mapping().page_size % page_size::<C>(
-                self.level as PagingLevel,
-            ) == 0,
+            old_view.query_mapping().page_size % page_size::<C>(self.level as PagingLevel) == 0,
             self@.mappings =~= old_view.split_if_mapped_huge_spec(
                 page_size::<C>(self.level as PagingLevel),
             ).mappings,
         ensures
-            self@ == old_view.split_while_huge(
-                page_size::<C>(self.level as PagingLevel),
-            ),
+            self@ == old_view.split_while_huge(page_size::<C>(self.level as PagingLevel)),
     {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_requirements();

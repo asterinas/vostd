@@ -77,6 +77,7 @@ pub const MAX_NR_LEVELS: usize = 4;
  * pub const MAX_PADDR: usize = 0x8000_0000;
  * pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
  */
+
 /// Current verification upper bound for tracked physical addresses.
 ///
 /// This is a memory-model bound, not the architectural physical-address width.

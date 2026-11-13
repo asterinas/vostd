@@ -640,7 +640,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.barrier_va.end % C::BASE_PAGE_SIZE() == 0
         &&& is_valid_range_spec::<C>(self.barrier_va)
         &&& self.barrier_va.end + page_size::<C>(self.guard_level)
-            <= page_table_coverage_end_spec::<C>()
+            <= page_table_coverage_end_spec::<
+            C,
+        >()
         // End states may retain a cursor level above the guard.
         &&& self.popped_too_high ==> self.level >= self.guard_level
         &&& !self.popped_too_high ==> self.level <= self.guard_level
@@ -669,28 +671,30 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.prefix,
                 i as PagingLevel,
             ) == 0
-        &&& self.guard_level < C::NR_LEVELS() ==> page_table_managed_start_spec::<C>() <= self.prefix
-            < page_table_managed_end_spec::<C>()
+        &&& self.guard_level < C::NR_LEVELS() ==> page_table_managed_start_spec::<C>()
+            <= self.prefix < page_table_managed_end_spec::<C>()
         &&& vaddr_leading_part_spec::<C>(self.va) == vaddr_leading_part_spec::<C>(self.prefix)
         &&& vaddr_leading_part_spec::<C>(self.prefix) == page_table_coverage_start_spec::<C>()
         &&& self.level <= self.guard_level ==> forall|i: int|
             #![trigger self.continuations[i].idx]
-            self.guard_level <= i < C::NR_LEVELS() ==> self.continuations[i].idx == pte_index_spec::<C>(
-                self.prefix,
-                (i + 1) as PagingLevel,
-            )
+            self.guard_level <= i < C::NR_LEVELS() ==> self.continuations[i].idx
+                == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel)
         &&& !self.popped_too_high && (self.in_locked_range() || self.level < self.guard_level)
             ==> forall|i: int|
             self.guard_level <= i < C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(
                 self.va,
                 (i + 1) as PagingLevel,
-            ) == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel)
+            ) == pte_index_spec::<C>(
+                self.prefix,
+                (i + 1) as PagingLevel,
+            )
         // Extending MAX_NR_LEVELS requires more clauses here and in Cursor::wf.
         &&& self.level <= 4 <= C::NR_LEVELS() ==> {
             &&& self.continuations.contains_key(3)
             &&& self.continuations[3].inv()
             &&& self.continuations[3].level() == 4
-            &&& self.continuations[3].entry_own.parent_level == 5
+            &&& self.continuations[3].entry_own.parent_level
+                == 5
             // After leaving the guard node, its continuations retain their old indices.
             &&& self.in_locked_range() ==> pte_index_spec::<C>(self.va, 4)
                 == self.continuations[3].idx
@@ -888,8 +892,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).level <= old(self).guard_level,
             old(self).in_barrier_va(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
-            old(self).level == C::NR_LEVELS() ==> (old(self).continuations[old(self).level - 1].idx + 1)
-                <= C::TOP_LEVEL_INDEX_RANGE().end,
+            old(self).level == C::NR_LEVELS() ==> (old(self).continuations[old(self).level - 1].idx
+                + 1) <= C::TOP_LEVEL_INDEX_RANGE().end,
         ensures
             final(self).inv(),
             *final(self) == old(self).inc_index().zero_below_level(),
@@ -1436,9 +1440,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             },
             pa_range: Range {
                 start: frame.mapped_pa,
-                end: (frame.mapped_pa + page_size::<C>(
-                    pt_level as PagingLevel,
-                )) as Paddr,
+                end: (frame.mapped_pa + page_size::<C>(pt_level as PagingLevel)) as Paddr,
             },
             page_size: page_size::<C>(pt_level as PagingLevel),
             property: frame.prop,
@@ -1464,9 +1466,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn path_metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].entry_own.metaregion_sound(
-                regions,
-            )
+            self.level - 1 <= i < C::NR_LEVELS()
+                ==> self.continuations[i].entry_own.metaregion_sound(regions)
     }
 
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {

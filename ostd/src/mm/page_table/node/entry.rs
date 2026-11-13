@@ -1060,9 +1060,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& #[trigger] initialized_owner.child(j).value().metaregion_sound(*regions)
                 &&& initialized_owner.child(j).value().is_frame()
                 &&& initialized_owner.child(j).value().frame().prop == prop
-                &&& initialized_owner.child(j).value().frame().mapped_pa == pa + j * page_size::<
-                    C,
-                >((level - 1) as PagingLevel)
+                &&& initialized_owner.child(j).value().frame().mapped_pa == pa + j * page_size::<C>(
+                    (level - 1) as PagingLevel,
+                )
             } by {};
         }
         self.pte = {
@@ -1145,9 +1145,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             ).value().frame().mapped_pa + j * page_size::<C>(
                 (old(parent_owner).level() - 1) as PagingLevel,
             ) by {
-                assert(owner.child(j).value().frame().mapped_pa == pa + j * page_size::<
-                    C,
-                >((level - 1) as PagingLevel));
+                assert(owner.child(j).value().frame().mapped_pa == pa + j * page_size::<C>(
+                    (level - 1) as PagingLevel,
+                ));
             };
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (
             #[trigger] owner.children()[j])->0.value().frame().prop == old(
