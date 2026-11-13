@@ -24,13 +24,13 @@ pub open spec fn decimal_value(bytes: Seq<u8>) -> int {
 
 /// Decimal input whose mathematical value fits in a `u32`, including empty input.
 pub open spec fn valid_decimal(bytes: Seq<u8>) -> bool {
-    &&& forall|i: int| 0 <= i < bytes.len() ==> b'0' <= #[trigger] bytes[i] <= b'9'
+    &&& bytes.all(|byte: u8| b'0' <= byte <= b'9')
     &&& decimal_value(bytes) <= u32::MAX
 }
 
 pub proof fn lemma_decimal_value_step(bytes: Seq<u8>)
     requires
-        forall|i: int| 0 <= i < bytes.len() ==> b'0' <= #[trigger] bytes[i] <= b'9',
+        bytes.all(|byte: u8| b'0' <= byte <= b'9'),
     ensures
         bytes.len() == 0 ==> decimal_value(bytes) == 0,
         bytes.len() > 0 ==> decimal_value(bytes) == decimal_value(bytes[..bytes.len() - 1]) * 10 + (
@@ -45,7 +45,7 @@ pub proof fn lemma_decimal_value_step(bytes: Seq<u8>)
 
 pub proof fn lemma_decimal_prefix(bytes: Seq<u8>, end: int)
     requires
-        forall|i: int| 0 <= i < bytes.len() ==> b'0' <= #[trigger] bytes[i] <= b'9',
+        bytes.all(|byte: u8| b'0' <= byte <= b'9'),
         0 <= end <= bytes.len(),
     ensures
         0 <= decimal_value(bytes[..end]) <= decimal_value(bytes),
