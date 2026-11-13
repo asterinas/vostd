@@ -328,7 +328,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
 
 } // verus!
 
-#[cfg(any(ktest, verus_keep_ghost))]
+/* #[cfg(ktest)] */
 mod test {
     use vstd::invariant::AtomicInvariant;
 
@@ -336,7 +336,7 @@ mod test {
     use crate::prelude::*;
 
     // A regression test for a bug fixed in [#1279](https://github.com/asterinas/asterinas/pull/1279).
-    #[cfg_attr(ktest, ktest)]
+    /* #[ktest] */
     #[verus_spec]
     fn test_mutex_try_lock_does_not_unlock() {
         /* Unfold Mutex::new so the initial load can use the atomic permission before

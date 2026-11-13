@@ -2,7 +2,7 @@
 #![expect(dead_code)]
 
 use vstd::{arithmetic::div_mod::lemma_small_mod, prelude::*, raw_ptr::axiom_ptr_mut_from_data};
-use vstd_extra::{debug_assert, external::ptr};
+use vstd_extra::{debug_assert, external::ptr, layout::lemma_primitive_layout};
 
 use x86::apic::xapic;
 
@@ -12,9 +12,6 @@ use crate::mm;
 verus! {
 
 broadcast use axiom_ptr_mut_from_data;
-// `align_of` has no primitive axiom; pin it (compiler-checked, not trusted).
-
-global layout u32 is size == 4, align == 4;
 
 const IA32_APIC_BASE_MSR: u32 = 0x1B;
 
@@ -94,6 +91,7 @@ impl XApic {
         let index = offset as usize / 4;
         debug_assert!(index < 256);
         proof! {
+            lemma_primitive_layout();
             use_type_invariant(self);
             lemma_small_mod(
                 (self.mmio_start.addr() + index * size_of::<u32>()) as nat,
@@ -120,6 +118,7 @@ impl XApic {
         let index = offset as usize / 4;
         debug_assert!(index < 256);
         proof! {
+            lemma_primitive_layout();
             use_type_invariant(self);
             lemma_small_mod(
                 (self.mmio_start.addr() + index * size_of::<u32>()) as nat,
