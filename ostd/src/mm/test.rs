@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-/* use alloc::vec;
-use core::mem::size_of;
+use alloc::vec;
+/* use core::mem::size_of;
 
 use ostd_pod::Pod; */
 
@@ -43,13 +43,15 @@ mod io {
             vstd_extra::layout::lemma_primitive_layout();
         }
         proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
             let tracked mut writer_owner: VmIoOwner;
         }
-        // Origin: let writer = VmWriter::from(&mut buffer[..]);
-        //         let mut writer_infallible =
-        //             unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
-        let mut writer_infallible = #[verus_spec(with => Tracked(writer_owner))]
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
         VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
         // Write two u32 values
         let val1: u32 = 0xDEADBEEF;
@@ -62,16 +64,20 @@ mod io {
         let res2 = #[verus_spec(with Tracked(&mut writer_owner))]
         writer_infallible.write_val(&val2);
         assert!(res2.is_ok());
+        // assert_eq!(&buffer[..4], &val1.to_le_bytes()[..]);
+        // assert_eq!(&buffer[4..], &val2.to_le_bytes()[..]);
 
         // Read back the values
         proof_decl! {
+            let tracked mut scratch_reader_owner: VmIoOwner;
             let tracked mut reader_owner: VmIoOwner;
         }
-        // Origin: let reader = VmReader::from(&buffer[..]);
-        //         let mut reader_infallible =
-        //             unsafe { VmReader::from_kernel_space(reader.cursor(), buffer.len()) };
-        let mut reader_infallible = #[verus_spec(with => Tracked(reader_owner))]
+        let reader = #[verus_spec(with => Tracked(scratch_reader_owner))]
         VmReader::from(&buffer[..]);
+        let mut reader_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat) => Tracked(reader_owner))]
+            VmReader::from_kernel_space(reader.cursor(), buffer.len())
+        };
         // Origin: let read_val1: u32 = reader_infallible.read_val().unwrap();
         let r1: crate::prelude::Result<u32> = #[verus_spec(with Tracked(&mut reader_owner))]
         reader_infallible.read_val();
@@ -80,34 +86,61 @@ mod io {
         let r2: crate::prelude::Result<u32> = #[verus_spec(with Tracked(&mut reader_owner))]
         reader_infallible.read_val();
         assert!(r2.is_ok());
+        // assert_eq!(val1, read_val1);
+        // assert_eq!(val2, read_val2);
     }
 
-    /* /// Tests reading and writing slices in Infallible mode.
-    #[ktest]
+    /// Tests reading and writing slices in Infallible mode.
+    /* #[ktest] */
+    #[verus_spec]
     fn read_write_slice_infallible() {
         let data = [1u8, 2, 3, 4, 5];
-        let mut buffer = vec![0u8; data.len()];
-        let writer = VmWriter::from(&mut buffer[..]);
+        // Origin: let mut buffer = vec![0u8; data.len()];
+        let mut buffer = [0u8; 5];
+        proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
+            let tracked mut writer_owner: VmIoOwner;
+            let tracked mut data_owner: VmIoOwner;
+            let tracked mut read_scratch_owner: VmIoOwner;
+            let tracked mut read_owner: VmIoOwner;
+            let tracked mut read_buffer_owner: VmIoOwner;
+            let tracked mut consumed_w: VmIoOwner;
+        }
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
+        VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
-        let mut writer_infallible =
-            unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
+        // Origin: writer_infallible.write(&mut VmReader::from(&data[..]));
+        let mut reader = #[verus_spec(with => Tracked(data_owner))]
+        VmReader::from(&data[..]);
+        let _ = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut data_owner))]
+        writer_infallible.write(&mut reader);
 
-        writer_infallible.write(&mut VmReader::from(&data[..]));
-
-        assert_eq!(buffer, data);
+        // assert_eq!(buffer, data);
 
         // Read back the bytes
-        let reader = VmReader::from(&buffer[..]);
-        let mut reader_infallible =
-            unsafe { VmReader::from_kernel_space(reader.cursor(), buffer.len()) };
-
+        let reader = #[verus_spec(with => Tracked(read_scratch_owner))]
+        VmReader::from(&buffer[..]);
+        let mut reader_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat) => Tracked(read_owner))]
+            VmReader::from_kernel_space(reader.cursor(), buffer.len())
+        };
         let mut read_buffer = [0u8; 5];
-        reader_infallible.read(&mut VmWriter::from(&mut read_buffer[..]));
+        // Origin: reader_infallible.read(&mut VmWriter::from(&mut read_buffer[..]));
+        let mut writer = #[verus_spec(with => Tracked(read_buffer_owner))]
+        VmWriter::from(&mut read_buffer[..]);
+        let _ = #[verus_spec(
+            with Tracked(&mut read_owner), Tracked(&mut read_buffer_owner) => Tracked(consumed_w)
+        )]
+        reader_infallible.read(&mut writer);
 
-        assert_eq!(read_buffer, data);
+        // assert_eq!(read_buffer, data);
     }
 
-    /// Tests writing and reading a struct in Infallible mode.
+    /* /// Tests writing and reading a struct in Infallible mode.
     #[ktest]
     fn read_write_struct_infallible() {
         let mut buffer = [0u8; size_of::<TestPodStruct>()];
@@ -130,34 +163,66 @@ mod io {
         let read_struct: TestPodStruct = reader_infallible.read_val().unwrap();
 
         assert_eq!(test_struct, read_struct);
-    }
+    } */
 
     /// Ensures reading beyond the buffer panics in Infallible mode.
-    #[ktest]
-    #[should_panic]
+    /* #[ktest] */
+    /* #[should_panic] */
+    #[verus_spec]
     fn read_beyond_buffer_infallible() {
         let buffer = [1u8, 2, 3];
-        let reader = VmReader::from(&buffer[..]);
-        let mut reader_infallible =
-            unsafe { VmReader::from_kernel_space(reader.cursor(), buffer.len()) };
+        proof! {
+            vstd_extra::layout::lemma_primitive_layout();
+        }
+        proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
+            let tracked mut reader_owner: VmIoOwner;
+        }
+        let reader = #[verus_spec(with => Tracked(scratch_owner))]
+        VmReader::from(&buffer[..]);
+        let mut reader_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat) => Tracked(reader_owner))]
+            VmReader::from_kernel_space(reader.cursor(), buffer.len())
+        };
 
         // Attempt to read a u32 which requires 4 bytes, but buffer has only 3
-        let _val: u32 = reader_infallible.read_val().unwrap();
+        // Origin: let _val: u32 = reader_infallible.read_val().unwrap();
+        let result = #[verus_spec(with Tracked(&mut reader_owner))]
+        reader_infallible.read_val::<u32>();
+        proof! {
+            assert(result == Err(crate::Error::InvalidArgs));
+        }
     }
 
     /// Ensures writing beyond the buffer panics in Infallible mode.
-    #[ktest]
-    #[should_panic]
+    /* #[ktest] */
+    /* #[should_panic] */
+    #[verus_spec]
     fn write_beyond_buffer_infallible() {
         let mut buffer = [0u8; 3];
-        let writer = VmWriter::from(&mut buffer[..]);
-        let mut writer_infallible =
-            unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
+        proof! {
+            vstd_extra::layout::lemma_primitive_layout();
+        }
+        proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
+            let tracked mut writer_owner: VmIoOwner;
+        }
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
+        VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
         // Attempt to write a u32 which requires 4 bytes, but buffer has only 3
         let val: u32 = 0xDEADBEEF;
-        writer_infallible.write_val(&val).unwrap();
-    } */
+        // Origin: writer_infallible.write_val(&val).unwrap();
+        let result = #[verus_spec(with Tracked(&mut writer_owner))]
+        writer_infallible.write_val(&val);
+        proof! {
+            assert(result == Err(crate::Error::InvalidArgs));
+        }
+    }
 
     /// Tests the `fill` method in Infallible mode.
     /* #[ktest] */
@@ -169,19 +234,22 @@ mod io {
             vstd_extra::layout::lemma_primitive_layout();
         }
         proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
             let tracked mut owner: VmIoOwner;
             let tracked mut reader_owner: VmIoOwner;
         }
-        // Origin: let writer = VmWriter::from(&mut buffer[..]);
-        //         let mut writer_infallible =
-        //             unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
-        let mut writer_infallible = #[verus_spec(with => Tracked(owner))]
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
         VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
         // Fill with 0xFF
         let filled = #[verus_spec(with Tracked(&mut owner) => Tracked(reader_owner))]
         writer_infallible.fill(0xFFu8);
         assert_eq!(filled, 8);
+        // assert_eq!(buffer, vec![0xFF; 8]);
 
         // Ensure the cursor is at the end
         assert_eq!(writer_infallible.avail(), 0);
@@ -193,13 +261,15 @@ mod io {
     fn skip_read_infallible() {
         let data = [10u8, 20, 30, 40, 50];
         proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
             let tracked mut reader_owner: VmIoOwner;
         }
-        // Origin: let reader = VmReader::from(&data[..]);
-        //         let mut reader_infallible =
-        //             unsafe { VmReader::from_kernel_space(reader.cursor(), reader.remain()) };
-        let mut reader_infallible = #[verus_spec(with => Tracked(reader_owner))]
+        let reader = #[verus_spec(with => Tracked(scratch_owner))]
         VmReader::from(&data[..]);
+        let mut reader_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat) => Tracked(reader_owner))]
+            VmReader::from_kernel_space(reader.cursor(), reader.remain())
+        };
 
         // Skip first two bytes
         // Origin: reader_infallible.skip(2);
@@ -220,6 +290,7 @@ mod io {
         let copied = #[verus_spec(with Tracked(&mut reader_owner), Tracked(&mut dest_owner) => Tracked(consumed_dest))]
         reader_infallible.read(&mut dest_writer);
         assert_eq!(copied, 3);
+        // assert_eq!(read_buffer, [30, 40, 50]);
     }
 
     /// Tests the `skip` method for writing in Infallible mode.
@@ -228,13 +299,15 @@ mod io {
     fn skip_write_infallible() {
         let mut buffer = [0u8; 5];
         proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
             let tracked mut writer_owner: VmIoOwner;
         }
-        // Origin: let writer = VmWriter::from(&mut buffer[..]);
-        //         let mut writer_infallible =
-        //             unsafe { VmWriter::from_kernel_space(writer.cursor(), writer.avail()) };
-        let mut writer_infallible = #[verus_spec(with => Tracked(writer_owner))]
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
         VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), writer.avail())
+        };
 
         // Skip first two bytes
         // Origin: writer_infallible.skip(2);
@@ -255,6 +328,7 @@ mod io {
         let copied = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut reader_owner))]
         writer_infallible.write(&mut reader);
         assert_eq!(copied, 3);
+        // assert_eq!(buffer, [0, 0, 100, 101, 102]);
     }
 
     /// Tests the `limit` method for VmReader in Infallible mode.
@@ -287,6 +361,7 @@ mod io {
         let copied = #[verus_spec(with Tracked(&mut reader_owner), Tracked(&mut dest_owner) => Tracked(consumed_dest))]
         limited_reader.read(&mut dest_writer);
         assert_eq!(copied, 3);
+        // assert_eq!(read_buffer, [1, 2, 3]);
 
         // Ensures no more data can be read
         let mut extra_buffer = [0u8; 1];
@@ -332,32 +407,58 @@ mod io {
             #[verus_spec(with Tracked(&mut writer_owner))]
             let _ = limited_writer.write_val(val);
         }
+        // assert_eq!(buffer, [10, 20, 30, 0, 0]);
     }
 
-    /* /// Tests the `read_slice` and `write_slice` methods in Infallible mode.
-    #[ktest]
+    /// Tests the `read_slice` and `write_slice` methods in Infallible mode.
+    /* #[ktest] */
+    #[verus_spec]
     fn read_write_slice_vmio_infallible() {
         let data = [100u8, 101, 102, 103, 104];
         let mut buffer = [0u8; 5];
-        let writer = VmWriter::from(&mut buffer[..]);
+        proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
+            let tracked mut writer_owner: VmIoOwner;
+            let tracked mut data_owner: VmIoOwner;
+            let tracked mut read_scratch_owner: VmIoOwner;
+            let tracked mut read_owner: VmIoOwner;
+            let tracked mut read_data_owner: VmIoOwner;
+            let tracked mut consumed_w: VmIoOwner;
+        }
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
+        VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
-        let mut writer_infallible =
-            unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
-        writer_infallible.write(&mut VmReader::from(&data[..]));
+        // Origin: writer_infallible.write(&mut VmReader::from(&data[..]));
+        let mut reader = #[verus_spec(with => Tracked(data_owner))]
+        VmReader::from(&data[..]);
+        let _ = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut data_owner))]
+        writer_infallible.write(&mut reader);
 
-        assert_eq!(buffer, data);
+        // assert_eq!(buffer, data);
 
-        let reader = VmReader::from(&buffer[..]);
-        let mut reader_infallible =
-            unsafe { VmReader::from_kernel_space(reader.cursor(), buffer.len()) };
-
+        let reader = #[verus_spec(with => Tracked(read_scratch_owner))]
+        VmReader::from(&buffer[..]);
+        let mut reader_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat) => Tracked(read_owner))]
+            VmReader::from_kernel_space(reader.cursor(), buffer.len())
+        };
         let mut read_data = [0u8; 5];
-        reader_infallible.read(&mut VmWriter::from(&mut read_data[..]));
+        // Origin: reader_infallible.read(&mut VmWriter::from(&mut read_data[..]));
+        let mut writer = #[verus_spec(with => Tracked(read_data_owner))]
+        VmWriter::from(&mut read_data[..]);
+        let _ = #[verus_spec(
+            with Tracked(&mut read_owner), Tracked(&mut read_data_owner) => Tracked(consumed_w)
+        )]
+        reader_infallible.read(&mut writer);
 
-        assert_eq!(read_data, data);
+        // assert_eq!(read_data, data);
     }
 
-    /// Tests the `read_once` and `write_once` methods in Infallible mode.
+    /* /// Tests the `read_once` and `write_once` methods in Infallible mode.
     #[ktest]
     fn read_write_once_infallible() {
         let mut buffer = [0u8; 8];
@@ -375,8 +476,7 @@ mod io {
 
         let read_val: u64 = reader_infallible.read_once().unwrap();
         assert_eq!(val, read_val);
-    }
-    */
+    } */
 
     /// Tests the `write_val` method in Infallible mode.
     /* #[ktest] */
@@ -387,13 +487,15 @@ mod io {
             vstd_extra::layout::lemma_primitive_layout();
         }
         proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
             let tracked mut writer_owner: VmIoOwner;
         }
-        // Origin: let writer = VmWriter::from(&mut buffer[..]);
-        //         let mut writer_infallible =
-        //             unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
-        let mut writer_infallible = #[verus_spec(with => Tracked(writer_owner))]
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
         VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
         let values = [1u32, 2, 3];
         #[verus_spec(it =>
@@ -410,6 +512,7 @@ mod io {
             writer_infallible.write_val(val);
             res.unwrap();
         }
+        // assert_eq!(buffer, [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
     }
 
     /// Tests the `FallbackVmRead` and `FallbackVmWrite` traits (using Fallible mode).
@@ -442,6 +545,7 @@ mod io {
         assert!(reader_fallible.has_remain());
         // Origin: let read_val: u64 = reader_fallible.read_val().unwrap();
         let read_result: crate::prelude::Result<u64> = reader_fallible.read_val();
+        // assert_eq!(val, read_val);
     }
 
     /* /// Mimics partial reads in Fallible mode.
@@ -492,27 +596,36 @@ mod io {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 3);
         assert_eq!(&buffer[..3], &[10, 20, 30]);
-    }
+    } */
 
     /// Tests `write_val` and `read_val` methods in Fallible mode.
-    #[ktest]
+    /* #[ktest] */
+    #[verus_spec]
     fn read_write_val_fallible() {
         let mut buffer = [0u8; 8];
-        let writer = VmWriter::from(&mut buffer[..]);
+        proof_decl! {
+            let tracked mut writer_owner: VmIoOwner;
+            let tracked mut reader_owner: VmIoOwner;
+        }
+        let writer = #[verus_spec(with => Tracked(writer_owner))]
+        VmWriter::from(&mut buffer[..]);
         let mut writer_fallible = writer.to_fallible();
 
         let val: u64 = 0xAABBCCDDEEFF0011;
-        writer_fallible.write_val(&val).unwrap();
+        // Origin: writer_fallible.write_val(&val).unwrap();
+        let write_result = writer_fallible.write_val(&val);
 
         // Reads back the value
-        let reader = VmReader::from(&buffer[..]);
+        let reader = #[verus_spec(with => Tracked(reader_owner))]
+        VmReader::from(&buffer[..]);
         let mut reader_fallible = reader.to_fallible();
 
-        let read_val: u64 = reader_fallible.read_val().unwrap();
-        assert_eq!(val, read_val);
+        // Origin: let read_val: u64 = reader_fallible.read_val().unwrap();
+        let read_result: crate::prelude::Result<u64> = reader_fallible.read_val();
+        // assert_eq!(val, read_val);
     }
 
-    /// Tests the `collect` method in Fallible mode.
+    /* /// Tests the `collect` method in Fallible mode.
     #[ktest]
     fn collect_fallible() {
         let data = [5u8, 6, 7, 8, 9];
@@ -536,18 +649,24 @@ mod io {
         let result = limited_reader.collect();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), vec![1, 2, 3]);
-    }
+    } */
 
     /// Tests the `fill_zeros` method in Fallible mode.
-    #[ktest]
+    /* #[ktest] */
+    #[verus_spec]
     fn fill_zeros_fallible() {
         let mut buffer = vec![1u8; 8];
-        let writer = VmWriter::from(&mut buffer[..]);
+        proof_decl! {
+            let tracked mut writer_owner: VmIoOwner;
+        }
+        let writer = #[verus_spec(with => Tracked(writer_owner))]
+        VmWriter::from(&mut buffer[..]);
         let mut writer_fallible = writer.to_fallible();
 
-        writer_fallible.fill_zeros(8).unwrap();
-        assert_eq!(buffer, [0u8; 8]);
-    } */
+        // Origin: writer_fallible.fill_zeros(8).unwrap();
+        let result = writer_fallible.fill_zeros(8);
+        // assert_eq!(buffer, [0u8; 8]);
+    }
 
     /// Tests handling invalid arguments in Fallible mode.
     /* #[ktest] */
@@ -593,13 +712,15 @@ mod io {
             vstd_extra::layout::lemma_primitive_layout();
         }
         proof_decl! {
+            let tracked mut scratch_owner: VmIoOwner;
             let tracked mut writer_owner: VmIoOwner;
         }
-        // Origin: let writer = VmWriter::from(&mut buffer[..]);
-        //         let mut writer_infallible =
-        //             unsafe { VmWriter::from_kernel_space(writer.cursor(), buffer.len()) };
-        let mut writer_infallible = #[verus_spec(with => Tracked(writer_owner))]
+        let writer = #[verus_spec(with => Tracked(scratch_owner))]
         VmWriter::from(&mut buffer[..]);
+        let mut writer_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat), Tracked(false) => Tracked(writer_owner))]
+            VmWriter::from_kernel_space(writer.cursor(), buffer.len())
+        };
 
         // Attempts to write a u32 which requires 4 bytes, but buffer has only 3
         let val: u32 = 0xDEADBEEF;
@@ -612,13 +733,15 @@ mod io {
 
         // Attempts to read a u32 which requires 4 bytes, but buffer has only 3
         proof_decl! {
+            let tracked mut scratch_reader_owner: VmIoOwner;
             let tracked mut reader_owner: VmIoOwner;
         }
-        // Origin: let reader = VmReader::from(&buffer[..]);
-        //         let mut reader_infallible =
-        //             unsafe { VmReader::from_kernel_space(reader.cursor(), buffer.len()) };
-        let mut reader_infallible = #[verus_spec(with => Tracked(reader_owner))]
+        let reader = #[verus_spec(with => Tracked(scratch_reader_owner))]
         VmReader::from(&buffer[..]);
+        let mut reader_infallible = unsafe {
+            #[verus_spec(with Ghost(0nat) => Tracked(reader_owner))]
+            VmReader::from_kernel_space(reader.cursor(), buffer.len())
+        };
         let result = #[verus_spec(with Tracked(&mut reader_owner))]
         reader_infallible.read_val::<u32>();
         // Origin: assert_eq!(result, Err(Error::InvalidArgs));

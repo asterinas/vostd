@@ -1595,6 +1595,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     }
 
     /// Returns the cursor pointer, which refers to the address of the next byte to read.
+    #[verus_spec(r => ensures r == self.cursor)]
     pub fn cursor(&self) -> VirtPtr {
         self.cursor
     }
@@ -1734,6 +1735,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     }
 
     /// Returns the cursor pointer, which refers to the address of the next byte to write.
+    #[verus_spec(r => ensures r == self.cursor)]
     pub fn cursor(&self) -> VirtPtr {
         self.cursor
     }
