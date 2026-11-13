@@ -15,21 +15,29 @@ use crate::specs::{
     },
 };
 
-use super::{MetaSlot, mapping, meta::AnyFrameMeta, unique::UniqueFrame};
-use crate::mm::frame::meta::{
-    META_SLOT_SIZE, REF_COUNT_UNIQUE,
-    mapping::{frame_to_meta, meta_to_frame},
+use crate::mm::{
+    frame::meta::{
+        META_SLOT_SIZE, REF_COUNT_UNIQUE,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
+    kspace::FRAME_METADATA_RANGE,
 };
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::{
-    arch::mm::PagingConsts,
-    mm::{Paddr, Vaddr},
-    //panic::abort,
-};
+
 use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
+};
+
+use super::{
+    MetaSlot, mapping,
+    meta::{AnyFrameMeta, get_slot},
+    unique::UniqueFrame,
+};
+use crate::{
+    arch::mm::PagingConsts,
+    mm::{Paddr, Vaddr},
+    //panic::abort,
 };
 
 verus! {

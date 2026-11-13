@@ -8,46 +8,35 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::{frame_to_index, meta_to_index},
+            meta_owners::{MetadataPerm, typed_meta_value},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{INC_LEVELS, PageTableOwner},
     },
 };
 
-use super::*;
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{
+    Paddr, PagingLevel,
+    frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED, meta::mapping::meta_to_frame},
+    page_table::*,
+};
+
+use super::{Child, ChildRef, PageTableEntryTrait, PageTableGuard, PageTableNode};
 use crate::{
-    mm::{nr_subpage_per_huge, nr_subpage_per_huge_spec, page_prop::PageProperty},
-    //    sync::RcuDrop,
+    mm::{
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size,
+        page_table::{PageTableConfig, PageTableNodeRef},
+    },
+    // sync::RcuDrop,
     task::atomic_mode::InAtomicMode,
 };
-use core::marker::PhantomData;
-use core::ops::Deref;
 
 verus! {
 
 broadcast use group_ghost_tree_lemmas;
-
-/// A reference to a page table node.
-pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
-
-/// A guard that holds the lock of a page table node.
-pub struct PageTableGuard<'rcu, C: PageTableConfig> {
-    pub inner: PageTableNodeRef<'rcu, C>,
-}
-
-impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
-    type Target = PageTableNodeRef<'rcu, C>;
-
-    #[verus_spec(ensures returns self.inner)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     /// The page table entry.
@@ -883,7 +872,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_page.inv(),
                 new_owner.value().node_permission is None,
                 new_owner.value().node().matches_permission(new_page.frac_metadata_perm()),
-                nr_subpage_per_huge_spec::<C>() == NR_ENTRIES,
+                nr_subpage_per_huge::<C>() == NR_ENTRIES,
                 1 < level < NR_LEVELS,
                 *self == *old(self),
                 // Keep the original guard loan tied to the guard stored in Entry.
