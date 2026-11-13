@@ -34,37 +34,37 @@ mod entry_specs;
 use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*};
 use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
-pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
     frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
 };
 
-use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
-use crate::mm::frame::{
-    allocator::FrameAllocOptions,
-    meta::{
-        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX,
-        mapping::{frame_to_meta, meta_to_frame},
-    },
+use crate::mm::{
+    frame::meta::{MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
+    page_table::*,
 };
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr};
+
+use core::{
+    //cell::SyncUnsafeCell,
+    marker::PhantomData,
+    ops::Deref,
+    sync::atomic::{AtomicU8, Ordering},
+};
+
+pub use self::{
+    child::{Child, ChildRef},
+    entry::Entry,
+};
+use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::{
     mm::{
-        PagingConstsTrait,
-        PagingLevel,
-        //        FrameAllocOptions, Infallible,
-        //        VmReader,
+        FrameAllocOptions, Infallible, PagingConstsTrait, PagingLevel, VmReader,
         frame::{Frame, FrameRef, meta::AnyFrameMeta},
         paddr_to_vaddr,
         page_table::{load_pte, store_pte},
     },
     task::atomic_mode::InAtomicMode,
 };
-pub use child::*;
-use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
-pub use entry::*;
 
 verus! {
 
@@ -336,6 +336,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
 }
 
+/// A reference to a page table node.
+pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
+
 #[verus_verify]
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn locks_preserved_except<'rcu>(
@@ -409,6 +412,11 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
         guard
     }
+}
+
+/// A guard that holds the lock of a page table node.
+pub struct PageTableGuard<'rcu, C: PageTableConfig> {
+    pub inner: PageTableNodeRef<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
@@ -619,6 +627,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         )]
         let meta = self.meta();
         &meta.nr_children
+    }
+}
+
+impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
+    type Target = PageTableNodeRef<'rcu, C>;
+
+    #[verus_spec(ensures returns self.inner)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 

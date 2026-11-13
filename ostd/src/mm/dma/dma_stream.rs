@@ -18,7 +18,7 @@ use crate::{
     mm::{
         Paddr,
         dma::{Daddr, DmaType, dma_type},
-        frame::{AnyFrameMeta, Segment, untyped::AnyUFrameMeta},
+        frame::{Segment, meta::AnyFrameMeta, untyped::AnyUFrameMeta},
         io::{FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader, VmWriter},
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,

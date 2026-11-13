@@ -1,15 +1,10 @@
 name: Verify VOSTD
 
-# One verification run feeds everything: verify legs (one per os/target, incl.
-# riscv64imac and loongarch64) run with --time-expanded and upload logs, `perf` parses the
-# ubuntu x86_64 leg's log (never re-verifies), `doc` builds the docs in
-# parallel, and `perf-history` pushes the verify-perf chart to gh-pages. The
-# final `stats` job takes the per-module line_count snapshot against the
-# phaseII/mainline baseline, records the totals point on gh-pages, and deploys
-# the site at the repo root — the verification dashboard (from tools/site/)
-# with stats/snapshot.json + stats/history.json under /stats/, the verusdoc
-# tree under /verusdoc/ and the bench chart under /dev/bench/.
-# `format` delegates to `cargo verus fmt`.
+# Pipeline: verify legs (per os/target, --time-expanded) upload logs; perf parses
+# the x86_64 leg's log; doc builds the docs; perf-history pushes the verify-perf
+# chart; stats takes the verification snapshot; publish (pushes only) records
+# the history point on gh-pages and deploys the site (dashboard at the root,
+# /stats/, /verusdoc/, /dev/bench/).
 
 on:
   push:
@@ -43,9 +38,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # RISC-V and LoongArch are verified on Linux only; macOS keeps
-          # guarding the default x86_64 build. The triple selects the arch module
-          # mounted under `cfg(target_arch = ...)` in `ostd/src/lib.rs`.
+          # RISC-V/LoongArch on Linux only; the triple selects the arch module
+          # in `ostd/src/lib.rs`.
           - os: ubuntu-latest
             rust_target: x86_64-unknown-none
           - os: ubuntu-latest
@@ -109,11 +103,37 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  stats:
+    # Takes the per-module verification snapshot against the phaseII/mainline
+    # baseline and uploads it for `publish`; skips the verified-API count when
+    # doc's rustdoc JSON artifact is missing.
+    needs: [doc]
+    if: >
+      always() &&
+      !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Take verification statistics snapshot
+        uses: ./.github/actions/stats
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# Stats Summary"
+            echo "- Verification snapshot: ${{ job.status == 'success' && '✅ taken and uploaded' || '❌ failed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   perf:
-    # Every event: parses the verify leg's log and computes the verification
-    # cost compared to the measurement from last main. The comparison lands
-    # in the job summary and the report artifact. `perf-history` publishes main
-    # measurements.
+    # Parses the verify log and reports the verification cost vs. last main.
     needs: [verify]
     if: >
       always() &&
@@ -138,10 +158,8 @@ jobs:
           verification-result: ${{ needs.verify.result }}
 
   perf-history:
-    # Only trusted main runs may publish history and save the next baseline.
-    # PR metrics are processed by the read-only `perf` job above. This job
-    # pushes the verify-perf benchmark to gh-pages; the verification-stats
-    # point and the site itself are published by the `stats` job below.
+    # Main only: pushes the verify-perf chart to gh-pages and saves the
+    # next baseline.
     needs: [verify, perf]
     if: >
       github.event_name != 'pull_request' &&
@@ -165,8 +183,7 @@ jobs:
           baseline-cache-hit: ${{ needs.perf.outputs.baseline-cache-hit }}
 
   doc:
-    # PRs build the docs; pushes also upload the artifact for `stats`,
-    # which merges in the gh-pages benchmark and deploys.
+    # Builds the docs; stats counts verified APIs from the uploaded rustdoc JSON.
     if: >
       always() &&
       !cancelled()
@@ -214,15 +231,12 @@ jobs:
             echo "- Docs build: ${{ job.status == 'success' && '✅ passed' || '❌ failed' }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  stats:
-    # Pushes only, and the last job in the chain: build line_count, take the
-    # per-module verification snapshot against the phaseII/mainline baseline,
-    # record the history point on gh-pages, then assemble and deploy the site
-    # — dashboard (tools/site) at the root, verusdoc under /verusdoc/, the
-    # gh-pages benchmark chart under /dev/bench/ and the fresh snapshot and
-    # history under /stats/. Needs verify so a failed verification can't
-    # deploy docs, and perf-history so the embedded benchmark is current.
-    needs: [doc, perf, perf-history, verify]
+  publish:
+    # Records the stats history point on gh-pages and deploys the site —
+    # dashboard at the root, /verusdoc/, /dev/bench/, /stats/.
+    # Requires doc explicitly: stats succeeds even without doc's rustdoc JSON
+    # (it just skips the API count), so stats alone would deploy a hole.
+    needs: [doc, perf, perf-history, verify, stats]
     if: >
       always() &&
       !cancelled() &&
@@ -230,6 +244,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       needs.verify.result == 'success' &&
       needs.doc.result == 'success' &&
+      needs.stats.result == 'success' &&
       (needs.perf.result == 'success' || needs.perf.result == 'skipped') &&
       (needs.perf-history.result == 'success' || needs.perf-history.result == 'skipped')
     runs-on: ubuntu-latest
@@ -240,25 +255,23 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout repository
-        # Recursive for the dv submodule the setup action resolves.
         uses: actions/checkout@v7
         with:
           submodules: recursive
 
-      - name: Generate statistics and deploy Pages
+      - name: Publish history and deploy Pages
         uses: ./.github/actions/pages
 
       - name: Publish summary
         if: always()
         run: |
           {
-            echo "# Stats Summary"
-            echo "- Verification snapshot: ${{ job.status == 'success' && '✅ recorded and deployed' || '❌ failed' }}"
+            echo "# Publish Summary"
+            echo "- Verification dashboard: ${{ job.status == 'success' && '✅ recorded and deployed' || '❌ failed' }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   report:
-    # `ci/doc` status for push runs; `always()` flips pending -> failure.
-    needs: [doc, stats]
+    needs: [doc, publish]
     if: always() && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -278,7 +291,7 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
 
             const buildResult = '${{ needs.doc.result }}';
-            const deployResult = '${{ needs.stats.result }}';
+            const deployResult = '${{ needs.publish.result }}';
             // deploy is skipped when docs aren't published -- not a failure.
             const ok = buildResult === 'success' &&
               (deployResult === 'success' || deployResult === 'skipped');
