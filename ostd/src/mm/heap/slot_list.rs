@@ -69,8 +69,7 @@ impl<const SLOT_SIZE: usize> Inv for SlabSlotList<SLOT_SIZE> {
         &&& self.head is None <==> slots.len() == 0
         &&& self.tracked_nodes@.dom() == Set::range(0, slots.len() as int)
         &&& forall|i: int| 0 <= i < slots.len() ==> #[trigger] self.node_inv(i)
-        &&& forall|i: int, j: int|
-            0 <= i < j < slots.len() ==> #[trigger] slots[i].addr() != #[trigger] slots[j].addr()
+        &&& slots.map_values(|p: *mut u8| p.addr()).no_duplicates()
     }
 }
 
@@ -240,14 +239,13 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
                     assert(original.node_inv(i));
                 }
             }
-            assert forall|i: int, j: int|
-                0 <= i < j < self.slots().len() implies #[trigger] self.slots()[i].addr()
-                != #[trigger] self.slots()[j].addr() by {
-                if j < before.len() {
-                } else {
-                    assert(original.node_inv(i));
-                }
+            assert forall|i: int| 0 <= i < before.len() implies #[trigger] before[i].addr()
+                != slot_ptr.addr() by {
+                assert(original.node_inv(i));
             }
+            assert(self.slots().map_values(|p: *mut u8| p.addr()) == before.map_values(
+                |p: *mut u8| p.addr(),
+            ).push(slot_ptr.addr()));
         }
     }
 
@@ -307,6 +305,9 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         let tracked mem = node.word.into_raw().join(node.rest);
         proof {
             self.ghost_slots = Ghost(before.drop_last());
+            assert(self.slots().map_values(|p: *mut u8| p.addr()) == before.map_values(
+                |p: *mut u8| p.addr(),
+            ).drop_last());
             assert(self.tracked_nodes@.dom() == Set::range(0, self.slots().len() as int));
             assert forall|i: int| 0 <= i < self.slots().len() implies #[trigger] self.node_inv(
                 i,
