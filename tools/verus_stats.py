@@ -35,8 +35,6 @@ TRUSTED = "trusted"
 UNVERIFIED = "unverified"
 UNPLANNED = "unplanned"
 
-TEST_DIRECTORY_NAMES = {"test", "tests"}
-
 # Modules outside the verification plan, following code_treemap.py: their
 # whole executable-LoC budget is drawn as unplanned and vostd counts are
 # ignored for them.
@@ -303,17 +301,6 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
     return len(entries), entries
 
 
-def is_test_source(relative: Path) -> bool:
-    parts = [part.casefold() for part in relative.parts]
-    filename = parts[-1] if parts else ""
-    stem = Path(filename).stem.casefold()
-    return (
-        stem in TEST_DIRECTORY_NAMES
-        or any(part in TEST_DIRECTORY_NAMES for part in parts)
-        or stem.endswith(("_test", "_tests"))
-    )
-
-
 def run_line_count_file(
     line_count_path: Path, file_path: Path, *, no_external_by_default: bool = False
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -453,8 +440,7 @@ def inventory(roots: list[tuple[str, Path]]) -> dict[tuple[str, Path], Path]:
     for kind, root in roots:
         for file in sorted(root.rglob("*.rs"), key=lambda p: str(p)):
             relative = file.relative_to(root)
-            if not is_test_source(relative):
-                files[(kind, relative)] = file
+            files[(kind, relative)] = file
     return files
 
 
@@ -589,7 +575,6 @@ def count_spec_proof(
         for report, error in [
             run_line_count_file(line_count_path, path, no_external_by_default=True)
             for path in sorted(root.rglob("*.rs"), key=lambda p: str(p))
-            if not is_test_source(path.relative_to(root))
         ]:
             if error:
                 warnings.append(error)
