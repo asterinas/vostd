@@ -43,8 +43,6 @@ use crate::mm::{
     frame::meta::{MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
     page_table::*,
 };
-pub use child::*;
-pub use entry::*;
 
 use core::{
     //cell::SyncUnsafeCell,
