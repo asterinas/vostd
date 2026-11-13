@@ -25,7 +25,6 @@
 //! will only be able to access the page table entries in the locked range.
 //! Upon destruction, the cursor will release the locks in the reverse order of
 //! acquisition.
-
 use vstd::{arithmetic::power2::pow2, math::abs, prelude::*};
 use vstd_extra::{
     arithmetic::*, assert, assert_eq, drop_tracking::TrackDrop, ghost_tree::*, ownership::*,
@@ -52,10 +51,7 @@ use crate::mm::{
     page_table::*,
 };
 
-use super::{
-    EntryOwner,
-    PageTablePageMeta,
-};
+use super::{EntryOwner, PageTablePageMeta};
 
 mod locking;
 
@@ -64,14 +60,14 @@ use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 use align_ext::AlignExt;
 
 use super::{
-    page_size, pte_index, Child, ChildRef, Entry, PageTable, PageTableConfig, PageTableError,
-    PageTableGuard, PagingConstsTrait, PagingLevel,
+    Child, ChildRef, Entry, PageTable, PageTableConfig, PageTableError, PageTableGuard,
+    PagingConstsTrait, PagingLevel, page_size, pte_index,
 };
 use crate::{
     mm::{
-        frame::{meta::AnyFrameMeta, Frame},
-        page_table::is_valid_range,
         PageProperty, Vaddr,
+        frame::{Frame, meta::AnyFrameMeta},
+        page_table::is_valid_range,
     },
     task::atomic_mode::InAtomicMode,
 };
