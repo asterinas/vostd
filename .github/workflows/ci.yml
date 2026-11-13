@@ -1,17 +1,10 @@
 name: Verify VOSTD
 
-# One verification run feeds everything: verify legs (one per os/target, incl.
-# riscv64imac and loongarch64) run with --time-expanded and upload logs, `perf` parses the
-# ubuntu x86_64 leg's log (never re-verifies), `doc` builds the docs, and
-# `perf-history` pushes the verify-perf chart to gh-pages. The `stats` job
-# (PRs included, after `doc`) takes the per-module line_count snapshot against
-# the phaseII/mainline baseline, reports the change vs. the last recorded
-# point, and uploads it for the final `publish` job (pushes only), which
-# records the totals point on gh-pages and deploys the site at the repo root —
-# the verification dashboard (from tools/site/) with stats/snapshot.json +
-# stats/history.json under /stats/, the verusdoc tree under /verusdoc/ and the
-# bench chart under /dev/bench/.
-# `format` delegates to `cargo verus fmt`.
+# Pipeline: verify legs (per os/target, --time-expanded) upload logs; perf parses
+# the x86_64 leg's log; doc builds the docs; perf-history pushes the verify-perf
+# chart; stats takes the verification snapshot; publish (pushes only) records
+# the history point on gh-pages and deploys the site (dashboard at the root,
+# /stats/, /verusdoc/, /dev/bench/).
 
 on:
   push:
@@ -45,9 +38,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # RISC-V and LoongArch are verified on Linux only; macOS keeps
-          # guarding the default x86_64 build. The triple selects the arch module
-          # mounted under `cfg(target_arch = ...)` in `ostd/src/lib.rs`.
+          # RISC-V/LoongArch on Linux only; the triple selects the arch module
+          # in `ostd/src/lib.rs`.
           - os: ubuntu-latest
             rust_target: x86_64-unknown-none
           - os: ubuntu-latest
@@ -112,11 +104,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   stats:
-    # PRs included, after `doc`: builds line_count and takes the per-module
-    # verification snapshot against the phaseII/mainline baseline (with the
-    # verified-API count from doc's rustdoc JSON), reports the change vs. the
-    # last recorded point in the summary, and uploads the snapshot artifact
-    # for `publish`. Only `publish` requires the totals to be deployed.
+    # Takes the per-module verification snapshot against the phaseII/mainline
+    # baseline and uploads it for `publish`; skips the verified-API count when
+    # doc's rustdoc JSON artifact is missing.
     needs: [doc]
     if: >
       always() &&
@@ -127,7 +117,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout repository
-        # Recursive for the dv submodule the setup action resolves.
         uses: actions/checkout@v7
         with:
           submodules: recursive
@@ -144,10 +133,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   perf:
-    # Every event: parses the verify leg's log and computes the verification
-    # cost compared to the measurement from last main. The comparison lands
-    # in the job summary and the report artifact. `perf-history` publishes main
-    # measurements.
+    # Parses the verify log and reports the verification cost vs. last main.
     needs: [verify]
     if: >
       always() &&
@@ -172,10 +158,8 @@ jobs:
           verification-result: ${{ needs.verify.result }}
 
   perf-history:
-    # Only trusted main runs may publish history and save the next baseline.
-    # PR metrics are processed by the read-only `perf` job above. This job
-    # pushes the verify-perf benchmark to gh-pages; the verification-stats
-    # point and the site itself are published by the `stats` job below.
+    # Main only: pushes the verify-perf chart to gh-pages and saves the
+    # next baseline.
     needs: [verify, perf]
     if: >
       github.event_name != 'pull_request' &&
@@ -199,8 +183,7 @@ jobs:
           baseline-cache-hit: ${{ needs.perf.outputs.baseline-cache-hit }}
 
   doc:
-    # PRs build the docs; pushes also upload the artifact for `stats`,
-    # which merges in the gh-pages benchmark and deploys.
+    # Builds the docs; pushes upload the rustdoc API JSON for `stats`.
     if: >
       always() &&
       !cancelled()
@@ -249,13 +232,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
-    # Pushes only, and the last job in the chain. Publishes the snapshot
-    # uploaded by `stats`: records the history point on gh-pages, then
-    # assembles and deploys the site — dashboard (tools/site) at the root,
-    # verusdoc under /verusdoc/, the gh-pages benchmark chart under
-    # /dev/bench/ and the fresh snapshot and history under /stats/. Needs
-    # verify so a failed verification can't deploy docs, perf-history so the
-    # embedded benchmark is current, and stats/doc for their artifacts.
+    # Records the stats history point on gh-pages and deploys the site —
+    # dashboard at the root, /verusdoc/, /dev/bench/, /stats/.
+    # Requires doc explicitly: stats succeeds even without doc's rustdoc JSON
+    # (it just skips the API count), so stats alone would deploy a hole.
     needs: [doc, perf, perf-history, verify, stats]
     if: >
       always() &&
@@ -275,7 +255,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout repository
-        # Recursive for the dv submodule the setup action resolves.
         uses: actions/checkout@v7
         with:
           submodules: recursive
@@ -292,7 +271,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   report:
-    # `ci/doc` status for push runs; `always()` flips pending -> failure.
     needs: [doc, publish]
     if: always() && github.event_name == 'push'
     runs-on: ubuntu-latest
