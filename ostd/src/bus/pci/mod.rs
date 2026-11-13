@@ -48,14 +48,15 @@
 //!     PCI_BUS.lock().register_driver(driver_a);
 //! }
 //! ```
-pub mod bus;
+/*pub mod bus;
 pub mod capability;
 pub mod cfg_space;
-pub mod common_device;
+pub mod common_device;*/
 mod device_info;
 
-pub use device_info::{PciDeviceId, PciDeviceLocation};
+pub use device_info::{/* PciDeviceId, */ PciDeviceLocation};
 
+/*
 use self::{bus::PciBus, common_device::PciCommonDevice};
 use crate::{arch::pci::has_pci_bus, sync::Mutex};
 
@@ -74,4 +75,4 @@ pub(crate) fn init() {
         };
         lock.register_common_device(device);
     }
-}
+}*/
