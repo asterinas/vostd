@@ -35,8 +35,6 @@ TRUSTED = "trusted"
 UNVERIFIED = "unverified"
 UNPLANNED = "unplanned"
 
-TEST_DIRECTORY_NAMES = {"test", "tests"}
-
 # Modules outside the verification plan, following code_treemap.py: their
 # whole executable-LoC budget is drawn as unplanned and vostd counts are
 # ignored for them.
@@ -303,17 +301,6 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
     return len(entries), entries
 
 
-def is_test_source(relative: Path) -> bool:
-    parts = [part.casefold() for part in relative.parts]
-    filename = parts[-1] if parts else ""
-    stem = Path(filename).stem.casefold()
-    return (
-        stem in TEST_DIRECTORY_NAMES
-        or any(part in TEST_DIRECTORY_NAMES for part in parts)
-        or stem.endswith(("_test", "_tests"))
-    )
-
-
 def run_line_count_file(
     line_count_path: Path, file_path: Path, *, no_external_by_default: bool = False
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -453,8 +440,7 @@ def inventory(roots: list[tuple[str, Path]]) -> dict[tuple[str, Path], Path]:
     for kind, root in roots:
         for file in sorted(root.rglob("*.rs"), key=lambda p: str(p)):
             relative = file.relative_to(root)
-            if not is_test_source(relative):
-                files[(kind, relative)] = file
+            files[(kind, relative)] = file
     return files
 
 
@@ -589,7 +575,6 @@ def count_spec_proof(
         for report, error in [
             run_line_count_file(line_count_path, path, no_external_by_default=True)
             for path in sorted(root.rglob("*.rs"), key=lambda p: str(p))
-            if not is_test_source(path.relative_to(root))
         ]:
             if error:
                 warnings.append(error)
@@ -774,6 +759,47 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Compare a snapshot's key totals against the last point of a history file.
+
+    Prints a markdown table for the CI job summary (Verified, Trusted
+    boundary, Verified APIs). A missing or empty history is not an error —
+    there is simply nothing to compare against yet.
+    """
+    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
+    history_path = Path(args.history)
+    previous: dict[str, Any] = {}
+    if history_path.is_file():
+        points = (json.loads(history_path.read_text(encoding="utf-8")).get("points") or [])
+        if points:
+            previous = points[-1]
+    if not previous:
+        print("No previous history yet: this would be the first recorded point")
+        return 0
+
+    current = snapshot["totals"]
+    print(f'Compared to the last recorded point '
+          f'({str(previous.get("sha") or "?")[:7]} at {previous.get("date") or "?"})')
+    print()
+    print("| Metric | Last recorded | This run | Δ |")
+    print("|---|---:|---:|---:|")
+    for key, label in (
+        (VERIFIED, "Verified"),
+        (TRUSTED, "Trusted boundary"),
+        ("verified_apis", "Verified APIs"),
+    ):
+        old = previous.get(key)
+        new = current.get(key)
+        if old is None or new is None:
+            last, now, delta = "n/a", "n/a" if new is None else f"{new:,}", "n/a"
+        else:
+            last, now = f"{old:,}", f"{new:,}"
+            change = new - old
+            delta = f"{change:+,}"
+        print(f"| {label} | {last} | {now} | {delta} |")
+    return 0
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
     history_path = Path(args.history)
@@ -871,6 +897,13 @@ def parse_args() -> argparse.ArgumentParser:
     record.add_argument("--snapshot", type=Path, required=True)
     record.add_argument("--history", type=Path, required=True)
     record.set_defaults(func=cmd_record)
+
+    diff = subparsers.add_parser(
+        "diff", help="print the change of key totals vs. the last history point"
+    )
+    diff.add_argument("--snapshot", type=Path, required=True)
+    diff.add_argument("--history", type=Path, required=True)
+    diff.set_defaults(func=cmd_diff)
 
     return parser
 
