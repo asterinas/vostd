@@ -9,9 +9,8 @@
 //! Within each architecture's linear mapping window, the address conversions
 //! preserve bounds and are mutual inverses. Physical-to-virtual conversion also
 //! preserves base-page alignment.
-//! `CurrentArch` selects the instance for this target. Calls to
-//! `PagingConstsTrait::axiom_current_paging_consts_hardcoded` mark proofs that
-//! still depend on the constants used by executable page-table layouts.
+//! `CurrentArch` selects the instance for this target. Paging configurations must
+//! prove the layout requirements declared by `PagingConstsTrait`.
 use vstd::prelude::*;
 use vstd_extra::arithmetic::lemma_mod_0_add;
 

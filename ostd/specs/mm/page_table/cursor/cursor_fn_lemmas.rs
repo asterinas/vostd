@@ -15,7 +15,7 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -37,7 +37,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old.map_full_tree(f),
             OwnerSubtree::implies(f, g),
             forall|i: int|
-                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
                     == old.continuations[i],
             self.continuations[self.level - 1].path() == old.continuations[old.level - 1].path(),
             self.index() == old.index(),
@@ -48,8 +48,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.map_full_tree(g),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         assert forall|i: int|
-            self.level - 1 <= i < NR_LEVELS implies #[trigger] self.continuations[i].map_children(
+            self.level - 1 <= i < C::NR_LEVELS() implies #[trigger] self.continuations[i].map_children(
             g,
         ) by {
             if i == self.level - 1 {
@@ -79,12 +81,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.index() == old.index(),
             self.continuations[self.level - 1].path() == old.continuations[old.level - 1].path(),
             forall|i: int|
-                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
                     == old.continuations[i],
             forall|j: int|
                 0 <= j < NR_ENTRIES && j != old.index() ==> #[trigger] self.continuations[self.level
                     - 1].children[j] == old.continuations[old.level - 1].children[j],
-            1 < old.level < NR_LEVELS,
+            1 < old.level <= C::NR_LEVELS(),
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_entry_owner().path) == Set::<
                 int,
             >::range(0, NR_ENTRIES as int).map(
@@ -93,23 +95,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         PageTableOwner(old.cur_subtree()).view_rec(
                             old.cur_entry_owner().path,
                         ).choose(),
-                        page_size::<PagingConsts>((old.level - 1) as PagingLevel),
+                        page_size::<C>((old.level - 1) as PagingLevel),
                         i as usize,
                     ),
             ),
         ensures
             self@ == old@.split_if_mapped_huge_spec(
-                page_size::<PagingConsts>((old.level - 1) as PagingLevel),
+                page_size::<C>((old.level - 1) as PagingLevel),
             ),
             old@.inv(),
             old@.present(),
-            old@.query_mapping().page_size == page_size::<PagingConsts>(old.level),
+            old@.query_mapping().page_size == page_size::<C>(old.level),
     {
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
         hide(CursorContinuation::pt_inv_children);
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::view_mappings);
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         old.lemma_inv_continuation(old.level - 1);
@@ -128,9 +132,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old.query_mapping_from_subtree(m);
         assert(PageTableOwner(old_subtree).view_rec(path) == set![m]);
         vstd::set::lemma_set_choose_len(set![m]);
-        let size = page_size::<PagingConsts>((old.level - 1) as PagingLevel);
-        lemma_page_size_next::<PagingConsts>((old.level - 1) as PagingLevel);
-        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
+        let size = page_size::<C>((old.level - 1) as PagingLevel);
+        lemma_page_size_next::<C>((old.level - 1) as PagingLevel);
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         assert(m.page_size / size == NR_ENTRIES) by (nonlinear_arith)
             requires
                 size > 0,
@@ -206,7 +211,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.popped_too_high == other.popped_too_high,
             // higher-level continuations unchanged
             forall|i: int|
-                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
                     == other.continuations[i],
             // bottom continuation well-formed after protect
             other.continuations[self.level - 1].inv(),
@@ -238,6 +243,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.inv(),
             other.metaregion_sound(regions),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         self.lemma_cur_pte_index();
         other.lemma_map_branch_none_inv_holds(self);
 
@@ -247,7 +254,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert forall|i: int|
             #![trigger other.continuations[i]]
-            other.level - 1 <= i < NR_LEVELS implies other.continuations[i].map_children(f) by {
+            other.level - 1 <= i < C::NR_LEVELS() implies other.continuations[i].map_children(f) by {
             reveal(CursorContinuation::map_children);
             if i > L - 1 {
                 assert(other.continuations[i] == self.continuations[i]);
@@ -274,7 +281,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger other.continuations[i]]
             other.level - 1 <= i
-                < NR_LEVELS implies other.continuations[i].entry_own.metaregion_sound(regions) by {
+                < C::NR_LEVELS() implies other.continuations[i].entry_own.metaregion_sound(regions) by {
             if i > L - 1 {
                 assert(other.continuations[i] == self.continuations[i]);
                 self.lemma_inv_continuation(i);
@@ -303,7 +310,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.popped_too_high == owner0.popped_too_high,
             // Higher-level continuations unchanged
             forall|i: int|
-                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
                     == owner0.continuations[i],
             // Bottom continuation is well-formed
             self.continuations[self.level - 1].inv(),
@@ -325,37 +332,37 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let L = self.level as int;
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
+        C::lemma_page_table_config_constant_requirements();
         lemma_pte_index_bound::<C>(self.cur_va(), self.level);
         assert(pte_index_spec::<C>(self.va, self.level as PagingLevel)
             == self.continuations[self.level - 1].idx);
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
-        // Isolation clauses for the root continuation (NR_LEVELS-1).
-        if self.level < NR_LEVELS {
+        // Isolation clauses for the root continuation (C::NR_LEVELS()-1).
+        if self.level < C::NR_LEVELS() {
             // Root is above the current level ⟹ unchanged (higher-unchanged), so
             // both clauses carry verbatim from `owner0.inv()`.
-            assert(self.continuations[NR_LEVELS - 1] == owner0.continuations[NR_LEVELS - 1]);
+            assert(self.continuations[C::NR_LEVELS() - 1] == owner0.continuations[C::NR_LEVELS() - 1]);
         } else {
             // Root IS the current continuation. The idx clause is vacuous
-            // (level == NR_LEVELS). For the outside-(borrowed||absent) clause:
+            // (level == C::NR_LEVELS()). For the outside-(borrowed||absent) clause:
             // the map changed only the in-range slot `idx`, so every outside
             // child keeps `owner0`'s value; `idx` is in-range (top index in
             // [start, end), and `in_barrier_va` rules out the sentinel).
             owner0.lemma_in_barrier_va_top_index_bounds();
-            assert(self.continuations[NR_LEVELS - 1].idx == pte_index_spec::<C>(
+            assert(self.continuations[C::NR_LEVELS() - 1].idx == pte_index_spec::<C>(
                 self.va,
-                NR_LEVELS as PagingLevel,
+                C::NR_LEVELS() as PagingLevel,
             ));
-            assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
+            assert(self.continuations[C::NR_LEVELS() - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
             assert(C::TOP_LEVEL_INDEX_RANGE().start <= owner0.continuations[owner0.level - 1].idx
                 < C::TOP_LEVEL_INDEX_RANGE().end);
             assert(forall|j: int|
                 0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
-                    < C::TOP_LEVEL_INDEX_RANGE().end) ==> (#[trigger] self.continuations[NR_LEVELS
-                    - 1].children[j]) is Some ==> (self.continuations[NR_LEVELS
-                    - 1].children[j].unwrap().value().is_borrowed() || self.continuations[NR_LEVELS
+                    < C::TOP_LEVEL_INDEX_RANGE().end) ==> (#[trigger] self.continuations[C::NR_LEVELS()
+                    - 1].children[j]) is Some ==> (self.continuations[C::NR_LEVELS()
+                    - 1].children[j].unwrap().value().is_borrowed() || self.continuations[C::NR_LEVELS()
                     - 1].children[j].unwrap().value().is_absent()));
         }
     }
@@ -370,7 +377,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level == owner0.level,
             self.va == owner0.va,
             forall|i: int|
-                self.level <= i < NR_LEVELS ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
                     == owner0.continuations[i],
             // child at idx changed from absent to empty node
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
@@ -400,6 +407,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.view_mappings() == owner0.view_mappings(),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         let L = self.level as int;
@@ -446,7 +455,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|m: Mapping|
                 self.view_mappings().contains(m) implies owner0.view_mappings().contains(m) by {
                 let i = choose|i: int|
-                    self.level - 1 <= i < NR_LEVELS
+                    self.level - 1 <= i < C::NR_LEVELS()
                         && #[trigger] self.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont0.view_mappings().contains(m));
@@ -457,7 +466,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|m: Mapping|
                 owner0.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
                 let i = choose|i: int|
-                    owner0.level - 1 <= i < NR_LEVELS
+                    owner0.level - 1 <= i < C::NR_LEVELS()
                         && #[trigger] owner0.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont.view_mappings().contains(m));

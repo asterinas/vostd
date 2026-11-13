@@ -12,7 +12,7 @@ use vstd::{
     },
     prelude::*,
 };
-use vstd_extra::arithmetic::nat_align_down;
+use vstd_extra::{arithmetic::nat_align_down, external::ilog2::lemma_usize_ilog2_to32};
 
 use crate::specs::mm::page_table::*;
 
@@ -288,6 +288,25 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             e_pre == i_end * p_off,
             i_end > 0,
             p_off > 0,
+    ;
+}
+
+/// Derives the coverage width from the required base-page and PTE layout.
+pub(super) proof fn lemma_paging_layout_bits<C: PageTableConfig>()
+    ensures
+        C::BASE_PAGE_SIZE().ilog2() == 12,
+        nr_pte_index_bits_spec::<C>() == 9,
+        nr_page_table_coverage_bits_spec::<C>() == 12 + 9 * C::NR_LEVELS(),
+{
+    C::lemma_paging_consts_properties();
+    lemma_usize_ilog2_to32();
+    assert(C::BASE_PAGE_SIZE().ilog2() == 12);
+    assert(nr_pte_index_bits_spec::<C>() == 9);
+    assert(nr_page_table_coverage_bits_spec::<C>() == 12 + 9 * C::NR_LEVELS()) by (nonlinear_arith)
+        requires
+            C::BASE_PAGE_SIZE().ilog2() == 12,
+            nr_pte_index_bits_spec::<C>() == 9,
+            1 <= C::NR_LEVELS() <= crate::mm::MAX_NR_LEVELS,
     ;
 }
 

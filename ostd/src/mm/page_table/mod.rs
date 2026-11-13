@@ -31,7 +31,7 @@ use super::{
 };
 use crate::{
     Pod,
-    arch::mm::{PageTableEntry, PagingConsts},
+    arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, PageTableEntry, PagingConsts},
     task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
 };
 
@@ -173,10 +173,10 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             Self::raw_item_well_formed((paddr, level, prop, perm)),
-            1 <= level <= NR_LEVELS,
+            1 <= level <= Self::C::NR_LEVELS(),
             valid_frame_paddr(paddr),
-            paddr % page_size::<PagingConsts>(level) == 0,
-            paddr + page_size::<PagingConsts>(level) <= MAX_PADDR,
+            paddr % page_size::<Self::C>(level) == 0,
+            paddr + page_size::<Self::C>(level) <= MAX_PADDR,
             Self::E::new_page_req(paddr, level, prop),
         returns
             Self::item_into_raw(item),
@@ -297,7 +297,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::E::new_page_req(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
-            child_pa == pa + child_idx * page_size::<PagingConsts>((level - 1) as PagingLevel),
+            child_pa == pa + child_idx * page_size::<Self::C>((level - 1) as PagingLevel),
         ensures
             Self::raw_item_well_formed((child_pa, (level - 1) as PagingLevel, prop, perm)),
             Self::E::new_page_req(child_pa, (level - 1) as PagingLevel, prop),
@@ -1098,7 +1098,7 @@ impl<C: PageTableConfig> PageTable<C> {
         &&& owner.0.value().node().matches_permission(self.root.frac_metadata_perm())
         &&& owner.0.value().node_permission is None
         &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
-        &&& owner.0.value().node().level() == NR_LEVELS
+        &&& owner.0.value().node().level() == C::NR_LEVELS()
         &&& owner.0.value().path == vstd_extra::ghost_tree::TreePath::<NR_ENTRIES>::new(
             Seq::empty(),
         )
@@ -1291,7 +1291,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.va == va.start
                 &&& r.unwrap().0.barrier_va == *va
                 &&& r.unwrap().1@.as_page_table_owner() == owner
-                &&& r.unwrap().1@.continuations[3].path() == owner.0.value().path
+                &&& r.unwrap().1@.continuations[C::NR_LEVELS() - 1].path() == owner.0.value().path
             },
             !Cursor::<C>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -1329,6 +1329,10 @@ impl<C: PageTableConfig> PageTable<C> {
         guard: &'rcu G,
         va: &Range<Vaddr>,
     ) -> Result<(Cursor<'rcu, C>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        proof {
+            C::lemma_paging_consts_properties();
+            C::lemma_page_table_config_constant_requirements();
+        }
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard.as_atomic_mode_guard(), va)
     }/*

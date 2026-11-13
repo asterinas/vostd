@@ -11,13 +11,12 @@ use crate::specs::{
             meta_owners::{MetadataPerm, typed_meta_value},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{INC_LEVELS, PageTableOwner},
+        page_table::PageTableOwner,
     },
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    Paddr, PagingLevel,
+    Paddr, PagingConstsTrait, PagingLevel,
     frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED, meta::mapping::meta_to_frame},
     page_table::*,
 };
@@ -475,8 +474,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(owner).inv(),
             old(owner).value().path.len() == old(owner).level(),
             old(self).node_matching(old(owner).value(), *old(parent_owner), *old(self).node),
-            old(owner).level() < INC_LEVELS - 1,
-            old(owner).level() + old(parent_owner).level() == INC_LEVELS,
+            old(owner).level() < C::NR_LEVELS(),
+            old(owner).level() + old(parent_owner).level() == C::NR_LEVELS() + 1,
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
             final(regions).slots == old(regions).slots,
@@ -698,8 +697,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(parent_owner).relate_guard(*old(self).node),
             old(parent_owner).inv(),
             old(parent_owner).level() == old(owner).value().parent_level,
-            old(parent_owner).level() < NR_LEVELS,
-            old(owner).level() + old(parent_owner).level() == INC_LEVELS,
+            old(parent_owner).level() <= C::NR_LEVELS(),
+            old(owner).level() + old(parent_owner).level() == C::NR_LEVELS() + 1,
             old(self).node_matching(old(owner).value(), *old(parent_owner), *old(self).node),
             old(parent_owner).metaregion_sound_node(*old(regions)),
             old(owner).value().is_frame() && old(parent_owner).level() > 1 ==>
@@ -717,7 +716,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     == Set::<int>::range(0, NR_ENTRIES as int).map(|i: int|
                         CursorView::<C>::split_index(
                             PageTableOwner(*old(owner)).view_rec(old(owner).value().path).choose(),
-                            page_size::<PagingConsts>((old(parent_owner).level() - 1) as PagingLevel),
+                            page_size::<C>((old(parent_owner).level() - 1) as PagingLevel),
                             i as usize))
                 &&& final(guards).lock_held(res->0.inner.slot_vaddr())
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
@@ -728,7 +727,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] final(owner).children()[j])->0.value().frame().mapped_pa
                         == old(owner).value().frame().mapped_pa
-                            + j * page_size::<PagingConsts>((old(parent_owner).level() - 1) as PagingLevel)
+                            + j * page_size::<C>((old(parent_owner).level() - 1) as PagingLevel)
                 &&& final(owner).value().path == old(owner).value().path
                 &&& final(owner).value().metaregion_sound(*final(regions))
                 &&& OwnerSubtree::implies(
@@ -851,7 +850,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
-            C::axiom_current_paging_consts_hardcoded();
+            C::lemma_page_table_config_constant_requirements();
             assert forall|j: int| 0 <= j < NR_ENTRIES implies {
                 &&& (#[trigger] new_owner.children()[j]) is Some
                 &&& new_owner.child(j).value().inv()
@@ -873,7 +872,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value().node_permission is None,
                 new_owner.value().node().matches_permission(new_page.frac_metadata_perm()),
                 nr_subpage_per_huge::<C>() == NR_ENTRIES,
-                1 < level < NR_LEVELS,
+                1 < level <= C::NR_LEVELS(),
                 *self == *old(self),
                 // Keep the original guard loan tied to the guard stored in Entry.
                 *final(self.node) == *final(old(self).node),
@@ -886,7 +885,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     0 <= j < i ==> #[trigger] new_owner.child(j).value().frame().prop == prop,
                 forall|j: int|
                     0 <= j < i ==> #[trigger] new_owner.child(j).value().frame().mapped_pa == pa + j
-                        * page_size::<PagingConsts>((level - 1) as PagingLevel),
+                        * page_size::<C>((level - 1) as PagingLevel),
                 owner.value().is_frame(),
                 owner.value().parent_level == level,
                 owner.value().frame().mapped_pa == pa,
@@ -895,8 +894,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value().frame_permission() is None,
                 pa == old(owner).value().frame().mapped_pa,
                 level == old(parent_owner).level(),
-                pa % page_size::<PagingConsts>(level) == 0,
-                pa + page_size::<PagingConsts>(level) <= MAX_PADDR,
+                pa % page_size::<C>(level) == 0,
+                pa + page_size::<C>(level) <= MAX_PADDR,
                 regions.inv(),
                 MetaSlot::claim_unused_slot_region_spec(
                     meta_to_frame(new_owner_meta_addr),
@@ -956,7 +955,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         {
             proof {
                 C::lemma_page_table_config_constant_properties();
-                C::axiom_current_paging_consts_hardcoded();
+                C::lemma_page_table_config_constant_requirements();
 
                 assert(new_owner.child(i as int).inv());
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
@@ -1035,7 +1034,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 };
                 assert forall|j: int| 0 <= j <= i implies #[trigger] new_owner.child(
                     j,
-                ).value().frame().mapped_pa == pa + j * page_size::<PagingConsts>(
+                ).value().frame().mapped_pa == pa + j * page_size::<C>(
                     (level - 1) as PagingLevel,
                 ) by {
                     if j != i {
@@ -1062,7 +1061,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& initialized_owner.child(j).value().is_frame()
                 &&& initialized_owner.child(j).value().frame().prop == prop
                 &&& initialized_owner.child(j).value().frame().mapped_pa == pa + j * page_size::<
-                    PagingConsts,
+                    C,
                 >((level - 1) as PagingLevel)
             } by {};
         }
@@ -1143,11 +1142,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (
             #[trigger] owner.children()[j])->0.value().frame().mapped_pa == old(
                 owner,
-            ).value().frame().mapped_pa + j * page_size::<PagingConsts>(
+            ).value().frame().mapped_pa + j * page_size::<C>(
                 (old(parent_owner).level() - 1) as PagingLevel,
             ) by {
                 assert(owner.child(j).value().frame().mapped_pa == pa + j * page_size::<
-                    PagingConsts,
+                    C,
                 >((level - 1) as PagingLevel));
             };
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (
@@ -1544,13 +1543,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(owner).inv(),
             old(owner).value().path.len() == old(owner).level(),
             old(owner).value().is_absent(),
-            old(owner).level() < INC_LEVELS - 1,
+            old(owner).level() < C::NR_LEVELS(),
             old(owner).value().metaregion_sound(*old(regions)),
             old(parent_owner).inv(),
             old(parent_owner).relate_guard(*old(self)),
             old(parent_owner).level() == old(owner).value().parent_level,
             old(parent_owner).level() > 1,
-            old(owner).level() + old(parent_owner).level() == INC_LEVELS,
+            old(owner).level() + old(parent_owner).level() == C::NR_LEVELS() + 1,
             old(parent_owner).metaregion_sound_node(*old(regions)),
             idx < NR_ENTRIES,
             old(owner).value().match_pte(

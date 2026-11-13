@@ -6,7 +6,6 @@ use crate::specs::{
     mm::page_table::{cursor::owners::*, *},
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_table::*,
 };
@@ -21,7 +20,7 @@ verus! {
 impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn item_into_mapping(va: Vaddr, item: C::Item) -> Mapping {
         let (paddr, level, prop, _perm) = C::item_into_raw(item);
-        let size = page_size::<PagingConsts>(level);
+        let size = page_size::<C>(level);
         Mapping {
             va_range: va as int..va + size,
             pa_range: paddr..(paddr + size) as Paddr,
@@ -85,7 +84,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.present(),
     {
         let (paddr, level, prop, _perm) = C::item_into_raw_spec(item);
-        let size = page_size::<PagingConsts>(level);
+        let size = page_size::<C>(level);
         if self.query(paddr, size, prop) {
             let r = self.query_range();
             Some(r.start as Vaddr..r.end as Vaddr)

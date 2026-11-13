@@ -27,7 +27,7 @@ use crate::specs::{
 };
 
 use crate::mm::{
-    KERNEL_VADDR_RANGE, Paddr, Vaddr, frame::meta::MetaSlot, kspace::KernelPtConfig,
+    KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, Vaddr, frame::meta::MetaSlot, kspace::KernelPtConfig,
     page_table::PageTableGuard, page_table::*, tlb::*,
 };
 
@@ -38,7 +38,7 @@ use core::{ops::Range, sync::atomic::Ordering};
 
 use crate::{
     Error,
-    arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr},
+    arch::mm::{PAGE_SIZE, PageTableEntry, PagingConsts, current_page_table_paddr},
     cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
     // cpu_local_cell,
     mm::{
@@ -244,7 +244,7 @@ impl VmSpace {
         }
         proof {
             lemma_vaddr_range_spec_user();
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -307,7 +307,7 @@ impl VmSpace {
         }
         proof {
             lemma_vaddr_range_spec_user();
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]

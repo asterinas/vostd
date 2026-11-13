@@ -2,7 +2,7 @@
 use vstd::{arithmetic::power2::*, prelude::*};
 use vstd_extra::{external::ilog2::*, ownership::Inv};
 
-use crate::specs::arch::valid_frame_paddr;
+use crate::{mm::MAX_NR_LEVELS, specs::arch::valid_frame_paddr};
 
 use alloc::fmt;
 use core::{arch::asm, ops::Range};
@@ -118,6 +118,9 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     proof fn lemma_paging_consts_requirements() {
+        assert(Self::BASE_PAGE_SIZE() == 4096) by (compute_only);
+        assert(Self::PTE_SIZE() == 8) by (compute_only);
+        assert(Self::NR_LEVELS() <= MAX_NR_LEVELS) by (compute_only);
         lemma_pow2_is_pow2_to64();
         lemma2_to64();
         lemma_usize_pow2_ilog2(12);

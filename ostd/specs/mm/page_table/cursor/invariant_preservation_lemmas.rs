@@ -28,8 +28,7 @@ use crate::specs::{
     },
 };
 
-use crate::arch::mm::PagingConsts;
-use crate::mm::{frame::meta::REF_COUNT_UNUSED, page_size, page_table::*};
+use crate::mm::{PagingConstsTrait, frame::meta::REF_COUNT_UNUSED, page_size, page_table::*};
 
 verus! {
 
@@ -50,7 +49,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==> {
+            self.level - 1 <= i < C::NR_LEVELS() ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
                     e.meta_slot_paddr()->0,
@@ -75,10 +74,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p)),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p);
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(
+            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(
             combined,
         ) by {
             reveal(CursorContinuation::map_children);
@@ -122,6 +123,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_node_at_idx(changed_idx),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         let msp = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let target = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
@@ -132,7 +135,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies {
+            self.level - 1 <= i < C::NR_LEVELS() implies {
             let e = self.continuations[i].entry_own;
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
                 e.meta_slot_paddr().unwrap(),
@@ -179,6 +182,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -213,7 +218,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
+                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 // Same sub-page bridge as above (continuations branch).
@@ -243,7 +248,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==> {
+            self.level - 1 <= i < C::NR_LEVELS() ==> {
                 let e = self.continuations[i].entry_own;
                 e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr()->0) == idx
                     ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
@@ -262,7 +267,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==> {
+            self.level - 1 <= i < C::NR_LEVELS() ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_frame() ==> e.path != removed_path
             }
@@ -290,6 +295,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_frame_with_path(removed_path),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         broadcast use CursorContinuation::group_lemmas;
 
         let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -299,7 +306,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // path-correct, and its mappings sit inside self@.mappings.
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(g) by {
             reveal(CursorContinuation::map_children);
             self.lemma_inv_continuation(i);
             let cont = self.continuations[i];
@@ -340,7 +347,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Continuation entries are page-table nodes ⟹ not frames.
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies {
+            self.level - 1 <= i < C::NR_LEVELS() implies {
             let e = self.continuations[i].entry_own;
             e.is_frame() ==> e.path != removed_path
         } by {
@@ -366,6 +373,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.path_removable_at_idx(idx, removed_path),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         let nn = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
                 e.meta_slot_paddr().unwrap(),
@@ -387,7 +396,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Continuation-entry halves combine directly.
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies {
+            self.level - 1 <= i < C::NR_LEVELS() implies {
             let e = self.continuations[i].entry_own;
             e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
                 ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
@@ -431,6 +440,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -465,7 +476,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
+                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
@@ -518,15 +529,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         self.no_node_at_idx_from_slot_key(regions0, removed_idx);
 
         owner_before_replace.lemma_cur_subtree_eq_filtered_mappings_path();
 
         let ghost sv = vaddr_of::<C>(removed_path) as int;
-        let ghost sz = page_size::<PagingConsts>(owner_before_replace.level) as int;
+        let ghost sz = page_size::<C>(owner_before_replace.level) as int;
         assert(sz > 0) by {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_base::<
-                PagingConsts,
+                C,
             >(owner_before_replace.level);
         };
         assert forall|mm: Mapping| #[trigger] self@.mappings.contains(mm) implies mm.va_range.start

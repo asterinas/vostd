@@ -13,7 +13,6 @@ use crate::specs::{
     },
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{
@@ -312,9 +311,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
     ) -> (tracked res: Self)
         requires
             valid_frame_paddr(paddr),
-            1 <= parent_level < NR_LEVELS,
-            paddr % page_size::<PagingConsts>(parent_level) == 0,
-            paddr + page_size::<PagingConsts>(parent_level) <= MAX_PADDR,
+            1 <= parent_level <= C::NR_LEVELS(),
+            paddr % page_size::<C>(parent_level) == 0,
+            paddr + page_size::<C>(parent_level) <= MAX_PADDR,
             C::raw_item_well_formed((paddr, parent_level, prop, Tracked(None))),
             C::E::new_page_req(paddr, parent_level, prop),
         ensures
@@ -327,6 +326,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             res.inv(),
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         Self {
             kind: EntryOwnerKind::Frame(
                 FrameEntryOwner { mapped_pa: paddr, prop, permission: None },
@@ -373,52 +374,48 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.inv(),
             self.is_frame(),
             regions.inv(),
-            1 < self.parent_level < NR_LEVELS,
+            1 < self.parent_level <= C::NR_LEVELS(),
             idx < NR_ENTRIES,
         ensures
-            self.frame().mapped_pa + idx * page_size::<PagingConsts>(
+            self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
             ) < MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
+            ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) % page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel) == 0,
-            ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
+            )) as Paddr) % page_size::<C>((self.parent_level - 1) as PagingLevel) == 0,
+            ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size::<PagingConsts>((self.parent_level - 1) as PagingLevel)
+            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel)
                 <= MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size::<PagingConsts>(
+            ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % PAGE_SIZE == 0,
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         let pa = self.frame().mapped_pa;
-        let child_pa = (pa + idx * page_size::<PagingConsts>(
+        let child_pa = (pa + idx * page_size::<C>(
             (self.parent_level - 1) as PagingLevel,
         )) as Paddr;
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
+        lemma_page_size_spec_values::<C>();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<
-            PagingConsts,
-        >();
+        lemma_page_size_base::<C>();
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides::<
-                PagingConsts,
-            >(1, 2);
-            assert(child_pa + page_size::<PagingConsts>(1) <= MAX_PADDR) by {
+            lemma_page_size_divides::<C>(1, 2);
+            assert(child_pa + page_size::<C>(1) <= MAX_PADDR) by {
                 assert(idx * 4096 + 4096 <= 2097152);
             };
         } else {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size::<
-                PagingConsts,
-            >(pa, 2);
+            lemma_va_align_page_size::<C>(pa, 2);
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
                 idx as int,
-                page_size::<PagingConsts>(2) as int,
+                page_size::<C>(2) as int,
             );
             vstd::arithmetic::div_mod::lemma_add_mod_noop(
                 pa as int,
-                (idx * page_size::<PagingConsts>(2)) as int,
-                page_size::<PagingConsts>(2) as int,
+                (idx * page_size::<C>(2)) as int,
+                page_size::<C>(2) as int,
             );
         }
     }
@@ -619,6 +616,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
         if self.is_frame() && !self.frame_is_tracked() && frame_to_index(self.meta_slot_paddr()->0)
             == changed_idx {
             self.lemma_untracked_frame_metaregion_sound(r1);
@@ -655,12 +654,10 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.parent_level == self.node().level() + 1
         }
         &&& self.is_frame() ==> {
-            // The current mapping model supports 4K, 2M and 1G leaves. A level-4
-            // leaf spans 512 GiB, exceeding the modeled physical-address bound.
-            &&& 1 <= self.parent_level < NR_LEVELS
+            &&& 1 <= self.parent_level <= C::NR_LEVELS()
             &&& valid_frame_paddr(self.frame().mapped_pa)
-            &&& self.frame().mapped_pa % page_size::<PagingConsts>(self.parent_level) == 0
-            &&& self.frame().mapped_pa + page_size::<PagingConsts>(self.parent_level) <= MAX_PADDR
+            &&& self.frame().mapped_pa % page_size::<C>(self.parent_level) == 0
+            &&& self.frame().mapped_pa + page_size::<C>(self.parent_level) <= MAX_PADDR
             &&& C::raw_item_well_formed(
                 (
                     self.frame().mapped_pa,

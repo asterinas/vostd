@@ -98,7 +98,6 @@ pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>(
         0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint,
 {
     C::lemma_paging_consts_properties();
-    C::axiom_current_paging_consts_hardcoded();
     lemma2_to64();
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);

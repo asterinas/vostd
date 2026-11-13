@@ -240,7 +240,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
              Tracked(guards): Tracked<&Guards>,
                  -> owner: Tracked<OwnerSubtree<C>>,
         requires
-            1 <= level < NR_LEVELS,
+            1 <= level < C::NR_LEVELS(),
             old(regions).inv(),
         ensures
             final(regions).inv(),
