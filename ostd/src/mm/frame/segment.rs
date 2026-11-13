@@ -20,11 +20,9 @@ use crate::specs::{
     },
 };
 
-use super::{Paddr, meta::mapping::frame_to_meta};
 use crate::mm::{
     PagingLevel, Vaddr,
-    frame::meta::MetaSlot,
-    frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta},
+    frame::{meta::{mapping::frame_to_meta,MetaSlot},REF_COUNT_MAX},
     paddr_to_vaddr,
     page_table::RCClone,
 };

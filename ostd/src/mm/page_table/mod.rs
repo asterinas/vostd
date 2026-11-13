@@ -14,28 +14,26 @@ use crate::specs::{
     },
 };
 
-use super::{
-    Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
-    kspace::KernelPtConfig,
-    nr_subpage_per_huge,
-    page_prop::{CachePolicy, PageProperty},
-    page_size,
-    vm_space::UserPtConfig,
-};
-use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
-};
 use crate::{
-    Pod,
-    arch::mm::{PageTableEntry, PagingConsts},
-    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
+    mm::frame::meta::{
+    MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta},
 };
+
 use core::{
     fmt::Debug,
     intrinsics::transmute_unchecked,
     ops::{Range, RangeInclusive},
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use super::{
+    kspace::KernelPtConfig, nr_subpage_per_huge, page_prop::PageProperty, page_size,
+    vm_space::UserPtConfig, Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
+};
+use crate::{
+    arch::mm::{PageTableEntry, PagingConsts},
+    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
+    Pod,
 };
 
 mod node;
