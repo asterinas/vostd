@@ -1,7 +1,7 @@
 name: Build Verusdoc
 description: >-
-  Build HTML documentation and rustdoc JSON, uploading artifacts outside PRs. Expects a
-  checkout with submodules.
+  Build HTML documentation and rustdoc JSON, uploading the JSON everywhere and
+  the site outside PRs. Expects a checkout with submodules.
 
 runs:
   using: composite
@@ -22,8 +22,9 @@ runs:
       shell: bash
       run: cargo dv doc --package ostd --json-output
 
+    # The site artifact is only consumed by the push-only publish; the JSON,
+    # by stats (also on PRs).
     - name: Upload rustdoc JSON
-      if: github.event_name != 'pull_request'
       uses: actions/upload-artifact@v7
       with:
         name: doc-api-json

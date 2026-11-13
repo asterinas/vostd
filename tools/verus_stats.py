@@ -759,6 +759,47 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Compare a snapshot's key totals against the last point of a history file.
+
+    Prints a markdown table for the CI job summary (Verified, Trusted
+    boundary, Verified APIs). A missing or empty history is not an error —
+    there is simply nothing to compare against yet.
+    """
+    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
+    history_path = Path(args.history)
+    previous: dict[str, Any] = {}
+    if history_path.is_file():
+        points = (json.loads(history_path.read_text(encoding="utf-8")).get("points") or [])
+        if points:
+            previous = points[-1]
+    if not previous:
+        print("No previous history yet: this would be the first recorded point")
+        return 0
+
+    current = snapshot["totals"]
+    print(f'Compared to the last recorded point '
+          f'({str(previous.get("sha") or "?")[:7]} at {previous.get("date") or "?"})')
+    print()
+    print("| Metric | Last recorded | This run | Δ |")
+    print("|---|---:|---:|---:|")
+    for key, label in (
+        (VERIFIED, "Verified"),
+        (TRUSTED, "Trusted boundary"),
+        ("verified_apis", "Verified APIs"),
+    ):
+        old = previous.get(key)
+        new = current.get(key)
+        if old is None or new is None:
+            last, now, delta = "n/a", "n/a" if new is None else f"{new:,}", "n/a"
+        else:
+            last, now = f"{old:,}", f"{new:,}"
+            change = new - old
+            delta = f"{change:+,}"
+        print(f"| {label} | {last} | {now} | {delta} |")
+    return 0
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
     history_path = Path(args.history)
@@ -856,6 +897,13 @@ def parse_args() -> argparse.ArgumentParser:
     record.add_argument("--snapshot", type=Path, required=True)
     record.add_argument("--history", type=Path, required=True)
     record.set_defaults(func=cmd_record)
+
+    diff = subparsers.add_parser(
+        "diff", help="print the change of key totals vs. the last history point"
+    )
+    diff.add_argument("--snapshot", type=Path, required=True)
+    diff.add_argument("--history", type=Path, required=True)
+    diff.set_defaults(func=cmd_diff)
 
     return parser
 
