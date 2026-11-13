@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! PCI device Information
+use vstd::prelude::*;
+
 use core::iter;
 
-use super::cfg_space::PciDeviceCommonCfgOffset;
+// use super::cfg_space::PciDeviceCommonCfgOffset;
 
 /// PCI device ID
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -25,6 +27,7 @@ pub struct PciDeviceId {
     pub subsystem_id: u16,
 }
 
+/*
 impl PciDeviceId {
     pub(super) fn new(location: PciDeviceLocation) -> Self {
         let vendor_id = location.read16(PciDeviceCommonCfgOffset::VendorId as u16);
@@ -49,7 +52,10 @@ impl PciDeviceId {
     }
 }
 
+*/
+
 /// PCI device Location
+#[verus_verify]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PciDeviceLocation {
     /// Bus number
@@ -88,9 +94,14 @@ impl PciDeviceLocation {
             },
         )
     }
+}
 
+#[verus_verify]
+impl PciDeviceLocation {
     /// The page table of all devices is the same. So we can use any device ID.
     /// FIXME: distinguish different device id.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::zero())]
     pub fn zero() -> Self {
         Self {
             bus: 0,
@@ -100,6 +111,7 @@ impl PciDeviceLocation {
     }
 }
 
+/*
 impl PciDeviceLocation {
     pub(super) const BIT32_ALIGN_MASK: u16 = 0xFFFC;
 
@@ -149,3 +161,4 @@ impl PciDeviceLocation {
         crate::arch::pci::write32(self, offset as u32, val).unwrap()
     }
 }
+*/

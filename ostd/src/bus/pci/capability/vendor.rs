@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Vendor-specific capability support.
+use vstd::prelude::*;
+
 use crate::{
-    Error, Result,
-    bus::pci::{common_device::PciCommonDevice, device_info::PciDeviceLocation},
+    /*Error, Result,*/
+    bus::pci::{/*common_device::PciCommonDevice,*/ device_info::PciDeviceLocation},
 };
 
 /// Vendor specific capability. Users can access this capability area at will,
 /// except for the PCI configuration space which cannot be accessed at will through this structure.
+#[verus_verify]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct CapabilityVndrData {
     location: PciDeviceLocation,
     cap_ptr: u16,
     length: u16,
 }
-
+/*
 impl CapabilityVndrData {
     pub(super) fn new(dev: &PciCommonDevice, cap_ptr: u16, length: u16) -> Self {
         Self {
@@ -22,13 +25,23 @@ impl CapabilityVndrData {
             length,
         }
     }
+}
 
+*/
+
+#[verus_verify]
+impl CapabilityVndrData {
     /// The length of this capability
     #[expect(clippy::len_without_is_empty)]
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.len())]
     pub fn len(&self) -> u16 {
         self.length
     }
+}
 
+/*
+impl CapabilityVndrData {
     /// Reads u8 from the capability.
     pub fn read8(&self, offset: u16) -> Result<u8> {
         self.check_range(offset)?;
@@ -75,3 +88,4 @@ impl CapabilityVndrData {
         Ok(())
     }
 }
+*/

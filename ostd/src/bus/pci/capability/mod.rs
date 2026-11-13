@@ -2,6 +2,7 @@
 //! PCI device capabilities.
 #![expect(dead_code)]
 
+/*
 use alloc::vec::Vec;
 
 use self::{msix::CapabilityMsixData, vendor::CapabilityVndrData};
@@ -11,9 +12,11 @@ use super::{
     common_device::PciCommonDevice,
 };
 
+*/
 pub mod msix;
 pub mod vendor;
 
+/*
 /// PCI Capability
 #[derive(Debug)]
 pub struct Capability {
@@ -144,3 +147,4 @@ impl Capability {
         capabilities
     }
 }
+*/
