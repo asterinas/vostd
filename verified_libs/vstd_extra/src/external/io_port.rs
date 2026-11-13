@@ -18,6 +18,10 @@ pub uninterp spec fn obeys_io_port_access_spec<T>() -> bool;
 /// Uninterpreted: `PortRead`/`PortWrite` are user-implementable, so meaning comes only from
 /// the trusted widths in [`group_io_port_models`]. ISA-level fact only — no claim about
 /// device decoding, access permission, or ownership.
+///
+/// Used as a precondition to require full-width bounds validity, which
+/// `IoPort::acquire_overlapping` does not check at runtime:
+/// <https://github.com/asterinas/asterinas/issues/4209>.
 pub uninterp spec fn valid_io_port_access<T>(port: u16) -> bool;
 
 /// Trusted: types obeying the model use a 1-, 2-, or 4-byte access within the PIO space.
