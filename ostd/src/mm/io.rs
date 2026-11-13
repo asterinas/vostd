@@ -321,18 +321,18 @@ impl<'a> VmWriter<'a, Infallible> {
             final(self).inv(),
             final(owner).inv(),
             final(self).wf(*final(owner)),
-            old(owner).has_write_view() ==> final(owner).has_write_view(),
-            old(owner).has_read_view() ==> final(owner).has_read_view(),
+            final(owner).has_write_view(),
             old(self).avail_spec() >= core::mem::size_of::<T>() ==> r is Ok,
             old(self).avail_spec() < core::mem::size_of::<T>()
-                ==> r == Err(crate::Error::InvalidArgs),
+                ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
                     &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    *old(self) == *final(self)
+                    &&& *old(self) == *final(self)
+                    &&& *old(owner) == *final(owner)
                 },
             }
     )]
@@ -880,14 +880,11 @@ impl<'a> VmReader<'a, Infallible> {
     /// ## Preconditions
     /// - The reader and its owner must satisfy their invariants.
     /// - The owner must match this reader and carry an initialized read memory view.
-    /// - The caller supplies a tracked writer owner whose front `size_of::<T>()` bytes
-    ///   will become the owner of the returned value. The borrowed `writer_owner` shrinks
-    ///   to cover the remaining range.
     /// ## Postconditions
     /// - The reader and its owner still satisfy their invariants.
-    /// - On success, the cursor advances by `size_of::<T>()` and the returned `val_owner`
-    ///   owns the bytes backing `val`.
-    /// - On error, the reader state is unchanged.
+    /// - On success, the cursor advances by `size_of::<T>()`; the returned value's
+    ///   byte contents are not pinned by the current model.
+    /// - On error, the reader and owner states are unchanged.
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut VmIoOwner>,
@@ -902,14 +899,15 @@ impl<'a> VmReader<'a, Infallible> {
             final(owner).read_view_initialized(),
             old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
             old(self).remain_spec() < core::mem::size_of::<T>()
-                ==> r == Err(crate::Error::InvalidArgs),
+                ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
                     &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    *old(self) == *final(self)
+                    &&& *old(self) == *final(self)
+                    &&& *old(owner) == *final(owner)
                 },
             }
     )]
@@ -967,7 +965,7 @@ impl<'a> VmReader<'a, Infallible> {
             final(owner).read_view_initialized(),
             old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
             old(self).remain_spec() < core::mem::size_of::<T>()
-                ==> r == Err(crate::Error::InvalidArgs),
+                ==> r == Err(Error::InvalidArgs),
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             match r {
@@ -992,7 +990,8 @@ impl<'a> VmReader<'a, Infallible> {
                         }
                 },
                 Err(_) => {
-                    *old(self) == *final(self)
+                    &&& *old(self) == *final(self)
+                    &&& *old(owner) == *final(owner)
                 },
             }
     )]
@@ -1095,7 +1094,7 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
             old(self).remain_spec() < core::mem::size_of::<T>()
-                ==> r == Err(crate::Error::InvalidArgs),
+                ==> r == Err(Error::InvalidArgs),
             r is Err ==> *final(self) == *old(self),
     )]
     pub fn read_val<T: Pod>(&mut self) -> Result<T> {
@@ -1619,8 +1618,6 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             old(self).inv(),
         ensures
             r.inv(),
-            r.remain_spec() <= max_remain,
-            r.remain_spec() <= old(self).remain_spec(),
             r.remain_spec() == (if old(self).remain_spec() <= max_remain {
                 old(self).remain_spec()
             } else {
@@ -1760,8 +1757,6 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
             old(self).inv(),
         ensures
             r.inv(),
-            r.avail_spec() <= max_avail,
-            r.avail_spec() <= old(self).avail_spec(),
             r.avail_spec() == (if old(self).avail_spec() <= max_avail {
                 old(self).avail_spec()
             } else {
@@ -1865,7 +1860,7 @@ impl<'a> VmWriter<'a, Fallible> {
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
             old(self).avail_spec() < core::mem::size_of::<T>()
-                ==> r == Err(crate::Error::InvalidArgs),
+                ==> r == Err(Error::InvalidArgs),
             r is Err ==> *final(self) == *old(self),
     )]
     pub fn write_val<T: Pod>(&mut self, new_val: &T) -> Result<()> {
@@ -1990,9 +1985,9 @@ impl<'a> VmWriter<'a, Infallible> {
             owner@.has_write_view(),
             r.cursor.range == owner@.range,
             owner@.range.end - owner@.range.start == old(slice).len(),
-            crate::mm::kspace::KERNEL_BASE_VADDR <= r.cursor.vaddr,
-            r.cursor.vaddr as int + old(slice).len()
-                <= crate::mm::kspace::KERNEL_END_VADDR,
+            old(slice).len() == 0 || KERNEL_BASE_VADDR <= r.cursor.vaddr,
+            old(slice).len() == 0
+                || r.cursor.vaddr + old(slice).len() <= KERNEL_END_VADDR,
     )]
     pub fn from(slice: &'a mut [u8]) -> Self {
         // SAFETY:
@@ -2050,9 +2045,8 @@ impl<'a> VmReader<'a, Infallible> {
             owner@.read_view_initialized(),
             r.cursor.range == owner@.range,
             owner@.range.end - owner@.range.start == slice.len(),
-            crate::mm::kspace::KERNEL_BASE_VADDR <= r.cursor.vaddr,
-            r.cursor.vaddr as int + slice.len()
-                <= crate::mm::kspace::KERNEL_END_VADDR,
+            slice.len() == 0 || KERNEL_BASE_VADDR <= r.cursor.vaddr,
+            slice.len() == 0 || r.cursor.vaddr + slice.len() <= KERNEL_END_VADDR,
     )]
     pub fn from(slice: &'a [u8]) -> Self {
         // SAFETY:

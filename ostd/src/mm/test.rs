@@ -20,12 +20,11 @@ use crate::{
 }; */
 
 mod io {
+    use crate::specs::mm::io::VmIoOwner;
+    use vstd_extra::{assert_eq, ownership::Inv};
+
     use super::*;
     use crate::mm::io::{VmReader, VmWriter};
-    use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
-    use crate::specs::mm::io::VmIoOwner;
-    use vstd_extra::assert_eq;
-    use vstd_extra::ownership::Inv;
 
     /* /// A dummy Pod struct for testing complex types.
     #[repr(C)]
