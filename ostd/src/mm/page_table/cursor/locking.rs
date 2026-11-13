@@ -13,10 +13,7 @@ use crate::specs::mm::{
 
 use crate::mm::{
     NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts,
-    frame::{
-        MetaSlot,
-        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    },
+    frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     page_table::*,
 };
 use align_ext::AlignExt;

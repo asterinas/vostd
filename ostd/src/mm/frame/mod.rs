@@ -65,6 +65,16 @@ use crate::specs::{
     mm::frame::{frame_specs::*, mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
 };
 
+use crate::mm::{
+    MAX_PADDR,
+    frame::meta::{
+        META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
+    kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
+    page_table::{PageTableConfig, PageTablePageMeta, RCClone},
+};
+
 use core::{
     marker::PhantomData,
     mem::ManuallyDrop,
@@ -72,24 +82,12 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
-use super::PagingLevel;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::page_table::RCClone;
-use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
-use crate::mm::{
-    MAX_PADDR, Paddr, Vaddr,
-    frame::meta::{
-        META_SLOT_SIZE,
-        mapping::{frame_to_meta, meta_to_frame},
-    },
-    kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
-};
-pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
-use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
+use meta::{AnyFrameMeta, GetFrameError, MetaSlot, REF_COUNT_UNUSED, mapping};
 pub use segment::Segment;
-pub use unique::UniqueFrame;
-pub use untyped::{AnyUFrameMeta, UFrame};
+use untyped::{AnyUFrameMeta, UFrame};
+
+use super::{PAGE_SIZE, PagingLevel};
+use crate::mm::{Paddr, PagingConsts, Vaddr};
 
 verus! {
 

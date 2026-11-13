@@ -22,7 +22,7 @@ use super::{
     page_size,
     vm_space::UserPtConfig,
 };
-use crate::mm::frame::MetaSlot;
+use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::meta::{
     REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
 };

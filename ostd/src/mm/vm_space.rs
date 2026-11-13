@@ -28,7 +28,7 @@ use crate::specs::{
 
 use crate::mm::{
     KERNEL_VADDR_RANGE, Paddr, Vaddr,
-    frame::MetaSlot,
+    frame::meta::MetaSlot,
     kspace::KernelPtConfig,
     page_table::*,
     page_table::{EntryOwner, PageTableGuard},

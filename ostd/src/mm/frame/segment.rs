@@ -27,7 +27,7 @@ use super::{
 };
 use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 use crate::mm::page_table::RCClone;
-use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
+use crate::mm::{PagingLevel, Vaddr, frame::meta::MetaSlot, paddr_to_vaddr};
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 verus! {

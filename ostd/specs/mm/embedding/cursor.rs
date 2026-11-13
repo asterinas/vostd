@@ -61,8 +61,8 @@ use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
 use crate::mm::{
     Paddr, Vaddr,
     frame::{
-        UFrame,
         meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        untyped::UFrame,
     },
     page_prop::PageProperty,
     vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
