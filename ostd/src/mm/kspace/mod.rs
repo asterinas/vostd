@@ -52,7 +52,7 @@ use core::{marker::PhantomData, ops::Range};
 
 //use log::info;
 pub(crate) mod kvirt_area;
-#[cfg(ktest)]
+/* #[cfg(ktest)] */
 mod test;
 
 use super::{

@@ -357,6 +357,62 @@ impl VmIoOwner {
         res
     }
 
+    /// Shrinks the owned range to its front `nbytes` bytes, keeping the memory
+    /// view, so the caller's `wf` relation survives a `limit` of the window.
+    pub proof fn tracked_shrink_range_front(tracked &mut self, nbytes: usize)
+        requires
+            old(self).inv(),
+            nbytes <= old(self).range.end - old(self).range.start,
+        ensures
+            final(self).inv(),
+            final(self).range.start == old(self).range.start,
+            final(self).range.end == old(self).range.start + nbytes,
+            final(self).id == old(self).id,
+            final(self).is_kernel == old(self).is_kernel,
+            final(self).is_fallible == old(self).is_fallible,
+            final(self).mem_view == old(self).mem_view,
+            old(self).read_view_initialized() ==> final(self).read_view_initialized(),
+            old(self).has_write_view() ==> final(self).has_write_view(),
+            old(self).has_read_view() ==> final(self).has_read_view(),
+    {
+        let ghost old_start = self.range.start;
+        let ghost old_end = self.range.end;
+        assert(old_start + nbytes <= old_end);
+        let ghost new_end: usize = (old_start + nbytes) as usize;
+        assert(new_end == old_start + nbytes);
+        assert(new_end <= old_end);
+
+        if self.mem_view is None {
+            self.range = Range { start: old_start, end: new_end };
+            return;
+        }
+        let tracked view = self.mem_view.tracked_take();
+        let tracked view = match view {
+            VmIoMemView::WriteView(mv) => {
+                assert forall|va: usize|
+                    #![trigger mv.addr_transl(va)]
+                    old_start <= va < new_end ==> mv.addr_transl(va) is Some by {
+                    if old_start <= va < new_end {
+                        assert(old_start <= va < old_end);
+                    }
+                };
+                VmIoMemView::WriteView(mv)
+            },
+            VmIoMemView::ReadView(mv) => {
+                assert forall|va: usize|
+                    #![trigger mv.addr_transl(va)]
+                    old_start <= va < new_end ==> mv.addr_transl(va) is Some by {
+                    if old_start <= va < new_end {
+                        assert(old_start <= va < old_end);
+                    }
+                };
+                VmIoMemView::ReadView(mv)
+            },
+        };
+        self.mem_view = Some(view);
+        self.range = Range { start: old_start, end: new_end };
+    }
+
     /// Splits this owner at `nbytes`, returning the front portion as a new owner and shrinking
     /// `self` to cover the back portion.
     ///
