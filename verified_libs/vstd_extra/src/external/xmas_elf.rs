@@ -1,13 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Trusted specifications for xmas-elf 0.10.0's parsing and header access.
-//!
-//! The `getter!` macro in `src/program.rs` matches `Ph32`/`Ph64`, reads the
-//! corresponding field, and widens it to u64. `ElfFile::new` delegates to
-//! `header::parse_header`; `program_iter` constructs `ProgramIter` at index zero,
-//! whose `next` stops at the declared count or the first parsing error. Parsing
-//! and iteration models describe those external operations; they do not assert
-//! any caller-specific PE layout. Bounds and alignment panics are excluded only
-//! by their explicit predicates. The library implementation remains trusted.
 use vstd::{prelude::*, std_specs::iter::IteratorSpec};
 use xmas_elf::{
     ElfFile,
@@ -25,8 +17,7 @@ pub struct ExElfFile<'a>(ElfFile<'a>);
 #[verifier::external_type_specification]
 pub struct ExHeader<'a>(Header<'a>);
 
-// The identification fields stay opaque; header_class models the class getter.
-// No executable implementation is skipped by this opaque type proxy.
+// Its Class_, Data_, Version_, and OsAbi_ fields wrap private bytes.
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExHeaderPt1(HeaderPt1);
@@ -55,11 +46,10 @@ global layout ProgramHeader32 is size == 32, align == 4;
 
 global layout ProgramHeader64 is size == 56, align == 8;
 
-// These private integer wrappers are not inspected by the entry-point getter.
 #[verifier::external_type_specification]
-#[verifier::external_body]
 pub struct ExHeaderType(HeaderType);
 
+// Machine_ has a private u16 field; Verus requires an opaque proxy.
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExHeaderMachine(Machine_);
@@ -67,9 +57,7 @@ pub struct ExHeaderMachine(Machine_);
 /// The parser's normal return value, including its original error string.
 pub uninterp spec fn elf_parse_result<'a>(input: &'a [u8]) -> Result<ElfFile<'a>, &'static str>;
 
-/// `parse_header` returns early for short inputs, bad magic, or invalid classes.
-/// Otherwise `zero::read` requires alignment only when the complete second
-/// header part is present. The first part has byte alignment.
+/// <https://docs.rs/xmas-elf/0.10.0/src/xmas_elf/header.rs.html#9-52>
 pub open spec fn elf_parse_no_unwind(input: &[u8]) -> bool {
     if input@.len() < 16 || input@[..4] != seq![0x7fu8, b'E', b'L', b'F'] {
         true
@@ -186,7 +174,7 @@ pub struct ExProgramHeader64(ProgramHeader64);
 #[verifier::external_type_specification]
 pub struct ExProgramFlags(Flags);
 
-/// The private segment-type field is opaque; neither getter inspects it.
+// Type_ has a private u32 field; Verus requires an opaque proxy.
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExProgramType(Type_);
