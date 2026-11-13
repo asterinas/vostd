@@ -9,24 +9,27 @@ use crate::specs::{
         frame::{
             mapping::{frame_to_index, meta_to_index},
             meta_region_owners::MetaRegionOwners,
+            meta_owners::{MetadataPerm, typed_meta_value},
         },
         page_table::{INC_LEVELS, PageTableOwner},
     },
 };
 
-use super::*;
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{frame::{meta::mapping::meta_to_frame, Frame, FrameRef, meta::REF_COUNT_UNUSED}, page_table::* , Paddr, PagingLevel};
+use core::ops::Deref;
+
+use super::{Child, ChildRef, PageTableEntryTrait, /*PageTableGuard,*/ PageTableNode};
 use crate::{
-    mm::{nr_subpage_per_huge, nr_subpage_per_huge_spec, page_prop::PageProperty},
-    //    sync::RcuDrop,
+    mm::{
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size,
+        page_table::{PageTableConfig/*, PageTableNodeRef*/},
+    },
+    // sync::RcuDrop,
     task::atomic_mode::InAtomicMode,
 };
-use core::marker::PhantomData;
-use core::ops::Deref;
 
 verus! {
 
@@ -883,7 +886,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_page.inv(),
                 new_owner.value().node_permission is None,
                 new_owner.value().node().matches_permission(new_page.frac_metadata_perm()),
-                nr_subpage_per_huge_spec::<C>() == NR_ENTRIES,
+                nr_subpage_per_huge::<C>() == NR_ENTRIES,
                 1 < level < NR_LEVELS,
                 *self == *old(self),
                 // Keep the original guard loan tied to the guard stored in Entry.
