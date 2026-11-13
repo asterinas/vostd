@@ -40,10 +40,7 @@ runs:
         git worktree add --detach "$PWD/mainline" FETCH_HEAD
         echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
 
-    # Uploaded only outside PRs (build-docs); mirror that condition so the
-    # download doesn't log a red "Artifact not found" on every PR run.
     - name: Download rustdoc JSON
-      if: github.event_name != 'pull_request'
       uses: actions/download-artifact@v8
       with:
         name: doc-api-json

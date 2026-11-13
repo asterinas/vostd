@@ -183,7 +183,7 @@ jobs:
           baseline-cache-hit: ${{ needs.perf.outputs.baseline-cache-hit }}
 
   doc:
-    # Builds the docs; pushes upload the rustdoc API JSON for `stats`.
+    # Builds the docs; stats counts verified APIs from the uploaded rustdoc JSON.
     if: >
       always() &&
       !cancelled()
