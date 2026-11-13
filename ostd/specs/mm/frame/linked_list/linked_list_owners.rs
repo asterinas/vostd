@@ -1012,14 +1012,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// Discard a logically-empty `LinkedListOwner`. Sound because such an
     /// owner has an empty `list` and claims no external permissions (the
     /// borrow model parks all permissions in `MetaRegionOwners`).
-    #[verifier::external_body]
     pub proof fn tracked_destroy_empty(tracked self)
         requires
             self.list =~= Seq::<LinkOwner>::empty(),
             self.repr_perms =~= Seq::<LinkInnerPerms<M>>::empty(),
             self.metadata_perms =~= Seq::<MetadataPerm>::empty(),
     {
-        unimplemented!()
     }
 }
 
