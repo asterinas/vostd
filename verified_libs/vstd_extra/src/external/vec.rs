@@ -5,7 +5,7 @@ use core::{
     ops::{Index, IndexMut},
     slice::SliceIndex,
 };
-use vstd::{prelude::*, slice::SliceIndexSpec};
+use vstd::prelude::*;
 
 verus! {
 
@@ -15,12 +15,11 @@ pub assume_specification<T, I: SliceIndex<[T]>, A: Allocator>[ <Vec<T, A> as Ind
     I,
 >>::index_mut ](vec: &mut Vec<T, A>, index: I) -> (output: &mut <Vec<T, A> as Index<I>>::Output)
     ensures
-        exists|old_slice: &[T], final_slice: &[T]|
-            old_slice@ == old(vec)@ && final_slice@ == final(vec)@ && index.index_mut_postcondition(
-                old_slice,
-                final_slice,
+        exists|slice: &mut [T]| #[trigger]
+            slice@ == old(vec)@ && final(slice)@ == final(vec)@ && call_ensures(
+                <I as SliceIndex<[T]>>::index_mut,
+                (index, slice),
                 output,
-                &*final(output),
             ),
 ;
 

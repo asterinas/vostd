@@ -21,7 +21,7 @@ use crate::{
 };
 
 mod io {
-    use vstd_extra::{assert_eq, ownership::Inv};
+    use vstd_extra::{assert_eq, layout::lemma_primitive_layout, ownership::Inv};
 
     use crate::specs::mm::io::VmIoOwner;
 
@@ -161,7 +161,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
     fn read_write_struct_infallible() {
         let mut buffer = [0u8; size_of::<TestPodStruct>()];
         proof! {
-            vstd_extra::layout::lemma_primitive_layout();
+            lemma_primitive_layout();
             lemma_test_pod_struct_layout();
         }
         proof_decl! {
@@ -207,7 +207,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
     fn read_beyond_buffer_infallible() {
         let buffer = [1u8, 2, 3];
         proof! {
-            vstd_extra::layout::lemma_primitive_layout();
+            lemma_primitive_layout();
         }
         proof_decl! {
             let tracked mut scratch_owner: VmIoOwner;
@@ -236,7 +236,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
     fn write_beyond_buffer_infallible() {
         let mut buffer = [0u8; 3];
         proof! {
-            vstd_extra::layout::lemma_primitive_layout();
+            lemma_primitive_layout();
         }
         proof_decl! {
             let tracked mut scratch_owner: VmIoOwner;

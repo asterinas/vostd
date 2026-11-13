@@ -37,6 +37,7 @@ pub use smallvec::*;
 pub use smart_ptr::*;
 pub use str::*;
 pub use time::*;
+pub use vec::*;
 #[cfg(target_arch = "x86_64")]
 pub use x86::*;
 
