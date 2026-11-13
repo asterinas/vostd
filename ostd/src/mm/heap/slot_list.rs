@@ -157,9 +157,6 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
 
         let ghost original = *self;
         let ghost before = self.slots();
-        proof {
-            slot.lemma_fields();
-        }
         let slot_ptr = slot.as_ptr();
         let super::SlotInfo::SlabSlot(slot_size) = slot.info() else {
             #[cfg(feature = "allow_panic")]
@@ -173,7 +170,8 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         // Verus cannot translate inline const blocks; the same bound is proved above.
         #[cfg(not(verus_keep_ghost))]
         const { assert!(SLOT_SIZE >= core::mem::size_of::<usize>()) };
-        let tracked (word_mem, rest) = slot.tracked_mem.get().split(
+        let Tracked(mem) = slot.into_memory();
+        let tracked (word_mem, rest) = mem.split(
             Set::range(slot_ptr.addr() as int, slot_ptr.addr() + size_of::<usize>()),
         );
         let tracked mut word = word_mem.into_typed::<usize>(slot_ptr.addr());

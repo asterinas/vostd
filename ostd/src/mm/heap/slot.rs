@@ -30,11 +30,11 @@ verus! {
 /// [`Slab`]: super::Slab
 pub struct HeapSlot {
     /// The address of the slot.
-    pub(super) addr: NonNull<u8>,
+    addr: NonNull<u8>,
     /// The type and size of the slot.
-    pub(super) info: SlotInfo,
+    info: SlotInfo,
     #[cfg(verus_keep_ghost_body)]
-    pub(super) tracked_mem: Tracked<PointsToRaw>,
+    tracked_mem: Tracked<PointsToRaw>,
 }
 
 /// The type and size of the heap slot that should be used for the allocation.
@@ -95,12 +95,13 @@ impl HeapSlot {
         self.tracked_mem@
     }
 
-    pub(super) proof fn lemma_fields(&self)
+    /// Consumes the slot and transfers its exclusive memory permission.
+    pub(super) fn into_memory(self) -> (res: Tracked<PointsToRaw>)
         ensures
-            self.ptr() == self.addr.as_ptr(),
-            self.slot_info() == self.info,
-            self.memory() == self.tracked_mem@,
+            res@ == self.memory(),
     {
+        let tracked mem = self.tracked_mem.get();
+        Tracked(mem)
     }
 
     /// Creates a new pointer to a heap slot.
