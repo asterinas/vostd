@@ -377,7 +377,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         hide(MetaSlotOwner::vtable_ptr_perm);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         if self.va >= self.barrier_va.end {
             return Err(PageTableError::InvalidVaddr(self.va));
@@ -443,7 +443,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         loop {
             proof {
                 C::lemma_paging_consts_properties();
-                C::lemma_page_table_config_constant_requirements();
+                C::lemma_page_table_config_constant_properties();
             }
             let cur_va = self.va;
             let level = self.level;
@@ -620,7 +620,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
 
             proof {
                 C::lemma_paging_consts_properties();
-                C::lemma_page_table_config_constant_requirements();
+                C::lemma_page_table_config_constant_properties();
             }
             let size = page_size::<C>(level);
 
@@ -831,11 +831,11 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         hide(CursorView::split_while_huge);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         assert_eq!(len % C::BASE_PAGE_SIZE(), 0);
         proof {
@@ -907,7 +907,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             let ghost owner0 = *owner;
             proof {
                 C::lemma_paging_consts_properties();
-                C::lemma_page_table_config_constant_requirements();
+                C::lemma_page_table_config_constant_properties();
                 owner.lemma_barrier_va_bounds(self.va);
                 owner.lemma_cur_pte_index();
                 owner.lemma_in_barrier_va_level_le_guard_level();
@@ -986,7 +986,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
-                                C::lemma_page_table_config_constant_requirements();
+                                C::lemma_page_table_config_constant_properties();
                             }
                         }
                         return Some(cur_va);
@@ -1248,7 +1248,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                     proof {
                         lemma_page_size_next::<C>(self.level);
                         C::lemma_paging_consts_properties();
-                        C::lemma_page_table_config_constant_requirements();
+                        C::lemma_page_table_config_constant_properties();
                         lemma_page_size_ge_base::<C>(owner0.level);
                         lemma_page_size_ge_base::<C>(self.level);
                         lemma_page_size_divides::<C>(self.level, owner0.level);
@@ -1357,7 +1357,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         hide(CursorContinuation::pt_inv_children);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         assert_eq!(va % PAGE_SIZE, 0);
 
@@ -1392,7 +1392,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         loop {
             proof {
                 C::lemma_paging_consts_properties();
-                C::lemma_page_table_config_constant_requirements();
+                C::lemma_page_table_config_constant_properties();
             }
             let node_size = page_size::<C>(self.level + 1);
             let node_start = self.va.align_down(node_size);
@@ -1423,7 +1423,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                 self.va = va;
                 proof {
                     C::lemma_paging_consts_properties();
-                    C::lemma_page_table_config_constant_requirements();
+                    C::lemma_page_table_config_constant_properties();
                     // At level == C::NR_LEVELS() the quantifier in set_va_in_node is vacuous.
                     if self.level < C::NR_LEVELS() as PagingLevel {
                         lemma_same_node_pte_indices_match::<C>(va, old_va, node_start, self.level);
@@ -1524,7 +1524,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         hide(CursorContinuation::pt_inv_children);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         assert(1 <= owner.level <= owner.guard_level <= C::NR_LEVELS()) by {
             reveal(<CursorOwner as Inv>::inv);
@@ -1546,7 +1546,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             owner0.lemma_va_plus_page_size_no_overflow(start_level);
             lemma_page_size_ge_base::<C>(start_level);
             vstd_extra::arithmetic::lemma_nat_align_down_sound(
@@ -1584,7 +1584,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0 {
             proof {
                 C::lemma_paging_consts_properties();
-                C::lemma_page_table_config_constant_requirements();
+                C::lemma_page_table_config_constant_properties();
                 lemma_next_slot_pte_index::<C>(va, next_va, self.level);
                 lemma_page_size_next::<C>(self.level);
                 owner.lemma_cur_pte_index();
@@ -1729,7 +1729,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     fn pop_level(&mut self) {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         let taken = self.path[self.level as usize - 1].take().unwrap_or_panic();
         proof {
@@ -1825,11 +1825,11 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     fn push_level(&mut self, child_pt: PageTableGuard<'rcu, C>) {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         self.level = self.level - 1;
         // debug_assert_eq!(self.level, child_pt.level());
@@ -1885,7 +1885,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     fn cur_entry(&mut self) -> Entry<'_, 'rcu, C> {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         let ghost owner0 = *owner;
         proof {
@@ -1954,7 +1954,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     fn cur_va_range(&self) -> Range<Vaddr> {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         let page_size = page_size::<C>(self.level);
         let start = self.va.align_down(page_size);
@@ -2013,7 +2013,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     fn protect_cur_entry(&mut self, op: impl FnOnce(PageProperty) -> PageProperty) {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         proof {
             owner.lemma_cont_entry_metaregion_at(*regions, owner.level - 1);
@@ -2228,7 +2228,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError> {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.jump(va)
@@ -2288,7 +2288,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     pub fn query(&mut self) -> (res: Result<PagesState<C>, PageTableError>) {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.query()
@@ -2316,7 +2316,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     fn map_branch_pt(&mut self, pt: PageTableNodeRef<'rcu, C>, rcu_guard: &'rcu dyn InAtomicMode) {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         proof {
             let cont = owner.continuations[owner.level - 1];
@@ -2410,7 +2410,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         hide(<CursorOwner as Inv>::inv);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         let ghost guard_level = self.0.guard_level;
         let ghost barrier_va = self.0.barrier_va;
@@ -2468,7 +2468,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         while self.0.level != level {
             proof {
                 C::lemma_paging_consts_properties();
-                C::lemma_page_table_config_constant_requirements();
+                C::lemma_page_table_config_constant_properties();
             }
             if self.0.level < level {
                 let ghost owner_pre_pop = *owner;
@@ -2775,7 +2775,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                     proof {
                         lemma_page_size_next::<C>(self.0.level);
                         C::lemma_paging_consts_properties();
-                        C::lemma_page_table_config_constant_requirements();
+                        C::lemma_page_table_config_constant_properties();
                         lemma_page_size_divides::<C>(self.0.level, owner_before_frame.level);
                         assert(owner.cur_entry_owner().is_frame()) by {
                             reveal(<CursorOwner as Inv>::inv);
@@ -2930,7 +2930,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         let (pa, level, prop, Tracked(raw_permission)) = C::item_into_raw(item);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
             lemma_page_size_spec_values::<C>();
         }
@@ -3189,7 +3189,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         hide(TreeNode::inv);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         let find_result = #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next_impl(len, true, true);
@@ -3571,7 +3571,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         hide(<MetaRegionOwners as Inv>::inv);
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
@@ -3914,7 +3914,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
 
                 proof {
                     C::lemma_paging_consts_properties();
-                    C::lemma_page_table_config_constant_requirements();
+                    C::lemma_page_table_config_constant_properties();
                 }
                 let ghost regions_before_clone = *regions;
                 /// Origin Rust: pt: (*pt).clone().into(),

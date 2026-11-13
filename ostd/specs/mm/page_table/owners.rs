@@ -45,7 +45,7 @@ verus! {
 broadcast use group_ghost_tree_lemmas;
 
 #[verifier::inline]
-pub open spec fn vaddr_make<C: PageTableConfig>(idx: int, offset: usize) -> usize
+pub open spec fn vaddr_make<C: PagingConstsTrait>(idx: int, offset: usize) -> usize
     recommends
         0 <= idx < C::NR_LEVELS(),
         offset < NR_ENTRIES,
@@ -53,7 +53,7 @@ pub open spec fn vaddr_make<C: PageTableConfig>(idx: int, offset: usize) -> usiz
     (page_size_spec::<C>((C::NR_LEVELS() - idx) as PagingLevel) * offset) as usize
 }
 
-pub open spec fn rec_vaddr<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, idx: int) -> usize
+pub open spec fn rec_vaddr<C: PagingConstsTrait>(path: TreePath<NR_ENTRIES>, idx: int) -> usize
     decreases path.len() - idx,
     when 0 <= idx <= path.len()
 {
@@ -84,7 +84,7 @@ pub proof fn lemma_vaddr_strict_bound<C: PageTableConfig>(path: TreePath<NR_ENTR
         vaddr::<C>(path) < page_size::<C>((C::NR_LEVELS() + 1) as PagingLevel),
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     lemma_rec_vaddr_suffix_bound::<C>(path, 0);
     lemma_page_size_ge_base::<C>((C::NR_LEVELS() + 1 - path.len()) as PagingLevel);
     lemma_page_size_spec_values::<C>();
@@ -101,14 +101,14 @@ pub proof fn lemma_vaddr_top_index_cell<C: PageTableConfig>(path: TreePath<NR_EN
         path[0] + 1) * page_size::<C>(C::NR_LEVELS() as PagingLevel),
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     broadcast use TreePath::lemma_index_satisfies_elem_inv;
 
     lemma_rec_vaddr_suffix_bound::<C>(path, 1);
     lemma_rec_vaddr_unfold::<C>(path, 0);
     lemma_page_size_next::<C>(C::NR_LEVELS() as PagingLevel);
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     lemma_page_size_spec_values::<C>();
     let i0 = path[0];
     lemma_vaddr_make_eq_page_size::<C>(0, i0);
@@ -127,7 +127,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     C::lemma_page_table_config_constant_properties();
     lemma_leading_bits_properties::<C>();
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     lemma_vaddr_strict_bound::<C>(path);
     lemma_paging_layout_bits::<C>();
     vstd::arithmetic::power2::lemma2_to64();
@@ -154,7 +154,7 @@ pub proof fn lemma_vaddr_path_aligned<C: PageTableConfig>(path: TreePath<NR_ENTR
     decreases path.len(),
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     let level = (C::NR_LEVELS() - path.len() + 1) as PagingLevel;
     lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
     let size = page_size::<C>(level) as int;
@@ -224,14 +224,14 @@ pub proof fn sibling_paths_disjoint<C: PageTableConfig>(
         j < NR_ENTRIES,
         k < NR_ENTRIES,
         j != k,
-        size == page_size::<C>((C::NR_LEVELS() + 1 - prefix.len() - 1) as PagingLevel),
+        size == page_size::<C>((C::NR_LEVELS() - prefix.len()) as PagingLevel),
     ensures
         vaddr::<C>(prefix.push_tail(j)) + size <= vaddr::<C>(prefix.push_tail(k)) || vaddr::<C>(
             prefix.push_tail(k),
         ) + size <= vaddr::<C>(prefix.push_tail(j)),
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     PageTableOwner::<C>::lemma_vaddr_push_tail_eq(prefix, j);
     PageTableOwner::<C>::lemma_vaddr_push_tail_eq(prefix, k);
     let s = size as int;
@@ -655,21 +655,21 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             PageTableOwner(owner).pt_inv(),
     {
-        C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
-        reveal(PageTableOwner::pt_inv_at_depth);
         let depth = (INC_LEVELS - owner.level()) as nat;
         // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
         // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
-        assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] owner.has_child(i)
-            && Self::pt_edge_at(owner, i) && PageTableOwner(owner.child(i)).pt_inv_at_depth(
-            (depth - 1) as nat,
-        ) by {
+        assert forall|i: int|
+            #![trigger owner.has_child(i)]
+            0 <= i < NR_ENTRIES implies Self::pt_edge_at(owner, i) && PageTableOwner(
+            owner.child(i),
+        ).pt_inv_at_depth((depth - 1) as nat) by {
             let child = owner.child(i);
             assert(owner.has_child(i));
             PageTableOwner(child).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
         };
+        // Unfold the parent after establishing the opaque child invariants.
+        reveal(PageTableOwner::pt_inv_at_depth);
     }
 
     /// The frames produced by a huge-page split have exactly the split mapping view.
@@ -881,14 +881,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             0 <= i < NR_ENTRIES,
         ensures
             vaddr::<C>(path.push_tail(i)) == vaddr::<C>(path) + i * page_size::<C>(
-                (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
+                (C::NR_LEVELS() - path.len()) as PagingLevel,
             ),
             vaddr::<C>(path) + (i + 1) * page_size::<C>(
-                (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
+                (C::NR_LEVELS() - path.len()) as PagingLevel,
             ) <= usize::MAX,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use {
             TreePath::lemma_push_tail_len,
             TreePath::lemma_push_tail_preserves_inv,
@@ -898,9 +898,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let pt = path.push_tail(i);
         lemma_rec_vaddr_push_tail::<C>(path, i, 0);
         lemma_rec_vaddr_suffix_bound::<C>(pt, 0);
-        let entry_size = page_size::<C>(
-            (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
-        ) as int;
+        let entry_size = page_size::<C>((C::NR_LEVELS() - path.len()) as PagingLevel) as int;
         assert(vaddr::<C>(path) + (i + 1) * entry_size == vaddr::<C>(pt) + entry_size)
             by (nonlinear_arith)
             requires
@@ -925,7 +923,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use PageTableOwner::group_lemmas;
 
         lemma_page_size_spec_values::<C>();
@@ -955,9 +953,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             child.lemma_view_rec_vaddr_range(path.push_tail(i), m);
             Self::lemma_vaddr_push_tail_eq(path, i);
 
-            let child_ps = page_size::<C>(
-                (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
-            ) as int;
+            let child_ps = page_size::<C>((C::NR_LEVELS() - path.len()) as PagingLevel) as int;
             assert((i + 1) * child_ps <= NR_ENTRIES * child_ps) by (nonlinear_arith)
                 requires
                     0 <= i < NR_ENTRIES,
@@ -996,7 +992,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         lemma_vaddr_of_eq_int::<C>(path);
         lemma_vaddr_top_index_cell::<C>(path);
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_paging_layout_bits::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
         lemma_page_size_spec_values::<C>();
@@ -1138,7 +1134,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use PageTableOwner::group_lemmas;
         broadcast use group_set_properties;
 
@@ -1157,7 +1153,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             } else {
                 self.pt_inv_unroll(i1);
                 self.pt_inv_unroll(i2);
-                let child_ps = page_size::<C>((C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel);
+                let child_ps = page_size::<C>((C::NR_LEVELS() - path.len()) as PagingLevel);
                 PageTableOwner(self.0.children()[i1].unwrap()).lemma_view_rec_vaddr_range(
                     path.push_tail(i1),
                     m1,
@@ -1194,7 +1190,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use PageTableOwner::group_lemmas;
 
         if self.0.value().is_frame() {
@@ -1236,7 +1232,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 <= usize::MAX,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_rec_vaddr_aligned::<C>(path, 0);
         lemma_rec_vaddr_suffix_bound::<C>(path, 0);
     }
@@ -1254,9 +1250,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use PageTableOwner::group_lemmas;
 
         if self.0.value().is_frame() {
@@ -1282,7 +1278,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             lemma_paging_layout_bits::<C>();
             lemma_leading_bits_properties::<C>();
             lemma_vaddr_strict_bound::<C>(path);
@@ -1557,7 +1553,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use PageTableOwner::group_lemmas;
 
         if self.0.value().is_node() && path.len() < C::NR_LEVELS() {
@@ -1571,14 +1567,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 m,
             );
             lemma_page_size_monotone::<C>(
-                (C::NR_LEVELS() + 1 - path.len() - 1) as PagingLevel,
+                (C::NR_LEVELS() - path.len()) as PagingLevel,
                 (C::NR_LEVELS() + 1 - path.len()) as PagingLevel,
             );
         }
     }
 
     /// For a node subtree, all mappings have
-    /// `page_size <= page_size(C::NR_LEVELS() + 1 - path.len() - 1)`.
+    /// `page_size <= page_size(C::NR_LEVELS() - path.len())`.
     pub proof fn lemma_view_rec_node_page_size_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping)
         requires
             self.0.inv(),
@@ -1586,7 +1582,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() < C::NR_LEVELS(),
             self.view_rec(path).contains(m),
         ensures
-            m.page_size <= page_size::<C>(((C::NR_LEVELS() + 1 - path.len()) - 1) as PagingLevel),
+            m.page_size <= page_size::<C>((C::NR_LEVELS() - path.len()) as PagingLevel),
         decreases C::NR_LEVELS() + 1 - path.len(),
     {
         broadcast use PageTableOwner::group_lemmas;
@@ -1636,7 +1632,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases INC_LEVELS - subtree.level(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let f_sound = Self::metaregion_sound_pred(regions);
         let f_path = Self::path_correct_pred();
         let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry);
@@ -1708,7 +1704,7 @@ impl<C: PageTableConfig> View for PageTableOwner<C> {
 
 // Auxiliary proofs for page-table path arithmetic.
 /// A path index advances by one page at the corresponding paging level.
-proof fn lemma_vaddr_make_eq_page_size<C: PageTableConfig>(idx: int, offset: int)
+proof fn lemma_vaddr_make_eq_page_size<C: PagingConstsTrait>(idx: int, offset: int)
     requires
         0 <= idx < C::NR_LEVELS(),
         0 <= offset < NR_ENTRIES,
@@ -1718,12 +1714,10 @@ proof fn lemma_vaddr_make_eq_page_size<C: PageTableConfig>(idx: int, offset: int
         ),
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
     let entry_size = page_size::<C>((C::NR_LEVELS() - idx) as PagingLevel) as int;
     let parent_size = page_size::<C>((C::NR_LEVELS() + 1 - idx) as PagingLevel) as int;
     lemma_page_size_next::<C>((C::NR_LEVELS() - idx) as PagingLevel);
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
     vstd::arithmetic::mul::lemma_mul_is_commutative(NR_ENTRIES as int, entry_size);
     assert(offset * entry_size <= NR_ENTRIES * entry_size) by (nonlinear_arith)
         requires
@@ -1740,7 +1734,7 @@ proof fn lemma_vaddr_make_eq_page_size<C: PageTableConfig>(idx: int, offset: int
 
 /// The suffix beginning at `idx`, together with the mapped page at the end of
 /// the path, fits in one entry at the parent level.
-proof fn lemma_rec_vaddr_suffix_bound<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, idx: int)
+proof fn lemma_rec_vaddr_suffix_bound<C: PagingConstsTrait>(path: TreePath<NR_ENTRIES>, idx: int)
     requires
         path.inv(),
         0 <= idx <= path.len() <= C::NR_LEVELS(),
@@ -1750,7 +1744,6 @@ proof fn lemma_rec_vaddr_suffix_bound<C: PageTableConfig>(path: TreePath<NR_ENTR
     decreases path.len() - idx,
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
     if idx == path.len() {
         assert(rec_vaddr::<C>(path, idx) == 0);
     } else {
@@ -1758,7 +1751,6 @@ proof fn lemma_rec_vaddr_suffix_bound<C: PageTableConfig>(path: TreePath<NR_ENTR
         lemma_rec_vaddr_suffix_bound::<C>(path, idx + 1);
         lemma_page_size_next::<C>((C::NR_LEVELS() - idx) as PagingLevel);
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
 
         let entry_size = page_size::<C>((C::NR_LEVELS() - idx) as PagingLevel) as int;
         let mapped_page_size = page_size::<C>(
@@ -1784,7 +1776,7 @@ proof fn lemma_rec_vaddr_suffix_bound<C: PageTableConfig>(path: TreePath<NR_ENTR
 }
 
 /// Unfold one path entry without a truncating `usize` cast.
-proof fn lemma_rec_vaddr_unfold<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, idx: int)
+proof fn lemma_rec_vaddr_unfold<C: PagingConstsTrait>(path: TreePath<NR_ENTRIES>, idx: int)
     requires
         path.inv(),
         0 <= idx < path.len() <= C::NR_LEVELS(),
@@ -1794,13 +1786,11 @@ proof fn lemma_rec_vaddr_unfold<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, 
         ) + rec_vaddr::<C>(path, idx + 1),
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
     path.lemma_index_satisfies_elem_inv(idx);
     lemma_rec_vaddr_suffix_bound::<C>(path, idx + 1);
     lemma_vaddr_make_eq_page_size::<C>(idx, path[idx]);
     lemma_page_size_next::<C>((C::NR_LEVELS() - idx) as PagingLevel);
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
 
     let entry_size = page_size::<C>((C::NR_LEVELS() - idx) as PagingLevel) as int;
     let parent_size = page_size::<C>((C::NR_LEVELS() + 1 - idx) as PagingLevel) as int;
@@ -1823,7 +1813,7 @@ proof fn lemma_rec_vaddr_unfold<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, 
 
 /// Every path suffix is aligned to the page size represented by its last
 /// entry.
-proof fn lemma_rec_vaddr_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, idx: int)
+proof fn lemma_rec_vaddr_aligned<C: PagingConstsTrait>(path: TreePath<NR_ENTRIES>, idx: int)
     requires
         path.inv(),
         0 <= idx <= path.len() <= C::NR_LEVELS(),
@@ -1833,7 +1823,6 @@ proof fn lemma_rec_vaddr_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>,
     decreases path.len() - idx,
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
     let mapped_level = (C::NR_LEVELS() + 1 - path.len()) as PagingLevel;
     let mapped_page_size = page_size::<C>(mapped_level) as int;
     lemma_page_size_ge_base::<C>(mapped_level);
@@ -1872,7 +1861,11 @@ proof fn lemma_rec_vaddr_aligned<C: PageTableConfig>(path: TreePath<NR_ENTRIES>,
 }
 
 /// Appending a path index adds exactly one entry-sized offset.
-proof fn lemma_rec_vaddr_push_tail<C: PageTableConfig>(path: TreePath<NR_ENTRIES>, i: int, idx: int)
+proof fn lemma_rec_vaddr_push_tail<C: PagingConstsTrait>(
+    path: TreePath<NR_ENTRIES>,
+    i: int,
+    idx: int,
+)
     requires
         path.inv(),
         0 <= idx <= path.len() < C::NR_LEVELS(),

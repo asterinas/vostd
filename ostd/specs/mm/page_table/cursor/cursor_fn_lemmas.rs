@@ -49,7 +49,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.map_full_tree(g),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         assert forall|i: int|
             self.level - 1 <= i
                 < C::NR_LEVELS() implies #[trigger] self.continuations[i].map_children(g) by {
@@ -110,7 +110,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::view_mappings);
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         old.lemma_inv_continuation(old.level - 1);
@@ -132,7 +132,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let size = page_size::<C>((old.level - 1) as PagingLevel);
         lemma_page_size_next::<C>((old.level - 1) as PagingLevel);
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         assert(m.page_size / size == NR_ENTRIES) by (nonlinear_arith)
             requires
                 size > 0,
@@ -241,7 +241,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.metaregion_sound(regions),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.lemma_cur_pte_index();
         other.lemma_map_branch_none_inv_holds(self);
 
@@ -333,7 +333,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let L = self.level as int;
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_pte_index_bound::<C>(self.cur_va(), self.level);
         assert(pte_index_spec::<C>(self.va, self.level as PagingLevel)
             == self.continuations[self.level - 1].idx);
@@ -411,7 +411,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.view_mappings() == owner0.view_mappings(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         let L = self.level as int;
@@ -497,7 +497,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             (Self { va: new_va, ..self }).inv(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.lemma_cur_pte_index();
         assert(self.set_va_in_node(new_va).continuations =~= self.continuations);
         assert(self.set_va_in_node(new_va) == (Self { va: new_va, ..self }));

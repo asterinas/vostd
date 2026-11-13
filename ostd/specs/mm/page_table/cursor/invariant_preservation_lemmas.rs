@@ -75,7 +75,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p)),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p);
         assert forall|i: int|
             #![trigger self.continuations[i]]
@@ -124,7 +124,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.no_node_at_idx(changed_idx),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let msp = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let target = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
@@ -183,7 +183,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.metaregion_sound(regions1),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -298,7 +298,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.no_frame_with_path(removed_path),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         broadcast use CursorContinuation::group_lemmas;
 
         let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -376,7 +376,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.path_removable_at_idx(idx, removed_path),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let nn = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
                 e.meta_slot_paddr().unwrap(),
@@ -443,7 +443,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.metaregion_sound(regions1),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -534,7 +534,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.metaregion_sound(regions1),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.no_node_at_idx_from_slot_key(regions0, removed_idx);
 
         owner_before_replace.lemma_cur_subtree_eq_filtered_mappings_path();

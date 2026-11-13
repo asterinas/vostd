@@ -214,7 +214,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             Self::new(owner_subtree, idx, guard),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let ghost tree_level = owner_subtree.level();
         let tracked (entry_own, children) = owner_subtree.tracked_into_parts();
         Self { entry_own, idx, tree_level, children, guard }
@@ -599,7 +599,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             res == OwnerSubtree::new_val(res.value(), res.level() as nat),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let tracked mut owner = EntryOwner::<C>::tracked_new_frame(
             paddr,
             self.path().push_tail(self.idx as int),
@@ -826,7 +826,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
     }
 
     pub open spec fn only_current_locked(self, guards: Guards) -> bool {
@@ -899,7 +899,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             *final(self) == old(self).inc_index().zero_below_level(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_page_table_managed_index_bounds::<C>(old(self).va);
         old(self).lemma_cur_pte_index();
         lemma_inc_slot_indices::<C>(old(self).va, old(self).level);
@@ -978,7 +978,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[i].children.len() == NR_ENTRIES,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
     }
 
     pub open spec fn view_mappings(self) -> Set<Mapping> {
@@ -1072,7 +1072,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             item.clone_requires(regions),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let cont = self.continuations[self.level - 1];
         cont.lemma_map_children_unroll(
             PageTableOwner::<C>::metaregion_sound_pred(regions),
@@ -1166,7 +1166,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }],
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.cur_va_in_subtree_range();
     }
 
@@ -1227,7 +1227,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix % page_size::<C>((self.guard_level + 1) as PagingLevel) == 0,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_lower_indices_aligned::<C>(self.prefix, (self.guard_level + 1) as PagingLevel);
     }
 
@@ -1238,7 +1238,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix as nat % page_size::<C>(self.guard_level) as nat == 0,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_lower_indices_aligned::<C>(self.prefix, self.guard_level);
     }
 
@@ -1254,7 +1254,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             (va as nat) - nat_align_down(self_va as nat, node_size as nat) < node_size as nat,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.lemma_locked_range_span();
         let body_level = (C::NR_LEVELS() + 1) as PagingLevel;
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(body_level);
@@ -1286,7 +1286,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.va + page_size::<C>(level) < page_table_coverage_end_spec::<C>(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_leading_bits_properties::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>((C::NR_LEVELS() + 1) as PagingLevel);
         lemma_page_size_monotone::<C>(level, self.guard_level);
@@ -1304,7 +1304,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.lemma_locked_range_span();
         lemma_page_size_base::<C>();
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_page_size_divides::<C>(1, (self.guard_level + 1) as PagingLevel);
         lemma_fundamental_div_mod(
             page_size::<C>((self.guard_level + 1) as PagingLevel) as int,
@@ -1326,7 +1326,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_subtree().inv(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let cont = self.continuations[self.level - 1];
         cont.lemma_inv_children_unroll(cont.idx as int)
     }
@@ -1348,7 +1348,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             res == OwnerSubtree::new_val(res.value(), res.level() as nat),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let cont = self.continuations[self.level - 1];
         self.lemma_inv_continuation(self.level - 1);
 
@@ -1371,7 +1371,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             !self@.present(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let cur_va = self.cur_va();
 
         assert forall|m: Mapping| self.view_mappings().contains(m) implies !(m.va_range.start
@@ -1425,7 +1425,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.view_preserves_inv();
         let subtree = self.cur_subtree();
         let path = subtree.value().path;
@@ -1497,7 +1497,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.metaregion_sound(regions1),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let f = PageTableOwner::metaregion_sound_pred(regions0);
         let g = PageTableOwner::metaregion_sound_pred(regions1);
 
@@ -1624,7 +1624,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[i].entry_own.metaregion_sound(regions),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         reveal(CursorOwner::path_metaregion_sound);
     }
 
@@ -1740,7 +1740,6 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 {
     C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_requirements();
     C::lemma_page_table_config_constant_properties();
 
     lemma_page_table_managed_bounds::<C>();
@@ -1808,7 +1807,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.non_overlapping(),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.as_page_table_owner_view_non_overlapping();
     }
 }

@@ -1331,7 +1331,7 @@ impl<C: PageTableConfig> PageTable<C> {
     ) -> Result<(Cursor<'rcu, C>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
         }
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard.as_atomic_mode_guard(), va)

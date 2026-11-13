@@ -112,7 +112,7 @@ pub fn lock_range<'rcu, C: PageTableConfig>(
 ) -> (Cursor<'rcu, C>, Tracked<CursorOwner<'rcu, C>>) {
     proof {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         lemma_pte_index_bound::<C>(va.start, C::NR_LEVELS());
         assert forall|i: int| 0 <= i < NR_ENTRIES implies (
         #[trigger] pt_own.0.children()[i]) is Some by {

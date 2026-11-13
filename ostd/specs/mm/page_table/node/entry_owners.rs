@@ -327,7 +327,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         Self {
             kind: EntryOwnerKind::Frame(
                 FrameEntryOwner { mapped_pa: paddr, prop, permission: None },
@@ -390,7 +390,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             )) as Paddr) % PAGE_SIZE == 0,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let pa = self.frame().mapped_pa;
         let child_pa = (pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)) as Paddr;
         lemma_page_size_spec_values::<C>();
@@ -613,7 +613,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.metaregion_sound(r1),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         if self.is_frame() && !self.frame_is_tracked() && frame_to_index(self.meta_slot_paddr()->0)
             == changed_idx {
             self.lemma_untracked_frame_metaregion_sound(r1);

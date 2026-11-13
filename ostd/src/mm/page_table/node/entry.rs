@@ -850,7 +850,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             assert forall|j: int| 0 <= j < NR_ENTRIES implies {
                 &&& (#[trigger] new_owner.children()[j]) is Some
                 &&& new_owner.child(j).value().inv()
@@ -955,7 +955,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         {
             proof {
                 C::lemma_page_table_config_constant_properties();
-                C::lemma_page_table_config_constant_requirements();
 
                 assert(new_owner.child(i as int).inv());
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);

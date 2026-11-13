@@ -643,7 +643,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.split_while_huge(page_size::<C>((self.level - 1) as PagingLevel)) == self@,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.view_preserves_inv();
         if self@.present() {
             let subtree = self.cur_subtree();
@@ -676,7 +676,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.split_while_huge(page_size::<C>(self.level as PagingLevel)) == self@,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         self.view_preserves_inv();
         if self@.present() {
             self.lemma_cur_subtree_inv();
@@ -709,7 +709,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@ == old_view.split_while_huge(page_size::<C>(self.level as PagingLevel)),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         let ps = page_size::<C>(self.level as PagingLevel);
         let m = old_view.query_mapping();
         let f = old_view.mappings.filter(

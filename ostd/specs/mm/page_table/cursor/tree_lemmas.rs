@@ -137,7 +137,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(g),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(g) by {
@@ -187,7 +187,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         if self.level == 1 {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<C>();
             lemma_nat_align_down_sound(cur_va as nat, PAGE_SIZE as nat);

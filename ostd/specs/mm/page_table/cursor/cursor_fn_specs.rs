@@ -34,7 +34,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 < C::TOP_LEVEL_INDEX_RANGE().end,
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
         C::lemma_page_table_config_constant_properties();
         self.lemma_locked_range_span();
         lemma_same_node_vaddr_leading_part_match::<C>(
@@ -284,7 +283,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                 ),
     {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         assert forall|item: C::Item|
             Self::item_slot_in_regions(
                 item,
