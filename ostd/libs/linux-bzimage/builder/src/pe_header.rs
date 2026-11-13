@@ -6,11 +6,6 @@
 //!
 //! The reference to the Linux PE header definition:
 //! <https://github.com/torvalds/linux/blob/master/include/linux/pe.h>
-//!
-//! The eight handwritten executable functions are verified for setup ELF inputs
-//! satisfying the layout preconditions. Parsing and iteration use audited
-//! xmas-elf contracts; packed object bytes use bytemuck's abstract representation model. These
-//! external implementations and per-field byte encodings are not proved here.
 #![expect(
     non_snake_case,
     reason = "The verified bitflags macro exposes flag names as methods."

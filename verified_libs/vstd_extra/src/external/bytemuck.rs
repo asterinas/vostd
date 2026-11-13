@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Trusted contract for bytemuck 1.25.2's `bytes_of`.
-//!
-//! `bytes_of` delegates to `internal::bytes_of`, which casts a one-element
-//! slice to bytes. `NoUninit` excludes padding and uninitialized bytes. The
-//! representation remains abstract: this contract does not assert field offsets
-//! or endianness for arbitrary types.
 use vstd::prelude::*;
 
 verus! {
