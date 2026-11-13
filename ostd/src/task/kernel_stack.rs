@@ -114,7 +114,6 @@ spec fn valid_decimal(bytes: Seq<u8>) -> bool {
 }
 
 } // verus!
-#[expect(dead_code, reason = "the kernel-stack initializer is not enabled yet")]
 #[verus_spec(
     requires size matches Some(value) ==> valid_decimal(value.spec_bytes()),
     returns match size {
@@ -147,7 +146,6 @@ const fn parse_u32(input: &str) -> u32 {
     )]
     while i < bytes.len() {
         proof! {
-            /// Every decimal prefix has a nonnegative value bounded by the complete value.
             proof fn lemma_decimal_prefix(bytes: Seq<u8>, end: int)
                 requires
                     forall|i: int| 0 <= i < bytes.len() ==> b'0' <= #[trigger] bytes[i] <= b'9',
