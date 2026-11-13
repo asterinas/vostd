@@ -19,6 +19,7 @@ pub mod smallvec;
 pub mod smart_ptr;
 pub mod str;
 pub mod time;
+pub mod vec;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
 

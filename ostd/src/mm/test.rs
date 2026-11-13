@@ -110,8 +110,7 @@ mod io {
     #[verus_spec]
     fn read_write_slice_infallible() {
         let data = [1u8, 2, 3, 4, 5];
-        // Origin: let mut buffer = vec![0u8; data.len()];
-        let mut buffer = [0u8; 5];
+        let mut buffer = vec![0u8; data.len()];
         proof_decl! {
             let tracked mut scratch_owner: VmIoOwner;
             let tracked mut writer_owner: VmIoOwner;
