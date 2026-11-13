@@ -9,8 +9,9 @@ use ostd_pod::Pod;
 use crate::{
     /* Error, */
     mm::{
-        /* CachePolicy, */ FallibleVmRead, FallibleVmWrite, /* FrameAllocOptions, PageFlags, PageProperty,
-        UFrame, VmSpace, */
+        /* CachePolicy, */ FallibleVmRead,
+        FallibleVmWrite, /* FrameAllocOptions, PageFlags, PageProperty,
+                         UFrame, VmSpace, */
         io::{/* VmIo, */ VmReader, VmWriter},
         /* tlb::TlbFlushOp,
         vm_space::get_activated_vm_space, */
@@ -28,30 +29,30 @@ mod io {
 
     verus! {
 
-    /// A dummy Pod struct for testing complex types.
-    #[repr(C)]
-    #[derive(Clone, Copy, PartialEq, Debug, Pod)]
-    pub struct TestPodStruct {
-        pub a: u32,
-        pub b: u64,
-    }
+/// A dummy Pod struct for testing complex types.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Debug, Pod)]
+pub struct TestPodStruct {
+    pub a: u32,
+    pub b: u64,
+}
 
-    global layout TestPodStruct is size == 16, align == 8;
+global layout TestPodStruct is size == 16, align == 8;
 
-    /// Establishes the layout of the local test type.
-    pub(crate) proof fn lemma_test_pod_struct_layout()
-        ensures
-            core::mem::size_of::<TestPodStruct>() == 16,
-            core::mem::align_of::<TestPodStruct>() == 8,
-    {
-        broadcast use VERUS_layout_of_TestPodStruct;
-    }
+/// Establishes the layout of the local test type.
+pub(crate) proof fn lemma_test_pod_struct_layout()
+    ensures
+        core::mem::size_of::<TestPodStruct>() == 16,
+        core::mem::align_of::<TestPodStruct>() == 8,
+{
+    broadcast use VERUS_layout_of_TestPodStruct;
 
-    } // verus!
+}
 
+} // verus!
     /// Tests reading and writing u32 values in Infallible mode.
-    /* #[ktest] */
-    #[verus_spec]
+/* #[ktest] */
+#[verus_spec]
     fn read_write_u32_infallible() {
         let mut buffer = [0u8; 8];
         proof! {
