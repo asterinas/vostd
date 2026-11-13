@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794490972776,
+  "lastUpdate": 1794531834570,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11340,6 +11340,90 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=1,066ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "etyyuiope@qq.com",
+            "name": "Hiroki Chen",
+            "username": "hiroki-chen"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d079460c09249fe2be21b4fa4fe0559a44c372fa",
+          "message": "Remove RCU read-token assumptions with real fractions and a pool registry (#922)\n\nThe default `Rcu` proof relied on six `assume`s:\n\n- `load_read_token` assumed the bounded `CountResource` reader pool never\n  ran out (`not_empty`, `1 < frac`).\n- `compare_exchange` and `drop` assumed (`assume(false)`) that a returned\n  read token always belongs to the current pool or a retired pool.\n\nReplace the integer-count reader pool with `vstd::resource::frac_opt::Frac`,\nwhose real-valued fractions can always be split, and drop the artificial\n`RCU_READER_SLOTS` bound.\n\nAdd a monotone per-cell pool registry (`GhostSetAuth<Loc>` with a persistent\nsubset). Every registered pool is either the current pool or retired, and each\nread token carries a persistent singleton witness of its pool's registration,\nso returning a token is now proved to hit a known pool. Fresh pool ids are\nshown distinct from existing ones via `Frac::bounded_with`.\n\nFactor the pool retire/publish step into `RcuPtrGhost::tracked_replace` and\nthe token return path into `tracked_return_token`. Executable code is\nunchanged; `RcuInner` gains only a ghost `pool_registry` field.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-12T19:41:19-05:00",
+          "tree_id": "d6f353fe744cc3377a720385b401f19dcebd6079",
+          "url": "https://github.com/asterinas/vostd/commit/d079460c09249fe2be21b4fa4fe0559a44c372fa"
+        },
+        "date": 1794531834006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 941164853,
+            "unit": "rlimit",
+            "extra": "verified=4392 errors=0 smt-run=362,976ms wall=243,394ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 373645598,
+            "unit": "rlimit",
+            "extra": "smt-run=172,285ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83275612,
+            "unit": "rlimit",
+            "extra": "smt-run=26,621ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53622018,
+            "unit": "rlimit",
+            "extra": "smt-run=24,772ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,498ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,827ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=1,003ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=783ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=883ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::mod_internals",
+            "value": 1451900,
+            "unit": "rlimit",
+            "extra": "smt-run=1,600ms"
           }
         ]
       }
