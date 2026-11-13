@@ -608,6 +608,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
         self.handle.state.update(next);
     }
 
+    /// Makes this CPU idle and returns the task that was running on it.
+    ///
     /// Switches the current task out at a quiescent point.
     ///
     /// The preconditions are the runtime checks of `might_sleep`. Together they
