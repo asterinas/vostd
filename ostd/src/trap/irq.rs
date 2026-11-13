@@ -274,13 +274,13 @@ impl GuardTransfer for DisabledLocalIrqGuard {
 }
 
 } // verus!
-/*impl Drop for DisabledLocalIrqGuard {
+impl Drop for DisabledLocalIrqGuard {
     fn drop(&mut self) {
         if self.was_enabled {
             irq::enable_local();
         }
     }
-} */
+}
 #[cfg(ktest)]
 mod test {
     use super::*;
