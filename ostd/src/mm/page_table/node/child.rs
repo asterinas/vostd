@@ -13,17 +13,17 @@ use crate::specs::{
     *,
 };
 
-use super::*;
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::Frame;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::frame::meta::mapping::meta_to_frame;
-use crate::mm::page_table::*;
 use crate::{
-    mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty},
-    //    sync::RcuDrop,
+    mm::{ frame::{Frame, meta::mapping::meta_to_frame}, page_table::*},
 };
+
 use core::mem::ManuallyDrop;
+
+use super::{PageTableEntryTrait, PageTableNode, PageTableNodeRef};
+use crate::{
+    mm::{page_prop::PageProperty, page_table::PageTableConfig, Paddr, PagingLevel},
+    // sync::RcuDrop,
+};
 
 verus! {
 
