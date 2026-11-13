@@ -40,31 +40,37 @@ use crate::specs::mm::{
     page_table::node::owners::*,
 };
 
-use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
-use crate::mm::frame::{
-    allocator::FrameAllocOptions,
+use crate::mm::{frame::{
     meta::{
-        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX,
-        mapping::{frame_to_meta, meta_to_frame},
+        MetaSlot, REF_COUNT_MAX,
+        mapping::meta_to_frame,
     },
+}, page_table::* };
+pub use child::*;
+pub use entry::*;
+
+use core::{
+    //cell::SyncUnsafeCell,
+    marker::PhantomData,
+    ops::Deref,
+    sync::atomic::{AtomicU8, Ordering},
 };
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr};
+
+pub/*(in crate::mm)*/ use self::{
+    child::{Child, ChildRef},
+    entry::Entry,
+};
+use super::{nr_subpage_per_huge, PageTableConfig, PageTableEntryTrait};
 use crate::{
     mm::{
-        PagingConstsTrait,
-        PagingLevel,
-        //        FrameAllocOptions, Infallible,
-        //        VmReader,
-        frame::{Frame, FrameRef, meta::AnyFrameMeta},
+        frame::{meta::AnyFrameMeta, Frame, FrameRef},
         paddr_to_vaddr,
         page_table::{load_pte, store_pte},
+        FrameAllocOptions, Infallible, PagingConstsTrait, PagingLevel, VmReader,
     },
     task::atomic_mode::InAtomicMode,
 };
-pub use child::*;
-use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
-pub use entry::*;
+
 
 verus! {
 
