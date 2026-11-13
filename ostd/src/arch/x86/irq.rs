@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Interrupts.
+//!
+//! Trusted local IRQ contracts model IF. Enable uses STI/NOP; read/disable
+//! still panic, so their postconditions apply only on normal return.
 use vstd::prelude::*;
+use vstd_extra::ownership::Inv;
+
+use crate::specs::task::irq::LocalIrqGuardOwner;
 
 /* use spin::Once;
 use x86_64::registers::rflags::{self, RFlags};
@@ -49,9 +55,25 @@ impl IrqRemapping {
         Some(self.entry.get()?.index())
     }
 }
+*/
 
 // FIXME: Mark this as unsafe. See
 // <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqGuardOwner>
+    requires
+        old(hw).inv(),
+        old(hw)@.depth == 0,
+        old(hw)@.enabled,
+    ensures
+        final(hw).inv(),
+        final(hw).hardware_enabled(),
+        final(hw)@ == old(hw)@,
+        final(hw).id() == old(hw).id(),
+    opens_invariants none
+    no_unwind
+)]
 pub(crate) fn enable_local() {
     x86_64::instructions::interrupts::enable();
     // When emulated with QEMU, interrupts may not be delivered if a STI instruction is immediately
@@ -60,6 +82,7 @@ pub(crate) fn enable_local() {
     x86_64::instructions::nop();
 }
 
+/*
 /// Enables local IRQs and halts the CPU to wait for interrupts.
 ///
 /// This method guarantees that no interrupts can occur in the middle. In other words, IRQs must
@@ -83,11 +106,31 @@ pub(crate) fn enable_local_and_halt() {
     };
 } */
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&mut LocalIrqGuardOwner>
+    requires
+        old(hw).inv(),
+    ensures
+        final(hw).inv(),
+        !final(hw).hardware_enabled(),
+        final(hw)@ == old(hw)@,
+        final(hw).id() == old(hw).id(),
+    opens_invariants none
+)]
 pub(crate) fn disable_local() {
     // x86_64::instructions::interrupts::disable();
     unimplemented!()
 }
 
+#[verus_verify(external_body)]
+#[verus_spec(
+    with Tracked(hw): Tracked<&LocalIrqGuardOwner>
+    requires
+        hw.inv(),
+    returns hw.hardware_enabled()
+    opens_invariants none
+)]
 pub(crate) fn is_local_enabled() -> bool {
     // (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
     unimplemented!()
