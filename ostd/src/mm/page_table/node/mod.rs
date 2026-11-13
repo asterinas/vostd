@@ -40,12 +40,10 @@ use crate::specs::mm::{
     page_table::node::owners::*,
 };
 
-use crate::mm::{frame::{
-    meta::{
-        MetaSlot, REF_COUNT_MAX,
-        mapping::meta_to_frame,
-    },
-}, page_table::* };
+use crate::mm::{
+    frame::meta::{MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
+    page_table::*,
+};
 pub use child::*;
 pub use entry::*;
 
@@ -56,21 +54,20 @@ use core::{
     sync::atomic::{AtomicU8, Ordering},
 };
 
-pub/*(in crate::mm)*/ use self::{
+pub use self::{
     child::{Child, ChildRef},
     entry::Entry,
 };
-use super::{nr_subpage_per_huge, PageTableConfig, PageTableEntryTrait};
+use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::{
     mm::{
-        frame::{meta::AnyFrameMeta, Frame, FrameRef},
+        FrameAllocOptions, Infallible, PagingConstsTrait, PagingLevel, VmReader,
+        frame::{Frame, FrameRef, meta::AnyFrameMeta},
         paddr_to_vaddr,
         page_table::{load_pte, store_pte},
-        FrameAllocOptions, Infallible, PagingConstsTrait, PagingLevel, VmReader,
     },
     task::atomic_mode::InAtomicMode,
 };
-
 
 verus! {
 
