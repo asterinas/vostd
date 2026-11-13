@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794558992094,
+  "lastUpdate": 1794562487134,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11508,6 +11508,90 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=528ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46440af7206dc3132253ebb8cb5e190a5d711e76",
+          "message": "chore: align import with source code (#926)\n\n* reorder import\n\n* Update segment.rs\n\n* update page_table/mod.rs\n\n* update cursor/mod.rs\n\n* update child.rs\n\n* update entry.rs\n\n* update node/mod.rs\n\n* fmt\n\n* fmt\n\n* fmt\n\n* Update mod.rs",
+          "timestamp": "2026-11-13T17:21:26+08:00",
+          "tree_id": "bd38984b48cbefd0af948108fe087bf755792877",
+          "url": "https://github.com/asterinas/vostd/commit/46440af7206dc3132253ebb8cb5e190a5d711e76"
+        },
+        "date": 1794562486460,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 959818563,
+            "unit": "rlimit",
+            "extra": "verified=4392 errors=0 smt-run=309,038ms wall=211,897ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 392002662,
+            "unit": "rlimit",
+            "extra": "smt-run=156,277ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 83288148,
+            "unit": "rlimit",
+            "extra": "smt-run=24,731ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 53624162,
+            "unit": "rlimit",
+            "extra": "smt-run=17,542ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=1,931ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,321ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,232ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=814ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=598ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=668ms"
           }
         ]
       }
