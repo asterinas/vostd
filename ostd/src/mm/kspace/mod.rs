@@ -268,7 +268,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) -> Self::Item {
         if prop.flags.contains(PageFlags::AVAIL1()) {
             MappedItem::Tracked(
-                Frame::<MetaSlotStorage> {
+                DynFrame {
                     ptr: (perm@->0).slot_perm.ptr(),
                     _marker: PhantomData,
                     #[cfg(verus_keep_ghost_body)]
@@ -298,7 +298,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
             let tracked raw_perm = perm.tracked_unwrap();
             // SAFETY: The caller ensures safety.
             proof_with!(Tracked(raw_perm));
-            let frame = unsafe { Frame::<MetaSlotStorage>::from_raw(paddr) };
+            let frame = unsafe { DynFrame::from_raw(paddr) };
             MappedItem::Tracked(frame, item_prop)
         } else {
             MappedItem::Untracked(paddr, level, prop)
@@ -434,13 +434,16 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) {
         use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
 
-        match item {
-            MappedItem::Tracked(frame, _) => {
+        match (item, res) {
+            (MappedItem::Tracked(frame, _), MappedItem::Tracked(res_frame, _)) => {
                 let frame_idx = meta_to_index(frame.slot_vaddr());
                 assert(frame.index() == frame_to_index(pa));
+                // `Frame::clone_ensures` is a trait-impl spec function, so it does
+                // not unfold at `dyn AnyFrameMeta`; this hands over its conjuncts.
+                frame.lemma_clone_ensures_parts(old_regions, new_regions, res_frame);
                 assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
             },
-            MappedItem::Untracked(_, _, _) => {},
+            _ => {},
         }
     }
 
@@ -463,6 +466,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
             MappedItem::Tracked(frame, _) => {
                 crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
                 regions.lemma_contains_valid_frame_paddr(pa);
+                // `Frame::clone_requires` does not fold at `dyn AnyFrameMeta`, and
+                // neither does the `inv()` it needs; both are trait impls.
+                frame.lemma_inv_from_parts();
+                frame.lemma_clone_requires_from_parts(regions);
             },
             MappedItem::Untracked(_, _, _) => {},
         }

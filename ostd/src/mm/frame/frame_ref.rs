@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 use vstd_extra::{
-    cast_ptr::Repr,
     prelude::*,
     raw_ptr::{ExposedPointsTo, ptr_from_addr},
+    typing::tagged::MaxSize,
 };
 
 use crate::mm::{Vaddr, frame::meta::mapping::frame_to_meta};
@@ -12,7 +12,9 @@ use crate::specs::{
     mm::frame::{
         frame_specs::FrameRawPerms,
         mapping::meta_to_index,
-        meta_owners::{FracMetadataPerm, MetaSlotStorage, MetadataPerm, typed_meta_wf},
+        meta_owners::{
+            FracMetadataPerm, META_STORAGE_SIZE, MetaSlotStorage, MetadataPerm, typed_meta_wf,
+        },
         meta_region_owners::MetaRegionOwners,
     },
 };
@@ -29,7 +31,7 @@ use crate::{mm::Paddr, sync::non_null::NonNullPtr};
 verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
-pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
+pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized> {
     inner: ManuallyDrop<Frame<M>>,
     _marker: PhantomData<&'a Frame<M>>,
     /// A reference to one fractional permission for the currently installed metadata.
@@ -37,7 +39,7 @@ pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
     tracked_metadata_perm: Tracked<Option<&'a FracMetadataPerm>>,
 }
 
-impl<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> FrameRef<'a, M> {
+impl<'a, M: AnyFrameMeta + ?Sized> FrameRef<'a, M> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.inner@.ptr_inv()
@@ -45,7 +47,7 @@ impl<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     }
 }
 
-impl<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> View for FrameRef<'a, M> {
+impl<'a, M: AnyFrameMeta + ?Sized> View for FrameRef<'a, M> {
     type V = Frame<M>;
 
     closed spec fn view(&self) -> Self::V {
@@ -61,14 +63,14 @@ impl<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> View for FrameRef<'a,
     }
 }
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Inv for FrameRef<'_, M> {
+impl<M: AnyFrameMeta + ?Sized> Inv for FrameRef<'_, M> {
     open spec fn inv(self) -> bool {
         self@.inv()
     }
 }
 
 #[verus_verify]
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
+impl<'a, M: AnyFrameMeta + ?Sized> FrameRef<'a, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Safety
@@ -97,12 +99,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
                 Some(counted) => Some(*counted),
                 None => None,
             },
-            permission matches Some(counted) ==> {
-                &&& r.inv()
-                &&& forall|repr_perm: M::ReprPerm|
-                    #[trigger] typed_meta_wf::<M>(*slot_perm, counted.resource(), repr_perm)
-                    ==> r.external_meta_wf(counted.resource(), repr_perm)
-            },
+            permission matches Some(counted) ==> r.inv(),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(None)}
@@ -125,7 +122,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     }
 }
 
-impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
+impl<M: AnyFrameMeta + ?Sized> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
     #[verus_spec(r => ensures *r == (Frame { tracked_metadata_perm: Tracked(None), ..self@ }))]
@@ -164,7 +161,7 @@ impl Inv for FrameRawPermsRef<'_> {
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
-unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Frame<M> {
+unsafe impl<M: AnyFrameMeta + 'static> NonNullPtr for Frame<M> {
     type Target = PhantomData<Self>;
 
     type Permission = FrameRawPerms;
@@ -302,7 +299,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     }
 }
 
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
+impl<'a, M: AnyFrameMeta + ?Sized> FrameRef<'a, M> {
     pub open spec fn start_paddr_spec(self) -> Paddr {
         self@.start_paddr_spec()
     }
@@ -315,17 +312,15 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     pub open spec fn frac_metadata_perm(self) -> FracMetadataPerm {
         self@.frac_metadata_perm()
     }
+}
 
+/// `MaxSize` implies `Sized`, so this one is stated apart from the rest: a
+/// `FrameRef<dyn AnyFrameMeta>` has no concrete metadata representation to
+/// relate a permission to.
+impl<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>> FrameRef<'a, M> {
     /// Relates an external metadata permission to the non-owning frame handle.
-    pub open spec fn external_meta_wf(
-        self,
-        metadata_perm: MetadataPerm,
-        repr_perm: M::ReprPerm,
-    ) -> bool {
-        (Frame { tracked_metadata_perm: Tracked(None), ..self@ }).external_meta_wf(
-            metadata_perm,
-            repr_perm,
-        )
+    pub open spec fn external_meta_wf(self, metadata_perm: MetadataPerm) -> bool {
+        (Frame { tracked_metadata_perm: Tracked(None), ..self@ }).external_meta_wf(metadata_perm)
     }
 }
 

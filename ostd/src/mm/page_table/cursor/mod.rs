@@ -3814,7 +3814,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                 }
                 Some(
                     PageTableFrag::StrayPageTable {
-                        pt: cloned_pt.into_dyn(),
+                        pt: cloned_pt.into(),
                         va,
                         len: page_size::<C>(self.0.level),
                         num_frames,

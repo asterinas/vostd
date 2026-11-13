@@ -7,14 +7,16 @@ use vstd::{
 };
 use vstd_extra::{
     auxiliary::OptionExtraFns,
-    cast_ptr::*,
     ownership::*,
-    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_mut_from_addr, ptr_mut_ref, ptr_ref},
+    transmute::{can_transmute, transmuted},
 };
 
 use crate::specs::{
     arch::*,
-    mm::frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners, unique::*},
+    mm::frame::{
+        casts::*, mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners, unique::*,
+    },
 };
 
 use super::{
@@ -25,11 +27,13 @@ use super::{
     },
 };
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
+use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
+use vstd_extra::typing::tagged::MaxSize;
 
 verus! {
 
-pub struct UniqueFrame<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
+pub struct UniqueFrame<M: AnyFrameMeta + ?Sized> {
     pub ptr: *const MetaSlot,
     pub _marker: PhantomData<M>,
     /// The permission to access the `MetaSlot` fields.
@@ -41,24 +45,26 @@ pub struct UniqueFrame<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerO
 }
 
 #[verifier::external]
-unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Send> Send for UniqueFrame<M> {
+unsafe impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + Send> Send for UniqueFrame<M> {
 
 }
 
 #[verifier::external]
-unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Sync> Sync for UniqueFrame<M> {
+unsafe impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + Sync> Sync for UniqueFrame<M> {
 
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> DebugSpecImpl for UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + ?Sized> DebugSpecImpl for UniqueFrame<
+    M,
+> {
     open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
         self.ptr_inv()
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> core::fmt::Debug for UniqueFrame<
-    M,
-> {
+impl<
+    M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + ?Sized,
+> core::fmt::Debug for UniqueFrame<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         broadcast use group_fmt_axioms;
 
@@ -67,7 +73,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> core::fmt::Debu
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
     /// Gets a [`UniqueFrame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -84,7 +90,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(meta_own_in): Tracked<M::Owner>,
-            Tracked(repr_perm_in): Tracked<M::ReprPerm>,
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
             old(regions).contains(frame_to_index(paddr)),
@@ -108,11 +113,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).inv(),
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
-        let tracked mut repr_perm = repr_perm_in;
-        #[verus_spec(with
-            Tracked(regions),
-            Tracked(&mut repr_perm) => Tracked(permissions)
-        )]
+        #[verus_spec(with Tracked(regions) => Tracked(permissions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, true);
 
         if let Err(err) = from_unused {
@@ -122,11 +123,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             proof_decl! {
                 let tracked metadata_perms = permissions.tracked_unwrap().tracked_take_right();
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
-                let tracked owner = UniqueFrameOwner::<M> {
-                    meta_own: meta_own_in,
-                    repr_perm: Some(repr_perm),
-                    slot_index: frame_to_index(paddr),
-                };
+                let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(
+                    meta_own_in,
+                    frame_to_index(paddr),
+                );
             }
 
             let ptr = from_unused.unwrap();
@@ -145,8 +145,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
     }
 
-    // FIXME: This seems to be unsound and has to be corrected until we have better modeling of trait object.
-    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    /// The slot this handle owns holds metadata of type `M1`.
+    ///
+    /// Reparameterizing a handle is a statement about bytes; handing the metadata
+    /// permission to an arbitrary `M1` additionally asserts that the slot really
+    /// holds an `M1`, which no layout fact establishes. The recorded id does:
+    /// [`MetaSlot::write_meta`] stamps it when it installs metadata, so only a
+    /// caller that has just written an `M1` can discharge this.
+    pub open spec fn transmute_requires<M1: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
+        self,
+    ) -> bool {
+        // `metadata_perm()` alone would not imply presence: it reads through `->0`,
+        // which is underspecified on `None` rather than false.
+        &&& self.tracked_metadata_perm@ is Some
+        &&& self.metadata_perm().meta_type_id == recorded_meta_id::<M1>()
+    }
+
+    pub open spec fn transmute_spec<M1: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
         self,
         transmuted: UniqueFrame<M1>,
     ) -> bool {
@@ -155,13 +170,29 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         &&& transmuted.tracked_metadata_perm@ == self.tracked_metadata_perm@
     }
 
-    #[verifier::external_body]
+    /// Reparameterizes a unique handle from `M` to `M1`.
+    ///
+    /// Three claims, kept apart: [`axiom_unique_frame_transmutable`] says the pair
+    /// may be reinterpreted, [`axiom_unique_frame_reparam`] says what that yields,
+    /// and [`Self::transmute_requires`] says the slot really holds an `M1` -- the
+    /// only one of the three about identity.
     #[verus_spec(res =>
+        requires
+            self.transmute_requires::<M1>(),
         ensures
             Self::transmute_spec(self, res),
     )]
-    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> UniqueFrame<M1> {
-        unimplemented!()
+    pub fn transmute<M1: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(self) -> UniqueFrame<
+        M1,
+    > {
+        proof {
+            axiom_unique_frame_transmutable::<M, M1>(self);
+            axiom_unique_frame_reparam::<M, M1>(self);
+            axiom_reparam_perm_between::<M, M1>(self.tracked_metadata_perm@->0);
+        }
+        // SAFETY: see [`axiom_unique_frame_reparam`] -- one pointer either way, once
+        // the ghost fields are erased.
+        unsafe { core::mem::transmute::<UniqueFrame<M>, UniqueFrame<M1>>(self) }
     }
 
     /// Repurposes the frame with a new metadata.
@@ -180,7 +211,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(meta_own_in): Tracked<M1::Owner>,
-            Tracked(repr_perm_in): Tracked<M1::ReprPerm>,
                 -> new_owner: Tracked<UniqueFrameOwner<M1>>,
         requires
             self.wf_with_region(owner, *old(regions)),
@@ -196,13 +226,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             res.meta_value(new_owner@) == metadata,
             final(regions).inv(),
     )]
-    pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub fn repurpose<M1: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf>(
         mut self,
         metadata: M1,
     ) -> UniqueFrame<M1> {
         proof_decl! {
             broadcast use group_page_meta;
-            let tracked mut repr_perm = repr_perm_in;
             let ghost idx = self.index();
             let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
             let tracked metadata_perm = self.tracked_metadata_perm.tracked_take();
@@ -219,10 +248,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         };
 
         unsafe {
-            #[verus_spec(with
-                Tracked(&mut metadata_perm),
-                Tracked(&mut repr_perm)
-            )]
+            #[verus_spec(with Tracked(&mut metadata_perm))]
             self.slot().write_meta(metadata)
         };
 
@@ -230,11 +256,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             slot_own.usage = metadata_perm.usage();
         }
         proof_decl!{
-        let tracked new_owner = UniqueFrameOwner::<M1> {
-            meta_own: meta_own_in,
-            repr_perm: Some(repr_perm),
-            slot_index: meta_to_index(self.slot_vaddr()),
-        };
+        let tracked new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
+            meta_own_in,
+            meta_to_index(self.slot_vaddr()),
+        );
         }
 
         #[cfg(verus_keep_ghost_body)]
@@ -268,16 +293,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             self.meta_value(*owner) == l,
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
-        // SAFETY: The type is tracked by the type system.
-        // unsafe { &*self.slot().as_meta_ptr::<M>() }
         let tracked points_to = *self.tracked_slot_perm.borrow();
         let tracked metadata_perms = self.tracked_metadata_perm.borrow().tracked_borrow();
-        borrow_meta(
-            ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
-            Tracked(points_to),
-            Tracked(metadata_perms),
-            Tracked(owner.tracked_borrow_repr_perm()),
-        )
+        let tracked meta_perm = MetaSlot::meta_perm::<M>(points_to, metadata_perms);
+        // SAFETY: The type is tracked by the type system.
+        #[verus_spec(with Tracked(points_to))]
+        let meta_addr = self.slot().addr_of();
+        let meta_ptr = ptr_from_addr::<M>(meta_addr, Tracked(meta_perm));
+        ptr_ref(meta_ptr, Tracked(meta_perm))
     }
 
     /// Gets the mutable metadata of this page.
@@ -311,18 +334,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     )]
     pub fn meta_mut<'a>(&'a mut self) -> &'a mut M {
         let tracked points_to = *self.tracked_slot_perm.borrow();
+        let slot = self.slot();
         let tracked metadata_perms = self.tracked_metadata_perm.borrow_mut().tracked_borrow_mut();
-        let tracked repr_perm = owner.tracked_borrow_mut_repr_perm();
-        borrow_meta_mut(
-            ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
-            Tracked(points_to),
-            Tracked(metadata_perms),
-            Tracked(repr_perm),
-        )
+        let tracked meta_perm = MetaSlot::meta_perm_mut::<M>(points_to, metadata_perms);
+
+        // SAFETY: The type is tracked by the type system.
+        // And we have the exclusive access to the metadata.
+        #[verus_spec(with Tracked(points_to))]
+        let meta_addr = slot.addr_of();
+        let meta_ptr = ptr_mut_from_addr::<M>(meta_addr, Tracked(&*meta_perm));
+        ptr_mut_ref(meta_ptr, Tracked(meta_perm))
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// Gets the size of this page in bytes.
     pub const fn size(&self) -> usize
         returns
@@ -347,7 +372,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// Gets the physical address of the start of the frame.
     #[verus_spec(
         requires
@@ -454,7 +479,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         with
             Tracked(slot_perm): Tracked<&'static ExposedPointsTo<MetaSlot>>,
             Tracked(meta_own): Tracked<M::Owner>,
-            Tracked(repr_perm): Tracked<M::ReprPerm>,
             Tracked(metadata_perm): Tracked<MetadataPerm>,
             ->
                 owner: Tracked<UniqueFrameOwner<M>>,
@@ -469,7 +493,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             res.tracked_slot_perm@ == slot_perm,
             res.wf(owner@),
             owner@.meta_own == meta_own,
-            owner@.repr_perm == Some(repr_perm),
             res.tracked_metadata_perm@ == Some(metadata_perm),
             owner@.slot_index == frame_to_index(paddr),
     )]
@@ -478,11 +501,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // Origin Rust: let ptr = vaddr as *const MetaSlot;
         let ptr = ptr_from_addr(vaddr, Tracked(slot_perm));
 
-        let tracked owner = UniqueFrameOwner {
-            meta_own,
-            repr_perm: Some(repr_perm),
-            slot_index: frame_to_index(paddr),
-        };
+        let tracked owner = UniqueFrameOwner { meta_own, slot_index: frame_to_index(paddr) };
 
         proof_with!{ |= Tracked(owner)}
         Self {
@@ -522,7 +541,7 @@ impl<M: AnyFrameMeta + ?Sized> Drop for UniqueFrame<M> {
     }
 } */
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf + ?Sized> UniqueFrame<M> {
     #[verus_spec(
         with
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
@@ -561,7 +580,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
     #[verus_spec(res =>
         with
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
@@ -612,7 +631,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
     /// Tries to convert a shared frame into a unique one by CAS'ing ref_count
     /// from 1 to `REF_COUNT_UNIQUE`. Inherent sibling of
     /// `TryFrom<Frame<M>> for UniqueFrame<M>`.
@@ -665,14 +684,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> From<UniqueFrame<M>> for Frame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> From<UniqueFrame<M>> for Frame<M> {
     #[verifier::external_body]
     fn from(unique: UniqueFrame<M>) -> Self {
         Frame::from_unique(unique)
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TryFrom<Frame<M>> for UniqueFrame<M> {
+impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> TryFrom<Frame<M>> for UniqueFrame<M> {
     type Error = Frame<M>;
 
     /// Tries to get a unique frame from a shared frame.

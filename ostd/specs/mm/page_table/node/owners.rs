@@ -238,11 +238,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
-        typed_meta_wf::<PageTablePageMeta<C>>(*regions.slots[self.slot_index], self.metadata, ())
+        typed_meta_wf::<PageTablePageMeta<C>>(*regions.slots[self.slot_index], self.metadata)
     }
 
     pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
-        typed_meta_value::<PageTablePageMeta<C>>(self.metadata, ())
+        typed_meta_value::<PageTablePageMeta<C>>(self.metadata)
     }
 
     pub open spec fn level(self) -> PagingLevel {
@@ -308,7 +308,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& guard.inner@.wf(self)
-        &&& guard.inner.external_meta_wf(self.metadata, ())
+        &&& guard.inner.external_meta_wf(self.metadata)
         &&& guard.inner@.tracked_metadata_perm@ matches Some(permission) ==> {
             &&& guard.inner.inv()
             &&& self.matches_permission(permission)
