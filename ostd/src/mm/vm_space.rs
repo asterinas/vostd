@@ -20,19 +20,15 @@ use crate::specs::{
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
-        page_table::{cursor::owners::CursorOwner, *},
+        page_table::{cursor::owners::CursorOwner, node::entry_owners::EntryOwner, *},
         tlb::TlbModel,
         virt_mem::{MemView, VirtPtr},
     },
 };
 
 use crate::mm::{
-    KERNEL_VADDR_RANGE, Paddr, Vaddr,
-    frame::meta::MetaSlot,
-    kspace::KernelPtConfig,
-    page_table::*,
-    page_table::{EntryOwner, PageTableGuard},
-    tlb::*,
+    KERNEL_VADDR_RANGE, Paddr, Vaddr, frame::meta::MetaSlot, kspace::KernelPtConfig,
+    page_table::PageTableGuard, page_table::*, tlb::*,
 };
 
 use crate::sync::RoArc;

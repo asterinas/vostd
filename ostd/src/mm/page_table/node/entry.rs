@@ -21,15 +21,14 @@ use crate::mm::{
     frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED, meta::mapping::meta_to_frame},
     page_table::*,
 };
-use core::ops::Deref;
 
-use super::{Child, ChildRef, PageTableEntryTrait, /*PageTableGuard,*/ PageTableNode};
+use super::{Child, ChildRef, PageTableEntryTrait, PageTableGuard, PageTableNode};
 use crate::{
     mm::{
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size,
-        page_table::{PageTableConfig /*, PageTableNodeRef*/},
+        page_table::{PageTableConfig, PageTableNodeRef},
     },
     // sync::RcuDrop,
     task::atomic_mode::InAtomicMode,
@@ -38,23 +37,6 @@ use crate::{
 verus! {
 
 broadcast use group_ghost_tree_lemmas;
-
-/// A reference to a page table node.
-pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
-
-/// A guard that holds the lock of a page table node.
-pub struct PageTableGuard<'rcu, C: PageTableConfig> {
-    pub inner: PageTableNodeRef<'rcu, C>,
-}
-
-impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
-    type Target = PageTableNodeRef<'rcu, C>;
-
-    #[verus_spec(ensures returns self.inner)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     /// The page table entry.

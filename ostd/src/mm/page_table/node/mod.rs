@@ -34,7 +34,6 @@ mod entry_specs;
 use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*};
 use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
-pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
     frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
@@ -339,6 +338,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
 }
 
+/// A reference to a page table node.
+pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
+
 #[verus_verify]
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn locks_preserved_except<'rcu>(
@@ -412,6 +414,11 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
         guard
     }
+}
+
+/// A guard that holds the lock of a page table node.
+pub struct PageTableGuard<'rcu, C: PageTableConfig> {
+    pub inner: PageTableNodeRef<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
@@ -622,6 +629,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         )]
         let meta = self.meta();
         &meta.nr_children
+    }
+}
+
+impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
+    type Target = PageTableNodeRef<'rcu, C>;
+
+    #[verus_spec(ensures returns self.inner)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
