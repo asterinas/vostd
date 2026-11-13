@@ -466,8 +466,18 @@ dependencies = [
 name = "ostd-pod"
 version = "0.1.1"
 dependencies = [
+ "ostd-pod-derive",
  "vstd",
  "vstd_extra",
+]
+
+[[package]]
+name = "ostd-pod-derive"
+version = "0.1.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
