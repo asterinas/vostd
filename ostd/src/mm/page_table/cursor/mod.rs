@@ -818,6 +818,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<
         Vaddr,
     > {
+        hide(<CursorOwner as Inv>::inv);
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
         hide(<MetaRegionOwners as Inv>::inv);
@@ -908,6 +909,13 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                 C::lemma_paging_consts_properties();
                 C::lemma_page_table_config_constant_requirements();
                 owner.lemma_barrier_va_bounds(self.va);
+                owner.lemma_cur_pte_index();
+                owner.lemma_in_barrier_va_level_le_guard_level();
+                owner.lemma_inv_continuation(owner.level - 1);
+                assert(owner.continuations[owner.level - 1].all_some()
+                    && owner.continuations[owner.level - 1].level() == owner.level) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
             }
             let ghost cursor0 = *self;
             let ghost baseline_view = CursorView { cur_va: owner0.va, ..old(owner)@ };
@@ -1220,6 +1228,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                                 owner.cur_entry_owner().node().slot_vaddr(),
                             ),
                         );
+                        assert(owner.continuations[owner.level - 1].level() == owner.level) by {
+                            reveal(<CursorOwner as Inv>::inv);
+                        };
                         owner.lemma_split_current_mappings(owner0);
                         assert forall|i: int| 0 <= i < C::NR_LEVELS() implies (
                         #[trigger] self.path[i]) == cursor0.path[i] by {
@@ -1241,12 +1252,21 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                         lemma_page_size_ge_base::<C>(owner0.level);
                         lemma_page_size_ge_base::<C>(self.level);
                         lemma_page_size_divides::<C>(self.level, owner0.level);
+                        assert(owner.cur_entry_owner().is_frame()) by {
+                            reveal(<CursorOwner as Inv>::inv);
+                        };
                         owner.find_next_split_push_equals_split_while_huge(owner0@);
                         let baseline = CursorView { cur_va: self.va, ..old(owner)@ };
                         baseline.lemma_split_while_huge_compose(
                             page_size::<C>(owner0.level),
                             page_size::<C>(self.level),
                         );
+                        assert(old(owner).cur_entry_owner().is_frame()
+                            ==> owner.cur_entry_owner().frame().prop == old(
+                            owner,
+                        ).cur_entry_owner().frame().prop) by {
+                            reveal(<CursorOwner as Inv>::inv);
+                        };
                         split_happened = true;
                     }
 
@@ -1261,6 +1281,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
         if self.va > self.barrier_va.end {
             self.va = self.barrier_va.end;
             proof {
+                reveal(<CursorOwner as Inv>::inv);
                 let ghost before_clamp = *owner;
                 let tracked mut cont = owner.continuations.tracked_remove(owner.level - 1);
                 cont.idx = pte_index_spec::<C>(self.va, owner.level);
@@ -1331,6 +1352,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     )]
     #[verifier::spinoff_prover]
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError> {
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
         proof {
             C::lemma_paging_consts_properties();
             C::lemma_page_table_config_constant_requirements();
@@ -1550,6 +1574,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                 va < next_va <= va + page_size::<C>(self.level),
                 next_va % page_size::<C>(self.level) == 0,
                 owner.in_barrier_va(),
+                !owner.popped_too_high,
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
@@ -1628,22 +1653,15 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                 let stopped = owner.set_va_in_node(stop);
                 // The barrier end remains in the slot preceding the increment.
                 assert(stopped.continuations =~= owner_before_move.continuations);
-                assert(stopped.inv()) by {
-                    C::lemma_paging_consts_properties();
-                    reveal(<CursorOwner as Inv>::inv);
-                    if self.level <= 1 <= C::NR_LEVELS() {
-                        assert(pte_index_spec::<C>(stop, 1) == pte_index_spec::<C>(va, 1));
-                    }
-                    if self.level <= 2 <= C::NR_LEVELS() {
-                        assert(pte_index_spec::<C>(stop, 2) == pte_index_spec::<C>(va, 2));
-                    }
-                    if self.level <= 3 <= C::NR_LEVELS() {
-                        assert(pte_index_spec::<C>(stop, 3) == pte_index_spec::<C>(va, 3));
-                    }
-                    if self.level <= 4 <= C::NR_LEVELS() {
-                        assert(pte_index_spec::<C>(stop, 4) == pte_index_spec::<C>(va, 4));
-                    }
+                assert forall|i: PagingLevel|
+                    owner_before_move.level <= i
+                        <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(stop, i)
+                    == pte_index_spec::<C>(owner_before_move.va, i) by {
+                    let higher = i as int - 1;
+                    assert((higher + 1) as PagingLevel == i);
                 };
+                owner_before_move.lemma_set_va_same_indices_preserves_inv(stop);
+                assert(stopped == (CursorOwner { va: stop, ..owner_before_move }));
             }
             assert(self.inv()) by {
                 C::lemma_paging_consts_properties();
@@ -2902,6 +2920,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
+        hide(CursorContinuation::inv_children_rel);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::pt_inv_children);
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
 
@@ -3005,6 +3026,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             }
             assert(new_owner.value().metaregion_sound(*regions));
             let cont = owner.continuations[owner.level - 1];
+            cont.lemma_inv_children_unroll(cont.idx as int);
+            cont.lemma_inv_children_rel_unroll(cont.idx as int);
+            cont.lemma_pt_inv_children_unroll(cont.idx as int);
             cont.lemma_map_children_unroll(
                 PageTableOwner::<C>::metaregion_sound_pred(*regions),
                 cont.idx as int,

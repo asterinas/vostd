@@ -479,6 +479,29 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
     }
+
+    /// Repositioning within the same indexed slot preserves the owner invariant.
+    #[verifier::spinoff_prover]
+    pub(crate) proof fn lemma_set_va_same_indices_preserves_inv(self, new_va: Vaddr)
+        requires
+            self.inv(),
+            self.in_barrier_va(),
+            !self.popped_too_high,
+            self.va <= new_va <= self.barrier_va.end,
+            new_va % C::BASE_PAGE_SIZE() == 0,
+            vaddr_leading_part_spec::<C>(new_va) == vaddr_leading_part_spec::<C>(self.va),
+            forall|i: PagingLevel|
+                self.level <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(new_va, i)
+                    == pte_index_spec::<C>(self.va, i),
+        ensures
+            (Self { va: new_va, ..self }).inv(),
+    {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_requirements();
+        self.lemma_cur_pte_index();
+        assert(self.set_va_in_node(new_va).continuations =~= self.continuations);
+        assert(self.set_va_in_node(new_va) == (Self { va: new_va, ..self }));
+    }
 }
 
 } // verus!

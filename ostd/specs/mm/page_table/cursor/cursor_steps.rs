@@ -486,6 +486,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
     }
 
+    #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     pub proof fn pop_level_owner_preserves_invs(self, guards: Guards, regions: MetaRegionOwners)
         requires
@@ -500,13 +501,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.nodes_locked(guards),
             self.pop_level_owner().0.metaregion_sound(regions),
     {
+        hide(CursorContinuation::pt_inv_children);
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_requirements();
-        reveal(PageTableOwner::pt_inv_at_depth);
         let child = self.continuations[self.level - 1];
         let child_addr = child.entry_own.node().slot_vaddr();
+        child.as_page_table_owner_pt_inv();
+        let cont = self.continuations[self.level as int];
+        assert(cont.restore(child).0.pt_inv_children()) by {
+            reveal(CursorContinuation::pt_inv_children);
+            reveal(PageTableOwner::pt_inv_at_depth);
+        };
+
 
         self.lemma_map_children_implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),

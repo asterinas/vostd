@@ -27,8 +27,8 @@ use crate::specs::{
 };
 
 use crate::mm::{
-    KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, Vaddr, frame::meta::MetaSlot, kspace::KernelPtConfig,
-    page_table::PageTableGuard, page_table::*, tlb::*,
+    KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, Vaddr, frame::meta::MetaSlot,
+    kspace::KernelPtConfig, page_table::PageTableGuard, page_table::*, tlb::*,
 };
 
 use crate::sync::RoArc;
