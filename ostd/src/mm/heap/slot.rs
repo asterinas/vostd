@@ -59,17 +59,6 @@ impl SlotInfo {
             Self::LargeSlot(size) => size,
         }
     }
-
-    /// Gets the size of the slot.
-    pub fn size(&self) -> usize
-        returns
-            self.size_spec(),
-    {
-        match self {
-            Self::SlabSlot(size) => *size,
-            Self::LargeSlot(size) => *size,
-        }
-    }
 }
 
 impl Inv for HeapSlot {
@@ -94,14 +83,33 @@ impl HeapSlot {
     pub closed spec fn memory(self) -> PointsToRaw {
         self.tracked_mem@
     }
+}
 
+} // verus!
+#[verus_verify]
+impl SlotInfo {
+    /// Gets the size of the slot.
+    #[verus_spec(returns self.size_spec())]
+    pub fn size(&self) -> usize {
+        match self {
+            Self::SlabSlot(size) => *size,
+            Self::LargeSlot(size) => *size,
+        }
+    }
+}
+
+#[verus_verify]
+impl HeapSlot {
     /// Consumes the slot and transfers its exclusive memory permission.
-    pub(super) fn into_memory(self) -> (res: Tracked<PointsToRaw>)
+    #[verus_spec(res =>
         ensures
             res@ == self.memory(),
-    {
-        let tracked mem = self.tracked_mem.get();
-        Tracked(mem)
+    )]
+    pub(super) fn into_memory(self) -> Tracked<PointsToRaw> {
+        proof_decl! {
+            let tracked mem = self.tracked_mem.get();
+        }
+        verus_exec_expr!(Tracked(mem))
     }
 
     /// Creates a new pointer to a heap slot.
@@ -114,27 +122,24 @@ impl HeapSlot {
     ///
     /// If the pointer is from a [`super::Slab`] or [`Segment`], the slot must
     /// have a size that matches the slot size of the slab or segment respectively.
-    pub(super) unsafe fn new(
-        addr: NonNull<u8>,
-        info: SlotInfo,
-        Tracked(mem): Tracked<PointsToRaw>,
-    ) -> (res: Self)
+    #[verus_spec(res =>
         requires
             LINEAR_MAPPING_BASE_VADDR <= addr.as_ptr().addr(),
             addr.as_ptr().addr() + info.size_spec() <= VMALLOC_BASE_VADDR,
-            mem.is_range(addr.as_ptr().addr() as int, info.size_spec() as int),
-            mem.provenance() == addr.as_ptr()@.provenance,
+            mem@.is_range(addr.as_ptr().addr() as int, info.size_spec() as int),
+            mem@.provenance() == addr.as_ptr()@.provenance,
         ensures
             res.inv(),
             res.ptr() == addr.as_ptr(),
             res.slot_info() == info,
-            res.memory() == mem,
-    {
+            res.memory() == mem@,
+    )]
+    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo, mem: Tracked<PointsToRaw>) -> Self {
         Self {
             addr,
             info,
             #[cfg(verus_keep_ghost_body)]
-            tracked_mem: Tracked(mem),
+            tracked_mem: mem,
         }
     }
 
@@ -194,22 +199,21 @@ impl HeapSlot {
         drop(unsafe { Segment::<LargeAllocFrameMeta>::from_raw(range) });
     }*/
     /// Gets the physical address of the slot.
-    pub fn paddr(&self) -> (res: Paddr)
+    #[verus_spec(res =>
         requires
             self.inv(),
         ensures
             paddr_to_vaddr(res) == self.ptr().addr(),
         returns
             (self.ptr().addr() - LINEAR_MAPPING_BASE_VADDR) as Paddr,
-    {
+    )]
+    pub fn paddr(&self) -> Paddr {
         self.addr.as_ptr() as Vaddr - LINEAR_MAPPING_BASE_VADDR
     }
 
     /// Gets the size of the slot.
-    pub fn size(&self) -> usize
-        returns
-            self.slot_info().size_spec(),
-    {
+    #[verus_spec(returns self.slot_info().size_spec())]
+    pub fn size(&self) -> usize {
         match self.info {
             SlotInfo::SlabSlot(size) => size,
             SlotInfo::LargeSlot(size) => size,
@@ -217,23 +221,18 @@ impl HeapSlot {
     }
 
     /// Gets the type and size of the slot.
-    pub fn info(&self) -> SlotInfo
-        returns
-            self.slot_info(),
-    {
+    #[verus_spec(returns self.slot_info())]
+    pub fn info(&self) -> SlotInfo {
         self.info
     }
 
     /// Gets the pointer to the slot.
-    pub fn as_ptr(&self) -> *mut u8
-        returns
-            self.ptr(),
-    {
+    #[verus_spec(returns self.ptr())]
+    pub fn as_ptr(&self) -> *mut u8 {
         self.addr.as_ptr()
     }
 }
 
-} // verus!
 /*/// The frames allocated for a large allocation.
 #[derive(Debug)]
 pub struct LargeAllocFrameMeta;
