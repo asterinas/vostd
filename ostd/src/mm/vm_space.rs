@@ -27,8 +27,8 @@ use crate::specs::{
 };
 
 use crate::mm::{
-    KERNEL_VADDR_RANGE, Paddr, Vaddr, frame::meta::MetaSlot, kspace::KernelPtConfig,
-    page_table::PageTableGuard, page_table::*, tlb::*,
+    KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, Vaddr, frame::meta::MetaSlot,
+    kspace::KernelPtConfig, page_table::PageTableGuard, page_table::*, tlb::*,
 };
 
 use crate::sync::RoArc;
@@ -38,7 +38,7 @@ use core::{ops::Range, sync::atomic::Ordering};
 
 use crate::{
     Error,
-    arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr},
+    arch::mm::{PAGE_SIZE, PageTableEntry, PagingConsts, current_page_table_paddr},
     cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
     // cpu_local_cell,
     mm::{
@@ -244,7 +244,7 @@ impl VmSpace {
         }
         proof {
             lemma_vaddr_range_spec_user();
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -307,7 +307,7 @@ impl VmSpace {
         }
         proof {
             lemma_vaddr_range_spec_user();
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -1606,21 +1606,9 @@ impl RCClone for MappedItem {
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for UserPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        0..256
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
-        true
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        true
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const TOP_LEVEL_INDEX_RANGE: Range<usize> = 0..256;
 
     type E = PageTableEntry;
 

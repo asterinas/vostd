@@ -204,8 +204,8 @@ proof fn lemma_sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int,
         forall|i: int| 0 <= i < res@.len() ==> {
             &&& (#[trigger] res@[i]).0 % PAGE_SIZE == 0
             &&&  res@[i].0 % page_size::<PagingConsts>(res@[i].1) == 0
-            &&& 1 <= res@[i].1 <= NR_LEVELS
-            &&& res@[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
+            &&& 1 <= res@[i].1 <= KernelPtConfig::NR_LEVELS
+            &&& res@[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL
             &&& res@[i].0 == pa + sum_page_sizes_spec(res@, 0, i)
         },
         sum_page_sizes_spec(res@, 0, res@.len() as int) == len,
@@ -511,7 +511,7 @@ impl KVirtArea {
         let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
         proof {
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
             lemma_vaddr_range_spec_kernel();
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
         }
@@ -581,7 +581,7 @@ impl KVirtArea {
             let ghost regions_before_map = *regions;
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
             proof {
-                lemma_page_size_spec_values();
+                lemma_page_size_spec_values::<PagingConsts>();
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
                 vstd::arithmetic::power::lemma_pow0(2int);
@@ -714,7 +714,7 @@ impl KVirtArea {
             // while largest_pages selects a leaf in its unlocked parent. This is fixed in
             // the latest version.
             forall|level: PagingLevel|
-                2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==>
+                2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                     pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
             pa_range.end - pa_range.start >= page_size::<PagingConsts>(2) ==> may_panic(),
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
@@ -726,7 +726,7 @@ impl KVirtArea {
             owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             forall|pa: Paddr, level: PagingLevel|
-                1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==>
+                1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                 #[trigger]
                 <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
                     pa,
@@ -770,7 +770,7 @@ impl KVirtArea {
             let preempt_guard = disable_preempt();
 
             proof {
-                lemma_page_size_spec_values();
+                lemma_page_size_spec_values::<PagingConsts>();
                 lemma_vaddr_range_spec_kernel();
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             }
@@ -784,12 +784,12 @@ impl KVirtArea {
             for (pa, level) in it: pages.into_iter()
                 invariant
                     forall|level: PagingLevel|
-                        2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() ==> len
+                        2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==> len
                             != page_size::<PagingConsts>(level),
                     len >= page_size::<PagingConsts>(2) ==> may_panic(),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
                     forall|pa: Paddr, level: PagingLevel|
-                        1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
+                        1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL
                             ==> #[trigger] <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
                         pa, level, prop),
                     cursor.0.invariants(cursor_owner, *regions, *guards),
@@ -798,8 +798,8 @@ impl KVirtArea {
                         0 <= i < it.seq().len() ==> {
                             &&& (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0
                             &&& it.seq()[i].0 % page_size::<PagingConsts>(it.seq()[i].1) == 0
-                            &&& 1 <= it.seq()[i].1 <= NR_LEVELS
-                            &&& it.seq()[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
+                            &&& 1 <= it.seq()[i].1 <= KernelPtConfig::NR_LEVELS
+                            &&& it.seq()[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL
                             &&& it.seq()[i].0 == pa_range.start + sum_page_sizes_spec(
                                 it.seq(),
                                 0,
@@ -834,7 +834,7 @@ impl KVirtArea {
                 proof {
                     lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     lemma_sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
-                    lemma_page_size_spec_values();
+                    lemma_page_size_spec_values::<PagingConsts>();
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
