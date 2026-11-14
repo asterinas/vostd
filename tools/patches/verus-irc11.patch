@@ -1,8 +1,8 @@
 diff --git a/source/rust_verify_test/tests/core_special_setup.rs b/source/rust_verify_test/tests/core_special_setup.rs
-index e38d186a..03f9d387 100644
+index 0252a878..55b871d2 100644
 --- a/source/rust_verify_test/tests/core_special_setup.rs
 +++ b/source/rust_verify_test/tests/core_special_setup.rs
-@@ -32,6 +32,7 @@ test_verify_one_file_with_options! {
+@@ -35,6 +35,7 @@ test_verify_one_file_with_options! {
              verus_keep_ghost,
              feature(fn_traits),
          )]
@@ -11,7 +11,7 @@ index e38d186a..03f9d387 100644
  
          #[verifier::external]
 diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
-index fbf657aa..cc51b5e9 100644
+index ae8c4081..a19a64f3 100644
 --- a/source/vstd/atomic.rs
 +++ b/source/vstd/atomic.rs
 @@ -1,56 +1,67 @@
@@ -438,7 +438,7 @@ index fbf657aa..cc51b5e9 100644
  }
  
  impl<X, Y, Pred> core::fmt::Debug for AtomicUpdate<X, Y, Pred> {
-@@ -1149,65 +1233,4 @@ pub use {
+@@ -1155,65 +1239,4 @@ pub use {
      try_open_atomic_update_in_proof,
  };
  
@@ -505,7 +505,7 @@ index fbf657aa..cc51b5e9 100644
 -
  } // verus!
 diff --git a/source/vstd/atomic_ghost.rs b/source/vstd/atomic_ghost.rs
-index 317e8c52..0d6a3b8a 100644
+index 74f6c6ff..d1775be0 100644
 --- a/source/vstd/atomic_ghost.rs
 +++ b/source/vstd/atomic_ghost.rs
 @@ -2,21 +2,27 @@
@@ -645,7 +645,7 @@ index 317e8c52..0d6a3b8a 100644
 -/// | `fetch_xor(x)`                | `next == prev ^ x && ret == prev`                                                                                          |
 -/// | `fetch_nand(x)`               | `next == !(prev & x) && ret == prev`                                                                                       |
 -/// | `fetch_max(x)`                | `next == max(prev, x) && ret == prev`                                                                                      |
--/// | `fetch_min(x)`                | `next == max(prev, x) && ret == prev`                                                                                      |
+-/// | `fetch_min(x)`                | `next == min(prev, x) && ret == prev`                                                                                      |
 -/// | `no_op()` (**)                | `next == prev && ret == ()`                                                                                                |
 -///
 -/// (*) Note that `fetch_add` and `fetch_sub` do not specify
@@ -778,7 +778,7 @@ index 317e8c52..0d6a3b8a 100644
 +    /// | `fetch_xor(x)`                | `next == prev ^ x && ret == prev`                                                                                          |
 +    /// | `fetch_nand(x)`               | `next == !(prev & x) && ret == prev`                                                                                       |
 +    /// | `fetch_max(x)`                | `next == max(prev, x) && ret == prev`                                                                                      |
-+    /// | `fetch_min(x)`                | `next == max(prev, x) && ret == prev`                                                                                      |
++    /// | `fetch_min(x)`                | `next == min(prev, x) && ret == prev`                                                                                      |
 +    /// | `no_op()` (**)                | `next == prev && ret == ()`                                                                                                |
 +    ///
 +    /// (*) Note that `fetch_add` and `fetch_sub` do not specify
@@ -2963,11 +2963,10 @@ index 00000000..bfb1c293
 +
 +} // verus!
 diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
-index 0674e2ea..3fb12455 100644
+index f61a7863..25b25f18 100644
 --- a/source/vstd/vstd.rs
 +++ b/source/vstd/vstd.rs
-@@ -27,7 +27,8 @@
- #![cfg_attr(verus_keep_ghost, feature(fmt_arguments_from_str))]
+@@ -32,6 +32,7 @@
  #![cfg_attr(all(feature = "alloc", verus_keep_ghost), feature(btree_cursors))]
  #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
  #![cfg_attr(verus_keep_ghost, feature(maybe_uninit_array_assume_init))]
@@ -2975,7 +2974,7 @@ index 0674e2ea..3fb12455 100644
  
  #[cfg(feature = "alloc")]
  extern crate alloc;
-@@ -35,6 +36,7 @@ pub mod arithmetic;
+@@ -40,6 +41,7 @@ pub mod arithmetic;
  pub mod array;
  pub mod atomic;
  pub mod atomic_ghost;
@@ -2983,7 +2982,7 @@ index 0674e2ea..3fb12455 100644
  pub mod bits;
  pub mod bytes;
  pub mod calc_macro;
-@@ -88,6 +90,7 @@ pub mod state_machine_internal;
+@@ -93,6 +95,7 @@ pub mod state_machine_internal;
  pub mod string;
  #[cfg(feature = "std")]
  pub mod thread;
@@ -2992,7 +2991,7 @@ index 0674e2ea..3fb12455 100644
  pub mod utf8;
  pub mod view;
 diff --git a/source/vstd_build/src/main.rs b/source/vstd_build/src/main.rs
-index 5662268c..fa6cd837 100644
+index 57629ef3..6c4a9944 100644
 --- a/source/vstd_build/src/main.rs
 +++ b/source/vstd_build/src/main.rs
 @@ -38,6 +38,7 @@ fn main() {
