@@ -169,7 +169,8 @@ struct Pe32PlusOptDataDirEnt {
 
 #[verus_verify]
 impl Pe32PlusOptDataDirEnt {
-    #[verus_spec(returns (Self { rva: 0, size: 0 }))]
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::none())]
     fn none() -> Self {
         Self { rva: 0, size: 0 }
     }
@@ -620,7 +621,9 @@ global layout PeSectionHdr is size == 40, align == 1;
 
 /// The four ELF segments and the address/size bounds required by the original
 /// assertions and per-segment constructor. These are caller obligations.
-closed spec fn valid_pe_segments(segments: Seq<xmas_elf::program::ProgramHeader<'_>>) -> bool {
+pub(crate) open spec fn valid_pe_segments(
+    segments: Seq<xmas_elf::program::ProgramHeader<'_>>,
+) -> bool {
     &&& segments.len() == 4
     &&& program_header_flags(&segments[1]).0 & 1 == 1
     &&& program_header_flags(&segments[2]).0 & 4 == 4
@@ -668,15 +671,26 @@ closed spec fn all_pe_section_headers_spec(
 
 /// Successful, readable setup ELF input whose computed optional-header fields
 /// fit their PE widths. Malformed-input panic paths remain executable.
-pub(crate) closed spec fn valid_setup_elf(input: &[u8]) -> bool {
+pub(crate) open spec fn valid_setup_elf(input: &[u8]) -> bool {
     &&& elf_parse_no_unwind(input)
     &&& elf_parse_result(input) matches Ok(elf) && {
-        let headers = all_pe_section_headers_spec(elf_program_headers(&elf));
+        let segments = elf_program_headers(&elf);
+        let base = (segments[1].virtual_addr() - SECTION_ALIGNMENT) as usize;
+        let rodata = pe_section_layout_spec(
+            segments[2].virtual_addr() as usize,
+            segments[2].mem_size() as usize,
+            base,
+        );
+        let data = pe_section_layout_spec(
+            segments[3].virtual_addr() as usize,
+            segments[3].mem_size() as usize,
+            base,
+        );
         &&& elf_program_headers_readable(&elf)
-        &&& valid_pe_segments(elf_program_headers(&elf))
-        &&& headers.base <= header_entry_point(&elf.header.pt2) <= headers.base + u32::MAX
-        &&& headers.rodata.raw_data_size + headers.data.raw_data_size <= u32::MAX
-        &&& headers.data.virtual_address + headers.data.virtual_size <= u32::MAX
+        &&& valid_pe_segments(segments)
+        &&& base <= header_entry_point(&elf.header.pt2) <= base + u32::MAX
+        &&& rodata.0 + data.0 <= u32::MAX
+        &&& data.1 + data.0 <= u32::MAX
     }
 }
 
@@ -734,7 +748,7 @@ closed spec fn pe_optional_header_spec(
 
 /// The six unused data-directory entries are zero.
 closed spec fn pe_data_dirs_spec() -> Pe32PlusOptDataDirs {
-    let zero = Pe32PlusOptDataDirEnt { rva: 0, size: 0 };
+    let zero = Pe32PlusOptDataDirEnt::none();
     Pe32PlusOptDataDirs {
         export_table: zero,
         import_table: zero,
@@ -758,17 +772,26 @@ closed spec fn section_header_bytes(headers: Seq<PeSectionHdr>) -> Seq<u8>
 
 /// The complete DOS prefix, PE/COFF header, optional header, and three sections.
 /// Packed object representations remain the audited bytemuck boundary.
-pub(crate) closed spec fn pe_coff_bytes_spec(elf: &xmas_elf::ElfFile<'_>) -> Seq<u8> {
+pub(crate) open spec fn pe_coff_bytes_spec(elf: &xmas_elf::ElfFile<'_>) -> Seq<u8> {
+    spec_u16_to_le_bytes(0x5a4d) + Seq::new(58, |i: int| 0u8) + spec_u32_to_le_bytes(64)
+        + pe_headers_bytes_spec(elf)
+}
+
+/// Packed header representations are kept behind the module's field models.
+pub(crate) closed spec fn pe_headers_bytes_spec(elf: &xmas_elf::ElfFile<'_>) -> Seq<u8> {
     let headers = all_pe_section_headers_spec(elf_program_headers(elf));
-    spec_u16_to_le_bytes(MZ_MAGIC) + Seq::new(58, |i: int| 0u8) + spec_u32_to_le_bytes(64)
-        + object_bytes(pe_header_spec()) + object_bytes(pe_optional_header_spec(elf, headers))
+    object_bytes(pe_header_spec()) + object_bytes(pe_optional_header_spec(elf, headers))
         + object_bytes(pe_data_dirs_spec()) + section_header_bytes(
         seq![headers.text, headers.rodata, headers.data],
     )
 }
 
 /// Input bounds for aligned PE section fields without narrowing or arithmetic overflow.
-closed spec fn valid_pe_section(virtual_addr: usize, mem_size: usize, base: usize) -> bool {
+pub(crate) open spec fn valid_pe_section(
+    virtual_addr: usize,
+    mem_size: usize,
+    base: usize,
+) -> bool {
     &&& virtual_addr % SECTION_ALIGNMENT == 0
     &&& base % SECTION_ALIGNMENT == 0
     &&& base <= virtual_addr
@@ -780,11 +803,11 @@ closed spec fn valid_pe_section(virtual_addr: usize, mem_size: usize, base: usiz
 }
 
 /// The aligned section size, RVA, and flat-image file offset.
-closed spec fn pe_section_layout_spec(virtual_addr: usize, mem_size: usize, base: usize) -> (
-    u32,
-    u32,
-    u32,
-) {
+pub(crate) open spec fn pe_section_layout_spec(
+    virtual_addr: usize,
+    mem_size: usize,
+    base: usize,
+) -> (u32, u32, u32) {
     (
         nat_align_up(mem_size as nat, SECTION_ALIGNMENT as nat) as u32,
         (virtual_addr - base) as u32,
