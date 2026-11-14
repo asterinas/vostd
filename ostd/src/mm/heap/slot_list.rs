@@ -52,15 +52,20 @@ unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {
 
 }
 
+} // verus!
+#[verus_verify]
 impl<const SLOT_SIZE: usize> Default for SlabSlotList<SLOT_SIZE> {
-    fn default() -> (res: Self)
+    #[verus_spec(res =>
         ensures
             res.inv(),
             res.slots() == Seq::<*mut u8>::empty(),
-    {
+    )]
+    fn default() -> Self {
         Self::new()
     }
 }
+
+verus! {
 
 impl<const SLOT_SIZE: usize> Inv for SlabSlotList<SLOT_SIZE> {
     closed spec fn inv(self) -> bool {
@@ -106,22 +111,27 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         &&& node.rest.provenance() == ptr@.provenance
         &&& node.next_exposed.provenance() == next@.provenance
     }
+}
 
+} // verus!
+#[verus_verify]
+impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     /// Creates a new empty list.
-    pub const fn new() -> (res: Self)
+    #[verus_spec(res =>
         ensures
             res.inv(),
             res.slots() == Seq::<*mut u8>::empty(),
-    {
-        proof {
+    )]
+    pub const fn new() -> Self {
+        proof! {
             assert(Set::<int>::range(0, 0) == Set::<int>::empty());
         }
         Self {
             head: None,
             #[cfg(verus_keep_ghost_body)]
-            ghost_slots: Ghost(Seq::empty()),
+            ghost_slots: verus_exec_expr!(Ghost(Seq::empty())),
             #[cfg(verus_keep_ghost_body)]
-            tracked_nodes: Tracked(Map::tracked_empty()),
+            tracked_nodes: verus_exec_expr!(Tracked(Map::tracked_empty())),
         }
     }
 
@@ -133,7 +143,7 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     ///  - the slot does not come from a slab
     ///    (i.e., `!matches(slot.info(), SlotInfo::SlabSlot(_))`);
     ///  - the size of the slot does not match `SLOT_SIZE`.
-    pub fn push(&mut self, slot: HeapSlot)
+    #[verus_spec(
         requires
             old(self).inv(),
             slot.inv(),
@@ -151,30 +161,37 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
             } else {
                 old(self).slots()
             },
-    {
-        broadcast use group_raw_ptr_axioms;
+    )]
+    pub fn push(&mut self, slot: HeapSlot) {
+        proof_decl! {
+            broadcast use group_raw_ptr_axioms;
 
-        let ghost original = *self;
-        let ghost before = self.slots();
+            let ghost original = *self;
+            let ghost before = self.slots();
+        }
         let slot_ptr = slot.as_ptr();
         let super::SlotInfo::SlabSlot(slot_size) = slot.info() else {
             #[cfg(feature = "allow_panic")]
             panic!("The slot does not come from a slab");
             #[cfg(not(feature = "allow_panic"))]
-             return;
+            return;
         };
 
         #[cfg(feature = "allow_panic")]
         assert_eq!(slot_size, SLOT_SIZE);
         // Verus cannot translate inline const blocks; the same bound is proved above.
         #[cfg(not(verus_keep_ghost))]
-        const { assert!(SLOT_SIZE >= core::mem::size_of::<usize>()) };
-        let Tracked(mem) = slot.into_memory();
-        let tracked (word_mem, rest) = mem.split(
-            Set::range(slot_ptr.addr() as int, slot_ptr.addr() + size_of::<usize>()),
-        );
-        let tracked mut word = word_mem.into_typed::<usize>(slot_ptr.addr());
-        proof {
+        const {
+            assert!(SLOT_SIZE >= core::mem::size_of::<usize>())
+        };
+        let mem = slot.into_memory();
+        proof_decl! {
+            let tracked (word_mem, rest) = mem.get().split(
+                Set::range(slot_ptr.addr() as int, slot_ptr.addr() + size_of::<usize>()),
+            );
+            let tracked mut word = word_mem.into_typed::<usize>(slot_ptr.addr());
+        }
+        proof! {
             word.is_nonnull();
             // Distinct header permissions establish freshness without a caller-supplied address axiom.
             proof fn tracked_distinct(
@@ -212,20 +229,24 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
          * The permission-aware write has the same address and usize payload;
          * expose the next pointer's provenance for pop's integer round trip.
          */
-        let tracked mut next_exposed = IsExposed::null();
+        proof_decl! {
+            let tracked mut next_exposed = IsExposed::null();
+        }
         let link = match original_head {
             Some(h) => {
                 let p = h.as_ptr();
                 let exposure = raw_ptr::expose_provenance(p);
-                proof {
+                proof! {
                     next_exposed = exposure.get();
                 }
                 p as usize
-            },
+            }
             None => 0,
         };
-        raw_ptr::ptr_mut_write(slot_ptr.cast::<usize>(), Tracked(&mut word), link);
-        proof {
+        verus_exec_expr! {
+            raw_ptr::ptr_mut_write(slot_ptr.cast::<usize>(), Tracked(&mut word), link)
+        };
+        proof! {
             self.tracked_nodes.borrow_mut().tracked_insert(
                 before.len() as int,
                 SlotNode { word, rest, next_exposed },
@@ -252,7 +273,7 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     /// Pops a slot from the front of the list.
     ///
     /// It returns `None` if the list is empty.
-    pub fn pop(&mut self) -> (res: Option<HeapSlot>)
+    #[verus_spec(res =>
         requires
             old(self).inv(),
         ensures
@@ -268,14 +289,19 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
                 &&& final(self).slots() == old(self).slots().drop_last()
             },
             res is None ==> final(self).slots() == old(self).slots(),
-    {
-        broadcast use group_raw_ptr_axioms;
+    )]
+    pub fn pop(&mut self) -> Option<HeapSlot> {
+        proof_decl! {
+            broadcast use group_raw_ptr_axioms;
 
-        let ghost original = *self;
-        let ghost before = self.slots();
+            let ghost original = *self;
+            let ghost before = self.slots();
+        }
         let original_head = self.head?;
-        let tracked mut node = self.tracked_nodes.borrow_mut().tracked_remove(before.len() - 1);
-        proof {
+        proof_decl! {
+            let tracked mut node = self.tracked_nodes.borrow_mut().tracked_remove(before.len() - 1);
+        }
+        proof! {
             assert(original.node_inv(before.len() - 1));
             node.word.is_aligned();
             if before.len() > 1 {
@@ -289,11 +315,15 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
          * Read with the exclusive initialized-word permission and restore the
          * provenance exposed by push, retaining the usize link representation.
          */
-        let link = raw_ptr::ptr_mut_read(
-            original_head.as_ptr().cast::<usize>(),
-            Tracked(&mut node.word),
-        );
-        let next = raw_ptr::with_exposed_provenance::<u8>(link, Tracked(node.next_exposed));
+        let link = verus_exec_expr! {
+            raw_ptr::ptr_mut_read(
+                original_head.as_ptr().cast::<usize>(),
+                Tracked(&mut node.word),
+            )
+        };
+        let next = verus_exec_expr! {
+            raw_ptr::with_exposed_provenance::<u8>(link, Tracked(node.next_exposed))
+        };
 
         self.head = if next.is_null() {
             None
@@ -302,8 +332,10 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
             Some(unsafe { NonNull::new_unchecked(next) })
         };
 
-        let tracked mem = node.word.into_raw().join(node.rest);
-        proof {
+        proof_decl! {
+            let tracked mem = node.word.into_raw().join(node.rest);
+        }
+        proof! {
             self.ghost_slots = Ghost(before.drop_last());
             assert(self.slots().map_values(|p: *mut u8| p.addr()) == before.map_values(
                 |p: *mut u8| p.addr(),
@@ -315,12 +347,10 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
                 assert(original.node_inv(i));
             }
         }
-        Some(
-            unsafe {
+        Some(unsafe {
+            verus_exec_expr! {
                 HeapSlot::new(original_head, super::SlotInfo::SlabSlot(SLOT_SIZE), Tracked(mem))
-            },
-        )
+            }
+        })
     }
 }
-
-} // verus!
