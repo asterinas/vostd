@@ -3,7 +3,9 @@ use core::mem::size_of;
 
 use vstd::prelude::*;
 use x86_64::{
-    instructions::port::{ReadWriteAccess, WriteOnlyAccess},
+    instructions::port::{
+        PortAccess, PortReadAccess, PortWriteAccess, ReadWriteAccess, WriteOnlyAccess,
+    },
     structures::port::{PortRead, PortWrite},
 };
 
@@ -69,6 +71,25 @@ pub struct ExReadWriteAccess(ReadWriteAccess);
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExWriteOnlyAccess(WriteOnlyAccess);
+
+/// External declaration of the access marker, omitting its private sealing bound.
+#[verifier::external_trait_specification]
+#[verifier::external_trait_private_bound(x86_64::sealed::Sealed)]
+pub trait ExPortAccess {
+    type ExternalTraitSpecificationFor: PortAccess;
+}
+
+/// External declaration of the marker for readable I/O ports.
+#[verifier::external_trait_specification]
+pub trait ExPortReadAccess: PortAccess {
+    type ExternalTraitSpecificationFor: PortReadAccess;
+}
+
+/// External declaration of the marker for writable I/O ports.
+#[verifier::external_trait_specification]
+pub trait ExPortWriteAccess: PortAccess {
+    type ExternalTraitSpecificationFor: PortWriteAccess;
+}
 
 /// Trusted specification boundary for values that can be read from an x86 I/O port.
 #[verifier::external_trait_specification]
