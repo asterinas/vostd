@@ -130,17 +130,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             OwnerSubtree::implies(f, g),
             forall|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(f),
+                self.level - 1 <= i < C::NR_LEVELS ==> self.continuations[i].map_children(f),
         ensures
             forall|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(g),
+                self.level - 1 <= i < C::NR_LEVELS ==> self.continuations[i].map_children(g),
     {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(g) by {
+            self.level - 1 <= i < C::NR_LEVELS implies self.continuations[i].map_children(g) by {
             self.lemma_inv_continuation(i);
             self.continuations[i].map_children_lift(f, g);
         }

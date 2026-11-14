@@ -720,7 +720,7 @@ impl<'a> CursorMut<'a> {
         &&& prop == prop0
         &&& entry_owner.frame().mapped_pa == paddr
         &&& entry_owner.frame().prop == prop
-        &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
+        &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL
         &&& 1 <= level <= NR_LEVELS
         &&& level < self.pt_cursor.0.guard_level
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)

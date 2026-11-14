@@ -47,7 +47,7 @@ impl ArchAddressSpaceModel for RiscvArch {
     }
 
     proof fn lemma_model_requirements() {
-        assert(Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE() == 0)
+        assert(Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE == 0)
             by (compute_only);
 
         assert(Self::max_paddr_spec() + Self::linear_mapping_base_vaddr_spec()
@@ -58,7 +58,7 @@ impl ArchAddressSpaceModel for RiscvArch {
 /// Supplies the layout facts expected by shared page-table proofs.
 pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>()
     ensures
-        C::BASE_PAGE_SIZE().ilog2() == 12u32,
+        C::BASE_PAGE_SIZE.ilog2() == 12u32,
         nr_pte_index_bits_spec::<C>() == 9usize,
         pow2(9) == NR_ENTRIES,
         pte_index_bit_offset_spec::<C>(4) == 39,

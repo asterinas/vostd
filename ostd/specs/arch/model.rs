@@ -39,9 +39,9 @@ pub trait ArchAddressSpaceModel {
     proof fn lemma_model_requirements()
         ensures
             0 < Self::max_paddr_spec(),
-            Self::C::BASE_PAGE_SIZE() <= Self::max_paddr_spec(),
-            Self::max_paddr_spec() % Self::C::BASE_PAGE_SIZE() == 0,
-            Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE() == 0,
+            Self::C::BASE_PAGE_SIZE <= Self::max_paddr_spec(),
+            Self::max_paddr_spec() % Self::C::BASE_PAGE_SIZE == 0,
+            Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE == 0,
             Self::max_paddr_spec() + Self::linear_mapping_base_vaddr_spec()
                 < Self::vmalloc_base_vaddr_spec(),
     ;
@@ -49,7 +49,7 @@ pub trait ArchAddressSpaceModel {
 
 /// A physical address that can identify a base-page frame for architecture `A`.
 pub open spec fn valid_frame_paddr_for<A: ArchAddressSpaceModel>(pa: Paddr) -> bool {
-    pa % A::C::BASE_PAGE_SIZE() == 0 && pa < A::max_paddr_spec()
+    pa % A::C::BASE_PAGE_SIZE == 0 && pa < A::max_paddr_spec()
 }
 
 /// Convert a physical address through architecture `A`'s linear mapping.
@@ -88,16 +88,16 @@ pub proof fn lemma_vaddr_to_paddr_properties_for<A: ArchAddressSpaceModel>(va: V
 pub proof fn lemma_paddr_to_vaddr_aligned_for<A: ArchAddressSpaceModel>(pa: Paddr)
     requires
         pa < A::vmalloc_base_vaddr_spec() - A::linear_mapping_base_vaddr_spec(),
-        pa % A::C::BASE_PAGE_SIZE() == 0,
+        pa % A::C::BASE_PAGE_SIZE == 0,
     ensures
-        paddr_to_vaddr_for::<A>(pa) % A::C::BASE_PAGE_SIZE() == 0,
+        paddr_to_vaddr_for::<A>(pa) % A::C::BASE_PAGE_SIZE == 0,
 {
     A::C::lemma_paging_consts_requirements();
     A::lemma_model_requirements();
     lemma_mod_0_add(
         pa as int,
         A::linear_mapping_base_vaddr_spec() as int,
-        A::C::BASE_PAGE_SIZE() as int,
+        A::C::BASE_PAGE_SIZE as int,
     );
 }
 

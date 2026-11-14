@@ -1606,21 +1606,9 @@ impl RCClone for MappedItem {
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for UserPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        0..256
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
-        true
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        true
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const TOP_LEVEL_INDEX_RANGE: Range<usize> = 0..256;
 
     type E = PageTableEntry;
 
