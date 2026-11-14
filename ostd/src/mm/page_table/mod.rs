@@ -551,7 +551,7 @@ pub fn largest_pages<C: PageTableConfig>(
 }
 
 /// Gets the top-level index width, in bits, for the page table.
-fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
+const fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
     returns
         top_level_index_width_spec::<C>(),
 {
@@ -563,7 +563,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
     C::ADDRESS_WIDTH - pte_index_bit_offset::<C>(C::NR_LEVELS)
 }
 
-fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
+const fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret == page_table_managed_start_spec::<C>() - page_table_coverage_start_spec::<C>(),
 {
@@ -585,7 +585,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 
 /// Inclusive positional end before sign extension, obtained from the managed end
 /// by removing the configured upper-address contribution and subtracting one.
-fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
+const fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret == page_table_managed_end_spec::<C>() - page_table_coverage_start_spec::<C>() - 1,
 {
@@ -611,7 +611,7 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ret
 }
 
-fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
+const fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     ensures
         ret == ((va as int / pow2((C::ADDRESS_WIDTH - 1) as nat) as int) % 2 == 1),
 {
@@ -632,7 +632,7 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
 /// `!0 ^ ((1 << ADDRESS_WIDTH) - 1)` is equivalent to adding
 /// the derived upper-address contribution, because the mask's bits and `va`'s bits are
 /// disjoint.
-fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
+const fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     requires
         va < pow2(C::ADDRESS_WIDTH as nat),
         C::ADDRESS_WIDTH < usize::BITS,
@@ -690,7 +690,7 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
 /// high-half kernel range ending at `usize::MAX`), would overflow the
 /// exclusive end of a [`Range<Vaddr>`].
 #[verusfmt::skip]
-fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
+const fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     ensures
         ret@ == vaddr_range_spec::<C>(),
 {
@@ -718,7 +718,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
 }
 
 /// Checks if the given range is covered by the valid range of the page table.
-fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool
+const fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool
     returns
         is_valid_range_spec::<C>(*r),
 {
@@ -731,7 +731,7 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool
 
 // Here are some const values that are determined by the paging constants.
 /// The number of virtual address bits used to index a PTE in a page.
-fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
+const fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
     returns
         nr_pte_index_bits_spec::<C>(),
 {
@@ -742,7 +742,7 @@ fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
 }
 
 /// The index of a VA's PTE in a page table node at the given level.
-fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
+const fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
         1 <= level <= C::NR_LEVELS,
     returns
@@ -759,7 +759,7 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 /// This function returns the bit offset of the least significant bit. Take
 /// x86-64 as an example, the `pte_index_bit_offset(2)` should return 21, which
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
-fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
+const fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
         1 <= level <= C::NR_LEVELS,
     ensures

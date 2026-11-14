@@ -220,7 +220,7 @@ pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usi
 // pub const PAGE_SIZE: usize = page_size::<PagingConsts>(1);
 /// The page size at a given level.
 #[verifier::when_used_as_spec(page_size_spec)]
-pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
+pub const fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
     requires
         1 <= level <= C::NR_LEVELS + 1,
     ensures
@@ -250,7 +250,7 @@ pub open spec fn nr_subpage_per_huge_spec<C: PagingConstsTrait>() -> usize {
 
 /// The number of sub pages in a huge page.
 #[verifier::when_used_as_spec(nr_subpage_per_huge_spec)]
-pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> usize
+pub const fn nr_subpage_per_huge<C: PagingConstsTrait>() -> usize
     returns
         nr_subpage_per_huge_spec::<C>(),
 {
