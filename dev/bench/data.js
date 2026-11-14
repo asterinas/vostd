@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794563615744,
+  "lastUpdate": 1794634464265,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11676,6 +11676,90 @@ window.BENCHMARK_DATA = {
             "value": 1451900,
             "unit": "rlimit",
             "extra": "smt-run=1,005ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41ccd7463895815f6d59fe53eb4157affabb13e3",
+          "message": "prove: remove paging layout axiom and refactor architecture specs (#855)\n\n* Remove paging layout axiom and generalize page-table levels\n\n* Format paging specifications with the CI formatter\n\nApply the exact formatting changes reported by PR #855 CI using verusfmt 0.7.4. Repeated make fmt produces no further changes.\n\nValidation: make; repeated make fmt; git diff --check.\n\n* Reduce page-table cursor verification cost\n\nLocalize quantified invariant unfolding in cursor scans, jumps, and maps.\nIsolate mapping disjointness and same-slot address preservation proofs in\nseparate solver contexts, and narrow the page-table invariant expansion\nneeded when restoring a parent continuation.\n\nAfter rebasing onto upstream/main 90087275e, reduce OSTD rlimit from\n1,193,093,450 to 1,011,602,095. The full CI-equivalent total is\n1,087,033,549, 13.0% above the latest main baseline and below the 20%\nperformance alert threshold. Preserve cursor contracts and executable\nbehavior.\n\nValidation: make; x86_64 full verification with --time-expanded;\nmake verify-riscv; make verify-loongarch; repeated make fmt;\ngit diff --check. The local regression module and incremental=false\nconfiguration remain excluded from this commit.\n\n* Address paging contract review feedback\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-14T13:15:42+08:00",
+          "tree_id": "dcebf496a9da1e8e3e8a9832296100e2b9479e1e",
+          "url": "https://github.com/asterinas/vostd/commit/41ccd7463895815f6d59fe53eb4157affabb13e3"
+        },
+        "date": 1794634463294,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1162145083,
+            "unit": "rlimit",
+            "extra": "verified=4462 errors=0 smt-run=433,613ms wall=268,558ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 446938691,
+            "unit": "rlimit",
+            "extra": "smt-run=204,525ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 166169056,
+            "unit": "rlimit",
+            "extra": "smt-run=51,749ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 86630488,
+            "unit": "rlimit",
+            "extra": "smt-run=34,613ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,488ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,890ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=1,018ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=800ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=906ms"
+          },
+          {
+            "name": "rlimit: arithmetic::internals::mod_internals",
+            "value": 1451900,
+            "unit": "rlimit",
+            "extra": "smt-run=1,563ms"
           }
         ]
       }
