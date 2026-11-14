@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794634464265,
+  "lastUpdate": 1794656730262,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11760,6 +11760,90 @@ window.BENCHMARK_DATA = {
             "value": 1451900,
             "unit": "rlimit",
             "extra": "smt-run=1,563ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4676a774b7c5f56f56e09153feed87510444a7dd",
+          "message": "Associated Const (#928)\n\n* associated const\n\n* Update ci-irc11.yml\n\n* update irc11\n\n* Update cursor_fn_lemmas.rs\n\n* PageTableConfig\n\n* const fn",
+          "timestamp": "2026-11-14T19:27:05+08:00",
+          "tree_id": "b9db0b650f8d0202e76caada49fec3524aca1de0",
+          "url": "https://github.com/asterinas/vostd/commit/4676a774b7c5f56f56e09153feed87510444a7dd"
+        },
+        "date": 1794656729636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1127272940,
+            "unit": "rlimit",
+            "extra": "verified=4462 errors=0 smt-run=312,081ms wall=204,863ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 437888628,
+            "unit": "rlimit",
+            "extra": "smt-run=149,543ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 163582784,
+            "unit": "rlimit",
+            "extra": "smt-run=36,032ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 77247371,
+            "unit": "rlimit",
+            "extra": "smt-run=19,708ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=1,666ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,338ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,120ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=741ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=567ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=630ms"
           }
         ]
       }
