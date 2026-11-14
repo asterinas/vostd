@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::sync::atomic::Ordering;
+use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
+use vstd_extra::number::{
+    decimal_value, lemma_decimal_prefix, lemma_decimal_value_step, valid_decimal,
+};
+
+// use core::sync::atomic::Ordering;
 
 use crate::{
-    arch::mm::tlb_flush_addr_range,
-    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    impl_frame_meta_for,
+    // arch::mm::tlb_flush_addr_range,
+    // cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    // impl_frame_meta_for,
     mm::{
-        FrameAllocOptions, PAGE_SIZE,
-        kspace::kvirt_area::KVirtArea,
-        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+        // FrameAllocOptions,
+        PAGE_SIZE,
+        // kspace::kvirt_area::KVirtArea,
+        // page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
-    prelude::*,
-    trap::irq::DisabledLocalIrqGuard,
+    // prelude::*,
+    // trap::irq::DisabledLocalIrqGuard,
 };
+
+verus! {
 
 /// The kernel stack size of a task, specified in pages.
 ///
@@ -20,17 +28,40 @@ use crate::{
 /// OSTD users can choose a smaller size by specifying
 /// the `OSTD_TASK_STACK_SIZE_IN_PAGES` environment variable
 /// at build time.
+///
+/// The environment-dependent initializer is not verified. Verifying it requires
+/// any supplied value to satisfy `valid_decimal(value.spec_bytes())`.
+/* Verus cannot apply external_body directly to a static item.
+ * Origin Rust:
 pub static STACK_SIZE_IN_PAGES: u32 = parse_u32_or_default(
     option_env!("OSTD_TASK_STACK_SIZE_IN_PAGES"),
     DEFAULT_STACK_SIZE_IN_PAGES,
 );
+*/
+pub exec static STACK_SIZE_IN_PAGES: u32 = {
+    #[verifier::external_body]
+    const fn configured_stack_size_in_pages() -> u32 {
+        parse_u32_or_default(
+            option_env!("OSTD_TASK_STACK_SIZE_IN_PAGES"),
+            DEFAULT_STACK_SIZE_IN_PAGES,
+        )
+    }
+    configured_stack_size_in_pages()
+};
 
 /// The default kernel stack size of a task, specified in pages.
 pub const DEFAULT_STACK_SIZE_IN_PAGES: u32 = 128;
 
-pub static KERNEL_STACK_SIZE: usize = STACK_SIZE_IN_PAGES as usize * PAGE_SIZE;
+pub exec static KERNEL_STACK_SIZE: usize
+    ensures
+        KERNEL_STACK_SIZE <= u32::MAX * PAGE_SIZE,
+        KERNEL_STACK_SIZE % PAGE_SIZE == 0,
+{
+    STACK_SIZE_IN_PAGES as usize * PAGE_SIZE
+}
 
-#[derive(Debug)]
+} // verus!
+/*#[derive(Debug)]
 #[expect(dead_code)]
 pub struct KernelStack {
     kvirt_area: KVirtArea,
@@ -90,8 +121,14 @@ impl KernelStack {
     pub fn end_vaddr(&self) -> Vaddr {
         self.end_vaddr
     }
-}
-
+}*/
+#[verus_spec(
+    requires size matches Some(value) ==> valid_decimal(value.spec_bytes()),
+    returns match size {
+        Some(value) => decimal_value(value.spec_bytes()) as u32,
+        None => default,
+    },
+)]
 const fn parse_u32_or_default(size: Option<&str>, default: u32) -> u32 {
     match size {
         Some(value) => parse_u32(value),
@@ -99,14 +136,37 @@ const fn parse_u32_or_default(size: Option<&str>, default: u32) -> u32 {
     }
 }
 
+#[verus_spec(
+    requires valid_decimal(input.spec_bytes()),
+    returns decimal_value(input.spec_bytes()) as u32,
+)]
 const fn parse_u32(input: &str) -> u32 {
     let mut output: u32 = 0;
     let bytes = input.as_bytes();
     let mut i = 0;
+    proof! {
+        lemma_decimal_value_step(bytes@[..0]);
+    }
+    #[verus_spec(
+        invariant
+            i <= bytes.len(),
+            valid_decimal(bytes@),
+            bytes@ == input.spec_bytes(),
+            output == decimal_value(bytes@[..i]),
+        decreases bytes.len() - i,
+    )]
     while i < bytes.len() {
+        proof! {
+            lemma_decimal_prefix(bytes@, i + 1);
+            lemma_decimal_value_step(bytes@[..i + 1]);
+            assert(bytes@[..i + 1][..i] == bytes@[..i]);
+        }
         let digit = (bytes[i] - b'0') as u32;
         output = output * 10 + digit;
         i += 1;
+    }
+    proof! {
+        assert(bytes@[..i] == bytes@);
     }
     output
 }
