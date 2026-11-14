@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! PCI device Information
+use vstd::prelude::*;
+
+/*
 use core::iter;
 
 use super::cfg_space::PciDeviceCommonCfgOffset;
@@ -49,7 +52,9 @@ impl PciDeviceId {
     }
 }
 
+*/
 /// PCI device Location
+#[verus_verify]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PciDeviceLocation {
     /// Bus number
@@ -60,6 +65,7 @@ pub struct PciDeviceLocation {
     pub function: u8,
 }
 
+/*
 impl PciDeviceLocation {
     const MIN_BUS: u8 = 0;
     const MAX_BUS: u8 = 255;
@@ -149,3 +155,4 @@ impl PciDeviceLocation {
         crate::arch::pci::write32(self, offset as u32, val).unwrap()
     }
 }
+*/
