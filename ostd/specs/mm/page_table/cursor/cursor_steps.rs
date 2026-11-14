@@ -23,7 +23,7 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_size_spec, page_table::*};
 use core::ops::Range;
 
 verus! {
@@ -235,6 +235,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
+        hide(rec_vaddr);
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         broadcast use {
@@ -501,6 +502,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.nodes_locked(guards),
             self.pop_level_owner().0.metaregion_sound(regions),
     {
+        hide(rec_vaddr);
+        hide(page_size_spec);
         hide(CursorContinuation::pt_inv_children);
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
@@ -520,8 +523,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             CursorOwner::<'rcu, C>::node_unlocked(guards),
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
         );
-        reveal(CursorContinuation::map_children);
-        reveal(CursorOwner::path_metaregion_sound);
+        assert({
+            &&& self.pop_level_owner().0.only_current_locked(guards)
+            &&& self.pop_level_owner().0.nodes_locked(guards)
+            &&& self.pop_level_owner().0.metaregion_sound(regions)
+        }) by {
+            reveal(CursorContinuation::map_children);
+            reveal(CursorOwner::path_metaregion_sound);
+        };
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self
@@ -653,6 +662,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().max_steps() < self.max_steps(),
         decreases C::NR_LEVELS - self.level,
     {
+        hide(rec_vaddr);
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         reveal(PageTableOwner::pt_inv_at_depth);

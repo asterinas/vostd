@@ -83,6 +83,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
         vaddr_range_spec::<UserPtConfig>().start == 0,
         vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
+    reveal(leading_bits_spec);
     lemma_arch_specific_consts_properties::<PagingConsts>();
     lemma2_to64();
 
@@ -97,6 +98,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
         vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
         vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
 {
+    reveal(leading_bits_spec);
     lemma_arch_specific_consts_properties::<PagingConsts>();
     lemma2_to64();
 
