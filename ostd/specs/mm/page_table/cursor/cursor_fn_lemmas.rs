@@ -337,17 +337,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             == self.continuations[self.level - 1].idx);
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
-        // Isolation clauses for the root continuation (C::NR_LEVELS-1).
         if self.level < C::NR_LEVELS {
-            // Root is above the current level ⟹ unchanged (higher-unchanged), so
-            // both clauses carry verbatim from `owner0.inv()`.
             assert(self.continuations[C::NR_LEVELS - 1] == owner0.continuations[C::NR_LEVELS - 1]);
         } else {
-            // Root IS the current continuation. The idx clause is vacuous
-            // (level == C::NR_LEVELS). For the outside-(borrowed||absent) clause:
-            // the map changed only the in-range slot `idx`, so every outside
-            // child keeps `owner0`'s value; `idx` is in-range (top index in
-            // [start, end), and `in_barrier_va` rules out the sentinel).
             owner0.lemma_in_barrier_va_top_index_bounds();
             assert(self.continuations[C::NR_LEVELS - 1].idx == pte_index_spec::<C>(
                 self.va,
