@@ -698,9 +698,19 @@ const fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     let mut end = pt_va_range_end::<C>();
 
     proof {
+        reveal(leading_bits_spec);
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         lemma_leading_bits_properties::<C>();
+        if leading_bits_spec::<C>() == 0 {
+            assert(page_table_coverage_start_spec::<C>() == 0) by (nonlinear_arith)
+                requires
+                    leading_bits_spec::<C>() == 0,
+                    page_table_coverage_start_spec::<C>() == leading_bits_spec::<C>() * pow2(
+                        nr_page_table_coverage_bits_spec::<C>() as nat,
+                    ),
+            ;
+        }
         lemma_page_table_managed_bounds::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS);
         lemma2_to64();
@@ -713,6 +723,11 @@ const fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     if C::VA_SIGN_EXT && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
         start = apply_sign_ext::<C>(start);
         end = apply_sign_ext::<C>(end);
+    }
+    proof {
+        reveal(leading_bits_spec);
+        assert(start == vaddr_range_spec::<C>().start);
+        assert(end == vaddr_range_spec::<C>().end);
     }
     start..=end
 }
