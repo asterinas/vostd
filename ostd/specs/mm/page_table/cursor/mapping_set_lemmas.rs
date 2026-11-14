@@ -20,7 +20,7 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_size_spec, page_table::*};
 
 verus! {
 
@@ -52,6 +52,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.take_child().1.view_mappings() == self.view_mappings()
                 - self.view_mappings_take_child_spec(),
     {
+        hide(PageTableOwner::view_rec);
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         broadcast use CursorContinuation::group_lemmas;
@@ -169,6 +170,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )
             }),
     {
+        hide(PageTableOwner::view_rec);
         C::lemma_paging_consts_properties();
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
@@ -492,6 +494,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_cont.view_mappings(),
             ),
     {
+        hide(PageTableOwner::view_rec);
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
         hide(CursorContinuation::pt_inv_children);
@@ -639,6 +642,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.restore_to_level(level).view_mappings() == self.view_mappings_through(level),
         decreases level,
     {
+        hide(PageTableOwner::view_rec);
         C::lemma_page_table_config_constant_properties();
         C::lemma_paging_consts_properties();
         broadcast use vstd::map_lib::group_map_properties;
@@ -677,6 +681,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             !self.continuations[self.level - 1].view_mappings().contains(m),
     {
+        hide(page_size_spec);
+        hide(PageTableOwner::view_rec);
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
         hide(CursorContinuation::pt_inv_children);

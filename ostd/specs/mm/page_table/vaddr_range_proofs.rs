@@ -41,6 +41,7 @@ pub proof fn lemma_leading_bits_properties<C: PageTableConfig>()
             (usize::BITS - nr_page_table_coverage_bits_spec::<C>()) as nat,
         ),
 {
+    reveal(leading_bits_spec);
     C::lemma_paging_consts_properties();
     let bits = nr_page_table_coverage_bits_spec::<C>() as nat;
     let width = C::ADDRESS_WIDTH as nat;
@@ -84,6 +85,7 @@ pub proof fn lemma_page_table_managed_bounds<C: PageTableConfig>()
         page_table_managed_start_spec::<C>() < page_table_managed_end_spec::<C>() <= usize::MAX + 1,
         vaddr_range_spec::<C>().end + 1 == page_table_managed_end_spec::<C>(),
 {
+    reveal(leading_bits_spec);
     C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
     lemma_leading_bits_properties::<C>();
@@ -94,6 +96,17 @@ pub proof fn lemma_page_table_managed_bounds<C: PageTableConfig>()
     lemma_pow2_strictly_increases(aw, usize::BITS as nat);
     vstd::layout::unsigned_int_max_values();
     let base = page_table_coverage_start_spec::<C>() as int;
+    if !(C::VA_SIGN_EXT && (C::TOP_LEVEL_INDEX_RANGE.start * pow2(
+        pte_index_bit_offset_spec::<C>(C::NR_LEVELS) as nat,
+    ) / pow2((C::ADDRESS_WIDTH - 1) as nat) as int) % 2 == 1) {
+        assert(base == 0) by (nonlinear_arith)
+            requires
+                leading_bits_spec::<C>() == 0,
+                base == leading_bits_spec::<C>() * pow2(
+                    nr_page_table_coverage_bits_spec::<C>() as nat,
+                ),
+        ;
+    }
     let size = page_size::<C>(C::NR_LEVELS) as int;
     let start = base + C::TOP_LEVEL_INDEX_RANGE.start * size;
     let end = page_table_managed_end_spec::<C>();

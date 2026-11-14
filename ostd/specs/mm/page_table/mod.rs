@@ -76,6 +76,7 @@ pub open spec fn vaddr_leading_part_spec<C: PagingConstsTrait>(va: Vaddr) -> Vad
 
 /// Upper VA bits selected by the same sign-extension rule as executable `vaddr_range`.
 /// The bit boundary is the complete page-table coverage, as in `vaddr_leading_part_spec`.
+#[verifier::opaque]
 pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
     let bits = nr_page_table_coverage_bits_spec::<C>();
     let start = C::TOP_LEVEL_INDEX_RANGE.start * pow2(

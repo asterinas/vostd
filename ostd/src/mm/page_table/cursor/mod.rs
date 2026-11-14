@@ -47,6 +47,7 @@ use crate::mm::{
     frame::meta::{
         META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
     },
+    page_size_spec,
     page_table::*,
 };
 
@@ -818,6 +819,10 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<
         Vaddr,
     > {
+        hide(page_table_managed_start_spec);
+        hide(page_table_managed_end_spec);
+        hide(page_table_coverage_end_spec);
+        hide(page_size_spec);
         hide(<CursorOwner as Inv>::inv);
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
@@ -2399,6 +2404,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     #[verifier::spinoff_prover]
     pub fn map_loop(&mut self, level: PagingLevel, rcu_guard: &'rcu dyn InAtomicMode) {
         // Keep quantified continuation and region predicates local to this loop proof.
+        hide(page_size_spec);
         hide(CursorView::split_while_huge);
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
@@ -2918,6 +2924,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(300)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
+        hide(<MetaRegionOwners as Inv>::inv);
+        hide(page_size_spec);
         hide(CursorContinuation::view_mappings);
         hide(CursorOwner::view_mappings);
         hide(CursorContinuation::inv_children_rel);
@@ -2933,6 +2941,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             C::lemma_page_table_config_constant_properties();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
             lemma_page_size_spec_values::<C>();
+            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level) <= MAX_PADDR) by {
+                reveal(page_size_spec);
+            };
         }
         assert!(
             level <= C::HIGHEST_TRANSLATION_LEVEL && level <= self.0.guard_level,
@@ -3008,6 +3019,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             );
 
             assert(regions.inv()) by {
+                reveal(<MetaRegionOwners as Inv>::inv);
                 assert forall|i: int| #[trigger] regions.slots.contains_key(i) implies {
                     &&& regions.slot_owners.contains_key(i)
                     &&& regions.slot_owners[i].inv()
@@ -3024,7 +3036,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             if raw_permission is None {
                 new_owner.value().lemma_untracked_frame_metaregion_sound(*regions);
             }
-            assert(new_owner.value().metaregion_sound(*regions));
+            assert(new_owner.value().metaregion_sound(*regions)) by {
+                reveal(<MetaRegionOwners as Inv>::inv);
+            };
             let cont = owner.continuations[owner.level - 1];
             cont.lemma_inv_children_unroll(cont.idx as int);
             cont.lemma_inv_children_rel_unroll(cont.idx as int);
@@ -3047,6 +3061,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.move_forward();
+
+        reveal(<MetaRegionOwners as Inv>::inv);
 
         proof {
             lemma_page_size_ge_base::<C>(level);
@@ -3558,6 +3574,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> Option<PageTableFrag<C>> {
+        hide(page_size_spec);
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
         // Keep quantified child predicates out of this replacement proof's ambient context.
@@ -3917,7 +3934,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                     C::lemma_page_table_config_constant_properties();
                 }
                 let ghost regions_before_clone = *regions;
-                /// Origin Rust: pt: (*pt).clone().into(),
+                // Origin Rust: pt: (*pt).clone().into(),
                 let cloned_pt = pt.clone(Tracked(regions));
                 proof {
                     assert(regions.ref_count(pt.index()) <= REF_COUNT_MAX) by {

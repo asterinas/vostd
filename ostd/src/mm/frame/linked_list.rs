@@ -977,6 +977,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(250)]
     pub fn take_current(&mut self) -> Option<UniqueFrame<Link<M>>> {
+        hide(typed_meta_wf);
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
         hide(<MetaRegionOwners as Inv>::inv);
@@ -1023,6 +1024,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof_decl! {
             let tracked mut frame_own: UniqueFrameOwner<Link<M>>;
         }
+        assert(MetaSlot::perms_related(*regions.slots[idx], cur_metadata_perm)) by {
+            reveal(typed_meta_wf);
+        };
         let mut frame = unsafe {
             // SAFETY: The frame was forgotten when inserted into the linked list.
             #[verus_spec(with
@@ -1113,61 +1117,67 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         self.list.size -= 1;
 
         proof {
+            assert(owner.list_own.relate_region(*regions)) by {
+                let ghost oldl = owner0.list_own;
+                let ghost nn = owner0.index as int;
+                assert forall|p: int|
+                    #![trigger meta_to_index(oldl.list[p].slot_vaddr)]
+                    (0 <= p < oldl.list.len() && p != nn) implies ({
+                    let i = meta_to_index(oldl.list[p].slot_vaddr);
+                    let np = if p < nn {
+                        p
+                    } else {
+                        p - 1
+                    };
+                    let fp = owner.list_own.meta_value_at(*regions, np);
+                    &&& regions.contains(i)
+                    &&& regions.slots[i].addr() == oldl.list[p].slot_vaddr
+                    &&& regions.slots[i].ptr() == regions0.slots[i].ptr()
+                    &&& regions.ref_count(i) == REF_COUNT_UNIQUE
+                    &&& regions.slot_owners[i].metadata_perm.is_resource_vacant()
+                    &&& owner.list_own.metadata_perms[np].storage_perm.id()
+                        == regions.slots[i].value().storage.id()
+                    &&& owner.list_own.metadata_perms[np].vtable_ptr_perm.pptr()
+                        == regions.slots[i].value().vtable_ptr
+                    &&& owner.list_own.metadata_perms[np].vtable_ptr_perm.is_init()
+                    &&& regions.slot_owners[i].usage is Frame
+                    &&& regions.slot_owners[i].in_list_perm.value() == owner.list_own.list_id
+                    &&& owner.list_own.meta_wf_at(*regions, np)
+                    &&& regions.slots[i].addr() % META_SLOT_SIZE == 0
+                    &&& FRAME_METADATA_RANGE.start <= regions.slots[i].addr()
+                        < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
+                    &&& (p == nn - 1 ==> fp.next == oldl.meta_value_at(regions0, nn).next)
+                    &&& (p != nn - 1 ==> fp.next == oldl.meta_value_at(regions0, p).next)
+                    &&& (p == nn + 1 ==> fp.prev == oldl.meta_value_at(regions0, nn).prev)
+                    &&& (p != nn + 1 ==> fp.prev == oldl.meta_value_at(regions0, p).prev)
+                }) by {
+                    reveal(typed_meta_wf);
+                    let i = meta_to_index(oldl.list[p].slot_vaddr);
+                    let np = if p < nn {
+                        p
+                    } else {
+                        p - 1
+                    };
+                    let fp = owner.list_own.meta_value_at(*regions, np);
+                    oldl.lemma_relate_region_at_index(regions0, p);
+                    oldl.lemma_relate_region_at_index(regions0, nn);
+                    oldl.lemma_relate_region_indices_distinct(regions0, p, nn);
+                    oldl.lemma_relate_region_at_facts(regions0, p);
+                    oldl.lemma_relate_region_at_facts(regions0, nn);
+                    assert(regions.contains(i));
+                }
+                LinkedListOwner::lemma_pop_preserves_relate_region(
+                    oldl,
+                    regions0,
+                    owner.list_own,
+                    *regions,
+                    nn,
+                );
+            };
+            assert(frame.wf_with_region(frame_own, *regions)) by {
+                reveal(typed_meta_wf);
+            };
             owner0.remove_owner_spec_implies_model_spec(*owner);
-            let ghost oldl = owner0.list_own;
-            let ghost nn = owner0.index as int;
-            assert forall|p: int|
-                #![trigger meta_to_index(oldl.list[p].slot_vaddr)]
-                (0 <= p < oldl.list.len() && p != nn) implies ({
-                let i = meta_to_index(oldl.list[p].slot_vaddr);
-                let np = if p < nn {
-                    p
-                } else {
-                    p - 1
-                };
-                let fp = owner.list_own.meta_value_at(*regions, np);
-                &&& regions.contains(i)
-                &&& regions.slots[i].addr() == oldl.list[p].slot_vaddr
-                &&& regions.slots[i].ptr() == regions0.slots[i].ptr()
-                &&& regions.ref_count(i) == REF_COUNT_UNIQUE
-                &&& regions.slot_owners[i].metadata_perm.is_resource_vacant()
-                &&& owner.list_own.metadata_perms[np].storage_perm.id()
-                    == regions.slots[i].value().storage.id()
-                &&& owner.list_own.metadata_perms[np].vtable_ptr_perm.pptr()
-                    == regions.slots[i].value().vtable_ptr
-                &&& owner.list_own.metadata_perms[np].vtable_ptr_perm.is_init()
-                &&& regions.slot_owners[i].usage is Frame
-                &&& regions.slot_owners[i].in_list_perm.value() == owner.list_own.list_id
-                &&& owner.list_own.meta_wf_at(*regions, np)
-                &&& regions.slots[i].addr() % META_SLOT_SIZE == 0
-                &&& FRAME_METADATA_RANGE.start <= regions.slots[i].addr()
-                    < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
-                &&& (p == nn - 1 ==> fp.next == oldl.meta_value_at(regions0, nn).next)
-                &&& (p != nn - 1 ==> fp.next == oldl.meta_value_at(regions0, p).next)
-                &&& (p == nn + 1 ==> fp.prev == oldl.meta_value_at(regions0, nn).prev)
-                &&& (p != nn + 1 ==> fp.prev == oldl.meta_value_at(regions0, p).prev)
-            }) by {
-                let i = meta_to_index(oldl.list[p].slot_vaddr);
-                let np = if p < nn {
-                    p
-                } else {
-                    p - 1
-                };
-                let fp = owner.list_own.meta_value_at(*regions, np);
-                oldl.lemma_relate_region_at_index(regions0, p);
-                oldl.lemma_relate_region_at_index(regions0, nn);
-                oldl.lemma_relate_region_indices_distinct(regions0, p, nn);
-                oldl.lemma_relate_region_at_facts(regions0, p);
-                oldl.lemma_relate_region_at_facts(regions0, nn);
-                assert(regions.contains(i));
-            }
-            LinkedListOwner::lemma_pop_preserves_relate_region(
-                oldl,
-                regions0,
-                owner.list_own,
-                *regions,
-                nn,
-            );
         }
         proof_with!(|= Tracked(Some(frame_own)));
         Some(frame)
@@ -1225,6 +1235,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             final(frame_own).meta_own.in_list == final(owner).list_own.list_id,
             final(owner)@ == old(owner)@.insert(final(frame_own).meta_own@),
     {
+        hide(MetaSlotOwner::storage_perm);
+        hide(MetaSlotOwner::vtable_ptr_perm);
         hide(<MetaRegionOwners as Inv>::inv);
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
@@ -1396,6 +1408,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         slot.in_list.store(Tracked(&mut fip.in_list_perm), list_id);
         proof {
             assert(regions.inv()) by {
+                reveal(MetaSlotOwner::storage_perm);
+                reveal(MetaSlotOwner::vtable_ptr_perm);
                 reveal(<MetaRegionOwners as Inv>::inv);
             };
             assert(frame.wf_with_region(*frame_own, *regions));
