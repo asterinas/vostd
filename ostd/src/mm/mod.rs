@@ -65,12 +65,19 @@ pub type PagingLevel = u8;
 
 verus! {
 
+/// The maximum value of `PagingConstsTrait::NR_LEVELS`.
+/* Moved from page_table/cursor/mod.rs for shared layout proofs.
+ * Origin Rust: const MAX_NR_LEVELS: usize = 4;
+ */
+pub const MAX_NR_LEVELS: usize = 4;
+
 /* Keep modeled memory bounds in mm so architecture models can share them
  * without depending on specs::arch::x86. Paddr is an alias for usize.
  * Origin Rust:
  * pub const MAX_PADDR: usize = 0x8000_0000;
  * pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
  */
+
 /// Current verification upper bound for tracked physical addresses.
 ///
 /// This is a memory-model bound, not the architectural physical-address width.
@@ -81,6 +88,9 @@ pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
 
 /// A minimal set of constants that determines the paging system.
 /// This provides an abstraction over most paging modes in common architectures.
+///
+/// Verification requires 4 KiB pages, 8-byte PTEs, 1..=[`MAX_NR_LEVELS`] levels,
+/// and `12 + 9 * NR_LEVELS <= ADDRESS_WIDTH < usize::BITS`.
 pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     spec fn BASE_PAGE_SIZE_spec() -> usize;
 
@@ -160,6 +170,8 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     ///
     proof fn lemma_paging_consts_requirements()
         ensures
+            Self::BASE_PAGE_SIZE() == 4096,
+            1 <= Self::NR_LEVELS() <= MAX_NR_LEVELS,
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
             0 < Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS() < PagingLevel::MAX,
@@ -178,12 +190,16 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         ensures
     // Derived properties.
 
+            Self::PTE_SIZE() == 8,
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() * (
             Self::NR_LEVELS() - 1) <= Self::ADDRESS_WIDTH(),
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
             is_pow2((Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()) as int),
+            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
+            Self::BASE_PAGE_SIZE() == 4096,
+            1 <= Self::NR_LEVELS() <= MAX_NR_LEVELS,
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
             0 < Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS() < PagingLevel::MAX,
@@ -197,6 +213,14 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;
 
+        assert(Self::PTE_SIZE() == 8);
+        assert(NR_ENTRIES == 512) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES) by (nonlinear_arith)
+            requires
+                Self::BASE_PAGE_SIZE() == 4096,
+                Self::PTE_SIZE() == 8,
+                NR_ENTRIES == 512,
+        ;
         let base = Self::BASE_PAGE_SIZE() as int;
         let pte = Self::PTE_SIZE() as int;
         let levels = Self::NR_LEVELS() as int;
@@ -221,22 +245,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         lemma_usize_ilog2_ordered(pte, page);
         lemma_pow2_subtracts(pte.ilog2() as nat, page.ilog2() as nat);
         lemma_pow2_is_pow2((page.ilog2() - pte.ilog2()) as nat);
-    }
-
-    /// Assumes the paging constants match the build-selected architecture.
-    ///
-    /// TODO: Generalize the proofs at these calls and remove this axiom before
-    /// verifying configurations with a different page-table layout. This
-    /// restriction is trusted and is not enforced by Verus.
-    /// Verus does not support `axiom fn` in traits, so this default proof method
-    /// uses `external_body` to declare the temporary assumption.
-    #[verifier::external_body]
-    proof fn axiom_current_paging_consts_hardcoded()
-        ensures
-            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
-            Self::NR_LEVELS() == NR_LEVELS as PagingLevel,
-            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
-    {
     }
 }
 

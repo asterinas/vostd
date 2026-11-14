@@ -192,16 +192,17 @@ pub proof fn lemma_va_align_page_size<C: PagingConstsTrait>(va: Vaddr, level: Pa
     }
 }
 
-/// Concrete page sizes for the x86_64 `PagingConsts`, kept for numeric automation.
-pub proof fn lemma_page_size_spec_values()
+/// Page sizes for the supported 4 KiB / 8-byte PTE layout.
+pub proof fn lemma_page_size_spec_values<C: PagingConstsTrait>()
     ensures
-        page_size::<PagingConsts>(1) == 4096,
-        page_size::<PagingConsts>(2) == 2097152,
-        page_size::<PagingConsts>(3) == 1073741824,
-        page_size::<PagingConsts>(4) == 549755813888,
-        page_size::<PagingConsts>(5) == 281474976710656,
+        page_size::<C>(1) == 4096,
+        page_size::<C>(2) == 2097152,
+        page_size::<C>(3) == 1073741824,
+        page_size::<C>(4) == 549755813888,
+        page_size::<C>(5) == 281474976710656,
 {
-    lemma_page_size_base::<PagingConsts>();
+    C::lemma_paging_consts_properties();
+    lemma_page_size_base::<C>();
     vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();

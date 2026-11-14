@@ -7,9 +7,8 @@
 //! address below that implementation's modeled physical-memory bound. Shared
 //! constants are re-exported from the executable architecture and memory modules.
 //! The model's conversion lemmas establish bounds, round trips, and alignment
-//! within the linear mapping window. Page-table proofs that call
-//! [`crate::mm::PagingConstsTrait::axiom_current_paging_consts_hardcoded`] still
-//! trust the current layout; that restriction is not enforced for other configurations.
+//! within the linear mapping window. Paging configurations must prove the layout
+//! requirements declared by `PagingConstsTrait`.
 use vstd::prelude::*;
 
 use crate::mm::{

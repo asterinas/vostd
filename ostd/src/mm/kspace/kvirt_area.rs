@@ -204,7 +204,7 @@ proof fn lemma_sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int,
         forall|i: int| 0 <= i < res@.len() ==> {
             &&& (#[trigger] res@[i]).0 % PAGE_SIZE == 0
             &&&  res@[i].0 % page_size::<PagingConsts>(res@[i].1) == 0
-            &&& 1 <= res@[i].1 <= NR_LEVELS
+            &&& 1 <= res@[i].1 <= KernelPtConfig::NR_LEVELS()
             &&& res@[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
             &&& res@[i].0 == pa + sum_page_sizes_spec(res@, 0, i)
         },
@@ -511,7 +511,7 @@ impl KVirtArea {
         let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
         proof {
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
             lemma_vaddr_range_spec_kernel();
             assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
         }
@@ -581,7 +581,7 @@ impl KVirtArea {
             let ghost regions_before_map = *regions;
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
             proof {
-                lemma_page_size_spec_values();
+                lemma_page_size_spec_values::<PagingConsts>();
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
                 vstd::arithmetic::power::lemma_pow0(2int);
@@ -770,7 +770,7 @@ impl KVirtArea {
             let preempt_guard = disable_preempt();
 
             proof {
-                lemma_page_size_spec_values();
+                lemma_page_size_spec_values::<PagingConsts>();
                 lemma_vaddr_range_spec_kernel();
                 assert(FRAME_METADATA_BASE_VADDR < 0xffff_ff80_0000_0000usize) by (compute_only);
             }
@@ -798,7 +798,7 @@ impl KVirtArea {
                         0 <= i < it.seq().len() ==> {
                             &&& (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0
                             &&& it.seq()[i].0 % page_size::<PagingConsts>(it.seq()[i].1) == 0
-                            &&& 1 <= it.seq()[i].1 <= NR_LEVELS
+                            &&& 1 <= it.seq()[i].1 <= KernelPtConfig::NR_LEVELS()
                             &&& it.seq()[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL()
                             &&& it.seq()[i].0 == pa_range.start + sum_page_sizes_spec(
                                 it.seq(),
@@ -834,7 +834,7 @@ impl KVirtArea {
                 proof {
                     lemma_sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     lemma_sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
-                    lemma_page_size_spec_values();
+                    lemma_page_size_spec_values::<PagingConsts>();
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
