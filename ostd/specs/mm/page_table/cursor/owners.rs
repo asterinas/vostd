@@ -653,13 +653,13 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 (#[trigger] self.continuations[i]).all_but_index_some()
             }
         &&& self.level <= C::NR_LEVELS - 1 ==> {
-            &&& C::TOP_LEVEL_INDEX_RANGE().start <= self.continuations[C::NR_LEVELS - 1].idx
-                < C::TOP_LEVEL_INDEX_RANGE().end
+            &&& C::TOP_LEVEL_INDEX_RANGE.start <= self.continuations[C::NR_LEVELS - 1].idx
+                < C::TOP_LEVEL_INDEX_RANGE.end
         }
         &&& forall|j: int|
             #![trigger self.continuations[C::NR_LEVELS - 1].children[j]]
-            0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
-                < C::TOP_LEVEL_INDEX_RANGE().end) ==> {
+            0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE.start <= j
+                < C::TOP_LEVEL_INDEX_RANGE.end) ==> {
                 self.continuations[C::NR_LEVELS - 1].children[j] matches Some(child) ==> {
                     child.value().is_borrowed() || child.value().is_absent()
                 }
@@ -894,7 +894,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).in_barrier_va(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == C::NR_LEVELS ==> (old(self).continuations[old(self).level - 1].idx
-                + 1) <= C::TOP_LEVEL_INDEX_RANGE().end,
+                + 1) <= C::TOP_LEVEL_INDEX_RANGE.end,
         ensures
             final(self).inv(),
             *final(self) == old(self).inc_index().zero_below_level(),
@@ -1200,8 +1200,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_barrier_va(),
             !self.popped_too_high,
         ensures
-            C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(self.va, C::NR_LEVELS)
-                < C::TOP_LEVEL_INDEX_RANGE().end,
+            C::TOP_LEVEL_INDEX_RANGE.start <= pte_index_spec::<C>(self.va, C::NR_LEVELS)
+                < C::TOP_LEVEL_INDEX_RANGE.end,
     {
         self.lemma_barrier_va_bounds(self.va);
     }
@@ -1745,7 +1745,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     C::lemma_page_table_config_constant_properties();
 
     lemma_page_table_managed_bounds::<C>();
-    let end = C::TOP_LEVEL_INDEX_RANGE().end as int;
+    let end = C::TOP_LEVEL_INDEX_RANGE.end as int;
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& page_table_managed_start_spec::<C>() <= m.va_range.start
@@ -1764,7 +1764,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let pidx = p[0] as int;
         child.lemma_view_rec_top_index_va_bound(p, m, end);
         lemma_mul_inequality(
-            C::TOP_LEVEL_INDEX_RANGE().start as int,
+            C::TOP_LEVEL_INDEX_RANGE.start as int,
             pidx,
             page_size::<C>(C::NR_LEVELS) as int,
         );

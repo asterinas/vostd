@@ -78,7 +78,7 @@ pub open spec fn vaddr_leading_part_spec<C: PagingConstsTrait>(va: Vaddr) -> Vad
 /// The bit boundary is the complete page-table coverage, as in `vaddr_leading_part_spec`.
 pub open spec fn leading_bits_spec<C: PageTableConfig>() -> usize {
     let bits = nr_page_table_coverage_bits_spec::<C>();
-    let start = C::TOP_LEVEL_INDEX_RANGE().start * pow2(
+    let start = C::TOP_LEVEL_INDEX_RANGE.start * pow2(
         pte_index_bit_offset_spec::<C>(C::NR_LEVELS) as nat,
     );
     if C::VA_SIGN_EXT && (start / pow2((C::ADDRESS_WIDTH - 1) as nat) as int) % 2 == 1 {
@@ -102,7 +102,7 @@ pub open spec fn page_table_coverage_end_spec<C: PageTableConfig>() -> int {
 
 /// Start of the managed virtual-address range, restricted by `TOP_LEVEL_INDEX_RANGE`.
 pub open spec fn page_table_managed_start_spec<C: PageTableConfig>() -> Vaddr {
-    (page_table_coverage_start_spec::<C>() + C::TOP_LEVEL_INDEX_RANGE().start * page_size::<C>(
+    (page_table_coverage_start_spec::<C>() + C::TOP_LEVEL_INDEX_RANGE.start * page_size::<C>(
         C::NR_LEVELS,
     )) as Vaddr
 }
@@ -110,7 +110,7 @@ pub open spec fn page_table_managed_start_spec<C: PageTableConfig>() -> Vaddr {
 /// Exclusive end of the managed virtual-address range, restricted by `TOP_LEVEL_INDEX_RANGE`.
 /// This mathematical boundary may be one past `Vaddr::MAX`.
 pub open spec fn page_table_managed_end_spec<C: PageTableConfig>() -> int {
-    page_table_coverage_start_spec::<C>() as int + C::TOP_LEVEL_INDEX_RANGE().end * page_size::<C>(
+    page_table_coverage_start_spec::<C>() as int + C::TOP_LEVEL_INDEX_RANGE.end * page_size::<C>(
         C::NR_LEVELS,
     )
 }

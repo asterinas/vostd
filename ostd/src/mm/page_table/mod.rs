@@ -97,34 +97,22 @@ pub trait RCClone: Sized {
 ///    `item_into_raw`, `item_from_raw` restores the exact item that was
 ///    consumed by `item_into_raw`.
 pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
-    spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize>;
-
     /// The index range at the top level (`C::NR_LEVELS`) page table.
     ///
     /// When configured with this value, the [`PageTable`] instance will only
     /// be allowed to manage the virtual address range that is covered by
     /// this range. The range can be smaller than the actual allowed range
     /// specified by the hardware MMU (limited by `C::ADDRESS_WIDTH`).
-    #[verifier::when_used_as_spec(TOP_LEVEL_INDEX_RANGE_spec)]
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize>
-        returns
-            Self::TOP_LEVEL_INDEX_RANGE(),
-    ;
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        true
-    }
+    const TOP_LEVEL_INDEX_RANGE: Range<usize>;
 
     /// If we can remove the top-level page table entries.
     ///
     /// This is for the kernel page table, whose second-top-level page
     /// tables need `'static` lifetime to be shared with user page tables.
     /// Other page tables do not need to set this to `false`.
-    #[verifier::when_used_as_spec(TOP_LEVEL_CAN_UNMAP_spec)]
-    fn TOP_LEVEL_CAN_UNMAP() -> bool
-        returns
-            Self::TOP_LEVEL_CAN_UNMAP(),
-    ;
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const TOP_LEVEL_CAN_UNMAP: bool = true;
 
     /// The type of the page table entry.
     type E: PageTableEntryTrait;
@@ -423,7 +411,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     proof fn lemma_page_table_config_constant_requirements()
         ensures
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE,
-            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end
+            Self::TOP_LEVEL_INDEX_RANGE.start < Self::TOP_LEVEL_INDEX_RANGE.end
                 <= nr_subpage_per_huge::<Self::C>(),
     ;
 
@@ -434,16 +422,14 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
     // Derived properties.
 
-            Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
-                top_level_index_width_spec::<Self::C>() as nat,
-            ),
-            Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
+            Self::TOP_LEVEL_INDEX_RANGE.end <= pow2(top_level_index_width_spec::<Self::C>() as nat),
+            Self::TOP_LEVEL_INDEX_RANGE.end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS) as nat,
             ) <= usize::MAX,
             // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
             // so that we only need to call this lemma in proofs.
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE,
-            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end
+            Self::TOP_LEVEL_INDEX_RANGE.start < Self::TOP_LEVEL_INDEX_RANGE.end
                 <= nr_subpage_per_huge::<Self::C>(),
     {
         use vstd::arithmetic::mul::{
@@ -468,7 +454,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         lemma_pow2_adds(top_level_index_width_spec::<Self::C>() as nat, offset as nat);
         let size = page_size::<Self::C>(level) as int;
         let fanout = nr_subpage_per_huge::<Self::C>() as int;
-        let end = Self::TOP_LEVEL_INDEX_RANGE().end as int;
+        let end = Self::TOP_LEVEL_INDEX_RANGE.end as int;
         lemma_mul_is_commutative(size, fanout);
         lemma_mul_inequality(end, fanout, size);
         lemma_mul_inequality_converse(
@@ -585,7 +571,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
         C::lemma_paging_consts_properties();
         lemma_page_table_managed_bounds::<C>();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS);
-        let ghost idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
+        let ghost idx_start = C::TOP_LEVEL_INDEX_RANGE.start;
         let ghost offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS);
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_start_shift_facts::<C>(
             idx_start,
@@ -594,7 +580,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
         vstd::bits::lemma_usize_shl_is_mul(idx_start, offset);
     }
 
-    C::TOP_LEVEL_INDEX_RANGE().start << pte_index_bit_offset::<C>(C::NR_LEVELS)
+    C::TOP_LEVEL_INDEX_RANGE.start << pte_index_bit_offset::<C>(C::NR_LEVELS)
 }
 
 /// Inclusive positional end before sign extension, obtained from the managed end
@@ -603,7 +589,7 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret == page_table_managed_end_spec::<C>() - page_table_coverage_start_spec::<C>() - 1,
 {
-    let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
+    let idx_end = C::TOP_LEVEL_INDEX_RANGE.end;
     proof {
         C::lemma_paging_consts_properties();
     }
@@ -839,8 +825,8 @@ impl PageTable<KernelPtConfig> {
     pub open spec fn create_user_pt_panic_condition(root_owner: NodeOwner<KernelPtConfig>) -> bool {
         exists|i: usize|
             #![trigger root_owner.children_perm.value()[i as int]]
-            KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
-                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
+            KernelPtConfig::TOP_LEVEL_INDEX_RANGE.start <= i
+                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE.end && {
                 let pte = root_owner.children_perm.value()[i as int];
                 ||| !pte.is_present()
                 ||| pte.is_last(root_owner.level())
@@ -921,7 +907,7 @@ impl PageTable<KernelPtConfig> {
             #[verus_spec(with Tracked(guards), Tracked(regions.tracked_borrow_slot_owner(new_ref.start_paddr_spec()).metadata_perm.tracked_borrow()))]
             new_ref.lock(&preempt_guard)
         };
-        for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE()
+        for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE
             invariant
                 kernel_owner.inv(),
                 kernel_owner.0.value().is_node(),
@@ -941,8 +927,8 @@ impl PageTable<KernelPtConfig> {
                 let kern_node = kernel_owner.0.value().node();
                 assert forall|j: usize|
                     #![trigger kern_node.children_perm.value()[j as int]]
-                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
-                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end implies {
+                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE.start <= j
+                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE.end implies {
                     let pte = kern_node.children_perm.value()[j as int];
                     pte.is_present() && !pte.is_last(kern_node.level())
                 } by {
@@ -991,11 +977,11 @@ impl PageTable<KernelPtConfig> {
 
                 assert(pte.is_present() && !pte.is_last(kern_node.level())) by {
                     if !pte.is_present() || pte.is_last(kern_node.level()) {
-                        assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
-                            < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end);
+                        assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE.start <= i
+                            < KernelPtConfig::TOP_LEVEL_INDEX_RANGE.end);
                         assert(exists|j: usize|
-                            KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
-                                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
+                            KernelPtConfig::TOP_LEVEL_INDEX_RANGE.start <= j
+                                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE.end && {
                                 let p = #[trigger] kern_node.children_perm.value()[j as int];
                                 ||| !p.is_present()
                                 ||| p.is_last(kern_node.level())

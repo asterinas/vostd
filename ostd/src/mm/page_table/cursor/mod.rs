@@ -805,7 +805,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             res is Some && final(owner).cur_entry_owner().is_node() ==>
                 final(owner)@.mappings == old(owner)@.mappings,
             res is Some && find_unmap_subtree && final(owner).cur_entry_owner().is_node()
-                ==> C::TOP_LEVEL_CAN_UNMAP_spec() || final(self).level < C::NR_LEVELS,
+                ==> C::TOP_LEVEL_CAN_UNMAP || final(self).level < C::NR_LEVELS,
             old(owner)@.mappings.filter(|m: Mapping|
                 old(self).va <= m.va_range.start < final(self).va) == Set::<Mapping>::empty(),
             res is None ==> {
@@ -976,7 +976,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
 
             match cur_child {
                 ChildRef::PageTable(pt) => {
-                    if find_unmap_subtree && cur_entry_fits_range && (C::TOP_LEVEL_CAN_UNMAP()
+                    if find_unmap_subtree && cur_entry_fits_range && (C::TOP_LEVEL_CAN_UNMAP
                         || self.level != C::NR_LEVELS) {
                         proof {
                             if split_huge {
@@ -984,7 +984,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                                     owner.lemma_split_while_huge_at_level_noop();
                                 }
                             }
-                            if !C::TOP_LEVEL_CAN_UNMAP_spec() {
+                            if !C::TOP_LEVEL_CAN_UNMAP {
                                 C::lemma_paging_consts_properties();
                                 C::lemma_page_table_config_constant_properties();
                             }
@@ -2874,7 +2874,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                 && old(owner).cur_entry_owner().is_absent()) ==> res.is_ok(),
             res matches Err(PageTableFrag::StrayPageTable { .. }) ==> {
                 &&& C::item_into_raw(item).1 > 1
-                &&& !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < C::NR_LEVELS
+                &&& !C::TOP_LEVEL_CAN_UNMAP ==> C::item_into_raw(item).1 < C::NR_LEVELS
             },
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).contains(idx) &&
@@ -3474,7 +3474,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                 && old(regions).ref_count(frame_to_index(
                     old(owner).cur_entry_owner().meta_slot_paddr()->0)) >= REF_COUNT_MAX
                 ==> may_panic(),
-            (!C::TOP_LEVEL_CAN_UNMAP_spec() && old(self).0.level >= C::NR_LEVELS && old(
+            (!C::TOP_LEVEL_CAN_UNMAP && old(self).0.level >= C::NR_LEVELS && old(
                 owner,
             ).cur_entry_owner().is_node()) ==> may_panic(),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
@@ -3503,7 +3503,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                         == old(regions).slot_owners[idx].metadata_perm.id()
                     &&& final(regions).slot_owners[idx].usage == old(regions).slot_owners[idx].usage
                 },
-            res matches Some(PageTableFrag::StrayPageTable { .. }) && !C::TOP_LEVEL_CAN_UNMAP_spec()
+            res matches Some(PageTableFrag::StrayPageTable { .. }) && !C::TOP_LEVEL_CAN_UNMAP
                 ==> old(owner).level < C::NR_LEVELS,
             final(owner)@.mappings == old(owner)@.mappings - PageTableOwner(
                 old(owner).cur_subtree(),
@@ -3799,9 +3799,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             Child::PageTable(mut pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
                 /* Use the configuration's active root level.
-                 * Origin Rust: if !C::TOP_LEVEL_CAN_UNMAP() && level as usize == NR_LEVELS {
+                 * Origin Rust: if !C::TOP_LEVEL_CAN_UNMAP && level as usize == NR_LEVELS {
                  */
-                if !C::TOP_LEVEL_CAN_UNMAP() && level == C::NR_LEVELS {
+                if !C::TOP_LEVEL_CAN_UNMAP && level == C::NR_LEVELS {
                     let _ = ManuallyDrop::new(pt);
                     vstd_extra::panic::panic_diverge();
                 }

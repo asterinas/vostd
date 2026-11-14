@@ -30,8 +30,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.locked_range().start <= va < self.locked_range().end,
             vaddr_leading_part_spec::<C>(va) == page_table_coverage_start_spec::<C>(),
-            C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS)
-                < C::TOP_LEVEL_INDEX_RANGE().end,
+            C::TOP_LEVEL_INDEX_RANGE.start <= pte_index_spec::<C>(va, C::NR_LEVELS)
+                < C::TOP_LEVEL_INDEX_RANGE.end,
     {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();

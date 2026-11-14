@@ -150,7 +150,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     ) {
         let level = self.level;
         let range = if level == C::NR_LEVELS {
-            C::TOP_LEVEL_INDEX_RANGE()
+            C::TOP_LEVEL_INDEX_RANGE
         } else {
             0..nr_subpage_per_huge::<C>()
         };
