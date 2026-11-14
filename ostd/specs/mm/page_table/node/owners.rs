@@ -9,11 +9,10 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
-        page_table::owners::INC_LEVELS,
+        page_table::owners::tree_level_for,
     },
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
@@ -208,13 +207,13 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
-        &&& 1 <= self.level() <= NR_LEVELS
+        &&& 1 <= self.level() <= C::NR_LEVELS()
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(
             meta_to_frame(index_to_meta(self.slot_index)),
         )
-        &&& self.tree_level == INC_LEVELS - self.level() - 1
+        &&& self.tree_level == tree_level_for::<C>(self.level())
         &&& 0 <= self.slot_index < max_meta_slots()
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0

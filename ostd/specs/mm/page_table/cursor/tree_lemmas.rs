@@ -15,8 +15,9 @@ use crate::specs::{
     },
 };
 
-use crate::arch::mm::PagingConsts;
-use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,
+};
 use core::ops::Range;
 
 verus! {
@@ -129,15 +130,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             OwnerSubtree::implies(f, g),
             forall|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(f),
+                self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(f),
         ensures
             forall|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(g),
+                self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(g),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(g) by {
             self.lemma_inv_continuation(i);
             self.continuations[i].map_children_lift(f, g);
         }
@@ -183,10 +186,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.level > 1,
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
         if self.level == 1 {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<
-                PagingConsts,
-            >();
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_base::<C>();
             lemma_nat_align_down_sound(cur_va as nat, PAGE_SIZE as nat);
             lemma_sub_mod_noop(end as int, cur_va as int, PAGE_SIZE as int);
             if end - cur_va < PAGE_SIZE {

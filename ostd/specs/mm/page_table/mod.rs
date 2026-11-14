@@ -437,14 +437,12 @@ pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: Pa
             let aligned = nat_align_down(va as nat, page_size::<C>(level) as nat) as Vaddr;
             &&& aligned % C::BASE_PAGE_SIZE() == 0
             &&& vaddr_leading_part_spec::<C>(aligned) == vaddr_leading_part_spec::<C>(va)
-            &&& forall|i: int|
-                1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(
-                    aligned,
-                    i as PagingLevel,
-                ) == if i < level {
+            &&& forall|i: PagingLevel|
+                1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(aligned, i) == if i
+                    < level {
                     0
                 } else {
-                    pte_index_spec::<C>(va, i as PagingLevel)
+                    pte_index_spec::<C>(va, i)
                 }
         }),
 {
@@ -455,13 +453,13 @@ pub proof fn lemma_align_down_indices<C: PagingConstsTrait>(va: Vaddr, level: Pa
     lemma_aligned_indices_zero::<C>(aligned, level);
     lemma_same_node_pte_indices_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
     lemma_same_node_vaddr_leading_part_match::<C>(va, aligned, aligned, (level - 1) as PagingLevel);
-    assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
+    assert forall|i: PagingLevel| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
         aligned,
-        i as PagingLevel,
+        i,
     ) == if i < level {
         0
     } else {
-        pte_index_spec::<C>(va, i as PagingLevel)
+        pte_index_spec::<C>(va, i)
     } by {
         if i >= level {
             assert((level - 1) < i);
@@ -484,9 +482,9 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
             let next = (va + page_size::<C>(level)) as Vaddr;
             &&& next % C::BASE_PAGE_SIZE() == va % C::BASE_PAGE_SIZE()
             &&& vaddr_leading_part_spec::<C>(next) == vaddr_leading_part_spec::<C>(va)
-            &&& forall|i: int|
-                1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(next, i as PagingLevel)
-                    == pte_index_spec::<C>(va, i as PagingLevel) + if i == level {
+            &&& forall|i: PagingLevel|
+                1 <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(next, i)
+                    == pte_index_spec::<C>(va, i) + if i == level {
                     1int
                 } else {
                     0int
@@ -535,10 +533,8 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
     vstd::arithmetic::div_mod::lemma_add_mod_noop(va as int, size, C::BASE_PAGE_SIZE() as int);
     vstd::arithmetic::div_mod::lemma_mod_twice(va as int, C::BASE_PAGE_SIZE() as int);
     assert(next % C::BASE_PAGE_SIZE() == va % C::BASE_PAGE_SIZE());
-    assert forall|i: int| 1 <= i < level implies #[trigger] pte_index_spec::<C>(
-        next,
-        i as PagingLevel,
-    ) == pte_index_spec::<C>(va, i as PagingLevel) by {
+    assert forall|i: PagingLevel| 1 <= i < level implies #[trigger] pte_index_spec::<C>(next, i)
+        == pte_index_spec::<C>(va, i) by {
         let lower = i as PagingLevel;
         let parent = (i + 1) as PagingLevel;
         lemma_page_size_divides::<C>(parent, level);
@@ -563,10 +559,10 @@ pub proof fn lemma_inc_slot_indices<C: PagingConstsTrait>(va: Vaddr, level: Pagi
                 small * pte_index_spec::<C>(next, lower) == small * pte_index_spec::<C>(va, lower),
         ;
     };
-    assert forall|i: int| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
+    assert forall|i: PagingLevel| 1 <= i <= C::NR_LEVELS() implies #[trigger] pte_index_spec::<C>(
         next,
-        i as PagingLevel,
-    ) == pte_index_spec::<C>(va, i as PagingLevel) + if i == level {
+        i,
+    ) == pte_index_spec::<C>(va, i) + if i == level {
         1int
     } else {
         0int
