@@ -34,7 +34,7 @@ broadcast use group_ghost_tree_lemmas;
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn zero_below_level(self) -> Self
         recommends
-            1 <= self.level <= C::NR_LEVELS(),
+            1 <= self.level <= C::NR_LEVELS,
     {
         Self {
             va: nat_align_down(self.va as nat, page_size::<C>(self.level) as nat) as Vaddr,
@@ -134,14 +134,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn lemma_locked_range_vaddr_prefix_match(self, new_va: Vaddr)
         requires
             self.inv(),
-            new_va % C::BASE_PAGE_SIZE() == 0,
+            new_va % C::BASE_PAGE_SIZE == 0,
             vaddr_leading_part_spec::<C>(new_va) == vaddr_leading_part_spec::<C>(
                 self.prefix_vaddr(),
             ),
             self.locked_range().start <= new_va < self.locked_range().end,
         ensures
             forall|i: int|
-                self.guard_level <= i < C::NR_LEVELS() ==> (#[trigger] pte_index_spec::<C>(
+                self.guard_level <= i < C::NR_LEVELS ==> (#[trigger] pte_index_spec::<C>(
                     new_va,
                     (i + 1) as PagingLevel,
                 )) == pte_index_spec::<C>(self.prefix, (i + 1) as PagingLevel),
@@ -149,7 +149,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         self.lemma_locked_range_span();
-        if self.guard_level < C::NR_LEVELS() {
+        if self.guard_level < C::NR_LEVELS {
             lemma_same_node_pte_indices_match::<C>(
                 new_va,
                 self.prefix,
@@ -167,7 +167,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_barrier_va(),
         ensures
-            1 <= self.level <= C::NR_LEVELS(),
+            1 <= self.level <= C::NR_LEVELS,
             pte_index_spec::<C>(self.cur_va(), self.level) == self.continuations[self.level
                 - 1].idx,
             pte_index_spec::<C>(self.cur_va(), self.level) < NR_ENTRIES,
@@ -182,10 +182,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn tracked_set_vaddr_in_node(tracked &mut self, new_va: Vaddr)
         requires
             old(self).inv(),
-            new_va % C::BASE_PAGE_SIZE() == 0,
+            new_va % C::BASE_PAGE_SIZE == 0,
             vaddr_leading_part_spec::<C>(new_va) == vaddr_leading_part_spec::<C>(old(self).prefix),
             forall|i: int|
-                old(self).level <= i < C::NR_LEVELS() ==> (#[trigger] pte_index_spec::<C>(
+                old(self).level <= i < C::NR_LEVELS ==> (#[trigger] pte_index_spec::<C>(
                     new_va,
                     (i + 1) as PagingLevel,
                 )) == old(self).continuations[i].idx,
@@ -209,11 +209,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_self.lemma_barrier_va_bounds(new_va);
         old_self.lemma_locked_range_vaddr_prefix_match(new_va);
         assert(self.continuations[self.level - 1].inv());
-        assert forall|lv: PagingLevel| self.level <= lv <= C::NR_LEVELS() implies (
+        assert forall|lv: PagingLevel| self.level <= lv <= C::NR_LEVELS implies (
         #[trigger] pte_index_spec::<C>(new_va, lv)) == self.continuations[lv - 1].idx by {
             if self.level < lv {
                 let i = lv - 1;
-                assert(old(self).level <= i < C::NR_LEVELS());
+                assert(old(self).level <= i < C::NR_LEVELS);
                 assert(pte_index_spec::<C>(new_va, (i + 1) as PagingLevel) == old(
                     self,
                 ).continuations[i].idx);
@@ -232,7 +232,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             owner.inv(),
             owner.in_barrier_va(),
         ensures
-            1 <= self.level <= C::NR_LEVELS(),
+            1 <= self.level <= C::NR_LEVELS,
             pte_index_spec::<C>(self.va, self.level) == owner.continuations[owner.level - 1].idx,
             pte_index_spec::<C>(self.va, self.level) < NR_ENTRIES,
     {

@@ -99,7 +99,7 @@ pub trait RCClone: Sized {
 pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize>;
 
-    /// The index range at the top level (`C::NR_LEVELS()`) page table.
+    /// The index range at the top level (`C::NR_LEVELS`) page table.
     ///
     /// When configured with this value, the [`PageTable`] instance will only
     /// be allowed to manage the virtual address range that is covered by
@@ -173,7 +173,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             Self::raw_item_well_formed((paddr, level, prop, perm)),
-            1 <= level <= Self::C::NR_LEVELS(),
+            1 <= level <= Self::C::NR_LEVELS,
             valid_frame_paddr(paddr),
             paddr % page_size::<Self::C>(level) == 0,
             paddr + page_size::<Self::C>(level) <= MAX_PADDR,
@@ -422,7 +422,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// instead to get all the properties that are derived from the requirements.
     proof fn lemma_page_table_config_constant_requirements()
         ensures
-            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE(),
+            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end
                 <= nr_subpage_per_huge::<Self::C>(),
     ;
@@ -438,11 +438,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 top_level_index_width_spec::<Self::C>() as nat,
             ),
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS) as nat,
             ) <= usize::MAX,
             // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
             // so that we only need to call this lemma in proofs.
-            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE(),
+            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end
                 <= nr_subpage_per_huge::<Self::C>(),
     {
@@ -454,10 +454,10 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
         Self::C::lemma_paging_consts_properties();
         Self::lemma_page_table_config_constant_requirements();
-        let level = Self::C::NR_LEVELS();
+        let level = Self::C::NR_LEVELS;
         let offset = pte_index_bit_offset_spec::<Self::C>(level);
         let coverage = nr_page_table_coverage_bits_spec::<Self::C>();
-        let width = Self::C::ADDRESS_WIDTH();
+        let width = Self::C::ADDRESS_WIDTH;
         lemma_page_size_is_pow2_pte_index_bit_offset::<Self::C>(level);
         lemma_page_size_is_pow2_pte_index_bit_offset::<Self::C>((level + 1) as PagingLevel);
         lemma_page_size_next::<Self::C>(level);
@@ -483,56 +483,24 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 // Implement it so that we can comfortably use low level functions
 // like `page_size::<C>` without typing `C::C` everywhere.
 impl<C: PageTableConfig> PagingConstsTrait for C {
-    open spec fn BASE_PAGE_SIZE_spec() -> usize {
-        C::C::BASE_PAGE_SIZE_spec()
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const BASE_PAGE_SIZE: usize = C::C::BASE_PAGE_SIZE;
 
-    fn BASE_PAGE_SIZE() -> usize {
-        C::C::BASE_PAGE_SIZE()
-    }
+    #[verus::internal(open)]
+    const NR_LEVELS: PagingLevel = C::C::NR_LEVELS;
 
-    open spec fn NR_LEVELS_spec() -> PagingLevel {
-        C::C::NR_LEVELS_spec()
-    }
+    #[verus::internal(open)]
+    const HIGHEST_TRANSLATION_LEVEL: PagingLevel = C::C::HIGHEST_TRANSLATION_LEVEL;
 
-    fn NR_LEVELS() -> PagingLevel {
-        proof {
-            assert(Self::NR_LEVELS() == C::C::NR_LEVELS());
-        }
-        C::C::NR_LEVELS()
-    }
+    #[verus::internal(open)]
+    const PTE_SIZE: usize = C::C::PTE_SIZE;
 
-    open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
-        C::C::HIGHEST_TRANSLATION_LEVEL_spec()
-    }
+    #[verus::internal(open)]
+    const ADDRESS_WIDTH: usize = C::C::ADDRESS_WIDTH;
 
-    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel {
-        C::C::HIGHEST_TRANSLATION_LEVEL()
-    }
-
-    open spec fn PTE_SIZE_spec() -> usize {
-        C::C::PTE_SIZE_spec()
-    }
-
-    fn PTE_SIZE() -> usize {
-        C::C::PTE_SIZE()
-    }
-
-    open spec fn ADDRESS_WIDTH_spec() -> usize {
-        C::C::ADDRESS_WIDTH_spec()
-    }
-
-    fn ADDRESS_WIDTH() -> usize {
-        C::C::ADDRESS_WIDTH()
-    }
-
-    open spec fn VA_SIGN_EXT_spec() -> bool {
-        C::C::VA_SIGN_EXT_spec()
-    }
-
-    fn VA_SIGN_EXT() -> bool {
-        C::C::VA_SIGN_EXT()
-    }
+    #[verus::internal(open)]
+    const VA_SIGN_EXT: bool = C::C::VA_SIGN_EXT;
 
     proof fn lemma_paging_consts_requirements() {
         C::C::lemma_paging_consts_requirements();
@@ -569,9 +537,9 @@ pub fn largest_pages<C: PageTableConfig>(
     mut pa: Paddr,
     mut len: usize,
 ) -> impl Iterator<Item = (Paddr, PagingLevel)> {
-    assert_eq!(va % C::BASE_PAGE_SIZE(), 0);
-    assert_eq!(pa % C::BASE_PAGE_SIZE(), 0);
-    assert_eq!(len % C::BASE_PAGE_SIZE(), 0);
+    assert_eq!(va % C::BASE_PAGE_SIZE, 0);
+    assert_eq!(pa % C::BASE_PAGE_SIZE, 0);
+    assert_eq!(len % C::BASE_PAGE_SIZE, 0);
     assert!(is_valid_range::<C>(&(va..(va + len))));
 
     core::iter::from_fn(
@@ -580,7 +548,7 @@ pub fn largest_pages<C: PageTableConfig>(
                 if len == 0 {
                     return None;
                 }
-                let mut level = C::HIGHEST_TRANSLATION_LEVEL();
+                let mut level = C::HIGHEST_TRANSLATION_LEVEL;
                 while page_size::<C>(level) > len || va % page_size::<C>(level) != 0 || pa
                     % page_size::<C>(level) != 0 {
                     level -= 1;
@@ -606,7 +574,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
         C::lemma_page_table_config_constant_properties();
     }
 
-    C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
+    C::ADDRESS_WIDTH - pte_index_bit_offset::<C>(C::NR_LEVELS)
 }
 
 fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
@@ -616,9 +584,9 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     proof {
         C::lemma_paging_consts_properties();
         lemma_page_table_managed_bounds::<C>();
-        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS);
         let ghost idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
-        let ghost offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS());
+        let ghost offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS);
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_start_shift_facts::<C>(
             idx_start,
             offset,
@@ -626,7 +594,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
         vstd::bits::lemma_usize_shl_is_mul(idx_start, offset);
     }
 
-    C::TOP_LEVEL_INDEX_RANGE().start << pte_index_bit_offset::<C>(C::NR_LEVELS())
+    C::TOP_LEVEL_INDEX_RANGE().start << pte_index_bit_offset::<C>(C::NR_LEVELS)
 }
 
 /// Inclusive positional end before sign extension, obtained from the managed end
@@ -639,14 +607,14 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     proof {
         C::lemma_paging_consts_properties();
     }
-    let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
+    let offset = pte_index_bit_offset::<C>(C::NR_LEVELS);
 
     proof {
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_end_shift_facts::<C>(
             idx_end,
             offset,
         );
-        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS);
         vstd::layout::unsigned_int_max_values();
         vstd::bits::lemma_usize_shl_is_mul(idx_end, offset);
     }
@@ -659,17 +627,17 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
 
 fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     ensures
-        ret == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
+        ret == ((va as int / pow2((C::ADDRESS_WIDTH - 1) as nat) as int) % 2 == 1),
 {
     proof {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
-        vstd::bits::lemma_usize_shr_is_div(va, (C::ADDRESS_WIDTH() - 1) as usize);
-        vstd::bits::lemma_usize_low_bits_mask_is_mod(va >> (C::ADDRESS_WIDTH() - 1), 1);
+        vstd::bits::lemma_usize_shr_is_div(va, (C::ADDRESS_WIDTH - 1) as usize);
+        vstd::bits::lemma_usize_low_bits_mask_is_mod(va >> (C::ADDRESS_WIDTH - 1), 1);
         vstd::bits::lemma_low_bits_mask_values();
         vstd::arithmetic::power2::lemma2_to64();
     }
-    (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
+    (va >> (C::ADDRESS_WIDTH - 1)) & 1 != 0
 }
 
 /// Apply the sign-extension OR to a positional value.
@@ -680,15 +648,15 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
 /// disjoint.
 fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     requires
-        va < pow2(C::ADDRESS_WIDTH() as nat),
-        C::ADDRESS_WIDTH() < usize::BITS,
+        va < pow2(C::ADDRESS_WIDTH as nat),
+        C::ADDRESS_WIDTH < usize::BITS,
         page_table_coverage_start_spec::<C>() == 0x1_0000_0000_0000_0000int - pow2(
-            C::ADDRESS_WIDTH() as nat,
+            C::ADDRESS_WIDTH as nat,
         ),
     ensures
         ret == va + page_table_coverage_start_spec::<C>(),
 {
-    let address_width = C::ADDRESS_WIDTH();
+    let address_width = C::ADDRESS_WIDTH;
     let low_bit = 1usize << address_width;
     proof {
         vstd::layout::unsigned_int_max_values();
@@ -748,7 +716,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
         C::lemma_page_table_config_constant_properties();
         lemma_leading_bits_properties::<C>();
         lemma_page_table_managed_bounds::<C>();
-        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS());
+        lemma_page_size_is_pow2_pte_index_bit_offset::<C>(C::NR_LEVELS);
         lemma2_to64();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
             start,
@@ -756,7 +724,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
         );
     }
 
-    if C::VA_SIGN_EXT() && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
+    if C::VA_SIGN_EXT && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
         start = apply_sign_ext::<C>(start);
         end = apply_sign_ext::<C>(end);
     }
@@ -790,7 +758,7 @@ fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
 /// The index of a VA's PTE in a page table node at the given level.
 fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
-        1 <= level <= C::NR_LEVELS(),
+        1 <= level <= C::NR_LEVELS,
     returns
         pte_index_spec::<C>(va, level),
 {
@@ -807,7 +775,7 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
 fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
-        1 <= level <= C::NR_LEVELS(),
+        1 <= level <= C::NR_LEVELS,
     ensures
         pte_index_bit_offset_spec::<C>(level) < usize::BITS,
     returns
@@ -815,16 +783,16 @@ fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
 {
     proof {
         C::lemma_paging_consts_properties();
-        assert(C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)
+        assert(C::BASE_PAGE_SIZE.ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)
             < usize::BITS) by (nonlinear_arith)
             requires
-                level <= C::NR_LEVELS(),
-                C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * C::NR_LEVELS()
-                    <= C::ADDRESS_WIDTH(),
-                C::ADDRESS_WIDTH() < usize::BITS,
+                level <= C::NR_LEVELS,
+                C::BASE_PAGE_SIZE.ilog2() + nr_pte_index_bits_spec::<C>() * C::NR_LEVELS
+                    <= C::ADDRESS_WIDTH,
+                C::ADDRESS_WIDTH < usize::BITS,
         ;
     }
-    C::BASE_PAGE_SIZE().ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)
+    C::BASE_PAGE_SIZE.ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)
 }
 
 /// A handle to a page table.
@@ -1098,7 +1066,7 @@ impl<C: PageTableConfig> PageTable<C> {
         &&& owner.0.value().node().matches_permission(self.root.frac_metadata_perm())
         &&& owner.0.value().node_permission is None
         &&& self.root.tracked_slot_perm@ == regions.slots[owner.0.value().node().slot_index]
-        &&& owner.0.value().node().level() == C::NR_LEVELS()
+        &&& owner.0.value().node().level() == C::NR_LEVELS
         &&& owner.0.value().path == vstd_extra::ghost_tree::TreePath::<NR_ENTRIES>::new(
             Seq::empty(),
         )
@@ -1291,7 +1259,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.va == va.start
                 &&& r.unwrap().0.barrier_va == *va
                 &&& r.unwrap().1@.as_page_table_owner() == owner
-                &&& r.unwrap().1@.continuations[C::NR_LEVELS() - 1].path() == owner.0.value().path
+                &&& r.unwrap().1@.continuations[C::NR_LEVELS - 1].path() == owner.0.value().path
             },
             !Cursor::<C>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -1380,7 +1348,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 
     let mut pt_addr = paddr_to_vaddr(root_paddr);
     #[verusfmt::skip]
-    for cur_level in (1..= C::NR_LEVELS()).rev() {
+    for cur_level in (1..= C::NR_LEVELS).rev() {
         let offset = pte_index::<C>(vaddr, cur_level);
         // SAFETY:
         //  - The page table node is alive because (1) the root node is alive and

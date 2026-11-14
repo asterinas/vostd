@@ -37,7 +37,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old.map_full_tree(f),
             OwnerSubtree::implies(f, g),
             forall|i: int|
-                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS ==> #[trigger] self.continuations[i]
                     == old.continuations[i],
             self.continuations[self.level - 1].path() == old.continuations[old.level - 1].path(),
             self.index() == old.index(),
@@ -52,7 +52,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_page_table_config_constant_properties();
         assert forall|i: int|
             self.level - 1 <= i
-                < C::NR_LEVELS() implies #[trigger] self.continuations[i].map_children(g) by {
+                < C::NR_LEVELS implies #[trigger] self.continuations[i].map_children(g) by {
             if i == self.level - 1 {
                 self.continuations[i].lemma_map_children_lift_skip_idx(
                     old.continuations[i],
@@ -80,12 +80,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.index() == old.index(),
             self.continuations[self.level - 1].path() == old.continuations[old.level - 1].path(),
             forall|i: int|
-                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS ==> #[trigger] self.continuations[i]
                     == old.continuations[i],
             forall|j: int|
                 0 <= j < NR_ENTRIES && j != old.index() ==> #[trigger] self.continuations[self.level
                     - 1].children[j] == old.continuations[old.level - 1].children[j],
-            1 < old.level <= C::NR_LEVELS(),
+            1 < old.level <= C::NR_LEVELS,
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_entry_owner().path) == Set::<
                 int,
             >::range(0, NR_ENTRIES as int).map(
@@ -208,7 +208,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.popped_too_high == other.popped_too_high,
             // higher-level continuations unchanged
             forall|i: int|
-                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS ==> #[trigger] self.continuations[i]
                     == other.continuations[i],
             // bottom continuation well-formed after protect
             other.continuations[self.level - 1].inv(),
@@ -251,9 +251,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert forall|i: int|
             #![trigger other.continuations[i]]
-            other.level - 1 <= i < C::NR_LEVELS() implies other.continuations[i].map_children(
-            f,
-        ) by {
+            other.level - 1 <= i < C::NR_LEVELS implies other.continuations[i].map_children(f) by {
             reveal(CursorContinuation::map_children);
             if i > L - 1 {
                 assert(other.continuations[i] == self.continuations[i]);
@@ -280,7 +278,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger other.continuations[i]]
             other.level - 1 <= i
-                < C::NR_LEVELS() implies other.continuations[i].entry_own.metaregion_sound(
+                < C::NR_LEVELS implies other.continuations[i].entry_own.metaregion_sound(
             regions,
         ) by {
             if i > L - 1 {
@@ -311,7 +309,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.popped_too_high == owner0.popped_too_high,
             // Higher-level continuations unchanged
             forall|i: int|
-                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS ==> #[trigger] self.continuations[i]
                     == owner0.continuations[i],
             // Bottom continuation is well-formed
             self.continuations[self.level - 1].inv(),
@@ -339,33 +337,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             == self.continuations[self.level - 1].idx);
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
-        // Isolation clauses for the root continuation (C::NR_LEVELS()-1).
-        if self.level < C::NR_LEVELS() {
+        // Isolation clauses for the root continuation (C::NR_LEVELS-1).
+        if self.level < C::NR_LEVELS {
             // Root is above the current level ⟹ unchanged (higher-unchanged), so
             // both clauses carry verbatim from `owner0.inv()`.
-            assert(self.continuations[C::NR_LEVELS() - 1] == owner0.continuations[C::NR_LEVELS()
-                - 1]);
+            assert(self.continuations[C::NR_LEVELS - 1] == owner0.continuations[C::NR_LEVELS - 1]);
         } else {
             // Root IS the current continuation. The idx clause is vacuous
-            // (level == C::NR_LEVELS()). For the outside-(borrowed||absent) clause:
+            // (level == C::NR_LEVELS). For the outside-(borrowed||absent) clause:
             // the map changed only the in-range slot `idx`, so every outside
             // child keeps `owner0`'s value; `idx` is in-range (top index in
             // [start, end), and `in_barrier_va` rules out the sentinel).
             owner0.lemma_in_barrier_va_top_index_bounds();
-            assert(self.continuations[C::NR_LEVELS() - 1].idx == pte_index_spec::<C>(
+            assert(self.continuations[C::NR_LEVELS - 1].idx == pte_index_spec::<C>(
                 self.va,
-                C::NR_LEVELS() as PagingLevel,
+                C::NR_LEVELS as PagingLevel,
             ));
-            assert(self.continuations[C::NR_LEVELS() - 1].idx == owner0.continuations[owner0.level
+            assert(self.continuations[C::NR_LEVELS - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
             assert(C::TOP_LEVEL_INDEX_RANGE().start <= owner0.continuations[owner0.level - 1].idx
                 < C::TOP_LEVEL_INDEX_RANGE().end);
             assert(forall|j: int|
                 0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
                     < C::TOP_LEVEL_INDEX_RANGE().end) ==> (
-                #[trigger] self.continuations[C::NR_LEVELS() - 1].children[j]) is Some ==> (
-                self.continuations[C::NR_LEVELS() - 1].children[j].unwrap().value().is_borrowed()
-                    || self.continuations[C::NR_LEVELS()
+                #[trigger] self.continuations[C::NR_LEVELS - 1].children[j]) is Some ==> (
+                self.continuations[C::NR_LEVELS - 1].children[j].unwrap().value().is_borrowed()
+                    || self.continuations[C::NR_LEVELS
                     - 1].children[j].unwrap().value().is_absent()));
         }
     }
@@ -380,7 +377,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level == owner0.level,
             self.va == owner0.va,
             forall|i: int|
-                self.level <= i < C::NR_LEVELS() ==> #[trigger] self.continuations[i]
+                self.level <= i < C::NR_LEVELS ==> #[trigger] self.continuations[i]
                     == owner0.continuations[i],
             // child at idx changed from absent to empty node
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
@@ -458,7 +455,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|m: Mapping|
                 self.view_mappings().contains(m) implies owner0.view_mappings().contains(m) by {
                 let i = choose|i: int|
-                    self.level - 1 <= i < C::NR_LEVELS()
+                    self.level - 1 <= i < C::NR_LEVELS
                         && #[trigger] self.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont0.view_mappings().contains(m));
@@ -469,7 +466,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|m: Mapping|
                 owner0.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
                 let i = choose|i: int|
-                    owner0.level - 1 <= i < C::NR_LEVELS()
+                    owner0.level - 1 <= i < C::NR_LEVELS
                         && #[trigger] owner0.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont.view_mappings().contains(m));
@@ -488,10 +485,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_barrier_va(),
             !self.popped_too_high,
             self.va <= new_va <= self.barrier_va.end,
-            new_va % C::BASE_PAGE_SIZE() == 0,
+            new_va % C::BASE_PAGE_SIZE == 0,
             vaddr_leading_part_spec::<C>(new_va) == vaddr_leading_part_spec::<C>(self.va),
             forall|i: PagingLevel|
-                self.level <= i <= C::NR_LEVELS() ==> #[trigger] pte_index_spec::<C>(new_va, i)
+                self.level <= i <= C::NR_LEVELS ==> #[trigger] pte_index_spec::<C>(new_va, i)
                     == pte_index_spec::<C>(self.va, i),
         ensures
             (Self { va: new_va, ..self }).inv(),
