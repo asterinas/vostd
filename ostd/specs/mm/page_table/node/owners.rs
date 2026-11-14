@@ -207,7 +207,7 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
-        &&& 1 <= self.level() <= C::NR_LEVELS()
+        &&& 1 <= self.level() <= C::NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(

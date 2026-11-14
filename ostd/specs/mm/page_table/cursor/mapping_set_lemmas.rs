@@ -20,7 +20,7 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
+use crate::mm::{PagingConstsTrait, PagingLevel, Vaddr, page_size, page_size_spec, page_table::*};
 
 verus! {
 
@@ -52,6 +52,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.take_child().1.view_mappings() == self.view_mappings()
                 - self.view_mappings_take_child_spec(),
     {
+        hide(PageTableOwner::view_rec);
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         broadcast use CursorContinuation::group_lemmas;
@@ -86,7 +87,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     m,
                 );
 
-                let size = page_size::<C>((C::NR_LEVELS() - self.path().len()) as PagingLevel);
+                let size = page_size::<C>((C::NR_LEVELS - self.path().len()) as PagingLevel);
                 // Positional disjointness; shift both sides by LEADING_BITS * 2^48.
                 sibling_paths_disjoint::<C>(self.path(), self.idx as int, i, size);
                 lemma_vaddr_of_eq_int::<C>(self.path().push_tail(self.idx as int));
@@ -169,6 +170,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )
             }),
     {
+        hide(PageTableOwner::view_rec);
         C::lemma_paging_consts_properties();
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
@@ -198,7 +200,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|m: Mapping| filtered.contains(m) implies subtree_mappings.contains(m) by {
             // m is in self.view_mappings() and subtree_va <= m.va_range.start < subtree_va + size
             let i = choose|i: int|
-                self.level - 1 <= i < C::NR_LEVELS()
+                self.level - 1 <= i < C::NR_LEVELS
                     && #[trigger] self.continuations[i].view_mappings().contains(m);
 
             let cont_i = self.continuations[i];
@@ -219,7 +221,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 if j as usize != self.index() {
                     // Disjointness: sibling j's VA range doesn't overlap [subtree_va, subtree_va + page_size(level))
                     let sib_size = page_size::<C>(
-                        (C::NR_LEVELS() - cont.path().len()) as PagingLevel,
+                        (C::NR_LEVELS - cont.path().len()) as PagingLevel,
                     );
                     sibling_paths_disjoint::<C>(cont.path(), self.index() as int, j, sib_size);
                     // Lift positional disjointness to canonical by adding
@@ -235,7 +237,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                     // Sibling j is disjoint from cont_i.idx child
                     let sib_size = page_size::<C>(
-                        (C::NR_LEVELS() - cont_i.path().len()) as PagingLevel,
+                        (C::NR_LEVELS - cont_i.path().len()) as PagingLevel,
                     );
                     sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx as int, j, sib_size);
                     lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j));
@@ -280,7 +282,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_barrier_va(),
-            self.level - 1 <= lvl < C::NR_LEVELS(),
+            self.level - 1 <= lvl < C::NR_LEVELS,
         ensures
             vaddr::<C>(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int))
                 + vaddr_leading_part_spec::<C>(self.cur_va()) <= self.cur_va(),
@@ -306,10 +308,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_vaddr_leading_part_is_align_down::<C>(self.cur_va());
         let cont = self.continuations[lvl];
         let child_path = cont.path().push_tail(cont.idx as int);
-        assert(child_path.len() == C::NR_LEVELS() - lvl);
+        assert(child_path.len() == C::NR_LEVELS - lvl);
         assert forall|k: int| 0 <= k < child_path.len() implies #[trigger] child_path[k]
-            == pte_index_spec::<C>(self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel) by {
-            lemma_pte_index_bound::<C>(self.cur_va(), (C::NR_LEVELS() - k) as PagingLevel);
+            == pte_index_spec::<C>(self.cur_va(), (C::NR_LEVELS - k) as PagingLevel) by {
+            lemma_pte_index_bound::<C>(self.cur_va(), (C::NR_LEVELS - k) as PagingLevel);
         };
         lemma_vaddr_path_aligned::<C>(child_path, self.cur_va());
         lemma_vaddr_of_eq_int::<C>(child_path);
@@ -326,7 +328,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_barrier_va(),
-            self.level - 1 < lvl < C::NR_LEVELS(),
+            self.level - 1 < lvl < C::NR_LEVELS,
         ensures
             ({
                 let subtree_va = vaddr::<C>(self.cur_subtree().value().path);
@@ -379,7 +381,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_va_in_cont_child_range(self.level - 1);
 
         // Sibling paths are separated by `page_size(self.level)` (child page size).
-        let size = page_size::<C>((C::NR_LEVELS() - cont.path().len()) as PagingLevel);
+        let size = page_size::<C>((C::NR_LEVELS - cont.path().len()) as PagingLevel);
         sibling_paths_disjoint::<C>(cont.path(), idx as int, j, size);
     }
 
@@ -389,7 +391,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_barrier_va(),
-            self.level - 1 < i < C::NR_LEVELS(),
+            self.level - 1 < i < C::NR_LEVELS,
             0 <= j < NR_ENTRIES,
             j != self.continuations[i].idx,
             self.continuations[i].children[j] is Some,
@@ -411,7 +413,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_va_in_cont_child_range(i);
 
         // Siblings at this depth are separated by `page_size(i+1)` (child page size).
-        let size = page_size::<C>((C::NR_LEVELS() - cont.path().len()) as PagingLevel);
+        let size = page_size::<C>((C::NR_LEVELS - cont.path().len()) as PagingLevel);
         sibling_paths_disjoint::<C>(cont.path(), cont.idx as int, j, size);
     }
 
@@ -437,7 +439,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // m comes from some continuation level i
 
         let i = choose|i: int|
-            self.level - 1 <= i < C::NR_LEVELS()
+            self.level - 1 <= i < C::NR_LEVELS
                 && #[trigger] self.continuations[i].view_mappings().contains(m);
 
         let cont_i = self.continuations[i];
@@ -485,13 +487,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old_self.continuations[old_self.level - 1] == old_cont,
             new_self.continuations[new_self.level - 1] == new_cont,
             forall|i: int|
-                old_self.level <= i < C::NR_LEVELS() ==> old_self.continuations[i]
+                old_self.level <= i < C::NR_LEVELS ==> old_self.continuations[i]
                     == new_self.continuations[i],
         ensures
             new_self.view_mappings() == (old_self.view_mappings() - old_cont.view_mappings()).union(
                 new_cont.view_mappings(),
             ),
     {
+        hide(PageTableOwner::view_rec);
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
         hide(CursorContinuation::pt_inv_children);
@@ -505,7 +508,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_self.view_mappings().contains(m) && !old_cont.view_mappings().contains(m))
             || new_cont.view_mappings().contains(m)) by {
             let i = choose|i: int|
-                level - 1 <= i < C::NR_LEVELS()
+                level - 1 <= i < C::NR_LEVELS
                     && #[trigger] new_self.continuations[i].view_mappings().contains(m);
             // i == level - 1: new_self.continuations[level-1] == new_cont, so the
             // existential is witnessed by new_cont.view_mappings().contains(m).
@@ -537,34 +540,33 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
         ensures
-            self.as_page_table_owner().view_rec(self.continuations[C::NR_LEVELS() - 1].path())
+            self.as_page_table_owner().view_rec(self.continuations[C::NR_LEVELS - 1].path())
                 == self.view_mappings(),
             self.as_page_table_owner().0.inv(),
-            self.as_page_table_owner().0.level() == self.continuations[C::NR_LEVELS()
-                - 1].tree_level,
+            self.as_page_table_owner().0.level() == self.continuations[C::NR_LEVELS - 1].tree_level,
             self.as_page_table_owner().pt_inv(),
     {
         C::lemma_paging_consts_properties();
-        self.lemma_restore_to_level(C::NR_LEVELS());
-        let root = self.restore_to_level(C::NR_LEVELS());
+        self.lemma_restore_to_level(C::NR_LEVELS);
+        let root = self.restore_to_level(C::NR_LEVELS);
         root.as_subtree_inv();
         root.as_page_table_owner_pt_inv();
         root.as_page_table_owner_preserves_view_mappings();
         broadcast use CursorOwner::group_lemmas;
 
         assert forall|m: Mapping|
-            self.view_mappings_through(C::NR_LEVELS()).contains(m)
+            self.view_mappings_through(C::NR_LEVELS).contains(m)
                 == #[trigger] self.view_mappings().contains(m) by {
-            self.lemma_view_mappings_through_contains(C::NR_LEVELS(), m);
-            if self.view_mappings_through(C::NR_LEVELS()).contains(m) {
+            self.lemma_view_mappings_through_contains(C::NR_LEVELS, m);
+            if self.view_mappings_through(C::NR_LEVELS).contains(m) {
                 let i = choose|i: int|
-                    self.level - 1 <= i < C::NR_LEVELS()
+                    self.level - 1 <= i < C::NR_LEVELS
                         && #[trigger] self.continuations[i].view_mappings().contains(m);
                 self.lemma_inv_continuation(i);
                 self.lemma_view_mappings_intro(m, i);
             }
         };
-        assert(self.view_mappings_through(C::NR_LEVELS()) =~= self.view_mappings());
+        assert(self.view_mappings_through(C::NR_LEVELS) =~= self.view_mappings());
     }
 
     /// Every mapping in the cursor view satisfies `Mapping::inv()`.
@@ -578,7 +580,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_page_table_config_constant_properties();
         self.as_page_table_owner_preserves_view_mappings();
         let pto = self.as_page_table_owner();
-        let root_path = self.continuations[C::NR_LEVELS() - 1].path();
+        let root_path = self.continuations[C::NR_LEVELS - 1].path();
         pto.lemma_view_rec_mapping_inv(root_path);
     }
 
@@ -598,7 +600,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         C::lemma_page_table_config_constant_properties();
         self.as_page_table_owner_preserves_view_mappings();
         let pto = self.as_page_table_owner();
-        let root_path = self.continuations[C::NR_LEVELS() - 1].path();
+        let root_path = self.continuations[C::NR_LEVELS - 1].path();
 
         assert forall|m: Mapping, n: Mapping| #[trigger]
             self@.mappings.contains(m) && #[trigger] self@.mappings.contains(n) && m
@@ -611,7 +613,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     proof fn lemma_view_mappings_through_contains(self, level: PagingLevel, m: Mapping)
         requires
             self.inv(),
-            self.level <= level <= C::NR_LEVELS(),
+            self.level <= level <= C::NR_LEVELS,
         ensures
             self.view_mappings_through(level).contains(m) == (exists|i: int|
                 self.level - 1 <= i < level
@@ -628,7 +630,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     proof fn lemma_restore_to_level(self, level: PagingLevel)
         requires
             self.inv(),
-            self.level <= level <= C::NR_LEVELS(),
+            self.level <= level <= C::NR_LEVELS,
         ensures
             self.restore_to_level(level).inv(),
             self.restore_to_level(level).all_some(),
@@ -640,6 +642,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.restore_to_level(level).view_mappings() == self.view_mappings_through(level),
         decreases level,
     {
+        hide(PageTableOwner::view_rec);
         C::lemma_page_table_config_constant_properties();
         C::lemma_paging_consts_properties();
         broadcast use vstd::map_lib::group_map_properties;
@@ -673,11 +676,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_barrier_va(),
-            self.level <= i < C::NR_LEVELS(),
+            self.level <= i < C::NR_LEVELS,
             self.continuations[i].view_mappings().contains(m),
         ensures
             !self.continuations[self.level - 1].view_mappings().contains(m),
     {
+        hide(page_size_spec);
+        hide(PageTableOwner::view_rec);
         hide(CursorContinuation::inv_children_rel);
         hide(CursorContinuation::inv_children);
         hide(CursorContinuation::pt_inv_children);
@@ -733,9 +738,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 lemma_nat_align_down_monotone(x, ps_node, ps_anc);
                 lemma_nat_align_down_within_block(x, ps_node, ps_anc);
 
-                let sib_size = page_size::<C>(
-                    (C::NR_LEVELS() - cont_i.path().len()) as PagingLevel,
-                );
+                let sib_size = page_size::<C>((C::NR_LEVELS - cont_i.path().len()) as PagingLevel);
                 sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx as int, j, sib_size);
                 // Lift positional disjointness to canonical.
                 lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as int));
