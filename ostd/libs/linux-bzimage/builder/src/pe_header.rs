@@ -49,46 +49,27 @@ enum PeMachineType {
 }
 
 // The `flags` field choices in PE header.
-/* The verified macro supplies bitwise contracts, uses public types and flag methods,
- * and needs fixed-width shift operands.
- * Origin Rust:
- * bitflags_upstream::bitflags! {
- *     struct PeFlags: u16 {
- *         const RELOCS_STRIPPED           = 1;
- *         const EXECUTABLE_IMAGE          = 1 << 1;
- *         const LINE_NUMS_STRIPPED        = 1 << 2;
- *         const LOCAL_SYMS_STRIPPED       = 1 << 3;
- *         const AGGRESSIVE_WS_TRIM         = 1 << 4;
- *         const LARGE_ADDRESS_AWARE       = 1 << 5;
- *         const SIXTEEN_BIT_MACHINE       = 1 << 6;
- *         const BYTES_REVERSED_LO         = 1 << 7;
- *         const THIRTY_TWO_BIT_MACHINE    = 1 << 8;
- *         const DEBUG_STRIPPED            = 1 << 9;
- *         const REMOVABLE_RUN_FROM_SWAP   = 1 << 10;
- *         const NET_RUN_FROM_SWAP         = 1 << 11;
- *         const SYSTEM                    = 1 << 12;
- *         const DLL                       = 1 << 13;
- *         const UP_SYSTEM_ONLY            = 1 << 14;
- *     }
- * }
+/* The verified macro requires public flag types for its public trait contracts.
+ * The enclosing pe_header module is private.
+ * Origin Rust: struct PeFlags: u16 {
  */
 bitflags::bitflags! {
     pub struct PeFlags: u16 {
-        const RELOCS_STRIPPED           = 1u16;
-        const EXECUTABLE_IMAGE          = 1u16 << 1;
-        const LINE_NUMS_STRIPPED        = 1u16 << 2;
-        const LOCAL_SYMS_STRIPPED       = 1u16 << 3;
-        const AGGRESSIVE_WS_TRIM         = 1u16 << 4;
-        const LARGE_ADDRESS_AWARE       = 1u16 << 5;
-        const SIXTEEN_BIT_MACHINE       = 1u16 << 6;
-        const BYTES_REVERSED_LO         = 1u16 << 7;
-        const THIRTY_TWO_BIT_MACHINE    = 1u16 << 8;
-        const DEBUG_STRIPPED            = 1u16 << 9;
-        const REMOVABLE_RUN_FROM_SWAP   = 1u16 << 10;
-        const NET_RUN_FROM_SWAP         = 1u16 << 11;
-        const SYSTEM                    = 1u16 << 12;
-        const DLL                       = 1u16 << 13;
-        const UP_SYSTEM_ONLY            = 1u16 << 14;
+        const RELOCS_STRIPPED           = 1;
+        const EXECUTABLE_IMAGE          = 1 << 1;
+        const LINE_NUMS_STRIPPED        = 1 << 2;
+        const LOCAL_SYMS_STRIPPED       = 1 << 3;
+        const AGGRESSIVE_WS_TRIM         = 1 << 4;
+        const LARGE_ADDRESS_AWARE       = 1 << 5;
+        const SIXTEEN_BIT_MACHINE       = 1 << 6;
+        const BYTES_REVERSED_LO         = 1 << 7;
+        const THIRTY_TWO_BIT_MACHINE    = 1 << 8;
+        const DEBUG_STRIPPED            = 1 << 9;
+        const REMOVABLE_RUN_FROM_SWAP   = 1 << 10;
+        const NET_RUN_FROM_SWAP         = 1 << 11;
+        const SYSTEM                    = 1 << 12;
+        const DLL                       = 1 << 13;
+        const UP_SYSTEM_ONLY            = 1 << 14;
     }
 }
 
@@ -208,41 +189,22 @@ bitflags::bitflags! {
      * Origin Rust: struct PeSectionHdrFlags: u32 {
      */
     pub struct PeSectionHdrFlags: u32 {
-        /* Explicit u32 operands give the verified macro fixed-width shift models.
-         * Origin Rust:
-         * const CNT_CODE                  = 1 << 5;
-         * const CNT_INITIALIZED_DATA      = 1 << 6;
-         * const CNT_UNINITIALIZED_DATA    = 1 << 7;
-         * const LNK_INFO                  = 1 << 9;
-         * const LNK_REMOVE                = 1 << 11;
-         * const LNK_COMDAT                = 1 << 12;
-         * const GPREL                     = 1 << 15;
-         * const MEM_PURGEABLE             = 1 << 16;
-         * const LNK_NRELOC_OVFL           = 1 << 24;
-         * const MEM_DISCARDABLE           = 1 << 25;
-         * const MEM_NOT_CACHED            = 1 << 26;
-         * const MEM_NOT_PAGED             = 1 << 27;
-         * const MEM_SHARED                = 1 << 28;
-         * const MEM_EXECUTE               = 1 << 29;
-         * const MEM_READ                  = 1 << 30;
-         * const MEM_WRITE                 = 1 << 31;
-         */
-        const CNT_CODE                  = 1u32 << 5;
-        const CNT_INITIALIZED_DATA      = 1u32 << 6;
-        const CNT_UNINITIALIZED_DATA    = 1u32 << 7;
-        const LNK_INFO                  = 1u32 << 9;
-        const LNK_REMOVE                = 1u32 << 11;
-        const LNK_COMDAT                = 1u32 << 12;
-        const GPREL                     = 1u32 << 15;
-        const MEM_PURGEABLE             = 1u32 << 16;
-        const LNK_NRELOC_OVFL           = 1u32 << 24;
-        const MEM_DISCARDABLE           = 1u32 << 25;
-        const MEM_NOT_CACHED            = 1u32 << 26;
-        const MEM_NOT_PAGED             = 1u32 << 27;
-        const MEM_SHARED                = 1u32 << 28;
-        const MEM_EXECUTE               = 1u32 << 29;
-        const MEM_READ                  = 1u32 << 30;
-        const MEM_WRITE                 = 1u32 << 31;
+        const CNT_CODE                  = 1 << 5;
+        const CNT_INITIALIZED_DATA      = 1 << 6;
+        const CNT_UNINITIALIZED_DATA    = 1 << 7;
+        const LNK_INFO                  = 1 << 9;
+        const LNK_REMOVE                = 1 << 11;
+        const LNK_COMDAT                = 1 << 12;
+        const GPREL                     = 1 << 15;
+        const MEM_PURGEABLE             = 1 << 16;
+        const LNK_NRELOC_OVFL           = 1 << 24;
+        const MEM_DISCARDABLE           = 1 << 25;
+        const MEM_NOT_CACHED            = 1 << 26;
+        const MEM_NOT_PAGED             = 1 << 27;
+        const MEM_SHARED                = 1 << 28;
+        const MEM_EXECUTE               = 1 << 29;
+        const MEM_READ                  = 1 << 30;
+        const MEM_WRITE                 = 1 << 31;
     }
 }
 
@@ -293,13 +255,8 @@ pub(crate) fn make_pe_coff_header(setup_elf: &[u8]) -> Vec<u8> {
         symbol_table: 0,
         symbols: 1, // I don't know why, Linux header.S says it's 1
         opt_hdr_size: (size_of::<Pe32PlusOptHdr>() + size_of::<Pe32PlusOptDataDirs>()) as u16,
-        /* The verified macro exposes flags as methods with bitwise contracts.
-         * Origin Rust: flags: (PeFlags::EXECUTABLE_IMAGE | PeFlags::DEBUG_STRIPPED | PeFlags::LINE_NUMS_STRIPPED).bits,
-         */
-        flags: (PeFlags::EXECUTABLE_IMAGE()
-            | PeFlags::DEBUG_STRIPPED()
-            | PeFlags::LINE_NUMS_STRIPPED())
-        .bits(),
+        flags: (PeFlags::EXECUTABLE_IMAGE | PeFlags::DEBUG_STRIPPED | PeFlags::LINE_NUMS_STRIPPED)
+            .bits(),
     };
 
     let sec_hdrs = build_pe_sec_headers_from(&elf);
@@ -423,16 +380,10 @@ impl PeSectionHdr {
             line_numbers: 0,
             num_relocs: 0,
             num_lin_numbers: 0,
-            /* The verified bitflags macro exposes flags as functions.
-             * Origin Rust: flags: (PeSectionHdrFlags::CNT_CODE
-             *     | PeSectionHdrFlags::MEM_READ
-             *     | PeSectionHdrFlags::MEM_EXECUTE)
-             *     .bits(),
-             */
-            flags: (PeSectionHdrFlags::CNT_CODE()
-                | PeSectionHdrFlags::MEM_READ()
-                | PeSectionHdrFlags::MEM_EXECUTE())
-            .bits(),
+            flags: (PeSectionHdrFlags::CNT_CODE
+                | PeSectionHdrFlags::MEM_READ
+                | PeSectionHdrFlags::MEM_EXECUTE)
+                .bits(),
         }
     }
 
@@ -457,16 +408,10 @@ impl PeSectionHdr {
             line_numbers: 0,
             num_relocs: 0,
             num_lin_numbers: 0,
-            /* The verified bitflags macro exposes flags as functions.
-             * Origin Rust: flags: (PeSectionHdrFlags::CNT_INITIALIZED_DATA
-             *     | PeSectionHdrFlags::MEM_READ
-             *     | PeSectionHdrFlags::MEM_WRITE)
-             *     .bits(),
-             */
-            flags: (PeSectionHdrFlags::CNT_INITIALIZED_DATA()
-                | PeSectionHdrFlags::MEM_READ()
-                | PeSectionHdrFlags::MEM_WRITE())
-            .bits(),
+            flags: (PeSectionHdrFlags::CNT_INITIALIZED_DATA
+                | PeSectionHdrFlags::MEM_READ
+                | PeSectionHdrFlags::MEM_WRITE)
+                .bits(),
         }
     }
 
@@ -490,11 +435,7 @@ impl PeSectionHdr {
             line_numbers: 0,
             num_relocs: 0,
             num_lin_numbers: 0,
-            /* The verified bitflags macro exposes flags as functions.
-             * Origin Rust: flags: (PeSectionHdrFlags::CNT_INITIALIZED_DATA | PeSectionHdrFlags::MEM_READ).bits(),
-             */
-            flags: (PeSectionHdrFlags::CNT_INITIALIZED_DATA() | PeSectionHdrFlags::MEM_READ())
-                .bits(),
+            flags: (PeSectionHdrFlags::CNT_INITIALIZED_DATA | PeSectionHdrFlags::MEM_READ).bits(),
         }
     }
 }

@@ -89,47 +89,47 @@ bitflags::bitflags! {
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame is valid.
-        const VALID = 1usize << 0;
+        const VALID = 1 << 0;
         /// Whether the memory area represented by this entry is modified.
-        const DIRTY = 1usize << 1;
+        const DIRTY = 1 << 1;
         /// Privilege level corresponding to the page table entry.
         /// When `RPLV` = 0, the page table entry can be accessed by any program
         /// with a privilege level not lower than `PLV`;
         /// When `RPLV` = 1, this page table entry can only be accessed by programs
         /// with privilege level equal to `PLV`.
-        const PLVL = 1usize << 2;
-        const PLVH = 1usize << 3;
+        const PLVL = 1 << 2;
+        const PLVH = 1 << 3;
         /// Controls the memory access type of the memory access operation
         /// falling on the address space of the table page entry.
-        const MATL = 1usize << 4;
-        const MATH = 1usize << 5;
+        const MATL = 1 << 4;
+        const MATH = 1 << 5;
         /// If this entry is a basic page table entry, it is `GLOBAL`,
         /// which means that the mapping is present in all address spaces,
         /// so it isn't flushed from the TLB on an address space switch.
         /// If this entry is a huge page table entry, it is `HUGE`,
         /// which means that the memory area represented by this entry is
         /// a huge page.
-        const GLOBAL_OR_HUGE = 1usize << 6;
+        const GLOBAL_OR_HUGE = 1 << 6;
         /// Specifies whether the mapped frame or page table is loaded in memory.
         /// This flag does not fill in TLB.
-        const PRESENT = 1usize << 7;
+        const PRESENT = 1 << 7;
         /// Controls whether writes to the mapped frames are allowed.
         /// This flag does not fill in TLB.
-        const WRITABLE = 1usize << 8;
+        const WRITABLE = 1 << 8;
         // Whether this entry is a basic page table entry.
-        const IS_BASIC = 1usize << 9;
+        const IS_BASIC = 1 << 9;
         // First bit ignored by MMU.
-        const RSV1 = 1usize << 10;
+        const RSV1 = 1 << 10;
         // Second bit ignored by MMU.
-        const RSV2 = 1usize << 11;
+        const RSV2 = 1 << 11;
         /// If this entry is a huge page table entry, it is `GLOBAL`.
-        const GLOBAL_IN_HUGE = 1usize << 12;
+        const GLOBAL_IN_HUGE = 1 << 12;
         /// Controls whether reads to the mapped frames are not allowed.
-        const NOT_READABLE = 1usize << 61;
+        const NOT_READABLE = 1 << 61;
         /// Controls whether execution code in the mapped frames are not allowed.
-        const NOT_EXECUTABLE = 1usize << 62;
+        const NOT_EXECUTABLE = 1 << 62;
         /// Whether the `PageTableEntry` can only be accessed by the privileged level `PLV` field inferred
-        const RPLV = 1usize << 63;
+        const RPLV = 1 << 63;
     }
 }
 
@@ -229,15 +229,15 @@ impl Default for PageTableEntry {
 
 impl PageTableEntry {
     closed spec fn is_huge_spec(&self) -> bool {
-        self.0 & PageTableFlags::IS_BASIC().bits() == 0 && self.0
-            & PageTableFlags::GLOBAL_OR_HUGE().bits() != 0
+        self.0 & PageTableFlags::IS_BASIC.bits() == 0 && self.0
+            & PageTableFlags::GLOBAL_OR_HUGE.bits() != 0
     }
 
     closed spec fn is_global_spec(&self) -> bool {
-        if self.0 & PageTableFlags::IS_BASIC().bits() != 0 {
-            self.0 & PageTableFlags::GLOBAL_OR_HUGE().bits() != 0
+        if self.0 & PageTableFlags::IS_BASIC.bits() != 0 {
+            self.0 & PageTableFlags::GLOBAL_OR_HUGE.bits() != 0
         } else {
-            self.0 & PageTableFlags::GLOBAL_IN_HUGE().bits() != 0
+            self.0 & PageTableFlags::GLOBAL_IN_HUGE.bits() != 0
         }
     }
 
@@ -246,20 +246,20 @@ impl PageTableEntry {
     #[verifier::when_used_as_spec(is_huge_spec)]
     #[verus_spec(returns self.is_huge_spec())]
     fn is_huge(&self) -> bool {
-        if self.0 & PageTableFlags::IS_BASIC().bits() != 0 {
+        if self.0 & PageTableFlags::IS_BASIC.bits() != 0 {
             return false;
         } else {
-            return self.0 & PageTableFlags::GLOBAL_OR_HUGE().bits() != 0;
+            return self.0 & PageTableFlags::GLOBAL_OR_HUGE.bits() != 0;
         }
     }
 
     #[verifier::when_used_as_spec(is_global_spec)]
     #[verus_spec(returns self.is_global_spec())]
     fn is_global(&self) -> bool {
-        if self.0 & PageTableFlags::IS_BASIC().bits() != 0 {
-            return self.0 & PageTableFlags::GLOBAL_OR_HUGE().bits() != 0;
+        if self.0 & PageTableFlags::IS_BASIC.bits() != 0 {
+            return self.0 & PageTableFlags::GLOBAL_OR_HUGE.bits() != 0;
         } else {
-            return self.0 & PageTableFlags::GLOBAL_IN_HUGE().bits() != 0;
+            return self.0 & PageTableFlags::GLOBAL_IN_HUGE.bits() != 0;
         }
     }
 }
@@ -269,7 +269,7 @@ impl PageTableEntry {
     #[verus_verify(dual_spec)]
     #[verus_spec(returns self.is_user())]
     fn is_user(&self) -> bool {
-        self.0 & PageTableFlags::PLVL().bits() != 0 && self.0 & PageTableFlags::PLVH().bits() != 0
+        self.0 & PageTableFlags::PLVL.bits() != 0 && self.0 & PageTableFlags::PLVH.bits() != 0
     }
 }
 
@@ -296,14 +296,14 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     fn is_present(&self) -> bool {
-        self.0 & PageTableFlags::VALID().bits() != 0
+        self.0 & PageTableFlags::VALID.bits() != 0
     }
 
     open spec fn new_page_req(_paddr: Paddr, level: PagingLevel, prop: PageProperty) -> bool {
         &&& level == 1
         &&& prop.inv()
         &&& (prop.cache is Writeback || prop.cache is WriteCombining)
-        &&& prop.flags.contains(PageFlags::DIRTY())
+        &&& prop.flags.contains(PageFlags::DIRTY)
     }
 
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
@@ -313,15 +313,15 @@ impl PageTableEntryTrait for PageTableEntry {
             lemma_new_page(paddr, prop);
         }
         let flags = if level == 1 {
-            PageTableFlags::IS_BASIC().bits()
+            PageTableFlags::IS_BASIC.bits()
         } else {
-            PageTableFlags::GLOBAL_OR_HUGE().bits()
+            PageTableFlags::GLOBAL_OR_HUGE.bits()
         };
         /* Initialize VALID and the page type before updating properties.
          * set_prop leaves absent entries unchanged and preserves IS_BASIC.
          * Origin Rust: let mut pte = Self(paddr & Self::PHYS_ADDR_MASK);
          */
-        let mut pte = Self(paddr & Self::PHYS_ADDR_MASK | PageTableFlags::VALID().bits() | flags);
+        let mut pte = Self(paddr & Self::PHYS_ADDR_MASK | PageTableFlags::VALID.bits() | flags);
         proof {
             let raw = pte.0;
             assert(raw & 512usize == 512usize && raw & 1usize != 0) by (bit_vector)
@@ -338,7 +338,7 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_new_pt(paddr);
         }
-        Self(paddr & Self::PHYS_ADDR_MASK | PageTableFlags::VALID().bits())
+        Self(paddr & Self::PHYS_ADDR_MASK | PageTableFlags::VALID.bits())
     }
 
     fn paddr(&self) -> Paddr {
@@ -346,7 +346,7 @@ impl PageTableEntryTrait for PageTableEntry {
             self.lemma_paddr_is_page_aligned();
         }
         if self.is_huge() {
-            let paddr = (self.0 & Self::PHYS_ADDR_MASK & !PageTableFlags::GLOBAL_IN_HUGE().bits())
+            let paddr = (self.0 & Self::PHYS_ADDR_MASK & !PageTableFlags::GLOBAL_IN_HUGE.bits())
                 >> 12;
             paddr << 12
         } else {
@@ -359,24 +359,24 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_page_property_flag_constants();
         }
-        let flags = (parse_flags!(!(self.0), PageTableFlags::NOT_READABLE(), PageFlags::R())) | (
-        parse_flags!(self.0, PageTableFlags::WRITABLE(), PageFlags::W())) | (
-        parse_flags!(!(self.0), PageTableFlags::NOT_EXECUTABLE(), PageFlags::X()))
+        let flags = (parse_flags!(!(self.0), PageTableFlags::NOT_READABLE, PageFlags::R)) | (
+        parse_flags!(self.0, PageTableFlags::WRITABLE, PageFlags::W)) | (
+        parse_flags!(!(self.0), PageTableFlags::NOT_EXECUTABLE, PageFlags::X))
         // TODO: How to get the accessed bit in loongarch?
-         | (parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::ACCESSED())) | (
-        parse_flags!(self.0, PageTableFlags::DIRTY(), PageFlags::DIRTY())) | (
-        parse_flags!(self.0, PageTableFlags::RSV1(), PageFlags::AVAIL1())) | (
-        parse_flags!(self.0, PageTableFlags::RSV2(), PageFlags::AVAIL2()));
+         | (parse_flags!(self.0, PageTableFlags::PRESENT, PageFlags::ACCESSED)) | (
+        parse_flags!(self.0, PageTableFlags::DIRTY, PageFlags::DIRTY)) | (
+        parse_flags!(self.0, PageTableFlags::RSV1, PageFlags::AVAIL1)) | (
+        parse_flags!(self.0, PageTableFlags::RSV2, PageFlags::AVAIL2));
         let mut priv_flags = PrivFlags::empty().bits();
         if self.is_user() {
-            priv_flags |= PrivFlags::USER().bits();
+            priv_flags |= PrivFlags::USER.bits();
         }
         if self.is_global() {
-            priv_flags |= PrivFlags::GLOBAL().bits();
+            priv_flags |= PrivFlags::GLOBAL.bits();
         }
-        let cache = if self.0 & PageTableFlags::MATL().bits() != 0 {
+        let cache = if self.0 & PageTableFlags::MATL.bits() != 0 {
             CachePolicy::Writeback
-        } else if self.0 & PageTableFlags::MATH().bits() != 0 {
+        } else if self.0 & PageTableFlags::MATH.bits() != 0 {
             CachePolicy::WriteCombining
         } else {
             CachePolicy::Writeback
@@ -436,7 +436,7 @@ impl PageTableEntryTrait for PageTableEntry {
             prop,
         )
         // Present entries must describe basic pages, whose GLOBAL bit is bit 6.
-        &&& self.is_present() ==> self.0 & PageTableFlags::IS_BASIC().bits() != 0
+        &&& self.is_present() ==> self.0 & PageTableFlags::IS_BASIC.bits() != 0
     }
 
     #[verus_spec(
@@ -456,44 +456,44 @@ impl PageTableEntryTrait for PageTableEntry {
             lemma_set_prop_roundtrip(self.0, prop);
         }
         let mut flags =
-            PageTableFlags::VALID().bits()
+            PageTableFlags::VALID.bits()
         // FIXME: To avoid the PageModifyFault exception,
         // we set the DIRTY bit to 1 all the time.
-         | PageTableFlags::DIRTY().bits()
+         | PageTableFlags::DIRTY.bits()
             | parse_flags!(
                 !prop.flags.bits(),
-                PageFlags::R(),
-                PageTableFlags::NOT_READABLE()
+                PageFlags::R,
+                PageTableFlags::NOT_READABLE
             )
-            | parse_flags!(prop.flags.bits(), PageFlags::W(), PageTableFlags::WRITABLE())
+            | parse_flags!(prop.flags.bits(), PageFlags::W, PageTableFlags::WRITABLE)
             | parse_flags!(
                 !prop.flags.bits(),
-                PageFlags::X(),
-                PageTableFlags::NOT_EXECUTABLE()
+                PageFlags::X,
+                PageTableFlags::NOT_EXECUTABLE
             )
-            | parse_flags!(prop.flags.bits(), PageFlags::DIRTY(), PageTableFlags::DIRTY())
+            | parse_flags!(prop.flags.bits(), PageFlags::DIRTY, PageTableFlags::DIRTY)
         // TODO: How to get the accessed bit in loongarch?
-         | parse_flags!(prop.flags.bits(), PageFlags::ACCESSED(), PageTableFlags::PRESENT())
-            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL1(), PageTableFlags::RSV1())
-            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL2(), PageTableFlags::RSV2());
-        if prop.priv_flags.contains(PrivFlags::USER()) {
-            flags |= PageTableFlags::PLVL().bits();
-            flags |= PageTableFlags::PLVH().bits();
+         | parse_flags!(prop.flags.bits(), PageFlags::ACCESSED, PageTableFlags::PRESENT)
+            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL1, PageTableFlags::RSV1)
+            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL2, PageTableFlags::RSV2);
+        if prop.priv_flags.contains(PrivFlags::USER) {
+            flags |= PageTableFlags::PLVL.bits();
+            flags |= PageTableFlags::PLVH.bits();
         }
-        if prop.priv_flags.contains(PrivFlags::GLOBAL()) {
+        if prop.priv_flags.contains(PrivFlags::GLOBAL) {
             if self.is_huge() {
-                flags |= PageTableFlags::GLOBAL_IN_HUGE().bits();
+                flags |= PageTableFlags::GLOBAL_IN_HUGE.bits();
             } else {
-                flags |= PageTableFlags::GLOBAL_OR_HUGE().bits();
+                flags |= PageTableFlags::GLOBAL_OR_HUGE.bits();
             }
         }
         match prop.cache {
             CachePolicy::Writeback => {
-                flags |= PageTableFlags::MATL().bits();
+                flags |= PageTableFlags::MATL.bits();
             },
             CachePolicy::Uncacheable => (),
             CachePolicy::WriteCombining => {
-                flags |= PageTableFlags::MATH().bits();
+                flags |= PageTableFlags::MATH.bits();
             },
             _ => panic!("unsupported cache policy"),
         }
@@ -507,7 +507,7 @@ impl PageTableEntryTrait for PageTableEntry {
          * basic-page meanings after the property update.
          * Origin Rust: self.0 = (self.0 & Self::PHYS_ADDR_MASK) | flags;
          */
-        self.0 = (self.0 & (Self::PHYS_ADDR_MASK | PageTableFlags::IS_BASIC().bits())) | flags;
+        self.0 = (self.0 & (Self::PHYS_ADDR_MASK | PageTableFlags::IS_BASIC.bits())) | flags;
     }
 
     fn is_last(&self, level: PagingLevel) -> bool {
@@ -519,30 +519,30 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     closed spec fn is_present_spec(&self) -> bool {
-        self.0 & PageTableFlags::VALID().bits() != 0
+        self.0 & PageTableFlags::VALID.bits() != 0
     }
 
     closed spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
         let flags = if level == 1 {
-            PageTableFlags::IS_BASIC().bits()
+            PageTableFlags::IS_BASIC.bits()
         } else {
-            PageTableFlags::GLOBAL_OR_HUGE().bits()
+            PageTableFlags::GLOBAL_OR_HUGE.bits()
         };
         Self(
             Self::raw_set_prop_spec(
-                (paddr & Self::PHYS_ADDR_MASK) | PageTableFlags::VALID().bits() | flags,
+                (paddr & Self::PHYS_ADDR_MASK) | PageTableFlags::VALID.bits() | flags,
                 prop,
             ) | flags,
         )
     }
 
     closed spec fn new_pt_spec(paddr: Paddr) -> Self {
-        Self(paddr & Self::PHYS_ADDR_MASK | PageTableFlags::VALID().bits())
+        Self(paddr & Self::PHYS_ADDR_MASK | PageTableFlags::VALID.bits())
     }
 
     closed spec fn paddr_spec(&self) -> Paddr {
         if self.is_huge() {
-            ((self.0 & Self::PHYS_ADDR_MASK & !PageTableFlags::GLOBAL_IN_HUGE().bits()) >> 12) << 12
+            ((self.0 & Self::PHYS_ADDR_MASK & !PageTableFlags::GLOBAL_IN_HUGE.bits()) >> 12) << 12
         } else {
             ((self.0 & Self::PHYS_ADDR_MASK) >> 12) << 12
         }
@@ -552,9 +552,9 @@ impl PageTableEntryTrait for PageTableEntry {
         PageProperty {
             flags: PageFlags::from_bits(self.decoded_flags())->0,
             priv_flags: PrivFlags::from_bits(self.decoded_priv_flags())->0,
-            cache: if self.0 & PageTableFlags::MATL().bits() != 0 {
+            cache: if self.0 & PageTableFlags::MATL.bits() != 0 {
                 CachePolicy::Writeback
-            } else if self.0 & PageTableFlags::MATH().bits() != 0 {
+            } else if self.0 & PageTableFlags::MATH.bits() != 0 {
                 CachePolicy::WriteCombining
             } else {
                 CachePolicy::Writeback
@@ -663,22 +663,22 @@ impl PageTableEntry {
     }
 
     closed spec fn decoded_flags(self) -> u8 {
-        ((parse_flags!(!self.0, PageTableFlags::NOT_READABLE(), PageFlags::R())) | (
-        parse_flags!(self.0, PageTableFlags::WRITABLE(), PageFlags::W())) | (
-        parse_flags!(!self.0, PageTableFlags::NOT_EXECUTABLE(), PageFlags::X())) | (
-        parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::ACCESSED())) | (
-        parse_flags!(self.0, PageTableFlags::DIRTY(), PageFlags::DIRTY())) | (
-        parse_flags!(self.0, PageTableFlags::RSV1(), PageFlags::AVAIL1())) | (
-        parse_flags!(self.0, PageTableFlags::RSV2(), PageFlags::AVAIL2()))) as u8
+        ((parse_flags!(!self.0, PageTableFlags::NOT_READABLE, PageFlags::R)) | (
+        parse_flags!(self.0, PageTableFlags::WRITABLE, PageFlags::W)) | (
+        parse_flags!(!self.0, PageTableFlags::NOT_EXECUTABLE, PageFlags::X)) | (
+        parse_flags!(self.0, PageTableFlags::PRESENT, PageFlags::ACCESSED)) | (
+        parse_flags!(self.0, PageTableFlags::DIRTY, PageFlags::DIRTY)) | (
+        parse_flags!(self.0, PageTableFlags::RSV1, PageFlags::AVAIL1)) | (
+        parse_flags!(self.0, PageTableFlags::RSV2, PageFlags::AVAIL2))) as u8
     }
 
     closed spec fn decoded_priv_flags(self) -> u8 {
         (if self.is_user() {
-            PrivFlags::USER().bits()
+            PrivFlags::USER.bits()
         } else {
             0u8
         }) | (if self.is_global() {
-            PrivFlags::GLOBAL().bits()
+            PrivFlags::GLOBAL.bits()
         } else {
             0u8
         })
@@ -686,110 +686,110 @@ impl PageTableEntry {
 
     /// Models property updates that preserve the address and IS_BASIC.
     pub closed spec fn raw_set_prop_spec(raw: usize, prop: PageProperty) -> usize {
-        let flags = PageTableFlags::VALID().bits() | PageTableFlags::DIRTY().bits()
-            | parse_flags!(!prop.flags.bits(), PageFlags::R(), PageTableFlags::NOT_READABLE())
-            | parse_flags!(prop.flags.bits(), PageFlags::W(), PageTableFlags::WRITABLE())
-            | parse_flags!(!prop.flags.bits(), PageFlags::X(), PageTableFlags::NOT_EXECUTABLE())
-            | parse_flags!(prop.flags.bits(), PageFlags::DIRTY(), PageTableFlags::DIRTY())
-            | parse_flags!(prop.flags.bits(), PageFlags::ACCESSED(), PageTableFlags::PRESENT())
-            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL1(), PageTableFlags::RSV1())
-            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL2(), PageTableFlags::RSV2());
-        let flags = if prop.priv_flags.contains(PrivFlags::USER()) {
-            flags | PageTableFlags::PLVL().bits() | PageTableFlags::PLVH().bits()
+        let flags = PageTableFlags::VALID.bits() | PageTableFlags::DIRTY.bits()
+            | parse_flags!(!prop.flags.bits(), PageFlags::R, PageTableFlags::NOT_READABLE)
+            | parse_flags!(prop.flags.bits(), PageFlags::W, PageTableFlags::WRITABLE)
+            | parse_flags!(!prop.flags.bits(), PageFlags::X, PageTableFlags::NOT_EXECUTABLE)
+            | parse_flags!(prop.flags.bits(), PageFlags::DIRTY, PageTableFlags::DIRTY)
+            | parse_flags!(prop.flags.bits(), PageFlags::ACCESSED, PageTableFlags::PRESENT)
+            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL1, PageTableFlags::RSV1)
+            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL2, PageTableFlags::RSV2);
+        let flags = if prop.priv_flags.contains(PrivFlags::USER) {
+            flags | PageTableFlags::PLVL.bits() | PageTableFlags::PLVH.bits()
         } else {
             flags
         };
-        let flags = if prop.priv_flags.contains(PrivFlags::GLOBAL()) {
+        let flags = if prop.priv_flags.contains(PrivFlags::GLOBAL) {
             flags | if Self(raw).is_huge() {
-                PageTableFlags::GLOBAL_IN_HUGE().bits()
+                PageTableFlags::GLOBAL_IN_HUGE.bits()
             } else {
-                PageTableFlags::GLOBAL_OR_HUGE().bits()
+                PageTableFlags::GLOBAL_OR_HUGE.bits()
             }
         } else {
             flags
         };
         let flags = flags | match prop.cache {
-            CachePolicy::Writeback => PageTableFlags::MATL().bits(),
-            CachePolicy::WriteCombining => PageTableFlags::MATH().bits(),
+            CachePolicy::Writeback => PageTableFlags::MATL.bits(),
+            CachePolicy::WriteCombining => PageTableFlags::MATH.bits(),
             _ => 0usize,
         };
-        (raw & Self::PHYS_ADDR_MASK) | flags | (raw & PageTableFlags::IS_BASIC().bits())
+        (raw & Self::PHYS_ADDR_MASK) | flags | (raw & PageTableFlags::IS_BASIC.bits())
     }
 }
 
 /// Checks page-flag masks and bit positions.
 proof fn lemma_page_property_flag_constants()
     ensures
-        PageTableFlags::VALID().bits() == 1,
-        PageTableFlags::VALID().bits().ilog2() == 0,
-        PageTableFlags::DIRTY().bits() == 2,
-        PageTableFlags::DIRTY().bits().ilog2() == 1,
-        PageTableFlags::PLVL().bits() == 4,
-        PageTableFlags::PLVL().bits().ilog2() == 2,
-        PageTableFlags::PLVH().bits() == 8,
-        PageTableFlags::PLVH().bits().ilog2() == 3,
-        PageTableFlags::MATL().bits() == 16,
-        PageTableFlags::MATL().bits().ilog2() == 4,
-        PageTableFlags::MATH().bits() == 32,
-        PageTableFlags::MATH().bits().ilog2() == 5,
-        PageTableFlags::GLOBAL_OR_HUGE().bits() == 64,
-        PageTableFlags::GLOBAL_OR_HUGE().bits().ilog2() == 6,
-        PageTableFlags::PRESENT().bits() == 128,
-        PageTableFlags::PRESENT().bits().ilog2() == 7,
-        PageTableFlags::WRITABLE().bits() == 256,
-        PageTableFlags::WRITABLE().bits().ilog2() == 8,
-        PageTableFlags::IS_BASIC().bits() == 512,
-        PageTableFlags::IS_BASIC().bits().ilog2() == 9,
-        PageTableFlags::RSV1().bits() == 1024,
-        PageTableFlags::RSV1().bits().ilog2() == 10,
-        PageTableFlags::RSV2().bits() == 2048,
-        PageTableFlags::RSV2().bits().ilog2() == 11,
-        PageTableFlags::GLOBAL_IN_HUGE().bits() == 4096,
-        PageTableFlags::GLOBAL_IN_HUGE().bits().ilog2() == 12,
-        PageTableFlags::NOT_READABLE().bits() == 2305843009213693952,
-        PageTableFlags::NOT_READABLE().bits().ilog2() == 61,
-        PageTableFlags::NOT_EXECUTABLE().bits() == 4611686018427387904,
-        PageTableFlags::NOT_EXECUTABLE().bits().ilog2() == 62,
-        PageTableFlags::RPLV().bits() == 9223372036854775808,
-        PageTableFlags::RPLV().bits().ilog2() == 63,
-        PageFlags::R().bits() == 1,
-        PageFlags::R().bits().ilog2() == 0,
-        PageFlags::W().bits() == 2,
-        PageFlags::W().bits().ilog2() == 1,
-        PageFlags::X().bits() == 4,
-        PageFlags::X().bits().ilog2() == 2,
-        PageFlags::ACCESSED().bits() == 8,
-        PageFlags::ACCESSED().bits().ilog2() == 3,
-        PageFlags::DIRTY().bits() == 16,
-        PageFlags::DIRTY().bits().ilog2() == 4,
-        PageFlags::AVAIL1().bits() == 64,
-        PageFlags::AVAIL1().bits().ilog2() == 6,
-        PageFlags::AVAIL2().bits() == 128,
-        PageFlags::AVAIL2().bits().ilog2() == 7,
-        PrivFlags::USER().bits() == 1,
-        PrivFlags::USER().bits().ilog2() == 0,
-        PrivFlags::GLOBAL().bits() == 2,
-        PrivFlags::GLOBAL().bits().ilog2() == 1,
+        PageTableFlags::VALID.bits() == 1,
+        PageTableFlags::VALID.bits().ilog2() == 0,
+        PageTableFlags::DIRTY.bits() == 2,
+        PageTableFlags::DIRTY.bits().ilog2() == 1,
+        PageTableFlags::PLVL.bits() == 4,
+        PageTableFlags::PLVL.bits().ilog2() == 2,
+        PageTableFlags::PLVH.bits() == 8,
+        PageTableFlags::PLVH.bits().ilog2() == 3,
+        PageTableFlags::MATL.bits() == 16,
+        PageTableFlags::MATL.bits().ilog2() == 4,
+        PageTableFlags::MATH.bits() == 32,
+        PageTableFlags::MATH.bits().ilog2() == 5,
+        PageTableFlags::GLOBAL_OR_HUGE.bits() == 64,
+        PageTableFlags::GLOBAL_OR_HUGE.bits().ilog2() == 6,
+        PageTableFlags::PRESENT.bits() == 128,
+        PageTableFlags::PRESENT.bits().ilog2() == 7,
+        PageTableFlags::WRITABLE.bits() == 256,
+        PageTableFlags::WRITABLE.bits().ilog2() == 8,
+        PageTableFlags::IS_BASIC.bits() == 512,
+        PageTableFlags::IS_BASIC.bits().ilog2() == 9,
+        PageTableFlags::RSV1.bits() == 1024,
+        PageTableFlags::RSV1.bits().ilog2() == 10,
+        PageTableFlags::RSV2.bits() == 2048,
+        PageTableFlags::RSV2.bits().ilog2() == 11,
+        PageTableFlags::GLOBAL_IN_HUGE.bits() == 4096,
+        PageTableFlags::GLOBAL_IN_HUGE.bits().ilog2() == 12,
+        PageTableFlags::NOT_READABLE.bits() == 2305843009213693952,
+        PageTableFlags::NOT_READABLE.bits().ilog2() == 61,
+        PageTableFlags::NOT_EXECUTABLE.bits() == 4611686018427387904,
+        PageTableFlags::NOT_EXECUTABLE.bits().ilog2() == 62,
+        PageTableFlags::RPLV.bits() == 9223372036854775808,
+        PageTableFlags::RPLV.bits().ilog2() == 63,
+        PageFlags::R.bits() == 1,
+        PageFlags::R.bits().ilog2() == 0,
+        PageFlags::W.bits() == 2,
+        PageFlags::W.bits().ilog2() == 1,
+        PageFlags::X.bits() == 4,
+        PageFlags::X.bits().ilog2() == 2,
+        PageFlags::ACCESSED.bits() == 8,
+        PageFlags::ACCESSED.bits().ilog2() == 3,
+        PageFlags::DIRTY.bits() == 16,
+        PageFlags::DIRTY.bits().ilog2() == 4,
+        PageFlags::AVAIL1.bits() == 64,
+        PageFlags::AVAIL1.bits().ilog2() == 6,
+        PageFlags::AVAIL2.bits() == 128,
+        PageFlags::AVAIL2.bits().ilog2() == 7,
+        PrivFlags::USER.bits() == 1,
+        PrivFlags::USER.bits().ilog2() == 0,
+        PrivFlags::GLOBAL.bits() == 2,
+        PrivFlags::GLOBAL.bits().ilog2() == 1,
         PageFlags::all().bits() == 0xdfu8,
         PrivFlags::all().bits() == 3u8,
 {
     lemma_usize_ilog2_to32();
-    assert(PageTableFlags::VALID().bits() == 1) by (compute_only);
-    assert(PageTableFlags::DIRTY().bits() == 2) by (compute_only);
-    assert(PageTableFlags::PLVL().bits() == 4) by (compute_only);
-    assert(PageTableFlags::PLVH().bits() == 8) by (compute_only);
-    assert(PageTableFlags::MATL().bits() == 16) by (compute_only);
-    assert(PageTableFlags::MATH().bits() == 32) by (compute_only);
-    assert(PageTableFlags::GLOBAL_OR_HUGE().bits() == 64) by (compute_only);
-    assert(PageTableFlags::PRESENT().bits() == 128) by (compute_only);
-    assert(PageTableFlags::WRITABLE().bits() == 256) by (compute_only);
-    assert(PageTableFlags::IS_BASIC().bits() == 512) by (compute_only);
-    assert(PageTableFlags::RSV1().bits() == 1024) by (compute_only);
-    assert(PageTableFlags::RSV2().bits() == 2048) by (compute_only);
-    assert(PageTableFlags::GLOBAL_IN_HUGE().bits() == 4096) by (compute_only);
-    assert(PageTableFlags::NOT_READABLE().bits() == 2305843009213693952) by (compute_only);
-    assert(PageTableFlags::NOT_EXECUTABLE().bits() == 4611686018427387904) by (compute_only);
-    assert(PageTableFlags::RPLV().bits() == 9223372036854775808) by (compute_only);
+    assert(PageTableFlags::VALID.bits() == 1) by (compute_only);
+    assert(PageTableFlags::DIRTY.bits() == 2) by (compute_only);
+    assert(PageTableFlags::PLVL.bits() == 4) by (compute_only);
+    assert(PageTableFlags::PLVH.bits() == 8) by (compute_only);
+    assert(PageTableFlags::MATL.bits() == 16) by (compute_only);
+    assert(PageTableFlags::MATH.bits() == 32) by (compute_only);
+    assert(PageTableFlags::GLOBAL_OR_HUGE.bits() == 64) by (compute_only);
+    assert(PageTableFlags::PRESENT.bits() == 128) by (compute_only);
+    assert(PageTableFlags::WRITABLE.bits() == 256) by (compute_only);
+    assert(PageTableFlags::IS_BASIC.bits() == 512) by (compute_only);
+    assert(PageTableFlags::RSV1.bits() == 1024) by (compute_only);
+    assert(PageTableFlags::RSV2.bits() == 2048) by (compute_only);
+    assert(PageTableFlags::GLOBAL_IN_HUGE.bits() == 4096) by (compute_only);
+    assert(PageTableFlags::NOT_READABLE.bits() == 2305843009213693952) by (compute_only);
+    assert(PageTableFlags::NOT_EXECUTABLE.bits() == 4611686018427387904) by (compute_only);
+    assert(PageTableFlags::RPLV.bits() == 9223372036854775808) by (compute_only);
     broadcast use PageFlags::lemma_consts, PrivFlags::lemma_consts;
 
     lemma2_to64_rest();
@@ -909,7 +909,7 @@ proof fn lemma_encoding_models_match(raw: usize, prop: PageProperty)
             } else {
                 32usize
             },
-        ) | (raw & PageTableFlags::IS_BASIC().bits()),
+        ) | (raw & PageTableFlags::IS_BASIC.bits()),
         PageTableEntry(raw).decoded_flags() == decode_bits(raw),
         PageTableEntry(PageTableEntry::raw_set_prop_spec(raw, prop)).decoded_flags() == decode_bits(
             PageTableEntry::raw_set_prop_spec(raw, prop),
@@ -1043,7 +1043,7 @@ proof fn lemma_new_pt(pa: Paddr)
 {
     lemma_page_property_flag_constants();
     lemma_raw_properties(pa);
-    let raw = (pa & PageTableEntry::PHYS_ADDR_MASK) | PageTableFlags::VALID().bits();
+    let raw = (pa & PageTableEntry::PHYS_ADDR_MASK) | PageTableFlags::VALID.bits();
 }
 
 } // verus!
