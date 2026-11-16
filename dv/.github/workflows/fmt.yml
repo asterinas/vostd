@@ -1,0 +1,31 @@
+name: Format DV Code
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run cargo fmt
+        run: cargo fmt
+
+      - name: Check for formatting changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "Code is not properly formatted. Run 'cargo fmt'."
+            git diff
+            exit 1
+          fi
