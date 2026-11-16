@@ -28,10 +28,8 @@ verus! {
 /// OSTD users can choose a smaller size by specifying
 /// the `OSTD_TASK_STACK_SIZE_IN_PAGES` environment variable
 /// at build time.
-///
-/// The environment-dependent initializer is not verified. Verifying it requires
-/// any supplied value to satisfy `valid_decimal(value.spec_bytes())`.
-/* Verus cannot apply external_body directly to a static item.
+/* Unverified: supplied values must satisfy `valid_decimal(value.spec_bytes())`;
+ * Verus does not support external_body on statics.
  * Origin Rust:
 pub static STACK_SIZE_IN_PAGES: u32 = parse_u32_or_default(
     option_env!("OSTD_TASK_STACK_SIZE_IN_PAGES"),
