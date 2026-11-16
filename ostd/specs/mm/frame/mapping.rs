@@ -58,6 +58,20 @@ pub broadcast proof fn lemma_index_to_frame_biinjective(index: int)
 {
 }
 
+/// Round trip: an in-range slot index is recovered from its metadata address.
+pub broadcast proof fn lemma_meta_to_index_round_trip(i: int)
+    requires
+        0 <= i < max_meta_slots(),
+    ensures
+        #[trigger] meta_to_index(index_to_meta(i)) == i,
+{
+    lemma_index_to_frame_biinjective(i);
+    assert(meta_to_frame(index_to_meta(i)) == index_to_frame(i)) by (nonlinear_arith)
+        requires
+            0 <= i < max_meta_slots(),
+    ;
+}
+
 /// `frame_to_index` is injective on page-aligned paddrs.
 pub broadcast proof fn lemma_frame_to_index_injective(p1: Paddr, p2: Paddr)
     requires
@@ -108,6 +122,7 @@ pub broadcast proof fn lemma_frame_to_meta_soundness(page: Paddr)
 }
 
 pub broadcast group group_page_meta {
+    lemma_meta_to_index_round_trip,
     lemma_index_to_frame_biinjective,
     lemma_paddr_to_meta_biinjective,
     lemma_meta_to_paddr_biinjective,

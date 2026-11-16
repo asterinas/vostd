@@ -118,8 +118,8 @@ verus! {
 /// The `prev` and `next` fields of the metadata for each link always points to valid
 /// links in the list, so the structure is memory safe (will not read or write invalid memory).
 pub struct LinkedList<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> {
-    pub front: Option<PPtr<MetaSlot>>,
-    pub back: Option<PPtr<MetaSlot>>,
+    pub front: Option<*mut Link<M>>,
+    pub back: Option<*mut Link<M>>,
     /// The link pointers address [`MetaSlot`]s, which say nothing about the
     /// element type, so the list names it here. What a slot's metadata cell
     /// decodes to is claimed by `holds::<Link<M>>()`, not by the pointer.
@@ -137,7 +137,7 @@ pub struct LinkedList<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> {
 /// to the "ghost" non-element when the cursor surpasses the back of the list.
 pub struct CursorMut<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> {
     pub list: &'a mut LinkedList<M>,
-    pub current: Option<PPtr<MetaSlot>>,
+    pub current: Option<*mut Link<M>>,
 }
 
 #[verifier::spinoff_prover]
@@ -612,7 +612,15 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedList<M> {
                 let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(list_owner, index);
             }
 
-            let meta_ptr = PPtr::<MetaSlot>::from_addr(frame_to_meta(frame));
+            // The one boundary conversion: build the slot pointer from its
+            // address using the slot permission's exposure, then cast to the
+            // metadata pointer the cursor stores. Everything downstream works
+            // on that pointer directly.
+            let tracked cur_slot_perm = regions.slots.tracked_borrow(idx);
+            let meta_ptr = ptr_from_addr::<MetaSlot>(
+                frame_to_meta(frame),
+                Tracked(cur_slot_perm),
+            ) as *mut Link<M>;
             proof_with!(|= Tracked(Some(cursor_owner)));
             Some(CursorMut { list: self, current: Some(meta_ptr) })
         } else {
@@ -732,10 +740,20 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             if self.current is Some {
                 owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
                 owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
+                // The link we are about to follow is the next node's slot
+                // pointer re-typed, which is what `wf_region` now records.
+                owner.list_own.lemma_links_canonical_at(*regions, owner.index);
             }
             if owner.index < owner.length() - 1 {
                 owner.list_own.lemma_relate_region_at_index(*regions, owner.index + 1);
                 owner.list_own.lemma_relate_region_at_facts(*regions, owner.index + 1);
+                // Identify the followed link's address with the next node's
+                // slot index, so the canonical fact lands on that node. The
+                // region fact gives `slots[idx].addr() == index_to_meta(idx)`;
+                // the round trip then turns the address back into the index.
+                lemma_meta_to_index_round_trip(
+                    meta_to_index(owner.list_own.list[owner.index + 1].slot_vaddr),
+                );
             }
         }
 
@@ -743,7 +761,7 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
                 proof_decl!{
-                    let ghost idx = meta_to_index(current.addr());
+                    let ghost idx = meta_to_index((current as *const MetaSlot).addr());
                     let tracked points_to = *regions.slots.tracked_borrow(idx);
                     let tracked metadata_perms =
                         owner.list_own.metadata_perms.tracked_borrow(owner.index);
@@ -751,18 +769,8 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 proof {
                     assert(regions.contains(idx));
                 }
-                let link_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(current.addr(), Tracked(points_to)),
-                    Tracked(points_to),
-                );
                 let tracked link_perm = MetaSlot::meta_perm::<Link<M>>(points_to, metadata_perms);
-                #[verus_spec(with Tracked(points_to))]
-                let link_ptr_addr = link_slot.addr_of();
-                let link = ptr_ref_via::<MetaSlot, Link<M>>(
-                    link_ptr_addr,
-                    Tracked(points_to),
-                    Tracked(link_perm),
-                );
+                let link = vstd::raw_ptr::ptr_ref(current as *const Link<M>, Tracked(link_perm));
                 link.next
             },
             None => self.list.front,
@@ -799,9 +807,17 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
                 owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
             }
+            if self.current is Some {
+                // The link we are about to follow is the previous node's slot
+                // pointer re-typed, which is what `wf_region` now records.
+                owner.list_own.lemma_links_canonical_at(*regions, owner.index);
+            }
             if 0 < owner.index {
                 owner.list_own.lemma_relate_region_at_index(*regions, owner.index - 1);
                 owner.list_own.lemma_relate_region_at_facts(*regions, owner.index - 1);
+                lemma_meta_to_index_round_trip(
+                    meta_to_index(owner.list_own.list[owner.index - 1].slot_vaddr),
+                );
             }
         }
 
@@ -809,7 +825,7 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
                 proof_decl!{
-                    let ghost idx = meta_to_index(current.addr());
+                    let ghost idx = meta_to_index((current as *const MetaSlot).addr());
                     let tracked points_to = *regions.slots.tracked_borrow(idx);
                     let tracked metadata_perms =
                         owner.list_own.metadata_perms.tracked_borrow(owner.index);
@@ -818,18 +834,8 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                     assert(regions.contains(idx));
                 }
 
-                let link_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(current.addr(), Tracked(points_to)),
-                    Tracked(points_to),
-                );
                 let tracked link_perm = MetaSlot::meta_perm::<Link<M>>(points_to, metadata_perms);
-                #[verus_spec(with Tracked(points_to))]
-                let link_ptr_addr = link_slot.addr_of();
-                let link = ptr_ref_via::<MetaSlot, Link<M>>(
-                    link_ptr_addr,
-                    Tracked(points_to),
-                    Tracked(link_perm),
-                );
+                let link = vstd::raw_ptr::ptr_ref(current as *const Link<M>, Tracked(link_perm));
                 link.prev
             },
             None => self.list.back,
@@ -897,7 +903,7 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                     owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
                     owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
                 }
-                let ghost idx = meta_to_index(current.addr());
+                let ghost idx = meta_to_index((current as *const MetaSlot).addr());
                 proof {
                     assert(regions.contains(idx));
                 }
@@ -905,23 +911,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 let tracked metadata_perms = owner.list_own.metadata_perms.tracked_borrow_mut(
                     owner.index,
                 );
-                let current_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(current.addr(), Tracked(points_to)),
-                    Tracked(points_to),
-                );
                 let tracked current_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                     points_to,
                     metadata_perms,
                 );
-                #[verus_spec(with Tracked(points_to))]
-                let current_ptr_addr = current_slot.addr_of();
-                Some(
-                    &mut ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                        current_ptr_addr,
-                        Tracked(points_to),
-                        Tracked(current_perm),
-                    ).meta,
-                )
+                Some(&mut vstd::raw_ptr::ptr_mut_ref(current, Tracked(current_perm)).meta)
             },
             None => None,
         }
@@ -969,7 +963,7 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 &&& *final(regions) == *old(regions)
             },
             res matches Some(unique) ==> {
-                let paddr = meta_to_frame(old(self).current->0.addr());
+                let paddr = meta_to_frame((old(self).current->0 as *const MetaSlot).addr());
                 let idx = frame_to_index(paddr);
                 let metadata_perm = unique.tracked_metadata_perm@->0;
                 &&& final(owner)@ == old(owner)@.remove()
@@ -986,7 +980,7 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                     paddr, final(regions).slot_owners[idx],
                 )
                 &&& unique.inv()
-                &&& unique.ptr.addr() == old(self).current->0.addr()
+                &&& unique.ptr.addr() == (old(self).current->0 as *const MetaSlot).addr()
                 &&& returned_owner@ matches Some(unique_owner) ==> {
                     &&& unique_owner.meta_own@ == old(owner).list_own.list[old(owner).index]@
                     &&& unique.frame_link_inv(unique_owner, *final(regions))
@@ -1021,6 +1015,9 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             owner.list_own.lemma_relate_region_shape(*regions);
             owner.list_own.lemma_relate_region_at_index(*regions, owner.index);
             owner.list_own.lemma_relate_region_at_facts(*regions, owner.index);
+            // The removed node's links are the neighbours' slot pointers
+            // re-typed; the cursor inherits one of them.
+            owner.list_own.lemma_links_canonical_at(*regions, owner.index);
             if owner.index > 0 {
                 owner.list_own.lemma_relate_region_at_index(*regions, owner.index - 1);
                 owner.list_own.lemma_relate_region_at_facts(*regions, owner.index - 1);
@@ -1028,10 +1025,19 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             if owner.index < owner.list_own.list.len() - 1 {
                 owner.list_own.lemma_relate_region_at_index(*regions, owner.index + 1);
                 owner.list_own.lemma_relate_region_at_facts(*regions, owner.index + 1);
+                lemma_meta_to_index_round_trip(
+                    meta_to_index(owner.list_own.list[owner.index + 1].slot_vaddr),
+                );
             }
         }
 
-        let meta_ptr = current.addr();
+        // upstream:
+        //   let meta_ptr = current.as_ptr() as *mut MetaSlot;
+        //   let paddr = mapping::meta_to_frame::<PagingConsts>(meta_ptr as Vaddr);
+        // The address fed to the mapping is the *slot's*, so the cast comes
+        // first; it preserves the address, the stored pointer being the slot's
+        // pointer re-typed.
+        let meta_ptr = (current as *const MetaSlot).addr();
         let paddr = meta_to_frame(meta_ptr);
         let ghost idx = frame_to_index(paddr);
 
@@ -1073,21 +1079,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             let tracked prev_metadata_perm = owner.list_own.metadata_perms.tracked_borrow_mut(
                 owner.index - 1,
             );
-            let prev_meta_slot = ptr_ref(
-                ptr_from_addr::<MetaSlot>(prev.addr(), Tracked(prev_points_to)),
-                Tracked(prev_points_to),
-            );
             let tracked prev_meta_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                 prev_points_to,
                 prev_metadata_perm,
             );
-            #[verus_spec(with Tracked(prev_points_to))]
-            let prev_meta_ptr_addr = prev_meta_slot.addr_of();
-            let prev_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                prev_meta_ptr_addr,
-                Tracked(prev_points_to),
-                Tracked(prev_meta_perm),
-            );
+            let prev_meta = vstd::raw_ptr::ptr_mut_ref(prev, Tracked(prev_meta_perm));
             prev_meta.next = next_ptr;
 
         } else {
@@ -1103,21 +1099,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             let tracked next_metadata_perm = owner.list_own.metadata_perms.tracked_borrow_mut(
                 owner.index,
             );
-            let next_meta_slot = ptr_ref(
-                ptr_from_addr::<MetaSlot>(next.addr(), Tracked(next_points_to)),
-                Tracked(next_points_to),
-            );
             let tracked next_meta_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                 next_points_to,
                 next_metadata_perm,
             );
-            #[verus_spec(with Tracked(next_points_to))]
-            let next_meta_ptr_addr = next_meta_slot.addr_of();
-            let next_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                next_meta_ptr_addr,
-                Tracked(next_points_to),
-                Tracked(next_meta_perm),
-            );
+            let next_meta = vstd::raw_ptr::ptr_mut_ref(next, Tracked(next_meta_perm));
             next_meta.prev = prev_ptr;
 
             self.current = Some(next);
@@ -1287,6 +1273,7 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                     reveal(LinkedListOwner::relate_region);
                 };
                 owner.list_own.lemma_relate_region_at_facts(*regions, nn - 1);
+                owner.list_own.lemma_links_canonical_at(*regions, nn - 1);
                 lemma_meta_region_inv_at(
                     regions0,
                     meta_to_index(owner0.list_own.list[nn - 1].slot_vaddr),
@@ -1297,6 +1284,9 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                     reveal(LinkedListOwner::relate_region);
                 };
                 owner.list_own.lemma_relate_region_at_facts(*regions, nn);
+                // The links we read off the current node, and the cursor
+                // pointer we store into the new node, are both canonical.
+                owner.list_own.lemma_links_canonical_at(*regions, nn);
                 lemma_meta_region_inv_at(
                     regions0,
                     meta_to_index(owner0.list_own.list[nn].slot_vaddr),
@@ -1317,27 +1307,22 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             }
         }
 
-        let frame_ptr = PPtr::<MetaSlot>::from_addr(frame.ptr.addr());
+        // The frame's metadata pointer: a cast from its slot pointer, which
+        // preserves address and provenance. Upstream stores the same thing.
+        let frame_ptr = frame.ptr as *mut Link<M>;
 
         if let Some(current) = self.current {
             proof_decl!{
-                let ghost idx = meta_to_index(current.addr());
+                let ghost idx = meta_to_index((current as *const MetaSlot).addr());
                 let tracked points_to = *regions.slots.tracked_borrow(idx);
                 let tracked metadata_perms =
                     owner.list_own.metadata_perms.tracked_borrow(owner.index);
             }
 
             // Read current's prev pointer.
-            let current_slot = ptr_ref(
-                ptr_from_addr::<MetaSlot>(current.addr(), Tracked(points_to)),
-                Tracked(points_to),
-            );
             let tracked current_perm = MetaSlot::meta_perm::<Link<M>>(points_to, metadata_perms);
-            #[verus_spec(with Tracked(points_to))]
-            let current_ptr_addr = current_slot.addr_of();
-            let opt_prev_link: Option<PPtr<MetaSlot>> = ptr_ref_via::<MetaSlot, Link<M>>(
-                current_ptr_addr,
-                Tracked(points_to),
+            let opt_prev_link: Option<*mut Link<M>> = vstd::raw_ptr::ptr_ref(
+                current as *const Link<M>,
                 Tracked(current_perm),
             ).prev;
 
@@ -1359,42 +1344,22 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 let tracked prev_metadata_perm = owner.list_own.metadata_perms.tracked_borrow_mut(
                     nn - 1,
                 );
-                let prev_meta_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(prev.addr(), Tracked(prev_points_to)),
-                    Tracked(prev_points_to),
-                );
                 let tracked prev_meta_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                     prev_points_to,
                     prev_metadata_perm,
                 );
-                #[verus_spec(with Tracked(prev_points_to))]
-                let prev_meta_ptr_addr = prev_meta_slot.addr_of();
-                let prev_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                    prev_meta_ptr_addr,
-                    Tracked(prev_points_to),
-                    Tracked(prev_meta_perm),
-                );
+                let prev_meta = vstd::raw_ptr::ptr_mut_ref(prev, Tracked(prev_meta_perm));
                 prev_meta.next = Some(frame_ptr);
 
                 let ghost current_idx = meta_to_index(owner.list_own.list[nn].slot_vaddr);
                 let tracked current_points_to = *regions.slots.tracked_borrow(current_idx);
                 let tracked current_metadata_perm =
                     owner.list_own.metadata_perms.tracked_borrow_mut(nn);
-                let current_meta_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(current.addr(), Tracked(current_points_to)),
-                    Tracked(current_points_to),
-                );
                 let tracked current_meta_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                     current_points_to,
                     current_metadata_perm,
                 );
-                #[verus_spec(with Tracked(current_points_to))]
-                let current_meta_ptr_addr = current_meta_slot.addr_of();
-                let current_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                    current_meta_ptr_addr,
-                    Tracked(current_points_to),
-                    Tracked(current_meta_perm),
-                );
+                let current_meta = vstd::raw_ptr::ptr_mut_ref(current, Tracked(current_meta_perm));
                 current_meta.prev = Some(frame_ptr);
             } else {
                 (#[verus_spec(with Tracked(frame_own))]
@@ -1404,21 +1369,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 let tracked current_points_to = *regions.slots.tracked_borrow(current_idx);
                 let tracked current_metadata_perm =
                     owner.list_own.metadata_perms.tracked_borrow_mut(nn);
-                let current_meta_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(current.addr(), Tracked(current_points_to)),
-                    Tracked(current_points_to),
-                );
                 let tracked current_meta_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                     current_points_to,
                     current_metadata_perm,
                 );
-                #[verus_spec(with Tracked(current_points_to))]
-                let current_meta_ptr_addr = current_meta_slot.addr_of();
-                let current_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                    current_meta_ptr_addr,
-                    Tracked(current_points_to),
-                    Tracked(current_meta_perm),
-                );
+                let current_meta = vstd::raw_ptr::ptr_mut_ref(current, Tracked(current_meta_perm));
                 current_meta.prev = Some(frame_ptr);
                 self.list.front = Some(frame_ptr);
             }
@@ -1433,21 +1388,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 let tracked back_metadata_perm = owner.list_own.metadata_perms.tracked_borrow_mut(
                     nn - 1,
                 );
-                let back_meta_slot = ptr_ref(
-                    ptr_from_addr::<MetaSlot>(back.addr(), Tracked(back_points_to)),
-                    Tracked(back_points_to),
-                );
                 let tracked back_meta_perm = MetaSlot::meta_perm_mut::<Link<M>>(
                     back_points_to,
                     back_metadata_perm,
                 );
-                #[verus_spec(with Tracked(back_points_to))]
-                let back_meta_ptr_addr = back_meta_slot.addr_of();
-                let back_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
-                    back_meta_ptr_addr,
-                    Tracked(back_points_to),
-                    Tracked(back_meta_perm),
-                );
+                let back_meta = vstd::raw_ptr::ptr_mut_ref(back, Tracked(back_meta_perm));
                 back_meta.next = Some(frame_ptr);
                 self.list.back = Some(frame_ptr);
             } else {
@@ -1573,6 +1518,9 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedList<M> {
     )
         requires
             self.wf(*old(owner)),
+            // The region-level form too, for the canonical front/back pointers
+            // the cursor inherits.
+            self.wf_region(*old(owner), *old(regions)),
             old(owner).inv(),
             old(regions).inv(),
             forall|i: int|
@@ -1752,8 +1700,8 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedList<M> {
 // unsafe impl<M> Sync for LinkedList<M> where Link<M>: AnyFrameMeta {}
 /// A link in the linked list.
 pub struct Link<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> {
-    pub next: Option<PPtr<MetaSlot>>,
-    pub prev: Option<PPtr<MetaSlot>>,
+    pub next: Option<*mut Link<M>>,
+    pub prev: Option<*mut Link<M>>,
     pub meta: M,
 }
 
@@ -1780,6 +1728,20 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> Link<M> {
 
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
+// SAFETY: `Link<M>` is `Send` and `Sync` if `M` is `Send` and `Sync` because
+// we only access these unsafe cells when the frame is not shared. This is
+// enforced by `UniqueFrame`. (Needed now that the links are raw pointers
+// rather than addresses; upstream carries the same pair.)
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE> + Send> Send for Link<M> {
+
+}
+
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE> + Sync> Sync for Link<M> {
+
+}
+
 unsafe impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> AnyFrameMeta for Link<M> {
     #[cfg(feature = "type_id")]
     open spec fn meta_id(&self) -> TypeId {

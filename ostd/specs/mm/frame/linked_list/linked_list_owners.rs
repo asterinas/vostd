@@ -166,6 +166,26 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
         regions.slots[meta_to_index(self.list[i].slot_vaddr)].ptr()
     }
 
+    /// The canonical metadata pointer for the slot at `idx`: the slot's own
+    /// pointer, re-typed. Address and provenance are the slot's, because the
+    /// cast preserves both.
+    pub open spec fn link_ptr_at(regions: MetaRegionOwners, idx: int) -> *mut Link<M> {
+        regions.slots[idx].ptr() as *mut Link<M>
+    }
+
+    /// Every link this node stores is canonical for the address it names.
+    pub open spec fn links_canonical_at(self, regions: MetaRegionOwners, i: int) -> bool {
+        let value = self.meta_value_at(regions, i);
+        &&& value.prev is Some ==> value.prev->0 == Self::link_ptr_at(
+            regions,
+            meta_to_index(value.prev->0.addr()),
+        )
+        &&& value.next is Some ==> value.next->0 == Self::link_ptr_at(
+            regions,
+            meta_to_index(value.next->0.addr()),
+        )
+    }
+
     /// Per-link structural invariant: the link's own `inv()` holds and its
     /// `in_list` tag matches the list's `list_id`. The per-link metadata facts
     /// (perm wf/is_init/pointer wiring) are tracked via `relate_region_at`
@@ -234,6 +254,9 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
             0 <= i < self.list.len() && 0 <= j < self.list.len() && i != j ==> meta_to_index(
                 self.list[i].slot_vaddr,
             ) != meta_to_index(self.list[j].slot_vaddr)
+        &&& forall|i: int|
+            #![trigger self.links_canonical_at(regions, i)]
+            0 <= i < self.list.len() ==> self.links_canonical_at(regions, i)
         &&& self.list.len() > 0 ==> self.list_id != 0
     }
 
@@ -455,6 +478,11 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
         reveal(LinkedListOwner::relate_region);
         let llen = self.list.len() as int;
         assert forall|k: int|
+            #![trigger self.links_canonical_at(regions2, k)]
+            0 <= k < llen implies self.links_canonical_at(regions2, k) by {
+            assert(self.links_canonical_at(regions1, k));
+        }
+        assert forall|k: int|
             #![trigger self.relate_region_at(regions2, k)]
             0 <= k < llen implies self.relate_region_at(regions2, k) by {
             let _ = self.list[k];
@@ -486,6 +514,7 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
             0 <= n < old.list.len(),
             old.relate_region(r0),
             new.list == old.list.remove(n),
+            fr.slots == r0.slots,
             new.metadata_perms.len() == new.list.len(),
             new.list_id == old.list_id,
             forall|p: int|
@@ -608,6 +637,20 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
             new.lemma_relate_region_at_from_clauses(fr, k);
         }
 
+        assert forall|k: int|
+            #![trigger new.links_canonical_at(fr, k)]
+            0 <= k < new.list.len() implies new.links_canonical_at(fr, k) by {
+            reveal(LinkedListOwner::relate_region_at);
+            old.lemma_links_canonical_at(r0, n);
+            if k < n {
+                let _ = meta_to_index(old.list[k].slot_vaddr);
+                old.lemma_links_canonical_at(r0, k);
+            }
+            if k >= n {
+                let _ = meta_to_index(old.list[k + 1].slot_vaddr);
+                old.lemma_links_canonical_at(r0, k + 1);
+            }
+        }
         assert(new.relate_region(fr)) by {
             reveal(LinkedListOwner::relate_region);
         };
@@ -659,13 +702,13 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
         &&& (p == n - 1 ==> {
             &&& fp.next is Some
             &&& fp.next->0.addr() == link.slot_vaddr
-            &&& fp.next->0.addr() == fr.slots[ins].ptr().addr()
+            &&& fp.next->0 == fr.slots[ins].ptr() as *mut Link<M>
         })
         &&& (p != n - 1 ==> fp.next == old.meta_value_at(r0, p).next)
         &&& (p == n ==> {
             &&& fp.prev is Some
             &&& fp.prev->0.addr() == link.slot_vaddr
-            &&& fp.prev->0.addr() == fr.slots[ins].ptr().addr()
+            &&& fp.prev->0 == fr.slots[ins].ptr() as *mut Link<M>
         })
         &&& (p != n ==> fp.prev == old.meta_value_at(r0, p).prev)
     }
@@ -681,6 +724,18 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
         p: int,
     ) -> bool {
         self.insert_old_slot_post_clauses(fr, old, r0, n, link, p)
+    }
+
+    /// Projects one node's [`Self::links_canonical_at`] out of
+    /// [`Self::relate_region`].
+    pub proof fn lemma_links_canonical_at(self, regions: MetaRegionOwners, i: int)
+        requires
+            self.relate_region(regions),
+            0 <= i < self.list.len(),
+        ensures
+            self.links_canonical_at(regions, i),
+    {
+        reveal(LinkedListOwner::relate_region);
     }
 
     pub proof fn lemma_insert_old_slot_post_at_facts(
@@ -714,6 +769,11 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
             0 <= n <= old.list.len(),
             old.relate_region(r0),
             new.list == old.list.insert(n, link),
+            // Free from `insert_slot_owner`'s `..self`: a list operation
+            // rewrites `slot_owners`, never `slots`. It is what lets
+            // `links_canonical_at` carry over -- the canonical pointer for an
+            // index is the same before and after.
+            fr.slots == r0.slots,
             new.metadata_perms.len() == new.list.len(),
             new.list_id != 0,
             old.list.len() > 0 ==> new.list_id == old.list_id,
@@ -745,12 +805,12 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
                 &&& (n > 0 ==> {
                     &&& fpn.prev is Some
                     &&& fpn.prev->0.addr() == old.list[n - 1].slot_vaddr
-                    &&& fpn.prev->0.addr() == old.meta_ptr_at(r0, n - 1).addr()
+                    &&& fpn.prev->0 == Self::link_ptr_at(r0, meta_to_index(fpn.prev->0.addr()))
                 })
                 &&& (n < old.list.len() ==> {
                     &&& fpn.next is Some
                     &&& fpn.next->0.addr() == old.list[n].slot_vaddr
-                    &&& fpn.next->0.addr() == old.meta_ptr_at(r0, n).addr()
+                    &&& fpn.next->0 == Self::link_ptr_at(r0, meta_to_index(fpn.next->0.addr()))
                 })
             }),
             forall|p: int|
@@ -840,6 +900,19 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedListOwner<M> {
                 old.lemma_relate_region_at_facts(r0, n);
             }
             new.lemma_relate_region_at_from_clauses(fr, k);
+        }
+        assert forall|k: int|
+            #![trigger new.links_canonical_at(fr, k)]
+            0 <= k < new.list.len() implies new.links_canonical_at(fr, k) by {
+            reveal(LinkedListOwner::relate_region_at);
+            if k < n {
+                old.lemma_links_canonical_at(r0, k);
+                new.lemma_insert_old_slot_post_at_facts(fr, old, r0, n, link, k);
+            }
+            if k > n {
+                old.lemma_links_canonical_at(r0, k - 1);
+                new.lemma_insert_old_slot_post_at_facts(fr, old, r0, n, link, k - 1);
+            }
         }
         assert(new.relate_region(fr)) by {
             reveal(LinkedListOwner::relate_region);
@@ -999,6 +1072,13 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedList<M> {
             regions,
             owner.list.len() - 1,
         ).addr() == self.back->0.addr()
+        // Pointer, not just address: the ends store the slots' pointers
+        // re-typed, so a cursor built from `front`/`back` inherits the
+        // canonical fact its own `wf_region` needs.
+        &&& owner.list.len() > 0 ==> {
+            &&& self.front->0 == owner.meta_ptr_at(regions, 0) as *mut Link<M>
+            &&& self.back->0 == owner.meta_ptr_at(regions, owner.list.len() - 1) as *mut Link<M>
+        }
         &&& self.size == owner.list.len()
         &&& self.list_id == owner.list_id
     }
@@ -1009,10 +1089,12 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
     /// are stated over the corresponding region-owned slot pointer.
     pub open spec fn wf_region(self, owner: CursorOwner<M>, regions: MetaRegionOwners) -> bool {
         &&& 0 <= owner.index < owner.length() ==> self.current.is_some() && self.current->0.addr()
-            == owner.list_own.list[owner.index].slot_vaddr && owner.list_own.meta_ptr_at(
-            regions,
-            owner.index,
-        ).addr() == self.current->0.addr()
+            == owner.list_own.list[owner.index].slot_vaddr
+        // Pointer, not just address: the cursor stores the slot's pointer
+        // re-typed, which is what lets the stored pointer be dereferenced
+        // against a permission derived from that slot.
+        &&& 0 <= owner.index < owner.length() ==> self.current->0
+            == owner.list_own.meta_ptr_at(regions, owner.index) as *mut Link<M>
         &&& owner.index == owner.list_own.list.len() ==> self.current.is_none()
         &&& (*self.list).wf_region(owner.list_own, regions)
     }
