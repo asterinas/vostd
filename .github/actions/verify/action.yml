@@ -1,7 +1,7 @@
 name: Verify OSTD
 description: >-
   Set up Verus, verify one target, check warnings, and publish the verification log.
-  Expects a checkout with submodules.
+  Expects a checkout.
 inputs:
   rust-target:
     description: Rust target triple to verify

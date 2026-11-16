@@ -1,0 +1,24 @@
+[package]
+name = "{{ c.name }}"
+version = "0.1.0"
+description = "Verification with Verus"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib"]
+name = "{{ c.package_name }}"
+path = "src/.dummy.rs"
+# path = "src/lib.rs"
+
+[package.metadata.verus]
+verify = true
+path = "src/lib.rs"
+check_lifetime = false
+
+[dependencies]
+{% for d in c.dependencies %}
+{{ d.name }} = {{ d.config|safe }}
+{%- endfor %} 
+vstd = { path = "../../tools/verus/source/vstd" }
+builtin = { package = "verus_builtin", path = "../../tools/verus/source/builtin" }
+builtin_macros = { package = "verus_builtin_macros", path = "../../tools/verus/source/builtin_macros" }
