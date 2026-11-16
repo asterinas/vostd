@@ -28,6 +28,7 @@ pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
 pub mod layout;
+pub mod number;
 pub mod once;
 pub mod ownership;
 pub mod panic;
