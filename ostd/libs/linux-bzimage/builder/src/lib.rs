@@ -114,8 +114,8 @@ fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
                 program.virtual_addr() as usize,
             )));
 
-            // `mem_size` can exceed `file_size`. Only newly appended bytes are zeroed;
-            // an overlapping segment's memory-only tail keeps existing bytes.
+            // Note that `mem_size` can be greater than `file_size`. The remaining part must be
+            // filled with zeros.
             let mem_length = program.mem_size() as usize;
             if bin.len() < dst_file_offset + mem_length {
                 bin.resize(dst_file_offset + mem_length, 0);
