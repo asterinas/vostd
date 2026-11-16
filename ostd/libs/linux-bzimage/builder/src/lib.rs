@@ -11,8 +11,14 @@
 //!
 //! The setup code should be built into the ELF target and we convert it to a flat binary
 //! in the builder.
+#![feature(proc_macro_hygiene)]
+
 pub mod encoder;
 mod mapping;
+#[expect(
+    non_snake_case,
+    reason = "The verified bitflags macro exposes flag names as methods."
+)]
 mod pe_header;
 
 use std::{
