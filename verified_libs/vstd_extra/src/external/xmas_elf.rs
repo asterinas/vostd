@@ -126,11 +126,16 @@ pub open spec fn header_entry_point(header: &HeaderPt2<'_>) -> u64 {
     }
 }
 
-/// ElfFile::new delegates to parse_header and preserves its complete Result.
-pub assume_specification<'a>[ ElfFile::<'a>::new ](input: &'a [u8]) -> Result<
+/// ElfFile::new delegates to parse_header and stores the original input slice on success.
+pub assume_specification<'a>[ ElfFile::<'a>::new ](input: &'a [u8]) -> (result: Result<
     ElfFile<'a>,
     &'static str,
->
+>)
+    ensures
+        result matches Ok(elf) ==> {
+            &&& elf.input == input
+            &&& as_ptr_spec(elf.input) == as_ptr_spec(input)
+        },
     returns
         elf_parse_result(input),
     opens_invariants none
