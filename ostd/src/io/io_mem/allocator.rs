@@ -76,8 +76,7 @@ impl IoMemAllocator {
         }
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
-        /* Original Rust: PageFlags::RW */
-        unsafe { Some(IoMem::new(range, PageFlags::RW(), CachePolicy::Uncacheable)) }
+        unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
     }
 
     /// Recycles an MMIO range.
