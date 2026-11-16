@@ -17,7 +17,8 @@ pub use vstd::atomic_weak::{
     PAtomicWeakUsize, StoreData, UpdateData, fence_acquire, fence_release,
     history_get_contains_timestamp, load_acquire, load_reads_from_history, load_relaxed,
     load_timestamp_in_view, load_view_nondecreasing, store_insert_history, store_relaxed,
-    store_release, store_timestamp_in_view, store_view_increasing,
+    store_relaxed_rmw, store_release, store_release_rmw, store_timestamp_in_view,
+    store_view_increasing,
 };
 #[cfg(target_has_atomic = "64")]
 pub use vstd::atomic_weak::{PAtomicWeakI64, PAtomicWeakU64};
@@ -385,7 +386,7 @@ impl<T> PAtomicWeakPtr<T> {
                                 update@.load_timestamp,
                                 update@.load_message_view,
                             )
-                            &&& store_release(
+                            &&& store_release_rmw(
                                 *old(points_to),
                                 *final(points_to),
                                 update@.intermediate_thread_view,
@@ -405,7 +406,7 @@ impl<T> PAtomicWeakPtr<T> {
                                 update@.load_timestamp,
                                 update@.load_message_view,
                             )
-                            &&& store_relaxed(
+                            &&& store_relaxed_rmw(
                                 *old(points_to),
                                 *final(points_to),
                                 update@.intermediate_thread_view,
