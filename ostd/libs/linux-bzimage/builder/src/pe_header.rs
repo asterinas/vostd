@@ -6,7 +6,6 @@
 //!
 //! The reference to the Linux PE header definition:
 //! <https://github.com/torvalds/linux/blob/master/include/linux/pe.h>
-
 use vstd::{
     arithmetic::{div_mod::lemma_mod_multiples_vanish, power2::is_pow2},
     bytes::{spec_u16_to_le_bytes, spec_u32_to_le_bytes},
