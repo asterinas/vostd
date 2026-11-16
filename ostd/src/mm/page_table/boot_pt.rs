@@ -130,7 +130,7 @@ pub(crate) struct BootPageTable<
 // The first available bit is used to differentiate firmware page tables from
 // the page tables allocated here. The second is for identifying double-visits
 // when walking the page tables since the PT can be a DAG.
-const PTE_POINTS_TO_FIRMWARE_PT: PageFlags = PageFlags::AVAIL1();
+const PTE_POINTS_TO_FIRMWARE_PT: PageFlags = PageFlags::AVAIL1;
 
 impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
     /// Creates a new boot page table from the current page table root
