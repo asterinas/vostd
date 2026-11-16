@@ -163,8 +163,8 @@ impl<A: CpuCoreLocalState, B: CpuCoreLocalState> CpuCoreLocalState for (A, B) {
 /// resource identities, whose resources all belong to this handle's CPU.
 pub tracked struct CpuCoreOwnerHandle<L: CpuCoreLocalState> {
     state: ExclusiveGhost<CpuCoreOwnerView>,
-    preempt_guards: CpuGuardCounter,
-    interrupts: CpuGuardCounter,
+    preempt_guards: CpuTicketCounter,
+    interrupts: CpuTicketCounter,
     marker: PhantomData<L>,
 }
 
@@ -242,8 +242,6 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
     pub closed spec fn wf(&self) -> bool {
         &&& self.state.wf()
         &&& self@.irq_guard_depth > 0 ==> !self@.irq_enabled
-        &&& self.preempt_guards.wf()
-        &&& self.interrupts.wf()
         &&& self.interrupts.count() > 0 && self@.irq_enabled ==> self.preempt_guards.count() > 0
     }
 
@@ -300,8 +298,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
         );
         let tracked handle = CpuCoreOwnerHandle {
             state,
-            preempt_guards: CpuGuardCounter::new(),
-            interrupts: CpuGuardCounter::new(),
+            preempt_guards: CpuTicketCounter::new(),
+            interrupts: CpuTicketCounter::new(),
             marker: PhantomData,
         };
         CpuCoreOwner { handle, locals }
@@ -809,17 +807,19 @@ proof fn interrupts_and_preemption_gate_task_switch<L: CpuCoreLocalState>(
     assert(switched == task);
 }
 
-/// Unordered collection of live guards of one kind on a CPU.
+/// Unordered collection of live tickets of one kind on a CPU.
 ///
-/// Every live guard owns a distinct ticket in `live`, so a guard is live only
-/// while `count()` is positive.
-tracked struct CpuGuardCounter {
+/// Every live preemption guard or active interrupt owns a distinct ticket in
+/// `live`, so one is live only while `count()` is positive.
+tracked struct CpuTicketCounter {
     live: GhostSetAuth<nat>,
     ghost next: nat,
 }
 
-impl CpuGuardCounter {
-    closed spec fn wf(&self) -> bool {
+impl CpuTicketCounter {
+    /// Every live ticket was issued before `next`, so `next` is fresh.
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
         forall|ticket: nat| #[trigger] self.live@.contains(ticket) ==> ticket < self.next
     }
 
@@ -833,36 +833,32 @@ impl CpuGuardCounter {
 
     proof fn new() -> (tracked res: Self)
         ensures
-            res.wf(),
             res.count() == 0,
     {
         let tracked (live, _) = GhostSetAuth::new(Set::empty());
-        CpuGuardCounter { live, next: 0 }
+        CpuTicketCounter { live, next: 0 }
     }
 
     proof fn tracked_acquire(tracked &mut self) -> (tracked ticket: GhostSingleton<nat>)
-        requires
-            old(self).wf(),
         ensures
-            final(self).wf(),
             final(self).id() == old(self).id(),
             final(self).count() == old(self).count() + 1,
             ticket.id() == old(self).id(),
     {
-        let tracked ticket = self.live.insert(self.next);
-        self.next = self.next + 1;
-        ticket
+        use_type_invariant(&*self);
+        let ghost fresh = self.next;
+        self.next = fresh + 1;
+        self.live.insert(fresh)
     }
 
     proof fn tracked_release(tracked &mut self, tracked ticket: GhostSingleton<nat>)
         requires
-            old(self).wf(),
             ticket.id() == old(self).id(),
         ensures
-            final(self).wf(),
             final(self).id() == old(self).id(),
             final(self).count() + 1 == old(self).count(),
     {
+        use_type_invariant(&*self);
         ticket.agree(&self.live);
         self.live.delete_singleton(ticket);
     }
