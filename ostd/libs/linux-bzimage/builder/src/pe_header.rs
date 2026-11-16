@@ -6,10 +6,6 @@
 //!
 //! The reference to the Linux PE header definition:
 //! <https://github.com/torvalds/linux/blob/master/include/linux/pe.h>
-#![expect(
-    non_snake_case,
-    reason = "The verified bitflags macro exposes flag names as methods."
-)]
 
 use vstd::{
     arithmetic::{div_mod::lemma_mod_multiples_vanish, power2::is_pow2},
@@ -277,8 +273,7 @@ const FILE_ALIGNMENT: usize = 512;
 /// # Verified Properties
 /// For inputs satisfying `valid_setup_elf`, all computed header fields match
 /// their models and the returned 368 bytes concatenate the DOS prefix and
-/// packed headers in order. External parsing and object representations are
-/// trusted through the contracts in `vstd_extra::external`.
+/// packed headers in order.
 #[verus_verify]
 #[verus_spec(bin =>
     requires valid_setup_elf(setup_elf),
