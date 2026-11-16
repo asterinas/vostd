@@ -48,11 +48,6 @@ vostd/
 ### Prerequisites
 
 - [Install Rust](https://www.rust-lang.org/tools/install).
-- Initialize submodules (for our [custom build tool](https://github.com/asterinas/rust-deductive-verifier)):
-
-  ```bash
-  git submodule update --init --recursive
-  ```
 
 ### Build Verus
 

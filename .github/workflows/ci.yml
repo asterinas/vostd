@@ -55,7 +55,6 @@ jobs:
         with:
           # push: the pushed commit; pull_request: the merge commit.
           ref: ${{ github.sha }}
-          submodules: recursive
 
       - name: Verify OSTD and publish log
         uses: ./.github/actions/verify
@@ -71,13 +70,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Set up toolchain and caches
         uses: ./.github/actions/setup-verus
         with:
           install-verusfmt: 'true'
+
+      - name: Check DV formatting
+        run: |
+          if ! cargo fmt --manifest-path dv/Cargo.toml --all -- --check; then
+            echo "FMT_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          fi
 
       - name: Run format
         run: make fmt
@@ -118,8 +122,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Take verification statistics snapshot
         uses: ./.github/actions/stats
@@ -217,8 +219,6 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Build documentation and publish artifacts
         uses: ./.github/actions/build-docs
@@ -256,8 +256,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Publish history and deploy Pages
         uses: ./.github/actions/pages
