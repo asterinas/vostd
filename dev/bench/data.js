@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794814350246,
+  "lastUpdate": 1794819736341,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -12270,6 +12270,96 @@ window.BENCHMARK_DATA = {
             "value": 1106286,
             "unit": "rlimit",
             "extra": "smt-run=210ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0d568203bab781f04521b410d526d242babc704",
+          "message": "prove: verify Pod and fallible VM I/O ktests (#927)\n\n* prove: verify six more mm ktests and restore origin construction in all ktests\n\n* prove: add ostd-pod back\n\n* prove: verify the struct and four fallible-copy mm ktests\n\n* fmt\n\n* fix: restore vec!\n\n* fmt\n\n* sync: fix rustdoc for pod\n\n* refine\n\n* perf: cpu::set\n\n* fix: set package identity when invoking rustdoc directly\n\n* refine: replace manual Pod implementations with derives\n\n* refine: preserve caller-specified layouts in verified bitflags",
+          "timestamp": "2026-11-16T16:50:39+08:00",
+          "tree_id": "8a238a10b11d36f65fb98c59f81b73bcf2e145d6",
+          "url": "https://github.com/asterinas/vostd/commit/f0d568203bab781f04521b410d526d242babc704"
+        },
+        "date": 1794819735544,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1008375029,
+            "unit": "rlimit",
+            "extra": "verified=4615 errors=0 smt-run=338,178ms wall=240,075ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 399476725,
+            "unit": "rlimit",
+            "extra": "smt-run=158,994ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 136425490,
+            "unit": "rlimit",
+            "extra": "smt-run=37,259ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 47580529,
+            "unit": "rlimit",
+            "extra": "smt-run=17,714ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,076ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,417ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,391ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=944ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=715ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=798ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106286,
+            "unit": "rlimit",
+            "extra": "smt-run=339ms"
           }
         ]
       }
