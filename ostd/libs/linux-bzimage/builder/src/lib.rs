@@ -15,10 +15,6 @@
 
 pub mod encoder;
 mod mapping;
-#[expect(
-    non_snake_case,
-    reason = "The verified bitflags macro exposes flag names as methods."
-)]
 mod pe_header;
 
 use std::{
