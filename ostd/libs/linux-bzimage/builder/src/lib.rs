@@ -17,6 +17,14 @@ pub mod encoder;
 mod mapping;
 mod pe_header;
 
+use vstd::{prelude::*, std_specs::iter::IteratorSpec};
+use vstd_extra::external::xmas_elf::{
+    elf_parse_no_unwind, elf_parse_result, elf_program_headers, elf_program_headers_readable,
+    program_header_type, program_load_bytes, program_load_data_readable,
+};
+
+use mapping::{LEGACY_SETUP_SEC_SIZE, SETUP32_LMA};
+
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
@@ -81,10 +89,22 @@ pub fn legacy32_rust_target_json() -> &'static str {
 ///
 /// Interestingly, the resulting binary should be the same as the memory
 /// dump of the kernel setup header when it's loaded by the bootloader.
+#[verus_spec(ret =>
+    requires valid_flat_binary_input(elf_file),
+    ensures ret@ == flat_binary_spec(elf_file),
+)]
 fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
     let elf = xmas_elf::ElfFile::new(elf_file).unwrap();
     let mut bin = Vec::<u8>::new();
 
+    #[verus_spec(programs =>
+        invariant
+            programs.iter.obeys_prophetic_iter_laws(),
+            elf_program_headers_readable(&elf),
+            valid_flat_segments(elf_program_headers(&elf), elf.input@),
+            programs.seq() == elf_program_headers(&elf),
+            bin@ == flat_binary_prefix(programs.seq(), elf.input@, programs.index() as nat),
+    )]
     for program in elf.program_iter() {
         if program.get_type().unwrap() == xmas_elf::program::Type::Load {
             let SegmentData::Undefined(header_data) = program.get_data(&elf).unwrap() else {
@@ -94,8 +114,8 @@ fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
                 program.virtual_addr() as usize,
             )));
 
-            // Note that `mem_size` can be greater than `file_size`. The remaining part must be
-            // filled with zeros.
+            // `mem_size` can exceed `file_size`. Only newly appended bytes are zeroed;
+            // an overlapping segment's memory-only tail keeps existing bytes.
             let mem_length = program.mem_size() as usize;
             if bin.len() < dst_file_offset + mem_length {
                 bin.resize(dst_file_offset + mem_length, 0);
@@ -111,6 +131,89 @@ fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
     bin
 }
 
+verus! {
+
+/// The mapping expression uses mathematical integers; validity below makes
+/// each executable addition, subtraction, and usize cast exact.
+spec fn flat_segment_offset(program: &xmas_elf::program::ProgramHeader<'_>) -> int {
+    program.virtual_addr() + LEGACY_SETUP_SEC_SIZE - SETUP32_LMA
+}
+
+spec fn valid_flat_segments(
+    programs: Seq<xmas_elf::program::ProgramHeader<'_>>,
+    input: Seq<u8>,
+) -> bool {
+    forall|i: int|
+        0 <= i < programs.len() ==> {
+            let program = #[trigger] programs[i];
+            &&& program_header_type(&program) is Ok
+            &&& program_header_type(&program) == Ok(xmas_elf::program::Type::Load) ==> {
+                &&& program_load_data_readable(&program, input)
+                &&& program.file_size() <= program.mem_size() <= usize::MAX
+                &&& SETUP32_LMA - LEGACY_SETUP_SEC_SIZE <= program.virtual_addr() <= usize::MAX
+                    - LEGACY_SETUP_SEC_SIZE
+                &&& flat_segment_offset(&program) + program.mem_size() <= isize::MAX
+            }
+        }
+}
+
+spec fn valid_flat_binary_input(input: &[u8]) -> bool {
+    &&& elf_parse_no_unwind(input)
+    &&& elf_parse_result(input) matches Ok(elf) && {
+        &&& elf_program_headers_readable(&elf)
+        &&& valid_flat_segments(elf_program_headers(&elf), input@)
+    }
+}
+
+/// Extend with zeroes, then overwrite only the file bytes. In an overlapping
+/// segment, its memory-only tail preserves bytes that were already present.
+spec fn flat_load_step(old: Seq<u8>, data: Seq<u8>, offset: int, mem_size: int) -> Seq<u8> {
+    Seq::new(
+        vstd::math::max(old.len() as int, offset + mem_size) as nat,
+        |i: int|
+            if offset <= i < offset + data.len() {
+                data[i - offset]
+            } else if i < old.len() {
+                old[i]
+            } else {
+                0u8
+            },
+    )
+}
+
+spec fn flat_binary_prefix(
+    programs: Seq<xmas_elf::program::ProgramHeader<'_>>,
+    input: Seq<u8>,
+    count: nat,
+) -> Seq<u8>
+    recommends
+        count <= programs.len(),
+    decreases count,
+{
+    if count == 0 {
+        Seq::empty()
+    } else {
+        let old = flat_binary_prefix(programs, input, (count - 1) as nat);
+        let program = programs[count - 1];
+        if program_header_type(&program) == Ok(xmas_elf::program::Type::Load) {
+            flat_load_step(
+                old,
+                program_load_bytes(&program, input),
+                flat_segment_offset(&program),
+                program.mem_size() as int,
+            )
+        } else {
+            old
+        }
+    }
+}
+
+spec fn flat_binary_spec(input: &[u8]) -> Seq<u8> {
+    let elf = elf_parse_result(input).unwrap();
+    flat_binary_prefix(elf_program_headers(&elf), input@, elf_program_headers(&elf).len())
+}
+
+} // verus!
 fn assert_elf64_reloc_supported(elf_file: &[u8]) {
     const R_X86_64_RELATIVE: u32 = 8;
 

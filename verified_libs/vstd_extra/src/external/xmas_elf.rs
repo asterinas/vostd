@@ -4,7 +4,10 @@ use vstd::{prelude::*, std_specs::iter::IteratorSpec};
 use xmas_elf::{
     ElfFile,
     header::{Class, Header, HeaderPt1, HeaderPt2, HeaderPt2_, Machine_, Type_ as HeaderType},
-    program::{Flags, ProgramHeader, ProgramHeader32, ProgramHeader64, Type_},
+    program::{
+        Flags, ProgramHeader, ProgramHeader32, ProgramHeader64, SegmentData, TYPE_GNU_RELRO,
+        TYPE_HIOS, TYPE_HIPROC, TYPE_LOOS, TYPE_LOPROC, Type, Type_,
+    },
 };
 
 use super::slice::as_ptr_spec;
@@ -154,6 +157,7 @@ pub assume_specification<'a, 'b>[ ElfFile::<'a>::program_iter ](elf: &'b ElfFile
                 elf_program_headers(elf).len(),
                 |i: int| true,
             )
+            &&& IteratorSpec::decrease(&iter) == Some(elf_program_headers(elf).len())
         },
     opens_invariants none
     no_unwind
@@ -183,6 +187,194 @@ pub struct ExProgramFlags(Flags);
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExProgramType(Type_);
+
+#[verifier::external_type_specification]
+pub struct ExProgramTypeValue(Type);
+
+// Type derives PartialEq; equality compares the variant and its u32 payload.
+pub assume_specification[ <Type as core::cmp::PartialEq>::eq ](left: &Type, right: &Type) -> bool
+    returns
+        *left == *right,
+;
+
+#[verifier::external_type_specification]
+pub struct ExSegmentData<'a>(SegmentData<'a>);
+
+// Opaque payload types are needed to expose SegmentData's enum variants.
+// Their private fields and dynamic/note parsing receive no specifications.
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(P)]
+pub struct ExDynamic<P>(xmas_elf::dynamic::Dynamic<P>) where
+    xmas_elf::dynamic::Tag_<P>: core::fmt::Debug,
+;
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(P)]
+pub struct ExDynamicTag<P>(xmas_elf::dynamic::Tag_<P>);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExNoteHeader(xmas_elf::sections::NoteHeader);
+
+/// The private u32 stored by Type_. Only its representation remains opaque;
+/// decoding below follows xmas-elf 0.10.0's Type_::as_type.
+pub uninterp spec fn program_type_raw(type_: Type_) -> u32;
+
+// Constants from program.rs; keep their trusted values at the external boundary.
+pub assume_specification[ xmas_elf::program::TYPE_LOOS ] -> u32
+    returns
+        0x60000000u32,
+;
+
+pub assume_specification[ xmas_elf::program::TYPE_HIOS ] -> u32
+    returns
+        0x6fffffffu32,
+;
+
+pub assume_specification[ xmas_elf::program::TYPE_LOPROC ] -> u32
+    returns
+        0x70000000u32,
+;
+
+pub assume_specification[ xmas_elf::program::TYPE_HIPROC ] -> u32
+    returns
+        0x7fffffffu32,
+;
+
+pub assume_specification[ xmas_elf::program::TYPE_GNU_RELRO ] -> u32
+    returns
+        0x6474e552u32,
+;
+
+/// GNU_RELRO takes precedence over the enclosing OS-specific range.
+pub open spec fn program_type_from_raw(raw: u32) -> Result<Type, &'static str> {
+    match raw {
+        0 => Ok(Type::Null),
+        1 => Ok(Type::Load),
+        2 => Ok(Type::Dynamic),
+        3 => Ok(Type::Interp),
+        4 => Ok(Type::Note),
+        5 => Ok(Type::ShLib),
+        6 => Ok(Type::Phdr),
+        7 => Ok(Type::Tls),
+        _ => if raw == TYPE_GNU_RELRO {
+            Ok(Type::GnuRelro)
+        } else if TYPE_LOOS <= raw <= TYPE_HIOS {
+            Ok(Type::OsSpecific(raw))
+        } else if TYPE_LOPROC <= raw <= TYPE_HIPROC {
+            Ok(Type::ProcessorSpecific(raw))
+        } else {
+            Err("Invalid type")
+        },
+    }
+}
+
+pub open spec fn program_type_result(type_: Type_) -> Result<Type, &'static str> {
+    program_type_from_raw(program_type_raw(type_))
+}
+
+// Derived Default initializes the private u32 to zero.
+pub assume_specification[ <Type_ as core::default::Default>::default ]() -> (ret: Type_)
+    ensures
+        program_type_raw(ret) == 0,
+;
+
+pub open spec fn program_header_type(header: &ProgramHeader<'_>) -> Result<Type, &'static str> {
+    match *header {
+        ProgramHeader::Ph32(h) => program_type_result(h.type_),
+        ProgramHeader::Ph64(h) => program_type_result(h.type_),
+    }
+}
+
+pub open spec fn program_header_file_size(header: &ProgramHeader<'_>) -> u64 {
+    match *header {
+        ProgramHeader::Ph32(h) => h.file_size as u64,
+        ProgramHeader::Ph64(h) => h.file_size,
+    }
+}
+
+pub open spec fn program_header_offset(header: &ProgramHeader<'_>) -> u64 {
+    match *header {
+        ProgramHeader::Ph32(h) => h.offset as u64,
+        ProgramHeader::Ph64(h) => h.offset,
+    }
+}
+
+/// raw_data adds the source fields before casting to usize. In ELF32 that
+/// addition is u32, even on a 64-bit host. Empty data bypasses the offset.
+pub open spec fn program_load_data_readable(header: &ProgramHeader<'_>, input: Seq<u8>) -> bool {
+    let offset = program_header_offset(header);
+    let size = program_header_file_size(header);
+    size == 0 || {
+        &&& match *header {
+            ProgramHeader::Ph32(_) => offset + size <= u32::MAX,
+            ProgramHeader::Ph64(_) => offset + size <= u64::MAX,
+        }
+        &&& offset + size <= usize::MAX
+        &&& offset + size <= input.len()
+    }
+}
+
+pub open spec fn program_load_bytes(header: &ProgramHeader<'_>, input: Seq<u8>) -> Seq<u8> {
+    let size = program_header_file_size(header);
+    if size == 0 {
+        Seq::empty()
+    } else {
+        input[program_header_offset(header)..program_header_offset(header) + size]
+    }
+}
+
+#[verifier::when_used_as_spec(program_header_type)]
+pub assume_specification<'a>[ ProgramHeader::<'a>::get_type ](header: &ProgramHeader<'a>) -> Result<
+    Type,
+    &'static str,
+>
+    returns
+        program_header_type(header),
+    opens_invariants none
+    no_unwind
+;
+
+#[verifier::when_used_as_spec(program_header_file_size)]
+pub assume_specification<'a>[ ProgramHeader::<'a>::file_size ](header: &ProgramHeader<'a>) -> u64
+    returns
+        program_header_file_size(header),
+    opens_invariants none
+    no_unwind
+;
+
+#[verifier::when_used_as_spec(program_header_offset)]
+pub assume_specification<'a>[ ProgramHeader::<'a>::offset ](header: &ProgramHeader<'a>) -> u64
+    returns
+        program_header_offset(header),
+    opens_invariants none
+    no_unwind
+;
+
+/// Audited only for Load: get_data delegates to raw_data and returns Undefined.
+/// Other segment types include dynamic/note parsing and receive no guarantees.
+pub assume_specification<'a>[ ProgramHeader::<'a>::get_data ](
+    header: &ProgramHeader<'a>,
+    elf: &ElfFile<'a>,
+) -> (ret: Result<SegmentData<'a>, &'static str>)
+    ensures
+        program_header_type(header) == Ok(Type::Load) && program_load_data_readable(
+            header,
+            elf.input@,
+        ) ==> {
+            ret matches Ok(SegmentData::Undefined(bytes)) && bytes@ == program_load_bytes(
+                header,
+                elf.input@,
+            )
+        },
+    opens_invariants none
+    no_unwind when program_header_type(header) == Ok(Type::Load) && program_load_data_readable(
+    header,
+    elf.input@,
+)
+;
 
 /// The virtual address stored in either ELF program-header representation.
 pub open spec fn program_header_virtual_addr(header: &ProgramHeader<'_>) -> u64 {

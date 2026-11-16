@@ -485,6 +485,7 @@ fn build_pe_sec_headers_from(elf: &xmas_elf::ElfFile) -> AllPeSectionHdrs {
                 &&& base == SETUP32_LMA - LEGACY_SETUP_SEC_SIZE ==> layout.1 == layout.2
             }),
     )]
+    #[verifier::spinoff_prover]
     fn new_pe_sec_header(
         segment: &xmas_elf::program::ProgramHeader,
         base: usize,
