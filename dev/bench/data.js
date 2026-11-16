@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794808309441,
+  "lastUpdate": 1794810420814,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -12012,6 +12012,84 @@ window.BENCHMARK_DATA = {
             "value": 1928188,
             "unit": "rlimit",
             "extra": "smt-run=888ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c25ca6f98633e7de6c09c66e9e981061ed51cfb4",
+          "message": "Verify PE/COFF header construction in linux-bzimage builder (#916)\n\n* Verify PE/COFF header construction in linux-bzimage builder\n\nVerify all eight handwritten pe_header functions under explicit setup ELF\nlayout preconditions. Specify exact section fields, aligned layout arithmetic,\noptional-header fields, and the ordered 368-byte header representation.\n\nRetain the original nested helper, callback, runtime assertions, arithmetic,\nand serialization loop. Use the project verified bitflags macro to expose\nbitwise contracts; fixed-width operands and flag methods preserve the original\nmasks. Enable proc_macro_hygiene for the native loop contract attribute.\n\nCentralize audited xmas-elf, bytemuck and little-endian integer contracts in\nvstd_extra::external and pin the modeled dependency versions. ELF parsing,\nobject representation, external derives and the existing mapping assumptions\nremain trusted; field-level packed byte encodings are not proved.\n\nValidation:\n- cargo dv verify -p linux-bzimage-builder --target x86_64-unknown-linux-gnu\n  (152 verified, 0 errors)\n- cargo dv build -p linux-bzimage-builder --target x86_64-unknown-linux-gnu\n- make (ostd: 1558 verified, 0 errors)\n- cargo dv fmt -p linux-bzimage-builder vstd_extra\n- git diff --check\n- Differential execution: 512 valid layouts produce identical complete PE\n  bytes; 4 malformed layouts produce matching panics.\n\n* Address PE header verification review feedback\n\nRemove the unnecessary opaque HeaderType proxy, explain the remaining private-field boundaries, and trim redundant verification comments. Restore compatible dependency version ranges.\n\nUpdate the IRC11 Verus base to 3501389a and refresh the patch against upstream documentation and source changes.\n\nValidation: builder verification and build; make (1575 verified); IRC11 smoke test and OSTD verification (1583 verified); package formatting; git diff --check.\n\n* Expose PE header specifications for callers\n\n* Sync lockfile with updated Verus toolchain\n\n* Address PE header documentation and lint review comments\n\n* Format PE header module documentation\n\n* Specify ELF parser input preservation\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-16T14:21:28+08:00",
+          "tree_id": "689a44f1b7183d7678d6f7582597623b85c24165",
+          "url": "https://github.com/asterinas/vostd/commit/c25ca6f98633e7de6c09c66e9e981061ed51cfb4"
+        },
+        "date": 1794810420205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 935452721,
+            "unit": "rlimit",
+            "extra": "verified=4473 errors=0 smt-run=208,523ms wall=156,434ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 346342817,
+            "unit": "rlimit",
+            "extra": "smt-run=95,052ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 119370963,
+            "unit": "rlimit",
+            "extra": "smt-run=25,255ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 47144486,
+            "unit": "rlimit",
+            "extra": "smt-run=10,214ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 8696590,
+            "unit": "rlimit",
+            "extra": "smt-run=1,311ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=1,329ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=894ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=563ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=493ms"
           }
         ]
       }
