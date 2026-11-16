@@ -1,3 +1,0 @@
-[submodule "dv"]
-	path = dv
-	url = https://github.com/asterinas/rust-deductive-verifier.git

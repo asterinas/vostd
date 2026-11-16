@@ -18,9 +18,11 @@ use crate::specs::{
 };
 
 use super::{
-    AnyFrameMeta, Frame, MetaSlot,
-    mapping::{frame_to_meta, meta_to_frame},
-    meta::{GetFrameError, META_SLOT_SIZE, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    Frame,
+    meta::{
+        AnyFrameMeta, GetFrameError, META_SLOT_SIZE, MetaSlot, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
 };
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};

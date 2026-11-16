@@ -44,11 +44,11 @@ impl<T> PtrPointsToTrait for ArcPointsTo<T> {
     type Target = T;
 
     open spec fn ptr(self) -> *mut T {
-        self.perm.ptr()
+        self.perm().ptr()
     }
 
     open spec fn view_target(self) -> T {
-        self.perm.value()
+        self.perm().value()
     }
 }
 
@@ -58,9 +58,9 @@ pub tracked struct BoxPointsTo<T> {
     pub perm: PointsTowithDealloc<T>,
 }
 
-/// For `Arc<T>`, the `into_raw` method gives shared access to the memory, and the reference count is not decreased,
-/// so the value will not be deallocated until we convert back to `Arc<T>` and drop it.
-/// See <https://doc.rust-lang.org/src/alloc/sync.rs.html#1480>.
+/// Shared access to an Arc allocation.
+/// TODO: This legacy model does not distinguish read access from ownership;
+/// its tokens can be reconstructed and do not enforce one-time Arc recovery.
 pub tracked struct ArcPointsTo<T: 'static> {
     pub perm: &'static PointsTo<T>,
 }
@@ -135,7 +135,7 @@ impl<T> ArcPointsTo<T> {
     }
 
     pub open spec fn ptr(self) -> *mut T {
-        self.perm.ptr()
+        self.perm().ptr()
     }
 
     pub open spec fn addr(self) -> usize {
@@ -143,16 +143,16 @@ impl<T> ArcPointsTo<T> {
     }
 
     pub open spec fn is_init(self) -> bool {
-        self.perm.is_init()
+        self.perm().is_init()
     }
 
     pub open spec fn value(self) -> T {
-        self.perm.value()
+        self.perm().value()
     }
 
     pub proof fn tracked_borrow_points_to(tracked &self) -> (tracked ret: &'static PointsTo<T>)
         returns
-            self.perm,
+            self.perm(),
     {
         self.perm
     }
@@ -182,7 +182,7 @@ impl<T> Inv for ArcPointsTo<T> {
     open spec fn inv(self) -> bool {
         &&& self.addr() != 0
         &&& self.addr() as int % vstd::layout::align_of::<T>() as int == 0
-        &&& self.perm.is_init()
+        &&& self.is_init()
     }
 }
 
@@ -258,20 +258,18 @@ pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T> {
     unsafe { Box::from_raw(ptr) }
 }
 
-/// A wrapper around `Arc::into_raw` that also returns the permission to access the memory.
+/// A wrapper around `Arc::into_raw` that returns a raw-pointer permission.
 ///
-/// Soundness: the soundness concern is similar to `box_into_raw`.
-// VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
-// `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
+/// Arc's value-only model does not retain allocation identity across raw-pointer
+/// round trips. An uninterpreted Arc::ptr() would identify distinct equal-valued
+/// allocations, so pointer identity is deliberately absent from these contracts.
 #[verifier::external_body]
 #[verus_spec(ret =>
     with
         -> perm: Tracked<ArcPointsTo<T>>,
     ensures
         ret == perm@.ptr(),
-        perm@.ptr().addr() != 0,
-        perm@.is_init(),
-        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        perm@.inv(),
         perm@.value() == *p,
 )]
 pub fn arc_into_raw<T>(p: Arc<T>) -> *const T {
@@ -279,19 +277,16 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> *const T {
     Arc::into_raw(p)
 }
 
-/// According to the documentation, [`Arc::from_raw`](<https://doc.rust-lang.org/std/sync/struct.Arc.html#method.from_raw>) allows transmuting between different types as long as the pointer has the same size and alignment.
-/// In verification this responsibility is dispatched to casting the `PointsTo<T>` appropriately, which is not handled here.
+/// Reconstructs an Arc using the legacy shared-access permission model.
 #[verifier::external_body]
 #[verus_spec(ret =>
     with
-        Tracked(points_to): Tracked<ArcPointsTo<T>>,
+        Tracked(permission): Tracked<ArcPointsTo<T>>,
     requires
-        ptr.addr() != 0,
-        points_to.ptr() == ptr,
-        points_to.is_init(),
-        points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        permission.inv(),
+        permission.ptr() == ptr,
     ensures
-        *ret == points_to.value(),
+        *ret == permission.value(),
 )]
 pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T> {
     unsafe { Arc::from_raw(ptr) }

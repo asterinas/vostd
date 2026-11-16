@@ -12,12 +12,9 @@ use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners:
 use super::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
-    frame::{
-        AnyFrameMeta,
-        meta::{
-            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-            mapping::meta_to_frame,
-        },
+    frame::meta::{
+        AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::meta_to_frame,
     },
     kspace::FRAME_METADATA_RANGE,
 };

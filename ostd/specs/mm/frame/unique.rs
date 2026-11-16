@@ -12,9 +12,10 @@ use crate::specs::{
 use super::meta_owners::*;
 use crate::mm::frame::{
     meta::{
-        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        AnyFrameMeta, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
         mapping::{frame_to_meta, meta_to_frame},
     },
+    unique::UniqueFrame,
     *,
 };
 

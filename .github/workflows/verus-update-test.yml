@@ -29,7 +29,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.client_payload.branch }}
-          submodules: recursive
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -44,7 +43,6 @@ jobs:
 
           git fetch origin main
           git checkout main
-          git submodule update --init --recursive
 
           git config --global user.name "Verus CI Bot"
           git config --global user.email "ci@asterinas.verus"

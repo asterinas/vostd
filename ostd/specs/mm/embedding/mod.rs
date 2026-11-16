@@ -61,8 +61,8 @@ use crate::specs::{
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, Vaddr,
     frame::{
-        MetaSlot, UFrame,
-        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        untyped::UFrame,
     },
     page_prop::PageProperty,
     vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},

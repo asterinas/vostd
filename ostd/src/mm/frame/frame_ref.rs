@@ -6,6 +6,7 @@ use vstd_extra::{
     raw_ptr::{ExposedPointsTo, ptr_from_addr},
 };
 
+use crate::mm::{Vaddr, frame::meta::mapping::frame_to_meta};
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
@@ -16,16 +17,14 @@ use crate::specs::{
     },
 };
 
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+
 use super::{
     Frame,
     meta::{AnyFrameMeta, MetaSlot},
 };
-use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::{
-    mm::{Paddr, Vaddr},
-    sync::non_null::NonNullPtr,
-};
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+
+use crate::{mm::Paddr, sync::non_null::NonNullPtr};
 
 verus! {
 
@@ -175,7 +174,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
     type RefPermission<'a> = FrameRawPermsRef<'a>;
 
     /* Verus cannot verify the original trait-constant expression. `MetaSlot` has
-     * alignment 8 on the supported targets, as checked by `lemma_align_bits_range`.
+     * alignment 8 on the supported targets, as checked by `lemma_align_bits_properties`.
      * Origin Rust: const ALIGN_BITS: u32 = core::mem::align_of::<MetaSlot>().trailing_zeros();
      */
     const ALIGN_BITS: u32 = 3;
@@ -217,7 +216,7 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         }
     }
 
-    proof fn lemma_align_bits_range()
+    proof fn lemma_align_bits_properties()
         ensures
             Self::ALIGN_BITS < usize::BITS,
             core::mem::align_of::<MetaSlot>() == 1usize << Self::ALIGN_BITS,

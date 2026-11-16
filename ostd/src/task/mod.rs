@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 
 pub mod atomic_mode;
-/* mod kernel_stack; */
+mod kernel_stack;
 mod preempt;
 // mod processor;
 pub mod scheduler;

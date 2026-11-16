@@ -55,6 +55,11 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     /// The power of two of the pointer alignment.
     const ALIGN_BITS: u32;
 
+    /// Optional implementation-specific alignment facts.
+    open spec fn align_bits_inv() -> bool {
+        true
+    }
+
     /// Converts to a raw pointer.
     ///
     /// Each call to `into_raw` must be paired with a call to `from_raw`
@@ -105,10 +110,11 @@ pub unsafe trait NonNullPtr: Inv + Sized + 'static {
     /// A specification function that relates the original smart pointer and the permission.
     spec fn rel_perm(self, perm: Self::Permission) -> bool;
 
-    /// The ALIGN_BITS must be less than usize::BITS.
-    proof fn lemma_align_bits_range()
+    /// Establishes ALIGN_BITS bounds and implementation-specific facts.
+    proof fn lemma_align_bits_properties()
         ensures
             Self::ALIGN_BITS < usize::BITS,
+            Self::align_bits_inv(),
     ;
 
     /// The RefPermission must be able to be viewed as the owned Permission.
@@ -222,6 +228,10 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
 
+    open spec fn align_bits_inv() -> bool {
+        1usize << Self::ALIGN_BITS == vstd::layout::align_of::<T>()
+    }
+
     #[verus_spec]
     fn into_raw(self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
         proof_decl! {
@@ -237,7 +247,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
                 perm: PointsTowithDealloc::new(perm.0, perm.1),
             };
         }
-        assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
+        proof! { Self::lemma_align_bits_properties(); }
 
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(box_points_to))
@@ -270,7 +280,8 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         perm.view_target() == *self
     }
 
-    axiom fn lemma_align_bits_range();
+    // Trusted relation between external ALIGN_BITS and Rust type alignment.
+    axiom fn lemma_align_bits_properties();
 
     open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
         perm@
@@ -300,7 +311,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     ) {
         proof!{
             use_type_invariant(&ptr_ref);
-            assume(ptr_ref.ptr().addr() % (1usize << Self::ALIGN_BITS) == 0);
+            Self::lemma_align_bits_properties();
         }
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.tracked_perm)
@@ -334,8 +345,6 @@ impl<'a, T> BoxRef<'a, T> {
 
 } // verus!
 /// A type that represents `&'a Arc<T>`.
-///
-/// Note there is no verification-only permission field, because `ArcRef` uses `Arc` instead of a raw pointer internally.
 #[verus_verify]
 #[derive(Debug)]
 pub struct ArcRef<'a, T: 'static> {
@@ -384,15 +393,16 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
 
+    open spec fn align_bits_inv() -> bool {
+        1usize << Self::ALIGN_BITS == vstd::layout::align_of::<T>()
+    }
+
     #[verus_spec]
     fn into_raw(self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
-        proof_decl!{
-            let tracked perm: ArcPointsTo<T>;
-        }
-        // let ptr = Arc::into_raw(self).cast_mut();
+        proof_decl! { let tracked perm: ArcPointsTo<T>; }
         let ptr = (#[verus_spec(with => Tracked(perm))]
         arc_into_raw(self)).cast_mut();
-        assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
+        proof! { Self::lemma_align_bits_properties(); }
 
         // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
@@ -420,13 +430,15 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         perm.view_target() == *self
     }
 
-    axiom fn lemma_align_bits_range();
+    // Same trusted alignment relation as Box.
+    axiom fn lemma_align_bits_properties();
 
     open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
         perm
     }
 
     open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
+        // Allocation identity is not represented by Arc's value model.
         perm.view_target() == *r@
     }
 
@@ -459,7 +471,6 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }
 }
 
-// ArcRef stores a Rust-owned Arc and has no additional validity condition.
 impl<T> Inv for ArcRef<'_, T> {
     open spec fn inv(self) -> bool {
         true
