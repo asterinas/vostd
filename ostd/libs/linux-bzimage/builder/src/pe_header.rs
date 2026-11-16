@@ -30,7 +30,7 @@ use align_ext::AlignExt;
 use bytemuck::{Pod, Zeroable};
 use serde::Serialize;
 
-use crate::mapping::{SetupFileOffset, SetupVA, LEGACY_SETUP_SEC_SIZE};
+use crate::mapping::{LEGACY_SETUP_SEC_SIZE, SetupFileOffset, SetupVA};
 
 // The MS-DOS header.
 #[verus_verify]
