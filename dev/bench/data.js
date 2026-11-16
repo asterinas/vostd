@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794662861900,
+  "lastUpdate": 1794808309441,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -11928,6 +11928,90 @@ window.BENCHMARK_DATA = {
             "value": 1451900,
             "unit": "rlimit",
             "extra": "smt-run=1,323ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "157275997+YuQuuu@users.noreply.github.com",
+            "name": "YuQuuu",
+            "username": "YuQuuu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97963e831aaabe7dca3575ee6919f413cf4cf40c",
+          "message": "prove: verify task stack-size parsing (#921)\n\n* prove: verify task stack-size parsing\n\n* Keep stack-size verification in the original module\n\n* Remove redundant parser lint suppression and proof comment\n\n* Reuse EndianNat and bound kernel stack sizes\n\nPublish the decimal models and bridge lemmas in vstd_extra::number. Enable the original stack-size definitions while retaining the environment initializer as an explicitly unverified local const boundary. The wrapper preserves the original expression and is needed because Verus cannot apply external_body directly to a static item.\n\nVerify the default constant and the resulting stack-size bound and alignment, without assuming valid environment input or an exact configured value. Preserve the parser executable bodies and keep stack operations commented out.\n\nValidation: full OSTD verification (1581 verified, 0 errors), focused kernel_stack verification (6 verified, 0 errors), compiled build, formatting, vostd-code-review and kverus-review.\n\n* Reuse stack imports and Seq::all predicates\n\n* doc: clarify unverified environment-dependent initializer for stack size\n\n---------\n\nCo-authored-by: Marsman1996 <lqliuyuwei@outlook.com>",
+          "timestamp": "2026-11-16T13:30:41+08:00",
+          "tree_id": "178482ebd292df53cfd9fff442a536b2f2c9bb2b",
+          "url": "https://github.com/asterinas/vostd/commit/97963e831aaabe7dca3575ee6919f413cf4cf40c"
+        },
+        "date": 1794808309134,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 935452721,
+            "unit": "rlimit",
+            "extra": "verified=4473 errors=0 smt-run=334,966ms wall=234,278ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 346342817,
+            "unit": "rlimit",
+            "extra": "smt-run=145,524ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 119370963,
+            "unit": "rlimit",
+            "extra": "smt-run=40,541ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 47144486,
+            "unit": "rlimit",
+            "extra": "smt-run=14,667ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,516ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,748ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,600ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=1,010ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=763ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=888ms"
           }
         ]
       }
