@@ -143,7 +143,7 @@ macro_rules! __bitflags_flag {
 /// let f = Flags::A | Flags::B;
 /// assert!(f.contains(Flags::A));
 /// ```
-// Upstream expands ordinary Rust; this macro embeds `verus!` and keeps its layout stable.
+// Upstream expands ordinary Rust; this macro embeds `verus!` and forwards layout attributes.
 #[verusfmt::skip]
 #[rustfmt::skip]
 #[macro_export]
@@ -160,7 +160,6 @@ macro_rules! bitflags {
         $crate::paste::paste! {
         verus! {
             $(#[$outer])*
-            #[repr(transparent)]
             $vis struct $name {
                 /// The raw bits backing this flags value.
                 bits: $T,

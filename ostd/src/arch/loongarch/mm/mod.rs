@@ -84,8 +84,8 @@ impl PagingConstsTrait for PagingConsts {
  * Origin Rust: bitflags_upstream::bitflags! { ... }
  */
 bitflags::bitflags! {
-    /* #[derive(Pod)]
-     * #[repr(C)] */
+    #[derive(Pod)]
+    #[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame is valid.
@@ -198,14 +198,10 @@ pub fn current_page_table_paddr() -> Paddr {
 }
 
 #[verus_verify]
-#[derive(Clone, Copy /*Pod, Default*/)]
+#[derive(Clone, Copy, Pod /*, Default*/)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
 
-// SAFETY: `PageTableEntry` is a `repr(C)` wrapper around `usize` with no padding,
-// so every bit pattern is a valid value.
-#[verus_verify]
-unsafe impl Pod for PageTableEntry {}
 verus! {
 
 global layout PageTableEntry is size == 8, align == 8;

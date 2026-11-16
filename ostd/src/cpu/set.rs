@@ -732,12 +732,22 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
         set@.contains(a) == Set::range(0, n).contains(a) by {
         if 0 <= a < n {
             let p = a / 64;
-            if a / 64 == len - 1 && n % 64 != 0 {
-                let mask = seq[p];
-                // Materialize the `!0u64 & mask` term: the broadcast masked-bit lemmas
-                // then chain (with `!0u64` as the word) to show that every in-range bit
-                // of the partial last word is set.
-                assert(!0u64 & mask == mask) by (bit_vector);
+            let word = seq[p];
+            let b = (a % 64) as u32;
+            if p == len - 1 && n % 64 != 0 {
+                let k = (n % 64) as u32;
+                assert((word & (1u64 << b)) != 0) by (bit_vector)
+                    requires
+                        b < k,
+                        0 < k < 64,
+                        word == (1u64 << k) - 1,
+                ;
+            } else {
+                assert((word & (1u64 << b)) != 0) by (bit_vector)
+                    requires
+                        b < 64,
+                        word == !0u64,
+                ;
             }
         }
     }
