@@ -46,8 +46,124 @@ pub struct StoredPageTablePageMeta {
 pub enum MetaSlotStorage {
     Empty([u8; 39]),
     Untyped,
+    U32Frame(U32FrameMeta),
+    TypedU32Frame(TypedU32FrameMeta),
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
+}
+
+} // verus!
+macro_rules! define_u32_frame_meta {
+    ($(#[$attr:meta])* $meta:ident, $variant:ident, $field:ident) => {
+        verus! {
+            $(#[$attr])*
+            #[derive(Debug, Default)]
+            // Keep nested link metadata within the fixed slot layout.
+            #[repr(C, packed)]
+            pub struct $meta {
+                pub value: u32,
+            }
+
+            impl Inv for $meta {
+                open spec fn inv(self) -> bool {
+                    true
+                }
+            }
+
+            impl OwnerOf for $meta {
+                type Owner = Self;
+
+                open spec fn wf(self, owner: Self) -> bool {
+                    self == owner
+                }
+            }
+
+            impl Repr<MetaSlotStorage> for $meta {
+                type ReprPerm = ();
+
+                open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
+                    r is $variant
+                }
+
+                open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
+                    (MetaSlotStorage::$variant(self), ())
+                }
+
+                fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
+                    MetaSlotStorage::$variant(self)
+                }
+
+                open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
+                    r->$field
+                }
+
+                fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+                    match r {
+                        MetaSlotStorage::$variant(meta) => meta,
+                        _ => unreachable!(),
+                    }
+                }
+
+                fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+                    match r {
+                        MetaSlotStorage::$variant(meta) => meta,
+                        _ => unreachable!(),
+                    }
+                }
+
+                fn from_borrowed_mut<'a>(
+                    r: &'a mut MetaSlotStorage,
+                    Tracked(perm): Tracked<&'a mut ()>,
+                ) -> &'a mut Self {
+                    match r {
+                        MetaSlotStorage::$variant(meta) => meta,
+                        _ => unreachable!(),
+                    }
+                }
+
+                proof fn from_to_repr(self, perm: ()) {
+                }
+
+                proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
+                }
+
+                proof fn to_repr_wf(self, perm: ()) {
+                }
+            }
+        }
+    };
+}
+
+define_u32_frame_meta!(
+    /// Concrete metadata carrying one u32 value for an untyped frame.
+    U32FrameMeta, U32Frame, U32Frame_0
+);
+define_u32_frame_meta!(
+    /// Concrete metadata carrying one u32 value for a typed frame.
+    TypedU32FrameMeta, TypedU32Frame, TypedU32Frame_0
+);
+
+verus! {
+
+// SAFETY: The default `on_drop` callback does not access frame memory.
+unsafe impl AnyFrameMeta for U32FrameMeta {
+    uninterp spec fn vtable_ptr(&self) -> usize;
+
+    fn is_untyped(&self) -> bool
+        returns
+            true,
+    {
+        true
+    }
+}
+
+impl crate::mm::frame::untyped::AnyUFrameMeta for U32FrameMeta {
+
+}
+
+// SAFETY: The default `on_drop` callback does not access frame memory.
+unsafe impl AnyFrameMeta for TypedU32FrameMeta {
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
 impl MetaSlotStorage {

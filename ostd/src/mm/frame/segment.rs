@@ -3,7 +3,7 @@
 use vstd::{
     prelude::*,
     std_specs::{
-        convert::FromSpecImpl,
+        convert::{FromSpec, FromSpecImpl},
         fmt::{DebugSpecImpl, group_fmt_axioms},
         iter::{IteratorSpec, IteratorSpecImpl},
     },
@@ -891,6 +891,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
     }
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
+    /// Exposes the single-frame conversion without opening its representation.
+    pub proof fn lemma_from_frame(frame: Frame<M>)
+        requires
+            frame.inv(),
+        ensures
+            ({
+                let segment = <Self as FromSpec<Frame<M>>>::from_spec(frame);
+                &&& segment.inv()
+                &&& segment.start_paddr() == frame.start_paddr_spec()
+                &&& segment.size() == PAGE_SIZE
+                &&& IteratorSpec::remaining(&segment) == seq![frame]
+            }),
+    {
+        let segment = <Self as FromSpec<Frame<M>>>::from_spec(frame);
+        assert(IteratorSpec::remaining(&segment) == seq![frame]);
+    }
+}
+
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
     fn from(frame: Frame<M>) -> Self {
@@ -973,7 +992,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
         Seq::new(IteratorSpec::remaining(self).len(), |i: int| true)
     }
 
-    closed spec fn decrease(&self) -> Option<nat> {
+    open spec fn decrease(&self) -> Option<nat> {
         Some(self.len() as nat)
     }
 
