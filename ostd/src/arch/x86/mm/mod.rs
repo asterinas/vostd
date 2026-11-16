@@ -200,17 +200,12 @@ pub(crate) fn tlb_flush_all_including_global() {
     }*/
 }
 
-#[derive(Clone, Copy/*, Pod, Default*/)]
+#[derive(Clone, Copy, Pod /*, Default*/)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
 
 global layout PageTableEntry is size == 8, align == 8;
-
-#[verus_verify]
-unsafe impl Pod for PageTableEntry {
-
-}
 
 impl PageTableEntry {
     pub proof fn lemma_layout()

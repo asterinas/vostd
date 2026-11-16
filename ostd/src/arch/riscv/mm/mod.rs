@@ -145,14 +145,9 @@ pub(crate) fn tlb_flush_all_including_global() {
 }
 
 #[verus_verify]
-#[derive(Clone, Copy /*Pod, Default*/)]
+#[derive(Clone, Copy, Pod /*, Default*/)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
-
-// SAFETY: `PageTableEntry` is a `repr(C)` wrapper around `usize` with no padding,
-// so every bit pattern is a valid value.
-#[verus_verify]
-unsafe impl Pod for PageTableEntry {}
 
 verus! {
 
