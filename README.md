@@ -48,11 +48,6 @@ vostd/
 ### Prerequisites
 
 - [Install Rust](https://www.rust-lang.org/tools/install).
-- Initialize submodules (for our [custom build tool](https://github.com/asterinas/rust-deductive-verifier)):
-
-  ```bash
-  git submodule update --init --recursive
-  ```
 
 ### Build Verus
 
@@ -63,10 +58,7 @@ make verus      # or: cargo dv bootstrap
 Verus is cloned and built under `tools/verus`. If the download fails, clone it manually into `tools/verus` and re-run `cargo dv bootstrap`.
 
 > [!NOTE]
-> We use our [own fork](https://github.com/asterinas/verus) of Verus, kept in sync with upstream. To build against upstream Verus instead, use `cargo dv bootstrap --upstream-verus` (our CI tracks upstream; breaking changes are usually resolved within about a week).
-
-> [!TIP]
-> If Verus is already installed elsewhere and you only want to reproduce a verification result (not the recommended way to set up the project), point `CARGO_VERUS_PATH` at the directory containing the `cargo-verus` binary (or add it to your `PATH`) and run `cargo verus verify`.
+> We use our [own fork](https://github.com/asterinas/verus) of Verus, kept in sync with upstream. To build against upstream Verus instead, use `cargo dv bootstrap --upstream-verus` (however, we do not guarantee our code will always verify with the upstream version).
 
 ### Verify
 
@@ -84,6 +76,13 @@ Partial verification selectors such as `--verify-only-module` require the
 
 `--package` (`-p`) selects packages; `--target` selects the Rust target triple
 (default: `x86_64-unknown-none`).
+
+Verify bzImage mappings on the [Linux host target](dv/README.md#linux-host-target),
+assuming valid setup ELF address and offset ranges:
+
+```bash
+cargo dv verify -p linux-bzimage-builder --target x86_64-unknown-linux-gnu
+```
 
 ### Clean
 
@@ -118,7 +117,7 @@ for coding, specification, proof, naming, and organization conventions.
 Before submitting:
 
 - Run `make verus-upgrade` (`cargo dv bootstrap --upgrade`) to update the supported Verus toolchain.
-- Run `make fmt` (`cargo dv fmt`) to format your changes; formatting is enforced.
+- Run `make fmt` to format your changes, including the build tool in `dv/`; formatting is enforced.
 - For changes to OSTD or verified libraries, run `make` to verify them.
 
 For changes to Verus itself, prefer contributing to

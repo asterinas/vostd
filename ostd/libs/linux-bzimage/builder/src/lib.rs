@@ -11,6 +11,8 @@
 //!
 //! The setup code should be built into the ELF target and we convert it to a flat binary
 //! in the builder.
+#![feature(proc_macro_hygiene)]
+
 pub mod encoder;
 mod mapping;
 mod pe_header;

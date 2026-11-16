@@ -1,8 +1,9 @@
-use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
+use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*};
 use vstd_extra::{
     cast_ptr::{self, Repr},
     ghost_tree::TreePath,
     ownership::*,
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     resource::ghost_resource::count_auth::{Count, CountResource},
 };
 
@@ -11,12 +12,9 @@ use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners:
 use super::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
-    frame::{
-        AnyFrameMeta,
-        meta::{
-            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-            mapping::meta_to_frame,
-        },
+    frame::meta::{
+        AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::meta_to_frame,
     },
     kspace::FRAME_METADATA_RANGE,
 };
@@ -178,7 +176,7 @@ impl MetaSlotOwner {
 
 /// Well-formedness of a concrete metadata representation.
 pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    slot_perm: vstd::simple_pptr::PointsTo<MetaSlot>,
+    slot_perm: ExposedPointsTo<MetaSlot>,
     metadata_perm: MetadataPerm,
     repr_perm: M::ReprPerm,
 ) -> bool {
@@ -197,7 +195,7 @@ pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
 
 pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
-    Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
+    Tracked(slot_perm): Tracked<&'a ExposedPointsTo<MetaSlot>>,
     Tracked(metadata_perm): Tracked<&'a MetadataPerm>,
     Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
 ) -> &'a M
@@ -207,13 +205,16 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     returns
         typed_meta_value::<M>(*metadata_perm, *repr_perm),
 {
-    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
+    let slot = ptr_ref(
+        ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)),
+        Tracked(slot_perm),
+    );
     M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perm.storage_perm)), Tracked(repr_perm))
 }
 
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
-    Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
+    Tracked(slot_perm): Tracked<&'a ExposedPointsTo<MetaSlot>>,
     Tracked(metadata_perms): Tracked<&'a mut MetadataPerm>,
     Tracked(repr_perm): Tracked<&'a mut M::ReprPerm>,
 ) -> (res: &'a mut M)
@@ -225,7 +226,10 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         *final(res) == typed_meta_value::<M>(*final(metadata_perms), *final(repr_perm)),
         typed_meta_wf::<M>(*slot_perm, *final(metadata_perms), *final(repr_perm)),
 {
-    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(slot_perm));
+    let slot = ptr_ref(
+        ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)),
+        Tracked(slot_perm),
+    );
     M::from_borrowed_mut(
         slot.storage.borrow_mut(Tracked(&mut metadata_perms.storage_perm)),
         Tracked(repr_perm),

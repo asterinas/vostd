@@ -9,6 +9,11 @@ repository ="https://github.com/asterinas/asterinas"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+vstd = { workspace = true }
+vstd_extra = { path = "../../../verified_libs/vstd_extra" }
+
+[package.metadata.verus]
+verify = true
 
 [lints]
 workspace = true

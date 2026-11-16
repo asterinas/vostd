@@ -30,7 +30,7 @@ pub mod page_table;
 pub mod tlb;
 pub mod vm_space;
 
-#[cfg(ktest)]
+/* #[cfg(ktest)] */
 mod test;
 
 use core::{fmt::Debug, ops::Range};
@@ -65,12 +65,19 @@ pub type PagingLevel = u8;
 
 verus! {
 
+/// The maximum value of `PagingConstsTrait::NR_LEVELS`.
+/* Moved from page_table/cursor/mod.rs for shared layout proofs.
+ * Origin Rust: const MAX_NR_LEVELS: usize = 4;
+ */
+pub const MAX_NR_LEVELS: usize = 4;
+
 /* Keep modeled memory bounds in mm so architecture models can share them
  * without depending on specs::arch::x86. Paddr is an alias for usize.
  * Origin Rust:
  * pub const MAX_PADDR: usize = 0x8000_0000;
  * pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
  */
+
 /// Current verification upper bound for tracked physical addresses.
 ///
 /// This is a memory-model bound, not the architectural physical-address width.
@@ -81,60 +88,31 @@ pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
 
 /// A minimal set of constants that determines the paging system.
 /// This provides an abstraction over most paging modes in common architectures.
+///
+/// Verification requires 4 KiB pages, 8-byte PTEs, 1..=[`MAX_NR_LEVELS`] levels,
+/// and `12 + 9 * NR_LEVELS <= ADDRESS_WIDTH < usize::BITS`.
 pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
-    spec fn BASE_PAGE_SIZE_spec() -> usize;
-
     /// The smallest page size.
     /// This is also the page size at level 1 page tables.
-    #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
-    fn BASE_PAGE_SIZE() -> (res: usize)
-        returns
-            Self::BASE_PAGE_SIZE(),
-    ;
-
-    spec fn NR_LEVELS_spec() -> PagingLevel;
+    const BASE_PAGE_SIZE: usize;
 
     /// The number of levels in the page table.
     /// The numbering of levels goes from deepest node to the root node. For example,
     /// the level 1 to 5 on AMD64 corresponds to Page Tables, Page Directory Tables,
     /// Page Directory Pointer Tables, Page-Map Level-4 Table, and Page-Map Level-5
     /// Table, respectively.
-    #[verifier::when_used_as_spec(NR_LEVELS_spec)]
-    fn NR_LEVELS() -> (res: PagingLevel)
-        returns
-            Self::NR_LEVELS(),
-    ;
-
-    spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel;
+    const NR_LEVELS: PagingLevel;
 
     /// The highest level that a PTE can be directly used to translate a VA.
     /// This affects the the largest page size supported by the page table.
-    #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_spec)]
-    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
-        returns
-            Self::HIGHEST_TRANSLATION_LEVEL(),
-    ;
-
-    spec fn PTE_SIZE_spec() -> usize;
+    const HIGHEST_TRANSLATION_LEVEL: PagingLevel;
 
     /// The size of a PTE.
-    #[verifier::when_used_as_spec(PTE_SIZE_spec)]
-    fn PTE_SIZE() -> (res: usize)
-        returns
-            Self::PTE_SIZE(),
-    ;
-
-    spec fn ADDRESS_WIDTH_spec() -> usize;
+    const PTE_SIZE: usize;
 
     /// The address width may be BASE_PAGE_SIZE.ilog2() + NR_LEVELS * IN_FRAME_INDEX_BITS.
     /// If it is shorter than that, the higher bits in the highest level are ignored.
-    #[verifier::when_used_as_spec(ADDRESS_WIDTH_spec)]
-    fn ADDRESS_WIDTH() -> (res: usize)
-        returns
-            Self::ADDRESS_WIDTH(),
-    ;
-
-    spec fn VA_SIGN_EXT_spec() -> bool;
+    const ADDRESS_WIDTH: usize;
 
     /// Whether virtual addresses are sign-extended.
     ///
@@ -147,11 +125,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     ///
     /// Regardless of sign extension, [`Vaddr`] is always not signed upon calculation.
     /// That means, `0xffff_ffff_ffff_0000 < 0xffff_ffff_ffff_0001` is `true`.
-    #[verifier::when_used_as_spec(VA_SIGN_EXT_spec)]
-    fn VA_SIGN_EXT() -> bool
-        returns
-            Self::VA_SIGN_EXT(),
-    ;
+    const VA_SIGN_EXT: bool;
 
     /// The requirements of the paging constants so that the memory management system can work correctly.
     ///
@@ -160,15 +134,17 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     ///
     proof fn lemma_paging_consts_requirements()
         ensures
-            0 < Self::BASE_PAGE_SIZE(),
-            is_pow2(Self::BASE_PAGE_SIZE() as int),
-            0 < Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS() < PagingLevel::MAX,
-            is_pow2(Self::PTE_SIZE() as int),
-            0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            0 < Self::ADDRESS_WIDTH() < usize::BITS,
-            Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2()
-                * Self::NR_LEVELS() <= Self::ADDRESS_WIDTH(),
-            Self::PTE_SIZE() == core::mem::size_of::<usize>(),
+            Self::BASE_PAGE_SIZE == 4096,
+            1 <= Self::NR_LEVELS <= MAX_NR_LEVELS,
+            0 < Self::BASE_PAGE_SIZE,
+            is_pow2(Self::BASE_PAGE_SIZE as int),
+            0 < Self::HIGHEST_TRANSLATION_LEVEL <= Self::NR_LEVELS < PagingLevel::MAX,
+            is_pow2(Self::PTE_SIZE as int),
+            0 < Self::PTE_SIZE <= Self::BASE_PAGE_SIZE,
+            0 < Self::ADDRESS_WIDTH < usize::BITS,
+            Self::BASE_PAGE_SIZE.ilog2() + (Self::BASE_PAGE_SIZE / Self::PTE_SIZE).ilog2()
+                * Self::NR_LEVELS <= Self::ADDRESS_WIDTH,
+            Self::PTE_SIZE == core::mem::size_of::<usize>(),
     ;
 
     /// The derived properties of the paging constants.
@@ -178,30 +154,42 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         ensures
     // Derived properties.
 
-            Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() * (
-            Self::NR_LEVELS() - 1) <= Self::ADDRESS_WIDTH(),
-            0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            is_pow2((Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()) as int),
+            Self::PTE_SIZE == 8,
+            Self::BASE_PAGE_SIZE.ilog2() + (Self::BASE_PAGE_SIZE / Self::PTE_SIZE).ilog2() * (
+            Self::NR_LEVELS - 1) <= Self::ADDRESS_WIDTH,
+            0 < Self::BASE_PAGE_SIZE / Self::PTE_SIZE <= Self::BASE_PAGE_SIZE,
+            is_pow2((Self::BASE_PAGE_SIZE / Self::PTE_SIZE) as int),
+            Self::BASE_PAGE_SIZE / Self::PTE_SIZE == NR_ENTRIES,
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
-            0 < Self::BASE_PAGE_SIZE(),
-            is_pow2(Self::BASE_PAGE_SIZE() as int),
-            0 < Self::HIGHEST_TRANSLATION_LEVEL() <= Self::NR_LEVELS() < PagingLevel::MAX,
-            is_pow2(Self::PTE_SIZE() as int),
-            0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            0 < Self::ADDRESS_WIDTH() < usize::BITS,
-            Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2()
-                * Self::NR_LEVELS() <= Self::ADDRESS_WIDTH(),
-            Self::PTE_SIZE() == core::mem::size_of::<usize>(),
+            Self::BASE_PAGE_SIZE == 4096,
+            1 <= Self::NR_LEVELS <= MAX_NR_LEVELS,
+            0 < Self::BASE_PAGE_SIZE,
+            is_pow2(Self::BASE_PAGE_SIZE as int),
+            0 < Self::HIGHEST_TRANSLATION_LEVEL <= Self::NR_LEVELS < PagingLevel::MAX,
+            is_pow2(Self::PTE_SIZE as int),
+            0 < Self::PTE_SIZE <= Self::BASE_PAGE_SIZE,
+            0 < Self::ADDRESS_WIDTH < usize::BITS,
+            Self::BASE_PAGE_SIZE.ilog2() + (Self::BASE_PAGE_SIZE / Self::PTE_SIZE).ilog2()
+                * Self::NR_LEVELS <= Self::ADDRESS_WIDTH,
+            Self::PTE_SIZE == core::mem::size_of::<usize>(),
     {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;
 
-        let base = Self::BASE_PAGE_SIZE() as int;
-        let pte = Self::PTE_SIZE() as int;
-        let levels = Self::NR_LEVELS() as int;
-        let base_bits = Self::BASE_PAGE_SIZE().ilog2() as int;
-        let index_bits = (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() as int;
+        assert(Self::PTE_SIZE == 8);
+        assert(NR_ENTRIES == 512) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE / Self::PTE_SIZE == NR_ENTRIES) by (nonlinear_arith)
+            requires
+                Self::BASE_PAGE_SIZE == 4096,
+                Self::PTE_SIZE == 8,
+                NR_ENTRIES == 512,
+        ;
+        let base = Self::BASE_PAGE_SIZE as int;
+        let pte = Self::PTE_SIZE as int;
+        let levels = Self::NR_LEVELS as int;
+        let base_bits = Self::BASE_PAGE_SIZE.ilog2() as int;
+        let index_bits = (Self::BASE_PAGE_SIZE / Self::PTE_SIZE).ilog2() as int;
         assert(0 < base / pte) by {
             vstd::arithmetic::div_mod::lemma_div_non_zero(base, pte);
         };
@@ -214,46 +202,30 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
                 0 <= index_bits,
                 1 <= levels,
         ;
-        let page = Self::BASE_PAGE_SIZE();
-        let pte = Self::PTE_SIZE();
+        let page = Self::BASE_PAGE_SIZE;
+        let pte = Self::PTE_SIZE;
         lemma_usize_is_pow2_is_ilog2_pow2(page);
         lemma_usize_is_pow2_is_ilog2_pow2(pte);
         lemma_usize_ilog2_ordered(pte, page);
         lemma_pow2_subtracts(pte.ilog2() as nat, page.ilog2() as nat);
         lemma_pow2_is_pow2((page.ilog2() - pte.ilog2()) as nat);
     }
-
-    /// Assumes the paging constants match the build-selected architecture.
-    ///
-    /// TODO: Generalize the proofs at these calls and remove this axiom before
-    /// verifying configurations with a different page-table layout. This
-    /// restriction is trusted and is not enforced by Verus.
-    /// Verus does not support `axiom fn` in traits, so this default proof method
-    /// uses `external_body` to declare the temporary assumption.
-    #[verifier::external_body]
-    proof fn axiom_current_paging_consts_hardcoded()
-        ensures
-            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
-            Self::NR_LEVELS() == NR_LEVELS as PagingLevel,
-            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
-    {
-    }
 }
 
 pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
-    (C::BASE_PAGE_SIZE() * pow2((nr_subpage_per_huge::<C>().ilog2() * (level - 1)) as nat)) as usize
+    (C::BASE_PAGE_SIZE * pow2((nr_subpage_per_huge::<C>().ilog2() * (level - 1)) as nat)) as usize
 }
 
 // /// The page size
 // pub const PAGE_SIZE: usize = page_size::<PagingConsts>(1);
 /// The page size at a given level.
 #[verifier::when_used_as_spec(page_size_spec)]
-pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
+pub const fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
     requires
-        1 <= level <= C::NR_LEVELS() + 1,
+        1 <= level <= C::NR_LEVELS + 1,
     ensures
         is_pow2(ret as int),
-        ret >= C::BASE_PAGE_SIZE(),
+        ret >= C::BASE_PAGE_SIZE,
     returns
         page_size_spec::<C>(level),
 {
@@ -261,31 +233,31 @@ pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
         C::lemma_paging_consts_properties();
         lemma_page_size_is_pow2_pte_index_bit_offset::<C>(level);
         let shift = (nr_pte_index_bits_spec::<C>() * (level - 1)) as usize;
-        lemma_usize_is_pow2_is_ilog2_pow2(C::BASE_PAGE_SIZE());
-        lemma_pow2_adds(C::BASE_PAGE_SIZE().ilog2() as nat, shift as nat);
-        lemma_usize_shl_is_mul(C::BASE_PAGE_SIZE(), shift);
-        lemma_usize_pow2_shl_is_pow2(C::BASE_PAGE_SIZE(), shift);
+        lemma_usize_is_pow2_is_ilog2_pow2(C::BASE_PAGE_SIZE);
+        lemma_pow2_adds(C::BASE_PAGE_SIZE.ilog2() as nat, shift as nat);
+        lemma_usize_shl_is_mul(C::BASE_PAGE_SIZE, shift);
+        lemma_usize_pow2_shl_is_pow2(C::BASE_PAGE_SIZE, shift);
         lemma_pow2_pos(shift as nat);
-        lemma_mul_left_inequality(C::BASE_PAGE_SIZE() as int, 1, pow2(shift as nat) as int);
+        lemma_mul_left_inequality(C::BASE_PAGE_SIZE as int, 1, pow2(shift as nat) as int);
     }
-    C::BASE_PAGE_SIZE() << (nr_subpage_per_huge::<C>().ilog2() as usize * (level as usize - 1))
+    C::BASE_PAGE_SIZE << (nr_subpage_per_huge::<C>().ilog2() as usize * (level as usize - 1))
 }
 
 #[verifier::inline]
 pub open spec fn nr_subpage_per_huge_spec<C: PagingConstsTrait>() -> usize {
-    C::BASE_PAGE_SIZE() / C::PTE_SIZE()
+    C::BASE_PAGE_SIZE / C::PTE_SIZE
 }
 
 /// The number of sub pages in a huge page.
 #[verifier::when_used_as_spec(nr_subpage_per_huge_spec)]
-pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> usize
+pub const fn nr_subpage_per_huge<C: PagingConstsTrait>() -> usize
     returns
         nr_subpage_per_huge_spec::<C>(),
 {
     proof {
         C::lemma_paging_consts_properties();
     }
-    C::BASE_PAGE_SIZE() / C::PTE_SIZE()
+    C::BASE_PAGE_SIZE / C::PTE_SIZE
 }
 
 /// The maximum virtual address of user space (non inclusive).

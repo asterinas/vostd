@@ -13,7 +13,6 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 
 ## Build, Test, and Development Commands
 
-- `git submodule update --init --recursive`: initialize required submodules.
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
   - `make verus-upgrade` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify`: verify the whole target.

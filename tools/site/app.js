@@ -134,10 +134,10 @@ function renderHistoryChart(points) {
   const series = SERIES.map((s) => ({
     name: s.name,
     type: "line",
-    showSymbol: points.length <= 24,
+    showSymbol: false,
     symbol: "circle",
-    symbolSize: 8,
-    itemStyle: { color: css(s.cssVar), borderColor: text.surface, borderWidth: 2 },
+    symbolSize: 7,
+    itemStyle: { color: css(s.cssVar) },
     lineStyle: { width: 2, color: css(s.cssVar) },
     emphasis: { focus: "series" },
     dimension: 0,
@@ -156,7 +156,7 @@ function renderHistoryChart(points) {
       itemHeight: 4,
       textStyle: { color: text.ink2 },
     },
-    grid: { left: 56, right: 20, top: 34, bottom: 44 },
+    grid: { left: 65, right: 24, top: 55, bottom: 75 },
     tooltip: {
       trigger: "axis",
       confine: true,
@@ -165,8 +165,10 @@ function renderHistoryChart(points) {
       borderColor: "transparent",
       textStyle: { color: text.ink },
       formatter: (params) => {
-        const [date] = params[0].value;
-        const head = esc(new Date(date).toISOString().slice(0, 10));
+        const point = points[params[0].dataIndex];
+        const sha = String(point.sha || "").slice(0, 8);
+        const head = (sha ? `<strong>${esc(sha)}</strong> · ` : "") +
+          esc(new Date(point.date).toISOString().slice(0, 10));
         const rows = params
           .slice()
           .sort((a, b) => b.value[1] - a.value[1])
@@ -197,7 +199,27 @@ function renderHistoryChart(points) {
       },
       splitLine: { lineStyle: { color: text.grid, width: 1 } },
     },
+    dataZoom: [{
+      type: "slider",
+      bottom: 12,
+      height: 20,
+      borderColor: css("--border"),
+      backgroundColor: text.surface,
+      fillerColor: text.grid,
+      dataBackground: {
+        lineStyle: { color: text.ink3 },
+        areaStyle: { color: text.grid },
+      },
+      textStyle: { color: text.ink2 },
+    }],
     series,
+  });
+  chart.on("click", (params) => {
+    if (params.componentType !== "series") return;
+    const sha = points[params.dataIndex]?.sha;
+    if (typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha)) {
+      window.open(`https://github.com/asterinas/vostd/commit/${sha}`, "_blank", "noopener");
+    }
   });
   registerChart(chart, host);
 }

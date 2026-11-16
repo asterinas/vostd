@@ -311,53 +311,33 @@ impl CpuSet {
         returns self@ == Set::range(0, cpu_count()),
     )]
     pub fn is_full(&self) -> bool {
-        /* `Enumerate` has no `IteratorSpecImpl` in the active vstd, so use an indexed loop
-         * with the same ascending word order and the same first-mismatch short circuit.
-         * Origin Rust: let num_cpus = num_cpus();
-         * self.bits.iter().enumerate().all(|(idx, part)| {
-         *     if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
-         *         *part == (1 << (num_cpus % BITS_PER_PART)) - 1
-         *     } else {
-         *         *part == !0
-         *     }
-         * })
-         */
         let num_cpus = num_cpus();
-        let mut idx = 0usize;
-        #[verus_spec(
-            invariant
-                self.inv(),
-                num_cpus == cpu_count(),
-                idx <= smallvec_view(&self.bits).len(),
-                forall|i: int|
-                    #![trigger smallvec_view(&self.bits)[i]]
-                    0 <= i < idx ==> smallvec_view(&self.bits)[i]
-                        == full_set_word(
-                            cpu_count(),
-                            smallvec_view(&self.bits).len() as int,
-                            i,
-                        ),
-            decreases
-                smallvec_view(&self.bits).len() - idx,
-        )]
-        while idx < self.bits.len() {
-            let expected = if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
-                (1 << (num_cpus % BITS_PER_PART)) - 1
-            } else {
-                !0
-            };
-            if self.bits[idx] != expected {
-                proof! {
-                    lemma_mismatched_word_imply_not_full_set(self, idx as int);
-                }
-                return false;
-            }
-            idx += 1;
-        }
         proof! {
-            lemma_full_bits_imply_full_set(self);
+            let seq = smallvec_view(&self.bits);
+            if forall|i: int| 0 <= i < seq.len() ==> #[trigger] seq[i]
+                == full_set_word(cpu_count(), seq.len() as int, i) {
+                lemma_full_bits_imply_full_set(self);
+            } else {
+                let idx = choose|i: int| 0 <= i < seq.len()
+                    && #[trigger] seq[i] != full_set_word(cpu_count(), seq.len() as int, i);
+                lemma_mismatched_word_imply_not_full_set(self, idx);
+            }
         }
-        true
+        self.bits.iter().enumerate().all(
+            #[verus_spec(ret: bool =>
+                ensures
+                    ret == (*part == full_set_word(
+                        cpu_count(), smallvec_view(&self.bits).len() as int, idx as int,
+                    )),
+            )]
+            |(idx, part): (usize, &InnerPart)| {
+                if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
+                    *part == (1 << (num_cpus % BITS_PER_PART)) - 1
+                } else {
+                    *part == !0
+                }
+            },
+        )
     }
 
     /// Adds all CPUs to the set.
@@ -406,7 +386,7 @@ impl CpuSet {
             IteratorSpec::decrease(&ret) is Some,
     )]
     pub fn iter(&self) -> impl Iterator<Item = CpuId> + '_ {
-        /* `Enumerate`, `FlatMap`, and `FilterMap` are not modeled by the active vstd, so scan
+        /* `FlatMap` and `FilterMap` are not modeled by the active vstd, so scan
          * the same bit positions with modeled `Filter` and `Map` adapters. The position order
          * and selected CPU IDs are unchanged.
          * Origin Rust: self.bits.iter().enumerate().flat_map(|(part_idx, &part)| {

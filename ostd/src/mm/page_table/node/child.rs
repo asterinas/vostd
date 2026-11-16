@@ -1,29 +1,30 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
-use vstd::{prelude::*, simple_pptr::PPtr};
+use vstd::prelude::*;
 use vstd_extra::{cast_ptr::*, ownership::*};
 
 use crate::specs::{
     arch::*,
     mm::frame::{
+        frame_specs::FrameRawPerms,
         mapping::{group_page_meta, meta_to_index},
         meta_region_owners::MetaRegionOwners,
     },
     *,
 };
 
-use super::*;
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::Frame;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::page_table::*;
-use crate::{
-    mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty},
-    //    sync::RcuDrop,
+use crate::mm::{
+    frame::{Frame, meta::mapping::meta_to_frame},
+    page_table::*,
 };
-use core::marker::PhantomData;
+
 use core::mem::ManuallyDrop;
+
+use super::{PageTableEntryTrait, PageTableNode, PageTableNodeRef};
+use crate::{
+    mm::{Paddr, PagingLevel, page_prop::PageProperty, page_table::PageTableConfig},
+    // sync::RcuDrop,
+};
 
 verus! {
 
@@ -140,10 +141,14 @@ impl<C: PageTableConfig> Child<C> {
             let tracked slot_perm = regions.tracked_borrow_slot(paddr);
 
             let tracked permission = entry_own.tracked_take_node_permission();
-            proof_with!{ tracked_slot_perm: Tracked(slot_perm), tracked_metadata_perm: Tracked(Some(permission)) }
-            let node = PageTableNode::<C> {
-                ptr: PPtr::from_addr(frame_to_meta(paddr)),
-                _marker: PhantomData,
+            // SAFETY: The caller ensures that this node was created by
+            // `into_pte`, so that restoring the forgotten reference is safe.
+            let node = unsafe {
+                #[verus_spec(with Tracked(FrameRawPerms {
+                    slot_perm,
+                    metadata_perm: permission,
+                }))]
+                PageTableNode::<C>::from_raw(paddr)
             };
 
             return Child::PageTable(node);

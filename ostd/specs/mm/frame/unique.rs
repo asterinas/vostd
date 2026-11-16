@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, prelude::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{
     arch::MAX_NR_PAGES,
@@ -12,9 +12,10 @@ use crate::specs::{
 use super::meta_owners::*;
 use crate::mm::frame::{
     meta::{
-        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        AnyFrameMeta, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
         mapping::{frame_to_meta, meta_to_frame},
     },
+    unique::UniqueFrame,
     *,
 };
 
@@ -42,14 +43,14 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> 
     }
 
     /// The metadata-slot permission carried by this unique handle.
-    pub open spec fn slot_perm(self) -> vstd::simple_pptr::PointsTo<MetaSlot> {
+    pub open spec fn slot_perm(self) -> ExposedPointsTo<MetaSlot> {
         *self.tracked_slot_perm@
     }
 
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
         &&& valid_slot_vaddr(self.slot_vaddr())
-        &&& self.slot_perm().pptr() == self.ptr
+        &&& self.slot_perm().ptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
 }

@@ -27,6 +27,8 @@ pub mod drop_tracking;
 pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
+pub mod layout;
+pub mod number;
 pub mod once;
 pub mod ownership;
 pub mod panic;
@@ -40,6 +42,7 @@ pub mod map_extra;
 
 pub mod prelude;
 pub mod range;
+pub mod raw_ptr;
 pub mod raw_ptr_extra;
 pub mod rcu_objects;
 pub mod rcu_read_lease;

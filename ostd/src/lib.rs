@@ -67,9 +67,10 @@ pub use ostd_macros::{
     panic_handler,
 };*/
 pub use ostd_pod::Pod;
-/*
+
 pub use self::{error::Error, prelude::Result};
 
+/*
 /// Initializes OSTD.
 ///
 /// This function represents the first phase booting up the system. It makes

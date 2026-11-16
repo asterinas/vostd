@@ -32,7 +32,7 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-use vstd::{atomic::PermissionU64, prelude::*, simple_pptr::PointsTo};
+use vstd::{atomic::PermissionU64, prelude::*};
 use vstd_extra::{
     once::OnceImpl, ownership::*, prelude::*, resource_invariant::TrivialResourceInvariant,
 };
@@ -52,7 +52,7 @@ use core::{marker::PhantomData, ops::Range};
 
 //use log::info;
 pub(crate) mod kvirt_area;
-#[cfg(ktest)]
+/* #[cfg(ktest)] */
 mod test;
 
 use super::{
@@ -158,24 +158,15 @@ pub(crate) struct KernelPtConfig {}
 // We use the first available PTE bit to mark the frame as tracked.
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for KernelPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        256..512
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const TOP_LEVEL_INDEX_RANGE: Range<usize> = 256..512;
+
+    #[verus::internal(open)]
+    const TOP_LEVEL_CAN_UNMAP: bool = false;
 
     proof fn lemma_page_table_config_constant_requirements() {
         PageTableEntry::lemma_layout();
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {
-        256..512
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        false
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        false
     }
 
     type E = PageTableEntry;
@@ -245,16 +236,16 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 proof_decl! {
                     let tracked raw_perm: FrameRawPerms;
                 }
-                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
-                prop.flags = prop.flags | PageFlags::AVAIL1();
+                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1));
+                prop.flags = prop.flags | PageFlags::AVAIL1;
                 let level = frame.map_level();
                 let paddr = frame.into_raw();
                 proof_with!(=> Tracked(raw_perm));
                 (paddr, level, prop, Tracked(Some(raw_perm)))
             },
             MappedItem::Untracked(pa, level, mut prop) => {
-                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
-                prop.flags = prop.flags - PageFlags::AVAIL1();
+                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1));
+                prop.flags = prop.flags - PageFlags::AVAIL1;
                 (pa, level, prop, Tracked(None))
             },
         }
@@ -266,10 +257,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
         prop: PageProperty,
         perm: Tracked<Option<Self::Perm>>,
     ) -> Self::Item {
-        if prop.flags.contains(PageFlags::AVAIL1()) {
+        if prop.flags.contains(PageFlags::AVAIL1) {
             MappedItem::Tracked(
                 Frame::<MetaSlotStorage> {
-                    ptr: vstd::simple_pptr::PPtr(mapping::frame_to_meta(paddr), PhantomData),
+                    ptr: (perm@->0).slot_perm.ptr(),
                     _marker: PhantomData,
                     #[cfg(verus_keep_ghost_body)]
                     tracked_slot_perm: Tracked((perm@->0).slot_perm),
@@ -290,11 +281,11 @@ unsafe impl PageTableConfig for KernelPtConfig {
         prop: PageProperty,
         Tracked(perm): Tracked<Option<Self::Perm>>,
     ) -> Self::Item {
-        if prop.flags.contains(PageFlags::AVAIL1()) {
+        if prop.flags.contains(PageFlags::AVAIL1) {
             debug_assert_eq!(level, 1);
             // [KNOWN] BUG FOUND BY FV: forgotting to clean `AVAIL1`. https://github.com/asterinas/vostd/issues/625
             let mut item_prop = prop;
-            item_prop.flags = item_prop.flags - PageFlags::AVAIL1();
+            item_prop.flags = item_prop.flags - PageFlags::AVAIL1;
             let tracked raw_perm = perm.tracked_unwrap();
             // SAFETY: The caller ensures safety.
             proof_with!(Tracked(raw_perm));
@@ -315,7 +306,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         assert(Self::raw_item_well_formed((pa, level, prop, perm)));
         prop.lemma_avail1_tag_encoding();
-        if prop.flags.contains(PageFlags::AVAIL1()) {
+        if prop.flags.contains(PageFlags::AVAIL1) {
             assert(Self::item_from_raw(pa, level, prop, perm) is Tracked);
             assert(perm@ is Some);
         } else {
@@ -348,10 +339,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
     open spec fn item_well_formed(item: Self::Item) -> bool {
         match item {
             MappedItem::Tracked(frame, prop) => {
-                &&& !prop.flags.contains(PageFlags::AVAIL1())
+                &&& !prop.flags.contains(PageFlags::AVAIL1)
                 &&& frame.inv()
             },
-            MappedItem::Untracked(_, _, prop) => !prop.flags.contains(PageFlags::AVAIL1()),
+            MappedItem::Untracked(_, _, prop) => !prop.flags.contains(PageFlags::AVAIL1),
         }
     }
 
@@ -359,8 +350,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
         item: (Paddr, PagingLevel, PageProperty, Tracked<Option<Self::Perm>>),
     ) -> bool {
         let (pa, level, prop, perm) = item;
-        &&& (prop.flags.contains(PageFlags::AVAIL1()) <==> perm@ is Some)
-        &&& prop.flags.contains(PageFlags::AVAIL1()) ==> {
+        &&& (prop.flags.contains(PageFlags::AVAIL1) <==> perm@ is Some)
+        &&& prop.flags.contains(PageFlags::AVAIL1) ==> {
             &&& level == 1
             &&& (perm@->0).slot_perm.addr() == mapping::frame_to_meta(pa)
             &&& (perm@->0).slot_perm.is_init()
@@ -472,12 +463,12 @@ unsafe impl PageTableConfig for KernelPtConfig {
 impl KernelPtConfig {
     /// Adds the raw PTE bit used to identify a ref-counted mapping.
     pub open spec fn encode_tracked_prop(prop: PageProperty) -> PageProperty {
-        PageProperty { flags: prop.flags.union(PageFlags::AVAIL1()), ..prop }
+        PageProperty { flags: prop.flags.union(PageFlags::AVAIL1), ..prop }
     }
 
     /// Removes the raw PTE trackedness bit from a caller-visible property.
     pub open spec fn decode_tracked_prop(prop: PageProperty) -> PageProperty {
-        PageProperty { flags: prop.flags.difference(PageFlags::AVAIL1()), ..prop }
+        PageProperty { flags: prop.flags.difference(PageFlags::AVAIL1), ..prop }
     }
 }
 

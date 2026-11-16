@@ -31,40 +31,40 @@ mod child_specs;
 #[path = "../../../../specs/mm/page_table/node/entry.rs"]
 mod entry_specs;
 
-use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*, simple_pptr::PPtr};
+use vstd::{atomic::PAtomicU8, cell::pcell_maybe_uninit, prelude::*};
 use vstd_extra::{array_ptr, cast_ptr::*, ghost_tree::*, ownership::*};
 
-pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 use crate::specs::mm::{
     frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
 };
 
-use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
-use crate::mm::frame::{
-    allocator::FrameAllocOptions,
-    meta::{
-        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX,
-        mapping::{frame_to_meta, meta_to_frame},
-    },
+use crate::mm::{
+    frame::meta::{MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
+    page_table::*,
 };
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr};
+
+use core::{
+    //cell::SyncUnsafeCell,
+    marker::PhantomData,
+    ops::Deref,
+    sync::atomic::{AtomicU8, Ordering},
+};
+
+pub use self::{
+    child::{Child, ChildRef},
+    entry::Entry,
+};
+use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::{
     mm::{
-        PagingConstsTrait,
-        PagingLevel,
-        //        FrameAllocOptions, Infallible,
-        //        VmReader,
+        FrameAllocOptions, Infallible, PagingConstsTrait, PagingLevel, VmReader,
         frame::{Frame, FrameRef, meta::AnyFrameMeta},
         paddr_to_vaddr,
         page_table::{load_pte, store_pte},
     },
-    specs::task::InAtomicMode,
+    task::atomic_mode::InAtomicMode,
 };
-pub use child::*;
-use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
-pub use entry::*;
 
 verus! {
 
@@ -149,8 +149,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
         let level = self.level;
-        let range = if level == C::NR_LEVELS() {
-            C::TOP_LEVEL_INDEX_RANGE()
+        let range = if level == C::NR_LEVELS {
+            C::TOP_LEVEL_INDEX_RANGE
         } else {
             0..nr_subpage_per_huge::<C>()
         };
@@ -240,7 +240,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
              Tracked(guards): Tracked<&Guards>,
                  -> owner: Tracked<OwnerSubtree<C>>,
         requires
-            1 <= level < NR_LEVELS,
+            1 <= level < C::NR_LEVELS,
             old(regions).inv(),
         ensures
             final(regions).inv(),
@@ -308,7 +308,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         };
 
         #[cfg(feature = "allow_panic")]
-        assert_eq!(self.level(), C::NR_LEVELS());
+        assert_eq!(self.level(), C::NR_LEVELS);
 
         let last_activated_paddr = current_page_table_paddr();
         if last_activated_paddr == self.start_paddr() {
@@ -335,6 +335,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
     }*/
 
 }
+
+/// A reference to a page table node.
+pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
 
 #[verus_verify]
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
@@ -372,7 +375,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(self.slot_vaddr(), *old(guards), *final(guards)),
             res.inner == self,
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
+    pub fn lock<'rcu>(self, _guard: &'rcu dyn InAtomicMode) -> PageTableGuard<'rcu, C> where
         'a: 'rcu,
      {
         unimplemented!()
@@ -397,9 +400,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(self.slot_vaddr(), *old(guards), *final(guards)),
             res.inner == self,
     )]
-    pub unsafe fn make_guard_unchecked<'rcu, A: InAtomicMode>(
+    pub unsafe fn make_guard_unchecked<'rcu>(
         self,
-        _guard: &'rcu A,
+        _guard: &'rcu dyn InAtomicMode,
     ) -> PageTableGuard<'rcu, C> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
 
@@ -409,6 +412,11 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
         guard
     }
+}
+
+/// A guard that holds the lock of a page table node.
+pub struct PageTableGuard<'rcu, C: PageTableConfig> {
+    pub inner: PageTableNodeRef<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
@@ -622,6 +630,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 }
 
+impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
+    type Target = PageTableNodeRef<'rcu, C>;
+
+    #[verus_spec(ensures returns self.inner)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 /*impl<C: PageTableConfig> Drop for PageTableGuard<'_, C> {
     fn drop(&mut self) {
         self.inner.meta().lock.store(0, Ordering::Release);
@@ -676,32 +693,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
         ensures
             self.walk_coverage_at(view, dom, c),
-    {
-    }
-
-    /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
-    pub proof fn lemma_uniqueness_at_pair(
-        self,
-        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        view: crate::specs::mm::virt_mem::MemView,
-        c1: usize,
-        c2: usize,
-    )
-        requires
-            self.walk_uniqueness_from_view(reader, view),
-            reader.cursor.vaddr <= c1,
-            c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
-            (c1 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
-            reader.cursor.vaddr <= c2,
-            c2 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
-            (c2 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
-            c1 != c2,
-            Self::walk_pte_at_view(view, c1).is_present(),
-            !Self::walk_pte_at_view(view, c1).is_last(self.level),
-            Self::walk_pte_at_view(view, c2).is_present(),
-            !Self::walk_pte_at_view(view, c2).is_last(self.level),
-        ensures
-            Self::walk_pte_at_view(view, c1).paddr() != Self::walk_pte_at_view(view, c2).paddr(),
     {
     }
 

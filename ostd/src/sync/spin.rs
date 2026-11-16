@@ -5,6 +5,7 @@ use vstd::{
     atomic_ghost::*,
     cell::{self, pcell::*},
     prelude::*,
+    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::prelude::*;
 
@@ -606,11 +607,24 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
     }
 }
 
-/* impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for SpinLockGuard<'_, T, G> {
+verus! {
+impl<T: fmt::Debug, G: SpinGuardian, I: ResourceInvariant<T>> DebugSpecImpl
+    for SpinLockGuard<'_, T, G, I>
+{
+    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
+        self.view().fmt_req(f)
+    }
+}
+}
+
+#[verus_verify]
+impl<T: /*?Sized + */fmt::Debug, G: SpinGuardian, I: ResourceInvariant<T>> fmt::Debug
+    for SpinLockGuard<'_, T, G, I>
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}*/
+}
 
 // `G::Guard` is `!Send` and `!Sync`, so is `SpinLockGuard`.
 #[verus_verify]

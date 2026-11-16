@@ -2,13 +2,15 @@
 //! A contiguous range of frames.
 use vstd::{
     prelude::*,
-    simple_pptr::{PPtr, PointsTo},
     std_specs::{
         convert::FromSpecImpl,
+        fmt::{DebugSpecImpl, group_fmt_axioms},
         iter::{IteratorSpec, IteratorSpecImpl},
     },
 };
-use vstd_extra::{assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*};
+use vstd_extra::{
+    assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*, raw_ptr::ExposedPointsTo,
+};
 
 use crate::specs::{
     arch::*,
@@ -18,15 +20,24 @@ use crate::specs::{
     },
 };
 
+use crate::mm::{
+    PagingLevel, Vaddr,
+    frame::{
+        REF_COUNT_MAX,
+        meta::{MetaSlot, mapping::frame_to_meta},
+    },
+    paddr_to_vaddr,
+    page_table::RCClone,
+};
+
+use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
+
 use super::{
-    Frame, Paddr,
-    meta::mapping::frame_to_meta,
+    Frame,
+    //inc_frame_ref_count,
     meta::{AnyFrameMeta, GetFrameError},
 };
-use crate::mm::frame::{meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
-use crate::mm::page_table::RCClone;
-use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
-use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
+use crate::mm::{AnyUFrameMeta, PAGE_SIZE, Paddr};
 
 verus! {
 
@@ -51,13 +62,19 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     tracked_perms: Tracked<Option<Seq<FrameRawPerms>>>,
 }
 
-/*
+impl<M: AnyFrameMeta + ?Sized> DebugSpecImpl for Segment<M> {
+    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
+        true
+    }
+}
+
 impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        broadcast use group_fmt_axioms;
+
         write!(f, "Segment({:#x}..{:#x})", self.range.start, self.range.end)
     }
 }
-*/
 
 /*impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
     fn drop(&mut self) {
@@ -567,7 +584,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         self.tracked_perms@ is Some
     }
 
-    pub open spec fn slot_perms(&self) -> Seq<&'static PointsTo<MetaSlot>> {
+    pub open spec fn slot_perms(&self) -> Seq<&'static ExposedPointsTo<MetaSlot>> {
         self.raw_perms().map_values(|perm: FrameRawPerms| perm.slot_perm)
     }
 }
@@ -763,6 +780,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 assert(paddr == (self.range.start + perm_idx * PAGE_SIZE) as usize);
+                assert(regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX ==> may_panic()) by {
+                    if regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX {
+                        assert(self.page_in_range_saturated(range, *old(regions)));
+                    }
+                }
             }
 
             let tracked_permission = unsafe {
@@ -941,12 +963,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
         Seq::new(
             self.metadata_perms().len() as nat,
             |i: int|
-                {
-                    Frame::<M>::from_raw_spec(
-                        (self.range().start + i * PAGE_SIZE) as usize,
-                        self.slot_perms()[i],
-                        Some(self.metadata_perms()[i]),
-                    )
+                { Frame::<M>::from_perms_spec(self.slot_perms()[i], Some(self.metadata_perms()[i]))
                 },
         )
     }
@@ -963,8 +980,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
         if 0 <= index < self.metadata_perms().len() {
             Some(
-                Frame::<M>::from_raw_spec(
-                    (self.range().start + index * PAGE_SIZE) as usize,
+                Frame::<M>::from_perms_spec(
                     self.slot_perms()[index],
                     Some(self.metadata_perms()[index]),
                 ),
