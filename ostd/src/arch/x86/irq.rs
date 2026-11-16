@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Interrupts.
 use vstd::prelude::*;
-use x86_64::registers::rflags::{self, RFlags};
 
 /* use spin::Once;
+use x86_64::registers::rflags::{self, RFlags};
 
 use super::iommu::{alloc_irt_entry, has_interrupt_remapping, IrtEntryHandle};
 use crate::cpu::PinCurrentCpu;
@@ -48,7 +48,7 @@ impl IrqRemapping {
     pub(crate) fn remapping_index(&self) -> Option<u16> {
         Some(self.entry.get()?.index())
     }
-} */
+}
 
 // FIXME: Mark this as unsafe. See
 // <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
@@ -60,7 +60,6 @@ pub(crate) fn enable_local() {
     x86_64::instructions::nop();
 }
 
-/*
 /// Enables local IRQs and halts the CPU to wait for interrupts.
 ///
 /// This method guarantees that no interrupts can occur in the middle. In other words, IRQs must
@@ -84,11 +83,23 @@ pub(crate) fn enable_local_and_halt() {
     };
 } */
 
+// FIXME: Mark this as unsafe. See
+// <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
+pub(crate) fn enable_local() {
+    x86_64::instructions::interrupts::enable();
+    // When emulated with QEMU, interrupts may not be delivered if a STI instruction is immediately
+    // followed by a RET instruction. It is a BUG of QEMU, see the following patch for details.
+    // https://lore.kernel.org/qemu-devel/20231210190147.129734-2-lrh2000@pku.edu.cn/
+    x86_64::instructions::nop();
+}
+
 pub(crate) fn disable_local() {
     x86_64::instructions::interrupts::disable();
 }
 
 pub(crate) fn is_local_enabled() -> bool {
+    use x86_64::registers::rflags::{self, RFlags};
+
     (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
 }
 

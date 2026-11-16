@@ -201,8 +201,6 @@ verus! {
 /// This function returns a guard object, which will automatically enable local IRQs again when
 /// it is dropped. This function works correctly even when it is called in a _nested_ way.
 /// The local IRQs shall only be re-enabled when the most outer guard is dropped.
-/// Nested guards must be dropped in reverse order; dropping an outer guard
-/// first re-enables local IRQs while the inner guards are still live.
 ///
 /// This function can play nicely with [`SpinLock`] as the type uses this function internally.
 /// One can invoke this function even after acquiring a spin lock. And the reversed order is also ok.
