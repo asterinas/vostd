@@ -149,8 +149,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
         let level = self.level;
-        let range = if level == C::NR_LEVELS() {
-            C::TOP_LEVEL_INDEX_RANGE()
+        let range = if level == C::NR_LEVELS {
+            C::TOP_LEVEL_INDEX_RANGE
         } else {
             0..nr_subpage_per_huge::<C>()
         };
@@ -240,7 +240,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
              Tracked(guards): Tracked<&Guards>,
                  -> owner: Tracked<OwnerSubtree<C>>,
         requires
-            1 <= level < C::NR_LEVELS(),
+            1 <= level < C::NR_LEVELS,
             old(regions).inv(),
         ensures
             final(regions).inv(),
@@ -308,7 +308,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         };
 
         #[cfg(feature = "allow_panic")]
-        assert_eq!(self.level(), C::NR_LEVELS());
+        assert_eq!(self.level(), C::NR_LEVELS);
 
         let last_activated_paddr = current_page_table_paddr();
         if last_activated_paddr == self.start_paddr() {

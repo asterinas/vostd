@@ -44,83 +44,34 @@ pub(crate) const NR_ENTRIES_PER_PAGE: usize = 512;
 #[derive(Clone, Debug, Default)]
 pub struct PagingConsts {}
 
-/* Origin Rust:
- * impl PagingConstsTrait for PagingConsts {
- *     const BASE_PAGE_SIZE: usize = 4096;
- *     const NR_LEVELS: PagingLevel = 4;
- *     const ADDRESS_WIDTH: usize = 48;
- *     const VA_SIGN_EXT: bool = true;
- *     // TODO: Support huge page
- *     const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 1;
- *     const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
- * }
- */
-
 impl PagingConstsTrait for PagingConsts {
-    #[verifier::inline]
-    open spec fn BASE_PAGE_SIZE_spec() -> usize {
-        PAGE_SIZE
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const BASE_PAGE_SIZE: usize = 4096;
 
-    #[inline(always)]
-    fn BASE_PAGE_SIZE() -> usize {
-        PAGE_SIZE
-    }
+    #[verus::internal(open)]
+    const NR_LEVELS: PagingLevel = 4;
 
-    #[verifier::inline]
-    open spec fn NR_LEVELS_spec() -> PagingLevel {
-        NR_LEVELS as PagingLevel
-    }
+    #[verus::internal(open)]
+    const ADDRESS_WIDTH: usize = 48;
 
-    #[inline(always)]
-    fn NR_LEVELS() -> PagingLevel {
-        NR_LEVELS as PagingLevel
-    }
+    #[verus::internal(open)]
+    const VA_SIGN_EXT: bool = true;
 
-    #[verifier::inline]
-    open spec fn ADDRESS_WIDTH_spec() -> usize {
-        ADDRESS_WIDTH
-    }
+    // TODO: Support huge page
+    #[verus::internal(open)]
+    const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 1;
 
-    #[inline(always)]
-    fn ADDRESS_WIDTH() -> usize {
-        ADDRESS_WIDTH
-    }
-
-    #[verifier::inline]
-    open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
-        HIGHEST_TRANSLATION_LEVEL
-    }
-
-    #[inline(always)]
-    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel {
-        HIGHEST_TRANSLATION_LEVEL
-    }
-
-    #[verifier::inline]
-    open spec fn VA_SIGN_EXT_spec() -> bool {
-        VA_SIGN_EXT
-    }
-
-    #[inline(always)]
-    fn VA_SIGN_EXT() -> bool {
-        VA_SIGN_EXT
-    }
-
-    #[verifier::inline]
-    open spec fn PTE_SIZE_spec() -> usize {
-        PTE_SIZE
-    }
-
-    #[inline(always)]
-    fn PTE_SIZE() -> usize {
-        PTE_SIZE
-    }
+    /* Verus rejects the size_of call in a trait associated constant initializer.
+     * Origin Rust: const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
+     */
+    #[verus::internal(open)]
+    const PTE_SIZE: usize = PTE_SIZE;
 
     proof fn lemma_paging_consts_requirements() {
-        assert(Self::BASE_PAGE_SIZE() == 4096) by (compute_only);
-        assert(Self::PTE_SIZE() == 8) by (compute_only);
-        assert(Self::NR_LEVELS() <= MAX_NR_LEVELS) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE == 4096) by (compute_only);
+        assert(Self::PTE_SIZE == 8) by (compute_only);
+        assert(Self::NR_LEVELS <= MAX_NR_LEVELS) by (compute_only);
         lemma_pow2_is_pow2_to64();
         lemma2_to64();
         lemma_usize_pow2_ilog2(12);
@@ -219,7 +170,7 @@ pub(crate) fn tlb_flush_all_including_global() {
 /// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
 /// changing the page mapping.
 pub unsafe fn activate_page_table(root_paddr: Paddr, _root_pt_cache: CachePolicy) {
-    assert!(root_paddr % PagingConsts::BASE_PAGE_SIZE() == 0);
+    assert!(root_paddr % PagingConsts::BASE_PAGE_SIZE == 0);
     loongArch64::register::pgdl::set_base(root_paddr);
     loongArch64::register::pgdh::set_base(root_paddr);
 }

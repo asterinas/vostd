@@ -158,24 +158,15 @@ pub(crate) struct KernelPtConfig {}
 // We use the first available PTE bit to mark the frame as tracked.
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for KernelPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        256..512
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const TOP_LEVEL_INDEX_RANGE: Range<usize> = 256..512;
+
+    #[verus::internal(open)]
+    const TOP_LEVEL_CAN_UNMAP: bool = false;
 
     proof fn lemma_page_table_config_constant_requirements() {
         PageTableEntry::lemma_layout();
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {
-        256..512
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        false
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        false
     }
 
     type E = PageTableEntry;

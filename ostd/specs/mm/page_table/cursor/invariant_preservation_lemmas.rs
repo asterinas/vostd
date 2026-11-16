@@ -49,7 +49,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() ==> {
+            self.level - 1 <= i < C::NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
                     e.meta_slot_paddr()->0,
@@ -79,7 +79,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p);
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(
+            self.level - 1 <= i < C::NR_LEVELS implies self.continuations[i].map_children(
             combined,
         ) by {
             reveal(CursorContinuation::map_children);
@@ -135,7 +135,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() implies {
+            self.level - 1 <= i < C::NR_LEVELS implies {
             let e = self.continuations[i].entry_own;
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
                 e.meta_slot_paddr().unwrap(),
@@ -218,7 +218,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(
+                < C::NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(
             regions1,
         ) by {
             let cont_entry = self.continuations[i].entry_own;
@@ -250,7 +250,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() ==> {
+            self.level - 1 <= i < C::NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
                 e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr()->0) == idx
                     ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
@@ -269,7 +269,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() ==> {
+            self.level - 1 <= i < C::NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_frame() ==> e.path != removed_path
             }
@@ -308,7 +308,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // path-correct, and its mappings sit inside self@.mappings.
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(g) by {
+            self.level - 1 <= i < C::NR_LEVELS implies self.continuations[i].map_children(g) by {
             reveal(CursorContinuation::map_children);
             self.lemma_inv_continuation(i);
             let cont = self.continuations[i];
@@ -349,7 +349,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Continuation entries are page-table nodes ⟹ not frames.
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() implies {
+            self.level - 1 <= i < C::NR_LEVELS implies {
             let e = self.continuations[i].entry_own;
             e.is_frame() ==> e.path != removed_path
         } by {
@@ -398,7 +398,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Continuation-entry halves combine directly.
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < C::NR_LEVELS() implies {
+            self.level - 1 <= i < C::NR_LEVELS implies {
             let e = self.continuations[i].entry_own;
             e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
                 ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
@@ -478,7 +478,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < C::NR_LEVELS() implies self.continuations[i].entry_own.metaregion_sound(
+                < C::NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(
             regions1,
         ) by {
             let cont_entry = self.continuations[i].entry_own;

@@ -32,7 +32,7 @@ verus! {
 /* Const-generic page-table layouts and the architecture model share these
  * executable constants without depending on definitions in specs::arch::x86.
  * PAGE_SIZE, NR_ENTRIES, and NR_LEVELS move here unchanged from that module.
- * The other names expose the literals already returned by the accessors below.
+ * The other names expose the same architecture paging constants.
  * Origin Rust:
  * pub const PAGE_SIZE: usize = 4096;
  * pub const NR_ENTRIES: usize = 512;
@@ -65,92 +65,34 @@ pub const VA_SIGN_EXT: bool = true;
 #[derive(Clone, Debug, Default)]
 pub struct PagingConsts {}
 
-/* Origin Rust:
- * impl PagingConstsTrait for PagingConsts {
- *     const BASE_PAGE_SIZE: usize = 4096;
- *     const NR_LEVELS: PagingLevel = 4;
- *     const ADDRESS_WIDTH: usize = 48;
- *     const VA_SIGN_EXT: bool = true;
- *     const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 2;
- *     const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
- * }
- */
 impl PagingConstsTrait for PagingConsts {
-    #[verifier::inline]
-    open spec fn BASE_PAGE_SIZE_spec() -> usize {
-        PAGE_SIZE
-    }
-
-    #[inline(always)]
-    fn BASE_PAGE_SIZE() -> usize
-    {
-        PAGE_SIZE
-    }
-
-    #[verifier::inline]
-    open spec fn NR_LEVELS_spec() -> PagingLevel {
-        NR_LEVELS as PagingLevel
-    }
-
-    #[inline(always)]
-    fn NR_LEVELS() -> PagingLevel
-    {
-        NR_LEVELS as PagingLevel
-    }
-
-    #[verifier::inline]
-    open spec fn ADDRESS_WIDTH_spec() -> usize {
-        ADDRESS_WIDTH
-    }
-
-    #[inline(always)]
-    fn ADDRESS_WIDTH() -> usize
-    {
-        ADDRESS_WIDTH
-    }
-
-    #[verifier::inline]
-    open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
-        HIGHEST_TRANSLATION_LEVEL
-    }
-
-    #[inline(always)]
-    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
-    {
-        HIGHEST_TRANSLATION_LEVEL
-    }
-
-    #[verifier::inline]
-    open spec fn VA_SIGN_EXT_spec() -> bool {
-        VA_SIGN_EXT
-    }
-
-    #[inline(always)]
-    fn VA_SIGN_EXT() -> bool {
-        VA_SIGN_EXT
-    }
-
-    #[verifier::inline]
-    open spec fn PTE_SIZE_spec() -> usize {
-        PTE_SIZE
-    }
-
-    #[inline(always)]
-    fn PTE_SIZE() -> (res: usize)
-    {
-        PTE_SIZE
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const BASE_PAGE_SIZE: usize = 4096;
+    #[verus::internal(open)]
+    const NR_LEVELS: PagingLevel = 4;
+    #[verus::internal(open)]
+    const ADDRESS_WIDTH: usize = 48;
+    #[verus::internal(open)]
+    const VA_SIGN_EXT: bool = true;
+    #[verus::internal(open)]
+    const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 2;
+    /* Verus rejects the size_of call in a trait associated constant initializer.
+     * Origin Rust: const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
+     */
+    #[verus::internal(open)]
+    const PTE_SIZE: usize = PTE_SIZE;
 
     proof fn lemma_paging_consts_requirements()
     {
-        assert(Self::BASE_PAGE_SIZE() == PAGE_SIZE) by (compute_only);
-        assert(Self::NR_LEVELS() == NR_LEVELS as PagingLevel) by (compute_only);
-        assert(Self::HIGHEST_TRANSLATION_LEVEL() == HIGHEST_TRANSLATION_LEVEL) by (compute_only);
-        assert(Self::PTE_SIZE() == PTE_SIZE) by (compute_only);
-        assert(Self::ADDRESS_WIDTH() == ADDRESS_WIDTH) by (compute_only);
-        assert(Self::BASE_PAGE_SIZE() == 4096) by (compute_only);
-        assert(Self::PTE_SIZE() == 8) by (compute_only);
-        assert(Self::NR_LEVELS() <= MAX_NR_LEVELS) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE == PAGE_SIZE) by (compute_only);
+        assert(Self::NR_LEVELS == NR_LEVELS as PagingLevel) by (compute_only);
+        assert(Self::HIGHEST_TRANSLATION_LEVEL == HIGHEST_TRANSLATION_LEVEL) by (compute_only);
+        assert(Self::PTE_SIZE == PTE_SIZE) by (compute_only);
+        assert(Self::ADDRESS_WIDTH == ADDRESS_WIDTH) by (compute_only);
+        assert(Self::BASE_PAGE_SIZE == 4096) by (compute_only);
+        assert(Self::PTE_SIZE == 8) by (compute_only);
+        assert(Self::NR_LEVELS <= MAX_NR_LEVELS) by (compute_only);
         lemma_pow2_is_pow2_to64();
         lemma2_to64();
         lemma2_to64_rest();

@@ -311,7 +311,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     ) -> (tracked res: Self)
         requires
             valid_frame_paddr(paddr),
-            1 <= parent_level <= C::NR_LEVELS(),
+            1 <= parent_level <= C::NR_LEVELS,
             paddr % page_size::<C>(parent_level) == 0,
             paddr + page_size::<C>(parent_level) <= MAX_PADDR,
             C::raw_item_well_formed((paddr, parent_level, prop, Tracked(None))),
@@ -374,7 +374,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.inv(),
             self.is_frame(),
             regions.inv(),
-            1 < self.parent_level <= C::NR_LEVELS(),
+            1 < self.parent_level <= C::NR_LEVELS,
             idx < NR_ENTRIES,
         ensures
             self.frame().mapped_pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)
@@ -650,7 +650,7 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.parent_level == self.node().level() + 1
         }
         &&& self.is_frame() ==> {
-            &&& 1 <= self.parent_level <= C::NR_LEVELS()
+            &&& 1 <= self.parent_level <= C::NR_LEVELS
             &&& valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size::<C>(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size::<C>(self.parent_level) <= MAX_PADDR
