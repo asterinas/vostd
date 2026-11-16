@@ -114,8 +114,8 @@ pub proof fn lemma_nr_subpage_per_huge_eq_nr_entries()
 }
 
 bitflags::bitflags! {
-    //#[derive(Pod)]
-    //#[repr(C)]
+    #[derive(Pod)]
+    #[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame or page table is loaded in memory.

@@ -84,8 +84,8 @@ impl PagingConstsTrait for PagingConsts {
  * Origin Rust: bitflags_upstream::bitflags! { ... }
  */
 bitflags::bitflags! {
-    /* #[derive(Pod)]
-     * #[repr(C)] */
+    #[derive(Pod)]
+    #[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame is valid.
