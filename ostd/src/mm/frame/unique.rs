@@ -8,7 +8,10 @@ use vstd::{
 use vstd_extra::{
     auxiliary::OptionExtraFns,
     ownership::*,
-    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_mut_from_addr, ptr_mut_ref, ptr_ref},
+    raw_ptr::{
+        ExposedPointsTo, ptr_from_addr, ptr_mut_from_addr, ptr_mut_ref, ptr_mut_ref_via, ptr_ref,
+        ptr_ref_via,
+    },
     transmute::{can_transmute, transmuted},
 };
 
@@ -297,8 +300,7 @@ impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
         // SAFETY: The type is tracked by the type system.
         #[verus_spec(with Tracked(points_to))]
         let meta_addr = self.slot().addr_of();
-        let meta_ptr = ptr_from_addr::<M>(meta_addr, Tracked(meta_perm));
-        ptr_ref(meta_ptr, Tracked(meta_perm))
+        ptr_ref_via::<MetaSlot, M>(meta_addr, Tracked(points_to), Tracked(meta_perm))
     }
 
     /// Gets the mutable metadata of this page.
@@ -340,8 +342,7 @@ impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> UniqueFrame<M> {
         // And we have the exclusive access to the metadata.
         #[verus_spec(with Tracked(points_to))]
         let meta_addr = slot.addr_of();
-        let meta_ptr = ptr_mut_from_addr::<M>(meta_addr, Tracked(&*meta_perm));
-        ptr_mut_ref(meta_ptr, Tracked(meta_perm))
+        ptr_mut_ref_via::<MetaSlot, M>(meta_addr, Tracked(points_to), Tracked(meta_perm))
     }
 }
 

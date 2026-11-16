@@ -2,10 +2,7 @@
 use core::any::TypeId;
 use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
-use vstd_extra::substructural::{
-    cell::{CellLoc, CellUnwrap},
-    struct_field::StructToField,
-};
+use vstd_extra::substructural::struct_field::StructToField;
 use vstd_extra::typing::tagged::{MaxSize, TaggedArray, TaggedStorage, recorded_id};
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
@@ -80,29 +77,6 @@ impl MetaSlotStorage {
     pub open spec fn usage(self) -> PageUsage {
         usage_of_id(self.0.id@)
     }
-}
-
-/// The cell-to-contents exchange for a slot's metadata storage.
-impl CellUnwrap for MetaSlotStorage {
-    axiom fn unwrap(
-        tracked parent: ExposedPointsTo<pcell_maybe_uninit::PCell<Self>>,
-        tracked perm: pcell_maybe_uninit::PointsTo<Self>,
-    ) -> (tracked res: (CellLoc, ExposedPointsTo<Self>));
-
-    axiom fn wrap(tracked loc: CellLoc, tracked perm: ExposedPointsTo<Self>) -> (tracked res: (
-        pcell_maybe_uninit::PointsTo<Self>,
-        ExposedPointsTo<pcell_maybe_uninit::PCell<Self>>,
-    ));
-
-    axiom fn unwrap_ref<'a>(
-        tracked parent: &'a ExposedPointsTo<pcell_maybe_uninit::PCell<Self>>,
-        tracked perm: &'a pcell_maybe_uninit::PointsTo<Self>,
-    ) -> (tracked res: &'a ExposedPointsTo<Self>);
-
-    axiom fn unwrap_mut<'a>(
-        tracked parent: &'a ExposedPointsTo<pcell_maybe_uninit::PCell<Self>>,
-        tracked perm: &'a mut pcell_maybe_uninit::PointsTo<Self>,
-    ) -> (tracked res: &'a mut ExposedPointsTo<Self>);
 }
 
 /// The slot's storage is exactly a tagged array, so the generic permission

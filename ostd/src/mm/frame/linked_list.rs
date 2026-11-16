@@ -11,7 +11,9 @@ use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
 use vstd_extra::typing::types::Any;
 use vstd_extra::{
     ownership::*,
-    raw_ptr::{ptr_from_addr, ptr_mut_from_addr, ptr_mut_ref, ptr_ref},
+    raw_ptr::{
+        ptr_from_addr, ptr_mut_from_addr, ptr_mut_ref, ptr_mut_ref_via, ptr_ref, ptr_ref_via,
+    },
     typing::tagged::MaxSize,
 };
 
@@ -756,8 +758,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 let tracked link_perm = MetaSlot::meta_perm::<Link<M>>(points_to, metadata_perms);
                 #[verus_spec(with Tracked(points_to))]
                 let link_ptr_addr = link_slot.addr_of();
-                let link_ptr = ptr_from_addr::<Link<M>>(link_ptr_addr, Tracked(link_perm));
-                let link = ptr_ref(link_ptr, Tracked(link_perm));
+                let link = ptr_ref_via::<MetaSlot, Link<M>>(
+                    link_ptr_addr,
+                    Tracked(points_to),
+                    Tracked(link_perm),
+                );
                 link.next
             },
             None => self.list.front,
@@ -820,8 +825,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 let tracked link_perm = MetaSlot::meta_perm::<Link<M>>(points_to, metadata_perms);
                 #[verus_spec(with Tracked(points_to))]
                 let link_ptr_addr = link_slot.addr_of();
-                let link_ptr = ptr_from_addr::<Link<M>>(link_ptr_addr, Tracked(link_perm));
-                let link = ptr_ref(link_ptr, Tracked(link_perm));
+                let link = ptr_ref_via::<MetaSlot, Link<M>>(
+                    link_ptr_addr,
+                    Tracked(points_to),
+                    Tracked(link_perm),
+                );
                 link.prev
             },
             None => self.list.back,
@@ -907,11 +915,13 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 );
                 #[verus_spec(with Tracked(points_to))]
                 let current_ptr_addr = current_slot.addr_of();
-                let current_ptr = ptr_mut_from_addr::<Link<M>>(
-                    current_ptr_addr,
-                    Tracked(&*current_perm),
-                );
-                Some(&mut ptr_mut_ref(current_ptr, Tracked(current_perm)).meta)
+                Some(
+                    &mut ptr_mut_ref_via::<MetaSlot, Link<M>>(
+                        current_ptr_addr,
+                        Tracked(points_to),
+                        Tracked(current_perm),
+                    ).meta,
+                )
             },
             None => None,
         }
@@ -1073,11 +1083,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             );
             #[verus_spec(with Tracked(prev_points_to))]
             let prev_meta_ptr_addr = prev_meta_slot.addr_of();
-            let prev_meta_ptr = ptr_mut_from_addr::<Link<M>>(
+            let prev_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
                 prev_meta_ptr_addr,
-                Tracked(&*prev_meta_perm),
+                Tracked(prev_points_to),
+                Tracked(prev_meta_perm),
             );
-            let prev_meta = ptr_mut_ref(prev_meta_ptr, Tracked(prev_meta_perm));
             prev_meta.next = next_ptr;
 
         } else {
@@ -1103,11 +1113,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             );
             #[verus_spec(with Tracked(next_points_to))]
             let next_meta_ptr_addr = next_meta_slot.addr_of();
-            let next_meta_ptr = ptr_mut_from_addr::<Link<M>>(
+            let next_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
                 next_meta_ptr_addr,
-                Tracked(&*next_meta_perm),
+                Tracked(next_points_to),
+                Tracked(next_meta_perm),
             );
-            let next_meta = ptr_mut_ref(next_meta_ptr, Tracked(next_meta_perm));
             next_meta.prev = prev_ptr;
 
             self.current = Some(next);
@@ -1325,9 +1335,9 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
             let tracked current_perm = MetaSlot::meta_perm::<Link<M>>(points_to, metadata_perms);
             #[verus_spec(with Tracked(points_to))]
             let current_ptr_addr = current_slot.addr_of();
-            let current_ptr = ptr_from_addr::<Link<M>>(current_ptr_addr, Tracked(current_perm));
-            let opt_prev_link: Option<PPtr<MetaSlot>> = ptr_ref(
-                current_ptr,
+            let opt_prev_link: Option<PPtr<MetaSlot>> = ptr_ref_via::<MetaSlot, Link<M>>(
+                current_ptr_addr,
+                Tracked(points_to),
                 Tracked(current_perm),
             ).prev;
 
@@ -1359,11 +1369,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 );
                 #[verus_spec(with Tracked(prev_points_to))]
                 let prev_meta_ptr_addr = prev_meta_slot.addr_of();
-                let prev_meta_ptr = ptr_mut_from_addr::<Link<M>>(
+                let prev_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
                     prev_meta_ptr_addr,
-                    Tracked(&*prev_meta_perm),
+                    Tracked(prev_points_to),
+                    Tracked(prev_meta_perm),
                 );
-                let prev_meta = ptr_mut_ref(prev_meta_ptr, Tracked(prev_meta_perm));
                 prev_meta.next = Some(frame_ptr);
 
                 let ghost current_idx = meta_to_index(owner.list_own.list[nn].slot_vaddr);
@@ -1380,11 +1390,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 );
                 #[verus_spec(with Tracked(current_points_to))]
                 let current_meta_ptr_addr = current_meta_slot.addr_of();
-                let current_meta_ptr = ptr_mut_from_addr::<Link<M>>(
+                let current_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
                     current_meta_ptr_addr,
-                    Tracked(&*current_meta_perm),
+                    Tracked(current_points_to),
+                    Tracked(current_meta_perm),
                 );
-                let current_meta = ptr_mut_ref(current_meta_ptr, Tracked(current_meta_perm));
                 current_meta.prev = Some(frame_ptr);
             } else {
                 (#[verus_spec(with Tracked(frame_own))]
@@ -1404,11 +1414,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 );
                 #[verus_spec(with Tracked(current_points_to))]
                 let current_meta_ptr_addr = current_meta_slot.addr_of();
-                let current_meta_ptr = ptr_mut_from_addr::<Link<M>>(
+                let current_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
                     current_meta_ptr_addr,
-                    Tracked(&*current_meta_perm),
+                    Tracked(current_points_to),
+                    Tracked(current_meta_perm),
                 );
-                let current_meta = ptr_mut_ref(current_meta_ptr, Tracked(current_meta_perm));
                 current_meta.prev = Some(frame_ptr);
                 self.list.front = Some(frame_ptr);
             }
@@ -1433,11 +1443,11 @@ impl<'a, M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> CursorMut<'a, M> {
                 );
                 #[verus_spec(with Tracked(back_points_to))]
                 let back_meta_ptr_addr = back_meta_slot.addr_of();
-                let back_meta_ptr = ptr_mut_from_addr::<Link<M>>(
+                let back_meta = ptr_mut_ref_via::<MetaSlot, Link<M>>(
                     back_meta_ptr_addr,
-                    Tracked(&*back_meta_perm),
+                    Tracked(back_points_to),
+                    Tracked(back_meta_perm),
                 );
-                let back_meta = ptr_mut_ref(back_meta_ptr, Tracked(back_meta_perm));
                 back_meta.next = Some(frame_ptr);
                 self.list.back = Some(frame_ptr);
             } else {

@@ -3,10 +3,11 @@ use vstd::{
     atomic::*,
     cell::pcell_maybe_uninit,
     prelude::*,
+    raw_ptr,
     simple_pptr::{PPtr, PointsTo},
 };
 use vstd_extra::substructural::{
-    cell::CellUnwrap,
+    cell::CellBorrow,
     struct_field::{FieldSplit, StructToField},
 };
 use vstd_extra::typing::tagged::MaxSize;
@@ -60,21 +61,22 @@ impl StructToField for MetaSlot {
     proof fn roundtrip(self) {
     }
 
-    axiom fn split_first(tracked perm: ExposedPointsTo<MetaSlot>) -> (tracked res: (
+    axiom fn split_first(tracked perm: raw_ptr::PointsTo<MetaSlot>) -> (tracked res: (
         FieldSplit<MetaSlot, Self::Remainder>,
-        ExposedPointsTo<Self::FirstField>,
+        raw_ptr::PointsTo<Self::FirstField>,
     ));
 
     axiom fn combine_first(
         tracked rest: FieldSplit<MetaSlot, Self::Remainder>,
-        tracked perm: ExposedPointsTo<Self::FirstField>,
-    ) -> (tracked res: ExposedPointsTo<MetaSlot>);
+        tracked perm: raw_ptr::PointsTo<Self::FirstField>,
+    ) -> (tracked res: raw_ptr::PointsTo<MetaSlot>);
 
-    axiom fn borrow_first<'a>(tracked perm: &'a ExposedPointsTo<MetaSlot>) -> (tracked res:
-        &'a ExposedPointsTo<Self::FirstField>);
+    axiom fn borrow_first<'a>(tracked perm: &'a raw_ptr::PointsTo<MetaSlot>) -> (tracked res:
+        &'a raw_ptr::PointsTo<Self::FirstField>);
 
-    axiom fn borrow_first_mut<'a>(tracked perm: &'a mut ExposedPointsTo<MetaSlot>) -> (tracked res:
-        &'a mut ExposedPointsTo<Self::FirstField>);
+    axiom fn borrow_first_mut<'a>(
+        tracked perm: &'a mut raw_ptr::PointsTo<MetaSlot>,
+    ) -> (tracked res: &'a mut raw_ptr::PointsTo<Self::FirstField>);
 }
 
 impl MetaSlot {
@@ -104,21 +106,23 @@ impl MetaSlot {
     ///
     /// The whole chain from [`vstd_extra::substructural`] in one step: step 1
     /// [`StructToField::borrow_first`] down to the storage cell, step 2
-    /// [`CellUnwrap::unwrap_ref`] to its contents, step 3
+    /// [`CellBorrow::borrow_as_ptr`] to its contents, step 3
     /// [`vstd_extra::typing::tagged::as_perm`] to the `M` those bytes hold.
     pub proof fn meta_perm<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
         tracked slot_perm: &'a ExposedPointsTo<MetaSlot>,
         tracked metadata_perm: &'a MetadataPerm,
-    ) -> (tracked res: &'a ExposedPointsTo<M>)
+    ) -> (tracked res: &'a raw_ptr::PointsTo<M>)
         requires
             typed_meta_wf::<M>(*slot_perm, *metadata_perm),
         ensures
-            res.addr() == slot_perm.addr(),
+            res.ptr()@.addr == slot_perm.addr(),
+            res.ptr()@.provenance == slot_perm.ptr()@.provenance,
             res.is_init(),
             res.value() == typed_meta_value::<M>(*metadata_perm),
     {
-        let tracked cell_perm = MetaSlot::borrow_first(slot_perm);
-        let tracked storage_perm = MetaSlotStorage::unwrap_ref(
+        let tracked cell_perm = MetaSlot::borrow_first(slot_perm.borrow_points_to());
+        let tracked storage_perm = pcell_maybe_uninit::PCell::<MetaSlotStorage>::borrow_as_ptr(
+            slot_perm.ptr() as *mut MetaSlotStorage,
             cell_perm,
             &metadata_perm.storage_perm,
         );
@@ -137,19 +141,21 @@ impl MetaSlot {
     pub proof fn meta_perm_mut<'a, M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE>>(
         tracked slot_perm: &'a ExposedPointsTo<MetaSlot>,
         tracked metadata_perm: &'a mut MetadataPerm,
-    ) -> (tracked res: &'a mut ExposedPointsTo<M>)
+    ) -> (tracked res: &'a mut raw_ptr::PointsTo<M>)
         requires
             typed_meta_wf::<M>(*slot_perm, *old(metadata_perm)),
         ensures
-            res.addr() == slot_perm.addr(),
+            res.ptr()@.addr == slot_perm.addr(),
+            res.ptr()@.provenance == slot_perm.ptr()@.provenance,
             res.is_init(),
             res.value() == typed_meta_value::<M>(*old(metadata_perm)),
             final(res).is_init(),
             typed_meta_wf::<M>(*slot_perm, *final(metadata_perm)),
             typed_meta_value::<M>(*final(metadata_perm)) == final(res).value(),
     {
-        let tracked cell_perm = MetaSlot::borrow_first(slot_perm);
-        let tracked storage_perm = MetaSlotStorage::unwrap_mut(
+        let tracked cell_perm = MetaSlot::borrow_first(slot_perm.borrow_points_to());
+        let tracked storage_perm = pcell_maybe_uninit::PCell::<MetaSlotStorage>::borrow_as_ptr_mut(
+            slot_perm.ptr() as *mut MetaSlotStorage,
             cell_perm,
             &mut metadata_perm.storage_perm,
         );

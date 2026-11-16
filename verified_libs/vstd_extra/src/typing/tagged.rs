@@ -5,8 +5,8 @@
 //! record of the stored type's identity. It axiomatizes loads and stores of whole
 //! objects, not details of the bytes, which may have any layout. The objects thus
 //! stored are not restricted to being plain-old-data.
-use crate::raw_ptr::ExposedPointsTo;
 use vstd::prelude::*;
+use vstd::raw_ptr;
 
 verus! {
 
@@ -117,10 +117,9 @@ impl<const SIZE: usize> TaggedArray<SIZE> {
 ///
 /// `unsafe` because implementing it asserts a layout fact Rust does not
 /// otherwise guarantee and Verus cannot state: that the array's bytes begin at
-/// `Self`'s own address. Implement it only for a `#[repr(transparent)]` (or
-/// `#[repr(C)]`, array first) wrapper. The promise bottoms out in
-/// [`TaggedArray`]'s `data` being at offset 0, which holds because its other
-/// fields are `Ghost` and so zero-sized.
+/// `Self`'s own address. Implement it only for a `#[repr(transparent)]` wrapper.
+/// The promise bottoms out in [`TaggedArray`]'s `data` being at offset 0, which
+/// holds because its other fields are `Ghost` and so zero-sized.
 ///
 /// [`Self::array_injective`] is the part of that promise which *can* be
 /// stated, and it is why [`as_perm_mut`] need say nothing about the rest of
@@ -147,13 +146,14 @@ pub unsafe trait TaggedStorage<const SIZE: usize>: Sized {
 /// than conjuring any, and the exposure the permission carries is the storage's
 /// own for the same reason.
 pub axiom fn as_perm<'a, const SIZE: usize, S: TaggedStorage<SIZE>, T: MaxSize<SIZE>>(
-    tracked perm: &'a ExposedPointsTo<S>,
-) -> (tracked res: &'a ExposedPointsTo<T>)
+    tracked perm: &'a raw_ptr::PointsTo<S>,
+) -> (tracked res: &'a raw_ptr::PointsTo<T>)
     requires
         perm.is_init(),
         perm.value().array().holds::<T>(),
     ensures
-        res.addr() == perm.addr(),
+        res.ptr()@.addr == perm.ptr()@.addr,
+        res.ptr()@.provenance == perm.ptr()@.provenance,
         res.is_init(),
         res.value() == perm.value().array().value::<T>(),
 ;
@@ -172,17 +172,18 @@ pub axiom fn as_perm<'a, const SIZE: usize, S: TaggedStorage<SIZE>, T: MaxSize<S
 /// freezes the storage permission for all of `'a`, so there is no point at
 /// which the two permissions are both observable and disagree.
 pub axiom fn as_perm_mut<'a, const SIZE: usize, S: TaggedStorage<SIZE>, T: MaxSize<SIZE>>(
-    tracked perm: &'a mut ExposedPointsTo<S>,
-) -> (tracked res: &'a mut ExposedPointsTo<T>)
+    tracked perm: &'a mut raw_ptr::PointsTo<S>,
+) -> (tracked res: &'a mut raw_ptr::PointsTo<T>)
     requires
         old(perm).is_init(),
         old(perm).value().array().holds::<T>(),
     ensures
-        res.addr() == old(perm).addr(),
+        res.ptr()@.addr == old(perm).ptr()@.addr,
+        res.ptr()@.provenance == old(perm).ptr()@.provenance,
         res.is_init(),
         res.value() == old(perm).value().array().value::<T>(),
         final(res).is_init(),
-        final(perm).addr() == old(perm).addr(),
+        final(perm).ptr() == old(perm).ptr(),
         final(perm).is_init(),
         final(perm).value().array().holds::<T>(),
         final(perm).value().array().value::<T>() == final(res).value(),

@@ -5,9 +5,12 @@
 //!
 //! # Use case
 //!
-//! `f` takes a pointer, and leaves justifying the dereference to its caller.
-//! `g` has a pointer to a *cell* rather than to its contents, so it converts
-//! before handing `f` what it asks for:
+//! Consider a Rust program, which we would like to port to Verus.
+//! The function `f` takes a pointer and dereferences it. The safety
+//! of the dereference is left to the caller. But one caller, `g`, has a
+//! pointer to a *cell* rather than to its contents. Taking advantage of
+//! the transparent layout of the cell, it simply casts its `ptr` from
+//! `*const UnsafeCell<T>` to `*const T`.
 //!
 //! ```rust
 //! use core::cell::UnsafeCell;
@@ -22,16 +25,11 @@
 //! ```
 //!
 //! This is sound, provided that `ptr` is initialized, but how do we express it in Verus?
-//! The executable equivalent is to take `ptr`'s address and rebuild a `*const T` from it.
-//! But permission to access the interior cell is carried by a cell permission, not a pointer
-//! permission! So we also need to convert the permissions into a form that `f` can use.
-//! We do so using the new `unwrap_ref`.
-//!
-//! The pointer permissions are [`ExposedPointsTo`], so the address round trip in `g` is
-//! licensed by the permission it already holds rather than assumed.
+//! Each pointer gains a permission for what it addresses, and the cast becomes
+//! `borrow_as_ptr`:
 //!
 //! ```rust,ignore
-//! fn f<'a, T>(ptr: *const T, Tracked(perm): Tracked<&'a ExposedPointsTo<T>>) -> &'a T
+//! fn f<'a, T>(ptr: *const T, Tracked(perm): Tracked<&'a raw_ptr::PointsTo<T>>) -> &'a T
 //!     requires
 //!         ptr == perm.ptr(),
 //!         perm.is_init(),
@@ -39,25 +37,32 @@
 //!     ptr_ref(ptr, Tracked(perm))
 //! }
 //!
-//! fn g<'a, T: CellUnwrap>(
-//!     addr: usize,
-//!     Tracked(parent): Tracked<&'a ExposedPointsTo<PCell<T>>>,
+//! fn g<'a, T>(
+//!     ptr: *const PCell<T>,
+//!     Tracked(parent): Tracked<&'a raw_ptr::PointsTo<PCell<T>>>,
 //!     Tracked(cell_perm): Tracked<&'a pcell_maybe_uninit::PointsTo<T>>,
 //! ) -> &'a T
 //!     requires
-//!         parent.addr() == addr,
+//!         ptr == parent.ptr(),
 //!         parent.is_init(),
 //!         parent.value().id() == cell_perm.id(),
 //!         cell_perm.is_init(),
 //! {
-//!     let tracked perm = T::unwrap_ref(parent, cell_perm);
-//!     f(ptr_from_addr(addr, Tracked(perm)), Tracked(perm))
+//!     let tracked perm = PCell::<T>::borrow_as_ptr(parent, cell_perm);
+//!     f(ptr as *const T, Tracked(perm))
 //! }
 //! ```
 //!
 //! Now `g` expresses exactly what is necessary to perform the cast and call `f` soundly:
 //! we must have permission to access `ptr`, it must be initialized, and we must
 //! have permission to access the cell inside.
+//!
+//! Note that the permissions are [`vstd::raw_ptr::PointsTo`], carrying no exposed
+//! provenance. None is needed: the cast is pointer-to-pointer, so it preserves the
+//! address *and* the provenance, and the permission `borrow_as_ptr` hands back is for
+//! the pointer the cast produces. Exposure is only required where an *address* becomes
+//! a pointer, which is a step outside this module -- see
+//! [`crate::raw_ptr::ExposedPointsTo`].
 //!
 //! # Correspondence with VerusBelt
 //!
@@ -66,7 +71,7 @@
 //! resources with chains of abstract cells, written `l ~>[cs] v`, which unfolds
 //! to `(l |-> c1) * (c1 |-> c2) * ... * (cn |-> v)`.
 //!
-//! Translated into Verus, the first link in the chain is an [`ExposedPointsTo`] object,
+//! Translated into Verus, the first link in the chain is a pointer permission,
 //! and subsequent links are `PCell::PointsTo` objects. The first link establishes the
 //! address at which the cell lives. Subsequent links map the cell to its contents,
 //! and if the contents happen to be another cell, to that cell's contents, and so on.
@@ -84,110 +89,132 @@
 //! Foundation for Verus\'s Proof-Oriented Extensions to the Rust Type System*.
 //! Proc. ACM Program. Lang. 10, PLDI, Article 247 (June 2026).
 //! <https://doi.org/10.1145/3808325>
-use crate::raw_ptr::ExposedPointsTo;
 use vstd::cell::CellId;
 use vstd::cell::pcell_maybe_uninit::{self, PCell};
 use vstd::prelude::*;
+use vstd::raw_ptr;
 
 verus! {
 
-/// A witness that a cell lives at an address: issued by [`CellUnwrap::unwrap`]
-/// and spent by [`CellUnwrap::wrap`].
+/// Borrowing a cell's contents as a pointer permission.
 ///
-/// Reifies VerusBelt's `l |-> c` -- the first half of a chain link. The paper
-/// needs no such token, because there the two halves are themselves resources
-/// and `Cell-Sep` merely relates them. Here [`CellUnwrap::unwrap`] *consumes*
-/// the parent permission, so the right to rebuild it has to be carried
-/// somewhere, and this is that carrier. Its fields are private for the same
-/// reason: `wrap`'s only guard is `perm.addr() == loc.addr()`, which a
-/// forgeable witness would make vacuous.
-pub tracked struct CellLoc {
-    id: CellId,
-    addr: usize,
-}
-
-impl CellLoc {
-    /// The cell this witness is for.
-    pub closed spec fn id(self) -> CellId {
-        self.id
-    }
-
-    /// Where that cell lives.
-    pub closed spec fn addr(self) -> usize {
-        self.addr
-    }
-}
-
-pub trait CellUnwrap: Sized {
-    /// `Cell-Sep`, left to right.
+/// An extension trait on [`PCell`], because the exchange is a property of the
+/// *cell*, not of the value it holds: "a cell permission can be traded for a
+/// pointer permission" is a claim about cells, where an impl per content type
+/// would have said "this type can be extracted from a cell", which is a claim
+/// about nothing. One blanket impl below covers every `PCell<V>`, so no crate
+/// downstream states a cell axiom of its own.
+pub trait CellBorrow: Sized {
+    /// The type held in the cell.
     ///
-    /// VerusBelt's rule is a bi-entailment,
-    /// `(l ~>[cs1] c) * (c ~>[cs2] v) -|- (l ~>[cs1 ++ c :: cs2] v)`, which is
-    /// why this and [`Self::wrap`] are inverse rather than independent: they
-    /// are one equivalence read in its two directions. The `CellLoc` handed
-    /// back stands for the `l |-> c` half this consumes.
-    proof fn unwrap(
-        tracked parent: ExposedPointsTo<PCell<Self>>,
-        tracked perm: pcell_maybe_uninit::PointsTo<Self>,
-    ) -> (tracked res: (CellLoc, ExposedPointsTo<Self>))
+    /// An associated type rather than a parameter on the methods, so the
+    /// permission handed out is for the cell's own value type -- a
+    /// method-level `V` would let a `PCell<u64>`'s permission be borrowed as
+    /// an `raw_ptr::PointsTo<bool>`.
+    type Value;
+
+    /// Which cell this is.
+    ///
+    /// Needed because `Self` is a type parameter in the clauses below, and
+    /// `PCell::id` is an inherent method, which a type parameter cannot reach.
+    spec fn id(&self) -> CellId;
+
+    /// The cell's contents, as a pointer: `UnsafeCell::get`'s shape exactly.
+    ///
+    /// One of these, not two. A `*mut` serves reads and writes alike, as it
+    /// does upstream; what cannot be mutability-agnostic is the *permission*,
+    /// which is why the two below are separate -- a fractional permission can
+    /// only be borrowed shared, so its holder has no `&mut` to offer.
+    ///
+    /// TRUSTED, and the claim is only about the **address**: `self` and
+    /// `parent` describe the same cell, and a cell lives at one address. It
+    /// deliberately says nothing about provenance. A pointer derived from a
+    /// reference carries a fresh Stacked/Tree Borrows tag (see
+    /// [`vstd::raw_ptr::ptr_ref2`]'s note), so claiming `parent`'s provenance
+    /// here would be false. Tying the pointer to a permission is
+    /// [`Self::borrow_as_ptr`]'s job, and it does that by taking the pointer.
+    exec fn get<'a>(&self, Tracked(parent): Tracked<&'a raw_ptr::PointsTo<Self>>) -> (res:
+        *mut Self::Value)
         requires
+            parent.is_init(),
+            parent.value().id() == self.id(),
+        ensures
+            res@.addr == parent.ptr()@.addr,
+    ;
+
+    /// A permission for the contents, at the pointer [`Self::get`] returned.
+    ///
+    /// Taking `ptr` is what keeps this honest. The permission is *for that
+    /// pointer* -- tag and all -- so the caller can hand both straight to
+    /// [`vstd::raw_ptr::ptr_ref`] with nothing left to prove. Only the address
+    /// has to agree going in, which is exactly what `get` establishes.
+    proof fn borrow_as_ptr<'a>(
+        ptr: *mut Self::Value,
+        tracked parent: &'a raw_ptr::PointsTo<Self>,
+        tracked perm: &'a pcell_maybe_uninit::PointsTo<Self::Value>,
+    ) -> (tracked res: &'a raw_ptr::PointsTo<Self::Value>)
+        requires
+            ptr@.addr == parent.ptr()@.addr,
             parent.is_init(),
             parent.value().id() == perm.id(),
         ensures
-            res.0.id() == perm.id(),
-            res.0.addr() == parent.addr(),
-            res.1.addr() == parent.addr(),
-            res.1.is_init() == perm.is_init(),
-            perm.is_init() ==> res.1.value() == perm.value(),
-    ;
-
-    /// `Cell-Sep`, right to left.
-    proof fn wrap(tracked loc: CellLoc, tracked perm: ExposedPointsTo<Self>) -> (tracked res: (
-        pcell_maybe_uninit::PointsTo<Self>,
-        ExposedPointsTo<PCell<Self>>,
-    ))
-        requires
-            perm.addr() == loc.addr(),
-            perm.is_init(),
-        ensures
-            res.0.id() == loc.id(),
-            res.0.is_init(),
-            res.0.value() == perm.value(),
-            res.1.addr() == perm.addr(),
-            res.1.is_init(),
-            res.1.value().id() == loc.id(),
-    ;
-
-    /// Borrow reference to the interior cell
-    proof fn unwrap_ref<'a>(
-        tracked parent: &'a ExposedPointsTo<PCell<Self>>,
-        tracked perm: &'a pcell_maybe_uninit::PointsTo<Self>,
-    ) -> (tracked res: &'a ExposedPointsTo<Self>)
-        requires
-            parent.is_init(),
-            parent.value().id() == perm.id(),
-        ensures
-            res.addr() == parent.addr(),
+            res.ptr() == ptr,
             res.is_init() == perm.is_init(),
             perm.is_init() ==> res.value() == perm.value(),
     ;
 
-    /// Borrow mutable reference to the interior cell
-    proof fn unwrap_mut<'a>(
-        tracked parent: &'a ExposedPointsTo<PCell<Self>>,
-        tracked perm: &'a mut pcell_maybe_uninit::PointsTo<Self>,
-    ) -> (tracked res: &'a mut ExposedPointsTo<Self>)
+    /// [`Self::borrow_as_ptr`] for exclusive access.
+    proof fn borrow_as_ptr_mut<'a>(
+        ptr: *mut Self::Value,
+        tracked parent: &'a raw_ptr::PointsTo<Self>,
+        tracked perm: &'a mut pcell_maybe_uninit::PointsTo<Self::Value>,
+    ) -> (tracked res: &'a mut raw_ptr::PointsTo<Self::Value>)
         requires
+            ptr@.addr == parent.ptr()@.addr,
             parent.is_init(),
             parent.value().id() == old(perm).id(),
         ensures
-            res.addr() == parent.addr(),
+            res.ptr() == ptr,
             res.is_init() == old(perm).is_init(),
             old(perm).is_init() ==> res.value() == old(perm).value(),
             final(perm).id() == old(perm).id(),
             final(perm).is_init() == final(res).is_init(),
             final(res).is_init() ==> final(perm).value() == final(res).value(),
     ;
+}
+
+/// TRUSTED in its three methods, and the only place this exchange is asserted.
+impl<V> CellBorrow for PCell<V> {
+    type Value = V;
+
+    // A path call, not `self.id()`: the inherent `PCell::id` and this trait
+    // method share a name, and relying on inherent-wins here would be
+    // needlessly delicate.
+    open spec fn id(&self) -> CellId {
+        PCell::id(self)
+    }
+
+    /// The body is upstream's `self.storage.get()`: a cast from the cell to
+    /// its interior, address-preserving because `PCell` is a transparent
+    /// wrapper around an `UnsafeCell`, and legitimate for writes because
+    /// deriving a mutation-capable pointer from a shared reference to an
+    /// `UnsafeCell` is what the language blesses.
+    #[verifier::external_body]
+    exec fn get<'a>(&self, Tracked(parent): Tracked<&'a raw_ptr::PointsTo<Self>>) -> (res: *mut V) {
+        self as *const Self as *mut V
+    }
+
+    axiom fn borrow_as_ptr<'a>(
+        ptr: *mut V,
+        tracked parent: &'a raw_ptr::PointsTo<Self>,
+        tracked perm: &'a pcell_maybe_uninit::PointsTo<V>,
+    ) -> (tracked res: &'a raw_ptr::PointsTo<V>);
+
+    axiom fn borrow_as_ptr_mut<'a>(
+        ptr: *mut V,
+        tracked parent: &'a raw_ptr::PointsTo<Self>,
+        tracked perm: &'a mut pcell_maybe_uninit::PointsTo<V>,
+    ) -> (tracked res: &'a mut raw_ptr::PointsTo<V>);
 }
 
 } // verus!

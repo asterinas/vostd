@@ -39,6 +39,31 @@ impl<T> ExposedPointsTo<T> {
         self.points_to.value()
     }
 
+    /// The underlying access permission.
+    ///
+    /// Exposure is only needed where an *address* becomes a pointer. Steps
+    /// that go pointer-to-pointer -- a struct to its first field, a cell to its
+    /// contents -- need none of it, so they are stated over
+    /// [`vstd::raw_ptr::PointsTo`] and reached through this.
+    pub proof fn borrow_points_to(tracked &self) -> (tracked res: &PointsTo<T>)
+        ensures
+            res.ptr() == self.ptr() as *mut T,
+            res.is_init() == self.is_init(),
+            self.is_init() ==> res.value() == self.value(),
+    {
+        use_type_invariant(self);
+        &self.points_to
+    }
+
+    /// The exposure proof, for rebuilding a pointer from an address.
+    pub proof fn borrow_exposed(tracked &self) -> (tracked res: &IsExposed)
+        ensures
+            res.provenance() == self.ptr()@.provenance,
+    {
+        use_type_invariant(self);
+        &self.exposed
+    }
+
     /// Packages an existing access permission with its provenance exposure proof.
     pub proof fn new(tracked points_to: PointsTo<T>, tracked exposed: IsExposed) -> (tracked perm:
         Self)
@@ -125,6 +150,52 @@ pub fn ptr_mut_ref<'a, T>(
      * Origin Rust: unsafe { &mut *ptr }
      */
     vstd::raw_ptr::ptr_mut_ref(ptr, Tracked(&mut perm.points_to))
+}
+
+/// Dereferences a permission whose provenance comes from an enclosing
+/// permission rather than from an exposure of its own.
+///
+/// A permission reached pointer-to-pointer -- a struct's first field, a cell's
+/// contents -- inherits the enclosing permission's provenance and needs no
+/// exposure token, so it is a plain [`PointsTo`]. Rebuilding its pointer from
+/// an address still needs *some* exposure, and `src` is where it comes from:
+/// the enclosing permission, which has the same provenance by construction.
+pub fn ptr_ref_via<'a, S, T>(
+    addr: usize,
+    Tracked(src): Tracked<&ExposedPointsTo<S>>,
+    Tracked(perm): Tracked<&'a PointsTo<T>>,
+) -> (r: &'a T)
+    requires
+        perm.ptr()@.addr == addr,
+        perm.ptr()@.provenance == src.ptr()@.provenance,
+        perm.is_init(),
+    returns
+        perm.value(),
+{
+    let tracked exposed = *src.borrow_exposed();
+    let p = vstd::raw_ptr::with_exposed_provenance::<T>(addr, Tracked(exposed));
+    vstd::raw_ptr::ptr_ref(p as *const T, Tracked(perm))
+}
+
+/// [`ptr_ref_via`] for exclusive access.
+pub fn ptr_mut_ref_via<'a, S, T>(
+    addr: usize,
+    Tracked(src): Tracked<&ExposedPointsTo<S>>,
+    Tracked(perm): Tracked<&'a mut PointsTo<T>>,
+) -> (r: &'a mut T)
+    requires
+        old(perm).ptr()@.addr == addr,
+        old(perm).ptr()@.provenance == src.ptr()@.provenance,
+        old(perm).is_init(),
+    ensures
+        *r == old(perm).value(),
+        final(perm).ptr() == old(perm).ptr(),
+        final(perm).is_init(),
+        final(perm).value() == *final(r),
+{
+    let tracked exposed = *src.borrow_exposed();
+    let p = vstd::raw_ptr::with_exposed_provenance::<T>(addr, Tracked(exposed));
+    vstd::raw_ptr::ptr_mut_ref(p, Tracked(perm))
 }
 
 } // verus!

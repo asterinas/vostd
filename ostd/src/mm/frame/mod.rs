@@ -52,7 +52,7 @@ use vstd_extra::typing::types::{Any, is_};
 use vstd_extra::{
     ownership::*,
     panic::may_panic,
-    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref, ptr_ref_via},
 };
 
 pub mod allocator;
@@ -307,8 +307,7 @@ impl<M: AnyFrameMeta + MaxSize<META_STORAGE_SIZE> + OwnerOf> Frame<M> {
         // SAFETY: The type is tracked by the typed storage permission.
         #[verus_spec(with Tracked(slot_perm))]
         let meta_addr = self.slot().addr_of();
-        let meta_ptr = ptr_from_addr::<M>(meta_addr, Tracked(meta_perm));
-        ptr_ref(meta_ptr, Tracked(meta_perm))
+        ptr_ref_via::<MetaSlot, M>(meta_addr, Tracked(slot_perm), Tracked(meta_perm))
     }
 }
 
