@@ -16,6 +16,8 @@
 //!   counter behind `DisabledPreemptGuard`; they may be released in any order.
 //! - Local IRQ guards restore the saved IRQ state and must be released in
 //!   reverse order. A guard may instead be forgotten, which leaves IRQs masked.
+//!   Each guard owns the ticket for its depth, so a live guard proves that
+//!   IRQs are masked and no two live guards share a depth.
 //! - An interrupt runs nested on the interrupted task and never switches it
 //!   out. Interrupt entry masks IRQs, and the bottom half disables preemption
 //!   before unmasking them. Hence, no live preemption guard together with
@@ -60,9 +62,8 @@ pub ghost struct CpuCoreOwnerView {
 /// The recorded state belongs to the CPU, not to the task currently running
 /// on it. The depth enforces reverse-order release of nested guards.
 pub tracked struct LocalIrqGuardToken {
-    ghost core_id: Loc,
-    ghost cpu: CpuId,
-    ghost depth: nat,
+    /// Ticket for this guard's depth in the core's IRQ-guard stack.
+    ticket: GhostSingleton<nat>,
     ghost was_enabled: bool,
 }
 
@@ -80,22 +81,17 @@ impl LocalIrqGuardToken {
     /// A nested guard is acquired while IRQs are already masked.
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        self.depth > 0 ==> !self.was_enabled
+        self.ticket@ > 0 ==> !self.was_enabled
     }
 
-    /// CPU core that issued this guard.
-    pub closed spec fn core_id(&self) -> Loc {
-        self.core_id
-    }
-
-    /// CPU on which this guard must be released.
-    pub closed spec fn cpu(&self) -> CpuId {
-        self.cpu
+    /// IRQ-guard stack of the CPU core that issued this guard.
+    pub closed spec fn id(&self) -> Loc {
+        self.ticket.id()
     }
 
     /// Nesting depth before this guard was acquired.
     pub closed spec fn depth(&self) -> nat {
-        self.depth
+        self.ticket@
     }
 
     /// Local IRQ state captured when this guard was acquired.
@@ -163,6 +159,7 @@ impl<A: CpuCoreLocalState, B: CpuCoreLocalState> CpuCoreLocalState for (A, B) {
 /// resource identities, whose resources all belong to this handle's CPU.
 pub tracked struct CpuCoreOwnerHandle<L: CpuCoreLocalState> {
     state: ExclusiveGhost<CpuCoreOwnerView>,
+    irq_guards: GhostSetAuth<nat>,
     preempt_guards: CpuTicketCounter,
     interrupts: CpuTicketCounter,
     marker: PhantomData<L>,
@@ -215,6 +212,11 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
         self.current_task() is None
     }
 
+    /// Identity of the stack that issues this CPU's local IRQ guards.
+    pub closed spec fn irq_guards_id(&self) -> Loc {
+        self.irq_guards.id()
+    }
+
     /// Identity of the counter that issues this CPU's preemption guards.
     pub closed spec fn preempt_guards_id(&self) -> Loc {
         self.preempt_guards.id()
@@ -242,6 +244,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
     pub closed spec fn wf(&self) -> bool {
         &&& self.state.wf()
         &&& self@.irq_guard_depth > 0 ==> !self@.irq_enabled
+        &&& forall|depth: nat| #[trigger]
+            self.irq_guards@.contains(depth) <==> depth < self@.irq_guard_depth
         &&& self.interrupts.count() > 0 && self@.irq_enabled ==> self.preempt_guards.count() > 0
     }
 
@@ -261,6 +265,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwnerHandle<L> {
             res@ == self@,
             res.wf(),
             res.locals() == locals,
+            res.irq_guards_id() == self.irq_guards_id(),
             res.preempt_guards_id() == self.preempt_guards_id(),
             res.preempt_count() == self.preempt_count(),
             res.interrupts_id() == self.interrupts_id(),
@@ -296,8 +301,10 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
                 irq_guard_depth: 0,
             },
         );
+        let tracked (irq_guards, _) = GhostSetAuth::new(Set::empty());
         let tracked handle = CpuCoreOwnerHandle {
             state,
+            irq_guards,
             preempt_guards: CpuTicketCounter::new(),
             interrupts: CpuTicketCounter::new(),
             marker: PhantomData,
@@ -345,6 +352,11 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
         self@.irq_guard_depth
     }
 
+    /// Identity of the stack that issues this CPU's local IRQ guards.
+    pub closed spec fn irq_guards_id(&self) -> Loc {
+        self.handle.irq_guards_id()
+    }
+
     /// Identity of the counter that issues this CPU's preemption guards.
     pub closed spec fn preempt_guards_id(&self) -> Loc {
         self.handle.preempt_guards_id()
@@ -382,23 +394,19 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).cpu() == old(self).cpu(),
             final(self).current_task() == old(self).current_task(),
             final(self).locals() == old(self).locals(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
             final(self).interrupt_count() == old(self).interrupt_count(),
-            guard.core_id() == old(self).id(),
-            guard.cpu() == old(self).cpu(),
+            guard.id() == old(self).irq_guards_id(),
             guard.depth() == old(self).irq_guard_depth(),
             guard.was_enabled() == old(self).irq_enabled(),
             final(self).irq_guard_depth() == old(self).irq_guard_depth() + 1,
             !final(self).irq_enabled(),
     {
-        let tracked guard = LocalIrqGuardToken {
-            core_id: self.id(),
-            cpu: self.cpu(),
-            depth: self.irq_guard_depth(),
-            was_enabled: self.irq_enabled(),
-        };
+        let tracked ticket = self.handle.irq_guards.insert(self.irq_guard_depth());
+        let tracked guard = LocalIrqGuardToken { ticket, was_enabled: self.irq_enabled() };
         let ghost next = CpuCoreOwnerView {
             irq_enabled: false,
             irq_guard_depth: self.irq_guard_depth() + 1,
@@ -417,8 +425,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
     pub proof fn tracked_restore_local(tracked &mut self, tracked guard: LocalIrqGuardToken)
         requires
             old(self).wf(),
-            guard.core_id() == old(self).id(),
-            guard.cpu() == old(self).cpu(),
+            guard.id() == old(self).irq_guards_id(),
             guard.depth() + 1 == old(self).irq_guard_depth(),
             guard.was_enabled() && old(self).interrupt_count() > 0 ==> old(self).preempt_count()
                 > 0,
@@ -428,6 +435,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).cpu() == old(self).cpu(),
             final(self).current_task() == old(self).current_task(),
             final(self).locals() == old(self).locals(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -441,6 +449,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             irq_guard_depth: guard.depth(),
             ..self@
         };
+        let tracked LocalIrqGuardToken { ticket, .. } = guard;
+        self.handle.irq_guards.delete_singleton(ticket);
         self.handle.state.update(next);
     }
 
@@ -452,8 +462,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
     pub proof fn tracked_forget_local(tracked &mut self, tracked guard: LocalIrqGuardToken)
         requires
             old(self).wf(),
-            guard.core_id() == old(self).id(),
-            guard.cpu() == old(self).cpu(),
+            guard.id() == old(self).irq_guards_id(),
             guard.depth() + 1 == old(self).irq_guard_depth(),
         ensures
             final(self).wf(),
@@ -461,6 +470,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).cpu() == old(self).cpu(),
             final(self).current_task() == old(self).current_task(),
             final(self).locals() == old(self).locals(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -469,6 +479,8 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             !final(self).irq_enabled(),
     {
         let ghost next = CpuCoreOwnerView { irq_guard_depth: guard.depth(), ..self@ };
+        let tracked LocalIrqGuardToken { ticket, .. } = guard;
+        self.handle.irq_guards.delete_singleton(ticket);
         self.handle.state.update(next);
     }
 
@@ -487,6 +499,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).cpu() == old(self).cpu(),
             final(self).current_task() == old(self).current_task(),
             final(self).locals() == old(self).locals(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -510,6 +523,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).locals() == old(self).locals(),
             final(self).irq_enabled() == old(self).irq_enabled(),
             final(self).irq_guard_depth() == old(self).irq_guard_depth(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count() + 1,
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -538,6 +552,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).locals() == old(self).locals(),
             final(self).irq_enabled() == old(self).irq_enabled(),
             final(self).irq_guard_depth() == old(self).irq_guard_depth(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() + 1 == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -558,6 +573,30 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
         guard.ticket.agree(&self.handle.preempt_guards.live);
     }
 
+    /// A live local IRQ guard keeps IRQs masked on its CPU.
+    pub proof fn lemma_irq_guard_masks(tracked &self, tracked guard: &LocalIrqGuardToken)
+        requires
+            self.wf(),
+            guard.id() == self.irq_guards_id(),
+        ensures
+            guard.depth() < self.irq_guard_depth(),
+            !self.irq_enabled(),
+    {
+        guard.ticket.agree(&self.handle.irq_guards);
+    }
+
+    /// With no live preemption guard and IRQs enabled, no interrupt handler is
+    /// active on this CPU.
+    pub proof fn lemma_quiescent_excludes_interrupts(&self)
+        requires
+            self.wf(),
+            self.preempt_count() == 0,
+            self.irq_enabled(),
+        ensures
+            self.interrupt_count() == 0,
+    {
+    }
+
     /// Models the hardware entering an interrupt handler.
     ///
     /// A maskable interrupt arrives only while IRQs are enabled; entry masks
@@ -572,6 +611,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).cpu() == old(self).cpu(),
             final(self).current_task() == old(self).current_task(),
             final(self).locals() == old(self).locals(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -605,6 +645,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).cpu() == old(self).cpu(),
             final(self).current_task() == old(self).current_task(),
             final(self).locals() == old(self).locals(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -631,6 +672,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).locals_key() == old(self).locals_key(),
             final(self).irq_enabled() == old(self).irq_enabled(),
             final(self).irq_guard_depth() == old(self).irq_guard_depth(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
@@ -664,12 +706,14 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).locals_key() == old(self).locals_key(),
             final(self).irq_enabled() == old(self).irq_enabled(),
             final(self).irq_guard_depth() == old(self).irq_guard_depth(),
+            final(self).irq_guards_id() == old(self).irq_guards_id(),
             final(self).preempt_guards_id() == old(self).preempt_guards_id(),
             final(self).preempt_count() == old(self).preempt_count(),
             final(self).interrupts_id() == old(self).interrupts_id(),
             final(self).interrupt_count() == old(self).interrupt_count(),
             final(self).wf(),
     {
+        self.lemma_quiescent_excludes_interrupts();
         let task = self.current_task()->0;
         let ghost next = CpuCoreOwnerView { current_task: None, ..self@ };
         self.handle.state.update(next);
@@ -688,6 +732,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             res.0.id() == self.id(),
             res.0@ == self@,
             res.0.wf(),
+            res.0.irq_guards_id() == self.irq_guards_id(),
             res.0.preempt_guards_id() == self.preempt_guards_id(),
             res.0.preempt_count() == self.preempt_count(),
             res.0.interrupts_id() == self.interrupts_id(),
@@ -749,6 +794,7 @@ proof fn nested_local_irq_guards_restore_state<L: CpuCoreLocalState>(
     let tracked inner = core.tracked_disable_local();
     assert(!inner.was_enabled());
     assert(core.irq_guard_depth() == 2);
+    core.lemma_irq_guard_masks(&outer);
     core.tracked_restore_local(inner);
     assert(!core.irq_enabled());
     assert(core.irq_guard_depth() == 1);
