@@ -109,7 +109,7 @@ pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     let item = MappedItem::Tracked(frame_mss, prop);
     let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
     &&& frame.inv()
-    &&& !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1())
+    &&& !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1)
     &&& (entry_owner.is_absent() || Child::Frame(pa, level, prop_from_item).wf(entry_owner))
 }
 
@@ -438,7 +438,7 @@ impl KVirtArea {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
-            !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
+            !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
             Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())
                 ==> may_panic(),
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
@@ -717,7 +717,7 @@ impl KVirtArea {
                 2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                     pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
             pa_range.end - pa_range.start >= page_size::<PagingConsts>(2) ==> may_panic(),
-            !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
+            !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
             !Self::map_untracked_frames_bounds_panic_condition(area_size, map_offset, &pa_range),
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
             old(regions).inv(),
@@ -787,7 +787,7 @@ impl KVirtArea {
                         2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==> len
                             != page_size::<PagingConsts>(level),
                     len >= page_size::<PagingConsts>(2) ==> may_panic(),
-                    !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
+                    !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
                     forall|pa: Paddr, level: PagingLevel|
                         1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL
                             ==> #[trigger] <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(

@@ -9,7 +9,7 @@
 //! ```text
 //! pub struct Flags { bits: T } // bits is private
 //! impl Flags {
-//!     pub const fn A() -> Self;   // one factory per declared flag
+//!     pub const A: Self;   // one associated constant per declared flag
 //!     ...
 //!     pub const fn empty() -> Self;
 //!     pub const fn all() -> Self;
@@ -27,15 +27,11 @@
 //! }
 //! ```
 //!
-//! NOTE: unlike upstream `bitflags`, the per-flag accessors are `pub const fn`
-//! factories (`Flags::A()`) instead of associated constants (`Flags::A`). This
-//! is required because the `bits` field is private:
-//! Verus refuses to publish a constructor for an opaque datatype through a `pub const`.
+//! Each executable constant has a closed spec constant and verified contracts,
+//! so callers can reason about its bits while the backing field stays private.
 //!
 //! Upstream's `Flags` trait metadata (`FLAGS`, iterators, lookup helpers, etc.)
 //! is represented here by Verus-only specs and lemmas around the inherent APIs.
-//!
-//! Only **literal** values are supported for each flag.
 use vstd::arithmetic::power::*;
 use vstd::arithmetic::power2::*;
 use vstd::bits::*;
@@ -95,6 +91,17 @@ macro_rules! __bitflags_cfg_guarded_stmt {
     };
 }
 
+// A cast after an expression does not give its operands the backing integer type.
+// Keep the same explicit type context in executable code and specifications.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __bitflags_value {
+    ($T:ty, $value:expr) => {{
+        let value: $T = $value;
+        value
+    }};
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __bitflags_flag {
@@ -119,7 +126,7 @@ macro_rules! __bitflags_flag {
 }
 
 /// A macro wrapper for quickly defining bitflags with verified
-/// properties in Verus. It only supports literal values for the bits.
+/// properties in Verus. Flag values are inferred in the declared backing integer type.
 ///
 /// # Example
 ///
@@ -133,8 +140,8 @@ macro_rules! __bitflags_flag {
 ///     }
 /// }
 ///
-/// let f = Flags::A() | Flags::B();
-/// assert!(f.contains(Flags::A()));
+/// let f = Flags::A | Flags::B;
+/// assert!(f.contains(Flags::A));
 /// ```
 // Upstream expands ordinary Rust; this macro embeds `verus!` and keeps its layout stable.
 #[verusfmt::skip]
@@ -215,7 +222,7 @@ macro_rules! bitflags {
                 $vis open spec fn bit(self) -> $T {
                     match self {
                         $(
-                            [< __ghost $name >]::[< __ghost $Flag >] => (($value) as $T),
+                            [< __ghost $name >]::[< __ghost $Flag >] => ($crate::__bitflags_value!($T, $value)),
                         )*
                     }
                 }
@@ -256,19 +263,18 @@ macro_rules! bitflags {
                 }
 
                 $(
-                    $vis closed spec fn [< $Flag _spec >]() -> Self {
-                        Self::from_bits_unchecked_spec($value as $T)
-                    }
+                    $vis closed spec const [< $Flag _SPEC >]: Self =
+                        Self::from_bits_unchecked_spec($crate::__bitflags_value!($T, $value));
 
                     $(#[$inner $($args)*])*
-                    #[verifier::when_used_as_spec([< $Flag _spec >])]
-                    $vis const fn $Flag() -> (r: Self)
+                    #[verifier::when_used_as_spec([< $Flag _SPEC >])]
+                    $vis exec const $Flag: Self
                         ensures
-                            r.bits() == ($value),
-                            r.flags_spec() == Self::flags_from_bits(($value) as $T),
-                        returns Self::[< $Flag _spec >](),
+                            Self::$Flag.bits() == $crate::__bitflags_value!($T, $value),
+                            Self::$Flag.flags_spec() == Self::flags_from_bits($crate::__bitflags_value!($T, $value)),
+                            Self::$Flag == Self::[< $Flag _SPEC >],
                     {
-                        Self::from_bits_unchecked($value)
+                        Self::from_bits_unchecked($crate::__bitflags_value!($T, $value))
                     }
                 )*
 
@@ -276,7 +282,7 @@ macro_rules! bitflags {
                 closed spec fn declared_bits_spec() -> $T {
                     (0 as $T) $(| (
                         if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true } {
-                            (($value) as $T)
+                            ($crate::__bitflags_value!($T, $value))
                         } else {
                             0 as $T
                         }
@@ -289,14 +295,14 @@ macro_rules! bitflags {
                         Self::all().bits() == Self::all_spec().bits_spec(),
                         Self::all_spec().bits_spec() == (0 as $T) $(| (
                             if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true } {
-                                (($value) as $T)
+                                ($crate::__bitflags_value!($T, $value))
                             } else {
                                 0 as $T
                             }
                         ))*,
                         Self::all().bits() == (0 as $T) $(| (
                             if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true } {
-                                (($value) as $T)
+                                ($crate::__bitflags_value!($T, $value))
                             } else {
                                 0 as $T
                         }
@@ -309,7 +315,7 @@ macro_rules! bitflags {
                         #![trigger Self::all().bits()]
                         Self::all().bits() == (0 as $T) $(| (
                             if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true } {
-                                (($value) as $T)
+                                ($crate::__bitflags_value!($T, $value))
                             } else {
                                 0 as $T
                             }
@@ -317,11 +323,11 @@ macro_rules! bitflags {
                         $(
                             #![trigger $crate::__bitflags_cfg_guarded_expr!(
                                 ($(#[$inner $($args)*])*)
-                                Self::$Flag().bits()
+                                Self::$Flag.bits()
                             )]
                             $crate::__bitflags_cfg_guarded_expr!(
                                 ($(#[$inner $($args)*])*)
-                                Self::$Flag().bits() == (($value) as $T)
+                                Self::$Flag.bits() == ($crate::__bitflags_value!($T, $value))
                             ),
                         )*
                 {
@@ -382,7 +388,7 @@ macro_rules! bitflags {
                     Self::from_bits_unchecked(
                         (0 as $T) $(| (
                             if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true } {
-                                (($value) as $T)
+                                ($crate::__bitflags_value!($T, $value))
                             } else {
                                 0 as $T
                             }
@@ -519,7 +525,7 @@ macro_rules! bitflags {
                                     {
                                         if name == ::core::stringify!($Flag) {
                                             return ::core::option::Option::Some(
-                                                Self::$Flag()
+                                                Self::$Flag
                                             );
                                         }
                                     }
@@ -880,10 +886,10 @@ verus! {
 
 #[allow(dead_code)]
 fn _bitflags_smoke_test() {
-    let a = Flags::A();
-    let b = Flags::B();
-    let c = Flags::C();
-    let mut flags = Flags::ABC();
+    let a = Flags::A;
+    let b = Flags::B;
+    let c = Flags::C;
+    let mut flags = Flags::ABC;
 
     flags.remove(a);
     flags.insert(a);
@@ -905,3 +911,81 @@ fn _bitflags_smoke_test() {
 }
 
 } // verus!
+// Keep flag constants usable without exposing the private bits field to callers.
+mod associated_constants {
+    use vstd::prelude::*;
+
+    use super::Flags;
+
+    verus! {
+
+exec const COMBINED: Flags
+    ensures
+        COMBINED.bits() == 0b11,
+{
+    proof {
+        assert(1u32 | 2u32 == 0b11) by (bit_vector);
+    }
+    Flags::A.union(Flags::B)
+}
+
+fn constant_client() {
+    proof {
+        assert(1u32 | 2u32 == 0b11) by (bit_vector);
+        assert(0b11u32 & 1u32 == 1u32) by (bit_vector);
+    }
+    let flags = Flags::A | Flags::B;
+    let combined = COMBINED;
+    assert(flags.bits() == 0b11);
+    assert(flags.contains(Flags::A));
+    assert(combined.bits() == flags.bits());
+}
+
+proof fn constant_spec_client()
+    ensures
+        Flags::A.bits() == 0b1,
+        Flags::ABC.bits() == 0b111,
+{
+    broadcast use Flags::lemma_consts;
+
+}
+
+} // verus!
+}
+
+mod inferred_initializers {
+    use vstd::prelude::*;
+
+    bitflags! {
+        pub struct Flags32: u32 {
+            const HIGH = 1 << 31;
+            const COMBINED = (1 << 0) | (1 << 1);
+            const ALL = !0;
+            const EXPLICIT = 1u32 << 5;
+            #[cfg(any())]
+            const DISABLED = 1 << 30;
+        }
+    }
+
+    bitflags! {
+        pub struct Flags64: u64 {
+            const HIGH = 1 << 63;
+            const COMBINED = (1 << 40) | (1 << 41);
+        }
+    }
+
+    verus! {
+
+proof fn initializer_values() {
+    assert(Flags32::HIGH.bits() == 0x8000_0000u32) by (compute_only);
+    assert(Flags32::COMBINED.bits() == 3u32) by (compute_only);
+    assert(Flags32::ALL.bits() == u32::MAX) by (compute_only);
+    assert(Flags32::EXPLICIT.bits() == 32u32) by (compute_only);
+    assert(Flags64::HIGH.bits() == 0x8000_0000_0000_0000u64) by (compute_only);
+    assert(Flags64::COMBINED.bits() == 0x0000_0300_0000_0000u64) by (compute_only);
+    Flags32::lemma_all_constant();
+    assert(Flags32::all().bits() == u32::MAX) by (compute_only);
+}
+
+} // verus!
+}

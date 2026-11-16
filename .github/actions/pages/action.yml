@@ -2,7 +2,7 @@ name: Publish verification dashboard
 description: >-
   Download the `stats` job's snapshot artifact, record history on gh-pages, and
   deploy Verusdoc, the dashboard, and benchmark history. Call only for eligible
-  main runs; expects a checkout with submodules, Pages permissions, and the
+  main runs; expects a checkout, Pages permissions, and the
   `stats-snapshot` / `doc-site` artifacts from this run.
 
 runs:

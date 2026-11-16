@@ -1,7 +1,7 @@
 name: Build Verusdoc
 description: >-
   Build HTML documentation and rustdoc JSON, uploading the JSON everywhere and
-  the site outside PRs. Expects a checkout with submodules.
+  the site outside PRs. Expects a checkout.
 
 runs:
   using: composite
@@ -10,7 +10,6 @@ runs:
       uses: ./.github/actions/setup-verus
       with:
         verus: 'true'
-        dv-cache: 'restore'
 
     - name: Build docs
       shell: bash

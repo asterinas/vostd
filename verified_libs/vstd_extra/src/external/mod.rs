@@ -5,6 +5,7 @@
 pub mod acpi;
 pub mod bits;
 mod bitvec;
+pub mod bytemuck;
 pub mod cmp;
 pub mod convert;
 pub mod fmt;
@@ -22,6 +23,7 @@ pub mod time;
 pub mod vec;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
+pub mod xmas_elf;
 
 pub use acpi::*;
 pub use bitvec::*;

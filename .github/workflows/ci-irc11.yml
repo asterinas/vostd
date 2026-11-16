@@ -10,7 +10,7 @@ on:
       - "tools/bootstrap-verus-irc11.sh"
       - "tools/patches/verus-irc11.patch"
       - "tools/tests/irc11_smoke.rs"
-      - "dv"
+      - "dv/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "ostd/**"
@@ -24,7 +24,7 @@ on:
       - "tools/bootstrap-verus-irc11.sh"
       - "tools/patches/verus-irc11.patch"
       - "tools/tests/irc11_smoke.rs"
-      - "dv"
+      - "dv/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "ostd/**"
@@ -53,8 +53,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          submodules: true
 
       - name: Install dependencies
         run: |
