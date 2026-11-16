@@ -28,6 +28,7 @@ verify-riscv: verify-riscv64imac-unknown-none-elf
 verify-loongarch: verify-loongarch64-unknown-none-softfloat
 
 fmt:
+	cargo fmt --manifest-path dv/Cargo.toml --all
 	cargo dv fmt
 
 build:

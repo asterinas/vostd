@@ -48,15 +48,12 @@ jobs:
         with:
           # push: the pushed commit; pull_request: the merge commit.
           ref: ${{ github.sha }}
-          submodules: recursive
           # the base commit is needed for `git diff`
           fetch-depth: 0
 
       - name: Set up toolchain and caches
         id: setup
         uses: ./.github/actions/setup-verus
-        with:
-          dv-cache: restore
 
       - name: Checkout ensures-coverage
         uses: actions/checkout@v7

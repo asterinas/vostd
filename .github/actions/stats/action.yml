@@ -6,7 +6,7 @@ description: >-
   stats-snapshot artifact for the `publish` job. Must run after `doc`; on
   events where the artifact is missing the API count is simply skipped. Also
   appends a comparison against the last recorded point to the job summary.
-  Expects a checkout with submodules.
+  Expects a checkout.
 
 runs:
   using: composite
@@ -17,7 +17,6 @@ runs:
         # 'true' is required: tools/verus is gitignored, so the setup
         # action must bootstrap it (and cache it) for the line_count build.
         verus: 'true'
-        dv-cache: 'restore'
 
     - name: Cache line_count build
       uses: actions/cache@v6
