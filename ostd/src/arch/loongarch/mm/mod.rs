@@ -89,47 +89,47 @@ bitflags::bitflags! {
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame is valid.
-        const VALID = 1usize << 0;
+        const VALID = 1 << 0;
         /// Whether the memory area represented by this entry is modified.
-        const DIRTY = 1usize << 1;
+        const DIRTY = 1 << 1;
         /// Privilege level corresponding to the page table entry.
         /// When `RPLV` = 0, the page table entry can be accessed by any program
         /// with a privilege level not lower than `PLV`;
         /// When `RPLV` = 1, this page table entry can only be accessed by programs
         /// with privilege level equal to `PLV`.
-        const PLVL = 1usize << 2;
-        const PLVH = 1usize << 3;
+        const PLVL = 1 << 2;
+        const PLVH = 1 << 3;
         /// Controls the memory access type of the memory access operation
         /// falling on the address space of the table page entry.
-        const MATL = 1usize << 4;
-        const MATH = 1usize << 5;
+        const MATL = 1 << 4;
+        const MATH = 1 << 5;
         /// If this entry is a basic page table entry, it is `GLOBAL`,
         /// which means that the mapping is present in all address spaces,
         /// so it isn't flushed from the TLB on an address space switch.
         /// If this entry is a huge page table entry, it is `HUGE`,
         /// which means that the memory area represented by this entry is
         /// a huge page.
-        const GLOBAL_OR_HUGE = 1usize << 6;
+        const GLOBAL_OR_HUGE = 1 << 6;
         /// Specifies whether the mapped frame or page table is loaded in memory.
         /// This flag does not fill in TLB.
-        const PRESENT = 1usize << 7;
+        const PRESENT = 1 << 7;
         /// Controls whether writes to the mapped frames are allowed.
         /// This flag does not fill in TLB.
-        const WRITABLE = 1usize << 8;
+        const WRITABLE = 1 << 8;
         // Whether this entry is a basic page table entry.
-        const IS_BASIC = 1usize << 9;
+        const IS_BASIC = 1 << 9;
         // First bit ignored by MMU.
-        const RSV1 = 1usize << 10;
+        const RSV1 = 1 << 10;
         // Second bit ignored by MMU.
-        const RSV2 = 1usize << 11;
+        const RSV2 = 1 << 11;
         /// If this entry is a huge page table entry, it is `GLOBAL`.
-        const GLOBAL_IN_HUGE = 1usize << 12;
+        const GLOBAL_IN_HUGE = 1 << 12;
         /// Controls whether reads to the mapped frames are not allowed.
-        const NOT_READABLE = 1usize << 61;
+        const NOT_READABLE = 1 << 61;
         /// Controls whether execution code in the mapped frames are not allowed.
-        const NOT_EXECUTABLE = 1usize << 62;
+        const NOT_EXECUTABLE = 1 << 62;
         /// Whether the `PageTableEntry` can only be accessed by the privileged level `PLV` field inferred
-        const RPLV = 1usize << 63;
+        const RPLV = 1 << 63;
     }
 }
 

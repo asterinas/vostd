@@ -92,34 +92,34 @@ bitflags::bitflags! {
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame or page table is valid.
-        const VALID = 1usize << 0;
+        const VALID = 1 << 0;
         /// Controls whether reads to the mapped frames are allowed.
-        const READABLE = 1usize << 1;
+        const READABLE = 1 << 1;
         /// Controls whether writes to the mapped frames are allowed.
-        const WRITABLE = 1usize << 2;
+        const WRITABLE = 1 << 2;
         /// Controls whether execution code in the mapped frames are allowed.
-        const EXECUTABLE = 1usize << 3;
+        const EXECUTABLE = 1 << 3;
         /// Controls whether accesses from userspace (i.e. U-mode) are permitted.
-        const USER = 1usize << 4;
+        const USER = 1 << 4;
         /// Indicates that the mapping is present in all address spaces, so it isn't flushed from
         /// the TLB on an address space switch.
-        const GLOBAL = 1usize << 5;
+        const GLOBAL = 1 << 5;
         /// Whether the memory area represented by this entry is accessed.
-        const ACCESSED = 1usize << 6;
+        const ACCESSED = 1 << 6;
         /// Whether the memory area represented by this entry is modified.
-        const DIRTY = 1usize << 7;
+        const DIRTY = 1 << 7;
 
         // First bit ignored by MMU.
-        const RSV1 = 1usize << 8;
+        const RSV1 = 1 << 8;
         // Second bit ignored by MMU.
-        const RSV2 = 1usize << 9;
+        const RSV2 = 1 << 9;
 
         // PBMT: Non-cacheable, idempotent, weakly-ordered (RVWMO), main memory
-        const PBMT_NC = 1usize << 61;
+        const PBMT_NC = 1 << 61;
         // PBMT: Non-cacheable, non-idempotent, strongly-ordered (I/O ordering), I/O
-        const PBMT_IO = 1usize << 62;
+        const PBMT_IO = 1 << 62;
         /// Naturally aligned power-of-2
-        const NAPOT = 1usize << 63;
+        const NAPOT = 1 << 63;
     }
 }
 
