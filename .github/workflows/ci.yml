@@ -76,13 +76,6 @@ jobs:
         with:
           install-verusfmt: 'true'
 
-      - name: Check DV formatting
-        run: |
-          if ! cargo fmt --manifest-path dv/Cargo.toml --all -- --check; then
-            echo "FMT_FAILED=1" >> "$GITHUB_ENV"
-            exit 1
-          fi
-
       - name: Run format
         run: make fmt
 
@@ -91,7 +84,6 @@ jobs:
           if [[ -n $(git status --porcelain) ]]; then
             echo "Code is not properly formatted. Run 'make fmt'."
             git diff
-            echo "FMT_FAILED=1" >> "$GITHUB_ENV"
             exit 1
           fi
 
@@ -100,7 +92,7 @@ jobs:
         run: |
           {
             echo "# Format Summary"
-            if [[ "${FMT_FAILED:-0}" == "1" ]]; then
+            if [[ "${{ job.status }}" != "success" ]]; then
               echo "- Formatting: ❌ failed"
             else
               echo "- Formatting: ✅ passed"

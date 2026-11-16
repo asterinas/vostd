@@ -7,23 +7,10 @@ while `cargo dv` keeps a few repository conveniences on top,
 such as bootstrapping the Verus toolchain, formatting Verus/Rust sources,
 generating docs, and running pre-commit checks.
 
-## Deployment
+## Usage
 
-1. Put this repository as a directory `dv` in the root of your Rust project.
-
-```bash
-git clone [this-repo] dv
-```
-
-2. Add/modify the Cargo configuration file `.cargo/config.toml` in the root of your Rust project:
-
-```toml
-[alias]
-dv = "run --manifest-path dv/Cargo.toml --bin rust-dv --"
-pre-commit = "run --manifest-path dv/Cargo.toml --bin pre_commit --"
-```
-
-3. Now, you can use the provided commands with `cargo dv`:
+The aliases in [`.cargo/config.toml`](../.cargo/config.toml) invoke the build
+tool from the repository root:
 
 ```bash
 cargo dv verify --package <package1> <package2> ...

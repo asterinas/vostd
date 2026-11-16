@@ -117,7 +117,7 @@ for coding, specification, proof, naming, and organization conventions.
 Before submitting:
 
 - Run `make verus-upgrade` (`cargo dv bootstrap --upgrade`) to update the supported Verus toolchain.
-- Run `make fmt` (`cargo dv fmt`) to format your changes; formatting is enforced.
+- Run `make fmt` to format your changes, including the build tool in `dv/`; formatting is enforced.
 - For changes to OSTD or verified libraries, run `make` to verify them.
 
 For changes to Verus itself, prefer contributing to
