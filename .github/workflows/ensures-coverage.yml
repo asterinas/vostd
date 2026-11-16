@@ -1,13 +1,7 @@
-# ensures-coverage for vostd.
-#
-# This workflow only prepares the machine: it checks out vostd, sets up
-# Verus and Racket, checks out ensures-coverage, and runs its ci/vostd.sh,
-# which decides everything else (what is checked, the report, when to
-# stop).  ensures-coverage is taken from its main branch, the released
-# version, so a release changes the CI without touching vostd.  For trying
-# an unreleased version, run the workflow by hand with `ec_ref: dev`.
-#
-# Advisory only: it never blocks a pull request.
+# Prepares the machine and runs ensures-coverage's ci/vostd.sh (upstream owns
+# the logic). The tool comes from its released main, so releases change CI
+# without touching vostd (workflow_dispatch `ec_ref: dev` for an unreleased
+# version). Advisory only — never blocks a PR.
 name: ensures-coverage
 
 on:
@@ -54,15 +48,12 @@ jobs:
         with:
           # push: the pushed commit; pull_request: the merge commit.
           ref: ${{ github.sha }}
-          submodules: recursive
           # the base commit is needed for `git diff`
           fetch-depth: 0
 
       - name: Set up toolchain and caches
         id: setup
         uses: ./.github/actions/setup-verus
-        with:
-          dv-cache: restore
 
       - name: Checkout ensures-coverage
         uses: actions/checkout@v7

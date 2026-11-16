@@ -35,7 +35,7 @@ use crate::{
 };
 
 use super::{
-    non_null::{NonNullPtr, NonNullPtrRef},
+    non_null::NonNullPtr,
     weak_root::{RcuRootKey, RcuRootReclaimer, RcuWeakRoot},
 };
 use core::{marker::PhantomData, ptr::NonNull};
@@ -120,6 +120,7 @@ impl<P: NonNullPtr> Irc11Rcu<P> {
     ) -> (res: Self)
         requires
             old(context).inv(),
+            value.inv(),
         ensures
             res.inv(),
             res.key().scheduler == old(context).scheduler(),
@@ -195,6 +196,7 @@ impl<P: NonNullPtr> Irc11Rcu<P> {
         requires
             self.inv(),
             old(context).inv(),
+            value.inv(),
         ensures
             res.inv(),
             res.key() == self.key(),
@@ -294,6 +296,7 @@ impl<P: NonNullPtr> Irc11RcuOption<P> {
     ) -> (res: Self)
         requires
             old(context).inv(),
+            value matches Some(value) ==> value.inv(),
         ensures
             res.inv(),
             res.key().scheduler == old(context).scheduler(),
@@ -320,6 +323,7 @@ impl<P: NonNullPtr> Irc11RcuOption<P> {
         requires
             old(context).inv(),
             nullable || value is Some,
+            value matches Some(value) ==> value.inv(),
         ensures
             res.inv(),
             res.key().scheduler == old(context).scheduler(),
@@ -370,6 +374,7 @@ impl<P: NonNullPtr> Irc11RcuOption<P> {
             domain.inv(),
             domain.objects() == Map::<nat, usize>::empty(),
             nullable || value is Some,
+            value matches Some(value) ==> value.inv(),
             value matches Some(value) ==> rcu_value_satisfies(value, condition),
         ensures
             res.inv(),
@@ -567,6 +572,7 @@ impl<P: NonNullPtr> Irc11RcuOption<P> {
             self.inv(),
             old(context).inv(),
             self.key().nullable || value is Some,
+            value matches Some(value) ==> value.inv(),
             value matches Some(value) ==> self.accepts(value),
         ensures
             final(context).inv(),
@@ -796,7 +802,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
     ///
     /// # Verified Properties
     /// ## Safety
-    /// - Borrows physical permission for the guard's lifetime through the existing NonNullPtrRef adapter.
+    /// - Borrows physical permission for the guard's lifetime through the NonNullPtr reference adapter.
     /// ## Functional Correctness
     /// - Returns None exactly for a null observation; Arc borrowing does not increment its count.
     /// ## Preconditions
@@ -806,15 +812,13 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
     /* New explicit-context RCU API; the legacy implicit preemption and Drop path is not used.
      * Origin Rust: <none; new executable code>
      */
-    pub fn try_get<'b>(&'b self) -> (res: Option<<P as NonNullPtrRef<'b>>::Ref>) where
-        P: NonNullPtrRef<'b>,
-
+    pub fn try_get<'b>(&'b self) -> (res: Option<P::Ref<'b>>)
         requires
             self.inv(),
         ensures
             (res is Some) == self.is_some(),
             res matches Some(reference) ==> exists|
-                permission: <P as NonNullPtrRef<'b>>::RefPermission,
+                permission: P::RefPermission<'b>,
             |
                 #![trigger permission.inv()]
                 #![trigger P::ref_perm_view_permission(permission)]
@@ -825,7 +829,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
             return None;
         }
         let tracked owned = self.tracked_protection.borrow().tracked_borrow();
-        let tracked permission = P::borrow_perm_as_ref_perm(owned);
+        let tracked permission = P::tracked_borrow_perm_as_ref_perm(owned);
         let ghost borrowed_permission = permission;
         let ptr = NonNull::new(self.ptr).unwrap();
         // SAFETY: the physical lease is borrowed for 'b; consuming close cannot
@@ -853,7 +857,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
     /* New explicit-context RCU API; the legacy implicit preemption and Drop path is not used.
      * Origin Rust: <none; new executable code>
      */
-    pub fn get<'b>(&'b self) -> <P as NonNullPtrRef<'b>>::Ref where P: NonNullPtrRef<'b>
+    pub fn get<'b>(&'b self) -> P::Ref<'b>
         requires
             self.inv(),
             self.is_some(),
@@ -886,6 +890,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
             self.inv(),
             old(context).inv(),
             self.participant() == old(context).participant().id(),
+            value.inv(),
             rcu_value_satisfies(value, self.condition()),
         ensures
             final(context).inv(),

@@ -1,0 +1,7 @@
+{% for c in crates %}
+  {% if let Some(alias) = c.alias -%}
+extern crate {{ c.name }} as {{ alias }};
+  {%- else -%}
+extern crate {{ c.name }};
+  {%- endif %}
+{%- endfor %}

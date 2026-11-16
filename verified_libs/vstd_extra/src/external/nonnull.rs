@@ -7,6 +7,15 @@ use vstd::std_specs::{cmp::*, nonzero::*, ptr::*};
 
 verus! {
 
+/// Rust 1.99.1 core/src/ptr/non_null.rs: equality delegates to raw-pointer equality.
+pub assume_specification<T: PointeeSized>[ <NonNull<T> as core::cmp::PartialEq>::eq ](
+    left: &NonNull<T>,
+    right: &NonNull<T>,
+) -> (ret: bool)
+    ensures
+        call_ensures(<*mut T as core::cmp::PartialEq>::eq, (&left.as_ptr(), &right.as_ptr()), ret),
+;
+
 pub trait NonNullAdditionalFns<T: PointeeSized> {
     /// Specification for `NonNull::cast`.
     spec fn cast_spec<U>(self) -> NonNull<U>;

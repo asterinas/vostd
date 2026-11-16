@@ -1,9 +1,8 @@
 name: Set up Verus toolchain and caches
 description: >-
   Shared CI setup: system dependencies, the Rust toolchain and cargo caches,
-  the dv build cache, and (optionally) the tools/verus cache with a
-  bootstrap-if-miss step. Expects a repository checkout (with submodules) in
-  the working directory.
+  and (optionally) the tools/verus cache with a bootstrap-if-miss step.
+  Expects a repository checkout in the working directory.
 
 inputs:
   verus:
@@ -12,17 +11,11 @@ inputs:
   install-verusfmt:
     description: Install verusfmt via its installer if missing ('true' or 'false')
     default: 'false'
-  dv-cache:
-    description: "'save' (restore + save) or 'restore' (restore only) for dv/target"
-    default: 'save'
 
 outputs:
   rust-version:
     description: Rust toolchain channel from rust-toolchain.toml
     value: ${{ steps.rust.outputs.rust-version }}
-  dv-commit:
-    description: dv submodule commit
-    value: ${{ steps.commits.outputs.dv-commit }}
   verus-commit:
     description: Upstream Verus commit used for the tools/verus cache key
     value: ${{ steps.commits.outputs.verus-commit }}
@@ -74,34 +67,16 @@ runs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
-    - name: Resolve dv and Verus commits
+    - name: Resolve Verus commit
       id: commits
       shell: bash
       run: |
-        DV_COMMIT=$(git rev-parse HEAD:dv)
-        echo "dv-commit=$DV_COMMIT" >> "$GITHUB_OUTPUT"
-        echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
-        echo "Using dv commit: $DV_COMMIT"
         if [[ "${{ inputs.verus }}" == "true" ]]; then
           VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
           echo "verus-commit=$VERUS_COMMIT" >> "$GITHUB_OUTPUT"
           echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
           echo "Using Verus commit: $VERUS_COMMIT"
         fi
-
-    - name: Cache dv build artifacts
-      if: inputs.dv-cache == 'save'
-      uses: actions/cache@v6
-      with:
-        path: dv/target
-        key: ${{ runner.os }}-dv-${{ steps.commits.outputs.dv-commit }}
-
-    - name: Restore dv build artifacts
-      if: inputs.dv-cache == 'restore'
-      uses: actions/cache/restore@v6
-      with:
-        path: dv/target
-        key: ${{ runner.os }}-dv-${{ steps.commits.outputs.dv-commit }}
 
     - name: Cache Verus
       id: verus-cache

@@ -26,7 +26,7 @@ impl PageProperty {
         Self {
             flags,
             cache,
-            priv_flags: PrivilegedPageFlags::USER(),
+            priv_flags: PrivilegedPageFlags::USER,
         }
     }
 
@@ -161,20 +161,20 @@ impl PageProperty {
     /// Adding and removing `AVAIL1` is reversible when it is used as a reserved tag.
     pub proof fn lemma_avail1_tag_encoding(self)
         ensures
-            self.flags.union(PageFlags::AVAIL1()).contains(PageFlags::AVAIL1()),
-            !self.flags.difference(PageFlags::AVAIL1()).contains(PageFlags::AVAIL1()),
-            !self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.difference(PageFlags::AVAIL1())
+            self.flags.union(PageFlags::AVAIL1).contains(PageFlags::AVAIL1),
+            !self.flags.difference(PageFlags::AVAIL1).contains(PageFlags::AVAIL1),
+            !self.flags.contains(PageFlags::AVAIL1) ==> self.flags.difference(PageFlags::AVAIL1)
                 == self.flags,
-            !self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.union(
-                PageFlags::AVAIL1(),
-            ).difference(PageFlags::AVAIL1()) == self.flags,
-            self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.difference(
-                PageFlags::AVAIL1(),
-            ).union(PageFlags::AVAIL1()) == self.flags,
+            !self.flags.contains(PageFlags::AVAIL1) ==> self.flags.union(
+                PageFlags::AVAIL1,
+            ).difference(PageFlags::AVAIL1) == self.flags,
+            self.flags.contains(PageFlags::AVAIL1) ==> self.flags.difference(
+                PageFlags::AVAIL1,
+            ).union(PageFlags::AVAIL1) == self.flags,
     {
         broadcast use PageFlags::lemma_consts;
 
-        let tag = PageFlags::AVAIL1();
+        let tag = PageFlags::AVAIL1;
         let bits = self.flags.bits();
         let tag_bits = tag.bits();
         assert(((bits | tag_bits) & tag_bits) == tag_bits) by (bit_vector);

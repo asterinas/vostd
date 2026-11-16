@@ -18,8 +18,9 @@ use super::*;
 use crate::mm::{
     Vaddr,
     frame::{
-        AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrame,
-        meta::{META_SLOT_SIZE, REF_COUNT_UNIQUE},
+        linked_list::{CursorMut, Link, LinkedList},
+        meta::{AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_UNIQUE},
+        unique::UniqueFrame,
     },
     kspace::FRAME_METADATA_RANGE,
 };

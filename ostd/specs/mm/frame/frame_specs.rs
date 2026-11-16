@@ -14,7 +14,8 @@ use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
         meta::{
-            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+            AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED,
             mapping::{frame_to_meta, meta_to_frame},
         },
         *,

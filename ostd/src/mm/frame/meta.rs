@@ -96,7 +96,6 @@ use crate::specs::{
     mm::frame::{mapping::frame_to_index, meta_owners::*, meta_region_owners::MetaRegionOwners},
 };
 
-use align_ext::AlignExt;
 use core::{
     alloc::Layout,
     any::Any,
@@ -107,19 +106,21 @@ use core::{
     result::Result,
     sync::atomic::{AtomicU64, Ordering},
 };
+
+use align_ext::AlignExt;
 //use log::info;
 
 use self::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
 use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        /*VmReader,*/
-        /*Infallible,*/ Paddr,
+        Infallible,
+        Paddr,
         PagingLevel,
         //Segment,
         Vaddr,
+        VmReader,
         kspace::FRAME_METADATA_RANGE,
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
         paddr_to_vaddr,

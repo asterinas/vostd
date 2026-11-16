@@ -59,8 +59,8 @@ use crate::specs::{
 use crate::mm::{
     Paddr,
     frame::{
-        AnyFrameMeta, Link,
-        meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+        linked_list::Link,
+        meta::{AnyFrameMeta, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
     },
 };
 
