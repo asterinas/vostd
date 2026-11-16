@@ -15,7 +15,7 @@
 //! - Preemption guards are counted, not stacked, matching the CPU-local guard
 //!   counter behind `DisabledPreemptGuard`; they may be released in any order.
 //! - Local IRQ guards restore the saved IRQ state and must be released in
-//!   reverse order.
+//!   reverse order. A guard may instead be forgotten, which leaves IRQs masked.
 //! - An interrupt runs nested on the interrupted task and never switches it
 //!   out. Interrupt entry masks IRQs, and the bottom half disables preemption
 //!   before unmasking them. Hence, no live preemption guard together with
@@ -77,6 +77,12 @@ pub tracked struct InterruptToken {
 }
 
 impl LocalIrqGuardToken {
+    /// A nested guard is acquired while IRQs are already masked.
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.depth > 0 ==> !self.was_enabled
+    }
+
     /// CPU core that issued this guard.
     pub closed spec fn core_id(&self) -> Loc {
         self.core_id
@@ -416,7 +422,6 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             guard.core_id() == old(self).id(),
             guard.cpu() == old(self).cpu(),
             guard.depth() + 1 == old(self).irq_guard_depth(),
-            guard.depth() > 0 ==> !guard.was_enabled(),
             guard.was_enabled() && old(self).interrupt_count() > 0 ==> old(self).preempt_count()
                 > 0,
         ensures
@@ -432,11 +437,40 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
             final(self).irq_guard_depth() == guard.depth(),
             final(self).irq_enabled() == guard.was_enabled(),
     {
+        use_type_invariant(&guard);
         let ghost next = CpuCoreOwnerView {
             irq_enabled: guard.was_enabled(),
             irq_guard_depth: guard.depth(),
             ..self@
         };
+        self.handle.state.update(next);
+    }
+
+    /// Models `core::mem::forget` of the most recently acquired local IRQ
+    /// guard.
+    ///
+    /// The guard is consumed without restoring its saved state, so local IRQs
+    /// stay masked. The bottom half and `halt_cpu` do this.
+    pub proof fn tracked_forget_local(tracked &mut self, tracked guard: LocalIrqGuardToken)
+        requires
+            old(self).wf(),
+            guard.core_id() == old(self).id(),
+            guard.cpu() == old(self).cpu(),
+            guard.depth() + 1 == old(self).irq_guard_depth(),
+        ensures
+            final(self).wf(),
+            final(self).id() == old(self).id(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).current_task() == old(self).current_task(),
+            final(self).locals() == old(self).locals(),
+            final(self).preempt_guards_id() == old(self).preempt_guards_id(),
+            final(self).preempt_count() == old(self).preempt_count(),
+            final(self).interrupts_id() == old(self).interrupts_id(),
+            final(self).interrupt_count() == old(self).interrupt_count(),
+            final(self).irq_guard_depth() == guard.depth(),
+            !final(self).irq_enabled(),
+    {
+        let ghost next = CpuCoreOwnerView { irq_guard_depth: guard.depth(), ..self@ };
         self.handle.state.update(next);
     }
 
@@ -556,15 +590,16 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
 
     /// Models returning from an interrupt handler.
     ///
-    /// The handler returns with IRQs masked. Returning restores the enabled IRQ
-    /// state observed at entry, discarding IRQ guards the handler forgot. When
-    /// it returns into an outer bottom half, that bottom half still holds its
-    /// preemption guard.
+    /// The handler returns with IRQs masked and every IRQ guard it acquired
+    /// released or forgotten. Returning restores the enabled IRQ state observed
+    /// at entry. When it returns into an outer bottom half, that bottom half
+    /// still holds its preemption guard.
     pub proof fn tracked_exit_interrupt(tracked &mut self, tracked entry: InterruptToken)
         requires
             old(self).wf(),
             entry.id() == old(self).interrupts_id(),
             !old(self).irq_enabled(),
+            old(self).irq_guard_depth() == 0,
             old(self).interrupt_count() > 1 ==> old(self).preempt_count() > 0,
         ensures
             final(self).wf(),
@@ -581,7 +616,7 @@ impl<L: CpuCoreLocalState> CpuCoreOwner<L> {
     {
         let tracked InterruptToken { ticket } = entry;
         self.handle.interrupts.tracked_release(ticket);
-        let ghost next = CpuCoreOwnerView { irq_enabled: true, irq_guard_depth: 0, ..self@ };
+        let ghost next = CpuCoreOwnerView { irq_enabled: true, ..self@ };
         self.handle.state.update(next);
     }
 
@@ -758,7 +793,8 @@ proof fn interrupts_and_preemption_gate_task_switch<L: CpuCoreLocalState>(
     core.tracked_exit_interrupt(nested);
 
     // The bottom half masks IRQs, forgets that guard and drops its preemption guard.
-    let tracked _forgotten = core.tracked_disable_local();
+    let tracked irq_guard = core.tracked_disable_local();
+    core.tracked_forget_local(irq_guard);
     core.tracked_enable_preempt(bottom_half);
     core.tracked_exit_interrupt(entry);
     assert(core.interrupt_count() == 0);
