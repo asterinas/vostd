@@ -106,6 +106,9 @@ fn generate_single_target_doc(
     };
     cmd.env("VERUSDOC", verus_doc_value);
     cmd.env("RUSTC_BOOTSTRAP", "1");
+    // rustdoc is invoked outside Cargo, so provide the documented package's
+    // identity for proc macros such as `Pod` that select paths from it.
+    cmd.env("CARGO_PKG_NAME", &target.name);
 
     // `cargo dv build` builds with `--target <rust_target>`, so the documentation
     // must be generated for the same target triple to use those artifacts as

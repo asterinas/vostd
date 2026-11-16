@@ -1095,7 +1095,13 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).cursor.range == old(self).cursor.range,
             old(self).remain_spec() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
-            r is Err ==> *final(self) == *old(self),
+            match r {
+                Ok(_) => {
+                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                },
+                Err(_) => *final(self) == *old(self),
+            },
     )]
     pub fn read_val<T: Pod>(&mut self) -> Result<T> {
         let len = core::mem::size_of::<T>();
@@ -1137,6 +1143,7 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
+            r matches Ok(collected) ==> collected.len() == old(self).remain_spec(),
             r is Err ==> *final(self) == *old(self),
     )]
     pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
@@ -1595,6 +1602,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     }
 
     /// Returns the cursor pointer, which refers to the address of the next byte to read.
+    #[verus_spec(returns self.cursor)]
     pub fn cursor(&self) -> VirtPtr {
         self.cursor
     }
@@ -1734,6 +1742,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     }
 
     /// Returns the cursor pointer, which refers to the address of the next byte to write.
+    #[verus_spec(returns self.cursor)]
     pub fn cursor(&self) -> VirtPtr {
         self.cursor
     }
@@ -1861,7 +1870,13 @@ impl<'a> VmWriter<'a, Fallible> {
             final(self).cursor.range == old(self).cursor.range,
             old(self).avail_spec() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
-            r is Err ==> *final(self) == *old(self),
+            match r {
+                Ok(_) => {
+                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                },
+                Err(_) => *final(self) == *old(self),
+            },
     )]
     pub fn write_val<T: Pod>(&mut self, new_val: &T) -> Result<()> {
         let len = core::mem::size_of::<T>();
@@ -2111,6 +2126,7 @@ macro_rules! impl_read_fallible {
                         &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
                         &&& n <= old(self).remain_spec()
                         &&& n <= old(writer).avail_spec()
+                        &&& r is Ok ==> n == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int)
                     },
             )]
             fn read_fallible(
@@ -2165,6 +2181,7 @@ macro_rules! impl_write_fallible {
                         &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
                         &&& n <= old(self).avail_spec()
                         &&& n <= old(reader).remain_spec()
+                        &&& r is Ok ==> n == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int)
                     },
             )]
             fn write_fallible(
