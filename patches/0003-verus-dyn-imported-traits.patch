@@ -1,0 +1,41 @@
+diff --git a/source/rust_verify/src/query.rs b/source/rust_verify/src/query.rs
+index f4169867..93cf7c4f 100644
+--- a/source/rust_verify/src/query.rs
++++ b/source/rust_verify/src/query.rs
+@@ -592,8 +592,12 @@ impl<'tcx> Query<'tcx> {
+         self.emit_diags(diags);
+         let () = check.map_err(|e| self.emit_error(e))?;
+ 
+-        vir::well_formed::finish_dyn_compatability_checks(&krate, all_dyn_compatability_checks)
+-            .map_err(|e| self.emit_errors(e))?;
++        vir::well_formed::finish_dyn_compatability_checks(
++            &krate,
++            &other_vir_crates,
++            all_dyn_compatability_checks,
++        )
++        .map_err(|e| self.emit_errors(e))?;
+ 
+         Ok(krate)
+     }
+diff --git a/source/vir/src/well_formed.rs b/source/vir/src/well_formed.rs
+index bb897df7..96f49544 100644
+--- a/source/vir/src/well_formed.rs
++++ b/source/vir/src/well_formed.rs
+@@ -113,10 +113,16 @@ impl EmitError for EmitErrorState {
+ /// trait hasn't been computed yet.
+ pub fn finish_dyn_compatability_checks(
+     krate: &Krate,
++    other_crates: &[Krate],
+     checks: Vec<DynCompatabilityChecks>,
+ ) -> Result<(), Vec<VirErr>> {
+     let mut trait_map = HashMap::new();
+-    for traitt in krate.traits.iter() {
++    // Imported crates first, so a trait in the crate being verified wins any
++    // collision. `check_one_typ` admits a `dyn T` whenever `T` is in the *merged*
++    // trait map, which spans imported crates, so this deferred check has to span
++    // them as well or a `dyn` of another crate's trait is rejected here as
++    // "not declared to Verus" after being accepted there.
++    for traitt in other_crates.iter().flat_map(|k| k.traits.iter()).chain(krate.traits.iter()) {
+         trait_map.insert(traitt.x.name.clone(), traitt.clone());
+     }
+ 

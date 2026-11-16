@@ -2,9 +2,11 @@ pub mod entry_owners;
 pub mod owners;
 
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
+use vstd_extra::typing::tagged::MaxSize;
+use crate::specs::mm::frame::meta_owners::META_STORAGE_SIZE;
+use vstd_extra::drop_tracking::*;
 
-use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 
 use crate::mm::{
     frame::Frame,
@@ -76,114 +78,14 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     }
 }
 
-impl<C: PageTableConfig> PageTablePageMeta<C> {
-    pub open spec fn into_spec(self) -> StoredPageTablePageMeta {
-        StoredPageTablePageMeta {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-        }
-    }
-
-    #[verifier::when_used_as_spec(into_spec)]
-    pub fn into(self) -> StoredPageTablePageMeta
-        returns
-            self.into_spec(),
-    {
-        StoredPageTablePageMeta {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-        }
-    }
-}
-
-impl StoredPageTablePageMeta {
-    pub open spec fn into_spec<C: PageTableConfig>(self) -> PageTablePageMeta<C> {
-        PageTablePageMeta::<C> {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[verifier::when_used_as_spec(into_spec)]
-    pub fn into<C: PageTableConfig>(self) -> PageTablePageMeta<C>
-        returns
-            self.into_spec::<C>(),
-    {
-        PageTablePageMeta::<C> {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-            _phantom: PhantomData,
-        }
-    }
-}
-
 pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
     _page: Frame<PageTablePageMeta<C>>,
 ) -> Frame<PageTablePageMeta<C>>;
 
-impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    type ReprPerm = ();
-
-    open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
-        matches!(r, MetaSlotStorage::PTNode(_))
-    }
-
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (MetaSlotStorage::PTNode(self.into_spec()), ())
-    }
-
+impl<C: PageTableConfig> MaxSize<{ META_STORAGE_SIZE }> for PageTablePageMeta<C> {
+    /// Axiomatized: a layout fact.
     #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
-        unimplemented!()
-    }
-
-    open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
-        match r {
-            MetaSlotStorage::PTNode(node) => node.into_spec::<C>(),
-            _ => arbitrary(),
-        }
-    }
-
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed_mut<'a>(
-        r: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
-    ) -> &'a mut Self {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self, perm: ()) {
-    }
-
-    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
-        match r {
-            MetaSlotStorage::PTNode(node) => {},
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
+    proof fn size_correct() {
     }
 }
 

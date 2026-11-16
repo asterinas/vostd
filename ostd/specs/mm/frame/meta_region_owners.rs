@@ -1,5 +1,5 @@
 use vstd::{atomic::*, prelude::*};
-use vstd_extra::{cast_ptr::Repr, ownership::*, raw_ptr::ExposedPointsTo};
+use vstd_extra::{ownership::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{arch::*, mm::frame::mapping::*};
 
