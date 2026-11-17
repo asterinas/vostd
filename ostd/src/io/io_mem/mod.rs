@@ -59,33 +59,12 @@ impl HasPaddr for IoMem {
 #[verus_verify]
 impl IoMem {
     /// Acquires an `IoMem` instance for the given range.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Safety
-    /// - The body is trusted (`external_body`): it looks up the initialized
-    ///   global allocator and forwards to its verified acquire; only the
-    ///   registered MMIO windows can be handed out.
-    ///
-    /// ## Preconditions
-    /// - The range is non-empty and bounded:
-    ///   `range.start < range.end <= usize::MAX - (PAGE_SIZE - 1)`.
-    /// - The range lies within a boot-time registered MMIO window.
-    /// - The global I/O memory allocator has been initialized.
-    /// - The caller supplies a tracked permission exactly covering `range`.
-    ///
-    /// ## Postconditions
-    /// - On success, the returned `IoMem` covers exactly the requested range:
-    ///   `paddr() == range.start` and `length() == range.end - range.start`.
     #[verifier::external_body]
     #[verus_spec(result =>
-        with
-            Tracked(permit): Tracked<vstd_extra::resource::range::GhostSubRange<usize>>,
         requires
             range.start < range.end <= usize::MAX - (PAGE_SIZE - 1),
             allocator::io_mem_range_registered(range),
             allocator::io_mem_allocator_initialized(),
-            permit.range() == range,
         ensures
             result matches Ok(io_mem) ==> {
                 &&& io_mem.paddr() == range.start
@@ -294,8 +273,6 @@ impl VmIo<()> for IoMem {
         false
     }
 
-    /// Device reads are a trusted hardware boundary; the range checks and cursor updates remain
-    /// identical to the original implementation.
     #[verifier::external_body]
     /* Original Rust: fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> { */
     fn read(
@@ -315,7 +292,6 @@ impl VmIo<()> for IoMem {
         Ok(())
     }
 
-    /// Device writes are a trusted hardware boundary for the same reason as [`Self::read`].
     #[verifier::external_body]
     /* Original Rust: fn write(&self, offset: usize, reader: &mut VmReader) -> Result<()> { */
     fn write(

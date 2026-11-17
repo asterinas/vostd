@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-//! A verified first-fit range allocator.
-//!
 //! # Verified Properties
 //!
-//! The free list is hidden behind a spin lock and modeled as an abstract set of
-//! addresses. Construction returns a splittable [`AllocPermit`] permission.
-//! Allocating a specific range consumes the corresponding [`AllocRangePermit`]
-//! and returns a [`FreePermit`]; freeing performs the inverse transition.
+//! Free-address permissions are retained internally under the allocator's free-list lock.
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
@@ -48,12 +43,6 @@ pub struct RangeAllocError;
 
 verus! {
 
-/// The splittable permission to allocate from a range allocator's free addresses.
-pub type AllocPermit = GhostSubset<usize>;
-
-/// The permission to allocate a contiguous range of free addresses.
-pub type AllocRangePermit = GhostSubRange<usize>;
-
 /// The permission to free a previously allocated range, consumed by [`RangeAllocator::free`].
 pub type FreePermit = GhostSubRange<usize>;
 
@@ -66,38 +55,13 @@ impl View for RangeAllocator {
 }
 
 impl RangeAllocator {
-    /// The identifier of this allocator's [`FreePermit`]s, which authorize freeing allocated ranges.
-    /// Shared with the allocated-address set authority.
-    ///
-    /// Allocation returns a `FreePermit` with this identifier, proving ownership of the allocated
-    /// range. [`Self::free`] consumes it and returns an [`AllocRangePermit`] with [`Self::allocate_id`].
+    /// The identifier of allocation tokens accepted by this allocator.
     pub closed spec fn free_id(self) -> Loc {
         self.freelist.constant().free_id
     }
 
-    /// The identifier of this allocator's [`AllocPermit`]s and [`AllocRangePermit`]s, which authorize
-    /// allocating free addresses. Shared with the free-address set authority.
-    ///
-    /// Construction returns an `AllocPermit` with this identifier. An `AllocRangePermit` split
-    /// from it authorizes allocation of a specific free range; allocation consumes that permission
-    /// and returns a [`FreePermit`] with [`Self::free_id`]. Freeing reverses this transition.
-    pub closed spec fn allocate_id(self) -> Loc {
+    closed spec fn allocate_id(self) -> Loc {
         self.freelist.constant().allocate_id
-    }
-
-    /// The free permission and borrowed allocation tokens account for this allocator's full range.
-    pub open spec fn permits_cover_fullrange(
-        self,
-        permit: AllocPermit,
-        allocations: Seq<FreePermit>,
-    ) -> bool {
-        &&& permit.id() == self.allocate_id()
-        &&& allocations.all(|token: FreePermit| token.id() == self.free_id())
-        &&& forall|address: usize| #[trigger]
-            self@.view_set().contains(address) ==> {
-                permit@.contains(address) || exists|i: int|
-                    0 <= i < allocations.len() && #[trigger] allocations[i]@.contains(address)
-            }
     }
 
     #[verifier::type_invariant]
@@ -158,15 +122,13 @@ closed spec fn block_contains(block: Range<usize>, range: Range<usize>) -> bool 
     block.start <= range.start && range.end <= block.end
 }
 
-/// Splittable free-range permissions for a sequence of allocators.
-pub type RangeAllocatorPermits = Seq<AllocPermit>;
-
 /// Lock-guarded proof resource: initialization state, the authoritative set,
 /// and the authoritative free and allocated address sets.
 tracked struct FreelistResource {
     initialized: Sum<OneShotPending, OneShotSet>,
     free: GhostSetAuth<usize>,
     allocated: GhostSetAuth<usize>,
+    available: GhostSubset<usize>,
 }
 
 #[cfg(feature = "irc11")]
@@ -184,6 +146,8 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         freelist: Option<BTreeMap<usize, FreeRange>>,
         resource: Self::Resource,
     ) -> bool {
+        &&& resource.available.id() == constant.allocate_id
+        &&& resource.available@ == resource.free@
         &&& resource.free.id() == constant.allocate_id
         &&& resource.allocated.id() == constant.free_id
         &&& match resource.initialized {
@@ -209,13 +173,10 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
 #[verus_verify]
 impl RangeAllocator {
     #[verus_spec(ret =>
-        with -> permit: Tracked<AllocPermit>,
         requires
             fullrange.start <= fullrange.end,
         ensures
             ret@ == fullrange,
-            permit@.id() == ret.allocate_id(),
-            permit@@ == fullrange.view_set(),
     )]
     /* `#[verus_spec]` on a `const fn` does not keep `proof_decl!` locals visible to
      * `verus_exec_expr!` in the active Verus toolchain, so this constructor cannot remain const.
@@ -236,10 +197,10 @@ impl RangeAllocator {
                 initialized: Sum::Left(initialized),
                 free,
                 allocated,
+                available: permit,
             };
         }
 
-        #[verus_spec(with |= Tracked(permit))]
         verus_exec_expr! {
             Self {
                 fullrange,
@@ -254,37 +215,13 @@ impl RangeAllocator {
     }
 
     /// Allocates a specific kernel virtual area.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Safety
-    /// - No unsafe code; no panic under the verified contract.
-    ///
-    /// ## Functional Correctness
-    /// - Always returns `Ok` for `allocate_range` under the free-range
-    ///   permission precondition.
-    ///
-    /// ## Preconditions
-    /// - The target range is non-empty and lies within this allocator's range.
-    /// - Supply an [`AllocRangePermit`] for exactly `allocate_range`.
-    ///
-    /// ## Postconditions
-    /// - Consumes the free-range permission and returns a [`FreePermit`]
-    ///   proving ownership of the allocated range, consumed by
-    ///   [`RangeAllocator::free`].
     #[verus_spec(res =>
         with
-            Tracked(permit): Tracked<Option<AllocRangePermit>>,
             -> allocated: Tracked<Option<FreePermit>>,
         requires
             allocate_range.start < allocate_range.end,
-            self@.start <= allocate_range.start && allocate_range.end <= self@.end ==> {
-                permit matches Some(token)
-                    && token.id() == self.allocate_id()
-                    && token.range() == *allocate_range
-            },
         ensures
-            res is Ok <==> self@.start <= allocate_range.start && allocate_range.end <= self@.end,
+            res is Ok ==> self@.start <= allocate_range.start && allocate_range.end <= self@.end,
             res is Ok <==> allocated@ is Some,
             allocated@ matches Some(token) ==> {
                 &&& token.id() == self.free_id()
@@ -300,13 +237,6 @@ impl RangeAllocator {
             let ghost initial_map = lock_guard@->0@;
             let ghost initial_freelist = freelist_model(initial_map);
             let ghost mut checked = Set::<(usize, FreeRange)>::empty();
-            let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            if self@.start <= allocate_range.start && allocate_range.end <= self@.end {
-                if let Some(token) = &permit {
-                    token.tracked_borrow().agree(&resource.free);
-                }
-                lemma_contiguous_subset_has_covering_block(self@, initial_map, *allocate_range);
-            }
         }
         let freelist = lock_guard.as_mut().unwrap();
         let mut target_node = None;
@@ -397,20 +327,14 @@ impl RangeAllocator {
         };
         proof! {
             if res is Err {
-                if self@.start <= allocate_range.start && allocate_range.end <= self@.end {
-                    let key = choose|key: usize|
-                        #![trigger initial_map.contains_key(key)]
-                        initial_map.contains_key(key)
-                            && block_contains(initial_map[key].block, *allocate_range);
-                    assert(freelist@.kv_pairs().contains((key, freelist@[key])));
-                    assert(false);
-                }
                 allocated = None;
             } else {
                 let tracked resource = lock_guard.tracked_borrow_mut_resource();
                 let ghost key = target_node->0;
                 lemma_alloc_specific_model(self@, initial_map, freelist@, key, *allocate_range);
-                resource.free.delete(permit.tracked_unwrap().tracked_into_subset());
+                lemma_free_set_contains_range(initial_freelist, initial_map[key].block);
+                let tracked subset = resource.available.split(allocate_range.view_set());
+                resource.free.delete(subset);
                 let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
                 assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
@@ -425,37 +349,11 @@ impl RangeAllocator {
     /// Allocates a range specific by the `size`.
     ///
     /// This is currently implemented with a simple FIRST-FIT algorithm.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Safety
-    /// - No unsafe code; no panic under the verified contract.
-    ///
-    /// ## Functional Correctness
-    /// - On `Ok`, the returned range lies within `self@` and has exactly
-    ///   `size` addresses.
-    ///
-    /// ## Preconditions
-    /// - The requested size is non-zero.
-    /// - Supply the remaining free-address permission and borrow the allocation
-    ///   tokens that together account for this allocator's full range.
-    /// - Split permissions can be used independently with `alloc_specific`;
-    ///   `alloc` requires ownership of the entire current free pool.
-    ///
-    /// ## Postconditions
-    /// - On `Ok`, removes the returned range from the supplied permission and
-    ///   returns a [`FreePermit`] proving ownership, consumed by
-    ///   [`RangeAllocator::free`]. On `Err`, no allocation token is returned.
-    /// - Append the returned token to the borrowed collection before calling
-    ///   `alloc` again. On failure, the existing permissions remain usable.
     #[verus_spec(res =>
         with
-            Tracked(permit): Tracked<&mut AllocPermit>,
-            Tracked(allocations): Tracked<&Seq<FreePermit>>,
             -> allocated: Tracked<Option<FreePermit>>,
         requires
             size > 0,
-            self.permits_cover_fullrange(*old(permit), *allocations),
         ensures
             res matches Ok(res) ==> {
                 &&& res.end - res.start == size
@@ -463,31 +361,12 @@ impl RangeAllocator {
                 &&& allocated@ matches Some(token) && {
                     &&& token.id() == self.free_id()
                     &&& token.range() == res
-                    &&& self.permits_cover_fullrange(*final(permit), allocations.push(token))
                 }
-                &&& final(permit)@ == old(permit)@ - res.view_set()
-                &&& res.view_set() <= old(permit)@
             },
             res is Ok <==> allocated@ is Some,
-            final(permit).id() == old(permit).id(),
-            res is Err ==> final(permit)@ == old(permit)@,
     )]
     pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
-        proof! {
-            let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            permit.agree(&resource.free);
-            lemma_allocations_agree(allocations, &resource.allocated, allocations.len() as int);
-            assert(resource.free@ <= permit@) by {
-                assert forall|address: usize| #[trigger] resource.free@.contains(address) implies
-                    permit@.contains(address) by {
-                    let key = choose|key: usize| #[trigger]
-                        lock_guard@->0@.contains_key(key)
-                            && lock_guard@->0@[key].block.view_set().contains(address);
-                    assert(self@.view_set().contains(address));
-                }
-            }
-        }
         let freelist = lock_guard.as_mut().unwrap();
         proof_decl! {
             let tracked allocated: Option<FreePermit>;
@@ -544,29 +423,10 @@ impl RangeAllocator {
             if allocate_range is Some {
                 let ghost range = allocate_range -> 0;
                 lemma_alloc_suffix_model(self@, initial_map, freelist@, to_remove->0, range);
-                let ghost permit_before = *permit;
-                let tracked free_subset = permit.split(range.view_set());
+                let tracked free_subset = resource.available.split(range.view_set());
                 resource.free.delete(free_subset);
                 let tracked allocated_subset = resource.allocated.insert_set(range.view_set());
                 let tracked token = GhostSubRange::tracked_new(allocated_subset, range);
-                let ghost next_allocations = allocations.push(token);
-                assert(self.permits_cover_fullrange(*permit, next_allocations)) by {
-                    assert forall|address: usize| #[trigger] self@.view_set().contains(address)
-                        implies permit@.contains(address) || exists|i: int|
-                            0 <= i < next_allocations.len()
-                                && #[trigger] next_allocations[i]@.contains(address) by {
-                        if !permit@.contains(address) {
-                            if range.view_set().contains(address) {
-                                assert(next_allocations[allocations.len() as int]@
-                                    .contains(address));
-                            } else {
-                                let i = choose|i: int| 0 <= i < allocations.len()
-                                    && #[trigger] allocations[i]@.contains(address);
-                                assert(next_allocations[i]@.contains(address));
-                            }
-                        }
-                    }
-                }
                 allocated = Some(token);
                 assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
                     - resource.free@);
@@ -584,32 +444,14 @@ impl RangeAllocator {
     }
 
     /// Frees a `range`.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Safety
-    /// - No unsafe code.
-    ///
-    /// ## Preconditions
-    /// - The range to free lies within this allocator's range.
-    /// - Supply the allocation token returned when this exact range was
-    ///   allocated. The token is consumed by this operation.
-    ///
-    /// ## Postconditions
-    /// - Returns an [`AllocRangePermit`] for the released range. Its underlying
-    ///   subset can be combined with the allocator's remaining [`AllocPermit`].
     #[verus_verify(spinoff_prover)]
     #[verus_spec(
         with
             Tracked(allocated): Tracked<FreePermit>,
-            -> alloc_permit: Tracked<AllocRangePermit>,
         requires
             self@.start <= range.start < range.end <= self@.end,
             allocated.id() == self.free_id(),
             allocated.range() == range,
-        ensures
-            alloc_permit@.id() == self.allocate_id(),
-            alloc_permit@.range() == range,
     )]
     pub fn free(&self, range: Range<usize>) {
         proof! {
@@ -617,7 +459,6 @@ impl RangeAllocator {
         }
         let mut lock_guard = self.freelist.lock();
         proof_decl! {
-            let tracked alloc_permit: AllocRangePermit;
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             let tracked allocated_subset = allocated.tracked_borrow();
             allocated_subset.agree(&resource.allocated);
@@ -815,7 +656,7 @@ impl RangeAllocator {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             resource.allocated.delete(allocated.tracked_into_subset());
             let tracked free_subset = resource.free.insert_set(range.view_set());
-            alloc_permit = GhostSubRange::tracked_new(free_subset, range);
+            resource.available.combine(free_subset);
             assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
                 - resource.free@);
             assert(resource.free@ == free_set(freelist_model(freelist@))) by {
@@ -824,7 +665,6 @@ impl RangeAllocator {
                 }
             }
         }
-        #[verus_spec(with |= Tracked(alloc_permit))]
         lock_guard.drop()
     }
 
@@ -840,6 +680,8 @@ impl RangeAllocator {
             ret.constant().fullrange == self@,
             ret.constant().allocate_id == self.allocate_id(),
             ret.constant().free_id == self.free_id(),
+            ret.resource().available.id() == self.allocate_id(),
+            ret.resource().available@ == ret.resource().free@,
             ret.resource().free.id() == self.allocate_id(),
             ret.resource().allocated.id() == self.free_id(),
             ret.resource().initialized is Right,
@@ -1003,38 +845,6 @@ proof fn lemma_lower_bound_next_is_minimal(
     let key_idx = choose|i: int| 0 <= i < model.keys.len() && #[trigger] model.keys[i] == key;
     if model.position < key_idx {
         assert(model.keys[model.position].cmp_spec(&model.keys[key_idx]) is Less);
-    }
-}
-
-/// A nonempty contiguous subset of a well-formed free set is covered by one block.
-proof fn lemma_contiguous_subset_has_covering_block(
-    fullrange: Range<usize>,
-    freelist: Map<usize, FreeRange>,
-    range: Range<usize>,
-)
-    requires
-        concrete_freelist_wf(fullrange, freelist),
-        freelist_blocks_not_adjacent(freelist),
-        range.start < range.end,
-        range.view_set() <= free_set(freelist_model(freelist)),
-    ensures
-        exists|key: usize| #[trigger]
-            freelist.contains_key(key) && block_contains(freelist[key].block, range),
-{
-    lemma_concrete_free_set_contains(freelist, range.start);
-    let key = choose|key: usize| #[trigger]
-        freelist.contains_key(key) && freelist[key].block.view_set().contains(range.start);
-    let block = freelist[key].block;
-    if block.end < range.end {
-        let address = block.end;
-        lemma_concrete_free_set_contains(freelist, address);
-        let other = choose|other: usize| #[trigger]
-            freelist.contains_key(other) && freelist[other].block.view_set().contains(address);
-        if block.end < freelist[other].block.start {
-            assert(false);
-        } else {
-            assert(false);
-        }
     }
 }
 
@@ -1383,27 +1193,6 @@ proof fn lemma_merge_right_neighbor(
             }
             lemma_concrete_free_set_contains(new_freelist, address);
         }
-    }
-}
-
-/// Every borrowed allocation token agrees with the allocated-address authority.
-proof fn lemma_allocations_agree(
-    tracked allocations: &Seq<FreePermit>,
-    tracked authority: &GhostSetAuth<usize>,
-    count: int,
-)
-    requires
-        0 <= count <= allocations.len(),
-        forall|i: int|
-            0 <= i < allocations.len() ==> #[trigger] allocations[i].id() == authority.id(),
-    ensures
-        forall|i: int| 0 <= i < count ==> #[trigger] allocations[i]@ <= authority@,
-    decreases count,
-{
-    if count > 0 {
-        lemma_allocations_agree(allocations, authority, count - 1);
-        let tracked token = allocations.tracked_borrow(count - 1);
-        token.tracked_borrow().agree(authority);
     }
 }
 

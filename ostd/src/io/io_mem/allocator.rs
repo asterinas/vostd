@@ -1,19 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O Memory allocator.
-use vstd::{
-    arithmetic::power2::is_pow2,
-    prelude::*,
-    resource::{Loc, set::GhostSubset},
-};
+use vstd::{arithmetic::power2::is_pow2, prelude::*, resource::Loc};
 use vstd_extra::{
     once::OnceImpl,
+    panic::may_panic,
     range::{RangeExtraFns, lemma_ranges_disjoint, ranges_disjoint, ranges_separated},
-    resource::range::GhostSubRange,
     resource_invariant::TrivialResourceInvariant,
 };
 
 use crate::specs::arch::PAGE_SIZE;
-use crate::util::range_alloc::{AllocRangePermit, FreePermit, RangeAllocatorPermits};
+use crate::util::range_alloc::FreePermit;
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -40,22 +36,17 @@ impl IoMemAllocator {
     /// If the range is not available, then the return value will be `None`.
     #[verus_spec(result =>
         with
-            Tracked(permit): Tracked<Option<AllocRangePermit>>,
             -> allocated: Tracked<Option<FreePermit>>,
         requires
             self.overlaps_range(range) ==> range.start < range.end,
-            self.covers_range(range) && range.start < range.end ==> {
-                &&& range.end <= usize::MAX - (PAGE_SIZE - 1)
-                &&& permit matches Some(token)
-                    && token.range() == range
-                    && self.has_free_permission(token.id(), range)
-            },
+            self.covers_range(range) && range.start < range.end
+                ==> range.end <= usize::MAX - (PAGE_SIZE - 1),
         ensures
             result matches Some(io_mem) ==> {
                 &&& io_mem.paddr() == range.start
                 &&& io_mem.length() == range.end - range.start
             },
-            result is Some <==> range.start < range.end && self.covers_range(range),
+            result is Some ==> range.start < range.end && self.covers_range(range),
             result is Some <==> allocated@ is Some,
             allocated@ matches Some(token) ==> {
                 &&& token.range() == range
@@ -79,7 +70,7 @@ impl IoMemAllocator {
             return #[verus_spec(with |= Tracked(None))]
             None;
         };
-        if (#[verus_spec(with Tracked(permit) => Tracked(allocated))]
+        if (#[verus_spec(with => Tracked(allocated))]
         allocator.alloc_specific(&range))
         .is_err()
         {
@@ -110,15 +101,11 @@ impl IoMemAllocator {
     #[verus_spec(
         with
             Tracked(allocated): Tracked<FreePermit>,
-            -> permit: Tracked<AllocRangePermit>,
         requires
             range.start < range.end,
             self.covers_range(range),
             allocated.range() == range,
             self.has_allocation(allocated.id(), range),
-        ensures
-            permit@.range() == range,
-            self.has_free_permission(permit@.id(), range),
     )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
         proof! {
@@ -130,13 +117,8 @@ impl IoMemAllocator {
 
         /* debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end); */
 
-        proof_decl! {
-            let tracked permit: AllocRangePermit;
-        }
-        #[verus_spec(with Tracked(allocated) => Tracked(permit))]
+        #[verus_spec(with Tracked(allocated))]
         allocator.free(range);
-        #[verus_spec(with |= Tracked(permit))]
-        ()
     }
 
     /// Initializes usable memory I/O region.
@@ -149,8 +131,6 @@ impl IoMemAllocator {
             windows_disjoint(allocators@),
         ensures
             ret.allocators@ == allocators@,
-            forall|state: RangeAllocatorPermits| allocator_states_match(allocators@, state)
-                ==> #[trigger] ret.state_matches(state),
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
         Self { allocators }
@@ -174,8 +154,6 @@ impl IoMemAllocatorBuilder {
     ///
     /// User must ensure the range doesn't belong to physical memory.
     #[verus_spec(ret =>
-        with
-            -> state_out: Tracked<RangeAllocatorPermits>,
         requires
             ranges_disjoint(ranges@),
             forall|i: int| #![trigger ranges@[i]]
@@ -183,10 +161,6 @@ impl IoMemAllocatorBuilder {
         ensures
             ret@ == ranges@,
             ret.has_registered_windows() == usize_ranges_match_registered(ranges@),
-            state_out@.len() == ranges@.len(),
-            ret.state_matches(state_out@),
-            forall|i: int| 0 <= i < ranges@.len() ==>
-                #[trigger] state_out@[i]@ == ranges@[i].view_set(),
     )]
     pub(crate) unsafe fn new(ranges: Vec<Range<usize>>) -> Self {
         /* info!(
@@ -194,9 +168,6 @@ impl IoMemAllocatorBuilder {
             ranges
         ); */
         let mut allocators: Vec<RangeAllocator> = Vec::with_capacity(ranges.len());
-        proof_decl! {
-            let tracked mut state = Seq::tracked_empty();
-        }
         proof! {
             lemma_ranges_disjoint(ranges@);
         }
@@ -212,21 +183,11 @@ impl IoMemAllocatorBuilder {
                 forall|j: int| #![trigger it.seq()[j]]
                     0 <= j < it.seq().len() ==> it.seq()[j].start <= it.seq()[j].end,
                 windows_disjoint(allocators@),
-                allocator_states_match(allocators@, state),
-                state.len() == it.index(),
-                forall|i: int| 0 <= i < it.index() ==>
-                    #[trigger] state[i]@ == it.seq()[i].view_set(),
         )]
         for range in ranges {
-            proof_decl! {
-                let tracked permit: GhostSubset<usize>;
-            }
-            allocators.push(
-                #[verus_spec(with => Tracked(permit))]
-                RangeAllocator::new(range),
-            );
+            proof! { lemma_windows_disjoint(allocators@); }
+            allocators.push(RangeAllocator::new(range));
             proof! {
-                state.tracked_push(permit);
                 assert forall|i: int| #![trigger allocators@[i]]
                     0 <= i < allocators@.len() - 1
                     implies allocators@[i]@.end <= range.start
@@ -235,6 +196,13 @@ impl IoMemAllocatorBuilder {
                         || it.seq()[it.index()].end <= it.seq()[i].start);
                 }
                 let windows = allocators@.map_values(|allocator: RangeAllocator| allocator@);
+                assert forall|i: int, j: int| #![trigger windows[i], windows[j]]
+                    0 <= i < j < windows.len()
+                    implies windows[i].end <= windows[j].start
+                        || windows[j].end <= windows[i].start by {
+                    assert(allocators@[i]@.end <= allocators@[j]@.start
+                        || allocators@[j]@.end <= allocators@[i]@.start);
+                }
                 assert(ranges_separated(windows));
                 lemma_ranges_disjoint(windows);
             }
@@ -246,49 +214,16 @@ impl IoMemAllocatorBuilder {
                 assert(ranges@ =~= registered_io_mem_windows());
             }
         }
-        proof_with!(|= Tracked(state));
         Self { allocators }
     }
 
     /// Removes access to a specific memory I/O range.
     ///
     /// All drivers in OSTD must use this method to prevent peripheral drivers from accessing illegal memory I/O range.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Safety
-    /// - No unsafe code; panics are proved impossible whenever the supplied
-    ///   permission covers the requested range ([`Self::can_remove`]).
-    ///
-    /// ## Preconditions
-    /// - The range is non-empty and registered as a boot-time MMIO window.
-    /// - The permission sequence matches this builder's allocator windows.
-    ///
-    /// ## Postconditions
-    /// - The permit sequence keeps its length and still matches every window.
-    /// - Exactly `range` is removed from its window's permission, preserving
-    ///   the permission's identity; every other window's permission is
-    ///   unchanged.
     #[verus_spec(
-        with Tracked(state): Tracked<&mut RangeAllocatorPermits>,
         requires
             range.start < range.end,
-            self.can_remove(*old(state), range),
-            io_mem_range_registered(range),
-            self.state_matches(*old(state)),
-        ensures
-            self.state_matches(*final(state)),
-            final(state).len() == old(state).len(),
-            exists|window: int|
-                #![trigger final(state)[window]]
-                0 <= window < old(state).len() && {
-                    let permit = final(state)[window];
-                    let old_permit = old(state)[window];
-                    &&& permit.id() == old_permit.id()
-                    &&& permit@ == old_permit@ - range.view_set()
-                    &&& forall|j: int| 0 <= j < old(state).len() && j != window
-                        ==> final(state)[j] == old(state)[j]
-                },
+            may_panic(),
     )]
     pub(crate) fn remove(&self, range: Range<usize>) {
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
@@ -298,20 +233,6 @@ impl IoMemAllocatorBuilder {
             );
         };
 
-        proof_decl! {
-            let ghost state_before = *state;
-            let ghost k = choose|k: int|
-                #![trigger self.allocators@[k]]
-                0 <= k < self.allocators@.len() && k < state_before.len() && {
-                    let candidate = self.allocators@[k];
-                    &&& candidate@.start <= range.start < range.end <= candidate@.end
-                    &&& state_before[k].id() == candidate.allocate_id()
-                    &&& range.view_set() <= state_before[k]@
-                };
-            let tracked mut window_permit = state.tracked_borrow_mut(k);
-            let tracked range_permit = window_permit.split(range.view_set());
-            let tracked permit = GhostSubRange::tracked_new(range_permit, range);
-        }
         proof! {
             use_type_invariant(self);
             lemma_windows_disjoint(self.allocators@);
@@ -320,7 +241,7 @@ impl IoMemAllocatorBuilder {
             let tracked allocated: Option<FreePermit>;
         }
 
-        if let Err(err) = #[verus_spec(with Tracked(Some(permit)) => Tracked(allocated))]
+        if let Err(err) = #[verus_spec(with => Tracked(allocated))]
         allocator.alloc_specific(&range)
         {
             vstd_extra::panic!(
@@ -363,20 +284,6 @@ pub open spec fn usize_ranges_match_registered(ranges: Seq<Range<usize>>) -> boo
         }
 }
 
-/// Every window has a matching free-address permission.
-closed spec fn allocator_states_match(
-    allocators: Seq<RangeAllocator>,
-    state: RangeAllocatorPermits,
-) -> bool {
-    &&& state.len() == allocators.len()
-    &&& forall|i: int|
-        #![trigger allocators[i]]
-        0 <= i < allocators.len() ==> {
-            &&& state[i].id() == allocators[i].allocate_id()
-            &&& state[i]@ <= allocators[i]@.view_set()
-        }
-}
-
 impl View for IoMemAllocatorBuilder {
     type V = Seq<Range<usize>>;
 
@@ -391,48 +298,6 @@ impl IoMemAllocatorBuilder {
         windows_match_registered(self.allocators@)
     }
 
-    /// Whether some matching window permission covers `range`, proving that
-    /// `remove` succeeds without panicking.
-    pub closed spec fn can_remove(self, state: RangeAllocatorPermits, range: Range<usize>) -> bool {
-        exists|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && i < state.len() && {
-                let allocator = self.allocators@[i];
-                &&& allocator@.start <= range.start < range.end <= allocator@.end
-                &&& state[i].id() == allocator.allocate_id()
-                &&& range.view_set() <= state[i]@
-            }
-    }
-
-    /// Whether every window has a permission with the matching identity.
-    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
-        allocator_states_match(self.allocators@, state)
-    }
-
-    /// A non-empty subrange of a matching permission can be removed from the builder.
-    pub proof fn lemma_can_remove(
-        tracked &self,
-        state: RangeAllocatorPermits,
-        window: int,
-        range: Range<usize>,
-    )
-        requires
-            self.has_registered_windows(),
-            self.state_matches(state),
-            0 <= window < state.len(),
-            range.start < range.end,
-            range.view_set() <= state[window]@,
-        ensures
-            self.can_remove(state, range),
-            io_mem_range_registered(range),
-    {
-        broadcast use lemma_any_index;
-
-        use_type_invariant(self);
-        lemma_permission_range(self.allocators@, state, window, range);
-        assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
-    }
-
     /// The builder always holds the disjoint windows handed to [`IoMemAllocatorBuilder::new`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
@@ -444,72 +309,6 @@ impl IoMemAllocator {
     /// Whether these local windows match the boot-time MMIO registry.
     pub closed spec fn has_registered_windows(self) -> bool {
         windows_match_registered(self.allocators@)
-    }
-
-    /// Whether the free-address permissions belong to this allocator.
-    pub closed spec fn state_matches(self, state: RangeAllocatorPermits) -> bool {
-        allocator_states_match(self.allocators@, state)
-    }
-
-    /// A matching permission authorizes any non-empty subrange it still owns.
-    pub proof fn lemma_has_free_permission(
-        tracked &self,
-        state: RangeAllocatorPermits,
-        window: int,
-        range: Range<usize>,
-    )
-        requires
-            self.state_matches(state),
-            0 <= window < state.len(),
-            range.start < range.end,
-            range.view_set() <= state[window]@,
-        ensures
-            self.has_free_permission(state[window].id(), range),
-            self.has_registered_windows() ==> io_mem_range_registered(range),
-    {
-        broadcast use lemma_any_index;
-
-        use_type_invariant(self);
-        lemma_permission_range(self.allocators@, state, window, range);
-        if self.has_registered_windows() {
-            assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
-        }
-    }
-
-    /// Membership is preserved when a permission is split to a non-empty subrange.
-    pub proof fn lemma_has_free_permission_subrange(
-        tracked &self,
-        id: Loc,
-        range: Range<usize>,
-        subrange: Range<usize>,
-    )
-        requires
-            self.has_free_permission(id, range),
-            range.start <= subrange.start < subrange.end <= range.end,
-        ensures
-            self.has_free_permission(id, subrange),
-            self.has_registered_windows() ==> io_mem_range_registered(subrange),
-    {
-        broadcast use lemma_any_index;
-
-        use_type_invariant(self);
-        let window = choose|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
-                && self.allocators@[i]@.start <= range.start < range.end
-                <= self.allocators@[i]@.end;
-        if self.has_registered_windows() {
-            assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
-        }
-    }
-
-    /// Whether `id` is the free-permission identity of a window containing `range`.
-    pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
-        self.allocators@.any(
-            |allocator: RangeAllocator|
-                allocator.allocate_id() == id && allocator@.start <= range.start < range.end
-                    <= allocator@.end,
-        )
     }
 
     /// Whether `id` is the allocation-token identity of a window containing `range`.
@@ -617,7 +416,6 @@ fn find_allocator<'a>(
 // #[cfg(ktest)]
 mod test {
     use vstd::prelude::*;
-    use vstd_extra::{range::RangeExtraFns, resource::range::GhostSubRange};
 
     use alloc::vec;
 
@@ -631,21 +429,13 @@ mod test {
     #[verus_spec]
     fn illegal_region() {
         let range = vec![0x4000_0000..0x4200_0000];
-        proof_decl! {
-            let tracked state: super::RangeAllocatorPermits;
-        }
-        let allocator = unsafe {
-            IoMemAllocator::new(
-                (#[verus_spec(with => Tracked(state))]
-                IoMemAllocatorBuilder::new(range))
-                .allocators,
-            )
-        };
+        let allocator =
+            unsafe { IoMemAllocator::new((IoMemAllocatorBuilder::new(range)).allocators) };
         proof_decl! {
             let tracked empty_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(empty_allocation))]
+            (#[verus_spec(with => Tracked(empty_allocation))]
             allocator.acquire(0..0))
             .is_none()
         );
@@ -654,7 +444,7 @@ mod test {
             let tracked empty_window_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(empty_window_allocation))]
+            (#[verus_spec(with => Tracked(empty_window_allocation))]
             allocator.acquire(0x4000_0000..0x4000_0000))
             .is_none()
         );
@@ -663,7 +453,7 @@ mod test {
             let tracked reversed_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(reversed_allocation))]
+            (#[verus_spec(with => Tracked(reversed_allocation))]
             allocator.acquire(0x4000_1000..0x4000_0000))
             .is_none()
         );
@@ -672,7 +462,7 @@ mod test {
             let tracked max_reversed_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(max_reversed_allocation))]
+            (#[verus_spec(with => Tracked(max_reversed_allocation))]
             allocator.acquire(usize::MAX..0))
             .is_none()
         );
@@ -682,7 +472,7 @@ mod test {
     }
 
     // #[ktest]
-    #[verus_spec]
+    #[verus_spec(requires super::may_panic())]
     fn conflict_region() {
         let max_paddr = 0x100_000_000_000; // 16 TB
 
@@ -691,43 +481,21 @@ mod test {
             (io_mem_region_a.end + PAGE_SIZE)..(io_mem_region_a.end + 10 * PAGE_SIZE);
         let range = vec![io_mem_region_a.clone(), io_mem_region_b.clone()];
 
-        proof_decl! {
-            let tracked mut state: super::RangeAllocatorPermits;
-        }
         proof! {
             super::lemma_ranges_disjoint(range@);
         }
-        let allocator = unsafe {
-            IoMemAllocator::new(
-                (#[verus_spec(with => Tracked(state))]
-                IoMemAllocatorBuilder::new(range))
-                .allocators,
-            )
-        };
+        let allocator =
+            unsafe { IoMemAllocator::new((IoMemAllocatorBuilder::new(range)).allocators) };
         proof_decl! {
             let ghost first_range = io_mem_region_a.start..((io_mem_region_a.start + 1) as usize);
             let ghost last_range = ((io_mem_region_a.end - 1) as usize)..io_mem_region_a.end;
-            let tracked first_permit: super::AllocRangePermit;
-            let tracked last_permit: super::AllocRangePermit;
-        }
-        proof! {
-            allocator.lemma_has_free_permission(state, 0, first_range);
-            allocator.lemma_has_free_permission(state, 0, last_range);
-            let tracked mut window_permit = state.tracked_remove(0);
-            let tracked first_subset = window_permit.split(first_range.view_set());
-            let tracked last_subset = window_permit.split(last_range.view_set());
-            first_permit = GhostSubRange::tracked_new(first_subset, first_range);
-            last_permit = GhostSubRange::tracked_new(last_subset, last_range);
-            broadcast use super::lemma_any_index;
-            assert(allocator.covers_range(first_range));
-            assert(allocator.covers_range(last_range));
         }
 
         proof_decl! {
             let tracked before_window_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(before_window_allocation))]
+            (#[verus_spec(with => Tracked(before_window_allocation))]
             allocator.acquire((io_mem_region_a.start - 1)..io_mem_region_a.start))
             .is_none()
         );
@@ -735,8 +503,8 @@ mod test {
             assert(before_window_allocation is None);
             let tracked first_allocation: Option<super::FreePermit>;
         }
-        assert!(
-            (#[verus_spec(with Tracked(Some(first_permit)) => Tracked(first_allocation))]
+        vstd_extra::assert!(
+            (#[verus_spec(with => Tracked(first_allocation))]
             allocator.acquire(io_mem_region_a.start..(io_mem_region_a.start + 1)))
             .is_some()
         );
@@ -750,7 +518,7 @@ mod test {
             let tracked gap_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(gap_allocation))]
+            (#[verus_spec(with => Tracked(gap_allocation))]
             allocator.acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1)))
             .is_none()
         );
@@ -759,7 +527,7 @@ mod test {
             let tracked cross_window_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(cross_window_allocation))]
+            (#[verus_spec(with => Tracked(cross_window_allocation))]
             allocator.acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1)))
             .is_none()
         );
@@ -770,8 +538,8 @@ mod test {
         proof_decl! {
             let tracked last_allocation: Option<super::FreePermit>;
         }
-        assert!(
-            (#[verus_spec(with Tracked(Some(last_permit)) => Tracked(last_allocation))]
+        vstd_extra::assert!(
+            (#[verus_spec(with => Tracked(last_allocation))]
             allocator.acquire((io_mem_region_a.end - 1)..io_mem_region_a.end))
             .is_some()
         );
@@ -782,12 +550,46 @@ mod test {
             let tracked after_window_allocation: Option<super::FreePermit>;
         }
         assert!(
-            (#[verus_spec(with Tracked(None) => Tracked(after_window_allocation))]
+            (#[verus_spec(with => Tracked(after_window_allocation))]
             allocator.acquire(io_mem_region_a.end..(io_mem_region_a.end + 1)))
             .is_none()
         );
         proof! {
             assert(after_window_allocation is None);
+        }
+
+        /* Check occupied-range rejection and reuse after returning its token.
+         * Origin Rust: <none; new executable code>
+         */
+        proof_decl! {
+            let tracked duplicate_allocation: Option<super::FreePermit>;
+        }
+        vstd_extra::assert!(
+            (#[verus_spec(with => Tracked(duplicate_allocation))]
+            allocator.acquire(io_mem_region_a.start..(io_mem_region_a.start + 1)))
+            .is_none()
+        );
+        proof_decl! {
+            assert(duplicate_allocation is None);
+            let tracked first_token = first_allocation.tracked_unwrap();
+        }
+        unsafe {
+            #[verus_spec(with Tracked(first_token))]
+            allocator.recycle(io_mem_region_a.start..(io_mem_region_a.start + 1));
+        }
+        proof_decl! {
+            let tracked recycled_allocation: Option<super::FreePermit>;
+        }
+        vstd_extra::assert!(
+            (#[verus_spec(with => Tracked(recycled_allocation))]
+            allocator.acquire(io_mem_region_a.start..(io_mem_region_a.start + 1)))
+            .is_some()
+        );
+        proof! {
+            assert(recycled_allocation matches Some(token) && {
+                &&& token.range() == first_range
+                &&& allocator.has_allocation(token.id(), first_range)
+            });
         }
     }
 }
@@ -804,27 +606,6 @@ broadcast proof fn lemma_any_index<A>(seq: Seq<A>, predicate: spec_fn(A) -> bool
         let i = choose|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]);
         assert(predicate(seq[i]));
     }
-}
-
-/// A non-empty range owned by a window's permission lies within that window.
-proof fn lemma_permission_range(
-    allocators: Seq<RangeAllocator>,
-    state: RangeAllocatorPermits,
-    window: int,
-    range: Range<usize>,
-)
-    requires
-        allocator_states_match(allocators, state),
-        0 <= window < state.len(),
-        range.start < range.end,
-        range.view_set() <= state[window]@,
-    ensures
-        0 <= window < allocators.len(),
-        state[window].id() == allocators[window].allocate_id(),
-        allocators[window]@.start <= range.start < range.end <= allocators[window]@.end,
-{
-    assert(range.view_set().contains(range.start));
-    assert(range.view_set().contains((range.end - 1) as usize));
 }
 
 /// Exposes endpoint separation directly on allocator views for lookup proofs.
