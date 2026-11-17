@@ -69,46 +69,24 @@ unsafe impl AnyFrameMeta for MetaSlotStorage {
 }
 
 impl Repr<MetaSlotStorage> for MetaSlotStorage {
-    type ReprPerm = ();
-
-    open spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool {
+    open spec fn wf(slot: MetaSlotStorage) -> bool {
         true
     }
 
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (self, ())
+    open spec fn from_repr_spec(slot: MetaSlotStorage) -> Self {
+        slot
     }
 
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
+    fn to_repr(self) -> MetaSlotStorage {
         self
     }
 
-    open spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self {
+    fn from_borrowed<'a>(slot: &'a MetaSlotStorage) -> &'a Self {
         slot
     }
 
-    fn from_repr(slot: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+    fn from_borrowed_mut<'a>(slot: &'a mut MetaSlotStorage) -> &'a mut Self {
         slot
-    }
-
-    fn from_borrowed<'a>(slot: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
-        slot
-    }
-
-    fn from_borrowed_mut<'a>(
-        slot: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
-    ) -> &'a mut Self {
-        slot
-    }
-
-    proof fn from_to_repr(self, perm: ()) {
-    }
-
-    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
     }
 }
 
@@ -178,62 +156,55 @@ impl MetaSlotOwner {
 pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     slot_perm: ExposedPointsTo<MetaSlot>,
     metadata_perm: MetadataPerm,
-    repr_perm: M::ReprPerm,
 ) -> bool {
     &&& slot_perm.is_init()
     &&& MetaSlot::perms_related(slot_perm, metadata_perm)
-    &&& M::wf(metadata_perm.storage_perm.value(), repr_perm)
+    &&& M::wf(metadata_perm.storage_perm.value())
 }
 
 /// The value of a concrete metadata.
 pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     metadata_perm: MetadataPerm,
-    repr_perm: M::ReprPerm,
 ) -> M {
-    M::from_repr_spec(metadata_perm.storage_perm.value(), repr_perm)
+    M::from_repr_spec(metadata_perm.storage_perm.value())
 }
 
 pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(slot_perm): Tracked<&'a ExposedPointsTo<MetaSlot>>,
     Tracked(metadata_perm): Tracked<&'a MetadataPerm>,
-    Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
 ) -> &'a M
     requires
         ptr.addr() == slot_perm.addr(),
-        typed_meta_wf::<M>(*slot_perm, *metadata_perm, *repr_perm),
+        typed_meta_wf::<M>(*slot_perm, *metadata_perm),
     returns
-        typed_meta_value::<M>(*metadata_perm, *repr_perm),
+        typed_meta_value::<M>(*metadata_perm),
 {
     let slot = ptr_ref(
         ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)),
         Tracked(slot_perm),
     );
-    M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perm.storage_perm)), Tracked(repr_perm))
+    M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perm.storage_perm)))
 }
 
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(slot_perm): Tracked<&'a ExposedPointsTo<MetaSlot>>,
     Tracked(metadata_perms): Tracked<&'a mut MetadataPerm>,
-    Tracked(repr_perm): Tracked<&'a mut M::ReprPerm>,
 ) -> (res: &'a mut M)
     requires
         ptr.addr() == slot_perm.addr(),
-        typed_meta_wf::<M>(*slot_perm, *old(metadata_perms), *old(repr_perm)),
+        typed_meta_wf::<M>(*slot_perm, *old(metadata_perms)),
     ensures
-        *res == typed_meta_value::<M>(*old(metadata_perms), *old(repr_perm)),
-        *final(res) == typed_meta_value::<M>(*final(metadata_perms), *final(repr_perm)),
-        typed_meta_wf::<M>(*slot_perm, *final(metadata_perms), *final(repr_perm)),
+        *res == typed_meta_value::<M>(*old(metadata_perms)),
+        *final(res) == typed_meta_value::<M>(*final(metadata_perms)),
+        typed_meta_wf::<M>(*slot_perm, *final(metadata_perms)),
 {
     let slot = ptr_ref(
         ptr_from_addr::<MetaSlot>(ptr.addr(), Tracked(slot_perm)),
         Tracked(slot_perm),
     );
-    M::from_borrowed_mut(
-        slot.storage.borrow_mut(Tracked(&mut metadata_perms.storage_perm)),
-        Tracked(repr_perm),
-    )
+    M::from_borrowed_mut(slot.storage.borrow_mut(Tracked(&mut metadata_perms.storage_perm)))
 }
 
 impl Inv for MetaSlotOwner {
@@ -284,7 +255,6 @@ impl OwnerOf for MetaSlot {
 pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
     Tracked(metadata_perms): Tracked<&mut MetadataPerm>,
-    Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
     metadata: M,
 )
     requires
@@ -293,15 +263,10 @@ pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>
         final(metadata_perms).storage_perm.id() == old(metadata_perms).storage_perm.id(),
         final(metadata_perms).storage_perm.is_init(),
         final(metadata_perms).vtable_ptr_perm == old(metadata_perms).vtable_ptr_perm,
-        M::wf(final(metadata_perms).storage_perm.value(), *final(repr_perm)),
-        M::from_repr_spec(final(metadata_perms).storage_perm.value(), *final(repr_perm))
-            == metadata,
+        M::wf(final(metadata_perms).storage_perm.value()),
+        M::from_repr_spec(final(metadata_perms).storage_perm.value()) == metadata,
 {
-    proof {
-        M::from_to_repr(metadata, *repr_perm);
-        M::to_repr_wf(metadata, *repr_perm);
-    }
-    let repr = metadata.to_repr(Tracked(repr_perm));
+    let repr = metadata.to_repr();
     cell.write(Tracked(&mut metadata_perms.storage_perm), repr);
 }
 
