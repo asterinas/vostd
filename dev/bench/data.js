@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794901461411,
+  "lastUpdate": 1794903215361,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -12630,6 +12630,96 @@ window.BENCHMARK_DATA = {
             "value": 1106286,
             "unit": "rlimit",
             "extra": "smt-run=230ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46d3b1e7e4a54ad7b420b2b8b321f9174a06d355",
+          "message": "prove: specify bzImage flat binary construction (#931)\n\n* Specify bzImage flat binary construction\n\n* Restore flat binary construction comment\n\n* Address bzImage flat binary review feedback\n\n* address comment\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-17T16:06:08+08:00",
+          "tree_id": "51588c0bf18380ae1fb80177947740d9b3fd4d5f",
+          "url": "https://github.com/asterinas/vostd/commit/46d3b1e7e4a54ad7b420b2b8b321f9174a06d355"
+        },
+        "date": 1794903214462,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1083163378,
+            "unit": "rlimit",
+            "extra": "verified=4665 errors=0 smt-run=378,060ms wall=252,516ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 401930180,
+            "unit": "rlimit",
+            "extra": "smt-run=171,733ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 134995973,
+            "unit": "rlimit",
+            "extra": "smt-run=44,019ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 103848659,
+            "unit": "rlimit",
+            "extra": "smt-run=19,991ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=4,262ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,531ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,713ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=1,016ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=767ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=898ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106286,
+            "unit": "rlimit",
+            "extra": "smt-run=381ms"
           }
         ]
       }
