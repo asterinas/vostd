@@ -508,49 +508,30 @@ pub struct RawPageFaultInfo {
     pub addr: Vaddr,
 }
 
-/* The verified bitflags macro needs usize literals for its spec-level shifts.
- * The bit values are unchanged; flags are now constant-function factories.
- * Origin Rust:
- * bitflags! {
- *     pub struct PageFaultErrorCode : usize{
- *         const PRESENT       = 1 << 0;
- *         const WRITE         = 1 << 1;
- *         const USER          = 1 << 2;
- *         const RESERVED      = 1 << 3;
- *         const INSTRUCTION   = 1 << 4;
- *         const PROTECTION    = 1 << 5;
- *         const SHADOW_STACK  = 1 << 6;
- *         const HLAT          = 1 << 7;
- *         const SGX           = 1 << 15;
- *     }
- * }
- */
 bitflags! {
     /// Page Fault error code. Following the Intel Architectures Software Developer's Manual Volume 3
-    ///
-    /// Flag values are exposed as constant functions, such as `Self::PRESENT()`.
     pub struct PageFaultErrorCode : usize{
         /// 0 if no translation for the linear address.
-        const PRESENT       = 1usize << 0;
+        const PRESENT       = 1 << 0;
         /// 1 if the access was a write.
-        const WRITE         = 1usize << 1;
+        const WRITE         = 1 << 1;
         /// 1 if the access was a user-mode access.
-        const USER          = 1usize << 2;
+        const USER          = 1 << 2;
         /// 1 if there is no translation for the linear address
         /// because a reserved bit was set.
-        const RESERVED      = 1usize << 3;
+        const RESERVED      = 1 << 3;
         /// 1 if the access was an instruction fetch.
-        const INSTRUCTION   = 1usize << 4;
+        const INSTRUCTION   = 1 << 4;
         /// 1 if the access was a data access to a linear address with a protection key for which
         /// the protection-key rights registers disallow access.
-        const PROTECTION    = 1usize << 5;
+        const PROTECTION    = 1 << 5;
         /// 1 if the access was a shadow-stack access.
-        const SHADOW_STACK  = 1usize << 6;
+        const SHADOW_STACK  = 1 << 6;
         /// 1 if there is no translation for the linear address using HLAT paging.
-        const HLAT          = 1usize << 7;
+        const HLAT          = 1 << 7;
         /// 1 if the exception is unrelated to paging and resulted from violation of SGX-specific
         /// access-control requirements.
-        const SGX           = 1usize << 15;
+        const SGX           = 1 << 15;
     }
 }
 

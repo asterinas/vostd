@@ -153,8 +153,6 @@ pub(super) struct RawUserContext {
     pub(super) error_code: usize,
 }
 
-// TODO: Use PageFaultErrorCode flag factories (e.g. PRESENT()) in
-// handle_kernel_page_fault before re-enabling trap dispatch.
 /* Trap dispatch awaits CPU-local, descriptor and interrupt-state contracts.
  * Origin Rust:
 /// Returns true if this function is called within the context of an IRQ handler
