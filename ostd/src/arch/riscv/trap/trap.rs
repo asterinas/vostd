@@ -13,11 +13,13 @@
 // These changes are released under the following license:
 //
 // SPDX-License-Identifier: MPL-2.0
-use core::arch::{asm, global_asm};
+use vstd::prelude::*;
+
+/*use core::arch::{asm, global_asm};*/
 
 use crate::arch::cpu::context::GeneralRegs;
 
-#[cfg(target_arch = "riscv32")]
+/*#[cfg(target_arch = "riscv32")]
 global_asm!(
     r"
     .equ XLENB, 4
@@ -59,7 +61,7 @@ pub unsafe fn init() {
     asm!("csrw sscratch, zero");
     // Set the exception vector address
     asm!("csrw stvec, {}", in(reg) trap_entry as usize);
-}
+}*/
 
 /// Trap frame of kernel interrupt
 ///
@@ -73,6 +75,7 @@ pub unsafe fn init() {
 ///     println!("TRAP! tf: {:#x?}", tf);
 /// }
 /// ```
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct TrapFrame {
@@ -85,6 +88,7 @@ pub struct TrapFrame {
 }
 
 /// Saved registers on a trap.
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub(in crate::arch) struct RawUserContext {
@@ -96,7 +100,21 @@ pub(in crate::arch) struct RawUserContext {
     pub(in crate::arch) sepc: usize,
 }
 
+#[verus_verify]
 impl RawUserContext {
+    #[verus_spec(returns (Self {
+        general: GeneralRegs::zeroed(), sstatus: 0, sepc: 0,
+    }))]
+    pub(in crate::arch) fn zeroed() -> Self {
+        Self {
+            general: GeneralRegs::default(),
+            sstatus: 0,
+            sepc: 0,
+        }
+    }
+}
+
+/*impl RawUserContext {
     /// Goes to user space with the context, and comes back when a trap occurs.
     ///
     /// On return, the context will be reset to the status before the trap.
@@ -110,4 +128,4 @@ impl RawUserContext {
 extern "C" {
     fn trap_entry();
     fn run_user(regs: &mut RawUserContext);
-}
+}*/
