@@ -147,14 +147,17 @@ impl IoPortAllocator {
     /// otherwise, all ports in the PIO range will be marked as occupied.
     #[verus_spec(result =>
         requires
-            obeys_io_port_access_spec::<T>(),
-            valid_io_port_access::<T>(port),
+            (if is_overlapping { port < u16::MAX } else { port + size_of::<T>() <= u16::MAX }) ==> {
+                &&& obeys_io_port_access_spec::<T>()
+                &&& valid_io_port_access::<T>(port)
+            },
             io_port_allocator_initialized(),
         ensures
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
                 &&& io_port.is_allocated()
+                &&& if is_overlapping { port < u16::MAX } else { port + size_of::<T>() <= u16::MAX }
             },
     )]
     pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {
@@ -586,25 +589,42 @@ proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
 }
 
 } // verus!
-#[cfg(ktest)]
+// #[cfg(ktest)]
 mod test {
-    use crate::{arch::device::io_port::ReadWriteAccess, prelude::*};
+    use vstd::prelude::*;
+    use vstd_extra::{assert, external::group_io_port_models, panic::may_panic};
+
+    use super::io_port_allocator_initialized;
+    use crate::arch::device::io_port::ReadWriteAccess;
+    // use crate::prelude::ktest;
 
     type IoPort = crate::io::IoPort<u32, ReadWriteAccess>;
     type ByteIoPort = crate::io::IoPort<u8, ReadWriteAccess>;
+    type OversizedPortValue = [u8; 0x10008];
+    type IllegalIoPort = crate::io::IoPort<OversizedPortValue, ReadWriteAccess>;
 
-    #[ktest]
+    verus! {
+
+global size_of OversizedPortValue == 0x10008;
+
+} // verus!
+    // #[ktest]
+#[verus_spec(requires io_port_allocator_initialized())]
     fn illegal_region() {
         let io_port_a = IoPort::acquire(0xffff);
         assert!(io_port_a.is_err());
 
-        type IllegalIoPort = crate::io::IoPort<[u8; 0x10008], ReadWriteAccess>;
+        /* Verus does not support function-local type aliases; the alias is defined at module scope.
+         * Origin Rust: type IllegalIoPort = crate::io::IoPort<[u8; 0x10008], ReadWriteAccess>;
+         */
         let io_port_b = IllegalIoPort::acquire(0);
         assert!(io_port_b.is_err());
     }
 
-    #[ktest]
+    // #[ktest]
+    #[verus_spec(requires io_port_allocator_initialized(), may_panic())]
     fn conflict_region() {
+        proof! { broadcast use group_io_port_models; }
         let io_port_a = IoPort::acquire(0x60);
         assert!(io_port_a.is_ok());
 
@@ -612,15 +632,20 @@ mod test {
         let io_port_b = IoPort::acquire(0x62);
         assert!(io_port_b.is_err());
 
-        drop(io_port_a);
+        /* The migrated IoPort uses an explicit ownership-consuming drop method.
+         * Origin Rust: drop(io_port_a);
+         */
+        io_port_a.unwrap().drop();
 
         // After dropping `io_port_a`, conflicts no longer exist so the allocation will succeed.
         let io_port_b = IoPort::acquire(0x62);
         assert!(io_port_b.is_ok());
     }
 
-    #[ktest]
+    // #[ktest]
+    #[verus_spec(requires io_port_allocator_initialized(), may_panic())]
     fn overlapping_region() {
+        proof! { broadcast use group_io_port_models; }
         // Reference: <https://wiki.osdev.org/PCI#Configuration_Space_Access_Mechanism_#1>
         let pci_data = IoPort::acquire_overlapping(0xcf8);
         // Reference: <https://www.intel.com/Assets/PDF/datasheet/290562.pdf>
@@ -633,8 +658,14 @@ mod test {
         assert!(pci_data2.is_err());
         assert!(rst_ctrl2.is_err());
 
-        drop(pci_data);
-        drop(rst_ctrl);
+        /* The migrated IoPort uses an explicit ownership-consuming drop method.
+         * Origin Rust: drop(pci_data);
+         */
+        pci_data.unwrap().drop();
+        /* The migrated IoPort uses an explicit ownership-consuming drop method.
+         * Origin Rust: drop(rst_ctrl);
+         */
+        rst_ctrl.unwrap().drop();
 
         let rst_ctrl3 = ByteIoPort::acquire(0xcf9);
         assert!(rst_ctrl3.is_ok());

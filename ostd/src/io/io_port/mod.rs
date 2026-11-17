@@ -108,14 +108,17 @@ impl<T, A> IoPort<T, A> {
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
         requires
-            obeys_io_port_access_spec::<T>(),
-            valid_io_port_access::<T>(port),
+            port + size_of::<T>() <= u16::MAX ==> {
+                &&& obeys_io_port_access_spec::<T>()
+                &&& valid_io_port_access::<T>(port)
+            },
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
                 &&& io_port.is_allocated()
+                &&& port + size_of::<T>() <= u16::MAX
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
