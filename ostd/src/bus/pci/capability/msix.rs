@@ -191,7 +191,6 @@ impl CapabilityMsixData {
 
 */
 
-#[verus_verify]
 #[verus_verify(dual_spec)]
 #[verus_spec(
     requires
