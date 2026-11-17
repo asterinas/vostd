@@ -2,6 +2,7 @@
 //! Bus operations
 pub mod pci;
 
+/*
 /// An error that occurs during bus probing.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BusProbeError {
@@ -15,3 +16,4 @@ pub enum BusProbeError {
 pub(crate) fn init() {
     pci::init();
 }
+*/
