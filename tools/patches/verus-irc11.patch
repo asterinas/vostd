@@ -297,10 +297,11 @@ diff --git a/source/vstd/invariant.rs b/source/vstd/invariant.rs
 diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
 --- a/source/vstd/vstd.rs
 +++ b/source/vstd/vstd.rs
-@@ -32,6 +32,7 @@
+@@ -32,7 +32,8 @@
  #![cfg_attr(all(feature = "alloc", verus_keep_ghost), feature(btree_cursors))]
  #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
  #![cfg_attr(verus_keep_ghost, feature(maybe_uninit_array_assume_init))]
+ #![cfg_attr(verus_keep_ghost, feature(trivial_clone))]
 +#![cfg_attr(verus_keep_ghost, feature(auto_traits))]
 
  #[cfg(feature = "alloc")]
