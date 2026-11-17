@@ -60,21 +60,6 @@ impl GlobalMemOwner {
         mappings_well_formed(self.page_table_mappings())
     }
 
-    /// Top-level property: the TLB mappings are disjoint in the virtual address space.
-    pub open spec fn tlb_mappings_disjoint_vaddrs(self) -> bool {
-        mappings_disjoint_vaddrs(self.tlb.mappings)
-    }
-
-    /// Top-level property: the TLB mappings are disjoint in the physical address space.
-    pub open spec fn tlb_mappings_disjoint_paddrs(self) -> bool {
-        mappings_disjoint_paddrs(self.tlb.mappings)
-    }
-
-    /// Top-level property: the TLB mappings are well-formed.
-    pub open spec fn tlb_mappings_well_formed(self) -> bool {
-        mappings_well_formed(self.tlb.mappings)
-    }
-
     /// Top-level properties: the page table mappings are disjoint in the
     /// virtual address space and well-formed. Disjointness in the *physical*
     /// address space is intentionally **not** claimed — shared frame mappings
@@ -93,7 +78,7 @@ impl GlobalMemOwner {
         &&& self.regions.inv()
         &&& self.pt.inv()
         &&& self.pt.metaregion_sound(self.regions)
-        &&& self.tlb.consistent_with_pt(self.pt.view())
+        &&& self.tlb.coherent()
     }
 
     /// If the internal invariants hold, then the top-level properties hold.

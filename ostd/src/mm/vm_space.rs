@@ -875,7 +875,6 @@ impl<'a> CursorMut<'a> {
                 //debug_assert_eq!(va, start_va);
                 let old_frame = item.frame;
 
-                #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.issue_tlb_flush_with(
                     TlbFlushOp::Address(start_va),
                     old_frame.into_dyn(),
@@ -1103,7 +1102,6 @@ impl<'a> CursorMut<'a> {
                         removed);
                     }
                     num_unmapped += 1;
-                    #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into_dyn());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
@@ -1167,7 +1165,6 @@ impl<'a> CursorMut<'a> {
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_plus_page_size_no_overflow(
                         va, len);
                     }
-                    #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
                 },
             }

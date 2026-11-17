@@ -1,26 +1,43 @@
 //! The abstract TLB model.
 //!
+//! [`TlbModel`] is a tracked resource that owns one [`CpuTlb`] per CPU. Each
+//! [`CpuTlb`] bounds what that CPU's TLB may cache: an entry is either backed by
+//! the current page table of a resident address space, or it is in `stale`.
+//! Hardware fills and evictions keep this bound, so they are not steps.
+//!
+//! Both resources keep their state private, so a proof cannot forge them or
+//! drop stale entries. Removing stale entries is reserved for the contracts of
+//! the hardware flush primitives.
+//!
+//! The model describes the least that each flush invalidates. The trusted arch
+//! flushes may invalidate more (on RISC-V, `sfence.vma` also drops global
+//! entries and entries of other address spaces), which keeps the model a sound
+//! upper bound on what a TLB may cache.
+//!
 //! The request bookkeeping of `OpsStack` and `TlbFlusher::issue_tlb_flush[_with]`
 //! is verified against [`FlushSet`]. `OpsStack::new`, the hardware flushes, and
 //! dispatching and synchronizing flush requests remain trusted. Which CPU runs
-//! the code, and keeping frames alive until their TLB entries are flushed, are
-//! not modelled yet.
+//! the code is not modelled yet.
+//!
+//! Frames are not kept alive until their TLB entries are flushed: the
+//! `page_keeper` of `OpsStack` is commented out, so the frame passed to
+//! `TlbFlusher::issue_tlb_flush_with` is dropped once the request is recorded.
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::specs::mm::page_table::*;
 
-use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
+use crate::mm::{Paddr, Vaddr};
 
 verus! {
 
 /// The TLB entries that a group of flush operations invalidates, by their ISA
 /// meaning.
 pub ghost struct FlushSet {
-    /// Every non-global entry is invalidated, as by `TlbFlushOp::All`.
+    /// At least every non-global entry is invalidated, as by `TlbFlushOp::All`.
     pub all_user: bool,
-    /// Entries translating any of these addresses are invalidated, as by
-    /// `invlpg` or `sfence.vma`. This includes global entries.
+    /// At least the entries translating any of these addresses are
+    /// invalidated, including global ones, as by `invlpg` or `sfence.vma`.
     pub vas: ISet<Vaddr>,
 }
 
@@ -38,20 +55,12 @@ impl FlushSet {
     pub open spec fn join(self, other: Self) -> Self {
         FlushSet { all_user: self.all_user || other.all_user, vas: self.vas + other.vas }
     }
-
-    /// Whether flushing `self` invalidates `e`, ignoring which address space
-    /// the CPU has active.
-    pub open spec fn covers(self, e: TlbEntry) -> bool {
-        ||| self.all_user && e.asid != AsId::Kernel
-        ||| exists|va: Vaddr| #[trigger]
-            self.vas.contains(va) && e.map.va_range.start <= va < e.map.va_range.end
-    }
 }
 
 /// The address space that a TLB entry is tagged with.
 pub ghost enum AsId {
-    /// Global entries, which survive address-space switches and
-    /// `TlbFlushOp::All`.
+    /// Global entries. The model does not invalidate them on address-space
+    /// switches or `TlbFlushOp::All`, although some architectures do.
     Kernel,
     /// Non-global entries of the user page table with this root.
     User(Paddr),
@@ -62,23 +71,22 @@ pub ghost struct TlbEntry {
     pub map: Mapping,
 }
 
-/// An upper bound on what one CPU's TLB may cache.
-///
-/// Hardware fills and evictions are not steps: a fill copies a mapping of a
-/// resident address space from its page table, and an eviction only shrinks
-/// the cache. So any entry cached by the CPU is either backed by the current
-/// page table of a resident address space, or is in `stale`.
-pub tracked struct CpuTlb {
+/// An abstract CPU index. It is connected to `CpuId` by the code that owns
+/// the per-CPU resources, not by this model.
+pub type CpuIdx = nat;
+
+/// The state of one CPU's TLB, as an upper bound on what it may cache.
+pub ghost struct CpuTlbState {
     /// The user address space installed in CR3 or `satp`, if any.
-    pub ghost active: Option<AsId>,
+    pub active: Option<AsId>,
     /// The address spaces that may have entries cached on this CPU.
-    pub ghost resident: ISet<AsId>,
+    pub resident: ISet<AsId>,
     /// The entries that may be cached although their page tables no longer
     /// contain them.
-    pub ghost stale: ISet<TlbEntry>,
+    pub stale: ISet<TlbEntry>,
 }
 
-impl Inv for CpuTlb {
+impl Inv for CpuTlbState {
     open spec fn inv(self) -> bool {
         &&& self.resident.contains(AsId::Kernel)
         &&& self.active matches Some(asid) ==> self.resident.contains(asid)
@@ -87,126 +95,56 @@ impl Inv for CpuTlb {
     }
 }
 
-impl CpuTlb {
-    /// The mappings in `removed` left the page table of `asid`. If this CPU may
-    /// cache entries of `asid`, they become stale.
-    pub open spec fn pt_removed(self, asid: AsId, removed: Set<Mapping>) -> Self {
-        if self.resident.contains(asid) {
-            CpuTlb {
-                stale: self.stale + ISet::new(
-                    |e: TlbEntry| e.asid == asid && removed.contains(e.map),
-                ),
-                ..self
-            }
-        } else {
-            self
-        }
-    }
+/// The tracked TLB of one CPU.
+pub tracked struct CpuTlb {
+    ghost cpu: CpuIdx,
+    ghost state: CpuTlbState,
+}
 
-    /// Flushes `fs` on this CPU. Only entries of the active address space and
-    /// global entries are invalidated.
-    pub open spec fn flush(self, fs: FlushSet) -> Self {
-        CpuTlb {
-            stale: self.stale.filter(
-                |e: TlbEntry|
-                    !(fs.covers(e) && (e.asid == AsId::Kernel || self.active == Some(e.asid))),
-            ),
-            ..self
-        }
-    }
+impl View for CpuTlb {
+    type V = CpuTlbState;
 
-    /// Installs the user page table of `asid`. This does not invalidate the
-    /// entries of the previous address space.
-    pub open spec fn switch(self, asid: AsId) -> Self {
-        CpuTlb { active: Some(asid), resident: self.resident.insert(asid), ..self }
+    closed spec fn view(&self) -> CpuTlbState {
+        self.state
     }
 }
 
-pub ghost struct TlbModel {
-    pub pending: Seq<TlbFlushOp>,
-    pub mappings: Set<Mapping>,
+impl CpuTlb {
+    /// The CPU whose TLB this is.
+    pub closed spec fn cpu(self) -> CpuIdx {
+        self.cpu
+    }
+}
+
+/// The tracked TLBs of all CPUs, `0..num_cpus()`.
+pub tracked struct TlbModel {
+    ghost num_cpus: nat,
+    tracked cpus: Map<CpuIdx, CpuTlb>,
 }
 
 impl Inv for TlbModel {
-    open spec fn inv(self) -> bool {
-        &&& mappings_well_formed(self.mappings)
-        &&& mappings_disjoint_vaddrs(self.mappings)
-        &&& mappings_disjoint_paddrs(self.mappings)
+    closed spec fn inv(self) -> bool {
+        &&& forall|c: CpuIdx| #[trigger] self.cpus.contains_key(c) <==> c < self.num_cpus
+        &&& forall|c: CpuIdx|
+            #![trigger self.cpus[c]]
+            c < self.num_cpus ==> self.cpus[c].cpu() == c && self.cpus[c]@.inv()
     }
 }
 
 impl TlbModel {
-    pub open spec fn update(self, pt: PageTableView, va: Vaddr) -> Self {
-        let m = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).choose();
-        TlbModel { pending: self.pending, mappings: self.mappings.insert(m) }
+    pub closed spec fn num_cpus(self) -> nat {
+        self.num_cpus
     }
 
-    pub axiom fn tracked_update(&mut self, pt: PageTableView, va: Vaddr)
-        requires
-            old(self).inv(),
-            forall|m: Mapping|
-                old(self).mappings has m ==> !(m.va_range.start <= va < m.va_range.end),
-            exists|m: Mapping| pt.mappings has m ==> m.va_range.start <= va < m.va_range.end,
-        ensures
-            *final(self) == old(self).update(pt, va),
-    ;
-
-    pub open spec fn flush(self, va: Vaddr) -> Self {
-        let m = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
-        TlbModel { pending: self.pending, mappings: self.mappings - m }
+    /// The TLB state of CPU `c`.
+    pub closed spec fn cpu_state(self, c: CpuIdx) -> CpuTlbState {
+        self.cpus[c]@
     }
 
-    pub axiom fn tracked_flush(&mut self, va: Vaddr)
-        requires
-            old(self).inv(),
-        ensures
-            *final(self) == old(self).flush(va),
-    ;
-
-    pub open spec fn consistent_with_pt(self, pt: PageTableView) -> bool {
-        self.mappings <= pt.mappings
-    }
-
-    pub proof fn lemma_flush_preserves_inv(self, va: Vaddr)
-        requires
-            self.inv(),
-        ensures
-            self.flush(va).inv(),
-    {
-    }
-
-    pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self {
-        TlbModel { pending: self.pending.push(op), mappings: self.mappings }
-    }
-
-    /// Records a borrowed request without consuming the executable value.
-    pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: &TlbFlushOp)
-        requires
-            old(self).inv(),
-        ensures
-            *final(self) == old(self).issue_tlb_flush(*op),
-            final(self).inv(),
-    {
-        match op {
-            TlbFlushOp::All => self.pending.tracked_push(TlbFlushOp::All),
-            TlbFlushOp::Address(va) => self.pending.tracked_push(TlbFlushOp::Address(*va)),
-            TlbFlushOp::Range(range) => self.pending.tracked_push(
-                TlbFlushOp::Range(range.start..range.end),
-            ),
-        }
-    }
-
-    pub open spec fn dispatch_tlb_flush_spec(self) -> Self {
-        let op = self.pending.last();
-        let popped = TlbModel {
-            pending: self.pending[..self.pending.len() - 1],
-            mappings: self.mappings,
-        };
-        match op {
-            TlbFlushOp::All => popped,
-            TlbFlushOp::Address(va) => popped.flush(va),
-            TlbFlushOp::Range(range) => popped.flush(range.start),
-        }
+    /// No CPU caches an entry that its page table no longer backs.
+    pub open spec fn coherent(self) -> bool {
+        forall|c: CpuIdx, e: TlbEntry|
+            c < self.num_cpus() ==> !#[trigger] self.cpu_state(c).stale.contains(e)
     }
 }
 

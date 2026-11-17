@@ -71,19 +71,11 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// this CPU or remote CPUs. The flush requests are only performed when
     /// [`Self::dispatch_tlb_flush`] is called.
     #[verus_spec(
-        with Tracked(model): Tracked<&mut TlbModel>
-        requires
-            old(model).inv(),
         ensures
-            *final(model) == old(model).issue_tlb_flush(op),
-            final(model).inv(),
             final(self).pending() == old(self).pending().join(op@)
-                || final(self).pending().all_user,
+                || final(self).pending() == FlushSet::all_user(),
     )]
     pub fn issue_tlb_flush(&mut self, op: TlbFlushOp) {
-        proof! {
-            model.tracked_issue_tlb_flush(&op);
-        }
         self.ops_stack.push(op, None);
     }
 
@@ -95,23 +87,17 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// space program can still access the page through the TLB entries. This
     /// method is designed to be used in such cases.
     #[verus_spec(r =>
-        with Tracked(model): Tracked<&mut TlbModel>
-        requires
-            old(model).inv(),
         ensures
-            *final(model) == old(model).issue_tlb_flush(op),
-            final(model).inv(),
             final(self).pending() == old(self).pending().join(op@)
-                || final(self).pending().all_user,
+                || final(self).pending() == FlushSet::all_user(),
     )]
+    // Verification note: `page_keeper` is commented out, so `drop_after_flush`
+    // is dropped once the request is recorded, not after the flush.
     pub fn issue_tlb_flush_with(
         &mut self,
         op: TlbFlushOp,
         drop_after_flush: Frame<dyn AnyFrameMeta>,
     ) {
-        proof! {
-            model.tracked_issue_tlb_flush(&op);
-        }
         self.ops_stack.push(op, Some(drop_after_flush));
     }
 
@@ -127,8 +113,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
         requires
             old(model).inv(),
         ensures
-            *final(model) == old(model).dispatch_tlb_flush_spec(),
-            final(model).inv(),
+            *final(model) == *old(model),
     )]
     pub fn dispatch_tlb_flush(&mut self) {
         unimplemented!() /*let irq_guard = crate::trap::irq::disable_local();
@@ -218,6 +203,12 @@ pub enum TlbFlushOp {
     Address(Vaddr),
     /// Flush the TLB entries for the specified virtual address range.
     Range(Range<Vaddr>),
+}
+
+// SAFETY: the derived `PartialEq` compares the variant and its `usize` fields,
+// which is structural equality.
+unsafe impl Structural for TlbFlushOp {
+
 }
 
 impl View for TlbFlushOp {
@@ -344,16 +335,6 @@ spec fn ops_flush_set(ops: Seq<Option<TlbFlushOp>>) -> FlushSet {
     )
 }
 
-proof fn lemma_ops_flush_set_push(ops: Seq<Option<TlbFlushOp>>, op: Option<TlbFlushOp>)
-    ensures
-        ops_flush_set(ops.push(op)) == match op {
-            Some(op) => ops_flush_set(ops).join(op@),
-            None => ops_flush_set(ops),
-        },
-{
-    assert(ops.push(op).drop_last() =~= ops);
-}
-
 impl View for OpsStack {
     type V = FlushSet;
 
@@ -361,7 +342,7 @@ impl View for OpsStack {
         if self.need_flush_all {
             FlushSet::all_user()
         } else {
-            ops_flush_set(self.ops@.take(self.size as int))
+            ops_flush_set(self.ops@[..self.size])
         }
     }
 }
@@ -398,7 +379,7 @@ impl OpsStack {
     /// the address-specific coverage of global entries.
     fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>)
         ensures
-            final(self)@ == old(self)@.join(op@) || final(self)@.all_user,
+            final(self)@ == old(self)@.join(op@) || final(self)@ == FlushSet::all_user(),
     {
         proof {
             use_type_invariant(&*self);
@@ -415,18 +396,18 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        let ghost collected = self.ops@.take(self.size as int);
+        let ghost collected = self.ops@[..self.size];
         self.ops[self.size] = Some(op);
         self.size += 1;
         proof {
-            assert(self.ops@.take(self.size as int) =~= collected.push(Some(op)));
-            lemma_ops_flush_set_push(collected, Some(op));
+            assert(self.ops@[..self.size] =~= collected.push(Some(op)));
+            assert(collected.push(Some(op)).drop_last() =~= collected);
         }
     }
 
     fn push_from(&mut self, other: &OpsStack)
         ensures
-            final(self)@ == old(self)@.join(other@) || final(self)@.all_user,
+            final(self)@ == old(self)@.join(other@) || final(self)@ == FlushSet::all_user(),
     {
         proof {
             use_type_invariant(&*self);
@@ -444,7 +425,7 @@ impl OpsStack {
         let ghost start = self@;
         let ghost start_size = self.size;
         proof {
-            assert(other.ops@.take(0) =~= Seq::<Option<TlbFlushOp>>::empty());
+            assert(other.ops@[..0] =~= Seq::<Option<TlbFlushOp>>::empty());
             assert(start.join(FlushSet::empty()).vas =~= start.vas);
         }
         for i in 0..other.size
@@ -454,23 +435,23 @@ impl OpsStack {
                 other.size <= FLUSH_ALL_OPS_THRESHOLD,
                 start_size + other.size < FLUSH_ALL_OPS_THRESHOLD,
                 self.size == start_size + i,
-                self@ == start.join(ops_flush_set(other.ops@.take(i as int))),
+                self@ == start.join(ops_flush_set(other.ops@[..i])),
         {
             proof {
                 use_type_invariant(&*self);
                 use_type_invariant(other);
             }
-            let ghost collected = self.ops@.take(self.size as int);
-            let ghost copied = other.ops@.take(i as int);
+            let ghost collected = self.ops@[..self.size];
+            let ghost copied = other.ops@[..i];
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
             proof {
                 let x = other.ops@[i as int];
                 assert(self.ops@[self.size - 1] == x);
-                assert(self.ops@.take(self.size as int) =~= collected.push(x));
-                assert(other.ops@.take(i + 1) =~= copied.push(x));
-                lemma_ops_flush_set_push(collected, x);
-                lemma_ops_flush_set_push(copied, x);
+                assert(self.ops@[..self.size] =~= collected.push(x));
+                assert(other.ops@[..i + 1] =~= copied.push(x));
+                assert(collected.push(x).drop_last() =~= collected);
+                assert(copied.push(x).drop_last() =~= copied);
                 let prefix = ops_flush_set(copied);
                 if let Some(op) = x {
                     assert((start.vas + prefix.vas) + op@.vas =~= start.vas + (prefix.vas
