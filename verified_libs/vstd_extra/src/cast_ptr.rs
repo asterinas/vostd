@@ -12,20 +12,12 @@ verus! {
 pub trait Repr<R: Sized>: Sized {
     spec fn wf(r: R) -> bool;
 
-    spec fn to_repr_spec(self) -> R;
-
-    fn to_repr(self) -> (res: R)
-        returns
-            self.to_repr_spec(),
-    ;
-
     spec fn from_repr_spec(r: R) -> Self;
 
-    fn from_repr(r: R) -> (res: Self)
-        requires
-            Self::wf(r),
-        returns
-            Self::from_repr_spec(r),
+    fn to_repr(self) -> (res: R)
+        ensures
+            Self::wf(res),
+            Self::from_repr_spec(res) == self,
     ;
 
     fn from_borrowed<'a>(r: &'a R) -> (res: &'a Self)
@@ -44,23 +36,6 @@ pub trait Repr<R: Sized>: Sized {
             *res == Self::from_repr_spec(*old(r)),
             Self::wf(*final(r)),
             *final(res) == Self::from_repr_spec(*final(r)),
-    ;
-
-    proof fn from_to_repr(self)
-        ensures
-            Self::from_repr_spec(self.to_repr_spec()) == self,
-    ;
-
-    proof fn to_from_repr(r: R)
-        requires
-            Self::wf(r),
-        ensures
-            Self::from_repr_spec(r).to_repr_spec() == r,
-    ;
-
-    proof fn to_repr_wf(self)
-        ensures
-            Self::wf(self.to_repr_spec()),
     ;
 }
 
@@ -149,22 +124,6 @@ impl<R, T> ReprPtr<R, T> {
 }
 
 impl<R, T: Repr<R>> ReprPtr<R, T> {
-    pub fn take(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>) -> (v: T)
-        requires
-            old(perm).pptr() == self,
-            old(perm).is_init(),
-            old(perm).wf(),
-        ensures
-            final(perm).pptr() == old(perm).pptr(),
-            final(perm).mem_contents() == MemContents::Uninit::<T>,
-            v == old(perm).value(),
-    {
-        proof {
-            T::from_to_repr(perm.value());
-        }
-        T::from_repr(self.ptr.take(Tracked(&mut perm.points_to)))
-    }
-
     pub fn put(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>, v: T)
         requires
             old(perm).pptr() == self,
@@ -173,13 +132,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             final(perm).pptr() == old(perm).pptr(),
             final(perm).mem_contents() == MemContents::Init(v),
             final(perm).wf(),
-            final(perm).points_to.value() == v.to_repr_spec(),
             final(perm).points_to.is_init(),
     {
-        proof {
-            v.from_to_repr();
-            v.to_repr_wf();
-        }
         self.ptr.put(Tracked(&mut perm.points_to), v.to_repr())
     }
 

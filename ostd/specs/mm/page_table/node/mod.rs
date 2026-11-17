@@ -135,15 +135,7 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
         matches!(r, MetaSlotStorage::PTNode(_))
     }
 
-    open spec fn to_repr_spec(self) -> MetaSlotStorage {
-        MetaSlotStorage::PTNode(self.into())
     }
-
-    #[verifier::external_body]
-    fn to_repr(self) -> MetaSlotStorage {
-        unimplemented!()
-    }
-
     open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
         match r {
             MetaSlotStorage::PTNode(node) => node.into::<C>(),
@@ -151,9 +143,8 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
         }
     }
 
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage) -> Self {
-        unimplemented!()
+    fn to_repr(self) -> MetaSlotStorage {
+        MetaSlotStorage::PTNode(self.into())
     }
 
     #[verifier::external_body]
@@ -164,21 +155,6 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     #[verifier::external_body]
     fn from_borrowed_mut<'a>(r: &'a mut MetaSlotStorage) -> &'a mut Self {
         unimplemented!()
-    }
-
-    proof fn from_to_repr(self) {
-    }
-
-    proof fn to_from_repr(r: MetaSlotStorage) {
-        match r {
-            MetaSlotStorage::PTNode(node) => {},
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
-    proof fn to_repr_wf(self) {
     }
 }
 

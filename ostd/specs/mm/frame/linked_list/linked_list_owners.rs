@@ -45,27 +45,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
         }
     }
 
-    open spec fn to_repr_spec(self) -> MetaSlotStorage {
-        MetaSlotStorage::FrameLink(
-            StoredLink {
-                next: match self.next {
-                    Some(ptr) => Some(ptr.ptr.addr()),
-                    None => None,
-                },
-                prev: match self.prev {
-                    Some(ptr) => Some(ptr.ptr.addr()),
-                    None => None,
-                },
-                slot: self.meta.to_repr_spec(),
-            },
-        )
-    }
-
-    #[verifier::external_body]
-    fn to_repr(self) -> MetaSlotStorage {
-        unimplemented!()
-    }
-
     open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
         match r {
             MetaSlotStorage::FrameLink(link) => Link {
@@ -83,9 +62,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
         }
     }
 
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage) -> Self {
-        unimplemented!()
+    fn to_repr(self) -> MetaSlotStorage {
+            StoredLink {
+                next: match self.next {
+                    Some(ptr) => Some(ptr.addr()),
+                    None => None,
+                },
+                prev: match self.prev {
+                    Some(ptr) => Some(ptr.addr()),
+                    None => None,
+                },
+                slot: self.meta.to_repr(),
+            },
+        )
     }
 
     #[verifier::external_body]
@@ -96,25 +85,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     #[verifier::external_body]
     fn from_borrowed_mut<'a>(r: &'a mut MetaSlotStorage) -> &'a mut Self {
         unimplemented!()
-    }
-
-    proof fn from_to_repr(self) {
-        <M as Repr<MetaSlotSmall>>::from_to_repr(self.meta);
-    }
-
-    proof fn to_from_repr(r: MetaSlotStorage) {
-        match r {
-            MetaSlotStorage::FrameLink(link) => {
-                M::to_from_repr(link.slot);
-            },
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
-    proof fn to_repr_wf(self) {
-        <M as Repr<MetaSlotSmall>>::to_repr_wf(self.meta);
     }
 }
 

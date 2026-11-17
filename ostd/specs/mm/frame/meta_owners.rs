@@ -73,20 +73,12 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
         true
     }
 
-    open spec fn to_repr_spec(self) -> MetaSlotStorage {
-        self
-    }
-
-    fn to_repr(self) -> MetaSlotStorage {
-        self
-    }
-
     open spec fn from_repr_spec(slot: MetaSlotStorage) -> Self {
         slot
     }
 
-    fn from_repr(slot: MetaSlotStorage) -> Self {
-        slot
+    fn to_repr(self) -> MetaSlotStorage {
+        self
     }
 
     fn from_borrowed<'a>(slot: &'a MetaSlotStorage) -> &'a Self {
@@ -95,15 +87,6 @@ impl Repr<MetaSlotStorage> for MetaSlotStorage {
 
     fn from_borrowed_mut<'a>(slot: &'a mut MetaSlotStorage) -> &'a mut Self {
         slot
-    }
-
-    proof fn from_to_repr(self) {
-    }
-
-    proof fn to_from_repr(slot: MetaSlotStorage) {
-    }
-
-    proof fn to_repr_wf(self) {
     }
 }
 
@@ -283,10 +266,6 @@ pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>
         M::wf(final(metadata_perms).storage_perm.value()),
         M::from_repr_spec(final(metadata_perms).storage_perm.value()) == metadata,
 {
-    proof {
-        M::from_to_repr(metadata);
-        M::to_repr_wf(metadata);
-    }
     let repr = metadata.to_repr();
     cell.write(Tracked(&mut metadata_perms.storage_perm), repr);
 }
