@@ -83,7 +83,7 @@ impl<C: PageTableConfig> CursorView<C> {
         recommends
             self.present(),
     {
-        let (paddr, level, prop, _perm) = C::item_into_raw_spec(item);
+        let (paddr, level, prop, _perm) = C::item_into_raw(item);
         let size = page_size::<C>(level);
         if self.query(paddr, size, prop) {
             let r = self.query_range();

@@ -103,10 +103,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     #[verus_spec(
         with Tracked(metadata_perm): Tracked<&MetadataPerm>,
         requires
-            self.node.inner.external_meta_wf(*metadata_perm, ()),
+            self.node.inner.external_meta_wf(*metadata_perm),
         returns
             self.pte.is_present() && !self.pte.is_last(
-                typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).level,
+                typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).level,
             ),
     )]
     pub(in crate::mm) fn is_node(&self) -> bool {
@@ -123,8 +123,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             self.invariants(*owner, *regions),
-            self.node.inner.external_meta_wf(*metadata_perm, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).level == owner.parent_level,
+            self.node.inner.external_meta_wf(*metadata_perm),
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).level == owner.parent_level,
         ensures
             res.invariants(*owner, *regions),
     )]
@@ -940,8 +940,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     i <= j < NR_ENTRIES ==> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
                         &&& new_owner.children()[j].unwrap().value().is_absent()
-                        &&& new_owner.value().node().children_perm.value()[j]
-                            == C::E::new_absent_spec()
+                        &&& new_owner.value().node().children_perm.value()[j] == C::E::new_absent()
                     },
                 // Children [0, i) have been replaced with frames.
                 forall|j: int|

@@ -114,8 +114,8 @@ pub proof fn lemma_nr_subpage_per_huge_eq_nr_entries()
 }
 
 bitflags::bitflags! {
-    //#[derive(Pod)]
-    //#[repr(C)]
+    #[derive(Pod)]
+    #[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame or page table is loaded in memory.
@@ -200,17 +200,12 @@ pub(crate) fn tlb_flush_all_including_global() {
     }*/
 }
 
-#[derive(Clone, Copy/*, Pod, Default*/)]
+#[derive(Clone, Copy, Pod /*, Default*/)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
 
 global layout PageTableEntry is size == 8, align == 8;
-
-#[verus_verify]
-unsafe impl Pod for PageTableEntry {
-
-}
 
 impl PageTableEntry {
     pub proof fn lemma_layout()
@@ -236,7 +231,7 @@ impl Default for PageTableEntry {
     {
         proof {
             lemma_page_property_flag_constants();
-            assert(Self::default_spec().paddr_spec() == 0) by (compute);
+            assert(Self::default_spec().paddr() == 0) by (compute);
         }
         Self(usize::default())
     }
@@ -314,7 +309,7 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_auxiliary_bit_properties(0);
             Self::lemma_page_table_entry_properties();
-            assert(Self::default_spec() == Self::new_absent_spec());
+            assert(Self::default_spec() == Self::new_absent());
         }
         Self::default()
     }

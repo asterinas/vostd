@@ -191,7 +191,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
             self.inv(),
             r is Ok ==> {
                 &&& r.unwrap().inv()
-                &&& r.unwrap().remain_spec() == self.len
+                &&& r.unwrap().remain() == self.len
                 &&& reader_perm@ is Some
                 &&& reader_perm@->0.inv()
                 &&& reader_perm@->0.is_kernel
@@ -275,7 +275,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
             self.inv(),
             r is Ok ==> {
                 &&& r.unwrap().inv()
-                &&& r.unwrap().avail_spec() == self.len
+                &&& r.unwrap().avail() == self.len
                 &&& writer_perm@ is Some
                 &&& writer_perm@->0.inv()
                 &&& writer_perm@->0.is_kernel
@@ -1132,10 +1132,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         &&& new_writer.wf(new_writer_own)
         &&& match r {
             Ok(_) => {
-                &&& new_writer.avail_spec() == 0
-                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range.start == old_writer_own.range.start
-                    + old_writer.avail_spec()
+                &&& new_writer.avail() == 0
+                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail()
+                &&& new_writer_own.range.start == old_writer_own.range.start + old_writer.avail()
             },
             Err(_) => {
                 &&& new_writer == old_writer
@@ -1162,10 +1161,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         &&& new_reader.wf(new_reader_own)
         &&& match r {
             Ok(_) => {
-                &&& new_reader.remain_spec() == 0
-                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_reader_own.range.start == old_reader_own.range.start
-                    + old_reader.remain_spec()
+                &&& new_reader.remain() == 0
+                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain()
+                &&& new_reader_own.range.start == old_reader_own.range.start + old_reader.remain()
             },
             Err(_) => {
                 &&& new_reader == old_reader
@@ -1211,7 +1209,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         }
         if len == 0 {
             proof {
-                assert(writer.avail_spec() == 0);
+                assert(writer.avail() == 0);
             }
             return Ok(());
         }
@@ -1224,7 +1222,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
-            assert(reader.remain_spec() >= len);
+            assert(reader.remain() >= len);
         }
 
         let copied = match reader.read_fallible(writer) {
@@ -1280,7 +1278,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         }
         if len == 0 {
             proof {
-                assert(reader.remain_spec() == 0);
+                assert(reader.remain() == 0);
             }
             return Ok(());
         }
@@ -1288,7 +1286,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         proof {
             writer_own.advance(offset);
 
-            assert(writer.avail_spec() >= len);
+            assert(writer.avail() >= len);
         }
         let copied = match writer.write_fallible(reader) {
             Ok(copied) => copied,
@@ -1384,10 +1382,9 @@ impl<
         &&& new_writer.wf(new_writer_own)
         &&& match r {
             Ok(_) => {
-                &&& new_writer.avail_spec() == 0
-                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range.start == old_writer_own.range.start
-                    + old_writer.avail_spec()
+                &&& new_writer.avail() == 0
+                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail()
+                &&& new_writer_own.range.start == old_writer_own.range.start + old_writer.avail()
             },
             Err(_) => {
                 &&& new_writer == old_writer
@@ -1414,10 +1411,9 @@ impl<
         &&& new_reader.wf(new_writer_own)
         &&& match r {
             Ok(_) => {
-                &&& new_reader.remain_spec() == 0
-                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_writer_own.range.start == old_writer_own.range.start
-                    + old_reader.remain_spec()
+                &&& new_reader.remain() == 0
+                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain()
+                &&& new_writer_own.range.start == old_writer_own.range.start + old_reader.remain()
             },
             Err(_) => {
                 &&& new_reader == old_reader
@@ -1465,7 +1461,7 @@ impl<
         }
         if len == 0 {
             proof {
-                assert(writer.avail_spec() == 0);
+                assert(writer.avail() == 0);
             }
             return Ok(());
         }
@@ -1477,7 +1473,7 @@ impl<
             assert(writer_own.inv());
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.read_view_initialized());
-            assert(reader.remain_spec() >= len);
+            assert(reader.remain() >= len);
         }
 
         let copied = match reader.read_fallible(writer) {
@@ -1549,7 +1545,7 @@ impl<
         }
         if len == 0 {
             proof {
-                assert(reader.remain_spec() == 0);
+                assert(reader.remain() == 0);
             }
             return Ok(());
         }
@@ -1557,7 +1553,7 @@ impl<
         proof {
             slice_writer_own.advance(offset);
 
-            assert(writer.avail_spec() >= len);
+            assert(writer.avail() >= len);
         }
         let copied = match writer.write_fallible(reader) {
             Ok(copied) => copied,

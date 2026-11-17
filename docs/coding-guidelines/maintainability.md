@@ -771,8 +771,23 @@ both modes honest:
   calls `CpuId::as_usize()`, which spec mode cannot, so `part_idx_spec(i: int)`
   holds the formula.
 - Add `#[verifier::when_used_as_spec(twin)]` when the twin's signature
-  matches, and spec mode can call the helper by its exec name
-  (`parts_for_cpus`, `sub_ptr::to_repr`).
+  matches (`parts_for_cpus`, `sub_ptr::to_repr`). Once mapped, prefer the
+  executable API name in specifications, contracts, invariants, and proofs
+  instead of calling the spec twin directly. This keeps specifications in
+  the API's vocabulary while Verus selects the model.
+
+```rust
+// Prefer this, when get_type has when_used_as_spec(program_header_type):
+program.get_type() is Ok
+
+// Over this:
+program_header_type(&program) is Ok
+```
+
+When adding or reviewing a mapping, check all affected call sites for direct
+calls to the mapped spec function, not just the reported occurrence. Direct
+model calls remain appropriate in the connecting contract or when reasoning
+explicitly about the model.
 
 Keep a spec fn with different argument types when the truthful model requires
 a shape the exec helper cannot offer:
@@ -790,4 +805,5 @@ re-signing the executable function, which
 
 See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032758336),
 [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035293382),
-and [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035681677).
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035681677), and
+[#931](https://github.com/asterinas/vostd/pull/931#discussion_r4594851037).

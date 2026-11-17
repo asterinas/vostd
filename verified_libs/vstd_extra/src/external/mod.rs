@@ -3,7 +3,6 @@
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
 pub mod acpi;
-pub mod bits;
 mod bitvec;
 pub mod bytemuck;
 pub mod cmp;
@@ -20,6 +19,7 @@ pub mod smallvec;
 pub mod smart_ptr;
 pub mod str;
 pub mod time;
+pub mod vec;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
 pub mod xmas_elf;
@@ -38,6 +38,7 @@ pub use smallvec::*;
 pub use smart_ptr::*;
 pub use str::*;
 pub use time::*;
+pub use vec::*;
 #[cfg(target_arch = "x86_64")]
 pub use x86::*;
 
