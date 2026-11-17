@@ -610,7 +610,7 @@ impl<'a> VmWriter<'a, Infallible> {
                 },
             },
         returns
-            if old(self).avail_spec() < core::mem::size_of::<T>() {
+            if old(self).avail() < core::mem::size_of::<T>() {
                 Err(Error::InvalidArgs)
             } else {
                 Ok(())
@@ -1935,10 +1935,10 @@ impl<'a> VmWriter<'a, Fallible> {
                 &&& n <= old(self).avail()
                 &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
             },
-            r matches Ok(n) ==> n == vstd::math::min(len as int, old(self).avail_spec() as int),
+            r matches Ok(n) ==> n == vstd::math::min(len as int, old(self).avail() as int),
             r matches Err((err, n)) ==> {
                 &&& err == Error::PageFault
-                &&& n < vstd::math::min(len as int, old(self).avail_spec() as int)
+                &&& n < vstd::math::min(len as int, old(self).avail() as int)
             },
     )]
     pub fn fill_zeros(&mut self, len: usize) -> core::result::Result<usize, (Error, usize)> {
@@ -2149,7 +2149,7 @@ macro_rules! impl_read_fallible {
                     },
                     r matches Err((err, n)) ==> {
                         &&& err == Error::PageFault
-                        &&& n < vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int)
+                        &&& n < vstd::math::min(old(self).remain() as int, old(writer).avail() as int)
                     },
             )]
             fn read_fallible(
@@ -2208,7 +2208,7 @@ macro_rules! impl_write_fallible {
                     },
                     r matches Err((err, n)) ==> {
                         &&& err == Error::PageFault
-                        &&& n < vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int)
+                        &&& n < vstd::math::min(old(self).avail() as int, old(reader).remain() as int)
                     },
             )]
             fn write_fallible(

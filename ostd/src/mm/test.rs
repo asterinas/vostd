@@ -77,14 +77,14 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         writer_infallible.write_val(&val1);
         assert!(res1.is_ok());
         proof! {
-            assert(writer_infallible.avail_spec() == 4);
+            assert(writer_infallible.avail() == 4);
         }
         // Origin: writer_infallible.write_val(&val2).unwrap();
         let res2 = #[verus_spec(with Tracked(&mut writer_owner))]
         writer_infallible.write_val(&val2);
         assert!(res2.is_ok());
         proof! {
-            assert(writer_infallible.avail_spec() == 0);
+            assert(writer_infallible.avail() == 0);
         }
         // assert_eq!(&buffer[..4], &val1.to_le_bytes()[..]);
         // assert_eq!(&buffer[4..], &val2.to_le_bytes()[..]);
@@ -105,14 +105,14 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         reader_infallible.read_val();
         assert!(r1.is_ok());
         proof! {
-            assert(reader_infallible.remain_spec() == 4);
+            assert(reader_infallible.remain() == 4);
         }
         // Origin: let read_val2: u32 = reader_infallible.read_val().unwrap();
         let r2: crate::prelude::Result<u32> = #[verus_spec(with Tracked(&mut reader_owner))]
         reader_infallible.read_val();
         assert!(r2.is_ok());
         proof! {
-            assert(reader_infallible.remain_spec() == 0);
+            assert(reader_infallible.remain() == 0);
         }
         // assert_eq!(val1, read_val1);
         // assert_eq!(val2, read_val2);
@@ -146,8 +146,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let _ = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut data_owner))]
         writer_infallible.write(&mut reader);
         proof! {
-            assert(writer_infallible.avail_spec() == 0);
-            assert(reader.remain_spec() == 0);
+            assert(writer_infallible.avail() == 0);
+            assert(reader.remain() == 0);
         }
 
         // assert_eq!(buffer, data);
@@ -168,8 +168,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         )]
         reader_infallible.read(&mut writer);
         proof! {
-            assert(reader_infallible.remain_spec() == 0);
-            assert(writer.avail_spec() == 0);
+            assert(reader_infallible.remain() == 0);
+            assert(writer.avail() == 0);
             assert(consumed_w.range.end - consumed_w.range.start == 5);
         }
 
@@ -207,7 +207,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         writer_infallible.write_val(&test_struct);
         proof! {
             assert(res is Ok);
-            assert(writer_infallible.avail_spec() == 0);
+            assert(writer_infallible.avail() == 0);
         }
         res.unwrap();
 
@@ -223,7 +223,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         reader_infallible.read_val::<TestPodStruct>();
         proof! {
             assert(res is Ok);
-            assert(reader_infallible.remain_spec() == 0);
+            assert(reader_infallible.remain() == 0);
         }
         res.unwrap();
         // assert_eq!(test_struct, read_struct);
@@ -255,7 +255,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         reader_infallible.read_val::<u32>();
         proof! {
             assert(result == Err(crate::Error::InvalidArgs));
-            assert(reader_infallible.remain_spec() == 3);
+            assert(reader_infallible.remain() == 3);
         }
     }
 
@@ -286,7 +286,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         writer_infallible.write_val(&val);
         proof! {
             assert(result == Err(crate::Error::InvalidArgs));
-            assert(writer_infallible.avail_spec() == 3);
+            assert(writer_infallible.avail() == 3);
         }
     }
 
@@ -361,8 +361,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         reader_infallible.read(&mut dest_writer);
         assert_eq!(copied, 3);
         proof! {
-            assert(reader_infallible.remain_spec() == 0);
-            assert(dest_writer.avail_spec() == 0);
+            assert(reader_infallible.remain() == 0);
+            assert(dest_writer.avail() == 0);
         }
         // assert_eq!(read_buffer, [30, 40, 50]);
     }
@@ -403,8 +403,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         writer_infallible.write(&mut reader);
         assert_eq!(copied, 3);
         proof! {
-            assert(writer_infallible.avail_spec() == 0);
-            assert(reader.remain_spec() == 0);
+            assert(writer_infallible.avail() == 0);
+            assert(reader.remain() == 0);
         }
         // assert_eq!(buffer, [0, 0, 100, 101, 102]);
     }
@@ -454,8 +454,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         limited_reader.read(&mut extra_writer);
         assert_eq!(extra_read, 0);
         proof! {
-            assert(limited_reader.remain_spec() == 0);
-            assert(extra_writer.avail_spec() == 1);
+            assert(limited_reader.remain() == 0);
+            assert(extra_writer.avail() == 1);
         }
     }
 
@@ -484,14 +484,14 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
                 limited_writer.inv(),
                 limited_writer.wf(writer_owner),
                 writer_owner.has_write_view(),
-                limited_writer.avail_spec() == if it.index() < 3 { 3 - it.index() } else { 0 },
+                limited_writer.avail() == if it.index() < 3 { 3 - it.index() } else { 0 },
         )]
         for val in data.iter() {
             #[verus_spec(with Tracked(&mut writer_owner))]
             let _ = limited_writer.write_val(val);
         }
         proof! {
-            assert(limited_writer.avail_spec() == 0);
+            assert(limited_writer.avail() == 0);
         }
         // assert_eq!(buffer, [10, 20, 30, 0, 0]);
     }
@@ -524,8 +524,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let _ = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut data_owner))]
         writer_infallible.write(&mut reader);
         proof! {
-            assert(writer_infallible.avail_spec() == 0);
-            assert(reader.remain_spec() == 0);
+            assert(writer_infallible.avail() == 0);
+            assert(reader.remain() == 0);
         }
 
         // assert_eq!(buffer, data);
@@ -545,8 +545,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         )]
         reader_infallible.read(&mut writer);
         proof! {
-            assert(reader_infallible.remain_spec() == 0);
-            assert(writer.avail_spec() == 0);
+            assert(reader_infallible.remain() == 0);
+            assert(writer.avail() == 0);
             assert(consumed_w.range.end - consumed_w.range.start == 5);
         }
 
@@ -608,7 +608,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             res.unwrap();
         }
         proof! {
-            assert(writer_infallible.avail_spec() == 0);
+            assert(writer_infallible.avail() == 0);
         }
         // assert_eq!(buffer, [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
     }
@@ -633,8 +633,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let write_result = writer_fallible.write_val(&val);
         proof! {
             match write_result {
-                Ok(_) => assert(writer_fallible.avail_spec() == 0),
-                Err(_) => assert(writer_fallible.avail_spec() == 8),
+                Ok(_) => assert(writer_fallible.avail() == 0),
+                Err(_) => assert(writer_fallible.avail() == 8),
             }
         }
 
@@ -651,8 +651,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let read_result: crate::prelude::Result<u64> = reader_fallible.read_val();
         proof! {
             match read_result {
-                Ok(_) => assert(reader_fallible.remain_spec() == 0),
-                Err(_) => assert(reader_fallible.remain_spec() == 8),
+                Ok(_) => assert(reader_fallible.remain() == 0),
+                Err(_) => assert(reader_fallible.remain() == 8),
             }
         }
         // assert_eq!(val, read_val);
@@ -687,14 +687,14 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             match result {
                 Ok(n) => {
                     assert(n == 3);
-                    assert(limited_reader.remain_spec() == 0);
-                    assert(writer_fallible.avail_spec() == 2);
+                    assert(limited_reader.remain() == 0);
+                    assert(writer_fallible.avail() == 2);
                 },
                 Err((err, n)) => {
                     assert(err == crate::Error::PageFault);
                     assert(n < 3);
-                    assert(limited_reader.remain_spec() == 3 - n);
-                    assert(writer_fallible.avail_spec() == 5 - n);
+                    assert(limited_reader.remain() == 3 - n);
+                    assert(writer_fallible.avail() == 5 - n);
                 },
             }
         }
@@ -731,14 +731,14 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             match result {
                 Ok(n) => {
                     assert(n == 3);
-                    assert(limited_writer.avail_spec() == 0);
-                    assert(reader.remain_spec() == 2);
+                    assert(limited_writer.avail() == 0);
+                    assert(reader.remain() == 2);
                 },
                 Err((err, n)) => {
                     assert(err == crate::Error::PageFault);
                     assert(n < 3);
-                    assert(limited_writer.avail_spec() == 3 - n);
-                    assert(reader.remain_spec() == 5 - n);
+                    assert(limited_writer.avail() == 3 - n);
+                    assert(reader.remain() == 5 - n);
                 },
             }
         }
@@ -765,8 +765,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let write_result = writer_fallible.write_val(&val);
         proof! {
             match write_result {
-                Ok(_) => assert(writer_fallible.avail_spec() == 0),
-                Err(_) => assert(writer_fallible.avail_spec() == 8),
+                Ok(_) => assert(writer_fallible.avail() == 0),
+                Err(_) => assert(writer_fallible.avail() == 8),
             }
         }
 
@@ -779,8 +779,8 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let read_result: crate::prelude::Result<u64> = reader_fallible.read_val();
         proof! {
             match read_result {
-                Ok(_) => assert(reader_fallible.remain_spec() == 0),
-                Err(_) => assert(reader_fallible.remain_spec() == 8),
+                Ok(_) => assert(reader_fallible.remain() == 0),
+                Err(_) => assert(reader_fallible.remain() == 8),
             }
         }
         // assert_eq!(val, read_val);
@@ -804,11 +804,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             match &collected {
                 Ok(bytes) => {
                     assert(bytes.len() == 5);
-                    assert(reader_fallible.remain_spec() == 0);
+                    assert(reader_fallible.remain() == 0);
                 },
                 Err(err) => {
                     assert(*err == crate::Error::PageFault);
-                    assert(reader_fallible.remain_spec() == 5);
+                    assert(reader_fallible.remain() == 5);
                 },
             }
         }
@@ -835,11 +835,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             match &result {
                 Ok(bytes) => {
                     assert(bytes.len() == 3);
-                    assert(limited_reader.remain_spec() == 0);
+                    assert(limited_reader.remain() == 0);
                 },
                 Err(err) => {
                     assert(*err == crate::Error::PageFault);
-                    assert(limited_reader.remain_spec() == 3);
+                    assert(limited_reader.remain() == 3);
                 },
             }
         }
@@ -865,12 +865,12 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             match result {
                 Ok(n) => {
                     assert(n == 8);
-                    assert(writer_fallible.avail_spec() == 0);
+                    assert(writer_fallible.avail() == 0);
                 },
                 Err((err, n)) => {
                     assert(err == crate::Error::PageFault);
                     assert(n < 8);
-                    assert(writer_fallible.avail_spec() == 8 - n);
+                    assert(writer_fallible.avail() == 8 - n);
                 },
             }
         }
@@ -897,7 +897,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let result = writer_fallible.write_val(&val);
         proof! {
             assert(result == Err(crate::Error::InvalidArgs));
-            assert(writer_fallible.avail_spec() == 3);
+            assert(writer_fallible.avail() == 3);
         }
 
         // Attempts to read a u32 which requires 4 bytes, but buffer has only 3
@@ -910,7 +910,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         let result = reader_fallible.read_val::<u32>();
         proof! {
             assert(result == Err(crate::Error::InvalidArgs));
-            assert(reader_fallible.remain_spec() == 3);
+            assert(reader_fallible.remain() == 3);
         }
     }
 
@@ -940,7 +940,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         // Origin: assert_eq!(result, Err(Error::InvalidArgs));
         proof! {
             assert(result == Err(crate::Error::InvalidArgs));
-            assert(writer_infallible.avail_spec() == 3);
+            assert(writer_infallible.avail() == 3);
         }
 
         // Attempts to read a u32 which requires 4 bytes, but buffer has only 3
@@ -959,7 +959,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         // Origin: assert_eq!(result, Err(Error::InvalidArgs));
         proof! {
             assert(result == Err(crate::Error::InvalidArgs));
-            assert(reader_infallible.remain_spec() == 3);
+            assert(reader_infallible.remain() == 3);
         }
     }
 
