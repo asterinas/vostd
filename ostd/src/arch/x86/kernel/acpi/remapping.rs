@@ -49,7 +49,7 @@ impl Drhd {
 verus! {
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct DrhdHeader {
     typ: u16,
     length: u16,
@@ -57,12 +57,6 @@ pub struct DrhdHeader {
     size: u8,
     segment_num: u16,
     register_base_addr: u64,
-}
-
-// SAFETY: The `DrhdHeader` struct is `repr(C)` and all its fields are plain old
-// data, so any bit pattern is a valid value.
-unsafe impl Pod for DrhdHeader {
-
 }
 
 /// Reserved Memory Region Reporting (RMRR).
@@ -77,7 +71,7 @@ pub struct Rmrr {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct RmrrHeader {
     typ: u16,
     length: u16,
@@ -85,12 +79,6 @@ pub struct RmrrHeader {
     segment_num: u16,
     reserved_memory_region_base_addr: u64,
     reserved_memory_region_limit_addr: u64,
-}
-
-// SAFETY: The `RmrrHeader` struct is `repr(C)` and all its fields are plain
-// old data, so any bit pattern is a valid value.
-unsafe impl Pod for RmrrHeader {
-
 }
 
 /// Root Port ATS Capability Reporting (ATSR).
@@ -104,19 +92,13 @@ pub struct Atsr {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct AtsrHeader {
     typ: u16,
     length: u16,
     flags: u8,
     reserved: u8,
     segment_num: u16,
-}
-
-// SAFETY: The `AtsrHeader` struct is `repr(C)` and all its fields are plain old
-// data, so any bit pattern is a valid value.
-unsafe impl Pod for AtsrHeader {
-
 }
 
 /// Remapping Hardware Status Affinity (RHSA).
@@ -126,19 +108,13 @@ unsafe impl Pod for AtsrHeader {
 /// This optional structure provides the association between each Remapping hardware unit (identified
 /// by its espective Base Address) and the proximity domain to which that hardware unit belongs.
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct Rhsa {
     typ: u16,
     length: u16,
     flags: u32,
     register_base_addr: u64,
     proximity_domain: u32,
-}
-
-// SAFETY: The `Rhsa` struct is `repr(C)` and all its fields are plain old data,
-// so any bit pattern is a valid value.
-unsafe impl Pod for Rhsa {
-
 }
 
 /// ACPI Name-space Device Declaration (ANDD).
@@ -159,18 +135,12 @@ impl Andd {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct AnddHeader {
     typ: u16,
     length: u16,
     reserved: [u8; 3],
     acpi_device_num: u8,
-}
-
-// SAFETY: The `AnddHeader` struct is `repr(C)` and all its fields are plain
-// old data, so any bit pattern is a valid value.
-unsafe impl Pod for AnddHeader {
-
 }
 
 /// SoC Integrated Address Translation Cache (SATC).
@@ -184,19 +154,13 @@ pub struct Satc {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct SatcHeader {
     typ: u16,
     length: u16,
     flags: u8,
     reserved: u8,
     segment_num: u16,
-}
-
-// SAFETY: The `SatcHeader` struct is `repr(C)` and all its fields are plain old
-// data, so any bit pattern is a valid value.
-unsafe impl Pod for SatcHeader {
-
 }
 
 /// SoC Integrated Device Property Reporting (SIDP).
@@ -211,18 +175,12 @@ pub struct Sidp {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct SidpHeader {
     typ: u16,
     length: u16,
     reserved: u16,
     segment_num: u16,
-}
-
-// SAFETY: The `SidpHeader` struct is `repr(C)` and all its fields are plain old
-// data, so any bit pattern is a valid value.
-unsafe impl Pod for SidpHeader {
-
 }
 
 /// The Device Scope Structure is made up of Device Scope Entries. Each Device Scope Entry may be
@@ -241,7 +199,7 @@ impl DeviceScope {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy /*, Pod*/)]
+#[derive(Debug, Clone, Copy, Pod)]
 pub struct DeviceScopeHeader {
     typ: u8,
     length: u8,
@@ -249,12 +207,6 @@ pub struct DeviceScopeHeader {
     reserved: u8,
     enum_id: u8,
     start_bus_number: u8,
-}
-
-// SAFETY: The `DeviceScopeHeader` struct is `repr(C)` and all its fields are
-// plain old data, so any bit pattern is a valid value.
-unsafe impl Pod for DeviceScopeHeader {
-
 }
 
 /// The sequence of byte pairs read from `bytes[start..end]`, two bytes per element.

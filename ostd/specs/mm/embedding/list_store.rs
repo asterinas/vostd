@@ -7,12 +7,8 @@
 //! Unlike `VmStore` (which fixes concrete configs such as
 //! `UserPtConfig`), `ListStore<M>` is *generic* over the link metadata
 //! `M`. The kernel's `LinkedList<M>` is a generic library with no
-//! canonical concrete instantiation in ostd, and `LinkedListOwner<M>`
-//! cannot be type-erased to `dyn`: its per-link permission is the
-//! associated type `<M as Repr<MetaSlotSmall>>::Perm`, embedded in
-//! `LinkInnerPerms<M>`, so the trait is not object-safe (cf.
-//! `Frame<dyn AnyFrameMeta>`, which works only because it exposes no
-//! associated type post-erasure).
+//! canonical concrete instantiation in ostd. The harness keeps `M` explicit
+//! so that its typed metadata projections match the list under test.
 //!
 //! # State
 //!
@@ -204,14 +200,17 @@ pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -
     LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
-        res.repr_perms =~= Seq::<LinkInnerPerms<M>>::empty(),
         res.metadata_perms =~= Seq::<MetadataPerm>::empty(),
         res.list_id == 0,
 {
     let tracked list = Seq::<LinkOwner>::tracked_empty();
-    let tracked repr_perms = Seq::<LinkInnerPerms<M>>::tracked_empty();
     let tracked metadata_perms = Seq::<MetadataPerm>::tracked_empty();
-    let tracked res = LinkedListOwner::<M> { list, repr_perms, metadata_perms, list_id: 0 };
+    let tracked res = LinkedListOwner::<M> {
+        list,
+        metadata_perms,
+        list_id: 0,
+        _marker: core::marker::PhantomData,
+    };
     res
 }
 

@@ -48,7 +48,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
                 &&& owner.is_node()
                 &&& node.slot_vaddr() == owner.node().slot_vaddr()
                 &&& node@.ptr_inv()
-                &&& node.external_meta_wf(owner.node().metadata, ())
+                &&& node.external_meta_wf(owner.node().metadata)
                 &&& node@.tracked_metadata_perm@ matches Some(permission) ==> {
                     &&& node.inv()
                     &&& owner.node().matches_permission(permission)

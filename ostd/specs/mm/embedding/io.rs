@@ -36,8 +36,8 @@
 //! - **Exec `VmReader` / `VmWriter` handle**: exec `requires` includes
 //!   `self.inv()` and `self.wf(owner)` over the runtime handle. We
 //!   don't model the handle, so these conjuncts are MODEL GAPS.
-//! - **`remain_spec` / `avail_spec`-bound preconditions**: `skip`
-//!   requires `nbytes <= self.remain_spec()`. Handle-derived,
+//! - **`remain` / `avail`-bound preconditions**: `skip`
+//!   requires `nbytes <= self.remain()`. Handle-derived,
 //!   inexpressible without the handle.
 //! - **`from_kernel_space`**: exec ensures `read_view_initialized()` /
 //!   `has_write_view()` only under a kernel-VA range guard

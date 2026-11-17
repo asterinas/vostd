@@ -35,7 +35,7 @@ use crate::specs::{
 use crate::mm::{
     MAX_NR_LEVELS, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
-    page_size, page_size_spec,
+    page_size,
     page_table::{PageTableEntryTrait, PageTableGuard},
 };
 use core::ops::{Deref, Range};
@@ -50,7 +50,7 @@ pub open spec fn vaddr_make<C: PagingConstsTrait>(idx: int, offset: usize) -> us
         0 <= idx < C::NR_LEVELS,
         offset < NR_ENTRIES,
 {
-    (page_size_spec::<C>((C::NR_LEVELS - idx) as PagingLevel) * offset) as usize
+    (page_size::<C>((C::NR_LEVELS - idx) as PagingLevel) * offset) as usize
 }
 
 pub open spec fn rec_vaddr<C: PagingConstsTrait>(path: TreePath<NR_ENTRIES>, idx: int) -> usize
@@ -347,7 +347,7 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     // loop invariant which inspects each slot's PTE.)
     &&& forall|j: int|
         0 <= j < NR_ENTRIES ==> #[trigger] owner.value().node().children_perm.value()[j]
-            == C::E::new_absent_spec()
+            == C::E::new_absent()
 }
 
 /// Grandchildren of a freshly-allocated PT node are all `None`. The absent
@@ -1725,7 +1725,7 @@ proof fn lemma_vaddr_make_eq_page_size<C: PagingConstsTrait>(idx: int, offset: i
     assert(NR_ENTRIES * entry_size == parent_size);
     assert(parent_size <= usize::MAX);
     assert(offset as usize == offset);
-    assert(page_size_spec::<C>((C::NR_LEVELS - idx) as PagingLevel) == entry_size);
+    assert(page_size::<C>((C::NR_LEVELS - idx) as PagingLevel) == entry_size);
     assert(vaddr_make::<C>(idx, offset as usize) == (entry_size * offset) as usize);
     assert(entry_size * offset == offset * entry_size) by (nonlinear_arith);
 }

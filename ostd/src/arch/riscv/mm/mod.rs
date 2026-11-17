@@ -87,8 +87,8 @@ pub proof fn lemma_nr_subpage_per_huge_eq_nr_entries()
 
 } // verus!
 bitflags::bitflags! {
-    /* #[derive(Pod)]
-     * #[repr(C)] */
+    #[derive(Pod)]
+    #[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame or page table is valid.
@@ -145,14 +145,9 @@ pub(crate) fn tlb_flush_all_including_global() {
 }
 
 #[verus_verify]
-#[derive(Clone, Copy /*Pod, Default*/)]
+#[derive(Clone, Copy, Pod /*, Default*/)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
-
-// SAFETY: `PageTableEntry` is a `repr(C)` wrapper around `usize` with no padding,
-// so every bit pattern is a valid value.
-#[verus_verify]
-unsafe impl Pod for PageTableEntry {}
 
 verus! {
 
@@ -243,7 +238,7 @@ impl PageTableEntryTrait for PageTableEntry {
     fn new_absent() -> Self {
         proof {
             assert(Self::default_spec() == Self(0)) by (compute_only);
-            assert(Self::new_absent_spec() == Self(0)) by (compute_only);
+            assert(Self::new_absent() == Self(0)) by (compute_only);
             assert(Self(0).paddr() == 0) by (compute_only);
             assert(!Self(0).is_present()) by (compute_only);
         }
@@ -282,7 +277,7 @@ impl PageTableEntryTrait for PageTableEntry {
             lemma_auxiliary_bit_properties(pte.0);
             assert(((raw & Self::PHYS_ADDR_MASK) >> 10) << 12 == ((((raw | 1usize)
                 & Self::PHYS_ADDR_MASK) >> 10) << 12)) by (bit_vector);
-            assert(pte == Self::new_page_spec(paddr, _level, prop));
+            assert(pte == Self::new_page(paddr, _level, prop));
         }
         pte
     }
@@ -300,7 +295,7 @@ impl PageTableEntryTrait for PageTableEntry {
                 requires
                     raw == ((paddr >> 12) << 10) | 1usize,
             ;
-            assert(Self::new_pt_spec(paddr) == Self(raw));
+            assert(Self::new_pt(paddr) == Self(raw));
             assert(raw & 14usize == 0) by (bit_vector)
                 requires
                     raw == ((paddr >> 12) << 10) | 1usize,
