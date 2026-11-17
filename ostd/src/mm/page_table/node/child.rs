@@ -69,7 +69,7 @@ impl<C: PageTableConfig> Child<C> {
             final(owner).inv(),
             final(owner).match_pte(res, final(owner).parent_level),
             *final(owner) == old(owner).into_pte_owner_spec(self),
-            old(owner).is_node() ==> res == C::E::new_pt_spec(
+            old(owner).is_node() ==> res == C::E::new_pt(
                 meta_to_frame(old(owner).node().slot_vaddr()),
             ),
     )]

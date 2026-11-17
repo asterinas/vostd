@@ -322,12 +322,12 @@ impl<'a> VmWriter<'a, Infallible> {
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).has_write_view(),
-            old(self).avail_spec() >= core::mem::size_of::<T>() ==> r is Ok,
-            old(self).avail_spec() < core::mem::size_of::<T>()
+            old(self).avail() >= core::mem::size_of::<T>() ==> r is Ok,
+            old(self).avail() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).avail() == old(self).avail() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
@@ -393,7 +393,7 @@ impl<'a> VmWriter<'a, Infallible> {
             reader_owner@.has_read_view(),
             reader_owner@.is_kernel == old(writer_owner).is_kernel,
             // Return value: exactly `avail / size_of::<T>()` elements written.
-            r * core::mem::size_of::<T>() == old(self).avail_spec(),
+            r * core::mem::size_of::<T>() == old(self).avail(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.cast::<T>();
@@ -550,10 +550,10 @@ impl<'a> VmWriter<'a, Infallible> {
             final(owner_r).inv(),
             final(self).wf(*final(owner_w)),
             final(reader).wf(*final(owner_r)),
-            r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
-            final(self).avail_spec() == old(self).avail_spec() - r as usize,
+            r == vstd::math::min(old(self).avail() as int, old(reader).remain() as int),
+            final(self).avail() == old(self).avail() - r as usize,
             final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            final(reader).remain_spec() == old(reader).remain_spec() - r as usize,
+            final(reader).remain() == old(reader).remain() - r as usize,
             final(reader).cursor.vaddr == old(reader).cursor.vaddr + r as usize,
             final(owner_w).has_write_view(),
             final(owner_r).read_view_initialized(),
@@ -602,7 +602,7 @@ impl<'a> VmWriter<'a, Infallible> {
             match r {
                 Ok(_) => {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).avail() == old(self).avail() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
@@ -739,7 +739,7 @@ impl<'a> VmReader<'a, Infallible> {
             self.inv(),
         ensures
             r.inv(),
-            r.remain_spec() == self.remain_spec(),
+            r.remain() == self.remain(),
             r.cursor == self.cursor,
             r.end == self.end,
             r.ghost_id == self.ghost_id,
@@ -803,10 +803,10 @@ impl<'a> VmReader<'a, Infallible> {
             final(writer).inv(),
             final(self).wf(*final(owner_r)),
             final(writer).wf(*final(owner_w)),
-            r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
-            final(self).remain_spec() == old(self).remain_spec() - r as usize,
+            r == vstd::math::min(old(self).remain() as int, old(writer).avail() as int),
+            final(self).remain() == old(self).remain() - r as usize,
             final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            final(writer).avail_spec() == old(writer).avail_spec() - r as usize,
+            final(writer).avail() == old(writer).avail() - r as usize,
             final(writer).cursor.vaddr == old(writer).cursor.vaddr + r as usize,
             consumed_w@.inv(),
             consumed_w@.range.start == old(owner_w).range.start,
@@ -903,12 +903,12 @@ impl<'a> VmReader<'a, Infallible> {
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).read_view_initialized(),
-            old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
-            old(self).remain_spec() < core::mem::size_of::<T>()
+            old(self).remain() >= core::mem::size_of::<T>() ==> r is Ok,
+            old(self).remain() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).remain() == old(self).remain() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
@@ -969,15 +969,15 @@ impl<'a> VmReader<'a, Infallible> {
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).read_view_initialized(),
-            old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
-            old(self).remain_spec() < core::mem::size_of::<T>()
+            old(self).remain() >= core::mem::size_of::<T>() ==> r is Ok,
+            old(self).remain() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             match r {
                 Ok(v) => {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
-                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).remain() == old(self).remain() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                     &&& ostd_pod::pod_bytes::<T>(v)
                         == crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner))
@@ -1099,11 +1099,11 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            old(self).remain_spec() < core::mem::size_of::<T>()
+            old(self).remain() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).remain() == old(self).remain() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => *final(self) == *old(self),
@@ -1151,7 +1151,7 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).cursor.range == old(self).cursor.range,
             match r {
                 Ok(collected) => {
-                    &&& collected.len() == old(self).remain_spec()
+                    &&& collected.len() == old(self).remain()
                     &&& final(self).cursor == old(self).end
                 },
                 Err(err) => {
@@ -1626,7 +1626,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         requires
             self.inv(),
         returns
-            self.remain_spec() > 0,
+            self.remain() > 0,
     )]
     pub fn has_remain(&self) -> bool {
         self.remain() > 0
@@ -1640,8 +1640,8 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             old(self).inv(),
         ensures
             r.inv(),
-            r.remain_spec() == (if old(self).remain_spec() <= max_remain {
-                old(self).remain_spec()
+            r.remain() == (if old(self).remain() <= max_remain {
+                old(self).remain()
             } else {
                 max_remain
             }),
@@ -1665,11 +1665,11 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     #[verus_spec(r =>
         requires
             old(self).inv(),
-            nbytes <= old(self).remain_spec(),
+            nbytes <= old(self).remain(),
         ensures
             r.inv(),
             r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            r.remain_spec() == old(self).remain_spec() - nbytes,
+            r.remain() == old(self).remain() - nbytes,
             r.end == old(self).end,
             r.ghost_id == old(self).ghost_id,
     )]
@@ -1693,14 +1693,14 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).mem_view is Some,
-            nbytes <= old(self).remain_spec(),
+            nbytes <= old(self).remain(),
         ensures
             final(self).inv(),
             final(owner).inv(),
             final(self).wf(*final(owner)),
             old(owner).read_view_initialized() ==> final(owner).read_view_initialized(),
             final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            final(self).remain_spec() == old(self).remain_spec() - nbytes,
+            final(self).remain() == old(self).remain() - nbytes,
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
 
@@ -1766,7 +1766,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
         requires
             self.inv(),
         returns
-            self.avail_spec() > 0,
+            self.avail() > 0,
     )]
     pub fn has_avail(&self) -> bool {
         self.avail() > 0
@@ -1780,8 +1780,8 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
             old(self).inv(),
         ensures
             r.inv(),
-            r.avail_spec() == (if old(self).avail_spec() <= max_avail {
-                old(self).avail_spec()
+            r.avail() == (if old(self).avail() <= max_avail {
+                old(self).avail()
             } else {
                 max_avail
             }),
@@ -1805,11 +1805,11 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     #[verus_spec(r =>
         requires
             old(self).inv(),
-            nbytes <= old(self).avail_spec(),
+            nbytes <= old(self).avail(),
         ensures
             r.inv(),
             r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            r.avail_spec() == old(self).avail_spec() - nbytes,
+            r.avail() == old(self).avail() - nbytes,
             r.end == old(self).end,
             r.ghost_id == old(self).ghost_id,
     )]
@@ -1882,11 +1882,11 @@ impl<'a> VmWriter<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            old(self).avail_spec() < core::mem::size_of::<T>()
+            old(self).avail() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).avail() == old(self).avail() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => *final(self) == *old(self),
@@ -1932,7 +1932,7 @@ impl<'a> VmWriter<'a, Fallible> {
             {
                 let n = match r { Ok(n) => n, Err((_, n)) => n };
                 &&& n <= len
-                &&& n <= old(self).avail_spec()
+                &&& n <= old(self).avail()
                 &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
             },
             r matches Ok(n) ==> n == vstd::math::min(len as int, old(self).avail_spec() as int),
@@ -2143,9 +2143,9 @@ macro_rules! impl_read_fallible {
                         let n = match r { Ok(n) => n, Err((_, n)) => n };
                         &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
                         &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
-                        &&& n <= old(self).remain_spec()
-                        &&& n <= old(writer).avail_spec()
-                        &&& r is Ok ==> n == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int)
+                        &&& n <= old(self).remain()
+                        &&& n <= old(writer).avail()
+                        &&& r is Ok ==> n == vstd::math::min(old(self).remain() as int, old(writer).avail() as int)
                     },
                     r matches Err((err, n)) ==> {
                         &&& err == Error::PageFault
@@ -2202,9 +2202,9 @@ macro_rules! impl_write_fallible {
                         let n = match r { Ok(n) => n, Err((_, n)) => n };
                         &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
                         &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
-                        &&& n <= old(self).avail_spec()
-                        &&& n <= old(reader).remain_spec()
-                        &&& r is Ok ==> n == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int)
+                        &&& n <= old(self).avail()
+                        &&& n <= old(reader).remain()
+                        &&& r is Ok ==> n == vstd::math::min(old(self).avail() as int, old(reader).remain() as int)
                     },
                     r matches Err((err, n)) ==> {
                         &&& err == Error::PageFault

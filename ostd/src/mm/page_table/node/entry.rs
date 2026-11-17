@@ -940,8 +940,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     i <= j < NR_ENTRIES ==> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
                         &&& new_owner.children()[j].unwrap().value().is_absent()
-                        &&& new_owner.value().node().children_perm.value()[j]
-                            == C::E::new_absent_spec()
+                        &&& new_owner.value().node().children_perm.value()[j] == C::E::new_absent()
                     },
                 // Children [0, i) have been replaced with frames.
                 forall|j: int|

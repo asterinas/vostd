@@ -671,7 +671,7 @@ impl<'a> VmSpaceOwner {
 impl VmSpace {
     pub open spec fn reader_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
-        &&& current_page_table_paddr() == self.pt.root_paddr_spec()
+        &&& current_page_table_paddr() == self.pt.root_paddr()
     }
 
     pub open spec fn writer_requires(
@@ -685,7 +685,7 @@ impl VmSpace {
 
     pub open spec fn writer_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
-        &&& current_page_table_paddr() == self.pt.root_paddr_spec()
+        &&& current_page_table_paddr() == self.pt.root_paddr()
     }
 }
 

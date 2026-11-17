@@ -124,7 +124,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     ) -> bool {
         &&& reader.inv()
         &&& reader.wf(vm_io_owner)
-        &&& reader.remain_spec() >= crate::specs::arch::PAGE_SIZE
+        &&& reader.remain() >= crate::specs::arch::PAGE_SIZE
         &&& reader.cursor.vaddr % core::mem::align_of::<C::E>() == 0
         &&& vm_io_owner.inv()
         &&& vm_io_owner.read_view_initialized()
@@ -260,7 +260,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             old(regions).contains(meta_to_index(owner@.value().node().slot_vaddr())),
 
             final(regions).slot_owners[owner@.value().node().slot_index].paths_in_pt.is_empty(),
-            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().slot_vaddr())), (level + 1) as PagingLevel),
+            owner@.value().match_pte(C::E::new_pt(meta_to_frame(owner@.value().node().slot_vaddr())), (level + 1) as PagingLevel),
             final(regions).contains(owner@.value().node().slot_index),
             owner@.value().node().metaregion_sound_node(*final(regions)),
     )]
@@ -689,7 +689,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         requires
             self.walk_coverage_from_view(reader, view, dom),
             reader.cursor.vaddr <= c,
-            c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
+            c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain(),
             (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
         ensures
             self.walk_coverage_at(view, dom, c),
@@ -710,9 +710,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         forall|c: usize|
             #![trigger Self::walk_pte_at_view(view, c)]
             reader.cursor.vaddr <= c && c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
-                + reader.remain_spec() && (c - reader.cursor.vaddr) % core::mem::size_of::<
-                C::E,
-            >() as int == 0 ==> {
+                + reader.remain() && (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int
+                == 0 ==> {
                 let pte = Self::walk_pte_at_view(view, c);
                 pte.is_present() && !pte.is_last(self.level) ==> dom.contains(
                     frame_to_index(pte.paddr()),
@@ -730,10 +729,10 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         forall|c1: usize, c2: usize|
             #![trigger Self::walk_pte_at_view(view, c1), Self::walk_pte_at_view(view, c2)]
             reader.cursor.vaddr <= c1 && c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
-                + reader.remain_spec() && (c1 - reader.cursor.vaddr) % core::mem::size_of::<
+                + reader.remain() && (c1 - reader.cursor.vaddr) % core::mem::size_of::<
                 C::E,
             >() as int == 0 && reader.cursor.vaddr <= c2 && c2 + core::mem::size_of::<C::E>()
-                <= reader.cursor.vaddr + reader.remain_spec() && (c2 - reader.cursor.vaddr)
+                <= reader.cursor.vaddr + reader.remain() && (c2 - reader.cursor.vaddr)
                 % core::mem::size_of::<C::E>() as int == 0 && c1 != c2 ==> {
                 let pte1 = Self::walk_pte_at_view(view, c1);
                 let pte2 = Self::walk_pte_at_view(view, c2);
