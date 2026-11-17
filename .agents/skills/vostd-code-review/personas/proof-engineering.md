@@ -134,6 +134,16 @@ report a finding merely because the code diverges from a pattern.
    because exec/tracked callers obtain it implicitly. Check the active
    `source/docs/guide/src/reference-type-invariants.md` and the
    [acknowledged PR #860 correction](https://github.com/asterinas/vostd/pull/860#discussion_r4396558740).
+   For changed resource-accounting models, identify the promised accounting invariant
+   or clean-boundary guarantee, then trace token creation, transfer and redemption
+   against ghost bookkeeping. Check whether a legal caller can reset the ledger while
+   retaining an outstanding tracked token and falsely establish that guarantee.
+   Inspect field visibility, mutation access and the relationship linking entries to
+   tokens. Neither an unrelated `inv()` nor privacy alone establishes conservation;
+   require a concrete bypass of the promised property, not a particular ledger design.
+   Compare with the base to isolate newly exposed bypasses. Report a broken accounting
+   guarantee without claiming a runtime memory error or logical contradiction unless
+   separately demonstrated.
 
 You own contract completeness, trust placement, and model reuse — not documentation
 phrasing (Maintainability persona), the `rlimit > 200` threshold, or whether a changed
