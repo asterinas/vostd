@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use vstd::{
+    arithmetic::div_mod::lemma_fundamental_div_mod_converse,
     assert_seqs_equal,
     layout::size_of,
     prelude::*,
