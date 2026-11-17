@@ -3,6 +3,18 @@ use vstd::prelude::*;
 
 verus! {
 
+/// Rust 1.99.1, library/core/src/convert/mod.rs: AsMut<[T]> for [T]
+/// returns `self`. The reborrow preserves the entire slice on return and
+/// propagates all subsequent mutations back to the receiver without panicking.
+pub assume_specification<T>[ <[T] as core::convert::AsMut<[T]>>::as_mut ](slice: &mut [T]) -> (ret:
+    &mut [T])
+    ensures
+        ret@ == old(slice)@,
+        final(slice)@ == final(ret)@,
+    opens_invariants none
+    no_unwind
+;
+
 #[verifier::when_used_as_spec(as_ptr_spec)]
 pub assume_specification<T>[ <[T]>::as_ptr ](s: &[T]) -> (r: *const T)
     ensures
