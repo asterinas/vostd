@@ -1121,7 +1121,7 @@ diff --git a/source/vstd/thread_view.rs b/source/vstd/thread_view.rs
 new file mode 100644
 --- /dev/null
 +++ b/source/vstd/thread_view.rs
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,462 @@
 +use super::cell::CellId;
 +use super::prelude::*;
 +use super::resource::algebra;
@@ -1362,28 +1362,31 @@ new file mode 100644
 +// Memory ownership permissions are objective independently of the type stored
 +// at the location. Their views describe global memory, not one thread's
 +// subjective weak-memory observations.
++// The stored value must itself be objective: reading it back out hands it to
++// the permission's owner, so e.g. `PointsTo<Tracked<ViewSeen>>` would let a
++// thread obtain another thread's view without synchronizing.
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::cell::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::pcell::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::cell::pcell::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::raw_ptr::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::raw_ptr::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::simple_pptr::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::simple_pptr::PointsTo<T> {
 +
 +}
 +
@@ -1411,6 +1414,16 @@ new file mode 100644
 +
 +#[cfg(verus_keep_ghost)]
 +unsafe impl<T: Objective> Objective for Option<T> {
++
++}
++
++// `Vec` stores its capacity in a std pattern type, which hides the structural
++// auto-trait derivation; its elements and allocator are its only contents.
++#[cfg(all(verus_keep_ghost, feature = "alloc"))]
++unsafe impl<T: Objective, A: core::alloc::Allocator + Objective> Objective for alloc::vec::Vec<
++    T,
++    A,
++> {
 +
 +}
 +

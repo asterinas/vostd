@@ -20,8 +20,24 @@ use core::marker::PhantomData;
 
 verus! {
 
+/// Bounds every erased capture. Under the weak-memory model a capture must be
+/// `Objective`: a queued callback may run on another thread, so it must not
+/// carry thread-subjective ghost state such as a `ViewSeen`.
+#[cfg(feature = "irc11")]
+pub trait RawCallbackCapture: Send + 'static + vstd::thread_view::Objective {}
+
+#[cfg(feature = "irc11")]
+impl<C: Send + 'static + vstd::thread_view::Objective> RawCallbackCapture for C {}
+
+/// Bounds every erased capture.
+#[cfg(not(feature = "irc11"))]
+pub trait RawCallbackCapture: Send + 'static {}
+
+#[cfg(not(feature = "irc11"))]
+impl<C: Send + 'static> RawCallbackCapture for C {}
+
 /// Sized capture whose verified runner consumes an invocation certificate.
-pub trait RawCallbackContextWithProof<S>: Send + 'static {
+pub trait RawCallbackContextWithProof<S>: RawCallbackCapture {
     /// Obligation that must hold when the queued capture is finally invoked.
     spec fn call_requires(&self, proof: S) -> bool;
 
@@ -60,6 +76,15 @@ pub struct RawCallbackWithProof<S> {
 // captures. The certificate S is tracked and carries no executable storage.
 #[verifier::external]
 unsafe impl<S> Send for RawCallbackWithProof<S> {
+
+}
+
+// SAFETY: the callback stores only an erased capture, which `new` requires to
+// be `Objective`, and its runner. The certificate type S is never stored; it is
+// supplied by the invoking thread.
+#[cfg(feature = "irc11")]
+#[verifier::external]
+unsafe impl<S> vstd::thread_view::Objective for RawCallbackWithProof<S> {
 
 }
 

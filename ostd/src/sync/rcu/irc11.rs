@@ -241,6 +241,15 @@ unsafe impl<P: NonNullPtr + Send> Send for PendingRcuDrop<P> {
 
 }
 
+// SAFETY: a pending drop carries no subjective ghost state. Its ghost fields
+// are the retirement registration, claim and fact, plus a 'static handle to the
+// root invariant; P appears only in phantom positions and the raw pointer is
+// executable data. The pointee's permission is recovered only from the root
+// invariant, which already requires it to be Objective.
+unsafe impl<P: NonNullPtr> vstd::thread_view::Objective for PendingRcuDrop<P> {
+
+}
+
 /// Erased callback and the exact batch metadata checked before invocation.
 #[must_use]
 /* New explicit lifetime/callback container; erased fields carry only the corresponding proof resources.

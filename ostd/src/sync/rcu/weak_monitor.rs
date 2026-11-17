@@ -67,6 +67,13 @@ struct MonitorState {
     ghost_handoff: Ghost<ThreadView>,
 }
 
+// Verus does not derive auto-trait bounds for this struct. Its non-ghost
+// fields are checked to be objective by `monitor_state_fields_are_objective`
+// below; in particular queued callbacks carry only objective captures.
+unsafe impl vstd::thread_view::Objective for MonitorState {
+
+}
+
 spec fn summaries(callbacks: Seq<RcuCallbackWork>) -> Seq<RcuCallbackSummary> {
     callbacks.map(|i: int, callback: RcuCallbackWork| callback.summary())
 }
@@ -799,3 +806,13 @@ fn contains_cpu(cpus: &Vec<CpuId>, cpu: CpuId) -> bool
 }
 
 } // verus!
+
+// Compile-time check backing the `Objective` impl for `MonitorState`.
+#[allow(dead_code)]
+fn monitor_state_fields_are_objective() {
+    fn objective<T: vstd::thread_view::Objective>() {}
+    objective::<Vec<RcuCallbackWork>>();
+    objective::<Vec<CpuId>>();
+    objective::<Tracked<Option<RcuGracePeriod>>>();
+    objective::<Tracked<RcuRetiredFacts>>();
+}

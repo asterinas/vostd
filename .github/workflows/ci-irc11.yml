@@ -10,6 +10,7 @@ on:
       - "tools/bootstrap-verus-irc11.sh"
       - "tools/patches/verus-irc11.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "tools/tests/irc11_objective_reject.rs"
       - "tools/tests/rcu_callback_smoke.rs"
       - "dv/**"
       - "Cargo.toml"
@@ -25,6 +26,7 @@ on:
       - "tools/bootstrap-verus-irc11.sh"
       - "tools/patches/verus-irc11.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "tools/tests/irc11_objective_reject.rs"
       - "tools/tests/rcu_callback_smoke.rs"
       - "dv/**"
       - "Cargo.toml"
@@ -143,6 +145,16 @@ jobs:
           tools/verus/source/target-verus/release/verus \
             --crate-type=lib \
             tools/tests/irc11_smoke.rs
+
+      - name: Reject subjective cell contents
+        run: |
+          if tools/verus/source/target-verus/release/verus --crate-type=lib \
+              tools/tests/irc11_objective_reject.rs > "$RUNNER_TEMP/objective-reject.log" 2>&1; then
+            echo "IRC11 regression: a cell permission published a ViewSeen"
+            exit 1
+          fi
+          grep -Fq 'PointsTo<vstd::prelude::Tracked<vstd::thread_view::ViewSeen>>: vstd::thread_view::Objective' \
+            "$RUNNER_TEMP/objective-reject.log"
 
       - name: Verify IRC11 adapters and OSTD bridge
         run: |

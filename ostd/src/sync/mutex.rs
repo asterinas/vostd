@@ -8,7 +8,7 @@ use vstd::{
     prelude::*,
     std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
-use vstd_extra::{prelude::*, resource::ghost_resource::excl::*};
+use vstd_extra::{objective::MaybeObjective, prelude::*, resource::ghost_resource::excl::*};
 
 use super::WaitQueue;
 use alloc::sync::Arc;
@@ -24,7 +24,7 @@ verus! {
 struct_with_invariants! {
 
 /// A mutex with waitqueue.
-pub struct Mutex<T  /* : ?Sized */ > {
+pub struct Mutex<T: MaybeObjective  /* : ?Sized */ > {
     lock: AtomicBool<_, Option<PointsTo<T>>, _>,
     queue: WaitQueue,
     // val: UnsafeCell<T>,
@@ -40,7 +40,7 @@ closed spec fn wf(self) -> bool {
 }
 }
 
-impl<T> Mutex<T> {
+impl<T: MaybeObjective> Mutex<T> {
     pub closed spec fn cell_id(self) -> cell::CellId {
         self.val.id()
     }
@@ -66,7 +66,7 @@ impl<T> Mutex<T> {
 }
 
 #[verus_verify]
-impl<T  /* : ?Sized */ > Mutex<T> {
+impl<T: MaybeObjective  /* : ?Sized */ > Mutex<T> {
     /// Acquires the mutex.
     ///
     /// This method runs in a block way until the mutex can be acquired.
@@ -190,21 +190,21 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     }
 } */
 #[verifier::external]
-unsafe impl<T: /*?Sized + */Send> Send for Mutex<T> {}
+unsafe impl<T: MaybeObjective + /*?Sized + */Send> Send for Mutex<T> {}
 #[verifier::external]
-unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
+unsafe impl<T: MaybeObjective + /*?Sized + */Send> Sync for Mutex<T> {}
 
 /// A guard that provides exclusive access to the data protected by a [`Mutex`].
 #[verifier::reject_recursive_types(T)]
 #[clippy::has_significant_drop]
 #[must_use]
 #[verus_verify]
-pub struct MutexGuard<'a, T  /* : ?Sized */ > {
+pub struct MutexGuard<'a, T: MaybeObjective  /* : ?Sized */ > {
     mutex: &'a Mutex<T>,
     tracked_perm: Tracked<PointsTo<T>>,
 }
 
-impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+impl<'a, T: MaybeObjective  /* : ?Sized */ > MutexGuard<'a, T> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.tracked_perm@.id() == self.mutex.cell_id()
@@ -226,7 +226,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
 }
 
 #[verus_verify]
-impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+impl<'a, T: MaybeObjective  /* : ?Sized */ > MutexGuard<'a, T> {
     /// # Safety
     ///
     /// The caller must ensure that the given reference of [`Mutex`] lock has been successfully acquired
@@ -246,7 +246,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
 }
 
 #[verus_verify]
-impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
+impl<T: MaybeObjective/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
     #[verus_spec(returns self.view())]
@@ -260,7 +260,7 @@ impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
 }
 
 #[verus_verify]
-impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
+impl<T: MaybeObjective/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
@@ -284,7 +284,7 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     }
 } */
 
-impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
+impl<T: MaybeObjective /* ?Sized*/ > MutexGuard<'_, T> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     pub fn drop(self) {
@@ -297,25 +297,25 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
     }
 }
 
-impl<T: fmt::Debug> DebugSpecImpl for MutexGuard<'_, T> {
+impl<T: MaybeObjective + fmt::Debug> DebugSpecImpl for MutexGuard<'_, T> {
     open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
         self.view().fmt_req(f)
     }
 }
 
-impl<T: /*?Sized + */fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
+impl<T: MaybeObjective + /*?Sized + */fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<T  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
+impl<T: MaybeObjective  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
 
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Sync> Sync for MutexGuard<'_, T> {}
+unsafe impl<T: MaybeObjective + /*?Sized +*/ Sync> Sync for MutexGuard<'_, T> {}
 
 #[verus_verify]
-impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+impl<'a, T: MaybeObjective  /* : ?Sized */ > MutexGuard<'a, T> {
     /// Returns the [`Mutex`] associated with this guard.
     #[verus_spec(ret =>
         ensures
