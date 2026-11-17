@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the RISC-V platform.
-/*pub mod boot;
+/*pub mod boot;*/
 pub(crate) mod cpu;
-pub mod device;
+/*pub mod device;
 pub(crate) mod iommu;*/
 pub(crate) mod irq;
 pub(crate) mod mm;
@@ -11,7 +11,7 @@ pub(crate) mod pci;
 pub(crate) mod serial;*/
 pub(crate) mod task;
 pub mod timer;
-/* pub mod trap; */
+pub mod trap;
 
 /*#[cfg(feature = "cvm_guest")]
 pub(crate) fn init_cvm_guest() {
