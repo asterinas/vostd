@@ -112,7 +112,7 @@ impl Inv for CpuSet {
     /// The backing vector holds exactly `parts_for_cpus(cpu_count)` words, the view
     /// is bounded by `cpu_count`, and the unused tail bits (>= `cpu_count`) are clear.
     closed spec fn inv(self) -> bool {
-        &&& smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize)
+        &&& smallvec_view(&self.bits).len() == parts_for_cpus(cpu_count() as usize)
         &&& forall|j: int|
             #![trigger bit_at(smallvec_view(&self.bits), j)]
             cpu_count() <= j < 64 * smallvec_view(&self.bits).len() ==> !bit_at(
@@ -431,9 +431,9 @@ impl CpuSet {
     #[verus_spec(ret =>
         requires
             num_cpus == cpu_count(),
-            2 * parts_for_cpus_spec(num_cpus) * size_of::<u64>() <= isize::MAX,
+            2 * parts_for_cpus(num_cpus) * size_of::<u64>() <= isize::MAX,
         ensures
-            smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus),
+            smallvec_view(&ret.bits).len() == parts_for_cpus(num_cpus),
         forall|i: int|
             #![trigger smallvec_view(&ret.bits)[i]]
             0 <= i < smallvec_view(&ret.bits).len() ==> smallvec_view(&ret.bits)[i]
@@ -448,7 +448,7 @@ impl CpuSet {
 
     #[verus_spec(
         requires
-            smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize),
+            smallvec_view(&self.bits).len() == parts_for_cpus(cpu_count() as usize),
             forall|j: int|
                 #![trigger bit_at(smallvec_view(&self.bits), j)]
                 0 <= j < cpu_count() ==> bit_at(smallvec_view(&self.bits), j),
@@ -506,7 +506,7 @@ impl AtomicCpuSet {
     /// The word count always matches the system's CPU count.
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        Self::num_parts(&self) == parts_for_cpus_spec(cpu_count() as usize)
+        Self::num_parts(&self) == parts_for_cpus(cpu_count() as usize)
     }
 }
 
