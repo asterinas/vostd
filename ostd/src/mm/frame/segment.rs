@@ -269,7 +269,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             old(regions).inv(),
             forall|paddr_in: Paddr|
@@ -373,7 +372,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             let paddr_in = range.start + i * PAGE_SIZE;
             let (paddr, meta) = metadata_fn(paddr_in);
 
-            let res = #[verus_spec(with Tracked(regions), Tracked(repr_perm))]
+            let res = #[verus_spec(with Tracked(regions))]
             Frame::<M>::from_unused(paddr, meta);
             let mut frame = match res {
                 Ok(f) => f,
@@ -724,6 +723,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 self.inv(),
                 self.relate_regions(*old(regions)),
                 range.start == first_perm_idx * PAGE_SIZE,
+                range.end == (first_perm_idx + addr_len) * PAGE_SIZE,
+                0 <= first_perm_idx <= first_perm_idx + addr_len <= self.len(),
                 range.start <= range.end <= self.size(),
                 start == self.range.start + range.start,
                 end == self.range.start + range.end,
@@ -755,7 +756,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             == raw_perms[j].metadata_perm.resource().usage()
                     },
                 paddr == start + i * PAGE_SIZE,
-                paddr <= end,
+                start <= paddr <= end <= self.range.end,
+                start % PAGE_SIZE == 0,
+                end % PAGE_SIZE == 0,
+                paddr % PAGE_SIZE == 0,
                 0 <= i <= addr_len,
                 paddr < end <==> i < addr_len,
                 forall|j: int|

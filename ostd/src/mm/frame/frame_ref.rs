@@ -99,9 +99,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
             },
             permission matches Some(counted) ==> {
                 &&& r.inv()
-                &&& forall|repr_perm: M::ReprPerm|
-                    #[trigger] typed_meta_wf::<M>(*slot_perm, counted.resource(), repr_perm)
-                    ==> r.external_meta_wf(counted.resource(), repr_perm)
+                &&& typed_meta_wf::<M>(*slot_perm, counted.resource())
+                    ==> r.external_meta_wf(counted.resource())
             },
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
@@ -317,15 +316,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     }
 
     /// Relates an external metadata permission to the non-owning frame handle.
-    pub open spec fn external_meta_wf(
-        self,
-        metadata_perm: MetadataPerm,
-        repr_perm: M::ReprPerm,
-    ) -> bool {
-        (Frame { tracked_metadata_perm: Tracked(None), ..self@ }).external_meta_wf(
-            metadata_perm,
-            repr_perm,
-        )
+    pub open spec fn external_meta_wf(self, metadata_perm: MetadataPerm) -> bool {
+        (Frame { tracked_metadata_perm: Tracked(None), ..self@ }).external_meta_wf(metadata_perm)
     }
 }
 
