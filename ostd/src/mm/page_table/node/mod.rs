@@ -207,14 +207,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
     )]
     pub(super) fn level(&self) -> PagingLevel
         requires
-            metadata_perm matches Some(permission) ==> self.external_meta_wf(*permission, ()),
+            metadata_perm matches Some(permission) ==> self.external_meta_wf(*permission),
             metadata_perm is None ==> {
                 &&& self.inv()
-                &&& typed_meta_wf::<PageTablePageMeta<C>>(
-                    self.slot_perm(),
-                    self.metadata_perm(),
-                    (),
-                )
+                &&& typed_meta_wf::<PageTablePageMeta<C>>(self.slot_perm(), self.metadata_perm())
             },
         returns
             typed_meta_value::<PageTablePageMeta<C>>(
@@ -223,12 +219,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 } else {
                     self.metadata_perm()
                 },
-                (),
             ).level,
     {
         #[verus_spec(with
             Tracked(metadata_perm),
-            Tracked(&())
         )]
         let meta = self.meta();
         meta.level
@@ -250,7 +244,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.inv(),
             owner@.value().node_permission is None,
             owner@.value().node().matches_permission(res.frac_metadata_perm()),
-            typed_meta_wf::<PageTablePageMeta<C>>(res.slot_perm(), res.metadata_perm(), ()),
+            typed_meta_wf::<PageTablePageMeta<C>>(res.slot_perm(), res.metadata_perm()),
             res.tracked_slot_perm@ == final(regions).slots[owner@.value().node().slot_index],
             guards.unlocked(owner@.value().node().slot_vaddr()),
             MetaSlot::claim_unused_slot_region_spec(
@@ -367,7 +361,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         with Tracked(guards): Tracked<&mut Guards>,
             Tracked(metadata_perm): Tracked<&MetadataPerm>,
         requires
-            self.external_meta_wf(*metadata_perm, ()),
+            self.external_meta_wf(*metadata_perm),
             self@.tracked_metadata_perm@ is Some ==> self.inv(),
             old(guards).unlocked(self.slot_vaddr()),
         ensures
@@ -473,15 +467,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(metadata_perm): Tracked<&MetadataPerm>,
         requires
             nr_children_perm.is_init(),
-            nr_children_perm.id() == typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).nr_children.id(),
-            self.inner.external_meta_wf(*metadata_perm, ()),
+            nr_children_perm.id() == typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).nr_children.id(),
+            self.inner.external_meta_wf(*metadata_perm),
         returns
             nr_children_perm.value(),
     )]
     pub fn nr_children(&self) -> u16 {
         #[verus_spec(with
             Tracked(Some(metadata_perm)),
-            Tracked(&())
         )]
         let meta = self.meta();
 
@@ -492,13 +485,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(res =>
         with
             Tracked(metadata_perms): Tracked<&'a MetadataPerm>,
-            Tracked(repr_perm): Tracked<&'a ()>,
             Ghost(stray_id): Ghost<vstd::cell::CellId>,
         requires
-            old(self).inner.external_meta_wf(*metadata_perms, *repr_perm),
+            old(self).inner.external_meta_wf(*metadata_perms),
             typed_meta_value::<PageTablePageMeta<C>>(
                 *metadata_perms,
-                *repr_perm,
             ).stray.id()
                 == stray_id,
         ensures
@@ -509,7 +500,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with
             Tracked(Some(metadata_perms)),
-            Tracked(repr_perm)
         )]
         let meta = self.meta();
         &meta.stray
@@ -609,11 +599,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(metadata_perms): Tracked<&'a MetadataPerm>,
             Ghost(nr_children_id): Ghost<vstd::cell::CellId>,
         requires
-            old(self).inner.external_meta_wf(*metadata_perms, ()),
+            old(self).inner.external_meta_wf(*metadata_perms),
             typed_meta_value::<PageTablePageMeta<C>>(
-                *metadata_perms,
-                (),
-            ).nr_children.id()
+                *metadata_perms).nr_children.id()
                 == nr_children_id,
         ensures
             res.id() == nr_children_id,
@@ -623,7 +611,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with
             Tracked(Some(metadata_perms)),
-            Tracked(&())
         )]
         let meta = self.meta();
         &meta.nr_children
