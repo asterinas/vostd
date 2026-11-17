@@ -231,7 +231,7 @@ impl Default for PageTableEntry {
     {
         proof {
             lemma_page_property_flag_constants();
-            assert(Self::default_spec().paddr_spec() == 0) by (compute);
+            assert(Self::default_spec().paddr() == 0) by (compute);
         }
         Self(usize::default())
     }
@@ -309,7 +309,7 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_auxiliary_bit_properties(0);
             Self::lemma_page_table_entry_properties();
-            assert(Self::default_spec() == Self::new_absent_spec());
+            assert(Self::default_spec() == Self::new_absent());
         }
         Self::default()
     }

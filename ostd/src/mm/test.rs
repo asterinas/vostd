@@ -538,7 +538,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
                 writer_infallible.inv(),
                 writer_infallible.wf(writer_owner),
                 writer_owner.has_write_view(),
-                writer_infallible.avail_spec() == 12 - 4 * it.index(),
+                writer_infallible.avail() == 12 - 4 * it.index(),
                 it.index() <= 3,
         )]
         for val in values.iter() {

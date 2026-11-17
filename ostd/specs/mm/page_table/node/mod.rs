@@ -138,7 +138,7 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (MetaSlotStorage::PTNode(self.into_spec()), ())
+        (MetaSlotStorage::PTNode(self.into()), ())
     }
 
     #[verifier::external_body]
@@ -148,7 +148,7 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
 
     open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
         match r {
-            MetaSlotStorage::PTNode(node) => node.into_spec::<C>(),
+            MetaSlotStorage::PTNode(node) => node.into::<C>(),
             _ => arbitrary(),
         }
     }
