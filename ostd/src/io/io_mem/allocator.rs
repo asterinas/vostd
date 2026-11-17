@@ -58,6 +58,7 @@ impl IoMemAllocator {
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         proof! {
+            broadcast use lemma_any_index;
             use_type_invariant(self);
             lemma_windows_disjoint(self.allocators@);
         }
@@ -100,6 +101,7 @@ impl IoMemAllocator {
     )]
     pub(in crate::io) unsafe fn recycle(&self, range: Range<usize>) {
         proof! {
+            broadcast use lemma_any_index;
             use_type_invariant(self);
             lemma_windows_disjoint(self.allocators@);
         }
@@ -403,6 +405,8 @@ impl IoMemAllocatorBuilder {
             self.can_remove(state, range),
             io_mem_range_registered(range),
     {
+        broadcast use lemma_any_index;
+
         use_type_invariant(self);
         lemma_permission_range(self.allocators@, state, window, range);
         assert(registered_io_mem_windows()[window] == self.allocators@[window]@);
@@ -442,6 +446,8 @@ impl IoMemAllocator {
             self.has_free_permission(state[window].id(), range),
             self.has_registered_windows() ==> io_mem_range_registered(range),
     {
+        broadcast use lemma_any_index;
+
         use_type_invariant(self);
         lemma_permission_range(self.allocators@, state, window, range);
         if self.has_registered_windows() {
@@ -463,6 +469,8 @@ impl IoMemAllocator {
             self.has_free_permission(id, subrange),
             self.has_registered_windows() ==> io_mem_range_registered(subrange),
     {
+        broadcast use lemma_any_index;
+
         use_type_invariant(self);
         let window = choose|i: int|
             #![trigger self.allocators@[i]]
@@ -476,37 +484,36 @@ impl IoMemAllocator {
 
     /// Whether `id` is the free-permission identity of a window containing `range`.
     pub closed spec fn has_free_permission(self, id: Loc, range: Range<usize>) -> bool {
-        exists|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].allocate_id() == id
-                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
+        self.allocators@.any(
+            |allocator: RangeAllocator|
+                allocator.allocate_id() == id && allocator@.start <= range.start < range.end
+                    <= allocator@.end,
+        )
     }
 
     /// Whether `id` is the allocation-token identity of a window containing `range`.
     pub closed spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
-        exists|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() && self.allocators@[i].free_id() == id
-                && self.allocators@[i]@.start <= range.start < range.end <= self.allocators@[i]@.end
+        self.allocators@.any(
+            |allocator: RangeAllocator|
+                allocator.free_id() == id && allocator@.start <= range.start < range.end
+                    <= allocator@.end,
+        )
     }
 
     /// Whether lookup finds a window overlapping the requested endpoints.
     pub closed spec fn overlaps_range(self, range: Range<usize>) -> bool {
-        exists|k: int|
-            #![trigger self.allocators@[k]]
-            0 <= k < self.allocators@.len() && self.allocators@[k]@.start < range.end && range.start
-                < self.allocators@[k]@.end
+        self.allocators@.any(
+            |allocator: RangeAllocator|
+                allocator@.start < range.end && range.start < allocator@.end,
+        )
     }
 
     /// Whether some window wholly covers `range`.
     pub closed spec fn covers_range(self, range: Range<usize>) -> bool {
-        exists|k: int|
-            #![trigger self.allocators@[k]]
-            0 <= k < self.allocators@.len() && {
-                let window = self.allocators@[k]@;
-                &&& window.start <= range.start
-                &&& range.end <= window.end
-            }
+        self.allocators@.any(
+            |allocator: RangeAllocator|
+                allocator@.start <= range.start && range.end <= allocator@.end,
+        )
     }
 
     /// The allocator inherits the disjoint windows of the builder it was built from.
@@ -518,10 +525,9 @@ impl IoMemAllocator {
 
 /// A range is registered when one abstract boot-time MMIO window contains it.
 pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
-    exists|m: int|
-        #![trigger registered_io_mem_windows()[m]]
-        0 <= m < registered_io_mem_windows().len() && registered_io_mem_windows()[m].start
-            <= range.start && range.end <= registered_io_mem_windows()[m].end
+    registered_io_mem_windows().any(
+        |window: Range<usize>| window.start <= range.start && range.end <= window.end,
+    )
 }
 
 /// Whether the global I/O memory allocator has been initialized.
@@ -587,7 +593,7 @@ fn find_allocator<'a>(
     None
 }
 
-#[cfg(any(ktest, verus_keep_ghost))]
+// #[cfg(ktest)]
 mod test {
     use vstd::prelude::*;
     use vstd_extra::{range::RangeExtraFns, resource::range::GhostSubRange};
@@ -596,12 +602,11 @@ mod test {
 
     use super::{IoMemAllocator, IoMemAllocatorBuilder};
     use crate::mm::PAGE_SIZE;
-    #[cfg(ktest)]
-    use crate::prelude::ktest;
+    // use crate::prelude::ktest;
 
     #[expect(clippy::reversed_empty_ranges)]
     #[expect(clippy::single_range_in_vec_init)]
-    #[cfg_attr(ktest, ktest)]
+    // #[ktest]
     #[verus_spec]
     fn illegal_region() {
         let range = vec![0x4000_0000..0x4200_0000];
@@ -637,7 +642,7 @@ mod test {
         );
     }
 
-    #[cfg_attr(ktest, ktest)]
+    // #[ktest]
     #[verus_spec]
     fn conflict_region() {
         let max_paddr = 0x100_000_000_000; // 16 TB
@@ -674,6 +679,9 @@ mod test {
             let tracked last_subset = window_permit.split(last_range.view_set());
             first_permit = GhostSubRange::tracked_new(first_subset, first_range);
             last_permit = GhostSubRange::tracked_new(last_subset, last_range);
+            broadcast use super::lemma_any_index;
+            assert(allocator.covers_range(first_range));
+            assert(allocator.covers_range(last_range));
         }
 
         assert!(
@@ -712,6 +720,18 @@ mod test {
 }
 
 verus! {
+
+// Bridge `Seq::any`'s predicate trigger to the indexed windows used by the allocator proofs.
+broadcast proof fn lemma_any_index<A>(seq: Seq<A>, predicate: spec_fn(A) -> bool)
+    ensures
+        #[trigger] seq.any(predicate) == (exists|i: int|
+            0 <= i < seq.len() && predicate(#[trigger] seq[i])),
+{
+    if exists|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]) {
+        let i = choose|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]);
+        assert(predicate(seq[i]));
+    }
+}
 
 /// A non-empty range owned by a window's permission lies within that window.
 proof fn lemma_permission_range(

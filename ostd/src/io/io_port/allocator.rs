@@ -43,17 +43,6 @@ spec fn id_alloc_view(allocator: &IdAlloc) -> Set<usize> {
     id_alloc_bits(allocator@, allocator@.len() as int)
 }
 
-spec fn io_port_inner_inv_values(
-    allocated_instance_id: InstanceId,
-    allocated: Set<usize>,
-    allocator: &IdAlloc,
-) -> bool {
-    &&& allocated_instance_id == io_port_allocator_instance_id()
-    &&& allocator.inv()
-    &&& allocator@.len() == MAX_IO_PORT
-    &&& allocated.subset_of(id_alloc_view(allocator))
-}
-
 /// Authority over the set of PIO ids currently allocated by the global allocator.
 ///
 /// The `Loc` of `auth` identifies the protocol instance and `auth@` is the set of allocated
@@ -131,7 +120,10 @@ impl SimpleResourceInvariant<IdAlloc> for IoPortAllocInvariant {
     type Resource = IoPortAllocation;
 
     closed spec fn inv(alloc: IdAlloc, r: IoPortAllocation) -> bool {
-        io_port_inner_inv_values(r.instance_id(), r.value(), &alloc)
+        &&& r.instance_id() == io_port_allocator_instance_id()
+        &&& alloc.inv()
+        &&& alloc@.len() == MAX_IO_PORT
+        &&& r.value().subset_of(id_alloc_view(&alloc))
     }
 }
 
@@ -178,7 +170,12 @@ impl IoPortAllocator {
             let ghost preserved = allocator.resource().value();
         }
         proof! {
-            assert(io_port_inner_inv_values(instance_id, preserved, &allocator.value()));
+            assert(
+                instance_id == io_port_allocator_instance_id()
+                    && allocator.value().inv()
+                    && allocator.value()@.len() == MAX_IO_PORT
+                    && preserved.subset_of(id_alloc_view(&allocator.value()))
+            );
         }
         let allocator_inner = &mut *allocator;
         proof_decl! {
@@ -305,7 +302,12 @@ impl IoPortAllocator {
                     }
                 }
                 assert(preserved.subset_of(id_alloc_view(&allocator_inner)));
-                assert(io_port_inner_inv_values(instance_id, preserved, &allocator_inner));
+                assert(
+                instance_id == io_port_allocator_instance_id()
+                    && allocator_inner.inv()
+                    && allocator_inner@.len() == MAX_IO_PORT
+                    && preserved.subset_of(id_alloc_view(&allocator_inner))
+            );
             }
         }
         proof! {
@@ -333,11 +335,12 @@ impl IoPortAllocator {
             assert(id_alloc_view(&allocator.value()) == allocation_start_view.union(ids));
             assert(preserved.subset_of(allocation_start_view));
             assert(allocator.resource().value() == preserved.union(ids));
-            assert(io_port_inner_inv_values(
-                allocator.resource().instance_id(),
-                allocator.resource().value(),
-                &allocator.value(),
-            ));
+            assert(
+                allocator.resource().instance_id() == io_port_allocator_instance_id()
+                    && allocator.value().inv()
+                    && allocator.value()@.len() == MAX_IO_PORT
+                    && allocator.resource().value().subset_of(id_alloc_view(&allocator.value()))
+            );
         }
         allocator.drop();
         result
@@ -381,7 +384,12 @@ impl IoPortAllocator {
             pre_seq = allocator.value()@;
             pre_len = allocator.value()@.len() as int;
             bitmap_view = id_alloc_view(&allocator.value());
-            assert(io_port_inner_inv_values(instance_id, preserved, &allocator.value()));
+            assert(
+                instance_id == io_port_allocator_instance_id()
+                    && allocator.value().inv()
+                    && allocator.value()@.len() == MAX_IO_PORT
+                    && preserved.subset_of(id_alloc_view(&allocator.value()))
+            );
             assert(preserved.subset_of(bitmap_view));
             assert(bitmap_view == id_alloc_bits(pre_seq, pre_len));
             assert(pre_len == MAX_IO_PORT);
@@ -426,7 +434,12 @@ impl IoPortAllocator {
             assert(allocator_inner@.len() == MAX_IO_PORT);
             assert(allocator_inner@ == pre_seq);
             assert((range.end as usize) <= allocator_inner@.len());
-            assert(io_port_inner_inv_values(instance_id, preserved, &allocator_inner));
+            assert(
+                instance_id == io_port_allocator_instance_id()
+                    && allocator_inner.inv()
+                    && allocator_inner@.len() == MAX_IO_PORT
+                    && preserved.subset_of(id_alloc_view(&allocator_inner))
+            );
             assert(id_alloc_view(&allocator_inner) == bitmap_view);
             assert forall|i: int|
                 range.start as usize <= i < range.end as usize
@@ -470,11 +483,12 @@ impl IoPortAllocator {
             assert(allocator_inner.inv());
             assert(allocator_inner@.len() == MAX_IO_PORT);
             assert(allocator.resource().instance_id() == instance_id);
-            assert(io_port_inner_inv_values(
-                allocator.resource().instance_id(),
-                allocator.resource().value(),
-                &allocator_inner,
-            ));
+            assert(
+                allocator.resource().instance_id() == io_port_allocator_instance_id()
+                    && allocator_inner.inv()
+                    && allocator_inner@.len() == MAX_IO_PORT
+                    && allocator.resource().value().subset_of(id_alloc_view(&allocator_inner))
+            );
         }
         allocator.drop();
     }
@@ -572,3 +586,60 @@ proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
 }
 
 } // verus!
+#[cfg(ktest)]
+mod test {
+    use crate::{arch::device::io_port::ReadWriteAccess, prelude::*};
+
+    type IoPort = crate::io::IoPort<u32, ReadWriteAccess>;
+    type ByteIoPort = crate::io::IoPort<u8, ReadWriteAccess>;
+
+    #[ktest]
+    fn illegal_region() {
+        let io_port_a = IoPort::acquire(0xffff);
+        assert!(io_port_a.is_err());
+
+        type IllegalIoPort = crate::io::IoPort<[u8; 0x10008], ReadWriteAccess>;
+        let io_port_b = IllegalIoPort::acquire(0);
+        assert!(io_port_b.is_err());
+    }
+
+    #[ktest]
+    fn conflict_region() {
+        let io_port_a = IoPort::acquire(0x60);
+        assert!(io_port_a.is_ok());
+
+        // This allocation will fail because its range conflicts with `io_port_a`.
+        let io_port_b = IoPort::acquire(0x62);
+        assert!(io_port_b.is_err());
+
+        drop(io_port_a);
+
+        // After dropping `io_port_a`, conflicts no longer exist so the allocation will succeed.
+        let io_port_b = IoPort::acquire(0x62);
+        assert!(io_port_b.is_ok());
+    }
+
+    #[ktest]
+    fn overlapping_region() {
+        // Reference: <https://wiki.osdev.org/PCI#Configuration_Space_Access_Mechanism_#1>
+        let pci_data = IoPort::acquire_overlapping(0xcf8);
+        // Reference: <https://www.intel.com/Assets/PDF/datasheet/290562.pdf>
+        let rst_ctrl = ByteIoPort::acquire(0xcf9);
+        assert!(pci_data.is_ok());
+        assert!(rst_ctrl.is_ok());
+
+        let pci_data2 = IoPort::acquire_overlapping(0xcf8);
+        let rst_ctrl2 = ByteIoPort::acquire(0xcf9);
+        assert!(pci_data2.is_err());
+        assert!(rst_ctrl2.is_err());
+
+        drop(pci_data);
+        drop(rst_ctrl);
+
+        let rst_ctrl3 = ByteIoPort::acquire(0xcf9);
+        assert!(rst_ctrl3.is_ok());
+
+        let pci_data3 = IoPort::acquire_overlapping(0xcf8);
+        assert!(pci_data3.is_ok());
+    }
+}
