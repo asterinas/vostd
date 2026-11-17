@@ -205,8 +205,15 @@ pub enum TlbFlushOp {
     Range(Range<Vaddr>),
 }
 
-// SAFETY: the derived `PartialEq` compares the variant and its `usize` fields,
-// which is structural equality.
+// `Structural` lets Verus read `op == TlbFlushOp::All` as spec equality, so
+// `OpsStack::push` knows a non-`All` op is pushed when it does not escalate.
+// `#[derive(Structural)]` cannot be used because `core::ops::Range` has no
+// `Structural` impl in Verus.
+//
+// SAFETY: `PartialEq` is derived, so it compares the variant and then the
+// fields: nothing for `All`, the `usize` for `Address`, and `start` and `end`
+// of the `Range<usize>` (whose `PartialEq` is also derived) for `Range`. This
+// is structural equality. A hand-written `PartialEq` would void this impl.
 unsafe impl Structural for TlbFlushOp {
 
 }
