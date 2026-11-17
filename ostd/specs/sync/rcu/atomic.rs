@@ -8,7 +8,7 @@
 //! reclaimed allocations before any physical permission is borrowed.
 use vstd::{prelude::*, raw_ptr::spec_cast_ptr_to_thin_ptr, resource::Loc};
 use vstd_extra::{
-    atomic_irc11::{AtomicPointsTo, Objective, ThreadView, load_acquire},
+    atomic_irc11::{AtomicPointsTo, Objective, ThreadView, ViewSeen, load_acquire},
     ownership::Inv,
     rcu_objects::{
         RcuBlockInfo,
@@ -71,6 +71,10 @@ pub tracked struct RcuRootProtection<T, O> {
     info: Option<RcuBlockInfo<T>>,
     lease: Option<RcuRootReadLease<O>>,
     null_reader: Option<CpuRcuReaderFragment>,
+    /// Subjective marker: a protection is not `Objective`, so it cannot cross
+    /// threads through an atomic invariant without native synchronization.
+    /// Accesses through its lease therefore stay ordered before its close.
+    subjective: core::marker::PhantomData<ViewSeen>,
 }
 
 /// One proof result keeps the physical permission and its same-load topology together.
@@ -444,9 +448,19 @@ impl<T, O> RcuRootAtomicState<T, O> {
                 );
                 self.permissions.lemma_live_allocation(&mut witness);
                 let tracked lease = self.permissions.tracked_lease(witness);
-                RcuRootProtection { info: Some(info), lease: Some(lease), null_reader: None }
+                RcuRootProtection {
+                    info: Some(info),
+                    lease: Some(lease),
+                    null_reader: None,
+                    subjective: core::marker::PhantomData,
+                }
             },
-            None => RcuRootProtection { info: None, lease: None, null_reader: Some(reader) },
+            None => RcuRootProtection {
+                    info: None,
+                    lease: None,
+                    null_reader: Some(reader),
+                    subjective: core::marker::PhantomData,
+                },
         }
     }
 
@@ -645,7 +659,12 @@ impl<T, O> RcuRootAtomicState<T, O> {
                 );
                 self.permissions.lemma_live_allocation(&mut witness);
                 let tracked lease = self.permissions.tracked_lease(witness);
-                RcuRootProtection { info: Some(info), lease: Some(lease), null_reader: None }
+                RcuRootProtection {
+                    info: Some(info),
+                    lease: Some(lease),
+                    null_reader: None,
+                    subjective: core::marker::PhantomData,
+                }
             },
             None => {
                 if observed.links.contains_key(source) {
@@ -655,7 +674,12 @@ impl<T, O> RcuRootAtomicState<T, O> {
                 updated =
                 TraversalGuard { observed: observed.observe(graph, source, timestamp), ..guard };
                 child = None;
-                RcuRootProtection { info: None, lease: None, null_reader: Some(reader) }
+                RcuRootProtection {
+                    info: None,
+                    lease: None,
+                    null_reader: Some(reader),
+                    subjective: core::marker::PhantomData,
+                }
             },
         };
         RcuLinkProtection {

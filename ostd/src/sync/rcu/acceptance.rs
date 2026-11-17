@@ -89,6 +89,7 @@ proof fn return_context(
     let tracked resumed_task = RunningTaskContext::tracked_from_scheduled_view(scheduled);
     assert(resumed_task@.contains(context@));
     ThreadView::contains_trans(resumed_task@, context@, core.locals().view());
+    ThreadView::contains_trans(resumed_task@, context@, core.locals().released());
     let tracked resumed = RunningRcuContext::tracked_attach(resumed_task, core, binding);
     assert(resumed@.contains(context@));
     let tracked (task, mut core) = resumed.tracked_detach();
@@ -153,7 +154,9 @@ fn box_read_update_and_callback(cpu: CpuId) {
     if let Some(mut guard) = monitor.try_acquire(Tracked(&mut context)) {
         guard.report(cpu, Tracked(&mut context));
         if guard.is_complete() {
-            guard.finish(Tracked(&mut context)).invoke();
+            let batch = guard.finish(Tracked(&mut context));
+            let tracked view = context.tracked_view_seen();
+            batch.invoke(Tracked(view));
         } else {
             guard.release(Tracked(&mut context));
         }
@@ -163,7 +166,9 @@ fn box_read_update_and_callback(cpu: CpuId) {
     if let Some(mut guard) = monitor.try_acquire(Tracked(&mut context)) {
         guard.report(cpu, Tracked(&mut context));
         if guard.is_complete() {
-            guard.finish(Tracked(&mut context)).invoke();
+            let batch = guard.finish(Tracked(&mut context));
+            let tracked view = context.tracked_view_seen();
+            batch.invoke(Tracked(view));
         } else {
             guard.release(Tracked(&mut context));
         }
@@ -435,7 +440,9 @@ fn linked_list_unlink_and_callback<'a>(
     if let Some(mut monitor_guard) = monitor.try_acquire(Tracked(context)) {
         monitor_guard.report(cpu, Tracked(context));
         if monitor_guard.is_complete() {
-            monitor_guard.finish(Tracked(context)).invoke();
+            let batch = monitor_guard.finish(Tracked(context));
+            let tracked view = context.tracked_view_seen();
+            batch.invoke(Tracked(view));
         } else {
             monitor_guard.release(Tracked(context));
         }
@@ -514,6 +521,54 @@ fn reject_report_with_active_reader(cpu: CpuId) {
         let tracked _report = context.tracked_report(&learned);
     }
     guard.close(Tracked(&mut context));
+}
+
+// Negative acceptance configuration: callbacks must run with a view that
+// covers every quiescent report, not one captured before the grace period.
+#[cfg(rcu_reject_stale_invoke_view)]
+fn reject_invoke_with_stale_view(cpu: CpuId) {
+    let tracked (mut context, _) = registered_context(cpu);
+    let ghost online = Set::empty().insert(cpu);
+    let root = Irc11RcuOption::<Box<usize>>::new(
+        Some(Box::new(43)),
+        Tracked(&mut context),
+        Ghost(online),
+    );
+    let mut cpus = Vec::new();
+    cpus.push(cpu);
+    proof {
+        assert(cpus@.to_set() =~= online);
+    }
+    let monitor = Irc11RcuMonitor::new(
+        cpus,
+        Ghost(RcuMonitorKey { scheduler: context.scheduler(), online }),
+        Tracked(&mut context),
+    );
+    let retired = root.update(Some(Box::new(44)), Tracked(&mut context));
+    let tracked stale = context.tracked_view_seen();
+    if let Some(mut guard) = monitor.try_acquire(Tracked(&mut context)) {
+        if let Some(pending) = retired {
+            guard.enqueue(pending, Tracked(&context));
+        }
+        guard.report(cpu, Tracked(&mut context));
+        if guard.is_complete() {
+            let batch = guard.finish(Tracked(&mut context));
+            batch.invoke(Tracked(stale));
+        } else {
+            guard.release(Tracked(&mut context));
+        }
+    }
+}
+
+// Negative acceptance configuration: a read protection is subjective, so it
+// cannot be stored in an atomic invariant and moved without synchronization.
+#[cfg(rcu_reject_objective_protection)]
+fn require_objective<R: vstd_extra::atomic_irc11::Objective>() {
+}
+
+#[cfg(rcu_reject_objective_protection)]
+fn reject_objective_protection() {
+    require_objective::<crate::specs::sync::rcu::atomic::RcuRootProtection<usize, ()>>();
 }
 
 } // verus!

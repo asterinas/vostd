@@ -25,6 +25,7 @@ use crate::specs::sync::rcu::{
     link::RcuLinkObservation,
     traversal::AllocationId,
 };
+use crate::specs::task::rcu::RunningRcuContext;
 
 use crate::cpu::CpuId;
 use core::{marker::PhantomData, sync::atomic::Ordering};
@@ -602,6 +603,8 @@ impl<
     /// ## Safety
     ///
     /// - Returns the physical lease before releasing its reader authority.
+    /// - Records the closing thread's exact native view as the CPU release view,
+    ///   which the CPU's next quiescent report must cover.
     ///
     /// ## Functional Correctness
     ///
@@ -609,30 +612,46 @@ impl<
     ///
     /// ## Preconditions
     ///
-    /// - The protection is valid and any physical lease belongs to this root.
+    /// - The protection is valid, any physical lease belongs to this root, and
+    ///   the running context owns the protection's CPU participant.
     ///
     /// ## Postconditions
     ///
-    /// - Returns the exact original, valid CPU reader fragment.
+    /// - Returns the reader fraction to the context; its view grows to the recorded release view.
     /* New explicit native RCU adapter; protocol resources erase without restoring legacy scheduler glue.
      * Origin Rust: <none; new executable code>
      */
-    pub fn close(&self, Tracked(protection): Tracked<RcuRootProtection<T, O>>) -> (res: Tracked<
-        CpuRcuReaderFragment,
-    >)
+    pub fn close(
+        &self,
+        Tracked(protection): Tracked<RcuRootProtection<T, O>>,
+        Tracked(context): Tracked<&mut RunningRcuContext>,
+    )
         requires
             self.inv(),
             protection.inv(),
             protection.lease() matches Some(lease) ==> lease.registry() == self.key().active,
+            old(context).inv(),
+            protection.reader().participant_id() == old(context).participant().id(),
         ensures
-            res@ == protection.reader(),
-            res@.wf(),
+            final(context).inv(),
+            final(context).same_identity(*old(context)),
+            final(context)@.contains(old(context)@),
+            final(context).participant().view() == old(context).participant().view(),
+            final(context).participant().generation() == old(context).participant().generation(),
+            final(context).participant().known_retired() == old(
+                context,
+            ).participant().known_retired(),
+            final(context).participant().fraction() == old(context).participant().fraction()
+                + protection.reader().fraction(),
+            final(context).participant().released() == final(context)@,
     {
         let tracked reader;
         vstd::invariant::open_atomic_invariant!(self.tracked_invariant() => state => {
             proof { reader = state.tracked_close::<Pred>(protection); }
         });
-        Tracked(reader)
+        proof {
+            context.tracked_close_reader(reader);
+        }
     }
 
     /// Recovers ownership only after matching both the callback ticket and permit.
@@ -650,6 +669,7 @@ impl<
     /// ## Preconditions
     ///
     /// - The ticket and permit are valid and match this root's registries, scheduler, allocation, and online set.
+    /// - The caller's view covers every report in the permit, hence every reader close.
     ///
     /// ## Postconditions
     ///
@@ -661,11 +681,13 @@ impl<
         &self,
         Tracked(retired): Tracked<RcuRetiredRoot<T>>,
         Tracked(permit): Tracked<RcuReclaimPermit>,
+        Tracked(view): Tracked<&ViewSeen>,
     ) -> (res: Tracked<O>)
         requires
             self.inv(),
             retired.inv(),
             permit.inv(),
+            permit.observed_by(view@),
             retired.registry() == self.key().reclaim,
             retired.record() == permit.summary().retired,
             retired.record().domain == self.key().domain,
@@ -675,7 +697,7 @@ impl<
         ensures
             Pred::owns(retired.ptr(), res@),
     {
-        self.reclaimer().reclaim(Tracked(retired), Tracked(permit))
+        self.reclaimer().reclaim(Tracked(retired), Tracked(permit), Tracked(view))
     }
 }
 
@@ -703,6 +725,7 @@ impl<
     /// ## Preconditions
     ///
     /// - The ticket and permit are valid and match this root's registries, scheduler, allocation, and online set.
+    /// - The caller's view covers every report in the permit, hence every reader close.
     ///
     /// ## Postconditions
     ///
@@ -714,10 +737,12 @@ impl<
         &self,
         Tracked(retired): Tracked<RcuRetiredRoot<T>>,
         Tracked(permit): Tracked<RcuReclaimPermit>,
+        Tracked(view): Tracked<&ViewSeen>,
     ) -> (res: Tracked<O>)
         requires
             retired.inv(),
             permit.inv(),
+            permit.observed_by(view@),
             retired.registry() == self.key().reclaim,
             retired.record() == permit.summary().retired,
             retired.record().domain == self.key().domain,

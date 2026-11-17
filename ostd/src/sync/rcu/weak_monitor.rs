@@ -12,7 +12,11 @@ use vstd::{
     prelude::*,
     resource::Loc,
 };
-use vstd_extra::{atomic_irc11::ThreadView, auxiliary::OptionExtraFns, ownership::Inv};
+use vstd_extra::{
+    atomic_irc11::{ThreadView, ViewSeen},
+    auxiliary::OptionExtraFns,
+    ownership::Inv,
+};
 
 use crate::specs::{
     sync::rcu::{
@@ -97,6 +101,7 @@ impl Inv for MonitorState {
                 &&& gp.epoch() + 1 == self.ghost_next_epoch@
                 &&& gp.callbacks() == summaries(self.current@)
                 &&& self.queue_inv(self.current@, gp.epoch())
+                &&& gp.observed_by(self.ghost_handoff@)
             },
             None => self.current@.len() == 0 && self.next@.len() == 0 && self.reported@.len() == 0,
         }
@@ -204,6 +209,9 @@ impl MonitorState {
         };
         let callback = pending.into_callback(Ghost(summary));
         proof {
+            if self.tracked_gp@ is Some {
+                self.tracked_gp@->Some_0.lemma_observed_by_monotone(self.ghost_handoff@, context@);
+            }
             self.tracked_facts.borrow_mut().tracked_insert(callback.tracked_fact());
             self.ghost_handoff = Ghost(context@);
         }
@@ -226,18 +234,24 @@ impl MonitorState {
         ensures
             final(self).inv(),
             final(self).ghost_key@ == old(self).ghost_key@,
-            final(self).ghost_handoff@ == old(self).ghost_handoff@,
+            final(self).ghost_handoff@ == old(context)@,
             final(context).inv(),
             final(context).same_identity(*old(context)),
             final(context)@ == old(context)@,
             final(context).participant().fraction() == 1real,
     {
         let tracked report = context.tracked_report(self.tracked_facts.borrow());
+        let ghost old_handoff = self.ghost_handoff@;
+        // The report's view covers every reader close on this CPU. Publishing
+        // it as the lock handoff orders the batch finisher after those closes.
+        self.ghost_handoff = Ghost(context@);
         if self.current.len() != 0 {
             proof {
                 let ghost previous = self.tracked_gp@->Some_0;
+                previous.lemma_observed_by_monotone(old_handoff, context@);
                 self.tracked_gp.borrow_mut().tracked_borrow_mut().tracked_report(report);
                 assert(self.tracked_gp@->Some_0.callbacks() == previous.callbacks());
+                assert(self.tracked_gp@->Some_0.observed_by(context@));
             }
             if !contains_cpu(&self.reported, cpu) {
                 self.reported.push(cpu);
@@ -296,6 +310,7 @@ impl MonitorState {
             old(self).tracked_gp@->Some_0.reported() == old(self).ghost_key@.online,
         ensures
             res.inv(),
+            res.observed_by(old(self).ghost_handoff@),
             final(self).inv(),
             final(self).ghost_key@ == old(self).ghost_key@,
             final(self).ghost_handoff@ == old(self).ghost_handoff@,
@@ -331,6 +346,22 @@ impl Inv for CompletedRcuBatch {
 }
 
 impl CompletedRcuBatch {
+    /// Whether `view` covers every quiescent report that completed this batch.
+    pub closed spec fn observed_by(self, view: ThreadView) -> bool {
+        self.tracked_completed@.observed_by(view)
+    }
+
+    /// A larger view still covers every completing report.
+    pub proof fn lemma_observed_by_monotone(self, older: ThreadView, newer: ThreadView)
+        requires
+            self.observed_by(older),
+            newer.contains(older),
+        ensures
+            self.observed_by(newer),
+    {
+        self.tracked_completed@.lemma_observed_by_monotone(older, newer);
+    }
+
     /// Consumes every capture once, supplying that capture's own completion certificate.
     ///
     /// # Verified Properties
@@ -346,6 +377,7 @@ impl CompletedRcuBatch {
     /// ## Preconditions
     ///
     /// - The detached batch is valid; the caller invokes it outside the monitor lock.
+    /// - The supplied view covers every completing report, e.g. the view returned by finish.
     ///
     /// ## Postconditions
     ///
@@ -353,13 +385,15 @@ impl CompletedRcuBatch {
     /* New explicit native RCU adapter; protocol resources erase without restoring legacy scheduler glue.
      * Origin Rust: <none; new executable code>
      */
-    pub fn invoke(mut self)
+    pub fn invoke(mut self, Tracked(view): Tracked<ViewSeen>)
         requires
             self.inv(),
+            self.observed_by(view@),
     {
         while self.callbacks.len() > 0
             invariant
                 self.inv(),
+                self.observed_by(view@),
             decreases self.callbacks@.len(),
         {
             let index = self.callbacks.len() - 1;
@@ -368,7 +402,7 @@ impl CompletedRcuBatch {
                 index as int,
                 callback.tracked_fact(),
             );
-            callback.invoke(Tracked(permit));
+            callback.invoke(Tracked(permit), Tracked(view));
         }
     }
 }
@@ -686,15 +720,22 @@ impl<'a> Irc11RcuMonitorGuard<'a> {
             self.observed_by(old(context)@),
         ensures
             res.inv(),
+            res.observed_by(final(context)@),
             final(context).inv(),
             final(context).same_identity(*old(context)),
             final(context).participant() == old(context).participant(),
             final(context)@.contains(old(context)@),
     {
+        let ghost handoff = self.tracked_guard@.resource().value().ghost_handoff@;
         let batch = self.monitor.data.borrow_mut(
             Tracked(self.tracked_guard.borrow_mut().tracked_resource_mut()),
         ).complete();
+        let ghost before = context@;
         self.release(Tracked(context));
+        proof {
+            batch.lemma_observed_by_monotone(handoff, before);
+            batch.lemma_observed_by_monotone(before, context@);
+        }
         batch
     }
 

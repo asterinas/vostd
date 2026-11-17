@@ -218,6 +218,9 @@ impl ResourceAlgebra for CpuRcuCarrier {
 pub tracked struct CpuRcuParticipant {
     resource: Resource<CpuRcuCarrier>,
     known_retired: RcuRetiredFacts,
+    /// Native view at the latest reader close on this CPU. The next quiescent
+    /// report, and every task later attached to this CPU, must cover it.
+    ghost released: Irc11ThreadView,
 }
 
 /// Generic CPU-core registration evidence specialized to the RCU local state.
@@ -249,6 +252,7 @@ impl CpuRcuParticipant {
             self.resource.value().state_view().known_retired,
             self.resource.value().state_view().view,
         )
+        &&& self.resource.value().state_view().view.spec_le(self.released)
     }
 
     /// Creates generation zero for one CPU.
@@ -257,6 +261,7 @@ impl CpuRcuParticipant {
             res.cpu() == cpu,
             res.generation() == 0,
             res.view() == view,
+            res.released() == view,
             res.fraction() == 1real,
             res.wf(),
     {
@@ -264,7 +269,7 @@ impl CpuRcuParticipant {
         let tracked resource = Resource::alloc(
             CpuRcuCarrier::state(cpu, 0, view, known_retired.records(), 1real),
         );
-        CpuRcuParticipant { resource, known_retired }
+        CpuRcuParticipant { resource, known_retired, released: view }
     }
 
     /// Stable identity of this CPU's RCU participant.
@@ -293,8 +298,49 @@ impl CpuRcuParticipant {
         self.resource.value().fraction()
     }
 
+    /// Native view at the latest reader close; it always covers [`Self::view`].
+    pub closed spec fn released(self) -> Irc11ThreadView {
+        self.released
+    }
+
     pub open spec fn wf(self) -> bool {
         0real < self.fraction() <= 1real
+    }
+
+    /// The release view always covers the last reported view.
+    pub proof fn lemma_released_covers_view(tracked &self)
+        ensures
+            self.view().spec_le(self.released()),
+    {
+        use_type_invariant(self);
+    }
+
+    /// Records the native view of a reader close. The view must cover every
+    /// earlier close, so later reports and attached tasks cover this one too.
+    pub proof fn tracked_advance_released(tracked &mut self, close_view: Irc11ThreadView)
+        requires
+            old(self).released().spec_le(close_view),
+        ensures
+            final(self).id() == old(self).id(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).generation() == old(self).generation(),
+            final(self).view() == old(self).view(),
+            final(self).known_retired() == old(self).known_retired(),
+            final(self).fraction() == old(self).fraction(),
+            final(self).released() == close_view,
+    {
+        use_type_invariant(&*self);
+        let ghost old_cpu = self.cpu();
+        let ghost old_view = self.view();
+        old_view.lemma_spec_le_transitive(self.released(), close_view);
+        let tracked mut owned = CpuRcuParticipant::new(old_cpu, old_view);
+        tracked_swap(self, &mut owned);
+        let tracked mut advanced = CpuRcuParticipant {
+            resource: owned.resource,
+            known_retired: owned.known_retired,
+            released: close_view,
+        };
+        tracked_swap(self, &mut advanced);
     }
 
     /// Starts a reader in the current CPU generation.
@@ -318,6 +364,7 @@ impl CpuRcuParticipant {
             res.0.view() == self.view(),
             res.0.known_retired() == self.known_retired(),
             res.0.fraction() == self.fraction() - reader_fraction,
+            res.0.released() == self.released(),
             res.0.wf(),
             res.1.participant_id() == self.id(),
             res.1.cpu() == self.cpu(),
@@ -369,7 +416,11 @@ impl CpuRcuParticipant {
         );
         let tracked reader_known_retired = self.known_retired.tracked_duplicate();
         (
-            CpuRcuParticipant { resource: participant_resource, known_retired: self.known_retired },
+            CpuRcuParticipant {
+                resource: participant_resource,
+                known_retired: self.known_retired,
+                released: self.released,
+            },
             CpuRcuReaderFragment { resource: reader_resource, known_retired: reader_known_retired },
         )
     }
@@ -394,6 +445,7 @@ impl CpuRcuParticipant {
             final(self).view() == old(self).view(),
             final(self).known_retired() == old(self).known_retired(),
             final(self).fraction() == old(self).fraction() / 2real,
+            final(self).released() == old(self).released(),
             final(self).wf(),
             reader.participant_id() == old(self).id(),
             reader.cpu() == old(self).cpu(),
@@ -433,6 +485,7 @@ impl CpuRcuParticipant {
             res.view() == self.view(),
             res.known_retired() == self.known_retired(),
             res.fraction() == self.fraction() + reader.fraction(),
+            res.released() == self.released(),
             res.wf(),
     {
         use_type_invariant(&self);
@@ -440,7 +493,7 @@ impl CpuRcuParticipant {
         let tracked mut participant_resource = self.resource;
         participant_resource.validate_2(&reader.resource);
         let tracked resource = participant_resource.join(reader.resource);
-        CpuRcuParticipant { resource, known_retired: self.known_retired }
+        CpuRcuParticipant { resource, known_retired: self.known_retired, released: self.released }
     }
 
     /// Returns a reader fragment to this participant in place.
@@ -459,6 +512,7 @@ impl CpuRcuParticipant {
             final(self).view() == old(self).view(),
             final(self).known_retired() == old(self).known_retired(),
             final(self).fraction() == old(self).fraction() + reader.fraction(),
+            final(self).released() == old(self).released(),
             final(self).wf(),
     {
         let ghost old_cpu = self.cpu();
@@ -486,6 +540,7 @@ impl CpuRcuParticipant {
             self.wf(),
             self.fraction() == 1real,
             self.view().spec_le(report_view),
+            self.released().spec_le(report_view),
             learned.observed_by(report_view),
             binding.cpu() == self.cpu(),
             binding.single_local_id() == self.id(),
@@ -496,6 +551,7 @@ impl CpuRcuParticipant {
             res.0.view() == report_view,
             res.0.known_retired() == self.known_retired().union(learned.records()),
             res.0.fraction() == 1real,
+            res.0.released() == report_view,
             res.0.wf(),
             res.1.participant_id() == self.id(),
             res.1.cpu() == self.cpu(),
@@ -619,7 +675,7 @@ impl CpuRcuParticipant {
         assert(known_retired.records() == merged_records);
         lemma_choose_singleton_report(report);
         (
-            CpuRcuParticipant { resource: participant_resource, known_retired },
+            CpuRcuParticipant { resource: participant_resource, known_retired, released: report_view },
             CpuRcuClosedGeneration {
                 resource: closed_resource,
                 known_retired: closed_known_retired,
@@ -639,6 +695,7 @@ impl CpuRcuParticipant {
             self.wf(),
             self.fraction() == 1real,
             self.view().spec_le(report_view),
+            self.released().spec_le(report_view),
             binding.cpu() == self.cpu(),
             binding.single_local_id() == self.id(),
         ensures
@@ -648,6 +705,7 @@ impl CpuRcuParticipant {
             res.0.view() == report_view,
             res.0.known_retired() == self.known_retired(),
             res.0.fraction() == 1real,
+            res.0.released() == report_view,
             res.0.wf(),
             res.1.participant_id() == self.id(),
             res.1.cpu() == self.cpu(),
@@ -678,6 +736,7 @@ impl CpuRcuParticipant {
             old(self).wf(),
             old(self).fraction() == 1real,
             old(self).view().spec_le(report_view),
+            old(self).released().spec_le(report_view),
             binding.cpu() == old(self).cpu(),
             binding.single_local_id() == old(self).id(),
         ensures
@@ -687,6 +746,7 @@ impl CpuRcuParticipant {
             final(self).view() == report_view,
             final(self).known_retired() == old(self).known_retired(),
             final(self).fraction() == 1real,
+            final(self).released() == report_view,
             final(self).wf(),
             closed.participant_id() == old(self).id(),
             closed.cpu() == old(self).cpu(),
@@ -719,6 +779,7 @@ impl CpuRcuParticipant {
             old(self).wf(),
             old(self).fraction() == 1real,
             old(self).view().spec_le(report_view),
+            old(self).released().spec_le(report_view),
             learned.observed_by(report_view),
             binding.cpu() == old(self).cpu(),
             binding.single_local_id() == old(self).id(),
@@ -729,6 +790,7 @@ impl CpuRcuParticipant {
             final(self).view() == report_view,
             final(self).known_retired() == old(self).known_retired().union(learned.records()),
             final(self).fraction() == 1real,
+            final(self).released() == report_view,
             final(self).wf(),
             closed.participant_id() == old(self).id(),
             closed.cpu() == old(self).cpu(),

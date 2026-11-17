@@ -12,7 +12,7 @@
 //! implicit preemption and Drop glue is not part of this IRC11 proof.
 use vstd::{prelude::*, raw_ptr::spec_cast_ptr_to_thin_ptr, resource::Loc};
 use vstd_extra::{
-    atomic_irc11::ThreadView,
+    atomic_irc11::{ThreadView, ViewSeen},
     external::NonNullAdditionalFns,
     ownership::Inv,
     raw_callback::{RawCallbackContextWithProof, RawCallbackWithProof},
@@ -247,7 +247,7 @@ unsafe impl<P: NonNullPtr + Send> Send for PendingRcuDrop<P> {
  * Origin Rust: <none; new executable code>
  */
 pub struct RcuCallbackWork {
-    callback: RawCallbackWithProof<RcuReclaimPermit>,
+    callback: RawCallbackWithProof<(RcuReclaimPermit, ViewSeen)>,
     ghost_summary: Ghost<RcuCallbackSummary>,
     ghost_online: Ghost<Set<CpuId>>,
     tracked_fact: Tracked<RcuRetiredFact>,
@@ -944,7 +944,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
     /// ## Preconditions
     /// - The guard and running context are valid and name the same participant.
     /// ## Postconditions
-    /// - Preserves the native view exactly and adds the guard's fraction back to the participant.
+    /// - Grows the native view to the recorded release view and adds the guard's fraction back to the participant.
     /* New explicit-context RCU API; the legacy implicit preemption and Drop path is not used.
      * Origin Rust: <none; new executable code>
      */
@@ -956,7 +956,7 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
         ensures
             final(context).inv(),
             final(context).same_identity(*old(context)),
-            final(context)@ == old(context)@,
+            final(context)@.contains(old(context)@),
             final(context).participant().generation() == old(context).participant().generation(),
             final(context).participant().known_retired() == old(
                 context,
@@ -964,11 +964,9 @@ impl<'a, P: NonNullPtr> Irc11RcuReadGuard<'a, P> {
             final(context).participant().view() == old(context).participant().view(),
             final(context).participant().fraction() == old(context).participant().fraction()
                 + self.fraction(),
+            final(context).participant().released() == final(context)@,
     {
-        let Tracked(reader) = self.root.root.close(self.tracked_protection);
-        proof {
-            context.tracked_stop_reader(reader);
-        }
+        self.root.root.close(self.tracked_protection, Tracked(context));
     }
 }
 
@@ -999,19 +997,24 @@ impl<P: NonNullPtr> PendingRcuDrop<P> {
     }
 }
 
-impl<P: NonNullPtr + Send> RawCallbackContextWithProof<RcuReclaimPermit> for PendingRcuDrop<P> {
-    open spec fn call_requires(&self, permit: RcuReclaimPermit) -> bool {
+impl<P: NonNullPtr + Send> RawCallbackContextWithProof<(RcuReclaimPermit, ViewSeen)> for PendingRcuDrop<
+    P,
+> {
+    open spec fn call_requires(&self, proof: (RcuReclaimPermit, ViewSeen)) -> bool {
+        let (permit, view) = proof;
         &&& self.inv() && permit.inv()
         &&& permit.summary().retired == self.record()
         &&& permit.summary().scheduler == self.key().scheduler
         &&& permit.online() == self.key().online
+        &&& permit.observed_by(view@)
     }
 
     /* New checked callback runner recovers ownership before reconstructing and dropping the smart pointer.
      * Origin Rust: <none; new executable code>
      */
-    fn run(self, Tracked(permit): Tracked<RcuReclaimPermit>) {
-        let ownership = self.reclaimer.reclaim(self.tracked_retired, Tracked(permit));
+    fn run(self, Tracked(proof): Tracked<(RcuReclaimPermit, ViewSeen)>) {
+        let tracked (permit, view) = proof;
+        let ownership = self.reclaimer.reclaim(self.tracked_retired, Tracked(permit), Tracked(&view));
         // SAFETY: reclaim recovered the exact, unique original permission only
         // after excluding every active physical lease for this allocation.
         // Rust drops this binding exactly once when the verified runner returns.
@@ -1062,9 +1065,11 @@ impl Inv for RcuCallbackWork {
         &&& self.tracked_fact@.wf()
         &&& self.tracked_fact@.record() == self.summary().retired
         &&& self.summary().retired.removal.observed_by(self.summary().retire_view)
-        &&& forall|permit: RcuReclaimPermit|
+        &&& forall|permit: RcuReclaimPermit, view: ViewSeen|
             permit.inv() && permit.summary() == self.summary() && permit.online() == self.online()
-                ==> #[trigger] self.callback.call_requires(permit)
+                && permit.observed_by(view@) ==> #[trigger] self.callback.call_requires(
+                (permit, view),
+            )
     }
 }
 
@@ -1108,22 +1113,24 @@ impl RcuCallbackWork {
     /// - Consumes one callback and transfers its matching completion permit to the checked runner.
     /// ## Preconditions
     /// - The callback and permit are valid and have identical summaries and online sets; invoke outside the monitor lock.
+    /// - The supplied view covers every report in the permit.
     /// ## Postconditions
     /// - The callback is consumed; no eventual-return, no-unwind, or destructor-termination guarantee is made.
     /* New explicit-context RCU API; the legacy implicit preemption and Drop path is not used.
      * Origin Rust: <none; new executable code>
      */
-    pub fn invoke(self, Tracked(permit): Tracked<RcuReclaimPermit>)
+    pub fn invoke(self, Tracked(permit): Tracked<RcuReclaimPermit>, Tracked(view): Tracked<ViewSeen>)
         requires
             self.inv(),
             permit.inv(),
             permit.summary() == self.summary(),
             permit.online() == self.online(),
+            permit.observed_by(view@),
     {
         // SAFETY: private paired construction and consuming ownership satisfy
         // the raw erasure boundary; the complete invocation predicate is proven.
         unsafe {
-            self.callback.call_once(Tracked(permit));
+            self.callback.call_once(Tracked((permit, view)));
         }
     }
 }

@@ -112,6 +112,7 @@ impl RcuGracePeriod {
             res.online() == online,
             res.callbacks() == callbacks,
             res.reported() == Set::<CpuId>::empty(),
+            forall|view: ThreadView| #[trigger] res.observed_by(view),
     {
         Self { scheduler, epoch, online, callbacks, reports: Map::tracked_empty() }
     }
@@ -139,6 +140,22 @@ impl RcuGracePeriod {
     /// Exact ghost counterpart of the monitor's CPU report mask.
     pub closed spec fn reported(self) -> Set<CpuId> {
         self.reports.dom()
+    }
+
+    /// Whether `view` covers the native view of every report collected so far.
+    pub closed spec fn observed_by(self, view: ThreadView) -> bool {
+        forall|cpu: CpuId| #[trigger]
+            self.reports.contains_key(cpu) ==> view.contains(self.reports[cpu].view())
+    }
+
+    /// A larger view still covers every collected report.
+    pub proof fn lemma_observed_by_monotone(self, older: ThreadView, newer: ThreadView)
+        requires
+            self.observed_by(older),
+            newer.contains(older),
+        ensures
+            self.observed_by(newer),
+    {
     }
 
     /// A well-formed active mask never contains an unconfigured CPU.
@@ -169,6 +186,9 @@ impl RcuGracePeriod {
             final(self).online() == old(self).online(),
             final(self).callbacks() == old(self).callbacks(),
             final(self).reported() == old(self).reported().insert(report.cpu()),
+            forall|view: ThreadView|
+                old(self).observed_by(view) && view.contains(report.view())
+                    ==> #[trigger] final(self).observed_by(view),
     {
         let ghost cpu = report.cpu();
         self.reports.tracked_insert(cpu, report);
@@ -212,6 +232,7 @@ impl RcuGracePeriod {
             res.epoch() == self.epoch(),
             res.online() == self.online(),
             res.callbacks() == self.callbacks(),
+            forall|view: ThreadView| self.observed_by(view) ==> #[trigger] res.observed_by(view),
     {
         CompletedGracePeriod {
             scheduler: self.scheduler,
@@ -268,6 +289,22 @@ impl CompletedGracePeriod {
         self.callbacks
     }
 
+    /// Whether `view` covers the native view of every completing report.
+    pub closed spec fn observed_by(self, view: ThreadView) -> bool {
+        forall|cpu: CpuId| #[trigger]
+            self.reports.contains_key(cpu) ==> view.contains(self.reports[cpu].view())
+    }
+
+    /// A larger view still covers every completing report.
+    pub proof fn lemma_observed_by_monotone(self, older: ThreadView, newer: ThreadView)
+        requires
+            self.observed_by(older),
+            newer.contains(older),
+        ensures
+            self.observed_by(newer),
+    {
+    }
+
     /// Authorizes a batch member only with its matching retirement certificate.
     pub proof fn tracked_authorize(
         tracked &self,
@@ -282,6 +319,7 @@ impl CompletedGracePeriod {
             res.inv(),
             res.summary() == self.callbacks()[index],
             res.online() == self.online(),
+            forall|view: ThreadView| self.observed_by(view) ==> #[trigger] res.observed_by(view),
     {
         let tracked reports = duplicate_reports(&self.reports, self.online);
         let tracked fact = fact.tracked_duplicate();
@@ -311,6 +349,15 @@ impl RcuReclaimPermit {
     /// Fixed CPU set whose reader generations were closed.
     pub closed spec fn online(self) -> Set<CpuId> {
         self.online
+    }
+
+    /// Whether `view` covers the native view of every report in this permit.
+    ///
+    /// Each report covers the views at which that CPU's readers closed, so a
+    /// reclaimer holding such a view is ordered after every protected access.
+    pub closed spec fn observed_by(self, view: ThreadView) -> bool {
+        forall|cpu: CpuId| #[trigger]
+            self.reports.contains_key(cpu) ==> view.contains(self.reports[cpu].view())
     }
 
     /// Borrows one canonical report to exclude a live physical lease.

@@ -8,9 +8,9 @@
 //!
 //! The kernel must keep the task on this CPU until detach. These capabilities
 //! model that obligation; they do not implement `disable_preempt` or scheduling.
-use vstd::{prelude::*, resource::Loc};
+use vstd::{modes::tracked_swap, prelude::*, resource::Loc};
 use vstd_extra::{
-    atomic_irc11::{ThreadView, ViewSeen},
+    atomic_irc11::{ThreadView, ViewAt, ViewSeen},
     ownership::Inv,
 };
 
@@ -54,6 +54,7 @@ impl Inv for RunningRcuContext {
         &&& self.binding.owner_id() == self.core.id()
         &&& self.binding.locals_key() == self.core.expected_locals_key()
         &&& self@.contains(self.participant.view())
+        &&& self@.contains(self.participant.released())
     }
 }
 
@@ -109,6 +110,7 @@ impl RunningRcuContext {
             binding.owner_id() == core.id(),
             binding.locals_key() == core.locals_key(),
             task@.contains(core.locals().view()),
+            task@.contains(core.locals().released()),
         ensures
             res.inv(),
             res.cpu() == task.cpu(),
@@ -128,13 +130,30 @@ impl RunningRcuContext {
             old(self).inv(),
         ensures
             old(self)@.contains(old(self).participant().view()),
+            old(self)@.contains(old(self).participant().released()),
             res@ == old(self)@,
             final(self)@ == final(res)@,
             final(self).same_identity(*old(self)),
             final(self).participant() == old(self).participant(),
-            final(self).inv() == final(res)@.contains(old(self).participant().view()),
+            final(self).inv() == final(res)@.contains(old(self).participant().released()),
     {
+        self.participant.lemma_released_covers_view();
         self.task.tracked_borrow_irc11_view_mut()
+    }
+
+    /// Copies the task's current view lower bound, e.g. to run completed callbacks.
+    pub proof fn tracked_view_seen(tracked &mut self) -> (tracked res: ViewSeen)
+        requires
+            old(self).inv(),
+        ensures
+            res@ == old(self)@,
+            final(self).inv(),
+            final(self).same_identity(*old(self)),
+            final(self)@ == old(self)@,
+            final(self).participant() == old(self).participant(),
+    {
+        let tracked view = self.task.tracked_borrow_irc11_view_mut();
+        *view
     }
 
     /// Copies only persistent registration evidence, not the core or reader.
@@ -162,6 +181,7 @@ impl RunningRcuContext {
             final(self).participant().generation() == old(self).participant().generation(),
             final(self).participant().known_retired() == old(self).participant().known_retired(),
             final(self).participant().fraction() == old(self).participant().fraction() / 2real,
+            final(self).participant().released() == old(self).participant().released(),
             res.wf(),
             res.participant_id() == old(self).participant().id(),
             res.cpu() == old(self).cpu(),
@@ -188,7 +208,34 @@ impl RunningRcuContext {
             final(self).participant().known_retired() == old(self).participant().known_retired(),
             final(self).participant().fraction() == old(self).participant().fraction()
                 + reader.fraction(),
+            final(self).participant().released() == old(self).participant().released(),
     {
+        self.participant.tracked_stop_reader_in_place(reader);
+    }
+
+    /// Returns a reader fragment after recording this thread's exact current
+    /// native view as the CPU's release view. Reports and later attachments
+    /// on this CPU must cover it, so they are ordered after the reader's accesses.
+    pub proof fn tracked_close_reader(tracked &mut self, tracked reader: CpuRcuReaderFragment)
+        requires
+            old(self).inv(),
+            reader.wf(),
+            reader.participant_id() == old(self).participant().id(),
+        ensures
+            final(self).inv(),
+            final(self).same_identity(*old(self)),
+            final(self)@.contains(old(self)@),
+            final(self).participant().view() == old(self).participant().view(),
+            final(self).participant().generation() == old(self).participant().generation(),
+            final(self).participant().known_retired() == old(self).participant().known_retired(),
+            final(self).participant().fraction() == old(self).participant().fraction()
+                + reader.fraction(),
+            final(self).participant().released() == final(self)@,
+    {
+        let tracked view = self.task.tracked_borrow_irc11_view_mut();
+        let tracked (_at, mut current) = ViewAt::<()>::new_incl((), *view);
+        tracked_swap(view, &mut current);
+        self.participant.tracked_advance_released(self.task@);
         self.participant.tracked_stop_reader_in_place(reader);
     }
 
@@ -207,6 +254,7 @@ impl RunningRcuContext {
             final(self)@ == old(self)@,
             final(self).participant().fraction() == 1real,
             final(self).participant().view() == old(self)@,
+            final(self).participant().released() == old(self)@,
             final(self).participant().generation() == old(self).participant().generation() + 1,
             res.wf(),
             res.scheduler() == old(self).scheduler(),
@@ -240,6 +288,7 @@ impl RunningRcuContext {
             res.1.locals().cpu() == self.cpu(),
             res.1.locals_key() == seq![res.1.locals().id()],
             res.0@.contains(res.1.locals().view()),
+            res.0@.contains(res.1.locals().released()),
             res.1.id() == self.binding().owner_id(),
             res.1.locals_key() == self.binding().locals_key(),
     {

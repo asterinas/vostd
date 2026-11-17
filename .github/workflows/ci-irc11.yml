@@ -215,6 +215,24 @@ jobs:
           grep -q 'failed precondition' "$RCU_TEST_DIR/wrong_publication.log"
           grep -Fq 'self.accepts(value)' "$RCU_TEST_DIR/wrong_publication.log"
 
+      - name: Reject unsynchronized reclamation
+        run: |
+          RCU_TEST_DIR=$(mktemp -d "$RUNNER_TEMP/rcu-sync.XXXXXX")
+          RCU_LOCKFILE_BACKUP="$RCU_TEST_DIR/Cargo.lock.mainline"
+          cp Cargo.lock "$RCU_LOCKFILE_BACKUP"
+          trap 'cp "$RCU_LOCKFILE_BACKUP" Cargo.lock' EXIT
+          for rejection in stale_invoke_view objective_protection; do
+            if cargo dv focus --package ostd --features irc11,vstd/weak-memory -- \
+                --cfg "rcu_reject_$rejection" --verify-only-module sync::rcu::acceptance \
+                > "$RCU_TEST_DIR/$rejection.log" 2>&1; then
+              echo "RCU regression: $rejection counterexample verified"
+              exit 1
+            fi
+          done
+          grep -q 'failed precondition' "$RCU_TEST_DIR/stale_invoke_view.log"
+          grep -Fq 'self.observed_by(view@)' "$RCU_TEST_DIR/stale_invoke_view.log"
+          grep -Fq 'ViewSeen: vstd::thread_view::Objective` is not satisfied' "$RCU_TEST_DIR/objective_protection.log"
+
       - name: Check for unexpected source changes
         if: always()
         run: git diff --exit-code
