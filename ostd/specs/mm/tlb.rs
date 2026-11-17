@@ -1,3 +1,10 @@
+//! The abstract TLB model.
+//!
+//! The request bookkeeping of `OpsStack` and `TlbFlusher::issue_tlb_flush[_with]`
+//! is verified against [`FlushSet`]. `OpsStack::new`, the hardware flushes, and
+//! dispatching and synchronizing flush requests remain trusted. Which CPU runs
+//! the code, and keeping frames alive until their TLB entries are flushed, are
+//! not modelled yet.
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
@@ -172,14 +179,21 @@ impl TlbModel {
         TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }
 
-    pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: TlbFlushOp)
+    /// Records a borrowed request without consuming the executable value.
+    pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: &TlbFlushOp)
         requires
             old(self).inv(),
         ensures
-            *final(self) == old(self).issue_tlb_flush(op),
+            *final(self) == old(self).issue_tlb_flush(*op),
             final(self).inv(),
     {
-        self.pending.tracked_push(op);
+        match op {
+            TlbFlushOp::All => self.pending.tracked_push(TlbFlushOp::All),
+            TlbFlushOp::Address(va) => self.pending.tracked_push(TlbFlushOp::Address(*va)),
+            TlbFlushOp::Range(range) => self.pending.tracked_push(
+                TlbFlushOp::Range(range.start..range.end),
+            ),
+        }
     }
 
     pub open spec fn dispatch_tlb_flush_spec(self) -> Self {
