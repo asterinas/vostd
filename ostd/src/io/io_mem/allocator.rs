@@ -41,6 +41,7 @@ impl IoMemAllocator {
     #[verus_spec(result =>
         with
             Tracked(permit): Tracked<Option<AllocRangePermit>>,
+            -> allocated: Tracked<Option<FreePermit>>,
         requires
             self.overlaps_range(range) ==> range.start < range.end,
             self.covers_range(range) && range.start < range.end ==> {
@@ -55,6 +56,11 @@ impl IoMemAllocator {
                 &&& io_mem.length() == range.end - range.start
             },
             result is Some <==> range.start < range.end && self.covers_range(range),
+            result is Some <==> allocated@ is Some,
+            allocated@ matches Some(token) ==> {
+                &&& token.range() == range
+                &&& self.has_allocation(token.id(), range)
+            },
     )]
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         proof! {
@@ -65,9 +71,21 @@ impl IoMemAllocator {
         proof_decl! {
             let tracked allocated: Option<FreePermit>;
         }
-        (#[verus_spec(with Tracked(permit) => Tracked(allocated))]
-        find_allocator(&self.allocators, &range)?.alloc_specific(&range))
-        .ok()?;
+        /* Explicit early returns attach the tracked output on both failure paths.
+         * Origin Rust:
+         * find_allocator(&self.allocators, &range)?.alloc_specific(&range).ok()?;
+         */
+        let Some(allocator) = find_allocator(&self.allocators, &range) else {
+            return #[verus_spec(with |= Tracked(None))]
+            None;
+        };
+        if (#[verus_spec(with Tracked(permit) => Tracked(allocated))]
+        allocator.alloc_specific(&range))
+        .is_err()
+        {
+            return #[verus_spec(with |= Tracked(allocated))]
+            None;
+        }
 
         /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
 
@@ -77,7 +95,10 @@ impl IoMemAllocator {
         }
 
         // SAFETY: The created `IoMem` is guaranteed not to access physical memory or system device I/O.
-        unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
+        #[verus_spec(with |= Tracked(allocated))]
+        unsafe {
+            Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable))
+        }
     }
 
     /// Recycles an MMIO range.
@@ -620,26 +641,44 @@ mod test {
                 .allocators,
             )
         };
+        proof_decl! {
+            let tracked empty_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(empty_allocation))]
             allocator.acquire(0..0))
             .is_none()
         );
+        proof_decl! {
+            assert(empty_allocation is None);
+            let tracked empty_window_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(empty_window_allocation))]
             allocator.acquire(0x4000_0000..0x4000_0000))
             .is_none()
         );
+        proof_decl! {
+            assert(empty_window_allocation is None);
+            let tracked reversed_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(reversed_allocation))]
             allocator.acquire(0x4000_1000..0x4000_0000))
             .is_none()
         );
+        proof_decl! {
+            assert(reversed_allocation is None);
+            let tracked max_reversed_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(max_reversed_allocation))]
             allocator.acquire(usize::MAX..0))
             .is_none()
         );
+        proof! {
+            assert(max_reversed_allocation is None);
+        }
     }
 
     // #[ktest]
@@ -684,38 +723,72 @@ mod test {
             assert(allocator.covers_range(last_range));
         }
 
+        proof_decl! {
+            let tracked before_window_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(before_window_allocation))]
             allocator.acquire((io_mem_region_a.start - 1)..io_mem_region_a.start))
             .is_none()
         );
+        proof_decl! {
+            assert(before_window_allocation is None);
+            let tracked first_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(Some(first_permit)))]
+            (#[verus_spec(with Tracked(Some(first_permit)) => Tracked(first_allocation))]
             allocator.acquire(io_mem_region_a.start..(io_mem_region_a.start + 1)))
             .is_some()
         );
+        proof! {
+            assert(first_allocation is Some);
+            assert(first_allocation->0.range() == first_range);
+            assert(allocator.has_allocation(first_allocation->0.id(), first_range));
+        }
 
+        proof_decl! {
+            let tracked gap_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(gap_allocation))]
             allocator.acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1)))
             .is_none()
         );
+        proof_decl! {
+            assert(gap_allocation is None);
+            let tracked cross_window_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(cross_window_allocation))]
             allocator.acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1)))
             .is_none()
         );
+        proof! {
+            assert(cross_window_allocation is None);
+        }
 
+        proof_decl! {
+            let tracked last_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(Some(last_permit)))]
+            (#[verus_spec(with Tracked(Some(last_permit)) => Tracked(last_allocation))]
             allocator.acquire((io_mem_region_a.end - 1)..io_mem_region_a.end))
             .is_some()
         );
+        proof_decl! {
+            assert(last_allocation is Some);
+            assert(last_allocation->0.range() == last_range);
+            assert(allocator.has_allocation(last_allocation->0.id(), last_range));
+            let tracked after_window_allocation: Option<super::FreePermit>;
+        }
         assert!(
-            (#[verus_spec(with Tracked(None))]
+            (#[verus_spec(with Tracked(None) => Tracked(after_window_allocation))]
             allocator.acquire(io_mem_region_a.end..(io_mem_region_a.end + 1)))
             .is_none()
         );
+        proof! {
+            assert(after_window_allocation is None);
+        }
     }
 }
 
