@@ -106,6 +106,10 @@ fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
             bin@ == flat_binary_prefix(programs.seq(), elf.input@, programs.index() as nat),
     )]
     for program in elf.program_iter() {
+        proof! {
+            let next = programs.seq()[..programs.index() + 1];
+            assert(next.drop_last() == programs.seq()[..programs.index()]);
+        }
         if program.get_type().unwrap() == xmas_elf::program::Type::Load {
             let SegmentData::Undefined(header_data) = program.get_data(&elf).unwrap() else {
                 panic!("Unexpected segment data type");
@@ -187,28 +191,25 @@ spec fn flat_binary_prefix(
 ) -> Seq<u8>
     recommends
         count <= programs.len(),
-    decreases count,
 {
-    if count == 0 {
-        Seq::empty()
-    } else {
-        let old = flat_binary_prefix(programs, input, (count - 1) as nat);
-        let program = programs[count - 1];
-        if program.get_type() == Ok(xmas_elf::program::Type::Load) {
-            flat_load_step(
-                old,
-                program_load_bytes(&program, input),
-                flat_segment_offset(&program),
-                program.mem_size() as int,
-            )
-        } else {
-            old
-        }
-    }
+    programs[..count].fold_left(
+        Seq::empty(),
+        |old: Seq<u8>, program: xmas_elf::program::ProgramHeader<'_>|
+            if program.get_type() == Ok(xmas_elf::program::Type::Load) {
+                flat_load_step(
+                    old,
+                    program_load_bytes(&program, input),
+                    flat_segment_offset(&program),
+                    program.mem_size() as int,
+                )
+            } else {
+                old
+            },
+    )
 }
 
 spec fn flat_binary_spec(input: &[u8]) -> Seq<u8> {
-    let elf = elf_parse_result(input).unwrap();
+    let elf = elf_parse_result(input)->Ok_0;
     flat_binary_prefix(elf_program_headers(&elf), input@, elf_program_headers(&elf).len())
 }
 
