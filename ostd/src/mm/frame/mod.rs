@@ -207,7 +207,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
         requires
             old(regions).inv(),
         ensures
@@ -216,8 +215,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
                 &&& MetaSlot::get_from_unused_region_spec(
                     paddr, false, res.metadata_perm().usage(),
                     *old(regions), *final(regions))
-                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm(), *final(repr_perm))
-                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value(), *final(repr_perm)) == metadata
+                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm())
+                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value()) == metadata
                 &&& res.inv()
                 &&& res.start_paddr_spec() == paddr
                 &&& res.wf_with_region(*final(regions))
@@ -226,8 +225,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with
-            Tracked(regions),
-            Tracked(repr_perm) => Tracked(permissions)
+            Tracked(regions) => Tracked(permissions)
         )]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
@@ -268,19 +266,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(ret =>
         with
             Tracked(metadata_perm): Tracked<Option<&'a MetadataPerm>>,
-            Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
             {
                 self.inv() && metadata_perm is None
-                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), *repr_perm) ||
+                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm()) ||
                 metadata_perm is Some
-                && self.external_meta_wf(*metadata_perm->0, *repr_perm)
+                && self.external_meta_wf(*metadata_perm->0)
             },
         ensures
             {
                 let metadata_perm = if metadata_perm is Some {*metadata_perm -> 0} else
                     { self.metadata_perm() };
-                ret == typed_meta_value::<M>(metadata_perm, *repr_perm)
+                ret == typed_meta_value::<M>(metadata_perm)
             },
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
@@ -298,7 +295,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
             Tracked(slot_perm),
             Tracked(metadata_perm),
-            Tracked(repr_perm),
         )
     }
 }

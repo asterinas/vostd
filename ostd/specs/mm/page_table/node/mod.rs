@@ -131,22 +131,20 @@ pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
 ) -> Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    type ReprPerm = ();
-
-    open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
+    open spec fn wf(r: MetaSlotStorage) -> bool {
         matches!(r, MetaSlotStorage::PTNode(_))
     }
 
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (MetaSlotStorage::PTNode(self.into_spec()), ())
+    open spec fn to_repr_spec(self) -> MetaSlotStorage {
+        MetaSlotStorage::PTNode(self.into_spec())
     }
 
     #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
+    fn to_repr(self) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
+    open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
         match r {
             MetaSlotStorage::PTNode(node) => node.into_spec::<C>(),
             _ => arbitrary(),
@@ -154,27 +152,24 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+    fn from_repr(r: MetaSlotStorage) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed_mut<'a>(
-        r: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
-    ) -> &'a mut Self {
+    fn from_borrowed_mut<'a>(r: &'a mut MetaSlotStorage) -> &'a mut Self {
         unimplemented!()
     }
 
-    proof fn from_to_repr(self, perm: ()) {
+    proof fn from_to_repr(self) {
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
+    proof fn to_from_repr(r: MetaSlotStorage) {
         match r {
             MetaSlotStorage::PTNode(node) => {},
             _ => {
@@ -183,7 +178,7 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
         }
     }
 
-    proof fn to_repr_wf(self, perm: ()) {
+    proof fn to_repr_wf(self) {
     }
 }
 

@@ -10,64 +10,57 @@ verus! {
 
 /// A trait for types that have a concrete representation type `R`.
 pub trait Repr<R: Sized>: Sized {
-    /// If the underlying representation contains cells, the translation may require permission objects that access them.
-    type ReprPerm;
+    spec fn wf(r: R) -> bool;
 
-    spec fn wf(r: R, perm: Self::ReprPerm) -> bool;
+    spec fn to_repr_spec(self) -> R;
 
-    spec fn to_repr_spec(self, perm: Self::ReprPerm) -> (R, Self::ReprPerm);
-
-    fn to_repr(self, Tracked(perm): Tracked<&mut Self::ReprPerm>) -> (res: R)
-        ensures
-            res == self.to_repr_spec(*old(perm)).0,
-            *final(perm) == self.to_repr_spec(*old(perm)).1,
-    ;
-
-    spec fn from_repr_spec(r: R, perm: Self::ReprPerm) -> Self;
-
-    fn from_repr(r: R, Tracked(perm): Tracked<&Self::ReprPerm>) -> (res: Self)
-        requires
-            Self::wf(r, *perm),
+    fn to_repr(self) -> (res: R)
         returns
-            Self::from_repr_spec(r, *perm),
+            self.to_repr_spec(),
     ;
 
-    fn from_borrowed<'a>(r: &'a R, Tracked(perm): Tracked<&'a Self::ReprPerm>) -> (res: &'a Self)
+    spec fn from_repr_spec(r: R) -> Self;
+
+    fn from_repr(r: R) -> (res: Self)
         requires
-            Self::wf(*r, *perm),
-        ensures
-            *res == Self::from_repr_spec(*r, *perm),
+            Self::wf(r),
+        returns
+            Self::from_repr_spec(r),
     ;
 
-    /// Mutable counterpart of [`Self::from_borrowed`]. Implementations must
-    /// project the same in-place representation as `from_borrowed` and keep
-    /// the representation permission synchronized with mutations through the
-    /// returned reference.
-    fn from_borrowed_mut<'a>(r: &'a mut R, Tracked(perm): Tracked<&'a mut Self::ReprPerm>) -> (res:
-        &'a mut Self)
+    fn from_borrowed<'a>(r: &'a R) -> (res: &'a Self)
         requires
-            Self::wf(*old(r), *old(perm)),
+            Self::wf(*r),
         ensures
-            *res == Self::from_repr_spec(*old(r), *old(perm)),
-            Self::wf(*final(r), *final(perm)),
-            *final(res) == Self::from_repr_spec(*final(r), *final(perm)),
+            *res == Self::from_repr_spec(*r),
     ;
 
-    proof fn from_to_repr(self, perm: Self::ReprPerm)
-        ensures
-            Self::from_repr_spec(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1) == self,
-    ;
-
-    proof fn to_from_repr(r: R, perm: Self::ReprPerm)
+    /// Mutable projection of the representation. Implementations must keep
+    /// the representation consistent with mutations through the returned reference.
+    fn from_borrowed_mut<'a>(r: &'a mut R) -> (res: &'a mut Self)
         requires
-            Self::wf(r, perm),
+            Self::wf(*old(r)),
         ensures
-            Self::from_repr_spec(r, perm).to_repr_spec(perm) == (r, perm),
+            *res == Self::from_repr_spec(*old(r)),
+            Self::wf(*final(r)),
+            *final(res) == Self::from_repr_spec(*final(r)),
     ;
 
-    proof fn to_repr_wf(self, perm: Self::ReprPerm)
+    proof fn from_to_repr(self)
         ensures
-            Self::wf(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1),
+            Self::from_repr_spec(self.to_repr_spec()) == self,
+    ;
+
+    proof fn to_from_repr(r: R)
+        requires
+            Self::wf(r),
+        ensures
+            Self::from_repr_spec(r).to_repr_spec() == r,
+    ;
+
+    proof fn to_repr_wf(self)
+        ensures
+            Self::wf(self.to_repr_spec()),
     ;
 }
 
@@ -160,17 +153,16 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         requires
             old(perm).pptr() == self,
             old(perm).is_init(),
-            old(perm).wf(&old(perm).inner_perms),
+            old(perm).wf(),
         ensures
             final(perm).pptr() == old(perm).pptr(),
             final(perm).mem_contents() == MemContents::Uninit::<T>,
             v == old(perm).value(),
-            final(perm).inner_perms == old(perm).inner_perms,
     {
         proof {
-            T::from_to_repr(perm.value(), perm.inner_perms);
+            T::from_to_repr(perm.value());
         }
-        T::from_repr(self.ptr.take(Tracked(&mut perm.points_to)), Tracked(&perm.inner_perms))
+        T::from_repr(self.ptr.take(Tracked(&mut perm.points_to)))
     }
 
     pub fn put(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>, v: T)
@@ -180,84 +172,74 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         ensures
             final(perm).pptr() == old(perm).pptr(),
             final(perm).mem_contents() == MemContents::Init(v),
-            final(perm).wf(&final(perm).inner_perms),
-            final(perm).inner_perms == v.to_repr_spec(old(perm).inner_perms).1,
-            final(perm).points_to.value() == v.to_repr_spec(old(perm).inner_perms).0,
+            final(perm).wf(),
+            final(perm).points_to.value() == v.to_repr_spec(),
             final(perm).points_to.is_init(),
     {
         proof {
-            v.from_to_repr(perm.inner_perms);
-            v.to_repr_wf(perm.inner_perms);
+            v.from_to_repr();
+            v.to_repr_wf();
         }
-        self.ptr.put(Tracked(&mut perm.points_to), v.to_repr(Tracked(&mut perm.inner_perms)))
+        self.ptr.put(Tracked(&mut perm.points_to), v.to_repr())
     }
 
     pub fn borrow<'a>(self, Tracked(perm): Tracked<&'a PointsTo<R, T>>) -> (v: &'a T)
         requires
             perm.pptr() == self,
             perm.is_init(),
-            perm.wf(&perm.inner_perms),
+            perm.wf(),
         ensures
             *v == perm.value(),
     {
-        T::from_borrowed(self.ptr.borrow(Tracked(&perm.points_to)), Tracked(&perm.inner_perms))
+        T::from_borrowed(self.ptr.borrow(Tracked(&perm.points_to)))
     }
 
     /// Borrows the pointed-to `T` mutably for the lifetime of `perm`.
     ///
     /// While the returned borrow is live, `perm` is exclusively held and
     /// cannot be used. The returned borrow is tied to the tracked permission:
-    /// at the return point, the permission's value matches `*v`. Callers must
+    /// after the borrow ends, the permission's value matches the final `*v`. Callers must
     /// preserve any invariants beyond the final initialised/well-formed state
     /// themselves.
-    ///
-    /// FIXME[SOUNDNESS]: This method is unsound because the caller must ensure the final value of `v` is consistent with the inner permissions.
-    #[verifier::external_body]
     pub fn borrow_mut<'a>(self, Tracked(perm): Tracked<&'a mut PointsTo<R, T>>) -> (v: &'a mut T)
         requires
             old(perm).pptr() == self,
             old(perm).is_init(),
-            old(perm).wf(&old(perm).inner_perms),
+            old(perm).wf(),
         ensures
             *v == old(perm).value(),
             final(perm).pptr() == old(perm).pptr(),
             final(perm).is_init(),
-            final(perm).wf(&final(perm).inner_perms),
+            final(perm).wf(),
             final(perm).value() == *final(v),
     {
-        // SAFETY: `Repr<R> for T` asserts layout compatibility between R and
-        // T. The tracked `perm` guards against concurrent access.
-        unsafe { &mut *(self.ptr.addr() as *mut T) }
+        /* `Repr` conversions need not preserve layout; project through the representation.
+         * Origin Rust: unsafe { &mut *(self.ptr.addr() as *mut T) }
+         */
+        T::from_borrowed_mut(self.ptr.borrow_mut(Tracked(&mut perm.points_to)))
     }
 }
 
 #[verifier::accept_recursive_types(T)]
 pub tracked struct PointsTo<R, T: Repr<R>> {
     pub points_to: simple_pptr::PointsTo<R>,
-    pub inner_perms: T::ReprPerm,
     pub _T: PhantomData<T>,
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
-    pub open spec fn new_spec(
-        points_to: simple_pptr::PointsTo<R>,
-        inner_perms: T::ReprPerm,
-    ) -> Self {
-        Self { points_to, inner_perms, _T: PhantomData }
+    pub open spec fn new_spec(points_to: simple_pptr::PointsTo<R>) -> Self {
+        Self { points_to, _T: PhantomData }
     }
 
-    pub proof fn new(
-        tracked points_to: simple_pptr::PointsTo<R>,
-        tracked inner_perms: T::ReprPerm,
-    ) -> (tracked res: Self)
+    pub proof fn new(tracked points_to: simple_pptr::PointsTo<R>) -> (tracked res: Self)
         returns
-            Self::new_spec(points_to, inner_perms),
+            Self::new_spec(points_to),
     {
-        Self { points_to, inner_perms, _T: PhantomData }
+        Self { points_to, _T: PhantomData }
     }
 
-    pub open spec fn wf(self, perm: &T::ReprPerm) -> bool {
-        &&& T::wf(self.points_to.value(), *perm)
+    pub open spec fn wf(self) -> bool {
+        &&& T::wf(self.points_to.value())
     }
 
     pub open spec fn addr(self) -> usize {
@@ -267,9 +249,7 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
     pub open spec fn mem_contents(self) -> MemContents<T> {
         match self.points_to.mem_contents() {
             MemContents::<R>::Uninit => MemContents::<T>::Uninit,
-            MemContents::<R>::Init(r) => MemContents::<T>::Init(
-                T::from_repr_spec(r, self.inner_perms),
-            ),
+            MemContents::<R>::Init(r) => MemContents::<T>::Init(T::from_repr_spec(r)),
         }
     }
 

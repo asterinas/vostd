@@ -389,7 +389,6 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             -> permissions: Tracked<Option<Sum<FracMetadataPerm, MetadataPerm>>>
         requires
             old(regions).inv(),
@@ -410,7 +409,6 @@ impl MetaSlot {
                     as_unique_ptr,
                     *old(regions),
                     *final(regions),
-                    *final(repr_perm),
                     permissions@->0,
                 )
             },
@@ -475,7 +473,6 @@ impl MetaSlot {
         unsafe {
             #[verus_spec(with
                 Tracked(&mut metadata_perm),
-                Tracked(repr_perm)
             )]
             slot.write_meta(metadata)
         };
@@ -742,7 +739,6 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(metadata_perm): Tracked<&mut MetadataPerm>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             self.storage.id() == old(metadata_perm).storage_perm.id(),
             self.vtable_ptr == old(metadata_perm).vtable_ptr_perm.pptr(),
@@ -754,11 +750,9 @@ impl MetaSlot {
             final(metadata_perm).vtable_ptr_perm.is_init(),
             <M as Repr<MetaSlotStorage>>::wf(
                 final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
             ),
             M::from_repr_spec(
                 final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
             ) == metadata,
     )]
     pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -776,12 +770,7 @@ impl MetaSlot {
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
         // unsafe { ptr.cast::<M>().write(metadata) };
-        write_metadata_into_storage(
-            &self.storage,
-            Tracked(metadata_perm),
-            Tracked(repr_perm),
-            metadata,
-        );
+        write_metadata_into_storage(&self.storage, Tracked(metadata_perm), metadata);
     }
 
     /// Drops the metadata and deallocates the frame.
