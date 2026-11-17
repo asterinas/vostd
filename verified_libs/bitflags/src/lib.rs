@@ -1,5 +1,4 @@
 #![no_std]
-#![allow(non_snake_case)]
 //! A verified version of the [`bitflags`](https://docs.rs/bitflags/latest/bitflags/) crate.
 //!
 //! The macro [`bitflags!`] generates a single `struct` whose layout matches
@@ -32,10 +31,11 @@
 //!
 //! Upstream's `Flags` trait metadata (`FLAGS`, iterators, lookup helpers, etc.)
 //! is represented here by Verus-only specs and lemmas around the inherent APIs.
-use vstd::arithmetic::power::*;
-use vstd::arithmetic::power2::*;
-use vstd::bits::*;
-use vstd::prelude::*;
+use vstd::{
+    arithmetic::{power::*, power2::*},
+    bits::*,
+    prelude::*,
+};
 
 pub use paste;
 
@@ -167,7 +167,7 @@ macro_rules! bitflags {
 
             impl ::core::clone::Clone for $name {
                 #[inline]
-                fn clone(&self) -> (r: Self)
+                fn clone(&self) -> Self
                     returns self
                 {
                     Self {
@@ -396,24 +396,24 @@ macro_rules! bitflags {
                 }
 
                 /// The bits in `self` that correspond to declared flags.
-                $vis closed spec fn known_bits_spec(&self) -> $T {
+                $vis open spec fn known_bits_spec(&self) -> $T {
                     self.bits() & Self::all().bits()
                 }
 
                 #[verifier::when_used_as_spec(known_bits_spec)]
-                $vis const fn known_bits(&self) -> (r: $T)
+                $vis const fn known_bits(&self) -> $T
                     returns self.known_bits(),
                 {
                     self.bits & Self::all().bits()
                 }
 
                 /// The bits in `self` that do not correspond to declared flags.
-                $vis closed spec fn unknown_bits_spec(&self) -> $T {
+                $vis open spec fn unknown_bits_spec(&self) -> $T {
                     self.bits() & !Self::all().bits()
                 }
 
                 #[verifier::when_used_as_spec(unknown_bits_spec)]
-                $vis const fn unknown_bits(&self) -> (r: $T)
+                $vis const fn unknown_bits(&self) -> $T
                     returns self.unknown_bits(),
                 {
                     self.bits & !Self::all().bits()
@@ -425,7 +425,7 @@ macro_rules! bitflags {
                 }
 
                 #[verifier::when_used_as_spec(contains_unknown_bits_spec)]
-                $vis const fn contains_unknown_bits(&self) -> (r: bool)
+                $vis const fn contains_unknown_bits(&self) -> bool
                     returns self.contains_unknown_bits(),
                 {
                     self.unknown_bits() != 0
@@ -437,7 +437,7 @@ macro_rules! bitflags {
                 }
 
                 #[verifier::when_used_as_spec(is_empty_spec)]
-                $vis const fn is_empty(&self) -> (r: bool)
+                $vis const fn is_empty(&self) -> bool
                     returns self.is_empty(),
                 {
                     self.bits == 0
@@ -449,7 +449,7 @@ macro_rules! bitflags {
                 }
 
                 #[verifier::when_used_as_spec(is_all_spec)]
-                $vis const fn is_all(&self) -> (r: bool)
+                $vis const fn is_all(&self) -> bool
                     returns self.is_all(),
                 {
                     Self::all().bits() | self.bits == self.bits
@@ -465,7 +465,7 @@ macro_rules! bitflags {
                 }
 
                 #[verifier::when_used_as_spec(contains_spec)]
-                $vis const fn contains(&self, other: Self) -> (r: bool)
+                $vis const fn contains(&self, other: Self) -> bool
                     returns self.contains(other),
                 {
                     (self.bits & other.bits) == other.bits
@@ -477,7 +477,7 @@ macro_rules! bitflags {
                 }
 
                 #[verifier::when_used_as_spec(intersects_spec)]
-                $vis const fn intersects(&self, other: Self) -> (r: bool)
+                $vis const fn intersects(&self, other: Self) -> bool
                     returns self.intersects(other),
                 {
                     (self.bits & other.bits) != 0
@@ -501,16 +501,29 @@ macro_rules! bitflags {
                     Self::from_bits_unchecked(bits)
                 }
 
+                $vis open spec fn from_name_spec(name: &str) -> Option<Self> {
+                    let result: Option<Self> = None;
+                    $(
+                        let result = if result is Some {
+                            result
+                        } else if $crate::__bitflags_cfg_expr!(($(#[$inner $($args)*])*) true)
+                            && name@ == ::core::stringify!($Flag)@
+                        {
+                            Some(Self::[<$Flag _SPEC>])
+                        } else {
+                            result
+                        };
+                    )*
+                    if name@.len() == 0 { None } else { result }
+                }
+
                 /// Get a flags value with the bits of a flag with the given name set.
                 ///
                 /// This method will return `None` if `name` is empty or doesn't
                 /// correspond to any named flag.
-                $vis fn from_name(name: &str) -> (r: Option<Self>)
-                    ensures
-                        r matches Some(flags_value) ==> {
-                            &&& flags_value.flags_spec()
-                                == Self::flags_from_bits(flags_value.bits())
-                        },
+                #[verifier::when_used_as_spec(from_name_spec)]
+                $vis fn from_name(name: &str) -> Option<Self>
+                    returns Self::from_name(name),
                 {
                     if name.is_empty() {
                         return ::core::option::Option::None;
@@ -710,8 +723,8 @@ macro_rules! bitflags {
             }
 
             impl core::cmp::PartialEq for $name {
-                fn eq(&self, other: &Self) -> (r: bool)
-                    ensures r == (self.bits() == other.bits()),
+                fn eq(&self, other: &Self) -> bool
+                    returns self.bits() == other.bits(),
                 {
                     self.bits == other.bits
                 }
@@ -835,33 +848,75 @@ macro_rules! bitflags {
             }
         }
 
+        verus! {
+        impl vstd::std_specs::ops::BitOrAssignSpecImpl for $name {
+            open spec fn obeys_bitor_assign_spec() -> bool { true }
+            open spec fn bitor_assign_req(&self, rhs: Self) -> bool { true }
+            open spec fn bitor_assign_spec(&self, rhs: Self) -> &Self {
+                &self.union(rhs)
+            }
+        }
+
         impl ::core::ops::BitOrAssign for $name {
             #[inline]
-            fn bitor_assign(&mut self, other: Self) {
+            fn bitor_assign(&mut self, other: Self)
+                ensures final(self).bits() == (old(self).bits() | other.bits()),
+            {
                 self.insert(other);
+            }
+        }
+
+        impl vstd::std_specs::ops::BitAndAssignSpecImpl for $name {
+            open spec fn obeys_bitand_assign_spec() -> bool { true }
+            open spec fn bitand_assign_req(&self, rhs: Self) -> bool { true }
+            open spec fn bitand_assign_spec(&self, rhs: Self) -> &Self {
+                &self.intersection(rhs)
             }
         }
 
         impl ::core::ops::BitAndAssign for $name {
             #[inline]
-            fn bitand_assign(&mut self, other: Self) {
+            fn bitand_assign(&mut self, other: Self)
+                ensures final(self).bits() == (old(self).bits() & other.bits()),
+            {
                 *self = Self::from_bits_retain(self.bits()).intersection(other);
+            }
+        }
+
+        impl vstd::std_specs::ops::BitXorAssignSpecImpl for $name {
+            open spec fn obeys_bitxor_assign_spec() -> bool { true }
+            open spec fn bitxor_assign_req(&self, rhs: Self) -> bool { true }
+            open spec fn bitxor_assign_spec(&self, rhs: Self) -> &Self {
+                &self.symmetric_difference(rhs)
             }
         }
 
         impl ::core::ops::BitXorAssign for $name {
             #[inline]
-            fn bitxor_assign(&mut self, other: Self) {
+            fn bitxor_assign(&mut self, other: Self)
+                ensures final(self).bits() == (old(self).bits() ^ other.bits()),
+            {
                 self.toggle(other);
+            }
+        }
+
+        impl vstd::std_specs::ops::SubAssignSpecImpl for $name {
+            open spec fn obeys_sub_assign_spec() -> bool { true }
+            open spec fn sub_assign_req(&self, rhs: Self) -> bool { true }
+            open spec fn sub_assign_spec(&self, rhs: Self) -> &Self {
+                &self.difference(rhs)
             }
         }
 
         impl ::core::ops::SubAssign for $name {
             #[inline]
-            fn sub_assign(&mut self, other: Self) {
+            fn sub_assign(&mut self, other: Self)
+                ensures final(self).bits() == (old(self).bits() & !other.bits()),
+            {
                 self.remove(other);
             }
         }
+        } // verus!
 
         } // paste!
     };
@@ -885,6 +940,9 @@ verus! {
 
 #[allow(dead_code)]
 fn _bitflags_smoke_test() {
+    proof {
+        reveal_strlit("ABC");
+    }
     let a = Flags::A;
     let b = Flags::B;
     let c = Flags::C;
@@ -906,6 +964,38 @@ fn _bitflags_smoke_test() {
     Flags::from_bits(0b1000u32);
     let truncated_unknown = Flags::from_bits_truncate(0b1001u32);
     truncated_unknown.bits();
+
+    let named = Flags::from_name("ABC");
+    assert(named == Some(Flags::ABC));
+    let empty_name = Flags::from_name("");
+    assert(empty_name is None);
+    let unknown_name = Flags::from_name("unknown");
+    assert(unknown_name is None);
+    let wrong_case = Flags::from_name("abc");
+    assert(wrong_case is None);
+
+    flags = unknown;
+    assert(0b1000u32 | 0b0001u32 == 0b1001u32) by (bit_vector);
+    assert(0b1001u32 & 0b1010u32 == 0b1000u32) by (bit_vector);
+    assert(0b1000u32 ^ 0b0010u32 == 0b1010u32) by (bit_vector);
+    assert(0b1010u32 & !0b1000u32 == 0b0010u32) by (bit_vector);
+    let expected = flags.union(a);
+    flags |= a;
+    assert(flags == expected);
+    assert(flags.bits() == 0b1001u32);
+    let mask = Flags::from_bits_retain(0b1010u32);
+    let expected = flags.intersection(mask);
+    flags &= mask;
+    assert(flags == expected);
+    assert(flags.bits() == 0b1000u32);
+    let expected = flags.symmetric_difference(b);
+    flags ^= b;
+    assert(flags == expected);
+    assert(flags.bits() == 0b1010u32);
+    let expected = flags.difference(unknown);
+    flags -= unknown;
+    assert(flags == expected);
+    assert(flags.bits() == 0b0010u32);
 
 }
 

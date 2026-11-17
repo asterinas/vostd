@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the RISC-V platform.
-/*pub mod boot;
+/*pub mod boot;*/
 pub(crate) mod cpu;
-pub mod device;
+/*pub mod device;
 pub(crate) mod iommu;*/
 pub(crate) mod irq;
 pub(crate) mod mm;

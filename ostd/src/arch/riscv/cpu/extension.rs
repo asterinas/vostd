@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! RISC-V ISA extensions.
-use bitflags_upstream::bitflags;
-use spin::Once;
+use vstd::{
+    prelude::*, std_specs::cmp::PartialEqSpec, string::StringSliceAdditionalSpecFns,
+    utf8::valid_utf8,
+};
+
+/* Origin Rust: use bitflags_upstream::bitflags;
+ * Use the verified bitflags implementation. */
+use bitflags::bitflags;
+/*use spin::Once;
 
 use crate::arch::boot::DEVICE_TREE;
 
@@ -37,8 +44,97 @@ pub fn init() {
 /// Checks if the specified set of ISA extensions are available.
 pub fn has_extensions(required: IsaExtensions) -> bool {
     GLOBAL_ISA_EXTENSIONS.get().unwrap().contains(required)
+}*/
+
+verus! {
+
+// fdt 0.1.5 exposes both fields; no opaque wrapper or method assumptions.
+#[verifier::external_type_specification]
+pub struct ExNodeProperty<'a>(fdt::node::NodeProperty<'a>);
+
+spec fn trimmed(b: Seq<u8>, end: int) -> bool {
+    0 <= end <= b.len() && (end == 0 || b[end - 1] != 0) && forall|i: int|
+        end <= i < b.len() ==> b[i] == 0
 }
 
+spec fn trimmed_len(b: Seq<u8>) -> int {
+    choose|end: int| trimmed(b, end)
+}
+
+spec fn first_end(b: Seq<u8>, lo: int, hi: int) -> int
+    recommends
+        0 <= lo <= hi <= b.len(),
+{
+    match b[lo..hi].index_of_first(b'_') {
+        Some(i) => lo + i,
+        None => hi,
+    }
+}
+
+spec fn isa_start(b: Seq<u8>, end: int) -> int {
+    if end >= 4 && b[0] == b'r' && b[1] == b'v' && ((b[2] == b'3' && b[3] == b'2') || (b[2] == b'6'
+        && b[3] == b'4')) {
+        4
+    } else {
+        0
+    }
+}
+
+// A name occurs as a whole delimited item, or (for the first ISA part)
+// as a one-byte single-letter extension. This is independent of scanning order.
+spec fn name_at(b: Seq<u8>, lo: int, hi: int, name: Seq<u8>, delim: Option<u8>, i: int) -> bool {
+    lo <= i < hi && i + name.len() <= hi && b[i..i + name.len()] == name && match delim {
+        Some(d) => (i == lo || b[i - 1] == d) && (i + name.len() == hi || b[i + name.len()] == d),
+        None => true,
+    }
+}
+
+spec fn has_name(b: Seq<u8>, lo: int, hi: int, name: Seq<u8>, delim: Option<u8>) -> bool {
+    exists|i: int| name_at(b, lo, hi, name, delim, i)
+}
+
+spec fn recognized(b: Seq<u8>, name: Seq<u8>, string: bool) -> bool {
+    if string {
+        let end = trimmed_len(b);
+        let start = isa_start(b, end);
+        let first = first_end(b, start, end);
+        (name.len() == 1 && has_name(b, start, first, name, None)) || has_name(
+            b,
+            first + 1,
+            end,
+            name,
+            Some(b'_'),
+        )
+    } else {
+        has_name(b, 0, b.len() as int, name, Some(0))
+    }
+}
+
+// Union over the original table, including precisely the entries related to
+// the input above. The result includes every matching flag and no other bits.
+spec fn table_bits(b: Seq<u8>, string: bool, count: int) -> u128
+    decreases count,
+{
+    if count <= 0 {
+        0
+    } else {
+        table_bits(b, string, count - 1) | if recognized(
+            b,
+            extension_table()[count - 1].name.spec_bytes(),
+            string,
+        ) {
+            extension_table()[count - 1].flag.bits()
+        } else {
+            0
+        }
+    }
+}
+
+} // verus!
+/* Origin Rust:
+ * Replace unsupported split/trim/iterator adapters with bounded byte scans.
+ * Validate the whole property before trimming; ASCII table names and delimiters
+ * cannot occur inside a non-ASCII UTF-8 character.
 fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
     let mut extensions = IsaExtensions::empty();
     let isa_str = isa.as_str().unwrap();
@@ -76,7 +172,111 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
 
     extensions
 }
+*/
+#[verus_spec(result =>
+    requires valid_utf8(isa.value@),
+    ensures result.bits() == table_bits(isa.value@, true, extension_table().len() as int),
+)]
+fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
+    let isa_str = core::str::from_utf8(isa.value).ok().unwrap();
+    let bytes = isa_str.as_bytes();
+    let mut end = bytes.len();
+    #[verus_spec(
+        invariant
+            end <= bytes.len(),
+            bytes@ == isa.value@,
+            forall|i: int| end <= i < bytes@.len() ==> bytes@[i] == 0,
+        decreases end,
+    )]
+    while end > 0 && bytes[end - 1] == 0 {
+        end -= 1;
+    }
+    proof! {
+        assert(trimmed(bytes@, end as int));
+    }
+    let start = if end >= 4
+        && bytes[0] == b'r'
+        && bytes[1] == b'v'
+        && ((bytes[2] == b'3' && bytes[3] == b'2') || (bytes[2] == b'6' && bytes[3] == b'4'))
+    {
+        4
+    } else {
+        0
+    };
+    let mut first = start;
+    #[verus_spec(
+        invariant
+            start <= first <= end <= bytes.len(),
+            start == isa_start(bytes@, end as int),
+            end == trimmed_len(bytes@),
+            bytes@ == isa.value@,
+            forall|i: int| start <= i < first ==> bytes@[i] != b'_',
+        decreases end - first,
+    )]
+    while first < end && bytes[first] != b'_' {
+        first += 1;
+    }
+    proof! {
+        let part = bytes@[start..end];
+        part.index_of_first_ensures(b'_');
+        match part.index_of_first(b'_') {
+            Some(i) => {
+                assert(part[i] == bytes@[start + i]);
+                if start + i < first {
+                    assert(bytes@[start + i] != b'_');
+                }
+                if first < start + i {
+                    assert(part[first - start] == b'_');
+                }
+            },
+            None => {
+                if first < end {
+                    assert(part[first - start] == b'_');
+                    assert(part.contains(b'_'));
+                }
+            },
+        }
+        assert(first == first_end(bytes@, start as int, end as int));
+    }
+    let mut extensions = IsaExtensions::empty();
+    let table = &EXTENSION_TABLE;
+    let mut index = 0;
+    #[verus_spec(
+        invariant
+            index <= table.len(),
+            table@ == extension_table(),
+            extensions.bits() == table_bits(bytes@, true, index as int),
+            bytes@ == isa.value@,
+            start <= first <= end <= bytes.len(),
+            end == trimmed_len(bytes@),
+            start == isa_start(bytes@, end as int),
+            first == first_end(bytes@, start as int, end as int),
+        decreases table.len() - index,
+    )]
+    while index < table.len() {
+        let entry = &table[index];
+        let name = entry.name.as_bytes();
+        let single = name.len() == 1 && contains_name(bytes, start, first, name, None);
+        let remaining = if first < end {
+            contains_name(bytes, first + 1, end, name, Some(b'_'))
+        } else {
+            false
+        };
+        if single || remaining {
+            extensions = extensions.union(entry.flag);
+        }
+        proof! {
+            assert(extensions.bits() | 0u128 == extensions.bits()) by (bit_vector);
+        }
+        index += 1;
+    }
+    extensions
+}
 
+/* Origin Rust:
+ * Replace unsupported slice splitting and iterator lookup with bounded scans.
+ * Exact equality to a nonempty ASCII table name excludes invalid UTF-8 items;
+ * unique table names and idempotent union permit visiting the table first.
 fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExtensions {
     let mut extensions = IsaExtensions::empty();
     let isa_extensions_list = isa_extensions.value;
@@ -94,11 +294,82 @@ fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExt
 
     extensions
 }
+*/
+#[verus_spec(result =>
+    ensures result.bits() == table_bits(isa_extensions.value@, false, extension_table().len() as int),
+)]
+fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExtensions {
+    let mut extensions = IsaExtensions::empty();
+    let bytes = isa_extensions.value;
+    let table = &EXTENSION_TABLE;
+    let mut index = 0;
+    #[verus_spec(
+        invariant
+            index <= table.len(),
+            table@ == extension_table(),
+            extensions.bits() == table_bits(bytes@, false, index as int),
+        decreases table.len() - index,
+    )]
+    while index < table.len() {
+        let entry = &table[index];
+        // All table names are nonempty ASCII. Exact byte equality to a table
+        // name implies valid UTF-8, so invalid items cannot match.
+        if contains_name(bytes, 0, bytes.len(), entry.name.as_bytes(), Some(0)) {
+            extensions = extensions.union(entry.flag);
+        }
+        proof! {
+            assert(extensions.bits() | 0u128 == extensions.bits()) by (bit_vector);
+        }
+        index += 1;
+    }
+    extensions
+}
 
-static GLOBAL_ISA_EXTENSIONS: Once<IsaExtensions> = Once::new();
+// Origin Rust: EXTENSION_TABLE.iter().find(|e| e.name == part)
+// Share a bounded byte search because the split/iterator adapters lack specifications.
+#[verus_spec(
+    requires lo <= hi <= bytes.len(),
+    returns has_name(bytes@, lo as int, hi as int, name@, delim),
+)]
+fn contains_name(bytes: &[u8], lo: usize, hi: usize, name: &[u8], delim: Option<u8>) -> bool {
+    let mut i = lo;
+    #[verus_spec(
+        invariant
+            lo <= i <= hi <= bytes.len(),
+            forall|j: int| lo <= j < i ==> !name_at(bytes@, lo as int, hi as int, name@, delim, j),
+        decreases hi - i,
+    )]
+    while i < hi {
+        if name.len() <= hi - i {
+            let stop = i + name.len();
+            let left = match delim {
+                Some(d) => i == lo || bytes[i - 1] == d,
+                None => true,
+            };
+            let right = match delim {
+                Some(d) => stop == hi || bytes[stop] == d,
+                None => true,
+            };
+            let part = &bytes[i..stop];
+            proof! {
+                assert(part.eq_spec(name) <==> part@ == name@) by {
+                    if part.eq_spec(name) { assert(part@ == name@); }
+                }
+            }
+            if left && right && part == name {
+                proof! { assert(name_at(bytes@, lo as int, hi as int, name@, delim, i as int)); }
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/*static GLOBAL_ISA_EXTENSIONS: Once<IsaExtensions> = Once::new();*/
 
 /// A macro for RISC-V ISA extension definition and lookup table generation.
-macro_rules! define_isa_extensions {
+macro_rules! define_isa_extensions { (@one $name:ident) => { 1 };
     (
         $(
             $name:ident = $bit:expr, $str:expr, $doc:expr;
@@ -114,6 +385,8 @@ macro_rules! define_isa_extensions {
             }
         }
 
+        /* Origin Rust:
+         * An array constant carries a verified sequence contract for table indexing.
         const EXTENSION_TABLE: &[ExtensionData] = &[
             $(
                 ExtensionData {
@@ -122,14 +395,33 @@ macro_rules! define_isa_extensions {
                 },
             )*
         ];
+        */
+        verus! {
+        spec fn extension_table() -> Seq<ExtensionData> {
+            seq![$(ExtensionData { name: $str, flag: IsaExtensions::$name }),*]
+        }
+        exec const EXTENSION_TABLE: [ExtensionData; 0 $(+ define_isa_extensions!(@one $name))*]
+            ensures EXTENSION_TABLE@ == extension_table()
+        { [
+            $(
+                ExtensionData {
+                    name: $str,
+                    flag: IsaExtensions::$name
+                },
+            )*
+        ] }
+        }
     };
 }
+
+verus! {
 
 struct ExtensionData {
     name: &'static str,
     flag: IsaExtensions,
 }
 
+} // verus!
 define_isa_extensions! {
     // Standard single-letter extensions (0-25)
     A =  0, "a", "Atomic instructions";
