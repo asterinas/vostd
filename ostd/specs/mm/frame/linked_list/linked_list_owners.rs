@@ -63,6 +63,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     }
 
     fn to_repr(self) -> MetaSlotStorage {
+        MetaSlotStorage::FrameLink(
             StoredLink {
                 next: match self.next {
                     Some(ptr) => Some(ptr.addr()),

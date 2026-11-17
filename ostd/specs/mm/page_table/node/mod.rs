@@ -135,7 +135,6 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
         matches!(r, MetaSlotStorage::PTNode(_))
     }
 
-    }
     open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
         match r {
             MetaSlotStorage::PTNode(node) => node.into::<C>(),
