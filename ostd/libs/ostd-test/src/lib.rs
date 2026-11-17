@@ -99,6 +99,7 @@ impl core::fmt::Display for PanicInfo {
 
 /// The error that may occur during the test.
 #[derive(Clone)]
+#[verus_verify]
 pub enum KtestError {
     Panic(Box<PanicInfo>),
     ShouldPanicButNoPanic,
@@ -134,6 +135,67 @@ pub struct KtestItem {
 
 type CatchUnwindImpl = fn(f: fn() -> ()) -> Result<(), Box<dyn core::any::Any + Send>>;
 
+#[verus_verify]
+enum TestOutcome {
+    Returned,
+    Panic(Box<PanicInfo>),
+    UnknownPanic,
+}
+
+verus! {
+
+spec fn test_result(
+    outcome: TestOutcome,
+    should_panic: bool,
+    expected: Option<&'static str>,
+) -> Result<(), KtestError> {
+    match outcome {
+        TestOutcome::Returned => if should_panic {
+            Err(KtestError::ShouldPanicButNoPanic)
+        } else {
+            Ok(())
+        },
+        TestOutcome::Panic(info) => if !should_panic {
+            Err(KtestError::Panic(info))
+        } else if let Some(message) = expected {
+            if info.message@ == message@ {
+                Ok(())
+            } else {
+                Err(KtestError::ExpectedPanicNotMatch(message, info))
+            }
+        } else {
+            Ok(())
+        },
+        TestOutcome::UnknownPanic => Err(KtestError::Unknown),
+    }
+}
+
+} // verus!
+#[verifier::when_used_as_spec(test_result)]
+#[verus_spec(
+    returns test_result(outcome, should_panic, expected),
+)]
+fn classify_test_result(
+    outcome: TestOutcome,
+    should_panic: bool,
+    expected: Option<&'static str>,
+) -> Result<(), KtestError> {
+    match outcome {
+        TestOutcome::Returned if should_panic => Err(KtestError::ShouldPanicButNoPanic),
+        TestOutcome::Returned => Ok(()),
+        TestOutcome::Panic(info) if !should_panic => Err(KtestError::Panic(info)),
+        TestOutcome::Panic(info) => {
+            if let Some(message) = expected {
+                if info.message.as_str() != message {
+                    return Err(KtestError::ExpectedPanicNotMatch(message, info));
+                }
+            }
+            Ok(())
+        }
+        TestOutcome::UnknownPanic => Err(KtestError::Unknown),
+    }
+}
+
 impl KtestItem {
     /// Create a new [`KtestItem`].
     ///
@@ -159,6 +221,9 @@ impl KtestItem {
 
     /// Run the test with a given catch_unwind implementation.
     pub fn run(&self, catch_unwind_impl: &CatchUnwindImpl) -> Result<(), KtestError> {
+        /* Origin Rust:
+        Keep capture and downcast in Rust; pass their normalized outcome to the
+        verified classifier because these calls have no specifications.
         let test_result = catch_unwind_impl(self.fn_);
         if !self.should_panic.0 {
             // Should not panic.
@@ -188,7 +253,20 @@ impl KtestItem {
                     Err(_payload) => Err(KtestError::Unknown),
                 },
             }
-        }
+        }*/
+        let test_result = catch_unwind_impl(self.fn_);
+        let (should_panic, expected) = self.should_panic;
+        let outcome = match test_result {
+            Ok(()) => TestOutcome::Returned,
+            Err(payload) => match payload.downcast::<PanicInfo>() {
+                Ok(info) => TestOutcome::Panic(info),
+                Err(_payload) => {
+                    // Keep the unknown payload alive until the result has been classified.
+                    return classify_test_result(TestOutcome::UnknownPanic, should_panic, expected);
+                }
+            },
+        };
+        classify_test_result(outcome, should_panic, expected)
     }
 }
 
