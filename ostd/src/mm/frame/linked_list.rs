@@ -327,13 +327,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 &&& frame.wf(fo)
                 &&& frame.wf_with_region(fo, *final(regions))
                 &&& frame.frame_link_inv(fo, *final(regions))
-            }),
-            r is None ==> *final(owner) == *old(owner)
-                && *final(self) == *old(self) && *final(regions) == *old(regions),
-            r matches Some(frame) ==> (frame_owner@ matches Some(fo) ==> {
                 &&& final(owner).values() == old(owner).values().remove(0)
                 &&& frame.meta_value(fo).meta == old(owner).values()[0]
             }),
+            r is None ==> *final(owner) == *old(owner)
+                && *final(self) == *old(self) && *final(regions) == *old(regions),
     )]
     pub fn pop_front(&mut self) -> Option<UniqueFrame<Link<M>>> {
         let tracked owner0 = LinkedListOwner::tracked_take(owner);
@@ -451,13 +449,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 &&& frame.wf(fo)
                 &&& frame.wf_with_region(fo, *final(regions))
                 &&& frame.frame_link_inv(fo, *final(regions))
+                &&& final(owner).values() == old(owner).values()[..old(owner).list.len() - 1]
+                &&& frame.meta_value(fo).meta == old(owner).values().last()
             }),
             r is None ==> *final(owner) == *old(owner)
                 && *final(self) == *old(self) && *final(regions) == *old(regions),
-            r matches Some(frame) ==> (frame_owner@ matches Some(fo) ==> {
-                &&& final(owner).values() == old(owner).values().take(old(owner).list.len() - 1)
-                &&& frame.meta_value(fo).meta == old(owner).values().last()
-            }),
     )]
     pub fn pop_back(&mut self) -> Option<UniqueFrame<Link<M>>> {
         let tracked owner0 = LinkedListOwner::tracked_take(owner);
@@ -1015,12 +1011,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     &&& unique_owner.inv()
                     &&& unique.wf_with_region(unique_owner, *final(regions))
                     &&& unique_owner.slot_index == idx
+                    &&& final(owner).list_own.values() == old(owner).list_own.values().remove(old(owner).index)
+                    &&& unique.meta_value(unique_owner).meta == old(owner).list_own.values()[old(owner).index]
                 }
             },
-            res matches Some(frame) ==> (returned_owner@ matches Some(fo) ==> {
-                &&& final(owner).list_own.values() == old(owner).list_own.values().remove(old(owner).index)
-                &&& frame.meta_value(fo).meta == old(owner).list_own.values()[old(owner).index]
-            }),
     )]
     #[verifier::spinoff_prover]
     #[verifier::rlimit(250)]

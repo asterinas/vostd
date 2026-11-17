@@ -31,7 +31,9 @@ type MockUFrameMeta = U32FrameMeta;
 
 // Frame allocation and management tests
 mod frame {
-    use super::{assert_eq, *};
+    use super::assert_eq;
+
+    use super::*;
 
     /* #[ktest] */
     #[verus_spec(
@@ -758,7 +760,9 @@ mod untyped {
 */
 
 mod frame_ref {
-    use super::{assert_eq, *};
+    use super::assert_eq;
+
+    use super::*;
     use crate::sync::non_null::NonNullPtr;
 
     /* #[ktest] */

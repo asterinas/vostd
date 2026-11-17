@@ -638,6 +638,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 &&& final(regions).slot_owners[frame.index()].usage == old(regions).slot_owners[frame.index()].usage
                 &&& final(regions).slot_owners[frame.index()].paths_in_pt == old(regions).slot_owners[frame.index()].paths_in_pt
             },
+            res matches Err(returned) ==> {
+                &&& returned.inv()
+                &&& returned.ptr == frame.ptr
+                &&& returned.slot_perm() == frame.slot_perm()
+                &&& returned.metadata_perm() == frame.metadata_perm()
+                &&& final(regions).slot_owners[frame.index()].metadata_perm == old(regions).slot_owners[frame.index()].metadata_perm
+                &&& final(regions).slot_owners[frame.index()].ref_count_perm@ == old(regions).slot_owners[frame.index()].ref_count_perm@
+                &&& final(regions).slot_owners[frame.index()].in_list_perm == old(regions).slot_owners[frame.index()].in_list_perm
+                &&& final(regions).slot_owners[frame.index()].slot_vaddr == old(regions).slot_owners[frame.index()].slot_vaddr
+                &&& final(regions).slot_owners[frame.index()].usage == old(regions).slot_owners[frame.index()].usage
+                &&& final(regions).slot_owners[frame.index()].paths_in_pt == old(regions).slot_owners[frame.index()].paths_in_pt
+                &&& final(regions).slot_owners[frame.index()].ref_count() != REF_COUNT_UNIQUE
+            },
+            res is Ok ==> old(regions).slot_owners[frame.index()].ref_count() == 1,
             old(regions).slot_owners[frame.index()].ref_count() == 1 ==> res is Ok,
             *final(regions) == old(regions).insert_slot_owner(frame.start_paddr_spec(), final(regions).slot_owners[frame.index()]),
     )]
@@ -647,6 +661,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             broadcast use group_page_meta;
 
             regions.lemma_contains_valid_frame_paddr(frame.start_paddr_spec());
+            regions.slot_owners.tracked_borrow(idx).metadata_perm.validate_with_frac(
+                frame.tracked_metadata_perm.borrow().tracked_borrow(),
+            );
         }
         let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked inner_perms = &mut slot_own;
