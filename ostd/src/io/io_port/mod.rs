@@ -33,10 +33,10 @@ broadcast use group_io_port_models;
 pub struct IoPort<T, A> {
     port: u16,
     is_overlapping: bool,
-    // Erased allocator ownership; statically reserved ports carry no claim.
-    tracked_claim: Tracked<Option<GhostSubset<usize>>>,
     value_marker: PhantomData<T>,
     access_marker: PhantomData<A>,
+    // Erased allocator ownership; statically reserved ports carry no claim.
+    tracked_claim: Tracked<Option<GhostSubset<usize>>>,
 }
 
 verus! {
