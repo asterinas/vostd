@@ -17,7 +17,7 @@ use vstd_extra::{
         bytemuck::object_bytes,
         xmas_elf::{
             elf_parse_no_unwind, elf_parse_result, elf_program_headers,
-            elf_program_headers_readable, header_entry_point, program_header_flags,
+            elf_program_headers_readable,
         },
     },
 };
@@ -561,9 +561,9 @@ pub(crate) open spec fn valid_pe_segments(
     segments: Seq<xmas_elf::program::ProgramHeader<'_>>,
 ) -> bool {
     &&& segments.len() == 4
-    &&& program_header_flags(&segments[1]).0 & 1 == 1
-    &&& program_header_flags(&segments[2]).0 & 4 == 4
-    &&& program_header_flags(&segments[3]).0 & 2 == 2
+    &&& segments[1].flags().0 & 1 == 1
+    &&& segments[2].flags().0 & 4 == 4
+    &&& segments[3].flags().0 & 2 == 2
     &&& SECTION_ALIGNMENT <= segments[1].virtual_addr() <= usize::MAX
     &&& forall|i: int|
         1 <= i < 4 ==> {
@@ -624,7 +624,7 @@ pub(crate) open spec fn valid_setup_elf(input: &[u8]) -> bool {
         );
         &&& elf_program_headers_readable(&elf)
         &&& valid_pe_segments(segments)
-        &&& base <= header_entry_point(&elf.header.pt2) <= base + u32::MAX
+        &&& base <= elf.header.pt2.entry_point() <= base + u32::MAX
         &&& rodata.0 + data.0 <= u32::MAX
         &&& data.1 + data.0 <= u32::MAX
     }
@@ -656,7 +656,7 @@ closed spec fn pe_optional_header_spec(
         text_size: headers.text.raw_data_size,
         data_size: (headers.rodata.raw_data_size + headers.data.raw_data_size) as u32,
         bss_size: 0,
-        entry_point: (header_entry_point(&elf.header.pt2) - headers.base) as u32,
+        entry_point: (elf.header.pt2.entry_point() - headers.base) as u32,
         code_base: headers.text.virtual_address,
         image_base: 0,
         section_align: SECTION_ALIGNMENT as u32,

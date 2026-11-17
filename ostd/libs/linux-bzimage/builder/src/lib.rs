@@ -20,7 +20,7 @@ mod pe_header;
 use vstd::{prelude::*, std_specs::iter::IteratorSpec};
 use vstd_extra::external::xmas_elf::{
     elf_parse_no_unwind, elf_parse_result, elf_program_headers, elf_program_headers_readable,
-    program_header_type, program_load_bytes, program_load_data_readable,
+    program_load_bytes, program_load_data_readable,
 };
 
 use mapping::{LEGACY_SETUP_SEC_SIZE, SETUP32_LMA};
@@ -133,8 +133,6 @@ fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
 
 verus! {
 
-/// The mapping expression uses mathematical integers; validity below makes
-/// each executable addition, subtraction, and usize cast exact.
 spec fn flat_segment_offset(program: &xmas_elf::program::ProgramHeader<'_>) -> int {
     program.virtual_addr() + LEGACY_SETUP_SEC_SIZE - SETUP32_LMA
 }
@@ -143,18 +141,19 @@ spec fn valid_flat_segments(
     programs: Seq<xmas_elf::program::ProgramHeader<'_>>,
     input: Seq<u8>,
 ) -> bool {
-    forall|i: int|
-        0 <= i < programs.len() ==> {
-            let program = #[trigger] programs[i];
-            &&& program_header_type(&program) is Ok
-            &&& program_header_type(&program) == Ok(xmas_elf::program::Type::Load) ==> {
-                &&& program_load_data_readable(&program, input)
-                &&& program.file_size() <= program.mem_size() <= usize::MAX
-                &&& SETUP32_LMA - LEGACY_SETUP_SEC_SIZE <= program.virtual_addr() <= usize::MAX
-                    - LEGACY_SETUP_SEC_SIZE
-                &&& flat_segment_offset(&program) + program.mem_size() <= isize::MAX
-            }
-        }
+    programs.all(
+        |program: xmas_elf::program::ProgramHeader<'_>|
+            {
+                &&& program.get_type() is Ok
+                &&& program.get_type() == Ok(xmas_elf::program::Type::Load) ==> {
+                    &&& program_load_data_readable(&program, input)
+                    &&& program.file_size() <= program.mem_size() <= usize::MAX
+                    &&& SETUP32_LMA - LEGACY_SETUP_SEC_SIZE <= program.virtual_addr() <= usize::MAX
+                        - LEGACY_SETUP_SEC_SIZE
+                    &&& flat_segment_offset(&program) + program.mem_size() <= isize::MAX
+                }
+            },
+    )
 }
 
 spec fn valid_flat_binary_input(input: &[u8]) -> bool {
@@ -195,7 +194,7 @@ spec fn flat_binary_prefix(
     } else {
         let old = flat_binary_prefix(programs, input, (count - 1) as nat);
         let program = programs[count - 1];
-        if program_header_type(&program) == Ok(xmas_elf::program::Type::Load) {
+        if program.get_type() == Ok(xmas_elf::program::Type::Load) {
             flat_load_step(
                 old,
                 program_load_bytes(&program, input),

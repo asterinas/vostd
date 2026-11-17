@@ -92,7 +92,7 @@ pub open spec fn elf_program_headers_readable(elf: &ElfFile<'_>) -> bool {
     if count == 0 || offset == 0 || entry_size == 0 {
         true
     } else {
-        let (size, align): (int, int) = match header_class(elf.header.pt1) {
+        let (size, align): (int, int) = match elf.header.pt1.class() {
             Class::ThirtyTwo => (32, 4),
             Class::SixtyFour => (56, 8),
             _ => (0, 0),
@@ -191,7 +191,6 @@ pub struct ExProgramType(Type_);
 #[verifier::external_type_specification]
 pub struct ExProgramTypeValue(Type);
 
-// Type derives PartialEq; equality compares the variant and its u32 payload.
 pub assume_specification[ <Type as core::cmp::PartialEq>::eq ](left: &Type, right: &Type) -> bool
     returns
         *left == *right,
@@ -200,8 +199,6 @@ pub assume_specification[ <Type as core::cmp::PartialEq>::eq ](left: &Type, righ
 #[verifier::external_type_specification]
 pub struct ExSegmentData<'a>(SegmentData<'a>);
 
-// Opaque payload types are needed to expose SegmentData's enum variants.
-// Their private fields and dynamic/note parsing receive no specifications.
 #[verifier::external_type_specification]
 #[verifier::external_body]
 #[verifier::reject_recursive_types(P)]
@@ -305,8 +302,8 @@ pub open spec fn program_header_offset(header: &ProgramHeader<'_>) -> u64 {
 /// raw_data adds the source fields before casting to usize. In ELF32 that
 /// addition is u32, even on a 64-bit host. Empty data bypasses the offset.
 pub open spec fn program_load_data_readable(header: &ProgramHeader<'_>, input: Seq<u8>) -> bool {
-    let offset = program_header_offset(header);
-    let size = program_header_file_size(header);
+    let offset = header.offset();
+    let size = header.file_size();
     size == 0 || {
         &&& match *header {
             ProgramHeader::Ph32(_) => offset + size <= u32::MAX,
@@ -318,11 +315,11 @@ pub open spec fn program_load_data_readable(header: &ProgramHeader<'_>, input: S
 }
 
 pub open spec fn program_load_bytes(header: &ProgramHeader<'_>, input: Seq<u8>) -> Seq<u8> {
-    let size = program_header_file_size(header);
+    let size = header.file_size();
     if size == 0 {
         Seq::empty()
     } else {
-        input[program_header_offset(header)..program_header_offset(header) + size]
+        input[header.offset()..header.offset() + size]
     }
 }
 
@@ -360,17 +357,14 @@ pub assume_specification<'a>[ ProgramHeader::<'a>::get_data ](
     elf: &ElfFile<'a>,
 ) -> (ret: Result<SegmentData<'a>, &'static str>)
     ensures
-        program_header_type(header) == Ok(Type::Load) && program_load_data_readable(
-            header,
-            elf.input@,
-        ) ==> {
+        header.get_type() == Ok(Type::Load) && program_load_data_readable(header, elf.input@) ==> {
             ret matches Ok(SegmentData::Undefined(bytes)) && bytes@ == program_load_bytes(
                 header,
                 elf.input@,
             )
         },
     opens_invariants none
-    no_unwind when program_header_type(header) == Ok(Type::Load) && program_load_data_readable(
+    no_unwind when header.get_type() == Ok(Type::Load) && program_load_data_readable(
     header,
     elf.input@,
 )
