@@ -3,7 +3,6 @@
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
 pub mod acpi;
-pub mod bits;
 mod bitvec;
 pub mod bytemuck;
 pub mod cmp;

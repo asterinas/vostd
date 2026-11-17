@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use vstd::{
-    assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
+    assert_seqs_equal,
+    layout::size_of,
+    prelude::*,
+    set::Set,
+    std_specs::{bits::axiom_u64_count_ones, iter::IteratorSpec},
 };
 use vstd_extra::{
     bits::{group_u64_bit_algebra, lemma_u64_and_zero, u64_bit_is_set},
-    external::{
-        bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
-        smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
-    },
+    external::smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
     ownership::Inv,
 };
 
@@ -69,7 +70,7 @@ broadcast use {
     group_smallvec_models,
     axiom_smallvec_from_iter_ensures,
     vstd::std_specs::iter::group_iter_axioms,
-    lemma_u64_set_bits_nonzero,
+    axiom_u64_count_ones,
     group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
     vstd::layout::layout_of_primitives,
@@ -248,7 +249,7 @@ impl CpuSet {
                 idx <= smallvec_view(&self.bits).len(),
                 count == smallvec_view(&self.bits)[..idx].fold_left(
                     0,
-                    |count: int, word: u64| count + u64_set_bits(word),
+                    |count: int, word: u64| count + word.count_ones(),
                 ),
                 count <= 64 * idx,
             decreases
@@ -628,7 +629,7 @@ spec fn bit_idx_spec(i: int) -> usize {
 
 /// Number of set bits in all words of `seq`.
 spec fn count_set_bits(seq: Seq<u64>) -> int {
-    seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
+    seq.fold_left(0, |count: int, word: u64| count + word.count_ones())
 }
 
 /// Expected value of word `idx` in a full CPU set.
