@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794819736341,
+  "lastUpdate": 1794886488348,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -12360,6 +12360,96 @@ window.BENCHMARK_DATA = {
             "value": 1106286,
             "unit": "rlimit",
             "extra": "smt-run=339ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "85332676+Je5s1e@users.noreply.github.com",
+            "name": "Chao",
+            "username": "Je5s1e"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84cf149cc9806d84f523e63a93731314ff183007",
+          "message": "Refine review skill checks for proof roles and resource accounting (#933)",
+          "timestamp": "2026-11-17T11:16:06+08:00",
+          "tree_id": "57f1ac7b48b3baa6eb1c12f54d82a7d49858b665",
+          "url": "https://github.com/asterinas/vostd/commit/84cf149cc9806d84f523e63a93731314ff183007"
+        },
+        "date": 1794886487950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1008479165,
+            "unit": "rlimit",
+            "extra": "verified=4615 errors=0 smt-run=330,565ms wall=236,979ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 399476725,
+            "unit": "rlimit",
+            "extra": "smt-run=152,758ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 136425490,
+            "unit": "rlimit",
+            "extra": "smt-run=40,661ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 58753906,
+            "unit": "rlimit",
+            "extra": "smt-run=13,763ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=2,133ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,587ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4218520,
+            "unit": "rlimit",
+            "extra": "smt-run=1,431ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=939ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2027793,
+            "unit": "rlimit",
+            "extra": "smt-run=646ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=761ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106286,
+            "unit": "rlimit",
+            "extra": "smt-run=318ms"
           }
         ]
       }
