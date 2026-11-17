@@ -1,5 +1,5 @@
 //! External specifications for the [`x86` crate](https://crates.io/crates/x86)
-//! constants and MSR accessors. Constant values are trusted to match
+//! CPUID queries, constants and MSR accessors. Constant values are trusted to match
 //! the crate sources; the original constants are re-exported below. Also models the
 //! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors.
 use vstd::prelude::*;
@@ -24,12 +24,59 @@ verus! {
 #[verifier::external_type_specification]
 pub struct ExCpuIdResult(CpuIdResult);
 
+/// CPU capabilities enumerated by CPUID, without OS enablement state.
+pub ghost struct CpuModel {
+    /// Maximum basic leaf reported by CPUID.(0, 0):EAX.
+    pub max_basic_leaf: u32,
+    /// CPUID.(1, 0):ECX[28], meaningful only when leaf 1 is supported.
+    pub avx_bit: bool,
+    /// CPUID.(7, 0):EBX[16], meaningful only when leaf 7 is supported.
+    pub avx512f_bit: bool,
+}
+
+impl CpuModel {
+    pub open spec fn supports_avx(self) -> bool {
+        self.max_basic_leaf >= 1 && self.avx_bit
+    }
+
+    pub open spec fn supports_avx512f(self) -> bool {
+        self.max_basic_leaf >= 7 && self.avx512f_bit
+    }
+}
+
+/// CPUID capabilities shared by every logical CPU on which OSTD executes.
+///
+/// The unconditional native CPUID contract below assumes that the maximum basic
+/// leaf and the modeled bits of supported leaves agree across those CPUs and
+/// remain stable throughout execution. This includes the values presented by
+/// firmware and virtualization, including TDX. The model describes enumerated
+/// capabilities; it does not establish OS enablement or instruction usability.
+pub uninterp spec fn cpu_model() -> CpuModel;
+
+/// Matches the maximum basic leaf and the AVX/AVX512F encodings in the Intel SDM
+/// CPUID instruction reference. Other queries and register bits are unconstrained.
+pub open spec fn cpuid_consistent(
+    model: CpuModel,
+    leaf: u32,
+    subleaf: u32,
+    result: CpuIdResult,
+) -> bool {
+    &&& (leaf == 0 && subleaf == 0) ==> result.eax == model.max_basic_leaf
+    &&& (leaf == 1 && subleaf == 0 && model.max_basic_leaf >= 1) ==> ((result.ecx & (1u32 << 28)
+        != 0) == model.avx_bit)
+    &&& (leaf == 7 && subleaf == 0 && model.max_basic_leaf >= 7) ==> ((result.ebx & (1u32 << 16)
+        != 0) == model.avx512f_bit)
+}
+
 /// Trusted native read: x86 0.52/raw-cpuid 10.7 delegates to `__cpuid_count`.
-/// Requires x86_64 outside SGX; registers are arbitrary per call.
+/// Requires x86_64 outside SGX. The result is trusted to match the CPUID encodings
+/// and the platform consistency and stability assumptions documented by [`cpu_model`].
 pub assume_specification[ x86::cpuid::native_cpuid::cpuid_count ](
     leaf: u32,
     subleaf: u32,
-) -> CpuIdResult
+) -> (result: CpuIdResult)
+    ensures
+        cpuid_consistent(cpu_model(), leaf, subleaf, result),
     opens_invariants none
     no_unwind
 ;

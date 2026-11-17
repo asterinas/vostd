@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the x86 platform.
 use vstd::prelude::*;
+use vstd_extra::external::x86::cpu_model;
 
 /*pub mod boot;
 pub(crate) mod cpu;
@@ -143,39 +144,17 @@ pub fn read_random() -> Option<u64> {
     }
     None
 }*/
-verus! {
 
-/// Registers sampled by one feature query; no relation between separate reads is assumed.
-ghost struct CpuidFeatureSamples {
-    /// EAX from leaf 0, subleaf 0.
-    max_leaf: u32,
-    /// The queried feature register, absent when the maximum leaf excludes the query.
-    feature_bits: Option<u32>,
-}
-
-} // verus!
 // x86 0.52/raw-cpuid 10.7 delegates to __cpuid_count and preserves all registers.
 // In particular, __cpuid(0) is __cpuid_count(0, 0); reuse its existing external spec.
-/// Checks the sampled leaf 1 ECX AVX bit, without checking OS enablement.
-#[verus_spec(
-    with Tracked(samples): Tracked<&mut Ghost<CpuidFeatureSamples>>
-    ensures
-        (final(samples)@.feature_bits is Some) == (final(samples)@.max_leaf >= 1),
-    returns
-        (match final(samples)@.feature_bits {
-            Some(ecx) => ecx & (1u32 << 28) != 0,
-            None => false,
-        })
-)]
+/// Checks the CPUID-enumerated AVX capability, without checking OS enablement.
+#[verus_spec(returns cpu_model().supports_avx())]
 fn has_avx() -> bool {
     // Origin Rust: use core::arch::x86_64::{__cpuid, __cpuid_count};
     use x86::cpuid::native_cpuid::cpuid_count;
 
     // Origin Rust: let cpuid_result = unsafe { __cpuid(0) };
     let cpuid_result = cpuid_count(0, 0);
-    proof! {
-        *samples = Ghost(CpuidFeatureSamples { max_leaf: cpuid_result.eax, feature_bits: None });
-    }
     if cpuid_result.eax < 1 {
         // CPUID function 1 is not supported
         return false;
@@ -183,33 +162,18 @@ fn has_avx() -> bool {
 
     // Origin Rust: let cpuid_result = unsafe { __cpuid_count(1, 0) };
     let cpuid_result = cpuid_count(1, 0);
-    proof! {
-        *samples = Ghost(CpuidFeatureSamples { feature_bits: Some(cpuid_result.ecx), ..samples@ });
-    }
     // Check for AVX (bit 28 of ecx)
     cpuid_result.ecx & (1 << 28) != 0
 }
 
-/// Checks the sampled leaf 7 EBX AVX-512 Foundation bit, without checking OS enablement.
-#[verus_spec(
-    with Tracked(samples): Tracked<&mut Ghost<CpuidFeatureSamples>>
-    ensures
-        (final(samples)@.feature_bits is Some) == (final(samples)@.max_leaf >= 7),
-    returns
-        (match final(samples)@.feature_bits {
-            Some(ebx) => ebx & (1u32 << 16) != 0,
-            None => false,
-        })
-)]
+/// Checks the CPUID-enumerated AVX-512 Foundation capability, without OS enablement.
+#[verus_spec(returns cpu_model().supports_avx512f())]
 fn has_avx512() -> bool {
     // Origin Rust: use core::arch::x86_64::{__cpuid, __cpuid_count};
     use x86::cpuid::native_cpuid::cpuid_count;
 
     // Origin Rust: let cpuid_result = unsafe { __cpuid(0) };
     let cpuid_result = cpuid_count(0, 0);
-    proof! {
-        *samples = Ghost(CpuidFeatureSamples { max_leaf: cpuid_result.eax, feature_bits: None });
-    }
     if cpuid_result.eax < 7 {
         // CPUID function 7 is not supported
         return false;
@@ -217,9 +181,6 @@ fn has_avx512() -> bool {
 
     // Origin Rust: let cpuid_result = unsafe { __cpuid_count(7, 0) };
     let cpuid_result = cpuid_count(7, 0);
-    proof! {
-        *samples = Ghost(CpuidFeatureSamples { feature_bits: Some(cpuid_result.ebx), ..samples@ });
-    }
     // Check for AVX-512 Foundation (bit 16 of ebx)
     cpuid_result.ebx & (1 << 16) != 0
 }
