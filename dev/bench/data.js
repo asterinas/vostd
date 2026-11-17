@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794903215361,
+  "lastUpdate": 1794913018856,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -12720,6 +12720,96 @@ window.BENCHMARK_DATA = {
             "value": 1106286,
             "unit": "rlimit",
             "extra": "smt-run=381ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "85332676+Je5s1e@users.noreply.github.com",
+            "name": "Chao",
+            "username": "Je5s1e"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11d378516c021b68e3fd08298426935e10851cb3",
+          "message": "prove: verify PCI foundations (#895)\n\n* prove: verify PCI foundations\n\n* Restore original Cargo configuration\n\n* Clarify PCI migration comments\n\n* Limit PCI verification to foundation helpers\n\n* remove useless comment\n\n* Remove redundant verus_verify attribute from PCI MSI-X helper",
+          "timestamp": "2026-11-17T18:47:47+08:00",
+          "tree_id": "1497840b35facf7d224d671e2d39a4375e4260c4",
+          "url": "https://github.com/asterinas/vostd/commit/11d378516c021b68e3fd08298426935e10851cb3"
+        },
+        "date": 1794913018232,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1083175521,
+            "unit": "rlimit",
+            "extra": "verified=4673 errors=0 smt-run=316,602ms wall=217,065ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 401930180,
+            "unit": "rlimit",
+            "extra": "smt-run=147,496ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 134995973,
+            "unit": "rlimit",
+            "extra": "smt-run=36,820ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 103848659,
+            "unit": "rlimit",
+            "extra": "smt-run=16,912ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,167ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8677157,
+            "unit": "rlimit",
+            "extra": "smt-run=1,848ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,581ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164776,
+            "unit": "rlimit",
+            "extra": "smt-run=791ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=652ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1928188,
+            "unit": "rlimit",
+            "extra": "smt-run=641ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106286,
+            "unit": "rlimit",
+            "extra": "smt-run=311ms"
           }
         ]
       }
