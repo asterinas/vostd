@@ -79,55 +79,30 @@ macro_rules! define_u32_frame_meta {
             }
 
             impl Repr<MetaSlotStorage> for $meta {
-                type ReprPerm = ();
-
-                open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
+                open spec fn wf(r: MetaSlotStorage) -> bool {
                     r is $variant
                 }
 
-                open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-                    (MetaSlotStorage::$variant(self), ())
-                }
-
-                fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
+                fn to_repr(self) -> MetaSlotStorage {
                     MetaSlotStorage::$variant(self)
                 }
 
-                open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
+                open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
                     r->$field
                 }
 
-                fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+                fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
                     match r {
                         MetaSlotStorage::$variant(meta) => meta,
                         _ => unreachable!(),
                     }
                 }
 
-                fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+                fn from_borrowed_mut<'a>(r: &'a mut MetaSlotStorage) -> &'a mut Self {
                     match r {
                         MetaSlotStorage::$variant(meta) => meta,
                         _ => unreachable!(),
                     }
-                }
-
-                fn from_borrowed_mut<'a>(
-                    r: &'a mut MetaSlotStorage,
-                    Tracked(perm): Tracked<&'a mut ()>,
-                ) -> &'a mut Self {
-                    match r {
-                        MetaSlotStorage::$variant(meta) => meta,
-                        _ => unreachable!(),
-                    }
-                }
-
-                proof fn from_to_repr(self, perm: ()) {
-                }
-
-                proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
-                }
-
-                proof fn to_repr_wf(self, perm: ()) {
                 }
             }
         }

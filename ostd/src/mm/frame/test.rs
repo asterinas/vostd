@@ -4,7 +4,7 @@ use vstd_extra::{assert, assert_eq, ownership::Inv};
 
 use crate::mm::UniqueFrame;
 use crate::specs::mm::frame::{
-    linked_list::linked_list_owners::{CursorOwner, LinkInnerPerms, LinkOwner, LinkedListOwner},
+    linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner},
     meta_owners::{TypedU32FrameMeta, U32FrameMeta, typed_meta_value, typed_meta_wf},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -42,16 +42,15 @@ mod frame {
         ensures final(regions).inv(),
     )]
     fn frame_allocation() {
-        proof_decl! { let tracked mut repr_perm = (); }
         let meta = MockFrameMeta { value: 42 };
-        let Ok(frame) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new().alloc_frame_with(meta)
         /* .expect("Failed to allocate single frame") */
         else {
             return;
         };
         assert_eq!(
-            (#[verus_spec(with Tracked(None), Tracked(&repr_perm))]
+            (#[verus_spec(with Tracked(None))]
             frame.meta())
             .value,
             42
@@ -72,9 +71,8 @@ mod frame {
         ensures final(regions).inv(),
     )]
     fn frame_clone() {
-        proof_decl! { let tracked mut repr_perm = (); }
         let meta = MockFrameMeta { value: 42 };
-        let Ok(frame1) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(frame1) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new().alloc_frame_with(meta)
         /* .expect("Failed to allocate single frame") */
         else {
@@ -88,10 +86,10 @@ mod frame {
         }
         assert_eq!(frame1.start_paddr(), frame2.start_paddr());
         assert_eq!(
-            (#[verus_spec(with Tracked(None), Tracked(&repr_perm))]
+            (#[verus_spec(with Tracked(None))]
             frame1.meta())
             .value,
-            (#[verus_spec(with Tracked(None), Tracked(&repr_perm))]
+            (#[verus_spec(with Tracked(None))]
             frame2.meta())
             .value
         );
@@ -114,9 +112,8 @@ mod frame {
         ensures final(regions).inv(),
     )]
     fn frame_drop() {
-        proof_decl! { let tracked mut repr_perm = (); }
         let metadata = MockFrameMeta { value: 42 };
-        let Ok(frame) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new().alloc_frame_with(metadata)
         /* .expect("Failed to allocate single frame") */
         else {
@@ -130,7 +127,7 @@ mod frame {
         proof! {
             assert(regions.slot_owner(paddr_before).ref_count() == REF_COUNT_UNUSED);
         }
-        let Ok(new_frame) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(new_frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
         /* .expect("Failed to allocate single frame") */
         else {
@@ -144,7 +141,7 @@ mod frame {
             1
         );
         assert_eq!(
-            (#[verus_spec(with Tracked(None), Tracked(&repr_perm))]
+            (#[verus_spec(with Tracked(None))]
             new_frame.meta())
             .value,
             42
@@ -188,25 +185,20 @@ mod linked_list {
         ensures final(regions).inv(),
     )]
     fn linked_list_push_pop() {
-        proof_decl! {
-            let tracked mut perm1 = LinkInnerPerms { storage: (), next_ptr: None, prev_ptr: None };
-            let tracked mut perm2 = LinkInnerPerms { storage: (), next_ptr: None, prev_ptr: None };
-            let tracked mut perm3 = LinkInnerPerms { storage: (), next_ptr: None, prev_ptr: None };
-        }
         let alloc_options = FrameAllocOptions::new();
-        let Ok(frame1) = #[verus_spec(with Tracked(regions), Tracked(&mut perm1))]
+        let Ok(frame1) = #[verus_spec(with Tracked(regions))]
         alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 1 }))
         /* .unwrap() */
         else {
             return;
         };
-        let Ok(frame2) = #[verus_spec(with Tracked(regions), Tracked(&mut perm2))]
+        let Ok(frame2) = #[verus_spec(with Tracked(regions))]
         alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 2 }))
         /* .unwrap() */
         else {
             return;
         };
-        let Ok(frame3) = #[verus_spec(with Tracked(regions), Tracked(&mut perm3))]
+        let Ok(frame3) = #[verus_spec(with Tracked(regions))]
         alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 3 }))
         /* .unwrap() */
         else {
@@ -216,7 +208,7 @@ mod linked_list {
         let mut list = LinkedList::new();
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<MockUFrameMeta> = LinkedListOwner {
-                list: Seq::tracked_empty(), repr_perms: Seq::tracked_empty(),
+                list: Seq::tracked_empty(), _marker: core::marker::PhantomData,
                 metadata_perms: Seq::tracked_empty(), list_id: 0,
             };
         }
@@ -232,7 +224,7 @@ mod linked_list {
         proof_decl! {
             let tracked mut owner1 = UniqueFrameOwner {
                 meta_own: LinkOwner { slot_vaddr: frame1.slot_vaddr(), in_list: 0 },
-                repr_perm: Some(perm1), slot_index: frame1.index(),
+                slot_index: frame1.index(),
             };
         }
         #[verus_spec(with Tracked(regions), Tracked(&mut list_own), Tracked(&mut owner1))]
@@ -249,7 +241,7 @@ mod linked_list {
         proof_decl! {
             let tracked mut owner2 = UniqueFrameOwner {
                 meta_own: LinkOwner { slot_vaddr: frame2.slot_vaddr(), in_list: 0 },
-                repr_perm: Some(perm2), slot_index: frame2.index(),
+                slot_index: frame2.index(),
             };
         }
         #[verus_spec(with Tracked(regions), Tracked(&mut list_own), Tracked(&mut owner2))]
@@ -266,7 +258,7 @@ mod linked_list {
         proof_decl! {
             let tracked mut owner3 = UniqueFrameOwner {
                 meta_own: LinkOwner { slot_vaddr: frame3.slot_vaddr(), in_list: 0 },
-                repr_perm: Some(perm3), slot_index: frame3.index(),
+                slot_index: frame3.index(),
             };
         }
         #[verus_spec(with Tracked(regions), Tracked(&mut list_own), Tracked(&mut owner3))]
@@ -660,8 +652,7 @@ mod segment {
         ensures final(regions).inv(),
     )]
     fn frame_to_segment() {
-        proof_decl! { let tracked mut repr_perm = (); }
-        let Ok(frame) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
         /* .unwrap() */
         else {
@@ -678,12 +669,12 @@ mod segment {
                 regions.inv(),
                 it.seq() == seq![allocated_frame],
                 allocated_frame.inv(),
-                typed_meta_wf::<MockFrameMeta>(allocated_frame.slot_perm(), allocated_frame.metadata_perm(), ()),
-                typed_meta_value::<MockFrameMeta>(allocated_frame.metadata_perm(), ()).value == 42,
+                typed_meta_wf::<MockFrameMeta>(allocated_frame.slot_perm(), allocated_frame.metadata_perm()),
+                typed_meta_value::<MockFrameMeta>(allocated_frame.metadata_perm()).value == 42,
         )]
         for frame in segment {
             assert_eq!(
-                (#[verus_spec(with Tracked(None), Tracked(&repr_perm))]
+                (#[verus_spec(with Tracked(None))]
                 frame.meta())
                 .value,
                 42
@@ -772,9 +763,8 @@ mod frame_ref {
         ensures final(regions).inv(),
     )]
     fn frame_ref_preserves_refcnt() {
-        proof_decl! { let tracked mut repr_perm = (); }
         let init_val = 42;
-        let Ok(frame) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new()
             .alloc_frame_with(MockUFrameMeta { value: init_val })
         /* .expect("Failed to allocate frame") */
@@ -791,7 +781,7 @@ mod frame_ref {
         {
             let frame_ref = frame.borrow();
             assert_eq!(
-                (#[verus_spec(with Tracked(Some(frame.tracked_metadata_perm.borrow().tracked_borrow().tracked_borrow())), Tracked(&repr_perm))]
+                (#[verus_spec(with Tracked(Some(frame.tracked_metadata_perm.borrow().tracked_borrow().tracked_borrow())))]
                 frame_ref.meta()).value,
                 init_val
             );
@@ -821,9 +811,8 @@ mod frame_ref {
         ensures final(regions).inv(),
     )]
     fn frame_impls_non_null_ptr() {
-        proof_decl! { let tracked mut repr_perm = (); }
         let init_val = 42;
-        let Ok(frame) = #[verus_spec(with Tracked(regions), Tracked(&mut repr_perm))]
+        let Ok(frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new()
             .alloc_frame_with(MockUFrameMeta { value: init_val })
         /* .expect("Failed to allocate frame") */
@@ -840,7 +829,7 @@ mod frame_ref {
         };
         assert_eq!(frame_from_raw.start_paddr(), ptr);
         assert_eq!(
-            (#[verus_spec(with Tracked(None), Tracked(&repr_perm))]
+            (#[verus_spec(with Tracked(None))]
             frame_from_raw.meta())
             .value,
             init_val

@@ -35,55 +35,30 @@ pub enum MetaSlotSmall {
 }
 
 impl Repr<MetaSlotSmall> for U32FrameMeta {
-    type ReprPerm = ();
-
-    open spec fn wf(r: MetaSlotSmall, perm: ()) -> bool {
+    open spec fn wf(r: MetaSlotSmall) -> bool {
         r is U32
     }
 
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotSmall, ()) {
-        (MetaSlotSmall::U32(self), ())
-    }
-
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotSmall {
+    fn to_repr(self) -> MetaSlotSmall {
         MetaSlotSmall::U32(self)
     }
 
-    open spec fn from_repr_spec(r: MetaSlotSmall, perm: ()) -> Self {
+    open spec fn from_repr_spec(r: MetaSlotSmall) -> Self {
         r->U32_0
     }
 
-    fn from_repr(r: MetaSlotSmall, Tracked(perm): Tracked<&()>) -> Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotSmall) -> &'a Self {
         match r {
             MetaSlotSmall::U32(meta) => meta,
             _ => unreachable!(),
         }
     }
 
-    fn from_borrowed<'a>(r: &'a MetaSlotSmall, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+    fn from_borrowed_mut<'a>(r: &'a mut MetaSlotSmall) -> &'a mut Self {
         match r {
             MetaSlotSmall::U32(meta) => meta,
             _ => unreachable!(),
         }
-    }
-
-    fn from_borrowed_mut<'a>(
-        r: &'a mut MetaSlotSmall,
-        Tracked(perm): Tracked<&'a mut ()>,
-    ) -> &'a mut Self {
-        match r {
-            MetaSlotSmall::U32(meta) => meta,
-            _ => unreachable!(),
-        }
-    }
-
-    proof fn from_to_repr(self, perm: ()) {
-    }
-
-    proof fn to_from_repr(r: MetaSlotSmall, perm: ()) {
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
     }
 }
 
@@ -117,7 +92,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
                 },
                 meta: M::from_repr_spec(link.slot),
             },
-            _ => Link { next: None, prev: None, meta: M::from_repr_spec(MetaSlotSmall) },
+            _ => Link { next: None, prev: None, meta: M::from_repr_spec(MetaSlotSmall::Empty) },
         }
     }
 
@@ -244,10 +219,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub open spec fn values(self) -> Seq<M> {
-        Seq::new(
-            self.list.len(),
-            |i: int| typed_meta_value::<Link<M>>(self.metadata_perms[i], self.repr_perms[i]).meta,
-        )
+        Seq::new(self.list.len(), |i: int| typed_meta_value::<Link<M>>(self.metadata_perms[i]).meta)
     }
 
     pub open spec fn meta_addr_at(self, regions: MetaRegionOwners, i: int) -> usize {
