@@ -55,19 +55,21 @@ function renderTiles(snapshot, historyPoints, bugs) {
     historyPoints.length > 1 ? historyPoints[historyPoints.length - 2] : null;
 
   const specs = [
-    { label: "Total executable LoC", value: totals.total, deltaKey: null },
+    { label: "Total executable LoC", value: totals.total },
     {
       label: "Total verified LoC",
-      value: totals.verified_exec,
+      value: totals.verified_exec + totals.trusted,
       trusted: totals.trusted,
-      deltaKey: "verified_exec",
+      deltaKeys: ["verified_exec", "trusted"],
+      deltaUnit: "lines",
     },
     { label: "Bugs found", value: bugs?.length, href: "#verification-bugs" },
     {
       label: "Verified APIs",
       value: totals.verified_apis,
       total: totals.total_apis,
-      deltaKey: "verified_apis",
+      deltaKeys: ["verified_apis"],
+      deltaUnit: "APIs",
     },
   ];
 
@@ -95,18 +97,17 @@ function renderTiles(snapshot, historyPoints, bugs) {
     }
 
     if (
-      spec.deltaKey &&
+      spec.deltaKeys &&
       previous &&
       current &&
-      current[spec.deltaKey] != null &&
-      previous[spec.deltaKey] != null
+      spec.deltaKeys.every((key) => current[key] != null && previous[key] != null)
     ) {
-      const delta = current[spec.deltaKey] - previous[spec.deltaKey];
+      const delta = spec.deltaKeys.reduce((sum, key) => sum + (current[key] - previous[key]), 0);
       const deltaEl = document.createElement("div");
       deltaEl.className = "tile-delta";
       if (delta !== 0) deltaEl.classList.add(delta > 0 ? "up" : "down");
       const sign = delta > 0 ? "+" : "";
-      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaKey.endsWith("_apis") ? "APIs" : "lines"} vs previous commit`;
+      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaUnit} vs previous commit`;
       tile.append(deltaEl);
     }
     host.append(tile);
