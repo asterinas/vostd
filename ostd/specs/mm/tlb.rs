@@ -38,18 +38,18 @@ pub ghost struct FlushSet {
     pub all_user: bool,
     /// At least the entries translating any of these addresses are
     /// invalidated, including global ones, as by `invlpg` or `sfence.vma`.
-    pub vas: ISet<Vaddr>,
+    pub vas: Set<Vaddr>,
 }
 
 impl FlushSet {
     pub open spec fn empty() -> Self {
-        FlushSet { all_user: false, vas: ISet::empty() }
+        FlushSet { all_user: false, vas: Set::empty() }
     }
 
     /// The meaning of flushing all non-global entries, which drops any
     /// address-specific operations collected before.
     pub open spec fn all_user() -> Self {
-        FlushSet { all_user: true, vas: ISet::empty() }
+        FlushSet { all_user: true, vas: Set::empty() }
     }
 
     pub open spec fn join(self, other: Self) -> Self {
@@ -80,10 +80,10 @@ pub ghost struct CpuTlbState {
     /// The user address space installed in CR3 or `satp`, if any.
     pub active: Option<AsId>,
     /// The address spaces that may have entries cached on this CPU.
-    pub resident: ISet<AsId>,
+    pub resident: Set<AsId>,
     /// The entries that may be cached although their page tables no longer
     /// contain them.
-    pub stale: ISet<TlbEntry>,
+    pub stale: Set<TlbEntry>,
 }
 
 impl Inv for CpuTlbState {
