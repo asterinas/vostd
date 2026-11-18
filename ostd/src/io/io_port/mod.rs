@@ -109,12 +109,18 @@ impl<T, A> IoPort<T, A> {
     ///
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
+        with -> checked: Ghost<Set<usize>>,
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
             obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
             port + size_of::<T>() > MAX_IO_PORT + 1 ==> result is Err,
+            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> {
+                result is Ok <==> Set::<usize>::range(
+                    port as usize, (port + size_of::<T>()) as usize,
+                ).disjoint(checked@)
+            },
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
@@ -123,10 +129,13 @@ impl<T, A> IoPort<T, A> {
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
+        proof_decl! { let ghost checked: Set<usize>; }
         let port = {
             /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
+            #[verus_spec(with => Ghost(checked))]
             initialized_allocator().acquire(port, false)
         };
+        #[verus_spec(with |= Ghost(checked))]
         port.ok_or(Error::AccessDenied)
     }
 
@@ -134,12 +143,18 @@ impl<T, A> IoPort<T, A> {
     ///
     /// This method will only mark the first port in the PIO range as occupied.
     #[verus_spec(result =>
+        with -> checked: Ghost<Set<usize>>,
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
             obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
             port + size_of::<T>() > MAX_IO_PORT + 1 ==> result is Err,
+            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> {
+                result is Ok <==> Set::<usize>::range(
+                    port as usize, (port + 1) as usize,
+                ).disjoint(checked@)
+            },
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
@@ -148,10 +163,13 @@ impl<T, A> IoPort<T, A> {
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {
+        proof_decl! { let ghost checked: Set<usize>; }
         let port = {
             /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
+            #[verus_spec(with => Ghost(checked))]
             initialized_allocator().acquire(port, true)
         };
+        #[verus_spec(with |= Ghost(checked))]
         port.ok_or(Error::AccessDenied)
     }
 

@@ -470,7 +470,6 @@ mod test {
     }
 
     // #[ktest]
-    #[verus_spec(requires super::may_panic())]
     fn conflict_region() {
         let max_paddr = 0x100_000_000_000; // 16 TB
 
