@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794989972435,
+  "lastUpdate": 1795015048207,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13170,6 +13170,96 @@ window.BENCHMARK_DATA = {
             "value": 1106099,
             "unit": "rlimit",
             "extra": "smt-run=205ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ebad322ae6684e2ed7ee94030fc13c22481cbda5",
+          "message": "ci: update dashboard (#949)\n\n* ci: fix API counting across rustdoc versions\n\n* ci: report mainline API verification coverage on the dashboard\n\n* ci: group verified APIs without a mainline match at the end of the table\n\n* ci: show bugs found by verification on the dashboard\n\n* ci: update dashboard UI\n\n* ci: layout",
+          "timestamp": "2026-11-18T23:08:40+08:00",
+          "tree_id": "755fddcdafb2406b73e836f2a7ed16702077adac",
+          "url": "https://github.com/asterinas/vostd/commit/ebad322ae6684e2ed7ee94030fc13c22481cbda5"
+        },
+        "date": 1795015047766,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1079129982,
+            "unit": "rlimit",
+            "extra": "verified=4673 errors=0 smt-run=436,421ms wall=287,090ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 407973506,
+            "unit": "rlimit",
+            "extra": "smt-run=202,362ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 132191790,
+            "unit": "rlimit",
+            "extra": "smt-run=47,479ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 56786605,
+            "unit": "rlimit",
+            "extra": "smt-run=24,678ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=4,340ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9273315,
+            "unit": "rlimit",
+            "extra": "smt-run=2,857ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5016899,
+            "unit": "rlimit",
+            "extra": "smt-run=1,832ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164892,
+            "unit": "rlimit",
+            "extra": "smt-run=1,104ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=776ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910655,
+            "unit": "rlimit",
+            "extra": "smt-run=987ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106099,
+            "unit": "rlimit",
+            "extra": "smt-run=428ms"
           }
         ]
       }
