@@ -16,6 +16,7 @@ use vstd::{
         set::{GhostSetAuth, GhostSubset},
     },
     seq_lib::lemma_seq_contains_after_push,
+    std_specs::btree::btree_map_wf,
 };
 use vstd_extra::{
     debug_assert,
@@ -140,6 +141,7 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
             Sum::Right(set) => {
                 &&& set.id() == constant.initialized_id
                 &&& freelist is Some
+                &&& btree_map_wf(&freelist->0)
                 &&& concrete_freelist_wf(constant.fullrange, freelist->0@)
                 &&& resource.remaining@ == free_set(freelist_model(freelist->0@))
             },
@@ -238,6 +240,7 @@ impl RangeAllocator {
                 self@.start <= allocate_range.start < allocate_range.end <= self@.end,
                 right_length <= usize::MAX - allocate_range.end,
                 concrete_freelist_wf(self@, freelist@),
+                btree_map_wf(freelist),
                 freelist@ == initial_map,
                 freelist_model(freelist@) == initial_freelist,
                 it.seq().unref().to_set() == freelist@.kv_pairs(),
@@ -414,6 +417,7 @@ impl RangeAllocator {
                     &&& freelist@[key].block.end == range.end
                 },
                 concrete_freelist_wf(self@, freelist@),
+                btree_map_wf(freelist),
         )]
         for (key, value) in freelist.iter() {
             proof! {
@@ -592,6 +596,7 @@ impl RangeAllocator {
             ret@ is Some,
             ret@ matches Some(freelist) ==> {
                 &&& concrete_freelist_wf(self@, freelist@)
+                &&& btree_map_wf(&freelist)
                 &&& ret.resource().remaining@ == free_set(freelist_model(freelist@))
             },
             ret.constant().fullrange == self@,
