@@ -242,6 +242,7 @@ fn generate_single_target_doc(
 /// Ask Cargo for this build's artifacts, including cached results.
 fn build_doc_dependencies(
     target: &VerusTarget,
+    rust_target: &str,
 ) -> Result<Vec<Artifact>, DynError> {
     let mut cmd = Command::new(verus::get_cargo_verus(true));
     cmd.env("RUSTC_BOOTSTRAP", "1")
