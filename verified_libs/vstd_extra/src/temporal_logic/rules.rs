@@ -1785,7 +1785,7 @@ pub broadcast proof fn entails_tla_exists_by_witness<T, A>(
     requires
         #[trigger] spec.entails(p(a)),
     ensures
-        spec.entails(tla_exists(p)),
+        spec.entails(#[trigger] tla_exists(p)),
 {
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies tla_exists(p).satisfied_by(ex) by {
         implies_apply::<T>(ex, spec, p(a));
