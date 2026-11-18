@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794976558811,
+  "lastUpdate": 1794985096897,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -12900,6 +12900,96 @@ window.BENCHMARK_DATA = {
             "value": 1106286,
             "unit": "rlimit",
             "extra": "smt-run=285ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b02cb9d12e879829551c1f5c6cc0583d0e9cc32b",
+          "message": "rustc 1.100.0 (#945)\n\n* Update rust-toolchain.toml\n\n* fix",
+          "timestamp": "2026-11-18T14:12:26+08:00",
+          "tree_id": "f0f4878af63a0d02f40bab0a8c2c2786f9e1fd07",
+          "url": "https://github.com/asterinas/vostd/commit/b02cb9d12e879829551c1f5c6cc0583d0e9cc32b"
+        },
+        "date": 1794985096222,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1079129982,
+            "unit": "rlimit",
+            "extra": "verified=4673 errors=0 smt-run=319,806ms wall=222,059ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 407973506,
+            "unit": "rlimit",
+            "extra": "smt-run=148,844ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 132191790,
+            "unit": "rlimit",
+            "extra": "smt-run=36,285ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 56786605,
+            "unit": "rlimit",
+            "extra": "smt-run=17,512ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,163ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9273315,
+            "unit": "rlimit",
+            "extra": "smt-run=1,931ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,409ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164892,
+            "unit": "rlimit",
+            "extra": "smt-run=813ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=626ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910655,
+            "unit": "rlimit",
+            "extra": "smt-run=666ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106099,
+            "unit": "rlimit",
+            "extra": "smt-run=300ms"
           }
         ]
       }
