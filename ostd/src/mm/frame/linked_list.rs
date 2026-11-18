@@ -185,15 +185,22 @@ proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>
     }
 }
 
+} // verus!
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// Creates a new linked list.
-    pub const fn new() -> Self
-        returns
-            (Self { front: None, back: None, size: 0, list_id: 0 }),
-    {
-        Self { front: None, back: None, size: 0, list_id: 0 }
+    #[verus_verify(dual_spec, open)]
+    #[verus_spec(returns Self::new())]
+    pub const fn new() -> Self {
+        Self {
+            front: None,
+            back: None,
+            size: 0,
+            list_id: 0,
+        }
     }
 }
+
+verus! {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Default for LinkedList<M> {
     fn default() -> Self {
@@ -321,6 +328,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             r matches Some(frame) ==> (frame_owner@ matches Some(fo) ==> {
                 &&& final(owner).list == old(owner).list.remove(0)
                 &&& fo.meta_own@ == old(owner).list[0]@
+                &&& {
+                    let slot_vaddr = old(owner).list[0].slot_vaddr;
+                    *final(regions) == old(regions).insert_slot_owner(
+                        meta_to_frame(slot_vaddr),
+                        final(regions).slot_owners[meta_to_index(slot_vaddr)],
+                    )
+                }
                 &&& frame.inv()
                 &&& fo.inv()
                 &&& frame.wf(fo)
@@ -443,6 +457,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             r matches Some(frame) ==> (frame_owner@ matches Some(fo) ==> {
                 &&& final(owner).list == old(owner).list.remove(old(owner).list.len() - 1)
                 &&& fo.meta_own@ == old(owner).list[old(owner).list.len() - 1]@
+                &&& {
+                    let slot_vaddr = old(owner).list[old(owner).list.len() - 1].slot_vaddr;
+                    *final(regions) == old(regions).insert_slot_owner(
+                        meta_to_frame(slot_vaddr),
+                        final(regions).slot_owners[meta_to_index(slot_vaddr)],
+                    )
+                }
                 &&& frame.inv()
                 &&& fo.inv()
                 &&& frame.wf(fo)
@@ -788,17 +809,18 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     /// to the first element of the LinkedList then this will move it to the
     /// "ghost" non-element.
     #[verus_spec(
-        with Tracked(owner): Tracked<CursorOwner<M>>,
+        with Tracked(owner): Tracked<&CursorOwner<M>>,
             Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
     pub fn move_prev(&mut self)
         requires
             owner.wf_with_region(*regions),
-            old(self).wf_region(owner, *regions),
+            old(self).wf_region(*owner, *regions),
         ensures
             owner.move_prev_owner_spec()@ == owner@.move_prev_spec(),
             owner.move_prev_owner_spec().wf_with_region(*regions),
             final(self).wf_region(owner.move_prev_owner_spec(), *regions),
+            *final(final(self).list) == *final(old(self).list),
     {
         proof {
             owner.list_own.lemma_relate_region_shape(*regions);
@@ -1726,15 +1748,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> DerefMut for Link<M> {
     }
 }
 
+} // verus!
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
     /// Creates a new linked list metadata.
-    pub const fn new(meta: M) -> Self
-        returns
-            (Self { next: None, prev: None, meta }),
-    {
-        Self { next: None, prev: None, meta }
+    #[verus_verify(dual_spec, open)]
+    #[verus_spec(returns Self::new(meta))]
+    pub const fn new(meta: M) -> Self {
+        Self {
+            next: None,
+            prev: None,
+            meta,
+        }
     }
 }
+
+verus! {
 
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.

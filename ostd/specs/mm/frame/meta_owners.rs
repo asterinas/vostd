@@ -111,11 +111,15 @@ macro_rules! define_u32_frame_meta {
 
 define_u32_frame_meta!(
     /// Concrete metadata carrying one u32 value for an untyped frame.
-    U32FrameMeta, U32Frame, U32Frame_0
+    U32FrameMeta,
+    U32Frame,
+    U32Frame_0
 );
 define_u32_frame_meta!(
     /// Concrete metadata carrying one u32 value for a typed frame.
-    TypedU32FrameMeta, TypedU32Frame, TypedU32Frame_0
+    TypedU32FrameMeta,
+    TypedU32Frame,
+    TypedU32Frame_0
 );
 
 verus! {
