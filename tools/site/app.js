@@ -606,25 +606,40 @@ function renderApiTable(snapshot) {
     );
     return;
   }
-  host.replaceChildren(
-    table(
-      entries
-        .slice()
-        .sort((a, b) =>
-          (a.group + a.name).localeCompare(b.group + b.name))
-        .map((api) => {
-          const link = document.createElement("a");
-          link.textContent = api.name;
-          // Snapshot links are relative to the published documentation root.
-          if (api.doc_path && !api.doc_path.split("/").includes("..") &&
-              /^[a-zA-Z0-9_./#%~-]+$/.test(api.doc_path)) {
-            link.href = `verusdoc/${api.doc_path}`;
-          }
-          return [link, api.group, api.location];
-        }),
-      ["Verified API", "Module", "Location"],
-    ),
-  );
+  const unmatchedIndices = new Set(snapshot.verified_apis_unmatched_indices ?? []);
+  const matched = [];
+  const unmatched = [];
+  entries.forEach((api, index) => {
+    (unmatchedIndices.has(index) ? unmatched : matched).push(api);
+  });
+  const rows = [...matched.sort(compareApis), ...unmatched.sort(compareApis)].map((api) => {
+    const link = document.createElement("a");
+    link.textContent = api.name;
+    // Snapshot links are relative to the published documentation root.
+    if (api.doc_path && !api.doc_path.split("/").includes("..") &&
+        /^[a-zA-Z0-9_./#%~-]+$/.test(api.doc_path)) {
+      link.href = `verusdoc/${api.doc_path}`;
+    }
+    return [link, api.group, api.location];
+  });
+  const headers = ["Verified API", "Module", "Location"];
+  const grid = table(rows, headers);
+  if (unmatched.length) {
+    const section = grid.createTBody();
+    const heading = document.createElement("th");
+    heading.colSpan = headers.length;
+    heading.scope = "rowgroup";
+    heading.className = "api-group-heading";
+    heading.textContent = `Verified APIs without a mainline match (${fmtFull(unmatched.length)})`;
+    section.insertRow().append(heading);
+    const primary = grid.tBodies[0];
+    for (const row of Array.from(primary.rows).slice(matched.length)) section.append(row);
+  }
+  host.replaceChildren(grid);
+}
+
+function compareApis(a, b) {
+  return a.group.localeCompare(b.group) || a.name.localeCompare(b.name);
 }
 
 function renderUnverifiedApiTable(snapshot) {
@@ -639,7 +654,7 @@ function renderUnverifiedApiTable(snapshot) {
   const sha = snapshot.mainline_sha;
   const base = /^[a-f0-9]{40}$/.test(sha) ? `https://github.com/asterinas/vostd/blob/${sha}/` : null;
   const rows = entries.slice()
-    .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
+    .sort(compareApis)
     .map((api) => {
       const match = /^(ostd\/[\w./-]+\.rs):(\d+):\d+$/.exec(api.location);
       if (!base || !match || match[1].split("/").includes("..")) {

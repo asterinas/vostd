@@ -306,21 +306,21 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
     return len(entries), entries
 
 
-def unmatched_mainline_apis(
-    mainline: list[dict[str, str]], verified: list[dict[str, str]],
-) -> list[dict[str, str]]:
+def unmatched_api_indices(
+    entries: list[dict[str, str]], baseline: list[dict[str, str]],
+) -> list[int]:
     def key(entry: dict[str, str]) -> tuple[str, str]:
         # Line numbers shift as specifications and proofs are added.
         return entry["location"].rsplit(":", 2)[0], entry["name"]
 
-    remaining = Counter(map(key, verified))
+    remaining = Counter(map(key, baseline))
     unmatched = []
-    for entry in mainline:
+    for index, entry in enumerate(entries):
         identity = key(entry)
         if remaining[identity]:
             remaining[identity] -= 1
         else:
-            unmatched.append(entry)
+            unmatched.append(index)
     return unmatched
 
 
@@ -705,9 +705,12 @@ def write_snapshot(
     if api_entries is not None:
         snapshot["verified_apis_list"] = api_entries
         if mainline_apis is not None:
-            unmatched = unmatched_mainline_apis(mainline_apis, api_entries)
+            unmatched = unmatched_api_indices(mainline_apis, api_entries)
             totals_dict["verified_mainline_apis"] = len(mainline_apis) - len(unmatched)
-            snapshot["unverified_apis_list"] = unmatched
+            snapshot["unverified_apis_list"] = [mainline_apis[i] for i in unmatched]
+            snapshot["verified_apis_unmatched_indices"] = unmatched_api_indices(
+                api_entries, mainline_apis,
+            )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     print(f"Snapshot: {output}")
