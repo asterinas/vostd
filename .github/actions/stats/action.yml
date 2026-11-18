@@ -46,6 +46,20 @@ runs:
         path: api-json
       continue-on-error: true
 
+    - name: Generate mainline rustdoc JSON
+      shell: bash
+      working-directory: mainline
+      run: |
+        # This baseline mixes workspace and sync sources from different releases.
+        # Apply its doc-build fixes temporarily so the LoC scan sees the original sources.
+        if [[ "$MAINLINE_SHA" == 356a641aafb692c990a5cbeaa04ac9d6fa8bf6f8 ]]; then
+          patch_file="../tools/mainline-rustdoc.patch"
+          git apply --unidiff-zero "$patch_file"
+          trap 'git apply --unidiff-zero -R "$patch_file"' EXIT
+        fi
+        cargo rustdoc --target-dir target --target x86_64-unknown-none --package ostd --lib \
+          -- -Z unstable-options --output-format json
+
     - name: Take verification snapshot
       shell: bash
       run: |
@@ -60,6 +74,7 @@ runs:
           --mainline-source src=mainline/ostd/src \
           --mainline-source libs=mainline/ostd/libs \
           --mainline-sha "$MAINLINE_SHA" \
+          --mainline-doc-json mainline/target/x86_64-unknown-none/doc/ostd.json \
           --sha "$GITHUB_SHA" \
           --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
           $DOC_JSON_ARG \
