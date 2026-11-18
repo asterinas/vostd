@@ -88,8 +88,10 @@ pub struct TrapFrame {
 }
 
 /// Saved registers on a trap.
+// Origin Rust: #[derive(Debug, Default, Clone, Copy)]
+// The explicit Default implementation exposes the derived zero initialization to Verus.
 #[verus_verify]
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(in crate::arch) struct RawUserContext {
     /// General registers
@@ -100,12 +102,19 @@ pub(in crate::arch) struct RawUserContext {
     pub(in crate::arch) sepc: usize,
 }
 
-#[verus_verify]
+verus! {
+
 impl RawUserContext {
-    #[verus_spec(returns (Self {
-        general: GeneralRegs::zeroed(), sstatus: 0, sepc: 0,
-    }))]
-    pub(in crate::arch) fn zeroed() -> Self {
+    pub open(in crate::arch) spec fn default_spec() -> Self {
+        Self { general: GeneralRegs::default_spec(), sstatus: 0, sepc: 0 }
+    }
+}
+
+} // verus!
+#[verus_verify]
+impl Default for RawUserContext {
+    #[verus_spec(returns Self::default_spec())]
+    fn default() -> Self {
         Self {
             general: GeneralRegs::default(),
             sstatus: 0,

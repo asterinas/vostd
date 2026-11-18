@@ -45,6 +45,45 @@ impl UserContextView {
     }
 }
 
+impl GeneralRegs {
+    pub open spec fn default_spec() -> Self {
+        Self {
+            zero: 0,
+            ra: 0,
+            sp: 0,
+            gp: 0,
+            tp: 0,
+            t0: 0,
+            t1: 0,
+            t2: 0,
+            s0: 0,
+            s1: 0,
+            a0: 0,
+            a1: 0,
+            a2: 0,
+            a3: 0,
+            a4: 0,
+            a5: 0,
+            a6: 0,
+            a7: 0,
+            s2: 0,
+            s3: 0,
+            s4: 0,
+            s5: 0,
+            s6: 0,
+            s7: 0,
+            s8: 0,
+            s9: 0,
+            s10: 0,
+            s11: 0,
+            t3: 0,
+            t4: 0,
+            t5: 0,
+            t6: 0,
+        }
+    }
+}
+
 impl View for UserContext {
     type V = UserContextView;
 
@@ -115,10 +154,9 @@ pub struct GeneralRegs {
 }
 
 #[verus_verify]
-impl GeneralRegs {
-    #[verus_verify(dual_spec, open)]
-    #[verus_spec(returns Self::zeroed())]
-    pub const fn zeroed() -> Self {
+impl Default for GeneralRegs {
+    #[verus_spec(returns Self::default_spec())]
+    fn default() -> Self {
         Self {
             zero: 0,
             ra: 0,
@@ -156,14 +194,6 @@ impl GeneralRegs {
     }
 }
 
-#[verus_verify]
-impl Default for GeneralRegs {
-    #[verus_spec(returns Self::zeroed())]
-    fn default() -> Self {
-        Self::zeroed()
-    }
-}
-
 /// CPU exception information.
 //
 // TODO: Refactor the struct into an enum (similar to x86's `CpuException`).
@@ -182,17 +212,14 @@ pub struct CpuExceptionInfo {
 impl Default for UserContext {
     #[verus_spec(r => ensures
         r@ == (UserContextView {
-            frame: TrapFrame { general: GeneralRegs::zeroed(), sstatus: 0, sepc: 0 },
+            frame: TrapFrame { general: GeneralRegs::default_spec(), sstatus: 0, sepc: 0 },
             trap: Trap::Exception(Exception::Unknown),
             exception: None,
         }),
     )]
     fn default() -> Self {
         UserContext {
-            // Origin Rust: user_context: RawUserContext::default(),
-            // The derived Default has no zero-state contract; a private type's public
-            // Default contract cannot expose its fields. This helper returns the same zeros.
-            user_context: RawUserContext::zeroed(),
+            user_context: RawUserContext::default(),
             trap: Trap::Exception(Exception::Unknown),
             cpu_exception_info: None,
         }
