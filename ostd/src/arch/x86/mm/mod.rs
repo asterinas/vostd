@@ -3,7 +3,7 @@
 
 use vstd::{arithmetic::power2::*, prelude::*};
 use vstd_extra::{
-    panic::{may_panic, panic_diverge},
+    panic::{no_panic_when, panic_diverge},
     prelude::*,
 };
 
@@ -325,8 +325,9 @@ impl PageTableEntryTrait for PageTableEntry {
     open spec fn new_page_req(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> bool {
         &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R.bits() == PageFlags::R.bits()
-        &&& (!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
-            ==> may_panic())
+        &&& no_panic_when(
+            prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable,
+        )
     }
 
     fn new_page(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> Self {
@@ -431,8 +432,9 @@ impl PageTableEntryTrait for PageTableEntry {
     open spec fn set_prop_req(self, prop: PageProperty) -> bool {
         &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R.bits() == PageFlags::R.bits()
-        &&& (!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
-            ==> may_panic())
+        &&& no_panic_when(
+            prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable,
+        )
     }
 
     fn set_prop(&mut self, prop: PageProperty)

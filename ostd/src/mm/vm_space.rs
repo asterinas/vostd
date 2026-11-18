@@ -7,7 +7,7 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use vstd::{pervasive::arbitrary, prelude::*, vpanic};
-use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::may_panic, prelude::*};
+use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::no_panic_when, prelude::*};
 
 use crate::specs::{
     arch::*,
@@ -504,7 +504,7 @@ impl<'rcu> Cursor<'rcu> {
             // the resolved leaf frame when *that specific slot* is
             // saturated — precisely propagated from
             // `Cursor::query_panic_condition`.
-            old(self).0.query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
+            no_panic_when(!old(self).0.query_panic_condition(*old(owner), *old(regions))),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
@@ -556,7 +556,7 @@ impl<'rcu> Cursor<'rcu> {
             Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.find_next_panic_condition(len) ==> may_panic(),
+            no_panic_when(!old(self).0.find_next_panic_condition(len)),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -606,7 +606,7 @@ impl<'rcu> Cursor<'rcu> {
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
             // in its `pop_level` repositioning ascent.
-            old(self).0.jump_panic_condition(va) ==> may_panic(),
+            no_panic_when(!old(self).0.jump_panic_condition(va)),
         ensures
             !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -678,8 +678,7 @@ impl<'a> CursorMut<'a> {
             // Out-of-range → graceful `Err`; the sole panic is cloning the
             // resolved leaf frame when *that specific slot* is saturated —
             // precisely propagated from `Cursor::query_panic_condition`.
-            old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions))
-                ==> may_panic(),
+            no_panic_when(!old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions))),
         ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions)),
@@ -726,7 +725,7 @@ impl<'a> CursorMut<'a> {
             Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
+            no_panic_when(!old(self).pt_cursor.0.find_next_panic_condition(len)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -778,7 +777,7 @@ impl<'a> CursorMut<'a> {
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
             // in its `pop_level` repositioning ascent.
-            old(self).pt_cursor.0.jump_panic_condition(va) ==> may_panic(),
+            no_panic_when(!old(self).pt_cursor.0.jump_panic_condition(va)),
         ensures
             !old(self).pt_cursor.0.jump_panic_condition(va),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -847,7 +846,7 @@ impl<'a> CursorMut<'a> {
             old(tlb_model).inv(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
-            old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }) ==> may_panic(),
+            no_panic_when(!old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop })),
         ensures
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
@@ -935,10 +934,10 @@ impl<'a> CursorMut<'a> {
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             // Large unmaps may clone a removed subtree root before deferred reclamation.
-            len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
+            no_panic_when(len < crate::mm::page_size::<PagingConsts>(2)),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
-            old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
+            no_panic_when(!old(self).pt_cursor.0.find_next_panic_condition(len)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
@@ -977,7 +976,7 @@ impl<'a> CursorMut<'a> {
 
         #[verus_spec(
             invariant
-                len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
+                no_panic_when(len < crate::mm::page_size::<PagingConsts>(2)),
                 end_va == start_va + len,
                 self.pt_cursor.0.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
@@ -1537,7 +1536,7 @@ impl<'a> CursorMut<'a> {
                     && <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_in) ==>
                         <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_out),
 
-            old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
+            no_panic_when(!old(self).pt_cursor.0.find_next_panic_condition(len)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),

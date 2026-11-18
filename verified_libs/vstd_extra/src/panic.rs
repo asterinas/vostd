@@ -5,17 +5,24 @@ use vstd::vpanic;
 
 verus! {
 
-/// Represents the intention that the code will panic at some point in the future.
-/// Consumed by [`panic_diverge`] to ensure that the top-level API spec must always
-/// intentionally document potential panics.
-pub uninterp spec fn may_panic() -> bool;
+mod internal {
+    // Public for unfolding the open spec function, with no public path to the marker.
+    pub uninterp spec fn may_panic() -> bool;
 
-/// Unconditionally diverges. Must be provided with a [`may_panic()] token to ensure that
-/// the panic is expected.
+}
+
+/// Expresses a conditional no-panic guarantee in a precondition.
+/// When its argument holds, the caller can invoke the function without permitting
+/// a panic. When the argument is false, the caller must permit a possible panic.
+pub open spec fn no_panic_when(condition: bool) -> bool {
+    !condition ==> internal::may_panic()
+}
+
+/// Unconditionally panics. The caller must permit a panic.
 #[verifier::external_body]
 pub fn panic_diverge() -> !
     requires
-        may_panic(),
+        no_panic_when(false),
 {
     vpanic!("");
 }
@@ -38,7 +45,7 @@ pub trait UnwrapOrPanic: Sized {
 
     fn unwrap_or_panic(self) -> (r: Self::Inner)
         requires
-            !self.is_present() ==> may_panic(),
+            no_panic_when(self.is_present()),
         ensures
             self.is_present(),
             r == self.payload(),

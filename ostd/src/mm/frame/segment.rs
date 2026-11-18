@@ -9,7 +9,7 @@ use vstd::{
     },
 };
 use vstd_extra::{
-    assert, cast_ptr::*, ownership::*, panic::may_panic, prelude::*, raw_ptr::ExposedPointsTo,
+    assert, cast_ptr::*, ownership::*, panic::no_panic_when, prelude::*, raw_ptr::ExposedPointsTo,
 };
 
 use crate::specs::{
@@ -277,7 +277,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 },
             forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
                 metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> paddr_in == paddr_out,
-            !(range.end <= MAX_PADDR ==> range.start < range.end) ==> may_panic(),
+            no_panic_when(range.end <= MAX_PADDR ==> range.start < range.end),
         ensures
             final(regions).inv(),
             (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
@@ -606,8 +606,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         requires
             self.inv(),
-            offset % PAGE_SIZE != 0 ==> may_panic(),
-            !(0 < offset && offset < self.size()) ==> may_panic(),
+            no_panic_when(offset % PAGE_SIZE == 0),
+            no_panic_when(0 < offset < self.size()),
         ensures
             (r.0, r.1) == self.split_spec(offset),
     )]
@@ -684,11 +684,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             self.inv(),
             old(regions).inv(),
             self.relate_regions(*old(regions)),
-            range.start % PAGE_SIZE != 0 ==> may_panic(),
-            range.end % PAGE_SIZE != 0 ==> may_panic(),
-            range.start > range.end ==> may_panic(),
-            range.end > self.size() ==> may_panic(),
-            self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
+            no_panic_when(range.start % PAGE_SIZE == 0),
+            no_panic_when(range.end % PAGE_SIZE == 0),
+            no_panic_when(range.start <= range.end),
+            no_panic_when(range.end <= self.size()),
+            no_panic_when(!self.page_in_range_saturated(range, *old(regions))),
         ensures
             range.start % PAGE_SIZE == 0,
             range.end % PAGE_SIZE == 0,
@@ -729,7 +729,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 start == self.range.start + range.start,
                 end == self.range.start + range.end,
                 end == start + addr_len * PAGE_SIZE,
-                self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
+                no_panic_when(!self.page_in_range_saturated(range, *old(regions))),
                 regions.inv(),
                 regions.slots == old(regions).slots,
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -784,7 +784,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 assert(paddr == (self.range.start + perm_idx * PAGE_SIZE) as usize);
-                assert(regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX ==> may_panic()) by {
+                assert(no_panic_when(regions.slot_owner(paddr).ref_count() < REF_COUNT_MAX)) by {
                     if regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX {
                         assert(self.page_in_range_saturated(range, *old(regions)));
                     }

@@ -43,7 +43,7 @@ use vstd::{
 use vstd_extra::{
     cast_ptr::*,
     ownership::*,
-    panic::may_panic,
+    panic::no_panic_when,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
 };
 
@@ -324,7 +324,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
         requires
             old(regions).inv(),
-            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            no_panic_when(valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) < REF_COUNT_MAX),
         ensures
             final(regions).inv(),
             res matches Ok(res) ==> {
@@ -597,7 +597,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& self.wf_with_region(regions)
         &&& ref_count > 0
         &&& ref_count != REF_COUNT_UNUSED
-        &&& ref_count >= REF_COUNT_MAX ==> may_panic()
+        &&& no_panic_when(ref_count < REF_COUNT_MAX)
     }
 
     open spec fn clone_ensures(
@@ -817,8 +817,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         old(regions).slot_owner(paddr).ref_count() > 0,
         old(regions).slot_owner(paddr).ref_count()
             != REF_COUNT_UNUSED,
-        old(regions).slot_owner(paddr).ref_count()
-            >= REF_COUNT_MAX ==> may_panic(),
+        no_panic_when(old(regions).slot_owner(paddr).ref_count() < REF_COUNT_MAX),
     ensures
         final(regions).inv(),
         permission@.frac() == 1,

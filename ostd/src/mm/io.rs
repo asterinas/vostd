@@ -39,7 +39,7 @@
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
 use vstd::{arithmetic::power2::is_pow2, prelude::*};
-use vstd_extra::{assert, ownership::Inv, panic::may_panic};
+use vstd_extra::{assert, ownership::Inv, panic::no_panic_when};
 
 pub use crate::specs::mm::io::{
     VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
@@ -376,7 +376,7 @@ impl<'a> VmWriter<'a, Infallible> {
             core::mem::size_of::<T>() > 0,
             core::mem::align_of::<T>() > 0,
             core::mem::size_of::<T>() % core::mem::align_of::<T>() == 0,
-            old(self).fill_panic_condition::<T>() ==> may_panic(),
+            no_panic_when(!old(self).fill_panic_condition::<T>()),
         ensures
             final(self).inv(),
             final(self).wf(*final(writer_owner)),
@@ -594,7 +594,7 @@ impl<'a> VmWriter<'a, Infallible> {
             old(owner).has_write_view(),
             // The runtime `assert!(cursor.is_aligned())` diverges unless the
             // cursor is aligned for `T`.
-            old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
+            no_panic_when(old(self).cursor.vaddr % core::mem::align_of::<T>() == 0),
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -957,7 +957,7 @@ impl<'a> VmReader<'a, Infallible> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).read_view_initialized(),
-            old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
+            no_panic_when(old(self).cursor.vaddr % core::mem::align_of::<T>() == 0),
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -1458,7 +1458,7 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`
             // is a power of two.
-            !(align <= 1 || is_pow2(align as int)) ==> may_panic(),
+            no_panic_when(align <= 1 || is_pow2(align as int)),
         ensures
             align <= 1 || is_pow2(align as int),
     {
