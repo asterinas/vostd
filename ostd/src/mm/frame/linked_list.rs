@@ -887,24 +887,21 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     /// `CursorOwner` guarantees the perm for the current link is live.
     #[verus_spec(
         with Tracked(owner): Tracked<&'b mut CursorOwner<M>>,
-            Tracked(regions): Tracked<&'b mut MetaRegionOwners>,
+            Tracked(regions): Tracked<&'b MetaRegionOwners>,
     )]
     pub fn current_meta<'b>(&'b mut self) -> (res: Option<&'b mut M>)
         requires
-            old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).wf_with_region(*old(regions)),
-            old(regions).inv(),
+            old(self).wf_region(*old(owner), *regions),
+            old(owner).wf_with_region(*regions),
+            regions.inv(),
         ensures
             final(owner).index == old(owner).index,
             final(owner).list_own.list == old(owner).list_own.list,
             final(owner).list_own.list_id == old(owner).list_own.list_id,
             *final(self) == *old(self),
             res.is_some() == (0 <= final(owner).index < final(owner).length()),
-            final(regions).slots.dom() == old(regions).slots.dom(),
-            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-            *final(regions) == *old(regions),
-            final(owner).wf_with_region(*final(regions)),
-            final(self).wf_region(*final(owner), *final(regions)),
+            final(owner).wf_with_region(*regions),
+            final(self).wf_region(*final(owner), *regions),
             res matches Some(meta) ==> {
                 &&& *meta == old(owner).list_own.values()[old(owner).index]
                 &&& final(owner).list_own.values() == old(owner).list_own.values().update(

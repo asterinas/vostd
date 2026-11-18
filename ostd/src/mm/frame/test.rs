@@ -274,7 +274,7 @@ mod linked_list {
         let mut cursor = list.cursor_front_mut();
         // *2 1 3 ()
         assert_eq!(
-            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(regions))]
+            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(&*regions))]
             cursor.current_meta())
             .unwrap()
             .value,
@@ -285,7 +285,7 @@ mod linked_list {
         proof! { cursor_own.index = cursor_own.move_next_owner_spec().index; }
         // 2 *1 3 ()
         assert_eq!(
-            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(regions))]
+            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(&*regions))]
             cursor.current_meta())
             .unwrap()
             .value,
@@ -296,7 +296,7 @@ mod linked_list {
         proof! { cursor_own.index = cursor_own.move_next_owner_spec().index; }
         // 2 1 *3 ()
         assert_eq!(
-            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(regions))]
+            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(&*regions))]
             cursor.current_meta())
             .unwrap()
             .value,
@@ -307,7 +307,7 @@ mod linked_list {
         proof! { cursor_own.index = cursor_own.move_next_owner_spec().index; }
         // 2 1 3 *()
         assert!(
-            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(regions))]
+            (#[verus_spec(with Tracked(&mut cursor_own), Tracked(&*regions))]
             cursor.current_meta())
             .is_none()
         );
