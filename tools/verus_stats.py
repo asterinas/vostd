@@ -99,10 +99,11 @@ def is_unplanned_module(group: str, child: str) -> bool:
 # trusted away (external_body), excluding trait impls without bodies and
 # auto-derived impl items.
 
+# `when_used_as_spec` redirects calls in specifications and leaves the
+# annotated function executable.
 SPEC_ONLY_ATTRS = (
     "#[verus::internal(spec)]",
     "#[verus::internal(proof)]",
-    "#[verifier::when_used_as_spec(",
 )
 TRUSTED_ATTRS = {"#[verifier::external_body]"}
 TRAIT_IMPL_NO_BODY_ATTRS = {"#[attr = Inline(Hint)]"}
@@ -140,7 +141,10 @@ def is_trait_impl_without_body(item: dict[str, Any]) -> bool:
 
 
 def is_automatically_derived_impl(item: dict[str, Any]) -> bool:
-    return "automatically_derived" in item.get("attrs", [])
+    return any(
+        attr in {"automatically_derived", "#[automatically_derived]"}
+        for attr in item_attr_strings(item)
+    )
 
 
 def trim_source_path(filename: str) -> str:
