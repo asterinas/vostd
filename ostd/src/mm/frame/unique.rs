@@ -608,7 +608,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         ensures
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-            old(regions).slot_owners[frame.index()].paths_in_pt.is_empty() ==> final(regions).inv(),
+            res is Err || old(regions).slot_owners[frame.index()].paths_in_pt.is_empty()
+                ==> final(regions).inv(),
             res matches Ok(unique) ==> {
                 &&& unique.inv()
                 &&& unique.ptr == frame.ptr

@@ -275,13 +275,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(frame_own).meta_own.slot_vaddr == old(frame_own).meta_own.slot_vaddr,
             final(frame_own).meta_own.in_list == final(owner).list_id,
             final(owner).values() == old(owner).values().insert(0, frame.meta_value(*old(frame_own)).meta),
-            final(regions).slots == old(regions).slots,
-            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
-                old(regions).slot_owners.contains_key(idx)
-                && idx != old(frame_own).slot_index
-                && (forall|i: int| #![trigger old(owner).list[i]]
-                    0 <= i < old(owner).list.len() ==> idx != meta_to_index(old(owner).list[i].slot_vaddr))
-                ==> final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
+            *final(regions) == old(regions).insert_slot_owner(
+                frame.start_paddr_spec(),
+                final(regions).slot_owner(frame.start_paddr_spec()),
+            ),
     )]
     pub fn push_front(&mut self, frame: UniqueFrame<Link<M>>) {
         let current = self.front;
@@ -402,13 +399,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(frame_own).meta_own.slot_vaddr == old(frame_own).meta_own.slot_vaddr,
             final(frame_own).meta_own.in_list == final(owner).list_id,
             final(owner).values() == old(owner).values().push(frame.meta_value(*old(frame_own)).meta),
-            final(regions).slots == old(regions).slots,
-            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
-                old(regions).slot_owners.contains_key(idx)
-                && idx != old(frame_own).slot_index
-                && (forall|i: int| #![trigger old(owner).list[i]]
-                    0 <= i < old(owner).list.len() ==> idx != meta_to_index(old(owner).list[i].slot_vaddr))
-                ==> final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
+            *final(regions) == old(regions).insert_slot_owner(
+                frame.start_paddr_spec(),
+                final(regions).slot_owner(frame.start_paddr_spec()),
+            ),
     )]
     pub fn push_back(&mut self, frame: UniqueFrame<Link<M>>) {
         let tracked owner0 = LinkedListOwner::tracked_take(owner);
@@ -1273,15 +1267,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 old(owner).index,
                 frame.meta_value(*old(frame_own)).meta,
             ),
-            final(regions).slots == old(regions).slots,
-            forall|idx: int|
-                #![trigger final(regions).slot_owners[idx]]
-                old(regions).slot_owners.contains_key(idx) && idx != old(frame_own).slot_index && (
-                forall|i: int|
-                    #![trigger old(owner).list_own.list[i]]
-                    0 <= i < old(owner).list_own.list.len() ==> idx != meta_to_index(
-                        old(owner).list_own.list[i].slot_vaddr,
-                    )) ==> final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
+            *final(regions) == old(regions).insert_slot_owner(
+                frame.start_paddr_spec(),
+                final(regions).slot_owner(frame.start_paddr_spec()),
+            ),
     {
         hide(MetaSlotOwner::storage_perm);
         hide(MetaSlotOwner::vtable_ptr_perm);
@@ -1435,7 +1424,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             assert(owner0.list_own.list.len() > 0 ==> list_id == owner0.list_own.list_id);
         }
-        let tracked mut frame_so = regions.slot_owners.tracked_borrow_mut(frame_own.slot_index);
+        let ghost paddr = frame.start_paddr_spec();
+        let tracked mut frame_so = regions.tracked_borrow_mut_slot_owner(paddr);
         let tracked mut fip = &mut frame_so;
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list_perm), list_id);
