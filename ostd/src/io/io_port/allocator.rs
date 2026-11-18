@@ -122,7 +122,7 @@ impl SimpleResourceInvariant<IdAlloc> for IoPortAllocInvariant {
     closed spec fn inv(alloc: IdAlloc, r: IoPortAllocation) -> bool {
         &&& r.instance_id() == io_port_allocator_instance_id()
         &&& alloc.inv()
-        &&& alloc@.len() == MAX_IO_PORT
+        &&& alloc@.len() == MAX_IO_PORT + 1
         &&& r.value().subset_of(id_alloc_view(&alloc))
     }
 }
@@ -142,24 +142,18 @@ pub(super) struct IoPortAllocator {
 impl IoPortAllocator {
     #[verus_spec(
         requires 1 <= size_of::<T>() <= 4,
-        returns (MAX_IO_PORT - size_of::<T>()) as u16,
+        returns (MAX_IO_PORT + 1 - size_of::<T>()) as usize,
     )]
-    /* The latest upstream fix uses a type-dependent constant:
-     * https://github.com/asterinas/asterinas/pull/4221
-     * A local const cannot capture T, and Verus does not support inline const blocks,
-     * so the calculation is moved into this const fn.
+    /* Verus does not support the generic inline const block used upstream.
      * Origin Rust:
-     * const MAX_IO_PORT_FOR_T: u16 = {
-     *     // In practice, the only valid types for the `T` parameter are
-     *     // `u8`, `u16`, and `u32`.
+     * let max_io_port_for_t = const {
      *     assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
-     *     // Compile-time calculation. No worry about integer overflow at runtime.
-     *     crate::arch::io::MAX_IO_PORT - (size_of::<T>() as u16)
+     *     crate::arch::io::MAX_IO_PORT as usize + 1 - size_of::<T>()
      * };
      */
-    const fn max_port<T>() -> u16 {
+    const fn max_io_port_for_t<T>() -> usize {
         assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
-        MAX_IO_PORT - (size_of::<T>() as u16)
+        MAX_IO_PORT as usize + 1 - size_of::<T>()
     }
 
     /// Acquires an `IoPort`. Returns `None` if the PIO range is unavailable.
@@ -170,26 +164,27 @@ impl IoPortAllocator {
     #[verus_spec(result =>
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
-            port + size_of::<T>() <= MAX_IO_PORT ==> obeys_io_port_access_spec::<T>(),
+            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> obeys_io_port_access_spec::<T>(),
             io_port_allocator_initialized(),
         ensures
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= MAX_IO_PORT
+                &&& port + size_of::<T>() <= MAX_IO_PORT + 1
             },
     )]
     pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {
         proof! {
             broadcast use group_io_port_models;
         }
-        let max_port = Self::max_port::<T>();
-        if port > max_port {
+        let max_io_port_for_t = Self::max_io_port_for_t::<T>();
+        let port = port as usize;
+        if port > max_io_port_for_t {
             return None;
         }
         let range = if !is_overlapping {
-            port..port + (size_of::<T>() as u16)
+            port..port + size_of::<T>()
         } else {
             port..port + 1
         };
@@ -203,7 +198,7 @@ impl IoPortAllocator {
             assert(
                 instance_id == io_port_allocator_instance_id()
                     && allocator.value().inv()
-                    && allocator.value()@.len() == MAX_IO_PORT
+                    && allocator.value()@.len() == MAX_IO_PORT + 1
                     && preserved.subset_of(id_alloc_view(&allocator.value()))
             );
         }
@@ -216,13 +211,13 @@ impl IoPortAllocator {
                 requires
                     range.start <= i < range.end,
                 ensures
-                    ret == id_alloc_view(&allocator_inner).contains(i as usize),
+                    ret == id_alloc_view(&allocator_inner).contains(i),
             )]
             |i| {
                 proof! {
-                    lemma_id_alloc_view_contains(&allocator_inner, i as usize);
+                    lemma_id_alloc_view_contains(&allocator_inner, i);
                 }
-                allocator_inner.is_allocated(i as usize)
+                allocator_inner.is_allocated(i)
             },
         ) {
             allocator.drop();
@@ -230,7 +225,7 @@ impl IoPortAllocator {
         }
 
         proof_decl! {
-            let ghost ids = Set::<usize>::range(range.start as usize, range.end as usize);
+            let ghost ids = Set::<usize>::range(range.start, range.end);
             let ghost allocation_start_view = id_alloc_view(&allocator_inner);
         }
         proof! {
@@ -239,14 +234,14 @@ impl IoPortAllocator {
                     !id_alloc_view(&allocator_inner).contains(id) by {
                     assert(IteratorSpec::remaining(&range)[
                         id as int - range.start as int
-                    ] == id as u16);
+                    ] == id);
                 }
             }
             assert forall|id: usize| ids.contains(id) implies
                 id < allocator_inner@.len() by {
             }
             assert forall|id: usize|
-                range.start as usize <= id < range.end as usize implies
+                range.start <= id < range.end implies
                 !id_alloc_view(&allocator_inner).contains(id) by {
             }
         }
@@ -254,21 +249,21 @@ impl IoPortAllocator {
             invariant
                 allocator_inner.inv(),
                 allocator_inner@.len()
-                    == MAX_IO_PORT,
-                range.end as usize <= allocator_inner@.len(),
+                    == MAX_IO_PORT + 1,
+                range.end <= allocator_inner@.len(),
                 instance_id == io_port_allocator_instance_id(),
                 preserved.subset_of(allocation_start_view),
                 preserved.subset_of(id_alloc_view(&allocator_inner)),
                 id_alloc_view(&allocator_inner) ==
                     allocation_start_view.union(
                         Set::<usize>::range(
-                            range.start as usize,
+                            range.start,
                             (range.start + allocation_iter.index()) as usize,
                         ),
                     ),
                 forall|id: usize|
                     (range.start + allocation_iter.index()) as usize <= id <
-                        range.end as usize ==>
+                        range.end ==>
                     !id_alloc_view(&allocator_inner).contains(id),
         )]
         for i in range.clone() {
@@ -278,49 +273,49 @@ impl IoPortAllocator {
                 let ghost old_len = (allocator_inner@.len()) as int;
             }
             proof! {
-                assert((i as usize) ==
+                assert(i ==
                     (range.start + allocation_iter.index()) as usize);
-                assert((i as usize) < allocator_inner@.len());
+                assert(i < allocator_inner@.len());
                 assert(allocator_inner.inv());
-                assert(!id_alloc_view(&allocator_inner).contains(i as usize));
-                assert(preserved.subset_of(old_view.insert(i as usize))) by {
+                assert(!id_alloc_view(&allocator_inner).contains(i));
+                assert(preserved.subset_of(old_view.insert(i))) by {
                     assert forall|id: usize|
                         preserved.contains(id) implies
-                        old_view.insert(i as usize).contains(id) by {
+                        old_view.insert(i).contains(id) by {
                     }
                 }
             }
-            allocator_inner.alloc_specific(i as usize);
+            allocator_inner.alloc_specific(i);
             proof! {
                 assert(allocator_inner@.len() == old_len);
-                assert(id_alloc_view(&allocator_inner) == old_view.insert(i as usize)) by {
+                assert(id_alloc_view(&allocator_inner) == old_view.insert(i)) by {
                     // Extending the interval by one byte. vstd exposes no range-extension
                     // lemma, so the step goes through set extensionality here; membership
                     // comes from the default `range_set_properties` broadcast.
-                    assert(Set::<usize>::range(range.start as usize, i as usize).insert(i as usize)
+                    assert(Set::<usize>::range(range.start, i).insert(i)
                         =~= Set::<usize>::range(
-                            range.start as usize,
-                            (i as usize + 1) as usize,
+                            range.start,
+                            (i + 1) as usize,
                         )) by {
                         assert forall|j: usize|
                             #![trigger Set::<usize>::range(
-                                range.start as usize,
-                                (i as usize + 1) as usize,
+                                range.start,
+                                (i + 1) as usize,
                             ).contains(j)]
                             Set::<usize>::range(
-                                range.start as usize,
-                                (i as usize + 1) as usize,
+                                range.start,
+                                (i + 1) as usize,
                             ).contains(j)
                                 == Set::<usize>::range(
-                                    range.start as usize,
-                                    i as usize,
-                                ).insert(i as usize).contains(j) by {
+                                    range.start,
+                                    i,
+                                ).insert(i).contains(j) by {
                         }
                     }
                     assert forall|j: usize|
                         #![trigger id_alloc_view(&allocator_inner).contains(j)]
                         id_alloc_view(&allocator_inner).contains(j)
-                        == old_view.insert(i as usize).contains(j) by {
+                        == old_view.insert(i).contains(j) by {
                         lemma_id_alloc_bits_char(old_seq, old_len, j);
                         lemma_id_alloc_bits_char(allocator_inner@, old_len, j);
                         assert(allocator_inner@ == old_seq.update(i as int, true));
@@ -335,7 +330,7 @@ impl IoPortAllocator {
                 assert(
                 instance_id == io_port_allocator_instance_id()
                     && allocator_inner.inv()
-                    && allocator_inner@.len() == MAX_IO_PORT
+                    && allocator_inner@.len() == MAX_IO_PORT + 1
                     && preserved.subset_of(id_alloc_view(&allocator_inner))
             );
             }
@@ -352,11 +347,11 @@ impl IoPortAllocator {
 
         // SAFETY: The created `IoPort` is guaranteed not to access system device I/O.
         /* Origin Rust:
-         * unsafe { Some(IoPort::new_overlapping(port, is_overlapping)) }
+         * unsafe { Some(IoPort::new_overlapping(port as u16, is_overlapping)) }
          */
         let result = unsafe {
             Some(IoPort::new_overlapping(
-                port,
+                port as u16,
                 is_overlapping,
                 verus_exec_expr! { Tracked(Some(range_claim)) },
             ))
@@ -368,7 +363,7 @@ impl IoPortAllocator {
             assert(
                 allocator.resource().instance_id() == io_port_allocator_instance_id()
                     && allocator.value().inv()
-                    && allocator.value()@.len() == MAX_IO_PORT
+                    && allocator.value()@.len() == MAX_IO_PORT + 1
                     && allocator.resource().value().subset_of(id_alloc_view(&allocator.value()))
             );
         }
@@ -386,16 +381,16 @@ impl IoPortAllocator {
             Tracked(claim): Tracked<GhostSubset<usize>>,
         requires
             claim.id() == io_port_allocator_instance_id(),
-            claim@ =~= Set::<usize>::range(range.start as usize, range.end as usize),
-            range.start <= range.end,
+            claim@ =~= Set::<usize>::range(range.start, range.end),
+            range.start <= range.end <= MAX_IO_PORT + 1,
             io_port_allocator_initialized(),
     )]
-    pub(super) unsafe fn recycle(&self, range: Range<u16>) {
+    pub(super) unsafe fn recycle(&self, range: Range<usize>) {
         /* debug!("Recycling PIO range: {:#x?}", range); */
         /* Original Rust:
         self.allocator
             .lock()
-            .free_consecutive(range.start as usize..range.end as usize);
+            .free_consecutive(range);
         */
 
         let mut allocator = self.allocator.lock();
@@ -408,7 +403,7 @@ impl IoPortAllocator {
             let ghost pre_len: int;
         }
         proof! {
-            assert(range.start as usize <= range.end as usize);
+            assert(range.start <= range.end);
             instance_id = allocator.resource().instance_id();
             preserved = allocator.resource().value();
             pre_seq = allocator.value()@;
@@ -417,40 +412,34 @@ impl IoPortAllocator {
             assert(
                 instance_id == io_port_allocator_instance_id()
                     && allocator.value().inv()
-                    && allocator.value()@.len() == MAX_IO_PORT
+                    && allocator.value()@.len() == MAX_IO_PORT + 1
                     && preserved.subset_of(id_alloc_view(&allocator.value()))
             );
             assert(preserved.subset_of(bitmap_view));
             assert(bitmap_view == id_alloc_bits(pre_seq, pre_len));
-            assert(pre_len == MAX_IO_PORT);
-            assert(MAX_IO_PORT <= usize::MAX);
+            assert(pre_len == MAX_IO_PORT + 1);
             assert(pre_len <= usize::MAX);
             assert(claim.id() == instance_id);
-            assert((range.end as usize) <= allocator.value()@.len()) by {
-                assert((range.end as usize) <= u16::MAX as usize);
-                assert((u16::MAX as usize) <= MAX_IO_PORT);
-                assert(allocator.value()@.len()
-                    == MAX_IO_PORT);
-            }
+            assert(range.end <= allocator.value()@.len());
         }
         proof! {
             let tracked r = allocator.tracked_borrow_mut_resource();
             r.lemma_claim_includes(&claim);
-            assert(Set::<usize>::range(range.start as usize, range.end as usize) <= r.value());
+            assert(Set::<usize>::range(range.start, range.end) <= r.value());
             assert(r.value() == preserved);
-            assert(Set::<usize>::range(range.start as usize, range.end as usize) <= preserved);
+            assert(Set::<usize>::range(range.start, range.end) <= preserved);
             r.tracked_release(claim);
             token_released = r.value();
             assert(token_released
                 == preserved.difference(Set::<usize>::range(
-                    range.start as usize,
-                    range.end as usize,
+                    range.start,
+                    range.end,
                 )));
             assert forall|id: usize|
                 #![trigger token_released.contains(id)]
                 token_released.contains(id) implies {
                 &&& bitmap_view.contains(id)
-                &&& !(range.start as usize <= id < range.end as usize)
+                &&& !(range.start <= id < range.end)
             } by {
             }
         }
@@ -458,34 +447,38 @@ impl IoPortAllocator {
         /* Original Rust:
         self.allocator
             .lock()
-            .free_consecutive(range.start as usize..range.end as usize);
+            .free_consecutive(range);
         */
         proof! {
-            assert(allocator_inner@.len() == MAX_IO_PORT);
+            assert(allocator_inner@.len() == MAX_IO_PORT + 1);
             assert(allocator_inner@ == pre_seq);
-            assert((range.end as usize) <= allocator_inner@.len());
+            assert(range.end <= allocator_inner@.len());
             assert(
                 instance_id == io_port_allocator_instance_id()
                     && allocator_inner.inv()
-                    && allocator_inner@.len() == MAX_IO_PORT
+                    && allocator_inner@.len() == MAX_IO_PORT + 1
                     && preserved.subset_of(id_alloc_view(&allocator_inner))
             );
             assert(id_alloc_view(&allocator_inner) == bitmap_view);
             assert forall|i: int|
-                range.start as usize <= i < range.end as usize
+                range.start <= i < range.end
                     && i < allocator_inner@.len() implies
                 allocator_inner@[i]
             by {
-                assert(Set::<usize>::range(range.start as usize, range.end as usize)
+                assert(Set::<usize>::range(range.start, range.end)
                     <= preserved);
                 assert(preserved.subset_of(bitmap_view));
                 assert(bitmap_view == id_alloc_view(&allocator_inner));
-                assert(Set::<usize>::range(range.start as usize, range.end as usize)
+                assert(Set::<usize>::range(range.start, range.end)
                     .contains(i as usize));
                 lemma_id_alloc_view_contains(&allocator_inner, i as usize);
             }
         }
-        allocator_inner.free_consecutive(range.start as usize..range.end as usize);
+        proof_decl! {
+            let ghost released_start = range.start;
+            let ghost released_end = range.end;
+        }
+        allocator_inner.free_consecutive(range);
         proof! {
             assert(allocator.value() == *allocator_inner);
             let final_llen: int = allocator_inner@.len() as int;
@@ -500,10 +493,10 @@ impl IoPortAllocator {
                 assert(allocator.resource().value().contains(id)
                     == (preserved.contains(id)
                         && !Set::<usize>::range(
-                            range.start as usize,
-                            range.end as usize,
+                            released_start,
+                            released_end,
                         ).contains(id)));
-                assert(Set::<usize>::range(range.start as usize, range.end as usize)
+                assert(Set::<usize>::range(released_start, released_end)
                     <= preserved);
                 assert(preserved.subset_of(bitmap_view));
                 assert(bitmap_view == id_alloc_bits(pre_seq, pre_len));
@@ -511,12 +504,12 @@ impl IoPortAllocator {
                     == id_alloc_bits(allocator_inner@, final_llen));
             }
             assert(allocator_inner.inv());
-            assert(allocator_inner@.len() == MAX_IO_PORT);
+            assert(allocator_inner@.len() == MAX_IO_PORT + 1);
             assert(allocator.resource().instance_id() == instance_id);
             assert(
                 allocator.resource().instance_id() == io_port_allocator_instance_id()
                     && allocator_inner.inv()
-                    && allocator_inner@.len() == MAX_IO_PORT
+                    && allocator_inner@.len() == MAX_IO_PORT + 1
                     && allocator.resource().value().subset_of(id_alloc_view(&allocator_inner))
             );
         }
@@ -550,7 +543,8 @@ pub(super) static IO_PORT_ALLOCATOR: Once<IoPortAllocator> = Once::new();
 #[verus_spec(ensures io_port_allocator_initialized())]
 pub(in crate::io) unsafe fn init() {
     // SAFETY: `MAX_IO_PORT` is guaranteed not to exceed the maximum value specified by architecture.
-    let mut allocator = IdAlloc::with_capacity(MAX_IO_PORT as usize);
+    let max_nr_io_ports = MAX_IO_PORT as usize + 1;
+    let mut allocator = IdAlloc::with_capacity(max_nr_io_ports);
 
     unsafe extern "C" {
         fn __sensitive_io_ports_start();
@@ -627,25 +621,14 @@ mod test {
 
     type IoPort = crate::io::IoPort<u32, ReadWriteAccess>;
     type ByteIoPort = crate::io::IoPort<u8, ReadWriteAccess>;
-    /*type OversizedPortValue = [u8; 0x10008];
-        type IllegalIoPort = crate::io::IoPort<OversizedPortValue, ReadWriteAccess>;
-
-        verus! {
-
-    global size_of OversizedPortValue == 0x10008;
-
-    } // verus!*/
     // #[ktest]
     #[verus_spec(requires io_port_allocator_initialized())]
     fn illegal_region() {
         let io_port_a = IoPort::acquire(0xffff);
         assert!(io_port_a.is_err());
 
-        /* Verus does not support function-local type aliases; the alias is defined at module scope.
-         * Origin Rust: type IllegalIoPort = crate::io::IoPort<[u8; 0x10008], ReadWriteAccess>;
-         */
-        /*let io_port_b = IllegalIoPort::acquire(0);
-        assert!(io_port_b.is_err());*/
+        let io_port_overlapping = IoPort::acquire_overlapping(0xfffe);
+        assert!(io_port_overlapping.is_err());
     }
 
     // #[ktest]
@@ -699,5 +682,30 @@ mod test {
 
         let pci_data3 = IoPort::acquire_overlapping(0xcf8);
         assert!(pci_data3.is_ok());
+    }
+
+    // #[ktest]
+    #[verus_spec(requires io_port_allocator_initialized(), may_panic())]
+    fn last_region() {
+        proof! { broadcast use group_io_port_models; }
+        /* Verus requires proof that the result is Ok before unwrap.
+         * Origin Rust: let io_port = IoPort::acquire(0xfffc).unwrap();
+         */
+        let io_port = IoPort::acquire(0xfffc);
+        assert!(io_port.is_ok());
+        let io_port = io_port.unwrap();
+        assert!(ByteIoPort::acquire(0xffff).is_err());
+        io_port.drop();
+
+        /* Verus requires proof that the result is Ok before unwrap.
+         * Origin Rust: let io_port = ByteIoPort::acquire_overlapping(0xffff).unwrap();
+         */
+        let io_port = ByteIoPort::acquire_overlapping(0xffff);
+        assert!(io_port.is_ok());
+        let io_port = io_port.unwrap();
+        assert!(ByteIoPort::acquire(0xffff).is_err());
+        io_port.drop();
+
+        assert!(ByteIoPort::acquire(0xffff).is_ok());
     }
 }

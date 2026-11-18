@@ -59,7 +59,7 @@ impl<T, A> IoPort<T, A> {
         &&& valid_io_port_access::<T>(self@)
         &&& self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
-            &&& claim@.subset_of(Set::<usize>::range(0, u16::MAX as usize))
+            &&& claim@.subset_of(Set::<usize>::range(0, (MAX_IO_PORT + 1) as usize))
             &&& self.claim_matches_set(claim@)
             &&& claim.id() == allocator::io_port_allocator_instance_id()
         }
@@ -111,14 +111,14 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
-            port + size_of::<T>() <= MAX_IO_PORT ==> obeys_io_port_access_spec::<T>(),
+            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= MAX_IO_PORT
+                &&& port + size_of::<T>() <= MAX_IO_PORT + 1
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
@@ -135,14 +135,14 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
-            port + size_of::<T>() <= MAX_IO_PORT ==> obeys_io_port_access_spec::<T>(),
+            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= MAX_IO_PORT
+                &&& port + size_of::<T>() <= MAX_IO_PORT + 1
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {
@@ -199,7 +199,7 @@ impl<T, A> IoPort<T, A> {
             obeys_io_port_access_spec::<T>(),
             valid_io_port_access::<T>(port),
             tracked_claim@ matches Some(claim) ==> {
-                &&& claim@.subset_of(Set::<usize>::range(0, u16::MAX as usize))
+                &&& claim@.subset_of(Set::<usize>::range(0, (MAX_IO_PORT + 1) as usize))
                 &&& allocator::io_port_allocator_initialized()
                 &&& claim.id() == allocator::io_port_allocator_instance_id()
                 &&& claim@ == Set::<usize>::range(
@@ -241,10 +241,11 @@ impl<T, A> IoPort<T, A> {
      * Origin Rust:
      * impl<T, A> Drop for IoPort<T, A> {
      *     fn drop(&mut self) {
+     *         let port = self.port as usize;
      *         let range = if !self.is_overlapping {
-     *             self.port..(self.port + size_of::<T>() as u16)
+     *             port..port + size_of::<T>()
      *         } else {
-     *             self.port..(self.port + 1)
+     *             port..port + 1
      *         };
      *
      *         // SAFETY: We have ownership of the PIO region.
@@ -262,10 +263,11 @@ impl<T, A> IoPort<T, A> {
                 (self@ + size_of::<T>() - 1) as usize,
             ));
         }
+        let port = self.port as usize;
         let range = if !self.is_overlapping {
-            self.port..(self.port + size_of::<T>() as u16)
+            port..port + size_of::<T>()
         } else {
-            self.port..(self.port + 1)
+            port..port + 1
         };
 
         proof_decl! {
