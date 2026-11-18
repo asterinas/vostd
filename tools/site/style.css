@@ -119,7 +119,7 @@ header.page .repo-btn:hover { background: var(--surface-1); }
 
 .tile .tile-label { color: var(--ink-2); font-size: 12.8px; }
 .tile .tile-value { font-size: 30px; font-weight: 600; line-height: 1.2; margin-top: 4px; }
-.tile .tile-delta { font-size: 12.8px; margin-top: 2px; color: var(--ink-2); }
+.tile .tile-detail, .tile .tile-delta { font-size: 12.8px; margin-top: 2px; color: var(--ink-2); }
 .tile .tile-delta.up { color: var(--good-text); }
 .tile .tile-delta.down { color: var(--bad-text); }
 
@@ -165,6 +165,7 @@ table.grid th, table.grid td {
 
 table.grid th:first-child, table.grid td:first-child { text-align: left; }
 table.grid th { color: var(--ink-2); font-weight: 600; border-top: none; }
+table.grid th.api-group-heading { border-top: 3px solid var(--ink-2); }
 table.grid tr:last-child td { border-bottom: none; }
 table.grid td.num-mismatch td, table.grid td .muted { color: var(--ink-3); }
 
