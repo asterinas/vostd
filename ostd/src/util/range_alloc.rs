@@ -12,9 +12,8 @@ use vstd::{
     },
     seq_lib::lemma_seq_contains_after_push,
     std_specs::btree::{
-        btree_map_wf,
-        // CursorMutModel, before_lower_bound, before_upper_bound, positioned_at_lower_bound,
-        // positioned_at_upper_bound,
+        CursorMutModel, before_lower_bound, before_upper_bound, btree_map_wf,
+        positioned_at_lower_bound, positioned_at_upper_bound,
     },
     std_specs::cmp::OrdSpec,
 };
@@ -249,6 +248,7 @@ impl RangeAllocator {
                 allocate_range.start < allocate_range.end,
                 right_length <= usize::MAX - allocate_range.end,
                 concrete_freelist_wf(self@, freelist@),
+                freelist_blocks_not_adjacent(freelist@),
                 btree_map_wf(freelist),
                 freelist@ == initial_map,
                 freelist_model(freelist@) == initial_freelist,
@@ -388,6 +388,7 @@ impl RangeAllocator {
                     &&& freelist@[key].block.end == range.end
                 },
                 concrete_freelist_wf(self@, freelist@),
+                freelist_blocks_not_adjacent(freelist@),
                 btree_map_wf(freelist),
         )]
         for (key, value) in freelist.iter() {
@@ -676,7 +677,9 @@ impl RangeAllocator {
             ret@ matches Some(freelist) ==> {
                 &&& concrete_freelist_wf(self@, freelist@)
                 &&& btree_map_wf(&freelist)
-                &&& ret.resource().remaining@ == free_set(freelist_model(freelist@))
+                &&& freelist_blocks_not_adjacent(freelist@)
+                &&& ret.resource().free@ == free_set(freelist_model(freelist@))
+                &&& ret.resource().allocated@ == self@.view_set() - ret.resource().free@
             },
             ret.constant().fullrange == self@,
             ret.constant().allocate_id == self.allocate_id(),
