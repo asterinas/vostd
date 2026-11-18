@@ -277,9 +277,6 @@ impl IoPortAllocator {
             proof! {
                 assert(allocator_inner@.len() == old_len);
                 assert(id_alloc_view(&allocator_inner) == old_view.insert(i)) by {
-                    // Extending the interval by one byte. vstd exposes no range-extension
-                    // lemma, so the step goes through set extensionality here; membership
-                    // comes from the default `range_set_properties` broadcast.
                     assert(Set::<usize>::range(range.start, i).insert(i)
                         =~= Set::<usize>::range(
                             range.start,
