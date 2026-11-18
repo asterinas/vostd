@@ -78,7 +78,9 @@ pub(crate) mod mapping {
 }
 
 } // verus!
-#[cfg(feature = "type_id")]
+// `AnyFrameMeta: Any` is part of the trait's declaration, and `#[cfg]` is not
+// honoured inside `verus!`, so this import cannot be gated either.
+use core::any::Any;
 use core::any::TypeId;
 use vstd::{
     atomic::{PAtomicU64, PermissionU64},
@@ -86,8 +88,6 @@ use vstd::{
     prelude::*,
     simple_pptr::PPtr,
 };
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 use vstd_extra::{
     ownership::*,
     panic::{may_panic, panic_diverge},
@@ -224,10 +224,7 @@ type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 ///
 /// If `on_drop` reads the page using the provided `VmReader`, the
 /// implementer must ensure that the frame is safe to read.
-pub unsafe trait AnyFrameMeta:   /*Any +*/
-// `Any` is unavailable under Verus, but its `'static` is what makes
-// `is_::<M>` and `&dyn Any` coercions legal; supply it directly.
-'static + Send + Sync {
+pub unsafe trait AnyFrameMeta: Any + Send + Sync {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region invariants) override this; the trait method's
@@ -300,44 +297,6 @@ pub unsafe trait AnyFrameMeta:   /*Any +*/
     }
 
     spec fn vtable_ptr(&self) -> usize where Self: Sized;
-
-    /// The identity of this metadata's concrete type.
-    ///
-    /// Upstream gets this from `AnyFrameMeta: Any`. We cannot: Verus propagates an
-    /// unsized-blanket-impl rejection from supertrait to subtrait
-    /// (`vir/src/traits.rs`) -- `dyn AnyFrameMeta` would stop being a legal type.
-    #[cfg(feature = "type_id")]
-    spec fn meta_id(&self) -> TypeId;
-
-    /// [`Self::meta_id`] really is `Self`'s identity.
-    ///
-    /// An obligation rather than a free lemma, for the reason the `erase` module
-    /// of the `typeid-example` repo gives: over a parameter `M: AnyFrameMeta`
-    /// nothing is known about `meta_id`, because `M` could be any impl. Moving it
-    /// to a trait method relocates the proof to where `Self` *is* concrete, and
-    /// there every impl discharges it with an empty body -- `meta_id` is `open`
-    /// and defined as `type_id::<Self>()`, so the statement is true by unfolding.
-    ///
-    /// It cannot be discharged falsely: an impl that defined `meta_id` as
-    /// anything else would fail to prove this. Same shape as
-    /// [`vstd_extra::typing::types::Any::type_id_correct`].
-    #[cfg(feature = "type_id")]
-    proof fn meta_id_correct(&self) where Self: Sized
-        ensures
-            self.meta_id() == type_id::<Self>(),
-    ;
-
-    /// Mimics the upcast `self as &dyn core::any::Any`.
-    ///
-    /// Upstream writes that upcast directly, which is legal for it because
-    /// `AnyFrameMeta: Any` makes `Any` a supertrait. We make it a method
-    /// instead: each impl performs the *sized* coercion `&Self -> &dyn Any`, which
-    /// is the same operation the vtable would have performed.
-    #[cfg(feature = "type_id")]
-    fn to_any(&self) -> (r: &dyn Any)
-        ensures
-            r.type_id_spec() == self.meta_id(),
-    ;
 }
 
 /*/// Makes a structure usable as a frame metadata.
@@ -451,7 +410,6 @@ pub fn vtable_ptr_of<M: AnyFrameMeta>(m: &M) -> (r: usize)
 /// rather than a trait object, so there is no `&dyn` to dispatch on. The address
 /// is carried, and tied to the permission, so the body can be written when
 /// there is.
-#[cfg(feature = "type_id")]
 #[verifier::external_body]
 pub fn is_untyped_at(
     slot: PPtr<MetaSlot>,

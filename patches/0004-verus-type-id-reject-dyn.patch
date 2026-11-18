@@ -1,0 +1,120 @@
+diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/fn_call_to_vir.rs
+--- a/source/rust_verify/src/fn_call_to_vir.rs
++++ b/source/rust_verify/src/fn_call_to_vir.rs
+@@ -1253,13 +1253,46 @@
+             ExprItem::TypeId => {
+                 record_spec_fn(bctx, expr);
+                 assert!(args.len() == 0);
++                let arg_ty = node_substs[0].expect_ty();
++
++                // Verus models a trait object type by its trait path and type
++                // arguments alone, which is not enough to tell one `dyn` type
++                // from another: `dyn A` and `dyn B` get tags no axiom relates or
++                // separates, so `type_id::<dyn A>() != type_id::<dyn B>()` is not
++                // provable (and neither is the equality). Rejecting here turns
++                // that into an error at the call site instead of an unexplained
++                // failure wherever the identity is eventually compared.
++                //
++                // The identity of the type *inside* a trait object is a different
++                // question, and is the one a downcast needs -- see
++                // `patches/ANY-SUPPORT-PLAN.md` section 4.1a in the vostd tree.
++                //
++                // Anywhere in the type, not just at the top: a tag folds in the
++                // tags of its arguments, so `Box<dyn A>` and `Wrap<dyn A>` are no
++                // more distinguishable from their `dyn B` counterparts than
++                // `dyn A` is. This check is syntactic, so it does not see a
++                // `?Sized` type parameter later instantiated at a `dyn` type;
++                // that case stays sound but equally weak.
++                if arg_ty.walk().into_iter().any(|arg| {
++                    arg.as_type().map_or(false, |t| matches!(t.kind(), TyKind::Dynamic(..)))
++                }) {
++                    return err_span(
++                        expr.span,
++                        format!(
++                            "Verus does not support `type_id` of the trait object type `{arg_ty}`: \
++                             two different `dyn` types are indistinguishable in Verus's model of \
++                             type identity",
++                        ),
++                    );
++                }
++
+                 let t = mid_ty_to_vir(
+                     tcx,
+                     &bctx.ctxt.verus_items,
+                     None::<&mut std::collections::HashMap<vir::ast::Path, rustc_span::def_id::DefId>>,
+                     bctx.fun_id,
+                     expr.span,
+-                    &node_substs[0].expect_ty(),
++                    &arg_ty,
+                     None,
+                 )?;
+ 
+diff --git a/source/rust_verify_test/tests/type_id.rs b/source/rust_verify_test/tests/type_id.rs
+--- a/source/rust_verify_test/tests/type_id.rs
++++ b/source/rust_verify_test/tests/type_id.rs
+@@ -197,6 +197,65 @@
+     } => Err(err) => assert_one_fails(err)
+ }
+ 
++// --- `dyn` types are rejected, not silently indistinguishable ---------------
++//
++// Verus models a trait object type by its trait path and type arguments, which
++// cannot tell `dyn A` from `dyn B`; neither the equality nor the disequality of
++// their tags is provable. The error names that at the call site rather than
++// leaving an unexplained failure wherever the identity is compared. The
++// identity of what is *inside* a trait object is a separate question and is the
++// one a downcast needs.
++
++test_verify_one_file! {
++    #[test] dyn_type_id_rejected verus_code! {
++        use verus_builtin::type_id;
++        trait A { spec fn a(&self) -> u64; }
++        proof fn t() {
++            let x = type_id::<dyn A>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++// A tag folds in the tags of its arguments, so a `dyn` type anywhere in the
++// type is just as indistinguishable as one at the top.
++test_verify_one_file! {
++    #[test] dyn_type_id_rejected_under_decoration verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        trait A { spec fn a(&self) -> u64; }
++        proof fn t() {
++            let x = type_id::<Box<dyn A>>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++test_verify_one_file! {
++    #[test] dyn_type_id_rejected_in_datatype_arg verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        trait A { spec fn a(&self) -> u64; }
++        struct Wrap<T: ?Sized>(core::marker::PhantomData<T>);
++        proof fn t() {
++            let x = type_id::<Wrap<dyn A>>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++// A `?Sized` type parameter is not a `dyn` type: generic code that takes the
++// identity of its parameter still works, which is what `vstd_extra`'s tagged
++// storage relies on.
++test_verify_one_file! {
++    #[test] unsized_type_param_still_allowed verus_code! {
++        use verus_builtin::type_id;
++        proof fn t<T: ?Sized>() {
++            assert(type_id::<T>() == type_id::<T>());
++        }
++        proof fn u<T: ?Sized>() {
++            assert(type_id::<&T>() != type_id::<T>());
++        }
++    } => Ok(())
++}
++
+ // --- `type_id_of`: the identity of the type a value actually has -------------
+ //
+ // A1: for a sized static type the value-level and type-level identities

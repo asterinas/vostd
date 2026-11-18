@@ -1,27 +1,28 @@
-//! [`Any`] exercised on three types, covering the behaviors that motivate it:
-//! upcast, downcast, and dispatch.
+//! `core::any::Any` exercised on three types, covering the behaviors that
+//! motivate it: upcast, downcast, and dispatch.
 //!
 //! # What this used to be
 //!
-//! A three-member aggregate, `L1 | (L2 | L3)`, built to check that *uniqueness
-//! composes*: each nesting node had to show its two sides claimed disjoint sets of
-//! hand-picked ids, and the example existed largely to demonstrate that those
-//! obligations were independent of one another.
+//! Twice over. First a three-member aggregate, `L1 | (L2 | L3)`, built to check
+//! that *uniqueness composes*: each nesting node had to show its two sides
+//! claimed disjoint sets of hand-picked ids. Then a version written against a
+//! local duplicate of `Any`'s interface, with a spec fn in the vtable and a
+//! per-impl obligation tying it to `type_id::<Self>()`.
 //!
-//! None of that has anything to prove now. Identity is `type_id::<T>()`, so
-//! distinctness is not an obligation and there is no world to close — a type does
-//! not need to be enrolled in an aggregate before it can be identified. What
-//! remains is the part that was always the point: an erased value can say what it
-//! is, and a downcast admits exactly one type.
+//! Neither has anything left to prove. Identity is `type_id::<T>()`, so
+//! distinctness is not an obligation and there is no world to close; and the
+//! identity of the type *inside* an erased value is `type_id_of`, so no trait of
+//! our own has to carry it. What remains is the part that was always the point:
+//! an erased value can say what it is, and a downcast admits exactly one type.
 //!
 //! # Three members, still
 //!
-//! Kept at three rather than two so the rejection case is not degenerate: with two
-//! members, "rejects the other" and "rejects everything that is not me" cannot be
-//! told apart.
+//! Kept at three rather than two so the rejection case is not degenerate: with
+//! two members, "rejects the other" and "rejects everything that is not me"
+//! cannot be told apart.
 use vstd::prelude::*;
 
-use super::types::*;
+use core::any::Any;
 
 verus! {
 
@@ -36,13 +37,12 @@ pub struct L3(pub u64);
 // ------------------------------------------------------------------
 /// A concrete value, viewed as an erased one.
 ///
-/// The postcondition is what makes the result usable: `type_id` is declared by
-/// [`Any`] itself and is not `where Self: Sized`, so it is in the vtable and
-/// survives the coercion. Without it the result would be an object nothing could
-/// be concluded about.
+/// The postcondition is what makes the result usable, and it is about the type
+/// erased *into* the object rather than about `dyn Any` itself -- those are
+/// different questions, and only this one survives the coercion.
 pub exec fn upcast_l2(v: &L2) -> (r: &dyn Any)
     ensures
-        r.type_id_spec() == type_id::<L2>(),
+        type_id_of(r) == type_id::<L2>(),
 {
     v
 }
@@ -52,30 +52,30 @@ pub exec fn upcast_l2(v: &L2) -> (r: &dyn Any)
 // ------------------------------------------------------------------
 /// An erased `L2` is an `L2`, and is neither an `L1` nor an `L3`.
 ///
-/// Both halves matter. The first is what a downcast needs in order to succeed; the
-/// second is the soundness property, and it is the one a closed-world model has to
-/// pay for with an explicit disjointness witness per pair of members. Here it is
-/// definitional, because the ids are real type ids rather than invented tags.
+/// Both halves matter. The first is what a downcast needs in order to succeed;
+/// the second is the soundness property, and it is the one a closed-world model
+/// has to pay for with an explicit disjointness witness per pair of members.
+/// Here it is definitional, because the ids are real type ids.
 pub proof fn erased_is_exactly_one(x: &dyn Any)
     requires
-        x.type_id_spec() == type_id::<L2>(),
+        type_id_of(x) == type_id::<L2>(),
     ensures
-        is_type::<L2>(x),
-        !is_type::<L1>(x),
-        !is_type::<L3>(x),
+        type_id_of(x) == type_id::<L2>(),
+        type_id_of(x) != type_id::<L1>(),
+        type_id_of(x) != type_id::<L3>(),
 {
 }
 
 /// Identifying an erased value, with no precondition at all.
 ///
 /// The caller does not have to know what `x` is, and the `<==>` is strong enough
-/// to conclude both that a match means an `L2`'s tag and that a non-match rules
+/// to conclude both that a match means an `L2`'s id and that a non-match rules
 /// it out.
 pub exec fn is_l2(x: &dyn Any) -> (r: bool)
     ensures
-        r <==> x.type_id_spec() == type_id::<L2>(),
+        r <==> type_id_of(x) == type_id::<L2>(),
 {
-    is_::<L2>(x)
+    x.is::<L2>()
 }
 
 /// The test discriminates, executably.
@@ -87,8 +87,8 @@ pub exec fn downcast_discriminates(b: &L2, c: &L3)
 {
     let eb: &dyn Any = b;
     let ec: &dyn Any = c;
-    assert(eb.type_id_spec() == type_id::<L2>());
-    assert(ec.type_id_spec() == type_id::<L3>());
+    assert(type_id_of(eb) == type_id::<L2>());
+    assert(type_id_of(ec) == type_id::<L3>());
     let ok = is_l2(eb);
     assert(ok);
     let no = is_l2(ec);
@@ -97,26 +97,25 @@ pub exec fn downcast_discriminates(b: &L2, c: &L3)
 
 /// Distinct members never satisfy each other's test.
 ///
-/// This is what stops an `L2` being mistaken for an `L1`, and it is why [`is_l2`]'s
-/// rejecting half is sound rather than merely stated.
+/// This is what stops an `L2` being mistaken for an `L1`, and it is why
+/// [`is_l2`]'s rejecting half is sound rather than merely stated. It used to
+/// need a lemma relating each value's recorded id to its type's; `type_id_of`
+/// *is* that relation, so the body is empty.
 pub proof fn downcast_rejects_others(a: &L1, b: &L2, c: &L3)
     ensures
-        a.type_id_spec() != b.type_id_spec(),
-        b.type_id_spec() != c.type_id_spec(),
-        a.type_id_spec() != c.type_id_spec(),
+        type_id_of(a) != type_id_of(b),
+        type_id_of(b) != type_id_of(c),
+        type_id_of(a) != type_id_of(c),
 {
-    lemma_distinct_types_distinct_values::<L1, L2>(a, b);
-    lemma_distinct_types_distinct_values::<L2, L3>(b, c);
-    lemma_distinct_types_distinct_values::<L1, L3>(a, c);
 }
 
 // ------------------------------------------------------------------
 // Dispatch.
 // ------------------------------------------------------------------
-/// A trait the members share, so that an erased value can be *run* and not merely
-/// identified.
+/// A trait the members share, so that an erased value can be *run* and not
+/// merely identified.
 ///
-/// Separate from [`Any`] on purpose: the two erasures answer different questions.
+/// Separate from `Any` on purpose: the two erasures answer different questions.
 /// `Any` says which type it is; `Payload` runs its code.
 pub trait Payload {
     spec fn word_spec(&self) -> u64;
@@ -173,6 +172,22 @@ pub exec fn erase_then_dispatch(v: L2) -> (r: u64)
 {
     let d: &dyn Payload = &v;
     dispatch(d)
+}
+
+/// Both erasures of one value, and the identity that survives the first.
+///
+/// `Payload` dispatch and `Any` identification are independent: a value can be
+/// erased either way, and asking one question does not require the other's
+/// vtable.
+pub exec fn both_erasures(v: &L2) -> (r: bool)
+    ensures
+        r,
+{
+    let p: &dyn Payload = v;
+    let a: &dyn Any = v;
+    let w = p.word();
+    assert(w == v.0);
+    is_l2(a)
 }
 
 } // verus!

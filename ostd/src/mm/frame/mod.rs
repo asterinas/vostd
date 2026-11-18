@@ -29,10 +29,8 @@
 //! module. The reference count and usage of a frame are stored in the metadata
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
-#[cfg(feature = "type_id")]
-use core::any::TypeId;
+use core::any::{Any, TypeId};
 use vstd::std_specs::convert::FromSpecImpl;
-#[cfg(feature = "type_id")]
 use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd::{
     assert_maps_equal, assert_sets_equal,
@@ -47,8 +45,6 @@ use vstd::{
 };
 use vstd_extra::transmute::{can_transmute, transmuted};
 use vstd_extra::typing::tagged::MaxSize;
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::{Any, is_};
 use vstd_extra::{
     ownership::*,
     panic::may_panic,
@@ -773,7 +769,6 @@ impl<M: ?Sized> Frame<M> {
     }
 }
 
-#[cfg(feature = "type_id")]
 impl<M: ?Sized> Frame<M> {
     /// The identity of the metadata this frame's slot holds.
     ///
@@ -788,7 +783,6 @@ impl<M: ?Sized> Frame<M> {
     }
 }
 
-#[cfg(feature = "type_id")]
 /// Identity of an erased frame's metadata.
 ///
 /// A separate impl block because the surrounding one is bounded by
@@ -801,7 +795,7 @@ impl Frame<dyn AnyFrameMeta> {
     #[verifier::external_body]
     pub fn dyn_meta(&self) -> (r: &dyn AnyFrameMeta)
         ensures
-            r.meta_id() == self.meta_type_id(),
+            type_id_of(r) == self.meta_type_id(),
     {
         unimplemented!();
 
@@ -828,7 +822,6 @@ impl Frame<dyn AnyFrameMeta> {
     }
 }
 
-#[cfg(feature = "type_id")]
 impl<M: AnyFrameMeta> TryFromSpecImpl<Frame<dyn AnyFrameMeta>> for Frame<M> {
     open spec fn obeys_try_from_spec() -> bool {
         true
@@ -852,7 +845,6 @@ impl<M: AnyFrameMeta> TryFromSpecImpl<Frame<dyn AnyFrameMeta>> for Frame<M> {
     }
 }
 
-#[cfg(feature = "type_id")]
 impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     type Error = Frame<dyn AnyFrameMeta>;
 
@@ -861,7 +853,7 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     /// If the usage of the frame is not the same as the expected usage, it will
     /// return the dynamic frame itself as is.
     fn try_from(dyn_frame: Frame<dyn AnyFrameMeta>) -> (res: Result<Self, Self::Error>) {
-        if is_::<M>(dyn_frame.dyn_meta().to_any()) {
+        if (dyn_frame.dyn_meta() as &dyn Any).is::<M>() {
             proof {
                 axiom_frame_recover_transmutable::<M>(dyn_frame);
                 axiom_frame_reparam::<dyn AnyFrameMeta, M>(dyn_frame);

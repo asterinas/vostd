@@ -1,8 +1,7 @@
 diff --git a/source/rust_verify/src/query.rs b/source/rust_verify/src/query.rs
-index f4169867..93cf7c4f 100644
 --- a/source/rust_verify/src/query.rs
 +++ b/source/rust_verify/src/query.rs
-@@ -592,8 +592,12 @@ impl<'tcx> Query<'tcx> {
+@@ -592,8 +592,12 @@
          self.emit_diags(diags);
          let () = check.map_err(|e| self.emit_error(e))?;
  
@@ -18,10 +17,9 @@ index f4169867..93cf7c4f 100644
          Ok(krate)
      }
 diff --git a/source/vir/src/well_formed.rs b/source/vir/src/well_formed.rs
-index bb897df7..96f49544 100644
 --- a/source/vir/src/well_formed.rs
 +++ b/source/vir/src/well_formed.rs
-@@ -113,10 +113,16 @@ impl EmitError for EmitErrorState {
+@@ -113,10 +113,16 @@
  /// trait hasn't been computed yet.
  pub fn finish_dyn_compatability_checks(
      krate: &Krate,

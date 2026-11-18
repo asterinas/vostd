@@ -19,22 +19,13 @@ pub trait MaxSize<const SIZE: usize>: Sized {
     ;
 }
 
-/// The type of a recorded type identity.
-///
-/// `core::any::TypeId` where the toolchain supports it, and an opaque `int` otherwise
-#[cfg(feature = "type_id")]
+/// The type of a recorded type identity: a real `core::any::TypeId`.
 pub type RecordedId = core::any::TypeId;
 
-#[cfg(not(feature = "type_id"))]
-pub type RecordedId = int;
-
-#[cfg(feature = "type_id")]
+/// The identity recorded for a store written at type `T`.
 pub open spec fn recorded_id<T: ?Sized>() -> RecordedId {
     type_id::<T>()
 }
-
-#[cfg(not(feature = "type_id"))]
-pub uninterp spec fn recorded_id<T: ?Sized>() -> RecordedId;
 
 /// Interpret the contents of the array as a value of type `T`.
 /// The contents of the array are indexed by an integer, `store_id`,

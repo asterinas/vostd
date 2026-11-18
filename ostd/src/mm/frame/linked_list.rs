@@ -3,13 +3,10 @@
 //!
 //! This module leverages the customizability of the metadata system (see
 //! [super::meta]) to allow any type of frame to be used in a linked list.
-#[cfg(feature = "type_id")]
 use core::any::TypeId;
 use core::marker::PhantomData;
 use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
 use vstd_extra::substructural::{cell::CellBorrow, struct_field::StructToField};
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 use vstd_extra::{
     ownership::*,
     raw_ptr::{ptr_mut_from_addr, ptr_mut_ref, ptr_mut_ref_via, ptr_ref, ptr_ref_via},
@@ -1736,22 +1733,6 @@ unsafe impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE> + Sync> Sync for Link<M> 
 }
 
 unsafe impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> AnyFrameMeta for Link<M> {
-    #[cfg(feature = "type_id")]
-    open spec fn meta_id(&self) -> TypeId {
-        type_id::<Self>()
-    }
-
-    #[cfg(feature = "type_id")]
-    proof fn meta_id_correct(&self) {
-    }
-
-    #[cfg(feature = "type_id")]
-    fn to_any(&self) -> (r: &dyn Any) {
-        let d: &dyn Any = self;
-        assert(d.type_id_spec() == self.type_id_spec());
-        d
-    }
-
     open spec fn on_drop_pre(
         &self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,

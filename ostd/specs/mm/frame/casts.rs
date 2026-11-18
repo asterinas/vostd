@@ -29,7 +29,6 @@ use vstd_extra::{
 use core::marker::PhantomData;
 
 use crate::mm::frame::{AnyFrameMeta, Frame, UniqueFrame};
-#[cfg(feature = "dyn_supertrait")]
 use crate::mm::frame::{segment::Segment, untyped::AnyUFrameMeta};
 use crate::specs::mm::frame::{
     frame_specs::FrameRawPerms,
@@ -73,14 +72,12 @@ pub axiom fn axiom_reparam_perm_between<A: AnyFrameMeta, B: AnyFrameMeta>(p: Met
 ;
 
 /// Erasing an *untyped* metadata type leaves the permission alone.
-#[cfg(feature = "dyn_supertrait")]
 pub axiom fn axiom_reparam_perm_erase_untyped<M: AnyUFrameMeta>(p: Seq<FrameRawPerms>)
     ensures
         reparam_perm::<M, dyn AnyUFrameMeta, Seq<FrameRawPerms>>(p) == p,
 ;
 
 /// Narrowing an erased handle to the untyped erasure leaves the permission alone.
-#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
 pub axiom fn axiom_reparam_perm_narrow_untyped(p: Seq<FrameRawPerms>)
     ensures
         reparam_perm::<dyn AnyFrameMeta, dyn AnyUFrameMeta, Seq<FrameRawPerms>>(p) == p,
@@ -219,7 +216,6 @@ pub proof fn axiom_unique_frame_transmutable<A: AnyFrameMeta + OwnerOf, B: AnyFr
 /// Narrower than the frame pair: `AnyUFrameMeta` rather than `AnyFrameMeta`,
 /// because `USegment` is `Segment<dyn AnyUFrameMeta>` and that is the single
 /// erasure segments perform.
-#[cfg(feature = "dyn_supertrait")]
 #[verifier::external_body]
 pub proof fn axiom_segment_erase_transmutable<M: AnyUFrameMeta>(s: Segment<M>)
     ensures
@@ -238,7 +234,6 @@ pub proof fn axiom_segment_erase_transmutable<M: AnyUFrameMeta>(s: Segment<M>)
 ///
 /// The `len() == 0` disjunct is not a weakening: an empty segment owns no frames,
 /// so there is no metadata to misinterpret.
-#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
 #[verifier::external_body]
 pub proof fn axiom_segment_untyped_transmutable(s: Segment<dyn AnyFrameMeta>)
     requires

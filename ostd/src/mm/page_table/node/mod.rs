@@ -39,10 +39,7 @@ use crate::specs::mm::{
     frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
     page_table::node::owners::*,
 };
-#[cfg(feature = "type_id")]
 use core::any::TypeId;
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 
 use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 use crate::mm::frame::{
@@ -105,22 +102,6 @@ pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     open spec fn usage_spec(&self) -> PageUsage {
         PageUsage::PageTable
-    }
-
-    #[cfg(feature = "type_id")]
-    open spec fn meta_id(&self) -> TypeId {
-        type_id::<Self>()
-    }
-
-    #[cfg(feature = "type_id")]
-    proof fn meta_id_correct(&self) {
-    }
-
-    #[cfg(feature = "type_id")]
-    fn to_any(&self) -> (r: &dyn Any) {
-        let d: &dyn Any = self;
-        assert(d.type_id_spec() == self.type_id_spec());
-        d
     }
 
     /// Caller invariants the PT-node `on_drop` body relies on:

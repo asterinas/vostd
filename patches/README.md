@@ -3,7 +3,7 @@
 Local changes to the `tools/verus` checkout, carried as patch files so a build is
 always *an upstream commit plus a reviewable set of files*.
 
-Three patches, all against **`asterinas/verus`, branch `main`, commit
+Seven patches, all against **`asterinas/verus`, branch `main`, commit
 `085772b8`** — the commit `cargo dv bootstrap --upgrade` lands on, which pins
 Rust 1.99.1:
 
@@ -30,15 +30,61 @@ longer re-add it — it was only ever context) and `vir/src/recursive_types.rs`
 grew two `match`es over `TypX` needing a `Primitive::TypeTag` arm, grouped with
 the other simple primitives in both.
 
-| Patch | Supplies | Needed by |
-|---|---|---|
-| `0001-verus-type-identity.patch` | `TypeTag` encoding, `type_id::<T>()`, `vstd/std_specs/any.rs` | `type_id` |
-| `0002-verus-dyn-supertrait-impls.patch` | supertrait impls for `dyn` types in the trait-conflict checker | `dyn_supertrait` |
-| `0003-verus-dyn-imported-traits.patch` | lets the deferred dyn-compatibility check see imported crates' traits | `type_id` |
+All seven are required unconditionally now that the gates are gone; the last
+column says what each one buys rather than which feature used to select it.
 
-All three apply with a plain `git apply` to a pristine checkout of that commit,
+| Patch | Supplies | Needed for |
+|---|---|---|
+| `0001-verus-type-identity.patch` | the `TypeTag` encoding and **both halves of identity** — `type_id::<T>()` for a type, `type_id_of(x)` for a value, related by A1 — plus `vstd/std_specs/any.rs` | `recorded_meta_id` and tagged storage; the erased identity `dyn_meta` and `axiom_untyped_recorded_by_id` report; both sides of the downcast guard |
+| `0002-verus-dyn-supertrait-impls.patch` | supertrait impls for `dyn` types in the trait-conflict checker, transitively and substituted per hop | discharging `dyn T: U`, which `USegment` needs, at any depth |
+| `0003-verus-dyn-imported-traits.patch` | lets the deferred dyn-compatibility check see imported crates' traits | any `dyn` of a trait declared in another crate |
+| `0004-verus-type-id-reject-dyn.patch` | `type_id` of a trait object type is an error, not a tag nothing relates | keeping identity honest where the encoding cannot distinguish |
+| `0005-verus-dyn-reject-diagnostics.patch` | name which `dyn` feature is unsupported, and why | diagnostics only |
+| `0006-verus-dyn-spec-fn-generic.patch` | a `dyn T` value's spec fns relate to the erased type generically, and through a subtrait object | erasure facts for a generic `Self`; retires the per-impl obligations |
+| `0007-verus-any-surface.patch` | `core::any::Any` declared with no methods, so `dyn Any` is a legal type; `is`, `dyn_value` and the downcasts specified | `AnyFrameMeta: Any` and the downcast guard, as upstream writes them |
+
+All seven apply with a plain `git apply` to a pristine checkout of that commit,
 in order, and together reproduce the tree the counts below were measured
 against.
+
+`0001` carries **both halves of identity**, because they are one model and a
+patch with only the static half gives a caller nothing to compare against.
+`type_id::<T>()` is a function of the type -- enough on its own for
+`vstd_extra`'s tagged storage, which records what a byte buffer holds -- while
+`type_id_of(x)` is the identity of the type the *value* has, which for a trait
+object is the type erased into it, and which is the question a downcast asks.
+Two axioms carry the second, and the first of them is what joins the halves: a sized value is its own type (guarded on the decoration
+being sized, so it never fires on a trait object), and erasure is the identity
+on runtime type -- the latter stated by asking the *source* value the same
+question rather than answering it, which is what makes it right for a supertrait
+upcast, where the source is itself a trait object. The payoff is that
+`type_id_of(v as &dyn T) == type_id::<F>()` holds for a *generic* `F: T`, which
+is the fact `AnyFrameMeta::meta_id_correct` and its per-impl obligations existed
+to simulate by hand, and which is why they could be deleted.
+
+`0002` covers the supertraits **transitively**, which is not optional for any
+hierarchy deeper than one hop. Each emitted `impl U for Dyn<n, ..>` is checked
+by rustc against `U`'s own declaration, which carries `where Self: V` for every
+supertrait `V` of `U`, so a missing second hop is a *hard error* -- `the trait
+bound Dyn<n, ()>: V is not satisfied`, reported against the subtrait's
+declaration -- and not the incompleteness the first version of this patch
+claimed. `trait R: Q`, `Q: P` plus a `dyn R` anywhere is enough to hit it. The
+SMT side needed nothing: `tr_bound%R(DYN%R)` chains through
+`trait_bound_axioms` on its own, so only the generated trait-conflict program
+lagged. (The transitive half was carried separately as a `0004` for a day; it is
+folded in here, since it is the same emission finished rather than a second
+change.)
+
+Two corrections to the one-hop version's comments, both now fixed in the code:
+
+- The trait map it consults is built from the krate the conflict checker is
+  handed, which is the **merged** krate (`verifier.rs` sets
+  `self.vir_crate = merged_crate`), so it already spans imported crates. An
+  unknown path there means pruned-out or never-declared, not foreign.
+- Supertraits with associated types are still skipped, but that case is
+  unreachable rather than merely incomplete: rustc demands a projection
+  (`dyn T<X = ..>`) for such a hierarchy, and `mid_ty_to_vir` rejects that
+  first.
 
 `0003` is a fix for an upstream bug rather than an extension, and is worth
 sending upstream. `well_formed::check_one_typ` admits a `dyn T` whenever `T` is
@@ -48,14 +94,78 @@ that point); `finish_dyn_compatability_checks` then rebuilt its map from
 `krate.traits` alone, so a `dyn` of a trait declared in *another* crate was
 accepted by the first check and rejected by the second as "not declared to
 Verus". Nothing in-tree hit it because a crate's own `dyn` traits are in
-`krate.traits`; `ostd` hits it because `AnyFrameMeta::to_any` returns
-`&dyn vstd_extra::typing::types::Any`. The symptom is five such errors in the
-`type_id` shape -- in `frame/meta.rs`, `frame/mod.rs`, `frame/linked_list.rs`,
-`page_table/node/mod.rs` and `specs/mm/frame/meta_owners.rs` -- while
-`vstd_extra` itself builds, since `dyn Any` inside its declaring crate is fine.
+`krate.traits`; `ostd` hits it because its `dyn Any` is a `dyn` of a trait
+declared *elsewhere* -- `core::any::Any`, declared to Verus by `ExAny` in
+`vstd` -- which is still the case after `0007`, with `vstd` now in the role
+`vstd_extra` held before it. The symptom when it was measured, against the
+`to_any`/`vstd_extra::typing::types::Any` shape that `0007` retired, was five
+such errors in the `type_id` shape -- `frame/meta.rs`, `frame/mod.rs`,
+`frame/linked_list.rs`, `page_table/node/mod.rs` and
+`specs/mm/frame/meta_owners.rs` -- while the declaring crate itself built, since
+a `dyn Any` inside it is fine.
 The fix feeds the imported crates into that second map, imported first so the
 crate being verified still wins a collision. Upstream's own `traits_dyn`,
 `traits` and `safe_api` suites (297 tests) pass with it.
+
+`0004` closes the one place where `type_id` had a tag but no law. Verus models a
+trait object type by its trait path and type arguments, which cannot tell `dyn A`
+from `dyn B`, so neither the equality nor the disequality of their tags was
+provable and a caller got an unexplained `assertion failed` wherever the identity
+was finally compared. The alternative was an axiom giving each `dyn` type a
+hashed tag like a datatype's; it was dropped because nothing needs it -- every
+in-tree `type_id`/`recorded_id` instantiation is a concrete sized type or a type
+parameter, and `downcast_ref<T: Any>` carries an implicit `T: Sized`, so downcast
+targets are never trait object types. The identity of the type *inside* a trait
+object is a different question and is the one the downcast needs; see
+`ANY-SUPPORT-PLAN.md` section 4.1a.
+
+The check is syntactic and fires for a `dyn` type anywhere in the argument
+(`dyn A`, `Box<dyn A>`, `Wrap<dyn A>`), because a tag folds in the tags of its
+arguments. It withdraws one fact that used to hold -- `type_id::<dyn A>() !=
+type_id::<C>()`, free from `$dyn` being its own decoration -- and leaves `?Sized`
+type parameters alone, which is both why `recorded_id::<T>()` still works and the
+limit of the check: it cannot see a parameter later instantiated at a `dyn` type.
+
+`0005` is diagnostics only. `dyn T + Send` and `dyn T<X = u8>` both used to
+report "dyn with more than one trait" -- misleading for the first, wrong for the
+second, and a message that never described a reachable case, since Rust rejects
+two non-auto traits in a `dyn` type itself. Both stay rejected; the error now
+names which feature is missing and that `TypX::Dyn` has nowhere to put it.
+
+`0006` replaces the per-impl dyn spec-fn axiom's *reach*, not the axiom: the
+original fires only once an impl is resolved, so a caller holding `F: T` for a
+type parameter learned nothing about an `F` it had erased, and an inherited
+supertrait spec fn observed through a subtrait object connected to nothing at
+all. Both now follow from one axiom family quantified over the erased type under
+the trait's bound. That is what lets a client stop declaring a spec fn plus a
+per-impl obligation to recover by hand what the vtable already does -- the
+`meta_id`/`meta_id_correct` shape `ostd` carried until this, and no longer does.
+The per-impl axiom is still emitted;
+it is an instance of the new one, kept until the comparison is measured.
+
+`0007` makes `core::any::Any` usable, by declaring it to Verus with **no
+methods**. The declaration is what makes `dyn Any` a legal type; the omission is
+what keeps it sound, since `core`'s blanket impl reads `TypeId::of::<Self>()`
+and at `Self = dyn Any` that is the trait object type's own identity rather than
+the erased one -- rustc may pick either reading (rust#57893). The executable
+answer comes from `<dyn Any>::is`, an inherent method of `dyn Any`, where no
+second reading exists. Two places in the #57893 machinery had to be relaxed for
+a trait with no methods and no associated types, where a blanket impl and the
+object impl have nothing to resolve differently: the dyn-compatibility check,
+and the conflict checker's own `dyn T: T` emission. Both exemptions are scoped by `is_tolerated_blanket_trait` to
+`core::any::Any` and still enforce the member-less condition, which is the
+actual reason: the general rule would also make `traits_dyn`'s
+`dyn_rust_blanket_unsoundness` pass, and relaxing a soundness regression test
+wants its own review.
+
+With that, `AnyFrameMeta` is upstream's declaration again and the downcast guard
+is upstream's expression. `0007` also carries `dyn_value`, the spec primitive
+that lets a downcast name the value it returns -- the coercion is the identity
+on the value, so reading it back at the type it was written at returns it -- and
+with it `<dyn Any>::downcast_ref` and `Box<dyn Any, A>::downcast`, both
+specified and verified end to end. `downcast_mut` is left out: a write through
+the extracted reference has to be a write to the erased value, which needs the
+converse axiom.
 
 **The lineage is `asterinas/verus`, not `verus-lang/verus`.** This is the single
 most expensive mistake available here. The two forks have diverged, and a
@@ -65,45 +175,83 @@ associated type* errors while compiling **`vstd_extra`**, which looks like a
 broken `Cargo.toml` in this workspace and is not. `cargo dv bootstrap` fetches
 the right one; prefer it over any hand-managed checkout.
 
-The reference checkout is `../verus`, on `typeid-and-dyn` (type identity plus the
-supertrait work). Its internal design docs —
-`source/docs/internal/type-identity-emission.md` and
-`type-identity-prelude.md` — are the authoritative account of the encoding and
-supersede the summaries here. **Both are currently untracked in that checkout**,
-so a regeneration will not carry them; commit them before relying on the export.
-Note that `../verus` is itself based on `verus-lang`, so it is a source for
-*reading* the changes, not a base to regenerate against — see below.
+The reference checkout is `../verus`. Two branches there matter:
+
+- **`any-support`** is where development happens as of 2026-11-18: all seven
+  patches as seven commits, one per patch and in the same order, based on
+  **`085772b8`** -- the `asterinas/verus` commit `tools/verus` sits on, fetched
+  into `../verus` from the local `tools/verus` path because `../verus`'s
+  `origin` is an SSH remote. It is deliberately *not* on the same lineage as the
+  other branches there. Its tree is byte-identical, across all 35 files, to the
+  `tools/verus` tree the counts below were measured against, and so is the tree
+  the patches produce from a pristine checkout -- both are checked the same way.
+  `0003` stays cherry-pickable on its own for a `verus-lang` PR: it touches
+  `query.rs` and `well_formed.rs`, which nothing else in the stack does.
+- `typeid-and-dyn` is the older reference, on the `verus-lang` lineage, carrying
+  type identity plus the supertrait work as they stood before this.
+
+`tools/verus` remains the toolchain this workspace verifies against, and still
+holds the changes as uncommitted working-tree edits; checking `any-support` out
+in `../verus` does not change that, and does not disturb `../verus`'s own
+checkout, which stays on `typeid-and-dyn` with its built binaries intact.
+
+**Its two internal design docs are gone.**
+`source/docs/internal/type-identity-emission.md` and `type-identity-prelude.md`
+were the authoritative account of the encoding, were never committed (this file
+used to warn about exactly that), and are now absent from `../verus` — whose
+tree is clean, with a single stash holding only `trait_conflicts.rs` — and from
+`tools/verus`. Nothing in the tree cites them any more — the one file that did,
+`verified_libs/vstd_extra/src/typing/types.rs`, was deleted with the feature
+gates — so the sections below and `ANY-SUPPORT-PLAN.md` are the account of
+record until they are rewritten.
 
 ## Refreshing a patch
 
-Regenerate against the **bootstrapped `tools/verus`**, not against `../verus`:
-the latter sits on the `verus-lang` lineage, so a diff taken there will not apply
-here (it needed a three-way merge and a hand-resolved conflict in
-`vstd/std_specs/mod.rs`, where both lineages add a module at the same
-alphabetical slot). To re-split the pair from a tree that has both applied:
+Regenerate against the **bootstrapped `tools/verus`** or against `any-support`,
+which sits on the same commit; both are on the `asterinas` lineage. Do *not*
+diff against `../verus`'s other branches, which reach `verus-lang` through its
+`upstream` remote: such a diff needs a three-way merge and a hand-resolved
+conflict in `vstd/std_specs/mod.rs`, where both lineages add a module at the
+same alphabetical slot. (`../verus`'s `origin` *is* `asterinas/verus`, but over
+SSH and never fetched — there is no `origin/main` ref — which is why `085772b8`
+came in from the local `tools/verus` path and why only `any-support` contains
+it.)
 
-    P1=$PWD/patches/0001-verus-type-identity.patch
-    P2=$PWD/patches/0002-verus-dyn-supertrait-impls.patch
-    git -C tools/verus apply -R "$P2"        # leave only type identity
-    git -C tools/verus add -A                # include new files
-    git -C tools/verus diff HEAD --binary > "$P1"
-    git -C tools/verus apply "$P2"           # put it back
-
-**Pass absolute paths.** `git -C <dir> apply <relative>` resolves the patch
-relative to `<dir>`, so a repo-relative path silently fails to open — and if you
-ignore the exit status, the revert no-ops and the "split" patch quietly contains
-both changes.
-
-Check the result against a pristine checkout rather than trusting it:
+With a stack this size, reverse-applying one patch to isolate another stops
+being workable -- several of them touch the same files, and two of them append
+to the same test file. **Replay instead.** Apply the whole stack in order in a
+pristine worktree, snapshot the files any patch touches after each step, and
+emit each patch as the diff between consecutive snapshots:
 
     W=$(mktemp -d)/w
     git -C tools/verus worktree add -q --detach $W 085772b8
-    git -C $W apply --check patches/0001-verus-type-identity.patch
-    git -C $W apply       patches/0001-verus-type-identity.patch
-    git -C $W apply --check patches/0002-verus-dyn-supertrait-impls.patch
+    # for k in 1..7: snapshot, git -C $W apply patches/000k-*.patch, snapshot
+    # patch k = diff(snapshot k-1, snapshot k), per file
+
+Reordering or merging patches works the same way, with one wrinkle: where two
+patches **append** to one file, the later one's context is the earlier one's
+added lines, so a reorder conflicts there and nowhere else. Split that file's
+final content into its per-patch blocks by hand (the test files have banner
+comments marking the boundaries), hand each block to the right step, and let the
+replay rebuild the rest. Merging the value-identity patch into `0001` needed
+exactly that, in exactly one file.
+
+**Pass absolute paths.** `git -C <dir> apply <relative>` resolves the patch
+relative to `<dir>`, so a repo-relative path silently fails to open.
+
+Then check the result rather than trusting it, and check the *whole tree*, not
+just the files you think you touched:
+
+    W=$(mktemp -d)/w
+    git -C tools/verus worktree add -q --detach $W 085772b8
+    for p in patches/0*.patch; do git -C $W apply $PWD/$p || echo "FAILED $p"; done
+    diff -rq $W/source tools/verus/source --exclude=target --exclude=target-verus \
+        --exclude=.verus-log --exclude=z3 --exclude=cvc5 | grep -v Cargo.lock
     git -C tools/verus worktree remove --force $W
 
-Run that before every commit that touches `tools/verus`. These patches had
+Silence from that `diff` is the only evidence that matters: the patches
+reproduce the tree the counts were measured against. Run it before every commit
+that touches `tools/verus`. These patches had
 silently gone stale once across a `TypeId` -> `TypeIdSpec` rename, and a
 regenerated one had silently dropped two files that were untracked at the time.
 
@@ -112,6 +260,10 @@ regenerated one had silently dropped two files that were untracked at the time.
     git -C tools/verus apply $PWD/patches/0001-verus-type-identity.patch
     git -C tools/verus apply $PWD/patches/0002-verus-dyn-supertrait-impls.patch
     git -C tools/verus apply $PWD/patches/0003-verus-dyn-imported-traits.patch
+    git -C tools/verus apply $PWD/patches/0004-verus-type-id-reject-dyn.patch
+    git -C tools/verus apply $PWD/patches/0005-verus-dyn-reject-diagnostics.patch
+    git -C tools/verus apply $PWD/patches/0006-verus-dyn-spec-fn-generic.patch
+    git -C tools/verus apply $PWD/patches/0007-verus-any-surface.patch
 
 Then rebuild — both steps, in `tools/verus/source`:
 
@@ -121,66 +273,82 @@ Then rebuild — both steps, in `tools/verus/source`:
 The second is not optional: rebuilding `rust_verify` invalidates the vstd
 artifacts, and the symptom is `can't find crate for vstd` in every test.
 
+Then run the tests as a **separate command**. Chaining them --
+`cargo build ... && cargo test ...` -- lets the harness start while the build is
+still replacing `target-verus/release/rust_verify`, and the run comes back with a
+scattered set of failures (18 of `traits_dyn`'s 44, all `can't find crate for
+vstd`) that look like a regression and are not: the same suite passed before and
+after. The harness has a `wait_exists` delay for exactly this race and it is not
+always enough. `source/.cargo/config.toml` is what puts the binaries there --
+`target-dir = "target-verus"`, plus `VERUS_IN_VARGO=1`, which is why `cargo test`
+works here at all without `vargo`.
+
 Unrelated: `tools/patches/verus-irc11*.patch` are driven by
 `tools/bootstrap-verus-irc11.sh` and `.github/workflows/ci-irc11.yml`.
 
-## Downstream usage is feature-gated
+## Downstream usage is unconditional
 
-The patch changes the toolchain; the code that *uses* it is opt-in, so this
-workspace still builds and verifies against a stock Verus.
+It used to be opt-in: `vstd_extra/type_id` gated the whole `typing::` module,
+`ostd/type_id` gated the erased-metadata downcast, and `ostd/dyn_supertrait`
+gated the `USegment` conversion, so the workspace still built and verified
+against a stock Verus. **All three features are retired as of 2026-11-18.**
 
-| Crate | Feature | Gates |
-|---|---|---|
-| `vstd_extra` | `type_id` | the whole `typing::` module |
-| `ostd` | `type_id` (implies `vstd_extra/type_id`) | `AnyFrameMeta::{meta_id, to_any}`, `Frame::<dyn AnyFrameMeta>::{meta_type_id, dyn_meta}`, and both `TryFrom` impls |
-| `ostd` | `dyn_supertrait` | `axiom_segment_reparam` and the `From<Segment<M>> for USegment` conversion |
+Two things ended them. `AnyFrameMeta: Any` is part of the trait's declaration
+and `#[cfg]` is not honoured inside `verus!`, so the supertrait cannot be gated
+-- the ungated shape needs a toolchain with `dyn Any` whether or not anything
+else is enabled. And the gated code stopped being exotic: with `type_id_of` and
+the `Any` surface in the toolchain, what the gates protected is just how the
+metadata system is written.
 
-`dyn_supertrait` gates a **second** toolchain requirement, carried here as
-`0002`. `USegment` is `Segment<dyn AnyUFrameMeta>`, so discharging `Segment`'s
-`M: AnyFrameMeta` bound there needs `dyn AnyUFrameMeta: AnyFrameMeta` -- a
-supertrait impl, which stock Verus does not derive for `dyn` types (it emits one
-impl per `dyn T` and none for `T`'s supertraits). Without `0002` the symptom is
-`the trait bound Dyn<2, ()>: T193_AnyFrameMeta is not satisfied`.
+So there is one shape now, and it is the maximal one: the ungated build verifies
+everything the fully-gated build used to, at the same count. A stale `-F
+type_id` fails loudly rather than silently -- `none of the selected packages
+contains this feature: type_id`.
 
-The emission in `0002` is deliberately incomplete rather than wrong: it skips
-supertraits with associated types, and skips transitive supertraits, because
-either would need substitution work it does not do. Both leave a bound
-undischargeable; neither emits an unsound impl. It also skips supertraits whose
-path is not declared in the crate being verified, since their associated types
-cannot be inspected -- treating unknown as "has none" emitted an impl for a
-trait that had them, surfacing far away as `Verus does not recognize associated
-type ... of trait ...`.
+`irc11` is untouched; it gates a different toolchain (`tools/patches/verus-irc11*`)
+and still follows the opt-in pattern.
 
-Note that `0002` emits for **every** `dyn` trait in the crate, so it is not
-inert with respect to the `dyn_supertrait` feature gate -- the gate controls
-which vostd code *relies* on those impls, not whether they are emitted.
+Two notes from the gated era that still matter:
 
-`AnyFrameMeta` carries an explicit `'static` bound. Upstream gets it from the
-`Any` supertrait, which is commented out here because Verus cannot model `Any` --
-and without it `is_::<M>` and the `&dyn Any` coercion in `Link<M>` fail to
-compile with `E0310: the parameter type M may not live long enough`. The bound
-sits on the trait rather than at the two use sites so every `M: AnyFrameMeta`
-gets it for free; it is unconditional because `#[cfg]` is not honoured inside
-`verus!`, and it costs the default shape nothing.
+- `0002`/`0004` emit supertrait impls for **every** `dyn` trait in the crate, so
+  they were never inert with respect to the `dyn_supertrait` gate -- the gate
+  controlled which vostd code *relied* on those impls, not whether they were
+  emitted. Retiring it changes nothing about the emission.
+- `AnyFrameMeta`'s `'static` bound used to be written explicitly, because `Any`
+  -- which supplies it upstream -- could not be modelled. The supertrait is back,
+  so the bound comes from it again, as upstream has it.
 
-Off by default, following the `irc11` precedent. Nothing now needs splitting
-across the gate: erasure is a single ungated `From<Frame<M>> for
-Frame<dyn AnyFrameMeta>` whose spec is a struct literal, so identity preservation
-falls out of it rather than needing a `type_id`-only postcondition. (This replaced
-a pair of gated `into_dyn` methods; the counts below each dropped by one as a
-result.)
+Verify:
 
-Verify both shapes:
+    cargo dv verify -p ostd                                 # 1567 verified, 0 errors
 
-    cargo dv verify -p ostd                                 # 1496 verified, 0 errors
-    cargo dv verify -p ostd -F type_id                      # 1503 verified, 0 errors
-    cargo dv verify -p ostd -F type_id,dyn_supertrait       # 1506 verified, 0 errors
+Measured 2026-11-18 against `asterinas/verus` `main` at `085772b8` with all seven
+patches applied, on `typeid-rework` at `b4a530050`, from a cleaned verification
+target (see the caching note below -- anything less is a cache hit).
+`vstd_extra` is at 773, and `vstd` itself builds at 1968 verified, 0 errors.
 
-Measured 2026-10-21 against `asterinas/verus` `main` at `b63c76a4` with both
-patches applied, on `typeid-rework` rebased onto `main` at `ec3a20a6e`; `vstd`
-itself builds at 2059 verified, 0 errors. The earlier figures (1510/1517/1518,
-2026-10-01 at `fec4c33a`) are not comparable: the rebase brought in 34 upstream
-commits.
+The number moved twice on the way here, both times downward and both times
+because a workaround went away: the `type_id_of` migration deleted the three
+`meta_id_correct` obligations (1573 -> 1570 in what was then the maximal shape)
+and the `Any` surface deleted the three `to_any` impls (1570 -> 1567). The
+retired gates are why there is one figure instead of three: the ungated build
+now verifies what only `-F type_id,dyn_supertrait` used to.
+
+Earlier figures are triples, one per feature shape, and are not comparable with
+each other either -- each is separated from the next by an upstream move:
+1563/1564/1567 on 2026-11-18 before the gates were retired; 1496/1503/1506 with
+`vstd` at 2059, 2026-10-21 at `b63c76a4`; and 1510/1517/1518, 2026-10-01 at
+`fec4c33a`.
+
+A proof lost its rlimit to this work, and the remedy is worth knowing before the
+next toolchain move. `Segment::<M>::drop`'s loop exceeded it once the `Any`
+support's declarations were in scope -- in the **default** shape only, where
+`dyn Any` becomes reachable, while the then-gated shapes passed. Nothing was wrong
+with the proof: merely declaring a sort and a few axioms moves Z3's heuristics,
+and that loop sits near its limit. `#[verifier::spinoff_prover]` recovered it
+with no rlimit increase, which is what `PageTableOwner::pt_inv_unroll` needed
+when type identity first landed. Expect one or two of these per toolchain move,
+and reach for `spinoff_prover` before touching rlimits.
 
 When reading these runs, grep with `tail`, not `head`. `dv` prints a
 `verification results::` line per crate, and `ostd`'s comes last; `head -4` keeps
@@ -200,7 +368,7 @@ built is to swap it in:
 
     mv tools/verus tools/verus.bak
     ln -s /path/to/verus tools/verus
-    cargo dv verify --targets ostd --features type_id
+    cargo dv verify -p ostd
     rm tools/verus && mv tools/verus.bak tools/verus
 
 `--features` needs `dv` at `9543854` (#42) or later; the submodule now points at
@@ -211,9 +379,23 @@ ignored — `dv` has a regression test for exactly that
 (`cargo_features_precede_target_and_verus_args`).
 
 `dv` caches aggressively and `cargo clean -p ostd` cleans the **host** target, not
-the verification one. To force a real re-run:
+the verification one. The package-scoped clean this file used to recommend,
 
-    cargo clean -p ostd -p vstd_extra --target x86_64-unknown-none
+    cargo clean -p ostd -p vstd_extra --target x86_64-unknown-none   # NOT enough
+
+is *not* enough either, measured 2026-11-17 after rebuilding `rust_verify`: it
+removed 108 files / 240MiB and the next `cargo dv verify -p ostd` still printed
+no `verification results::` line at all, finishing in 65s (all of it the rustc
+build) and then 0.35s on the following run. `touch`ing `ostd/src/lib.rs` did not
+dislodge it either. What forces a real re-run is cleaning the whole verification
+target:
+
+    cargo clean --target x86_64-unknown-none
+
+That re-verifies the dependency crates too (`vstd` 1968, `vstd_extra` 777, ...),
+which is the point: the per-crate lines are the evidence the run happened.
+**A pass with no `verification results::` line is not a pass**, it is a cache
+hit -- the same trap as reading these runs with `head` instead of `tail`.
 
 ## Constructor ids are hashed, not counted
 

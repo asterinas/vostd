@@ -97,7 +97,6 @@ impl<M: AnyFrameMeta + ?Sized> DebugSpecImpl for Segment<M> {
 ///
 /// Representation only. Segments are homogeneous by invariant, but that their
 /// frames really carry `B`'s metadata is an identity claim this does not make.
-#[cfg(feature = "dyn_supertrait")]
 #[verifier::external_body]
 proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Sized>(s: Segment<A>)
     requires
@@ -118,7 +117,6 @@ proof fn axiom_segment_reparam<A: AnyFrameMeta + ?Sized, B: AnyFrameMeta + ?Size
 {
 }
 
-#[cfg(feature = "dyn_supertrait")]
 impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
     open spec fn obeys_from_spec() -> bool {
         true
@@ -139,7 +137,6 @@ impl<M: AnyUFrameMeta> FromSpecImpl<Segment<M>> for USegment {
 ///
 /// The segment counterpart of `From<Frame<M>> for Frame<dyn AnyFrameMeta>`, and
 /// the conversion upstream writes as `.into()`.
-#[cfg(feature = "dyn_supertrait")]
 impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
     fn from(seg: Segment<M>) -> (r: Self) {
         proof {
@@ -1197,6 +1194,12 @@ impl<M: AnyFrameMeta> Segment<M> {
         ensures
             final(regions).inv(),
     )]
+    // This loop sits near its rlimit, and the `Any` support's extra declarations
+    // are enough to move it: merely declaring a sort and a few axioms perturbs
+    // Z3's heuristics. Spinning the query off isolates it from that drift, with
+    // no rlimit increase -- the same remedy `PageTableOwner::pt_inv_unroll`
+    // needed when type identity first landed.
+    #[verifier::spinoff_prover]
     pub fn drop(self) {
         let ghost n = self.len();
         let mut paddr = self.range.start;
@@ -1414,7 +1417,6 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
 /// needs `seg.inv()`. Inherent methods win resolution, so `USegment::try_from(seg)`
 /// is upstream's call unchanged; `TryFrom`'s generic uses still want the trait
 /// impl, which waits on the invariant becoming a type invariant.
-#[cfg(all(feature = "type_id", feature = "dyn_supertrait"))]
 impl Segment<dyn AnyUFrameMeta> {
     /// Tries to view an erased segment as an untyped one.
     ///

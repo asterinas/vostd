@@ -1,0 +1,386 @@
+diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_test/tests/traits_dyn.rs
+--- a/source/rust_verify_test/tests/traits_dyn.rs
++++ b/source/rust_verify_test/tests/traits_dyn.rs
+@@ -857,5 +857,120 @@
+         trait Q: P<u8> + P<u16> { fn q(&self) -> u64; }
+         fn needs_p<A, X: P<A> + ?Sized>(x: &X) { }
+         fn test(x: &dyn Q) { needs_p::<u8, _>(x); needs_p::<u16, _>(x); }
++    } => Ok(())
++}
++
++// Erasing a value of a *type parameter* preserves the trait's spec functions.
++// The per-impl axiom only fires once the impl is resolved, so this used to be
++// unprovable for a generic `F: T` even though it holds for every concrete `F`.
++test_verify_one_file! {
++    #[test] dyn_spec_fn_generic_self verus_code! {
++        trait T { spec fn f(&self) -> int; }
++        fn test<F: T>(v: &F) {
++            let d: &dyn T = v;
++            assert(d.f() == v.f());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_spec_fn_generic_self_box verus_code! {
++        use vstd::prelude::*;
++        trait T { spec fn f(&self) -> int; }
++        fn test<F: T>(v: F) {
++            let d: Box<dyn T> = Box::new(v);
++            assert(d.f() == v.f());
++        }
+     } => Ok(())
+ }
++
++// Quantifying over the erased type must not collapse two erasures: a `dyn T`
++// built from `A` keeps `A`'s answer and not `B`'s.
++test_verify_one_file! {
++    #[test] dyn_spec_fn_generic_no_confusion verus_code! {
++        trait T { spec fn f(&self) -> int; }
++        struct A;
++        struct B;
++        impl T for A { spec fn f(&self) -> int { 1 } }
++        impl T for B { spec fn f(&self) -> int { 2 } }
++        fn test(a: &A, b: &B) {
++            let da: &dyn T = a;
++            let db: &dyn T = b;
++            assert(da.f() == 1);
++            assert(db.f() == 2);
++            assert(da.f() == db.f()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// The bound is the guard: a type parameter with no `T` bound cannot be erased
++// to `dyn T` in the first place, so the axiom says nothing about one.
++test_verify_one_file! {
++    #[test] dyn_spec_fn_generic_two_params verus_code! {
++        trait T { spec fn f(&self) -> int; }
++        fn test<F: T, G: T>(v: &F, w: &G) {
++            let dv: &dyn T = v;
++            let dw: &dyn T = w;
++            assert(dv.f() == v.f());
++            assert(dw.f() == w.f());
++            assert(dv.f() == dw.f()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// A spec fn inherited from a supertrait, observed through a *subtrait* object.
++// The dyn trait is `Sub`, the method belongs to `Sup`, and `Sub`'s vtable
++// carries it, so the same equation holds.
++test_verify_one_file! {
++    #[test] dyn_spec_fn_inherited_supertrait verus_code! {
++        trait Sup { spec fn s(&self) -> int; }
++        trait Sub: Sup { fn v(&self) -> u64; }
++        struct C;
++        impl Sup for C { spec fn s(&self) -> int { 7 } }
++        impl Sub for C { fn v(&self) -> u64 { 1 } }
++        fn test_concrete(c: &C) {
++            let d: &dyn Sub = c;
++            assert(d.s() == 7);
++        }
++        fn test_generic<F: Sub>(v: &F) {
++            let d: &dyn Sub = v;
++            assert(d.s() == v.s());
++        }
++    } => Ok(())
++}
++
++// Two hops, with the supertrait's arguments substituted through each of them:
++// `Sub: Mid<u8>` and `Mid<B>: Sup<B>` give `dyn Sub` the spec fn of `Sup<u8>`.
++test_verify_one_file! {
++    #[test] dyn_spec_fn_inherited_transitive_subst verus_code! {
++        trait Sup<A> { spec fn s(&self, a: A) -> int; }
++        trait Mid<B>: Sup<B> { spec fn m(&self) -> int; }
++        trait Sub: Mid<u8> { fn v(&self) -> u64; }
++        fn test<F: Sub>(v: &F) {
++            let d: &dyn Sub = v;
++            assert(d.s(3u8) == v.s(3u8));
++            assert(d.m() == v.m());
++        }
++    } => Ok(())
++}
++
++// ...and it still does not collapse two different erasures.
++test_verify_one_file! {
++    #[test] dyn_spec_fn_inherited_no_confusion verus_code! {
++        trait Sup { spec fn s(&self) -> int; }
++        trait Sub: Sup { fn v(&self) -> u64; }
++        struct A;
++        struct B;
++        impl Sup for A { spec fn s(&self) -> int { 1 } }
++        impl Sub for A { fn v(&self) -> u64 { 1 } }
++        impl Sup for B { spec fn s(&self) -> int { 2 } }
++        impl Sub for B { fn v(&self) -> u64 { 2 } }
++        fn test(a: &A, b: &B) {
++            let da: &dyn Sub = a;
++            let db: &dyn Sub = b;
++            assert(da.s() == 1);
++            assert(db.s() == 2);
++            assert(da.s() == db.s()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
+diff --git a/source/vir/src/sst_to_air_func.rs b/source/vir/src/sst_to_air_func.rs
+--- a/source/vir/src/sst_to_air_func.rs
++++ b/source/vir/src/sst_to_air_func.rs
+@@ -870,6 +870,19 @@
+                 return Ok((Arc::new(decl_commands), check_commands));
+             }
+ 
++            if let FunctionKind::TraitMethodDecl { trait_path, .. } = &function.x.kind {
++                let orig_trait =
++                    ctx.global.extension_to_trait.get(trait_path).unwrap_or(trait_path);
++                if ctx.trait_map.contains_key(orig_trait) {
++                    crate::traits::dyn_spec_fn_axioms_generic(
++                        ctx,
++                        &mut decl_commands,
++                        orig_trait,
++                        &function,
++                    );
++                }
++            }
++
+             let mk_inv = |decl_commands: &mut Vec<Command>, name: &Fun, qid: &str, is_rec: bool| {
+                 let name = suffix_global_id(&fun_to_air_ident(&ctx.name_ctxt, name));
+ 
+diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
+--- a/source/vir/src/traits.rs
++++ b/source/vir/src/traits.rs
+@@ -1249,8 +1249,235 @@
+     );
+     let def_axiom = mk_unnamed_axiom(e_forall);
+     decl_commands.push(Arc::new(CommandX::Global(def_axiom)));
++}
++
++/// Transitive supertrait references of `tr_path`, as (path, trait args) with the
++/// args written in terms of `tr_path`'s own parameters, `Self` first.
++///
++/// `V`'s arguments are written in terms of `U`'s parameters, so each hop
++/// substitutes the arguments the subtrait passes before recording the result.
++fn transitive_supertrait_refs(ctx: &Ctx, tr_path: &Path) -> Vec<(Path, Typs)> {
++    let self_bounds = |tr: &Trait| -> Vec<(Path, Typs)> {
++        tr.x.typ_bounds
++            .iter()
++            .filter_map(|bound| {
++                let GenericBoundX::Trait(TraitId::Path(u_path), targs) = &**bound else {
++                    return None;
++                };
++                if targs.len() < 1 {
++                    return None;
++                }
++                match &*targs[0] {
++                    TypX::TypParam(p) if *p == crate::def::trait_self_type_param() => {
++                        Some((u_path.clone(), targs.clone()))
++                    }
++                    _ => None,
++                }
++            })
++            .collect()
++    };
++    let Some(tr) = ctx.trait_map.get(tr_path) else {
++        return vec![];
++    };
++    let mut refs: Vec<(Path, Typs)> = Vec::new();
++    let mut seen: HashSet<String> = HashSet::new();
++    let mut worklist = self_bounds(tr);
++    while let Some((u_path, u_args)) = worklist.pop() {
++        if !seen.insert(format!("{:?}{:?}", u_path, u_args)) {
++            continue;
++        }
++        if let Some(u) = ctx.trait_map.get(&u_path) {
++            if u.x.typ_params.len() + 1 == u_args.len() {
++                let mut substs: HashMap<Ident, Typ> = HashMap::new();
++                substs.insert(crate::def::trait_self_type_param(), u_args[0].clone());
++                for ((x, _), targ) in u.x.typ_params.iter().zip(u_args[1..].iter()) {
++                    substs.insert(x.clone(), targ.clone());
++                }
++                for (v_path, v_args) in self_bounds(u) {
++                    let v_args: Typs = Arc::new(
++                        v_args.iter().map(|t| crate::sst_util::subst_typ(&substs, t)).collect(),
++                    );
++                    worklist.push((v_path, v_args));
++                }
++            }
++        }
++        refs.push((u_path, u_args));
++    }
++    refs
+ }
+ 
++/// Every generic dyn axiom for one trait spec method: the method's own trait,
++/// plus every reached `dyn D` whose transitive supertraits include it.
++pub(crate) fn dyn_spec_fn_axioms_generic(
++    ctx: &Ctx,
++    decl_commands: &mut Vec<Command>,
++    trait_path: &Path,
++    function: &crate::sst::FunctionSst,
++) {
++    let FunctionKind::TraitMethodDecl { .. } = &function.x.kind else {
++        panic!("dyn_spec_fn_axioms_generic expects TraitMethodDecl");
++    };
++    for dyn_trait in ctx.reached_dyn_traits.iter() {
++        if !ctx.trait_map.contains_key(dyn_trait) {
++            continue;
++        }
++        if dyn_trait == trait_path {
++            // `dyn T` calling `T`'s own spec fn. The method's trait args are
++            // the dyn trait's own parameters, `Self` included.
++            let d = &ctx.trait_map[dyn_trait];
++            let args: Typs = Arc::new(
++                d.x.typ_param_names_with_self()
++                    .iter()
++                    .map(|x| Arc::new(TypX::TypParam(x.clone())))
++                    .collect(),
++            );
++            dyn_spec_fn_axiom_generic(ctx, decl_commands, dyn_trait, &args, function);
++        } else {
++            // `dyn D` calling a spec fn it inherits from a supertrait. D's
++            // vtable carries the supertrait's methods, so the same equation
++            // holds -- with the supertrait's arguments as D passes them.
++            for (u_path, u_args) in transitive_supertrait_refs(ctx, dyn_trait) {
++                if &u_path == trait_path {
++                    dyn_spec_fn_axiom_generic(ctx, decl_commands, dyn_trait, &u_args, function);
++                }
++            }
++        }
++    }
++}
++
++/// One generic dyn axiom: `U`'s spec fn `f`, observed through a `dyn D`.
++///
++///   trait D<B1..Bp>: U<u1..um> { }    (U declares spec fn f<C1..Cj>(self, x1..xk))
++/// ==>
++///   (axiom (forall (Self B1..Bp C1..Cj (self! Poly) x1..xk) (!
++///      (=>
++///       (tr_bound%D Self B1..Bp)
++///       (=
++///        (U.f.? $dyn (DYN%D. B1..Bp) u1..um[Self := dyn D] C1..Cj
++///                                    (to_dyn%D Self B1..Bp self!) x1..xk)
++///        (U.f.?          Self        u1..um                 C1..Cj
++///                                                           self!  x1..xk)
++///       ))
++///   )))
++///
++/// With `D == U` and `u1..um` its own parameters, this is the per-impl
++/// `dyn_spec_fn_axiom` quantified over the erased type rather than instantiated
++/// at one impl. That per-impl axiom only fires once the impl is resolved, so a
++/// caller holding `F: T` for a type parameter learns nothing about an `F` it has
++/// erased -- which is what drives clients to declare a spec fn plus a per-impl
++/// proof obligation to recover by hand what the vtable already does. With
++/// `D != U` it covers a spec fn inherited from a supertrait and observed through
++/// a subtrait object, where the chain `D -> .. -> U` has been substituted
++/// through each hop.
++///
++/// The bound is the guard that keeps this honest: without it the equation would
++/// be claimed for types that do not implement the trait at all. Those terms are
++/// unreachable rather than false, but there is no reason to assert anything
++/// about them.
++fn dyn_spec_fn_axiom_generic(
++    ctx: &Ctx,
++    decl_commands: &mut Vec<Command>,
++    dyn_trait: &Path,
++    method_trait_args: &Typs,
++    function: &crate::sst::FunctionSst,
++) {
++    use crate::ast_util::LowerUniqueVar;
++    let d = &ctx.trait_map[dyn_trait];
++
++    // Quantify over the dyn trait's parameters under internal names. The
++    // method's own generics keep theirs, and `%` keeps the two apart: a Rust
++    // identifier cannot contain one, and neither can a user's type parameter.
++    let d_self: Ident = Arc::new("dynsup%self".to_string());
++    let d_params: Vec<Ident> =
++        (0..d.x.typ_params.len()).map(|i| Arc::new(format!("dynsup%{}", i))).collect();
++    let mut substs: HashMap<Ident, Typ> = HashMap::new();
++    substs.insert(crate::def::trait_self_type_param(), Arc::new(TypX::TypParam(d_self.clone())));
++    for ((x, _), fresh) in d.x.typ_params.iter().zip(d_params.iter()) {
++        substs.insert(x.clone(), Arc::new(TypX::TypParam(fresh.clone())));
++    }
++
++    let d_self_typ: Typ = Arc::new(TypX::TypParam(d_self.clone()));
++    let d_arg_typs: Vec<Typ> =
++        d_params.iter().map(|x| Arc::new(TypX::TypParam(x.clone()))).collect();
++    let dyn_typ =
++        Arc::new(TypX::Dyn(dyn_trait.clone(), Arc::new(d_arg_typs.clone()), Arc::new(vec![])));
++
++    // The method's trait args, as the dyn trait passes them: `Self` is the
++    // erased type on the right and the trait object itself on the left.
++    let u_args_erased: Vec<Typ> =
++        method_trait_args.iter().map(|t| crate::sst_util::subst_typ(&substs, t)).collect();
++    // `subst_typ` substitutes once, not to a fixed point, so the dyn-side map
++    // has to send the trait's own `Self` straight to the trait object rather
++    // than relying on a second hop through the renamed parameter.
++    let mut substs_dyn = substs.clone();
++    substs_dyn.insert(crate::def::trait_self_type_param(), dyn_typ.clone());
++    let u_args_dyn: Vec<Typ> =
++        method_trait_args.iter().map(|t| crate::sst_util::subst_typ(&substs_dyn, t)).collect();
++
++    // The method's own generics follow the trait's in the declaration's list.
++    let method_typ_params: Vec<Ident> = function.x.typ_params[method_trait_args.len()..].to_vec();
++    let method_typ_args: Vec<Typ> =
++        method_typ_params.iter().map(|x| Arc::new(TypX::TypParam(x.clone()))).collect();
++
++    let mut d_bound_args: Vec<Typ> = vec![d_self_typ.clone()];
++    d_bound_args.extend(d_arg_typs.iter().cloned());
++    let Some(tr_bound) =
++        trait_bound_to_air(ctx, &TraitId::Path(dyn_trait.clone()), &Arc::new(d_bound_args.clone()))
++    else {
++        return;
++    };
++
++    let mut lhs_args: Vec<air::ast::Expr> = Vec::new();
++    let mut rhs_args: Vec<air::ast::Expr> = Vec::new();
++    for (dyn_side, erased_side) in u_args_dyn.iter().zip(u_args_erased.iter()) {
++        lhs_args.extend(typ_to_ids(ctx, dyn_side));
++        rhs_args.extend(typ_to_ids(ctx, erased_side));
++    }
++    for targ in method_typ_args.iter() {
++        let ids = typ_to_ids(ctx, targ);
++        lhs_args.extend(ids.clone());
++        rhs_args.extend(ids);
++    }
++    let to_dyn_typ_ids: Vec<air::ast::Expr> =
++        d_bound_args.iter().flat_map(|targ| typ_to_ids(ctx, targ)).collect();
++    for (n, param) in function.x.pars.iter().enumerate() {
++        let var = ident_var(&param.x.name.lower());
++        rhs_args.push(var.clone());
++        if n == 0 {
++            let mut to_dyn_args = to_dyn_typ_ids.clone();
++            to_dyn_args.push(var);
++            lhs_args.push(ident_apply(&ctx.name_ctxt.to_dyn(dyn_trait), &to_dyn_args));
++        } else {
++            lhs_args.push(var);
++        }
++    }
++
++    let name = crate::def::suffix_global_id(&crate::sst_to_air::fun_to_air_ident(
++        &ctx.name_ctxt,
++        &function.x.name,
++    ));
++    let lhs = ident_apply(&name, &Arc::new(lhs_args));
++    let rhs = ident_apply(&name, &Arc::new(rhs_args));
++    let f_eq = Arc::new(air::ast::ExprX::Binary(air::ast::BinaryOp::Eq, lhs.clone(), rhs));
++
++    let mut quantified: Vec<Ident> = vec![d_self];
++    quantified.extend(d_params);
++    quantified.extend(method_typ_params);
++    let qid = format!("{name}_{}_to_dyn_generic", path_as_friendly_rust_name(dyn_trait));
++    let e_forall = mk_bind_expr(
++        &crate::sst_to_air_func::func_bind(
++            ctx,
++            qid,
++            &Arc::new(quantified),
++            &function.x.pars,
++            &lhs,
++            None,
++        ),
++        &mk_implies(&tr_bound, &f_eq),
++    );
++    decl_commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(e_forall))));
++}
++
+ // For a trait method impl, return the type arguments that instantiate the trait method:
+ // trait_typ_args (Self and the trait generics) followed by the impl method's own generics.
+ // The trait method declares [Self, trait generics..., method generics...],

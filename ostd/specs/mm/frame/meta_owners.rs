@@ -1,11 +1,8 @@
-#[cfg(feature = "type_id")]
 use core::any::TypeId;
 use vstd::std_specs::convert::{IntoSpecImpl, TryFromSpecImpl};
 use vstd::{atomic::*, cell::pcell_maybe_uninit, prelude::*, simple_pptr::*};
 use vstd_extra::substructural::struct_field::StructToField;
 use vstd_extra::typing::tagged::{MaxSize, TaggedArray, TaggedStorage, recorded_id};
-#[cfg(feature = "type_id")]
-use vstd_extra::typing::types::Any;
 use vstd_extra::{
     ghost_tree::TreePath,
     ownership::*,
@@ -19,7 +16,6 @@ use super::*;
 /// Gated because its only uses here are: both untyped-segment reparam axioms need
 /// `dyn_supertrait`, so an unconditional import would be dead in every other
 /// configuration.
-#[cfg(feature = "dyn_supertrait")]
 use crate::mm::frame::untyped::AnyUFrameMeta;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
@@ -92,39 +88,15 @@ unsafe impl TaggedStorage<META_STORAGE_SIZE> for MetaSlotStorage {
 
 unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
-
-    #[cfg(feature = "type_id")]
-    open spec fn meta_id(&self) -> TypeId {
-        type_id::<Self>()
-    }
-
-    #[cfg(feature = "type_id")]
-    proof fn meta_id_correct(&self) {
-    }
-
-    #[cfg(feature = "type_id")]
-    fn to_any(&self) -> (r: &dyn Any) {
-        let d: &dyn Any = self;
-        assert(d.type_id_spec() == self.type_id_spec());
-        d
-    }
 }
 
 /// The type of a recorded metadata identity.
-#[cfg(feature = "type_id")]
 pub type MetaTypeId = TypeId;
 
-#[cfg(not(feature = "type_id"))]
-pub type MetaTypeId = int;
-
 /// The identity recorded for a slot holding metadata of type `M`.
-#[cfg(feature = "type_id")]
 pub open spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId {
     type_id::<M>()
 }
-
-#[cfg(not(feature = "type_id"))]
-pub uninterp spec fn recorded_meta_id<M: ?Sized>() -> MetaTypeId;
 
 /// Whether metadata recorded under `id` describes *untyped* memory
 pub uninterp spec fn id_is_untyped(id: MetaTypeId) -> bool;
@@ -139,10 +111,9 @@ pub uninterp spec fn id_is_untyped(id: MetaTypeId) -> bool;
 pub uninterp spec fn usage_of_id(id: MetaTypeId) -> PageUsage;
 
 /// Untypedness is a property of the metadata *type*, not of a value of that type
-#[cfg(feature = "type_id")]
 pub axiom fn axiom_untyped_recorded_by_id<M: AnyFrameMeta + ?Sized>(m: &M)
     ensures
-        m.is_untyped_spec() == id_is_untyped(m.meta_id()),
+        m.is_untyped_spec() == id_is_untyped(type_id_of(m)),
 ;
 
 /// Usage, like untypedness, is a property of the metadata *type*, so the
