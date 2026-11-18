@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794988449956,
+  "lastUpdate": 1794989972435,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13080,6 +13080,96 @@ window.BENCHMARK_DATA = {
             "value": 1106099,
             "unit": "rlimit",
             "extra": "smt-run=387ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "157275997+YuQuuu@users.noreply.github.com",
+            "name": "YuQuuu",
+            "username": "YuQuuu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eacd141b53db5867c42d63a982c49e6d59f8f1c3",
+          "message": "Verify bzImage payload encoding parsing (#943)\n\nAttach a complete FromStr result contract with verus_spec while keeping\nthe original Rust signature. Accept exactly raw, gzip and zlib, and\npreserve the exact error prefix plus unchanged input for other strings.\n\nKeep match with equality guards and use String::push_str to reuse existing\nvstd contracts, retaining the original body in an adjacent Origin Rust\nblock. Following #916, exclude only generated Serialize/Deserialize impls.\nKeep enum variants, Serde names and callers unchanged.\n\nValidation: Linux-target builder verify/build (185 verified, 0 errors),\nmake, target formatting and diff checks. Fresh actual-package differential\nchecks matched all 54,257 inputs and passed Serde names and roundtrips.\nExisting attribute-contract client proofs (5 verified, 0 errors) apply to\nthe unchanged contract. Full make fmt has pre-existing OSTD parser failures.",
+          "timestamp": "2026-11-18T16:12:46+08:00",
+          "tree_id": "da9b5f530e00312c7a46bff1f89b6a809d699168",
+          "url": "https://github.com/asterinas/vostd/commit/eacd141b53db5867c42d63a982c49e6d59f8f1c3"
+        },
+        "date": 1794989972026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1079129982,
+            "unit": "rlimit",
+            "extra": "verified=4673 errors=0 smt-run=225,100ms wall=161,447ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 407973506,
+            "unit": "rlimit",
+            "extra": "smt-run=108,558ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 132191790,
+            "unit": "rlimit",
+            "extra": "smt-run=26,673ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 56786605,
+            "unit": "rlimit",
+            "extra": "smt-run=9,918ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,466ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9273315,
+            "unit": "rlimit",
+            "extra": "smt-run=1,361ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 5016899,
+            "unit": "rlimit",
+            "extra": "smt-run=989ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164892,
+            "unit": "rlimit",
+            "extra": "smt-run=550ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=514ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910655,
+            "unit": "rlimit",
+            "extra": "smt-run=502ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1106099,
+            "unit": "rlimit",
+            "extra": "smt-run=205ms"
           }
         ]
       }
