@@ -3,6 +3,8 @@
 use vstd::{prelude::*, resource::set::GhostSubset};
 use vstd_extra::external::{group_io_port_models, obeys_io_port_access_spec, valid_io_port_access};
 
+use crate::arch::io::MAX_IO_PORT;
+
 use crate::arch::device::io_port::{IoPortReadAccess, IoPortWriteAccess, PortRead, PortWrite};
 mod allocator;
 
@@ -108,17 +110,15 @@ impl<T, A> IoPort<T, A> {
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
         requires
-            port + size_of::<T>() <= u16::MAX ==> {
-                &&& obeys_io_port_access_spec::<T>()
-                &&& valid_io_port_access::<T>(port)
-            },
+            obeys_io_port_access_spec::<T>(),
+            size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= u16::MAX
+                &&& port + size_of::<T>() <= MAX_IO_PORT
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
@@ -135,13 +135,14 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             obeys_io_port_access_spec::<T>(),
-            valid_io_port_access::<T>(port),
+            size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
                 &&& io_port.is_allocated()
+                &&& port + size_of::<T>() <= MAX_IO_PORT
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {

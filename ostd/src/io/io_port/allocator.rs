@@ -9,7 +9,7 @@ use vstd::{
     tokens::InstanceId,
 };
 use vstd_extra::{
-    external::{obeys_io_port_access_spec, valid_io_port_access},
+    external::{group_io_port_models, obeys_io_port_access_spec, valid_io_port_access},
     ownership::Inv,
     resource_invariant::SimpleResourceInvariant,
 };
@@ -140,6 +140,28 @@ pub(super) struct IoPortAllocator {
 
 #[verus_verify]
 impl IoPortAllocator {
+    #[verus_spec(
+        requires 1 <= size_of::<T>() <= 4,
+        returns (MAX_IO_PORT - size_of::<T>()) as u16,
+    )]
+    /* The latest upstream fix uses a type-dependent constant:
+     * https://github.com/asterinas/asterinas/pull/4221
+     * A local const cannot capture T, and Verus does not support inline const blocks,
+     * so the calculation is moved into this const fn.
+     * Origin Rust:
+     * const MAX_IO_PORT_FOR_T: u16 = {
+     *     // In practice, the only valid types for the `T` parameter are
+     *     // `u8`, `u16`, and `u32`.
+     *     assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
+     *     // Compile-time calculation. No worry about integer overflow at runtime.
+     *     crate::arch::io::MAX_IO_PORT - (size_of::<T>() as u16)
+     * };
+     */
+    const fn max_port<T>() -> u16 {
+        assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
+        MAX_IO_PORT - (size_of::<T>() as u16)
+    }
+
     /// Acquires an `IoPort`. Returns `None` if the PIO range is unavailable.
     ///
     /// `is_overlapping` indicates whether another `IoPort` can have a PIO range that overlaps with
@@ -147,24 +169,29 @@ impl IoPortAllocator {
     /// otherwise, all ports in the PIO range will be marked as occupied.
     #[verus_spec(result =>
         requires
-            (if is_overlapping { port < u16::MAX } else { port + size_of::<T>() <= u16::MAX }) ==> {
-                &&& obeys_io_port_access_spec::<T>()
-                &&& valid_io_port_access::<T>(port)
-            },
+            obeys_io_port_access_spec::<T>(),
+            size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
             io_port_allocator_initialized(),
         ensures
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
                 &&& io_port.is_allocated()
-                &&& if is_overlapping { port < u16::MAX } else { port + size_of::<T>() <= u16::MAX }
+                &&& port + size_of::<T>() <= MAX_IO_PORT
             },
     )]
     pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {
+        proof! {
+            broadcast use group_io_port_models;
+        }
+        let max_port = Self::max_port::<T>();
+        if port > max_port {
+            return None;
+        }
         let range = if !is_overlapping {
-            port..port.checked_add(size_of::<T>().try_into().ok()?)?
+            port..port + (size_of::<T>() as u16)
         } else {
-            port..port.checked_add(1)?
+            port..port + 1
         };
         /* debug!("Try to acquire PIO range: {:#x?}", range); */
         let mut allocator = self.allocator.lock();
