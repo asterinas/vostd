@@ -66,6 +66,10 @@ tracked struct RwPerms<T> {
     read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
 }
 
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim relies on the lock's
+// SC atomic ordering to synchronize them, but SC atomics model no views.
+// TODO: port the lock to `atomic_weak` with view-carrying hand-offs.
 #[cfg(feature = "irc11")]
 unsafe impl<T> Objective for RwPerms<T> {
 
