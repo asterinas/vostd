@@ -50,6 +50,4 @@ toml_edit = { version = "*" }
 syn = { version = "2", features = ["full", "extra-traits"] }
 quote = { version = "*" }
 proc-macro2 = { version = "*" }
-
-[dev-dependencies]
 tempfile = { version = "*" }

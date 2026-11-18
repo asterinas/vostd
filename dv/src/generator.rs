@@ -25,7 +25,10 @@ pub trait Generative: Template {
     }
 
     fn save_as(&self, path: &Path) {
-        let content = self.generate();
+        let mut content = self.generate();
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
         let path = files::absolutize(&path);
         let mut file = std::fs::File::create(&path).unwrap_or_else(|e| {
             error!("Unable to create file {:?}: {}", path.display(), e);

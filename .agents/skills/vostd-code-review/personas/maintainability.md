@@ -20,7 +20,12 @@ below; if a rule named below no longer exists on the page, drop it.
    `git log -p` and the upstream history. Flag moved items, rewritten expressions whose
    original form is not shown in the change, and equivalences that cannot be checked from
    the review text alone. Flag reversed conversion lemmas, reconstructed values, runtime
-   clones, and caller-facing API changes introduced only to ease a proof. When Verus
+   clones, and caller-facing API changes introduced only to ease a proof. Flag prose
+   comments added onto executable code that state neither a verified property nor a
+   caller-facing trust boundary (comment freezing), and an executable call replaced by a
+   differently packaged equivalent when the original callee lacked a specification — the
+   page requires specifying the original callee first, with a record of the concrete
+   obstacle when the call is still replaced. When Verus
    forces an executable change, it must stay minimal and the original form must be shown
    in the review; hold it to whichever comment format the page currently mandates.
    Inspect deleted original-code comments as well as added markers. Distinguish a
@@ -97,7 +102,10 @@ below; if a rule named below no longer exists on the page, drop it.
    `Compliance` notes, not findings.
 7. Placement (`right-size-spec-placement`): grep the repo for users of each spec fn the
    target defines; a small model beside its single user is correct, a shared or growing
-   model belongs under `ostd/specs/`.
+   model belongs under `ostd/specs/`. Executable-code comments are otherwise frozen with
+   the code: do not request supplementary rustdoc or narrative comments on executable
+   code beyond verified-property or trust-boundary statements and `Origin Rust:` rewrite
+   markers (see the page's `preserve-exec-code` section).
    For `defer-auxiliary-proof-functions`, use visibility and consumers to distinguish
    exported proof/model APIs and critical proofs from private auxiliary lemmas.
    Keep APIs and critical proofs first; defer only lemmas serving side obligations,

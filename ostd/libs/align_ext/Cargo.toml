@@ -20,3 +20,6 @@ verify = true
 [dependencies]
 vstd = { workspace = true }
 vstd_extra = { path = "../../../verified_libs/vstd_extra" }
+
+[lints]
+workspace = true
