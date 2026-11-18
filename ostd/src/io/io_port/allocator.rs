@@ -268,7 +268,7 @@ impl IoPortAllocator {
                 assert(!id_alloc_view(&allocator_inner).contains(i));
                 assert(preserved.subset_of(old_view.insert(i))) by {
                     assert forall|id: usize|
-                        preserved.contains(id) implies
+                        #[trigger] preserved.contains(id) implies
                         old_view.insert(i).contains(id) by {
                     }
                 }

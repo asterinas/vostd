@@ -251,8 +251,6 @@ impl IoMemAllocatorBuilder {
     }
 }
 
-/// The I/O Memory allocator of the system.
-// Original Rust: pub static IO_MEM_ALLOCATOR: Once<IoMemAllocator> = Once::new();
 verus! {
 
 broadcast use vstd::std_specs::vec::group_vec_axioms;
@@ -351,6 +349,8 @@ pub open spec fn io_mem_range_registered(range: Range<usize>) -> bool {
 /// Whether the global I/O memory allocator has been initialized.
 pub uninterp spec fn io_mem_allocator_initialized() -> bool;
 
+/// The I/O Memory allocator of the system.
+// Original Rust: pub static IO_MEM_ALLOCATOR: Once<IoMemAllocator> = Once::new();
 pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialResourceInvariant>
     ensures
         IO_MEM_ALLOCATOR.wf(),
