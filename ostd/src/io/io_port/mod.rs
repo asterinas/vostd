@@ -110,8 +110,8 @@ impl<T, A> IoPort<T, A> {
     /// This method will mark all ports in the PIO range as occupied.
     #[verus_spec(result =>
         requires
-            obeys_io_port_access_spec::<T>(),
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
+            port + size_of::<T>() <= MAX_IO_PORT ==> obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
@@ -134,8 +134,8 @@ impl<T, A> IoPort<T, A> {
     /// This method will only mark the first port in the PIO range as occupied.
     #[verus_spec(result =>
         requires
-            obeys_io_port_access_spec::<T>(),
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
+            port + size_of::<T>() <= MAX_IO_PORT ==> obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
             result matches Ok(io_port) ==> {
