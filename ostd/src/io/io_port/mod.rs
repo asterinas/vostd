@@ -111,9 +111,10 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
-            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> obeys_io_port_access_spec::<T>(),
+            obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
+            port + size_of::<T>() > MAX_IO_PORT + 1 ==> result is Err,
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
@@ -135,9 +136,10 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(result =>
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
-            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> obeys_io_port_access_spec::<T>(),
+            obeys_io_port_access_spec::<T>(),
             allocator::io_port_allocator_initialized(),
         ensures
+            port + size_of::<T>() > MAX_IO_PORT + 1 ==> result is Err,
             result matches Ok(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()

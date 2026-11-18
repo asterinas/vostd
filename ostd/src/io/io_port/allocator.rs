@@ -148,9 +148,10 @@ impl IoPortAllocator {
     #[verus_spec(result =>
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
-            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> obeys_io_port_access_spec::<T>(),
+            obeys_io_port_access_spec::<T>(),
             io_port_allocator_initialized(),
         ensures
+            port + size_of::<T>() > MAX_IO_PORT + 1 ==> result is None,
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
@@ -609,6 +610,7 @@ mod test {
     // #[ktest]
     #[verus_spec(requires io_port_allocator_initialized())]
     fn illegal_region() {
+        proof! { broadcast use group_io_port_models; }
         let io_port_a = IoPort::acquire(0xffff);
         assert!(io_port_a.is_err());
 
