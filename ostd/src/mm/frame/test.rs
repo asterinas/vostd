@@ -5,7 +5,7 @@ use vstd_extra::{assert, assert_eq, ownership::Inv};
 use crate::mm::UniqueFrame;
 use crate::specs::mm::frame::{
     linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner},
-    meta_owners::{TypedU32FrameMeta, U32FrameMeta, typed_meta_value, typed_meta_wf},
+    meta_owners::{U32FrameMeta, typed_meta_value, typed_meta_wf},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
 };
@@ -13,14 +13,16 @@ use crate::specs::mm::frame::{
 use super::{allocator::FrameAllocOptions, *};
 use crate::{/* impl_frame_meta_for, impl_untyped_frame_meta_for, */ prelude::*};
 
+verus! {
+
 /// Typed mock metadata struct for testing
-/* #[derive(Debug, Default)]
-struct MockFrameMeta {
+#[derive(Debug, Default)]
+pub struct MockFrameMeta {
     value: u32,
 }
-impl_frame_meta_for!(MockFrameMeta); */
-type MockFrameMeta = TypedU32FrameMeta;
 
+/* impl_frame_meta_for!(MockFrameMeta); */
+} // verus!
 /// Untyped mock metadata struct for testing
 /* #[derive(Debug, Default)]
 struct MockUFrameMeta {

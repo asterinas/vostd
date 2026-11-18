@@ -606,37 +606,47 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).inv(),
             frame.wf_with_region(*old(regions)),
         ensures
-            final(regions).slots == old(regions).slots,
-            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
             res is Err || old(regions).slot_owners[frame.index()].paths_in_pt.is_empty()
                 ==> final(regions).inv(),
             res matches Ok(unique) ==> {
+                let paddr = frame.start_paddr_spec();
+                let old_slot = old(regions).slot_owner(paddr);
+                let final_slot = final(regions).slot_owner(paddr);
                 &&& unique.inv()
                 &&& unique.ptr == frame.ptr
                 &&& unique.slot_perm() == frame.slot_perm()
                 &&& unique.metadata_perm() == frame.metadata_perm()
-                &&& final(regions).slot_owners[frame.index()].ref_count() == REF_COUNT_UNIQUE
-                &&& final(regions).slot_owners[frame.index()].metadata_perm.is_resource_vacant()
-                &&& final(regions).slot_owners[frame.index()].in_list_perm == old(regions).slot_owners[frame.index()].in_list_perm
-                &&& final(regions).slot_owners[frame.index()].usage == old(regions).slot_owners[frame.index()].usage
-                &&& final(regions).slot_owners[frame.index()].paths_in_pt == old(regions).slot_owners[frame.index()].paths_in_pt
+                &&& final_slot.ref_count() == REF_COUNT_UNIQUE
+                &&& final_slot.metadata_perm.is_resource_vacant()
+                &&& *final(regions) == old(regions).insert_slot_owner(
+                    paddr,
+                    MetaSlotOwner {
+                        ref_count_perm: final_slot.ref_count_perm,
+                        metadata_perm: final_slot.metadata_perm,
+                        ..old_slot
+                    },
+                )
             },
             res matches Err(returned) ==> {
+                let paddr = frame.start_paddr_spec();
+                let old_slot = old(regions).slot_owner(paddr);
+                let final_slot = final(regions).slot_owner(paddr);
                 &&& returned.inv()
                 &&& returned.ptr == frame.ptr
                 &&& returned.slot_perm() == frame.slot_perm()
                 &&& returned.metadata_perm() == frame.metadata_perm()
-                &&& final(regions).slot_owners[frame.index()].metadata_perm == old(regions).slot_owners[frame.index()].metadata_perm
-                &&& final(regions).slot_owners[frame.index()].ref_count_perm@ == old(regions).slot_owners[frame.index()].ref_count_perm@
-                &&& final(regions).slot_owners[frame.index()].in_list_perm == old(regions).slot_owners[frame.index()].in_list_perm
-                &&& final(regions).slot_owners[frame.index()].slot_vaddr == old(regions).slot_owners[frame.index()].slot_vaddr
-                &&& final(regions).slot_owners[frame.index()].usage == old(regions).slot_owners[frame.index()].usage
-                &&& final(regions).slot_owners[frame.index()].paths_in_pt == old(regions).slot_owners[frame.index()].paths_in_pt
-                &&& final(regions).slot_owners[frame.index()].ref_count() != REF_COUNT_UNIQUE
+                &&& final_slot.ref_count_perm@ == old_slot.ref_count_perm@
+                &&& final_slot.ref_count() != REF_COUNT_UNIQUE
+                &&& *final(regions) == old(regions).insert_slot_owner(
+                    paddr,
+                    MetaSlotOwner {
+                        ref_count_perm: final_slot.ref_count_perm,
+                        ..old_slot
+                    },
+                )
             },
             res is Ok ==> old(regions).slot_owners[frame.index()].ref_count() == 1,
             old(regions).slot_owners[frame.index()].ref_count() == 1 ==> res is Ok,
-            *final(regions) == old(regions).insert_slot_owner(frame.start_paddr_spec(), final(regions).slot_owners[frame.index()]),
     )]
     pub fn try_from_shared(mut frame: Frame<M>) -> Result<Self, Frame<M>> {
         let ghost idx = meta_to_index(frame.slot_vaddr());

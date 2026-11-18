@@ -12,9 +12,12 @@ use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners:
 use super::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
-    frame::meta::{
-        AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-        mapping::meta_to_frame,
+    frame::{
+        MockFrameMeta,
+        meta::{
+            AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED, mapping::meta_to_frame,
+        },
     },
     kspace::FRAME_METADATA_RANGE,
 };
@@ -47,23 +50,15 @@ pub enum MetaSlotStorage {
     Empty([u8; 39]),
     Untyped,
     U32Frame(U32FrameMeta),
-    TypedU32Frame(TypedU32FrameMeta),
+    TypedU32Frame(MockFrameMeta),
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
 }
 
 } // verus!
-macro_rules! define_u32_frame_meta {
-    ($(#[$attr:meta])* $meta:ident, $variant:ident, $field:ident) => {
+macro_rules! impl_u32_frame_meta_repr {
+    ($meta:ident, $variant:ident, $field:ident) => {
         verus! {
-            $(#[$attr])*
-            #[derive(Debug, Default)]
-            // Keep nested link metadata within the fixed slot layout.
-            #[repr(C, packed)]
-            pub struct $meta {
-                pub value: u32,
-            }
-
             impl Inv for $meta {
                 open spec fn inv(self) -> bool {
                     true
@@ -109,18 +104,19 @@ macro_rules! define_u32_frame_meta {
     };
 }
 
-define_u32_frame_meta!(
-    /// Concrete metadata carrying one u32 value for an untyped frame.
-    U32FrameMeta,
-    U32Frame,
-    U32Frame_0
-);
-define_u32_frame_meta!(
-    /// Concrete metadata carrying one u32 value for a typed frame.
-    TypedU32FrameMeta,
-    TypedU32Frame,
-    TypedU32Frame_0
-);
+verus! {
+
+/// Concrete metadata carrying one u32 value for an untyped frame.
+#[derive(Debug, Default)]
+// Keep nested link metadata within the fixed slot layout.
+#[repr(C, packed)]
+pub struct U32FrameMeta {
+    pub value: u32,
+}
+
+} // verus!
+impl_u32_frame_meta_repr!(U32FrameMeta, U32Frame, U32Frame_0);
+impl_u32_frame_meta_repr!(MockFrameMeta, TypedU32Frame, TypedU32Frame_0);
 
 verus! {
 
@@ -141,7 +137,7 @@ impl crate::mm::frame::untyped::AnyUFrameMeta for U32FrameMeta {
 }
 
 // SAFETY: The default `on_drop` callback does not access frame memory.
-unsafe impl AnyFrameMeta for TypedU32FrameMeta {
+unsafe impl AnyFrameMeta for MockFrameMeta {
     uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
