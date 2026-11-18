@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -303,6 +304,24 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
         )
     entries.sort(key=lambda e: (e["location"], e["name"]))
     return len(entries), entries
+
+
+def unmatched_mainline_apis(
+    mainline: list[dict[str, str]], verified: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    def key(entry: dict[str, str]) -> tuple[str, str]:
+        # Line numbers shift as specifications and proofs are added.
+        return entry["location"].rsplit(":", 2)[0], entry["name"]
+
+    remaining = Counter(map(key, verified))
+    unmatched = []
+    for entry in mainline:
+        identity = key(entry)
+        if remaining[identity]:
+            remaining[identity] -= 1
+        else:
+            unmatched.append(entry)
+    return unmatched
 
 
 def run_line_count_file(
@@ -657,6 +676,7 @@ def write_snapshot(
     specs: tuple[int, int, int] | None = None,
     verified_apis: int | None = None,
     api_entries: list[dict[str, str]] | None = None,
+    mainline_apis: list[dict[str, str]] | None = None,
 ) -> None:
     totals = totals_of(modules)
     totals_dict = totals.as_dict()
@@ -668,6 +688,8 @@ def write_snapshot(
         totals_dict["proof_all"] = totals.proof + proof
     if verified_apis is not None:
         totals_dict["verified_apis"] = verified_apis
+    if mainline_apis is not None:
+        totals_dict["total_apis"] = len(mainline_apis)
     snapshot = {
         "date": date,
         "sha": sha,
@@ -682,6 +704,10 @@ def write_snapshot(
     }
     if api_entries is not None:
         snapshot["verified_apis_list"] = api_entries
+        if mainline_apis is not None:
+            unmatched = unmatched_mainline_apis(mainline_apis, api_entries)
+            totals_dict["verified_mainline_apis"] = len(mainline_apis) - len(unmatched)
+            snapshot["unverified_apis_list"] = unmatched
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     print(f"Snapshot: {output}")
@@ -755,10 +781,15 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             print(f"warning: rustdoc JSON not found, skipping API count: {doc_json}",
                   file=sys.stderr)
 
+    mainline_apis = None
+    if args.mainline_doc_json:
+        total, mainline_apis = collect_verified_apis(args.mainline_doc_json)
+        print(f"Mainline APIs: {total:,}")
+
     sha = args.sha or git_output(REPO_ROOT, "rev-parse", "HEAD")
     date = args.date or git_output(REPO_ROOT, "show", "-s", "--format=%cI", sha) or ""
     write_snapshot(modules, args.output, sha, date, args.mainline_sha, specs,
-                   verified_apis, api_entries)
+                   verified_apis, api_entries, mainline_apis)
     print_report(modules, warnings)
     return 0
 
@@ -825,8 +856,9 @@ def cmd_record(args: argparse.Namespace) -> int:
         "spec": totals.get("spec_all", totals["spec"]),
         "proof": totals.get("proof_all", totals["proof"]),
     }
-    if "verified_apis" in totals:
-        point["verified_apis"] = totals["verified_apis"]
+    for key in ("verified_apis", "verified_mainline_apis"):
+        if key in totals:
+            point[key] = totals[key]
     for existing in points:
         if existing.get("sha") == point["sha"]:
             existing.update(point)  # reruns refresh the same commit
@@ -884,6 +916,10 @@ def parse_args() -> argparse.ArgumentParser:
         "counted into totals.verified_apis",
     )
     snapshot.add_argument("--mainline-sha", help="commit the mainline checkout is at")
+    snapshot.add_argument(
+        "--mainline-doc-json", type=Path,
+        help="mainline rustdoc JSON used as the API coverage baseline",
+    )
     snapshot.add_argument("--arch", help="keep only one arch platform, e.g. x86")
     snapshot.add_argument(
         "--exclude",

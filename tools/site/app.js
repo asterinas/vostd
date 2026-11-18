@@ -70,8 +70,9 @@ function renderTiles(snapshot, historyPoints) {
     },
     {
       label: "Verified APIs",
-      value: totals.verified_apis ?? 0,
-      deltaKey: "verified_apis",
+      value: totals.verified_mainline_apis ?? totals.verified_apis,
+      total: totals.total_apis,
+      deltaKey: totals.total_apis == null ? "verified_apis" : "verified_mainline_apis",
       upIsGood: true,
     },
   ];
@@ -86,7 +87,10 @@ function renderTiles(snapshot, historyPoints) {
     label.textContent = spec.label;
     const value = document.createElement("div");
     value.className = "tile-value";
-    value.textContent = fmtFull(spec.value);
+    value.textContent = spec.value == null ? "—" : fmtFull(spec.value);
+    if (spec.total != null) {
+      value.textContent += ` / ${fmtFull(spec.total)}`;
+    }
     tile.append(label, value);
 
     if (
@@ -105,7 +109,7 @@ function renderTiles(snapshot, historyPoints) {
         deltaEl.classList.toggle("down", delta > 0);
       }
       const sign = delta > 0 ? "+" : "";
-      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaKey === "verified_apis" ? "APIs" : "lines"} vs previous commit`;
+      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaKey.endsWith("_apis") ? "APIs" : "lines"} vs previous commit`;
       tile.append(deltaEl);
     }
     host.append(tile);
@@ -623,6 +627,32 @@ function renderApiTable(snapshot) {
   );
 }
 
+function renderUnverifiedApiTable(snapshot) {
+  const host = document.getElementById("unverified-api-table");
+  const entries = snapshot.unverified_apis_list;
+  if (!Array.isArray(entries) || !entries.length) {
+    host.replaceChildren(placeholder(Array.isArray(entries)
+      ? "Every mainline API matched a verified API."
+      : "Mainline API comparison is unavailable for this snapshot."));
+    return;
+  }
+  const sha = snapshot.mainline_sha;
+  const base = /^[a-f0-9]{40}$/.test(sha) ? `https://github.com/asterinas/vostd/blob/${sha}/` : null;
+  const rows = entries.slice()
+    .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
+    .map((api) => {
+      const match = /^(ostd\/[\w./-]+\.rs):(\d+):\d+$/.exec(api.location);
+      if (!base || !match || match[1].split("/").includes("..")) {
+        return [api.name, api.group, api.location];
+      }
+      const link = document.createElement("a");
+      link.textContent = api.name;
+      link.href = `${base}${match[1]}#L${match[2]}`;
+      return [link, api.group, api.location];
+    });
+  host.replaceChildren(table(rows, ["Unverified API", "Module", "Mainline location"]));
+}
+
 /* ------------------------------------------------------------- plumbing */
 
 function placeholder(message) {
@@ -681,6 +711,7 @@ async function main() {
   renderHistoryTable(liveData.points);
   renderTreemapTable(snapshot);
   renderApiTable(snapshot);
+  renderUnverifiedApiTable(snapshot);
 
   let resizeFrame;
   const observer = new ResizeObserver(() => {
