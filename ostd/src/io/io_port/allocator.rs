@@ -140,22 +140,6 @@ pub(super) struct IoPortAllocator {
 
 #[verus_verify]
 impl IoPortAllocator {
-    #[verus_spec(
-        requires 1 <= size_of::<T>() <= 4,
-        returns (MAX_IO_PORT + 1 - size_of::<T>()) as usize,
-    )]
-    /* Verus does not support the generic inline const block used upstream.
-     * Origin Rust:
-     * let max_io_port_for_t = const {
-     *     assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
-     *     crate::arch::io::MAX_IO_PORT as usize + 1 - size_of::<T>()
-     * };
-     */
-    const fn max_io_port_for_t<T>() -> usize {
-        assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
-        MAX_IO_PORT as usize + 1 - size_of::<T>()
-    }
-
     /// Acquires an `IoPort`. Returns `None` if the PIO range is unavailable.
     ///
     /// `is_overlapping` indicates whether another `IoPort` can have a PIO range that overlaps with
@@ -178,7 +162,11 @@ impl IoPortAllocator {
         proof! {
             broadcast use group_io_port_models;
         }
-        let max_io_port_for_t = Self::max_io_port_for_t::<T>();
+        /* Verus does not support the generic inline const block used upstream. */
+        let max_io_port_for_t = /* const */ {
+            assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
+            MAX_IO_PORT as usize + 1 - size_of::<T>()
+        };
         let port = port as usize;
         if port > max_io_port_for_t {
             return None;
