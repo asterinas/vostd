@@ -354,6 +354,17 @@ constants, methods, or modules. If Verus requires an executable change, keep it
 minimal, demonstrate unchanged runtime behavior, and show the original form in
 review.
 
+Before rewriting an executable call to reuse an existing external
+specification, prefer specifying the API the code already calls. Check the
+vendored vstd tree and Verus upstream for an existing model first, then add a
+faithful external specification for the exact callee in the owning verified
+library, such as `vstd_extra::external`, and follow
+[`upstream-reusable-specs`](workflow.md#upstream-reusable-specs) for
+standard-library APIs. Replace a call with a differently packaged equivalent
+only when the original callee cannot be specified — record the concrete
+obstacle in the review — and the replacement still counts as the executable
+change this section governs.
+
 When the target code or its module is commented out, enable it in place by
 uncommenting only the target code and its necessary dependencies; leave the
 rest commented out. Do not extract a new module, widen visibility, or change
@@ -395,6 +406,14 @@ See also: PR [#924](https://github.com/asterinas/vostd/pull/924#discussion_r4560
 Preserve existing comments and rustdoc verbatim during proof work, including
 wording, units, and references. An apparent documentation error is a separate
 upstream correction; do not silently fix it while adding verification.
+
+Comments on executable code stay frozen with the code itself: verification
+work adds specifications and proofs, not prose about the implementation or the
+migration. An added comment on executable code must state a verified property
+or a caller-facing trust boundary, such as a check the caller owes, or be the
+`Origin Rust:` block required for an executable rewrite below. Migration
+rationale, upstream implementation details, and tool behavior belong in the PR
+description or the review text.
 
 When temporarily disabling unchanged imports or code outside the verified
 scope, wrap the original text directly in `/* ... */`. Do not add a reason,
