@@ -156,8 +156,7 @@ impl IoMemAllocatorBuilder {
     #[verus_spec(ret =>
         requires
             ranges_disjoint(ranges@),
-            forall|i: int| #![trigger ranges@[i]]
-                0 <= i < ranges@.len() ==> ranges@[i].start <= ranges@[i].end,
+            ranges@.all(|range: Range<usize>| range.start <= range.end),
         ensures
             ret@ == ranges@,
             ret.has_registered_windows() == usize_ranges_match_registered(ranges@),
@@ -180,8 +179,7 @@ impl IoMemAllocatorBuilder {
                 },
                 ranges_disjoint(it.seq()),
                 ranges_separated(it.seq()),
-                forall|j: int| #![trigger it.seq()[j]]
-                    0 <= j < it.seq().len() ==> it.seq()[j].start <= it.seq()[j].end,
+                it.seq().all(|range: Range<usize>| range.start <= range.end),
                 windows_disjoint(allocators@),
         )]
         for range in ranges {
