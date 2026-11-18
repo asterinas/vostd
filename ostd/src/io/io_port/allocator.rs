@@ -628,15 +628,15 @@ mod test {
     type IoPort = crate::io::IoPort<u32, ReadWriteAccess>;
     type ByteIoPort = crate::io::IoPort<u8, ReadWriteAccess>;
     /*type OversizedPortValue = [u8; 0x10008];
-    type IllegalIoPort = crate::io::IoPort<OversizedPortValue, ReadWriteAccess>;
+        type IllegalIoPort = crate::io::IoPort<OversizedPortValue, ReadWriteAccess>;
 
-    verus! {
+        verus! {
 
-global size_of OversizedPortValue == 0x10008;
+    global size_of OversizedPortValue == 0x10008;
 
-} // verus!*/
+    } // verus!*/
     // #[ktest]
-#[verus_spec(requires io_port_allocator_initialized())]
+    #[verus_spec(requires io_port_allocator_initialized())]
     fn illegal_region() {
         let io_port_a = IoPort::acquire(0xffff);
         assert!(io_port_a.is_err());
