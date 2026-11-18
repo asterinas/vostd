@@ -7,13 +7,12 @@
 use core::any::TypeId;
 use core::marker::PhantomData;
 use vstd::{prelude::*, seq_lib::*, simple_pptr::*};
+use vstd_extra::substructural::{cell::CellBorrow, struct_field::StructToField};
 #[cfg(feature = "type_id")]
 use vstd_extra::typing::types::Any;
 use vstd_extra::{
     ownership::*,
-    raw_ptr::{
-        ptr_from_addr, ptr_mut_from_addr, ptr_mut_ref, ptr_mut_ref_via, ptr_ref, ptr_ref_via,
-    },
+    raw_ptr::{ptr_mut_from_addr, ptr_mut_ref, ptr_mut_ref_via, ptr_ref, ptr_ref_via},
     typing::tagged::MaxSize,
 };
 
@@ -612,15 +611,9 @@ impl<M: AnyFrameMeta + MaxSize<LINK_INNER_SIZE>> LinkedList<M> {
                 let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(list_owner, index);
             }
 
-            // The one boundary conversion: build the slot pointer from its
-            // address using the slot permission's exposure, then cast to the
-            // metadata pointer the cursor stores. Everything downstream works
-            // on that pointer directly.
             let tracked cur_slot_perm = regions.slots.tracked_borrow(idx);
-            let meta_ptr = ptr_from_addr::<MetaSlot>(
-                frame_to_meta(frame),
-                Tracked(cur_slot_perm),
-            ) as *mut Link<M>;
+            let tracked cell_parent = MetaSlot::borrow_first(cur_slot_perm.borrow_points_to());
+            let meta_ptr = slot.storage.get(Tracked(cell_parent)) as *mut Link<M>;
             proof_with!(|= Tracked(Some(cursor_owner)));
             Some(CursorMut { list: self, current: Some(meta_ptr) })
         } else {

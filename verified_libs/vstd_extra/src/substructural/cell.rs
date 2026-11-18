@@ -64,6 +64,36 @@
 //! a pointer, which is a step outside this module -- see
 //! [`crate::raw_ptr::ExposedPointsTo`].
 //!
+//! # Provenance model: PNVI, not strict provenance
+//!
+//! [`CellBorrow::get`] claims that a pointer derived from a reference to the
+//! cell carries the *enclosing permission's* provenance. That is true when
+//! provenance is recovered from the address -- PNVI -- and false under
+//! Stacked/Tree Borrows, where such a pointer gets a fresh tag.
+//!
+//! We adopt PNVI because the code being modelled already requires it.
+//! Upstream `ostd` reconstructs pointers from integers with bare casts and no
+//! exposure anywhere, e.g. `UniqueFrame::from_raw`:
+//!
+//! ```rust,ignore
+//! let vaddr = mapping::frame_to_meta::<PagingConsts>(paddr);
+//! let ptr = vaddr as *const MetaSlot;
+//! ```
+//!
+//! Under strict provenance that pointer has none and dereferencing it is UB;
+//! it is sound exactly when the address determines the object, which is PNVI.
+//! Holding `ostd` to a stricter model than the code it ports would force
+//! address round trips upstream does not perform, so the honest choice is to
+//! state the model once, here, and work in it.
+//!
+//! The cost is explicit: `vstd` takes the strict reading (see
+//! [`vstd::raw_ptr::ptr_ref2`]'s note that a reference's derived pointer does
+//! *not* share provenance), so `get` is justified by PNVI and not by `vstd`'s
+//! semantics. Every other axiom in this module is model-neutral --
+//! [`CellBorrow::borrow_as_ptr`] and its mutable twin relate a permission to a
+//! pointer the caller already holds, and say nothing about how provenance
+//! arises.
+//!
 //! # Correspondence with VerusBelt
 //!
 //! VerusBelt proves these operations sound in Iris.
@@ -126,13 +156,15 @@ pub trait CellBorrow: Sized {
     /// which is why the two below are separate -- a fractional permission can
     /// only be borrowed shared, so its holder has no `&mut` to offer.
     ///
-    /// TRUSTED, and the claim is only about the **address**: `self` and
-    /// `parent` describe the same cell, and a cell lives at one address. It
-    /// deliberately says nothing about provenance. A pointer derived from a
-    /// reference carries a fresh Stacked/Tree Borrows tag (see
-    /// [`vstd::raw_ptr::ptr_ref2`]'s note), so claiming `parent`'s provenance
-    /// here would be false. Tying the pointer to a permission is
-    /// [`Self::borrow_as_ptr`]'s job, and it does that by taking the pointer.
+    /// TRUSTED, **and justified by PNVI rather than by `vstd`'s model** -- see
+    /// the module header. The provenance clause is the load-bearing one: it
+    /// says a pointer derived from a reference to this cell carries the
+    /// enclosing permission's provenance, which holds when provenance is a
+    /// function of the address, and fails under Stacked/Tree Borrows where a
+    /// reference-derived pointer gets a fresh tag. `vstd` takes the strict
+    /// reading -- compare [`vstd::raw_ptr::ptr_ref2`]'s note -- so a reader
+    /// checking this axiom against `vstd` alone would reasonably call it
+    /// wrong. It is sound in the model `ostd` has adopted, and only there.
     exec fn get<'a>(&self, Tracked(parent): Tracked<&'a raw_ptr::PointsTo<Self>>) -> (res:
         *mut Self::Value)
         requires
@@ -140,6 +172,7 @@ pub trait CellBorrow: Sized {
             parent.value().id() == self.id(),
         ensures
             res@.addr == parent.ptr()@.addr,
+            res@.provenance == parent.ptr()@.provenance,
     ;
 
     /// A permission for the contents, at the pointer [`Self::get`] returned.
