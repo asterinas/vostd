@@ -142,6 +142,7 @@ mod tests {
             "[workspace]\nmembers = [\"empty\", \"dependency\"]\nresolver = \"2\"\n",
         )
         .unwrap();
+        std::fs::write(root.join("Cargo.lock"), "version = 4\n").unwrap();
         for (name, dependencies) in [
             ("empty", "dependency = { path = \"../dependency\" }"),
             ("dependency", ""),
