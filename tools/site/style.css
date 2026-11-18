@@ -119,18 +119,9 @@ header.page .repo-btn:hover { background: var(--surface-1); }
 
 .tile .tile-label { color: var(--ink-2); font-size: 12.8px; }
 .tile .tile-value { font-size: 30px; font-weight: 600; line-height: 1.2; margin-top: 4px; }
-.tile .tile-delta { font-size: 12.8px; margin-top: 2px; color: var(--ink-2); }
+.tile .tile-detail, .tile .tile-delta { font-size: 12.8px; margin-top: 2px; color: var(--ink-2); }
 .tile .tile-delta.up { color: var(--good-text); }
 .tile .tile-delta.down { color: var(--bad-text); }
-
-@media (min-width: 800px) {
-  #tiles {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: clamp(10px, 1.3vw, 16px);
-  }
-  #tiles .tile { padding-inline: clamp(12px, calc(3vw - 12px), 18px); }
-  #tiles .tile-value { font-size: clamp(24px, 3vw, 30px); }
-}
 
 /* Chart cards. */
 .card {

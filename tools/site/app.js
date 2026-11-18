@@ -57,23 +57,16 @@ function renderTiles(snapshot, historyPoints, bugs) {
   const specs = [
     { label: "Total executable LoC", value: totals.total, deltaKey: null },
     {
-      label: "Verified",
+      label: "Total verified LoC",
       value: totals.verified_exec,
+      trusted: totals.trusted,
       deltaKey: "verified_exec",
-      upIsGood: true,
-    },
-    {
-      label: "Trusted boundary",
-      value: totals.trusted,
-      deltaKey: "trusted",
-      upIsGood: false,
     },
     {
       label: "Verified APIs",
-      value: totals.verified_mainline_apis ?? totals.verified_apis,
+      value: totals.verified_apis,
       total: totals.total_apis,
-      deltaKey: totals.total_apis == null ? "verified_apis" : "verified_mainline_apis",
-      upIsGood: true,
+      deltaKey: "verified_apis",
     },
     { label: "Bugs found", value: bugs?.length, href: "#verification-bugs" },
   ];
@@ -94,6 +87,12 @@ function renderTiles(snapshot, historyPoints, bugs) {
       value.textContent += ` / ${fmtFull(spec.total)}`;
     }
     tile.append(label, value);
+    if (spec.trusted != null) {
+      const boundary = document.createElement("div");
+      boundary.className = "tile-detail";
+      boundary.textContent = `Trusted boundary: ${fmtFull(spec.trusted)} LoC`;
+      tile.append(boundary);
+    }
 
     if (
       spec.deltaKey &&
@@ -106,10 +105,6 @@ function renderTiles(snapshot, historyPoints, bugs) {
       const deltaEl = document.createElement("div");
       deltaEl.className = "tile-delta";
       if (delta !== 0) deltaEl.classList.add(delta > 0 ? "up" : "down");
-      if (spec.upIsGood === false && delta !== 0) {
-        deltaEl.classList.toggle("up", delta < 0);
-        deltaEl.classList.toggle("down", delta > 0);
-      }
       const sign = delta > 0 ? "+" : "";
       deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaKey.endsWith("_apis") ? "APIs" : "lines"} vs previous commit`;
       tile.append(deltaEl);
