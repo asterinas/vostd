@@ -62,13 +62,13 @@ function renderTiles(snapshot, historyPoints, bugs) {
       trusted: totals.trusted,
       deltaKey: "verified_exec",
     },
+    { label: "Bugs found", value: bugs?.length, href: "#verification-bugs" },
     {
       label: "Verified APIs",
       value: totals.verified_apis,
       total: totals.total_apis,
       deltaKey: "verified_apis",
     },
-    { label: "Bugs found", value: bugs?.length, href: "#verification-bugs" },
   ];
 
   const host = document.getElementById("tiles");
@@ -640,9 +640,9 @@ function compareApis(a, b) {
 }
 
 function renderVerificationBugs(bugs) {
-  const preview = document.getElementById("bugs-preview");
+  const host = document.getElementById("bugs-table");
   if (!bugs) {
-    preview.replaceChildren(placeholder("Bug data is unavailable. See the tracking issue for the current list."));
+    host.replaceChildren(placeholder("Bug data is unavailable. See the tracking issue for the current list."));
     return;
   }
   const labels = { fixed: "Fixed", confirmed: "Confirmed", reported: "Reported" };
@@ -659,13 +659,7 @@ function renderVerificationBugs(bugs) {
     }
     return [description, labels[status] ?? status, links];
   });
-  preview.replaceChildren(table(rows.slice(0, 3), columns));
-  if (rows.length > 3) {
-    const more = document.getElementById("bugs-more");
-    more.querySelector("summary").textContent = `View ${fmtFull(rows.length - 3)} more bugs`;
-    more.append(table(rows.slice(3), columns));
-    more.hidden = false;
-  }
+  host.replaceChildren(table(rows, columns));
 }
 
 function renderUnverifiedApiTable(snapshot) {
