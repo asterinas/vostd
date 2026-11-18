@@ -123,6 +123,15 @@ header.page .repo-btn:hover { background: var(--surface-1); }
 .tile .tile-delta.up { color: var(--good-text); }
 .tile .tile-delta.down { color: var(--bad-text); }
 
+@media (min-width: 800px) {
+  #tiles {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: clamp(10px, 1.3vw, 16px);
+  }
+  #tiles .tile { padding-inline: clamp(12px, calc(3vw - 12px), 18px); }
+  #tiles .tile-value { font-size: clamp(24px, 3vw, 30px); }
+}
+
 /* Chart cards. */
 .card {
   background: var(--surface-1);
@@ -146,6 +155,7 @@ header.page .repo-btn:hover { background: var(--surface-1); }
 
 /* Table view (toggleable twin of each chart). */
 details.data-table { margin: 8px 16px 6px; }
+.bugs-preview { margin: 8px 16px 6px; }
 details.data-table summary { cursor: pointer; color: var(--ink-2); font-size: 12.8px; }
 details.data-table summary:hover { color: var(--ink); }
 

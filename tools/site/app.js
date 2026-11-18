@@ -48,7 +48,7 @@ function baseText() {
 
 /* ---------------------------------------------------------------- tiles */
 
-function renderTiles(snapshot, historyPoints) {
+function renderTiles(snapshot, historyPoints, bugs) {
   const totals = snapshot.totals;
   const current = historyPoints.length ? historyPoints[historyPoints.length - 1] : null;
   const previous =
@@ -75,6 +75,7 @@ function renderTiles(snapshot, historyPoints) {
       deltaKey: totals.total_apis == null ? "verified_apis" : "verified_mainline_apis",
       upIsGood: true,
     },
+    { label: "Bugs found", value: bugs?.length, href: "#verification-bugs" },
   ];
 
   const host = document.getElementById("tiles");
@@ -82,9 +83,10 @@ function renderTiles(snapshot, historyPoints) {
   for (const spec of specs) {
     const tile = document.createElement("div");
     tile.className = "tile";
-    const label = document.createElement("div");
+    const label = document.createElement(spec.href ? "a" : "div");
     label.className = "tile-label";
     label.textContent = spec.label;
+    if (spec.href) label.href = spec.href;
     const value = document.createElement("div");
     value.className = "tile-value";
     value.textContent = spec.value == null ? "—" : fmtFull(spec.value);
@@ -642,6 +644,35 @@ function compareApis(a, b) {
   return a.group.localeCompare(b.group) || a.name.localeCompare(b.name);
 }
 
+function renderVerificationBugs(bugs) {
+  const preview = document.getElementById("bugs-preview");
+  if (!bugs) {
+    preview.replaceChildren(placeholder("Bug data is unavailable. See the tracking issue for the current list."));
+    return;
+  }
+  const labels = { fixed: "Fixed", confirmed: "Confirmed", reported: "Reported" };
+  const columns = ["Bug", "Status", "References"];
+  const rows = bugs.map(({description, status, references}) => {
+    const links = document.createElement("span");
+    for (const reference of references) {
+      if (!/^https:\/\/github\.com\/asterinas\/[\w.-]+\/(issues|pull)\/\d+$/.test(reference.url)) continue;
+      if (links.childNodes.length) links.append(" · ");
+      const link = document.createElement("a");
+      link.href = reference.url;
+      link.textContent = reference.label;
+      links.append(link);
+    }
+    return [description, labels[status] ?? status, links];
+  });
+  preview.replaceChildren(table(rows.slice(0, 3), columns));
+  if (rows.length > 3) {
+    const more = document.getElementById("bugs-more");
+    more.querySelector("summary").textContent = `View ${fmtFull(rows.length - 3)} more bugs`;
+    more.append(table(rows.slice(3), columns));
+    more.hidden = false;
+  }
+}
+
 function renderUnverifiedApiTable(snapshot) {
   const host = document.getElementById("unverified-api-table");
   const entries = snapshot.unverified_apis_list;
@@ -696,10 +727,13 @@ async function loadJson(url) {
 }
 
 async function main() {
-  const [snapshot, history] = await Promise.all([
+  const [snapshot, history, bugData] = await Promise.all([
     loadJson("stats/snapshot.json"),
     loadJson("stats/history.json"),
+    loadJson("stats/verification-bugs.json").catch(() => null),
   ]);
+  const bugs = Array.isArray(bugData) ? bugData : null;
+  renderVerificationBugs(bugs);
 
   if (!snapshot) {
     document.getElementById("snapshot-meta").textContent =
@@ -720,7 +754,7 @@ async function main() {
     `snapshot ${shaShort} · ${fmtFull(snapshot.totals.total)} executable LoC budget` +
     (snapshot.mainline_sha ? ` · mainline ${String(snapshot.mainline_sha).slice(0, 8)}` : "");
 
-  renderTiles(snapshot, liveData.points);
+  renderTiles(snapshot, liveData.points, bugs);
   renderHistoryChart(liveData.points);
   renderTreemapChart(snapshot);
   renderHistoryTable(liveData.points);
