@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795085908548,
+  "lastUpdate": 1795096197633,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13530,6 +13530,96 @@ window.BENCHMARK_DATA = {
             "value": 1115674,
             "unit": "rlimit",
             "extra": "smt-run=318ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "157275997+YuQuuu@users.noreply.github.com",
+            "name": "YuQuuu",
+            "username": "YuQuuu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb1a9d044617c2abff58f959ccc50f9571d561e9",
+          "message": "prove: Verify x86 AVX feature detection (#920)\n\n* Verify x86 AVX feature detection\n\n* Model CPUID capabilities for AVX detection\n\n* Specify core CPUID intrinsics for AVX detection\n\n* cpu model\n\n* Reuse the CPU model for the TSC maximum leaf\n\n* Model TSC calibration inputs in CpuFeatureModel\n\n* Clarify CPUID feature keys and remove the unused completeness lemma\n\n* Represent CPUID feature support with boolean fields\n\n* Remove unused CPUID model lemma and shorten its documentation\n\n* Use the local CPUID base frequency for TSC calibration\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-19T21:38:35+08:00",
+          "tree_id": "0e07c7220155fbf206f00d8b2a24b4774ac92594",
+          "url": "https://github.com/asterinas/vostd/commit/eb1a9d044617c2abff58f959ccc50f9571d561e9"
+        },
+        "date": 1795096196950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1014632841,
+            "unit": "rlimit",
+            "extra": "verified=4693 errors=0 smt-run=371,097ms wall=251,723ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 380770707,
+            "unit": "rlimit",
+            "extra": "smt-run=170,018ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 134112817,
+            "unit": "rlimit",
+            "extra": "smt-run=46,470ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 52721907,
+            "unit": "rlimit",
+            "extra": "smt-run=14,138ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=4,170ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9911044,
+            "unit": "rlimit",
+            "extra": "smt-run=2,542ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,894ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164310,
+            "unit": "rlimit",
+            "extra": "smt-run=989ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=783ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1920044,
+            "unit": "rlimit",
+            "extra": "smt-run=893ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115674,
+            "unit": "rlimit",
+            "extra": "smt-run=406ms"
           }
         ]
       }
