@@ -182,9 +182,9 @@ impl<T, A> IoPort<T, A> {
         Self {
             port,
             is_overlapping: false,
-            tracked_claim: verus_exec_expr! { Tracked(None) },
             value_marker: PhantomData,
             access_marker: PhantomData,
+            tracked_claim: verus_exec_expr! { Tracked(None) },
         }
     }
 
@@ -225,9 +225,9 @@ impl<T, A> IoPort<T, A> {
         Self {
             port,
             is_overlapping,
-            tracked_claim: verus_exec_expr! { Tracked(Some(claim)) },
             value_marker: PhantomData,
             access_marker: PhantomData,
+            tracked_claim: verus_exec_expr! { Tracked(Some(claim)) },
         }
     }
 
