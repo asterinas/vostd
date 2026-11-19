@@ -146,7 +146,6 @@ pub fn read_random() -> Option<u64> {
     None
 }*/
 
-/// Whether CPUID enumerates AVX; OS enablement is not checked.
 #[verus_spec(returns cpu_feature_model().supports(CpuFeature::Avx))]
 fn has_avx() -> bool {
     use core::arch::x86_64::{__cpuid, __cpuid_count};
@@ -162,7 +161,6 @@ fn has_avx() -> bool {
     cpuid_result.ecx & (1 << 28) != 0
 }
 
-/// Whether CPUID enumerates AVX-512 Foundation; OS enablement is not checked.
 #[verus_spec(returns cpu_feature_model().supports(CpuFeature::Avx512F))]
 fn has_avx512() -> bool {
     use core::arch::x86_64::{__cpuid, __cpuid_count};

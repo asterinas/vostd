@@ -39,9 +39,8 @@ pub fn init_tsc_freq() {
 
 verus! {
 
-/// CPUID values sampled by one invocation.
+/// Frequency inputs read from CPUID leaves 0x15 and 0x16 during one invocation.
 pub ghost struct CpuidSamples {
-    pub max_leaf: u32,
     /// Leaf 0x15: (denominator, numerator, crystal Hz).
     pub leaf15: Option<(u32, u32, u32)>,
     pub base_mhz: Option<u32>,
@@ -49,9 +48,9 @@ pub ghost struct CpuidSamples {
 
 impl Inv for CpuidSamples {
     open spec fn inv(self) -> bool {
-        &&& self.leaf15.is_some() == (self.max_leaf > 0x15)
+        &&& self.leaf15.is_some() == (cpu_feature_model().max_basic_leaf > 0x15)
         &&& self.base_mhz.is_some() == match self.leaf15 {
-            Some((a, b, c)) => a != 0 && b != 0 && c / 1000 == 0 && self.max_leaf >= 0x16,
+            Some((a, b, c)) => a != 0 && b != 0 && c / 1000 == 0,
             None => false,
         }
     }
@@ -60,31 +59,23 @@ impl Inv for CpuidSamples {
 impl CpuidSamples {
     /// Frequency in Hz, preserving kHz truncation.
     pub open spec fn frequency_hz(self) -> Option<int> {
-        if self.max_leaf <= 0x15 {
-            None
-        } else {
-            match self.leaf15 {
-                None => None,
-                Some((a, b, c)) => {
-                    if a == 0 || b == 0 {
-                        None
-                    } else {
-                        let khz = if c / 1000 != 0 {
-                            c as int / 1000
-                        } else {
-                            match self.base_mhz {
-                                Some(base) => base as int * 1000 * a / b as int,
-                                None => 0,
-                            }
-                        };
-                        if khz == 0 {
-                            None
-                        } else {
-                            Some(khz * 1000 * b / a as int)
-                        }
+        match self.leaf15 {
+            Some((a, b, c)) if a != 0 && b != 0 => {
+                let khz = if c / 1000 != 0 {
+                    c as int / 1000
+                } else {
+                    match self.base_mhz {
+                        Some(base) => base as int * 1000 * a / b as int,
+                        None => 0,
                     }
-                },
-            }
+                };
+                if khz == 0 {
+                    None
+                } else {
+                    Some(khz * 1000 * b / a as int)
+                }
+            },
+            _ => None,
         }
     }
 }
@@ -107,7 +98,6 @@ impl CpuidSamples {
     with Tracked(samples): Tracked<&mut Ghost<CpuidSamples>>
     ensures
         final(samples)@.inv(),
-        final(samples)@.max_leaf == cpu_feature_model().max_basic_leaf,
     returns
         (match final(samples)@.frequency_hz() {
             Some(hz) => Some(hz as u64),
@@ -119,7 +109,7 @@ pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
     let cpuid = cpuid!(0);
     let max_cpuid = cpuid.eax;
     proof! {
-        *samples = Ghost(CpuidSamples { max_leaf: max_cpuid, leaf15: None, base_mhz: None });
+        *samples = Ghost(CpuidSamples { leaf15: None, base_mhz: None });
     }
     if max_cpuid <= 0x15 {
         return None;
