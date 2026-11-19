@@ -8,7 +8,10 @@ use x86::cpuid::CpuIdResult;
 
 verus! {
 
-/// A feature enumerated by a single bit of a basic CPUID leaf.
+/// Identifies a single CPUID feature bit checked by OSTD.
+///
+/// [`CpuFeatureModel::supports`] queries one flag at a time. A CPU can report
+/// several of these AVX and local APIC capabilities simultaneously.
 pub enum CpuFeature {
     Avx,
     /// AVX-512 Foundation.
@@ -20,12 +23,6 @@ pub enum CpuFeature {
 impl CpuFeature {
     pub open spec fn variants() -> Seq<Self> {
         seq![Self::Avx, Self::Avx512F, Self::XApic, Self::X2Apic]
-    }
-
-    pub proof fn lemma_variants_complete(self)
-        ensures
-            Self::variants().contains(self),
-    {
     }
 
     /// The basic leaf and subleaf that enumerate this feature in the Intel SDM.
