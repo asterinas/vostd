@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-use crate::specs::context::{CpuFeature, cpu_feature_model};
+use crate::specs::context::cpu_feature_model;
 
 use x86::msr::{
     IA32_APIC_BASE, IA32_X2APIC_APICID, IA32_X2APIC_CUR_COUNT, IA32_X2APIC_DIV_CONF,
@@ -28,7 +28,7 @@ impl !Sync for X2Apic {}
 impl X2Apic {
     #[verus_spec(ret =>
         ensures
-            cpu_feature_model().max_basic_leaf >= 1 ==> (ret is Some) == cpu_feature_model().supports(CpuFeature::X2Apic),
+            cpu_feature_model().max_basic_leaf >= 1 ==> (ret is Some) == cpu_feature_model().supports_x2apic,
     )]
     pub(crate) fn new() -> Option<Self> {
         if !Self::has_x2apic() {
@@ -39,7 +39,7 @@ impl X2Apic {
 
     #[verus_spec(ret =>
         ensures
-            cpu_feature_model().max_basic_leaf >= 1 ==> ret == cpu_feature_model().supports(CpuFeature::X2Apic),
+            cpu_feature_model().max_basic_leaf >= 1 ==> ret == cpu_feature_model().supports_x2apic,
     )]
     pub(super) fn has_x2apic() -> bool {
         // x2apic::X2APIC::new()

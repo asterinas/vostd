@@ -2,7 +2,7 @@
 //! Platform-specific code for the x86 platform.
 use vstd::prelude::*;
 
-use crate::specs::context::{CpuFeature, cpu_feature_model};
+use crate::specs::context::cpu_feature_model;
 
 /*pub mod boot;
 pub(crate) mod cpu;
@@ -146,7 +146,7 @@ pub fn read_random() -> Option<u64> {
     None
 }*/
 
-#[verus_spec(returns cpu_feature_model().supports(CpuFeature::Avx))]
+#[verus_spec(returns cpu_feature_model().supports_avx)]
 fn has_avx() -> bool {
     use core::arch::x86_64::{__cpuid, __cpuid_count};
 
@@ -161,7 +161,7 @@ fn has_avx() -> bool {
     cpuid_result.ecx & (1 << 28) != 0
 }
 
-#[verus_spec(returns cpu_feature_model().supports(CpuFeature::Avx512F))]
+#[verus_spec(returns cpu_feature_model().supports_avx512f)]
 fn has_avx512() -> bool {
     use core::arch::x86_64::{__cpuid, __cpuid_count};
 

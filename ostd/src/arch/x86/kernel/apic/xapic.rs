@@ -4,7 +4,7 @@
 use vstd::{arithmetic::div_mod::lemma_small_mod, prelude::*, raw_ptr::axiom_ptr_mut_from_data};
 use vstd_extra::{debug_assert, external::ptr, layout::lemma_primitive_layout};
 
-use crate::specs::context::{CpuFeature, cpu_feature_model};
+use crate::specs::context::cpu_feature_model;
 
 use x86::apic::xapic;
 
@@ -62,7 +62,7 @@ impl XApic {
     #[verus_verify(external_body)]
     #[verus_spec(ret =>
         ensures
-            cpu_feature_model().max_basic_leaf >= 1 ==> (ret is Some) == cpu_feature_model().supports(CpuFeature::XApic),
+            cpu_feature_model().max_basic_leaf >= 1 ==> (ret is Some) == cpu_feature_model().supports_xapic,
             ret matches Some(x) ==> {
                 &&& x.mmio_addr() == XApic::apic_register_file_vaddr_spec()
                 &&& XApic::apic_register_file_vaddr_spec() + 1024 <= usize::MAX
@@ -147,7 +147,7 @@ impl XApic {
 
     #[verus_spec(ret =>
         ensures
-            cpu_feature_model().max_basic_leaf >= 1 ==> ret == cpu_feature_model().supports(CpuFeature::XApic),
+            cpu_feature_model().max_basic_leaf >= 1 ==> ret == cpu_feature_model().supports_xapic,
     )]
     pub(super) fn has_xapic() -> bool {
         let value = unsafe { core::arch::x86_64::__cpuid(1) };
