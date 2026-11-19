@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Manages the kernel heap using slab or buddy allocation strategies.
-use core::{
+/*use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
     ptr::NonNull,
 };
 
-use crate::mm::Vaddr;
-
-mod slab;
+use crate::mm::Vaddr;*/
+/*mod slab;*/
 mod slot;
 mod slot_list;
 
 pub use self::{
-    slab::{Slab, SlabMeta},
+    /*slab::{Slab, SlabMeta},*/
     slot::{HeapSlot, SlotInfo},
     slot_list::SlabSlotList,
 };
 
-/// The trait for the global heap allocator.
+/*/// The trait for the global heap allocator.
 ///
 /// By providing the slab ([`Slab`]) and heap slot ([`HeapSlot`])
 /// mechanisms, OSTD allows users to implement their own kernel heap in a safe
@@ -146,4 +145,4 @@ unsafe impl GlobalAlloc for AllocDispatch {
             );
         }
     }
-}
+}*/
