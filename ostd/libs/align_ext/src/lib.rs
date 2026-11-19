@@ -113,7 +113,7 @@ macro_rules! impl_align_ext {
                 #[verus_spec(ret =>
                     requires
                         self + (align - 1) <= $uint_type::MAX,
-                        no_panic_when(align >= 2 && is_pow2(align as int)),
+                        allowed_to_panic_if(!(align >= 2 && is_pow2(align as int))),
                     ensures
                         align >= 2,
                         is_pow2(align as int),
@@ -178,7 +178,7 @@ macro_rules! impl_align_ext {
                 #[inline]
                 #[verus_spec(ret =>
                     requires
-                        no_panic_when(is_pow2(align as int) && align >= 2),
+                        allowed_to_panic_if(!(is_pow2(align as int) && align >= 2)),
                     ensures
                         align >= 2,
                         is_pow2(align as int),

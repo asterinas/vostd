@@ -85,7 +85,7 @@ use vstd::{
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
-    panic::{no_panic_when, panic_diverge},
+    panic::{allowed_to_panic_if, panic_diverge},
     prelude::*,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     sum::Sum,
@@ -521,7 +521,7 @@ impl MetaSlot {
             -> permission: Tracked<Option<FracMetadataPerm>>,
         requires
             old(regions).inv(),
-            no_panic_when(valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) < REF_COUNT_MAX),
+            allowed_to_panic_if(valid_frame_paddr(paddr) && old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         ensures
             final(regions).inv(),
             res matches Ok(ptr) ==> {
@@ -565,7 +565,7 @@ impl MetaSlot {
                 regions.contains(frame_to_index(paddr)),
                 slot == regions.slots[frame_to_index(paddr)].value(),
                 slot_perm == Some(old(regions).slots[frame_to_index(paddr)]),
-                no_panic_when(old(regions).ref_count(frame_to_index(paddr)) < REF_COUNT_MAX),
+                allowed_to_panic_if(old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         {
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
 
@@ -637,7 +637,7 @@ impl MetaSlot {
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != REF_COUNT_UNUSED,
-            no_panic_when(old(rc_perm).value() < REF_COUNT_MAX),
+            allowed_to_panic_if(old(rc_perm).value() >= REF_COUNT_MAX),
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,
             old(rc_perm).value() < REF_COUNT_MAX,

@@ -11,18 +11,17 @@ mod internal {
 
 }
 
-/// Expresses a conditional no-panic guarantee in a precondition.
-/// When its argument holds, the caller can invoke the function without permitting
-/// a panic. When the argument is false, the caller must permit a possible panic.
-pub open spec fn no_panic_when(condition: bool) -> bool {
-    !condition ==> internal::may_panic()
+/// Requires permission to panic when the condition holds.
+/// A false condition discharges this precondition without panic permission.
+pub open spec fn allowed_to_panic_if(condition: bool) -> bool {
+    condition ==> internal::may_panic()
 }
 
 /// Unconditionally panics. The caller must permit a panic.
 #[verifier::external_body]
 pub fn panic_diverge() -> !
     requires
-        no_panic_when(false),
+        allowed_to_panic_if(true),
 {
     vpanic!("");
 }
@@ -45,7 +44,7 @@ pub trait UnwrapOrPanic: Sized {
 
     fn unwrap_or_panic(self) -> (r: Self::Inner)
         requires
-            no_panic_when(self.is_present()),
+            allowed_to_panic_if(!self.is_present()),
         ensures
             self.is_present(),
             r == self.payload(),

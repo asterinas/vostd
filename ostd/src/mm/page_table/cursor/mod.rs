@@ -357,7 +357,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            no_panic_when(!old(self).query_panic_condition(*old(owner), *old(regions))),
+            allowed_to_panic_if(old(self).query_panic_condition(*old(owner), *old(regions))),
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).query_panic_condition(*old(owner), *old(regions)),
@@ -392,7 +392,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
 
         #[verus_spec(
             invariant
-                no_panic_when(!old(self).query_panic_condition(*old(owner), *old(regions))),
+                allowed_to_panic_if(old(self).query_panic_condition(*old(owner), *old(regions))),
                 self.invariants(*owner, *regions, *guards),
                 old(regions).inv(),
                 owner.in_barrier_va(),
@@ -702,7 +702,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             // Delegates to `find_next_impl`, which diverges on the find-next
             // panic condition.
-            no_panic_when(!old(self).find_next_panic_condition(len)),
+            allowed_to_panic_if(old(self).find_next_panic_condition(len)),
         ensures
             !old(self).find_next_panic_condition(len),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
@@ -782,7 +782,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             // The runtime `assert!`s diverge unless `len` is page-aligned and
             // the scan stays within the cursor's barrier.
-            no_panic_when(!old(self).find_next_panic_condition(len)),
+            allowed_to_panic_if(old(self).find_next_panic_condition(len)),
         ensures
             !old(self).find_next_panic_condition(len),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
@@ -1345,7 +1345,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            no_panic_when(!old(self).jump_panic_condition(va)),
+            allowed_to_panic_if(old(self).jump_panic_condition(va)),
         ensures
             !old(self).jump_panic_condition(va),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
@@ -1380,7 +1380,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                 owner.metaregion_sound(*regions),
                 self.barrier_va.start <= va < self.barrier_va.end,
                 va % PAGE_SIZE == 0,
-                no_panic_when(!old(self).jump_panic_condition(va)),
+                allowed_to_panic_if(old(self).jump_panic_condition(va)),
                 self.va == old(self).va,
                 self.barrier_va == old(self).barrier_va,
                 self.guard_level == old(self).guard_level,
@@ -1705,7 +1705,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             old(owner).nodes_locked(*old(guards)),
             old(owner).metaregion_sound(*old(regions)),
             old(self).level > old(self).guard_level || old(self).level < C::NR_LEVELS,
-            no_panic_when(old(self).level <= old(self).guard_level),
+            allowed_to_panic_if(old(self).level > old(self).guard_level),
         ensures
     // Negation of the panic condition: if `pop_level` returned, the
     // path slot was `Some`, i.e. `level <= guard_level`.
@@ -2179,7 +2179,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            no_panic_when(!old(self).0.find_next_panic_condition(len)),
+            allowed_to_panic_if(old(self).0.find_next_panic_condition(len)),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -2219,7 +2219,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            no_panic_when(!old(self).0.jump_panic_condition(va)),
+            allowed_to_panic_if(old(self).0.jump_panic_condition(va)),
         ensures
             !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -2277,7 +2277,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            no_panic_when(!old(self).0.query_panic_condition(*old(owner), *old(regions))),
+            allowed_to_panic_if(old(self).0.query_panic_condition(*old(owner), *old(regions))),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
@@ -2856,11 +2856,11 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             // Conservative clone-overflow allowance; base-page operations never clone a node.
-            no_panic_when(C::item_into_raw(item).1 <= 1),
+            allowed_to_panic_if(C::item_into_raw(item).1 > 1),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).item_wf(item, entry_owner),
             Self::item_slot_in_regions(item, *old(regions)),
-            no_panic_when(!old(self).map_panic_conditions(item)),
+            allowed_to_panic_if(old(self).map_panic_conditions(item)),
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -3139,9 +3139,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
-            no_panic_when(len < page_size::<C>(2)),
+            allowed_to_panic_if(len >= page_size::<C>(2)),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            no_panic_when(!old(self).0.find_next_panic_condition(len)),
+            allowed_to_panic_if(old(self).0.find_next_panic_condition(len)),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -3427,7 +3427,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
                     C::E::new_page_req(pa, level, p_out),
-            no_panic_when(!old(self).0.find_next_panic_condition(len)),
+            allowed_to_panic_if(old(self).0.find_next_panic_condition(len)),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -3486,11 +3486,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
-            no_panic_when(old(owner).cur_entry_owner().is_node() ==> old(regions).ref_count(
-                frame_to_index(old(owner).cur_entry_owner().meta_slot_paddr()->0),
-            ) < REF_COUNT_MAX),
-            no_panic_when(!C::TOP_LEVEL_CAN_UNMAP && old(self).0.level >= C::NR_LEVELS
-                ==> !old(owner).cur_entry_owner().is_node()),
+            allowed_to_panic_if(old(owner).cur_entry_owner().is_node()
+                && old(regions).ref_count(frame_to_index(old(owner).cur_entry_owner().meta_slot_paddr()->0)) >= REF_COUNT_MAX),
+            allowed_to_panic_if(!C::TOP_LEVEL_CAN_UNMAP && old(self).0.level >= C::NR_LEVELS && old(owner).cur_entry_owner().is_node()),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_barrier_va(),
             !old(owner).popped_too_high,

@@ -6,7 +6,7 @@ use vstd_extra::{
     assert,
     cast_ptr::Repr,
     ownership::{InvView, OwnerOf},
-    panic::no_panic_when,
+    panic::allowed_to_panic_if,
     prelude::Inv,
 };
 
@@ -439,8 +439,8 @@ impl KVirtArea {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
-            no_panic_when(!Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())),
-            no_panic_when(!kvirt_alloc_oom_condition(area_size)),
+            allowed_to_panic_if(Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())),
+            allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
@@ -530,8 +530,8 @@ impl KVirtArea {
             invariant
                 cursor.0.invariants(cursor_owner, *regions, *guards),
                 // Carry the conditional no-panic guarantee through each iteration.
-                no_panic_when(
-                    !Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
+                allowed_to_panic_if(
+                    Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
                 ),
                 // Cursor VA tracking (purely structural — no bounds).
                 // Lets the per-iter capacity assert below chain a
@@ -713,10 +713,10 @@ impl KVirtArea {
             forall|level: PagingLevel|
                 2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                     pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
-            no_panic_when(pa_range.end - pa_range.start < page_size::<PagingConsts>(2)),
+            allowed_to_panic_if(pa_range.end - pa_range.start >= page_size::<PagingConsts>(2)),
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
             !Self::map_untracked_frames_bounds_panic_condition(area_size, map_offset, &pa_range),
-            no_panic_when(!kvirt_alloc_oom_condition(area_size)),
+            allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
@@ -783,7 +783,7 @@ impl KVirtArea {
                     forall|level: PagingLevel|
                         2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==> len
                             != page_size::<PagingConsts>(level),
-                    no_panic_when(len < page_size::<PagingConsts>(2)),
+                    allowed_to_panic_if(len >= page_size::<PagingConsts>(2)),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
                     forall|pa: Paddr, level: PagingLevel|
                         1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL

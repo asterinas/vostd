@@ -13,7 +13,7 @@ use vstd_extra::{
     drop_tracking::*,
     ghost_tree::*,
     ownership::*,
-    panic::no_panic_when,
+    panic::allowed_to_panic_if,
     prelude::*,
     seq_extra::{forall_seq, lemma_forall_seq_index},
 };
@@ -1067,9 +1067,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // The recorded entry trackedness matches the item being cloned.
             (C::item_into_raw(item).3@ is Some) == self.cur_entry_owner().frame_is_tracked(),
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-            no_panic_when(
-                C::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count()
-                    < REF_COUNT_MAX,
+            allowed_to_panic_if(
+                (C::item_into_raw(item).3@ is Some) && regions.slot_owner(pa).ref_count()
+                    >= REF_COUNT_MAX,
             ),
         ensures
             item.clone_requires(regions),
