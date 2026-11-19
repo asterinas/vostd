@@ -54,12 +54,7 @@ pub uninterp spec fn reference_cpuid() -> spec_fn((u32, u32)) -> CpuidResult;
 /// The CPUID data shared by every logical CPU on which OSTD executes.
 ///
 /// The CPUID contracts assume that the maximum basic leaf agrees across those CPUs
-/// and remains stable throughout execution. For supported leaves, the same holds
-/// for the modeled feature bits and the nominal calibration fields of 0x15 and 0x16.
-/// This includes the values presented by firmware and virtualization, including TDX.
-/// [`lemma_cpuid_model_admits`] shows that these fields suffice to construct a shared model
-/// even when other bits vary between reads. OS enablement and instruction usability depend
-/// on additional processor state.
+/// and remains stable throughout execution.
 pub open spec fn cpu_feature_model() -> CpuFeatureModel {
     CpuFeatureModel::from_cpuid(reference_cpuid())
 }
@@ -130,37 +125,5 @@ pub assume_specification[ x86::cpuid::native_cpuid::cpuid_count ](
     opens_invariants none
     no_unwind
 ;
-
-/// Every query in a batch agrees with the model built from `reference` when the
-/// observed CPU reports the same maximum basic leaf and modeled fields of supported leaves.
-/// The same reference can be used for observations from any CPU or time.
-pub proof fn lemma_cpuid_model_admits(
-    reference: spec_fn((u32, u32)) -> CpuidResult,
-    observed: spec_fn((u32, u32)) -> CpuidResult,
-    queries: Seq<(u32, u32)>,
-)
-    requires
-        observed((0, 0)).eax == reference((0, 0)).eax,
-        0x15 <= reference((0, 0)).eax ==> {
-            let ref_tsc = reference((0x15, 0));
-            let obs_tsc = observed((0x15, 0));
-            (obs_tsc.eax, obs_tsc.ebx, obs_tsc.ecx) == (ref_tsc.eax, ref_tsc.ebx, ref_tsc.ecx)
-        },
-        0x16 <= reference((0, 0)).eax ==> observed((0x16, 0)).eax == reference((0x16, 0)).eax,
-        ({
-            let ref_cpu = CpuFeatureModel::from_cpuid(reference);
-            let obs_cpu = CpuFeatureModel::from_cpuid(observed);
-            &&& obs_cpu.supports_avx == ref_cpu.supports_avx
-            &&& obs_cpu.supports_avx512f == ref_cpu.supports_avx512f
-            &&& obs_cpu.supports_xapic == ref_cpu.supports_xapic
-            &&& obs_cpu.supports_x2apic == ref_cpu.supports_x2apic
-        }),
-    ensures
-        queries.all(
-            |q: (u32, u32)|
-                cpuid_consistent(CpuFeatureModel::from_cpuid(reference), q.0, q.1, observed(q)),
-        ),
-{
-}
 
 } // verus!
