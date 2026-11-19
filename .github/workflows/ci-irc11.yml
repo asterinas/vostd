@@ -10,6 +10,8 @@ on:
       - "tools/bootstrap-verus-irc11.sh"
       - "tools/patches/verus-irc11.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "tools/tests/irc11_objective_reject.rs"
+      - "tools/tests/irc11_cas_fail_reject.rs"
       - "dv/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -24,6 +26,8 @@ on:
       - "tools/bootstrap-verus-irc11.sh"
       - "tools/patches/verus-irc11.patch"
       - "tools/tests/irc11_smoke.rs"
+      - "tools/tests/irc11_objective_reject.rs"
+      - "tools/tests/irc11_cas_fail_reject.rs"
       - "dv/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -141,6 +145,20 @@ jobs:
           tools/verus/source/target-verus/release/verus \
             --crate-type=lib \
             tools/tests/irc11_smoke.rs
+
+      - name: Reject unsound weak-memory derivations
+        run: |
+          for test in irc11_objective_reject irc11_cas_fail_reject; do
+            if tools/verus/source/target-verus/release/verus --crate-type=lib \
+                "tools/tests/$test.rs" > "$RUNNER_TEMP/$test.log" 2>&1; then
+              echo "IRC11 regression: $test verified"
+              exit 1
+            fi
+          done
+          grep -Fq 'pcell::PointsTo<u64>: vstd::thread_view::Objective' \
+            "$RUNNER_TEMP/irc11_objective_reject.log"
+          grep -q 'assertion failed' "$RUNNER_TEMP/irc11_cas_fail_reject.log"
+          grep -Fq 'irc11_cas_fail_reject.rs:30:' "$RUNNER_TEMP/irc11_cas_fail_reject.log"
 
       - name: Verify IRC11 adapters and OSTD bridge
         run: |
