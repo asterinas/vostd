@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795076365221,
+  "lastUpdate": 1795085908548,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13440,6 +13440,96 @@ window.BENCHMARK_DATA = {
             "value": 1115674,
             "unit": "rlimit",
             "extra": "smt-run=268ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f0e2563216548791d23d1fb28fe2bab478f23c4",
+          "message": "Update vstd_extra external specs for Rust 1.100 (#953)\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-19T18:50:23+08:00",
+          "tree_id": "428c3b2750fc88a7bc1c1a8100d5841dc8713353",
+          "url": "https://github.com/asterinas/vostd/commit/2f0e2563216548791d23d1fb28fe2bab478f23c4"
+        },
+        "date": 1795085907830,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1014643999,
+            "unit": "rlimit",
+            "extra": "verified=4689 errors=0 smt-run=328,351ms wall=237,261ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 380770707,
+            "unit": "rlimit",
+            "extra": "smt-run=151,196ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 134112817,
+            "unit": "rlimit",
+            "extra": "smt-run=36,656ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 52721907,
+            "unit": "rlimit",
+            "extra": "smt-run=16,274ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,749ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9911044,
+            "unit": "rlimit",
+            "extra": "smt-run=2,209ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,490ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164310,
+            "unit": "rlimit",
+            "extra": "smt-run=920ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=667ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1920044,
+            "unit": "rlimit",
+            "extra": "smt-run=772ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115674,
+            "unit": "rlimit",
+            "extra": "smt-run=318ms"
           }
         ]
       }
