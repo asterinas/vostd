@@ -50,7 +50,7 @@ pub enum MetaSlotStorage {
     Empty([u8; 39]),
     Untyped,
     U32Frame(U32FrameMeta),
-    TypedU32Frame(MockFrameMeta),
+    Mock(MockFrameMeta),
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
 }
@@ -116,7 +116,7 @@ pub struct U32FrameMeta {
 
 } // verus!
 impl_u32_frame_meta_repr!(U32FrameMeta, U32Frame, U32Frame_0);
-impl_u32_frame_meta_repr!(MockFrameMeta, TypedU32Frame, TypedU32Frame_0);
+impl_u32_frame_meta_repr!(MockFrameMeta, Mock, Mock_0);
 
 verus! {
 
