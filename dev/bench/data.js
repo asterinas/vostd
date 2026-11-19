@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795018758650,
+  "lastUpdate": 1795076365221,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13350,6 +13350,96 @@ window.BENCHMARK_DATA = {
             "value": 1106099,
             "unit": "rlimit",
             "extra": "smt-run=195ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0195b81767ab0f87ba37ad35794b0e20a9d84441",
+          "message": "refactor: express conditional panic guarantees with allowed_to_panic_if (#951)\n\n* Express conditional panic guarantees with no_panic_when\n\n* refactor: replace no_panic_when with allowed_to_panic_if\n\n* doc: update skills\n\n* fix: rlimit error caused by Verus update",
+          "timestamp": "2026-11-19T15:57:06+08:00",
+          "tree_id": "0e55482e2a731bf7641d47a2f07d04b599ff2da0",
+          "url": "https://github.com/asterinas/vostd/commit/0195b81767ab0f87ba37ad35794b0e20a9d84441"
+        },
+        "date": 1795076364439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1014628979,
+            "unit": "rlimit",
+            "extra": "verified=4689 errors=0 smt-run=295,602ms wall=209,284ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 380770707,
+            "unit": "rlimit",
+            "extra": "smt-run=142,148ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 134112817,
+            "unit": "rlimit",
+            "extra": "smt-run=32,412ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 52721907,
+            "unit": "rlimit",
+            "extra": "smt-run=14,062ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,579ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9911044,
+            "unit": "rlimit",
+            "extra": "smt-run=1,735ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,191ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3164310,
+            "unit": "rlimit",
+            "extra": "smt-run=740ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=569ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1920044,
+            "unit": "rlimit",
+            "extra": "smt-run=582ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115674,
+            "unit": "rlimit",
+            "extra": "smt-run=268ms"
           }
         ]
       }
