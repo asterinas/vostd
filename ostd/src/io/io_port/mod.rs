@@ -121,11 +121,14 @@ impl<T, A> IoPort<T, A> {
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
-        let port = {
-            /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
-            initialized_allocator().acquire(port, false)
-        };
-        port.ok_or(Error::AccessDenied)
+        /* Original Rust: allocator::IO_PORT_ALLOCATOR
+        .get()
+        .unwrap()
+        .acquire(port, false)
+        .ok_or(Error::AccessDenied) */
+        initialized_allocator()
+            .acquire(port, false)
+            .ok_or(Error::AccessDenied)
     }
 
     /// Acquires an `IoPort` instance that may overlap with other `IoPort`s.
@@ -145,11 +148,14 @@ impl<T, A> IoPort<T, A> {
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {
-        let port = {
-            /* Original Rust: allocator::IO_PORT_ALLOCATOR.get().unwrap() */
-            initialized_allocator().acquire(port, true)
-        };
-        port.ok_or(Error::AccessDenied)
+        /* Original Rust: allocator::IO_PORT_ALLOCATOR
+        .get()
+        .unwrap()
+        .acquire(port, true)
+        .ok_or(Error::AccessDenied) */
+        initialized_allocator()
+            .acquire(port, true)
+            .ok_or(Error::AccessDenied)
     }
 
     /// Returns the port number.
