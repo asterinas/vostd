@@ -7,14 +7,14 @@ use crate::specs::{
     mm::{io::VmIoOwner, virt_mem::VirtPtr},
 };
 
-mod allocator;
+pub(super) mod allocator;
 
 use core::ops::{Deref, Range};
 
 use align_ext::AlignExt;
 
 pub(crate) use self::allocator::IoMemAllocatorBuilder;
-pub(super) use self::allocator::{init, io_mem_allocator_initialized};
+pub(super) use self::allocator::{IoMemBuilderState, io_mem_allocator_initialized};
 use crate::{
     Error,
     mm::{
