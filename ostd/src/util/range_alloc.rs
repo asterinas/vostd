@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! # Verified Properties
 //!
-//! Free-address permissions are retained internally under the allocator's free-list lock.
+//! Allocation ownership and the MMIO builder snapshot are tracked under the free-list lock.
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
@@ -9,7 +9,7 @@ use vstd::{
     resource::{
         Loc,
         ghost_var::{GhostVar, GhostVarAuth},
-        set::{GhostSetAuth, GhostSubset},
+        set::GhostSetAuth,
     },
     seq_lib::lemma_seq_contains_after_push,
     std_specs::btree::{
@@ -73,10 +73,6 @@ impl RangeAllocator {
         self.freelist.constant().builder_phase_id
     }
 
-    closed spec fn allocate_id(self) -> Loc {
-        self.freelist.constant().allocate_id
-    }
-
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.freelist.constant().fullrange == self@ && self@.start <= self@.end
@@ -85,8 +81,6 @@ impl RangeAllocator {
 
 ghost struct FreelistConstant {
     fullrange: Range<usize>,
-    initialized_id: Loc,
-    allocate_id: Loc,
     free_id: Loc,
     free_snapshot_id: Loc,
     builder_phase_id: Loc,
@@ -137,15 +131,9 @@ closed spec fn block_contains(block: Range<usize>, range: Range<usize>) -> bool 
     block.start <= range.start && range.end <= block.end
 }
 
-/// Lock-guarded proof resource: initialization state, the authoritative set,
-/// and the authoritative free and allocated address sets.
 tracked struct FreelistResource {
-    initialized: Sum<OneShotPending, OneShotSet>,
-    free: GhostSetAuth<usize>,
     allocated: GhostSetAuth<usize>,
-    available: GhostSubset<usize>,
-    snapshot: GhostVarAuth<Set<usize>>,
-    published: Option<OneShotSet>,
+    availability: Sum<GhostVarAuth<Set<usize>>, OneShotSet>,
 }
 
 #[cfg(feature = "irc11")]
@@ -163,30 +151,25 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
         freelist: Option<BTreeMap<usize, FreeRange>>,
         resource: Self::Resource,
     ) -> bool {
-        &&& resource.available.id() == constant.allocate_id
-        &&& resource.available@ == resource.free@
-        &&& resource.free.id() == constant.allocate_id
+        let available = match freelist {
+            None => constant.fullrange.view_set(),
+            Some(freelist) => free_set(freelist_model(freelist@)),
+        };
         &&& resource.allocated.id() == constant.free_id
-        &&& resource.snapshot.id() == constant.free_snapshot_id
-        &&& match resource.published {
-            Some(published) => published.id() == constant.builder_phase_id,
-            None => resource.snapshot@ == resource.free@,
-        }
-        &&& match resource.initialized {
-            Sum::Left(pending) => {
-                &&& pending.id() == constant.initialized_id
-                &&& freelist is None
-                &&& resource.free@ == constant.fullrange.view_set()
-                &&& resource.allocated@ == Set::empty()
+        &&& match resource.availability {
+            Sum::Left(snapshot) => {
+                &&& snapshot.id() == constant.free_snapshot_id
+                &&& snapshot@ == available
             },
-            Sum::Right(set) => {
-                &&& set.id() == constant.initialized_id
-                &&& freelist is Some
-                &&& btree_map_wf(&freelist->0)
-                &&& concrete_freelist_wf(constant.fullrange, freelist->0@)
-                &&& freelist_blocks_not_adjacent(freelist->0@)
-                &&& resource.free@ == free_set(freelist_model(freelist->0@))
-                &&& resource.allocated@ == constant.fullrange.view_set() - resource.free@
+            Sum::Right(published) => published.id() == constant.builder_phase_id,
+        }
+        &&& match freelist {
+            None => resource.allocated@ == Set::empty(),
+            Some(freelist) => {
+                &&& btree_map_wf(&freelist)
+                &&& concrete_freelist_wf(constant.fullrange, freelist@)
+                &&& freelist_blocks_not_adjacent(freelist@)
+                &&& resource.allocated@ == constant.fullrange.view_set() - available
             },
         }
     }
@@ -211,25 +194,17 @@ impl RangeAllocator {
      */
     pub fn new(fullrange: Range<usize>) -> Self {
         proof_decl! {
-            let tracked initialized = OneShotPending::alloc();
             let tracked (snapshot_auth, snapshot) = GhostVarAuth::new(fullrange.view_set());
-            let tracked (free, permit) = GhostSetAuth::new(fullrange.view_set());
-            let tracked (allocated, empty_allocated) = GhostSetAuth::new(Set::empty());
+            let tracked (allocated, _) = GhostSetAuth::new(Set::empty());
             let ghost constant = FreelistConstant {
                 fullrange,
-                initialized_id: initialized.id(),
-                allocate_id: free.id(),
                 free_id: allocated.id(),
                 free_snapshot_id: snapshot.id(),
                 builder_phase_id,
             };
             let tracked resource = FreelistResource {
-                initialized: Sum::Left(initialized),
-                free,
                 allocated,
-                available: permit,
-                snapshot: snapshot_auth,
-                published: None,
+                availability: Sum::Left(snapshot_auth),
             };
         }
 
@@ -372,15 +347,10 @@ impl RangeAllocator {
             Err(RangeAllocError)
         };
         proof! {
-            let ghost constant = lock_guard.constant();
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            let ghost initial_free = resource.free@;
+            let ghost initial_free = free_set(initial_freelist);
             match access {
                 Sum::Left((pending, mut snapshot)) => {
-                    if let Some(published) = &resource.published {
-                        pending.incompatible(published);
-                    }
-                    resource.snapshot.agree(&snapshot);
                     if res is Err {
                         lemma_free_range_requires_containing_block(self@, initial_map, *allocate_range);
                     }
@@ -389,11 +359,18 @@ impl RangeAllocator {
                     } else {
                         initial_free
                     };
-                    resource.snapshot.update(&mut snapshot, new_free);
+                    match &mut resource.availability {
+                        Sum::Left(auth) => {
+                            auth.update(&mut snapshot, new_free);
+                        },
+                        Sum::Right(published) => {
+                            pending.incompatible(published);
+                        },
+                    }
                     updated_snapshot = Some(snapshot);
                 },
                 Sum::Right(published) => {
-                    resource.published = Some(published.duplicate());
+                    resource.availability = Sum::Right(published.duplicate());
                     updated_snapshot = None;
                 },
             }
@@ -403,11 +380,10 @@ impl RangeAllocator {
                 let ghost key = target_node->0;
                 lemma_alloc_specific_model(self@, initial_map, freelist@, key, *allocate_range);
                 lemma_free_set_contains_range(initial_freelist, initial_map[key].block);
-                let tracked subset = resource.available.split(allocate_range.view_set());
-                resource.free.delete(subset);
                 let tracked subset = resource.allocated.insert_set(allocate_range.view_set());
                 allocated = Some(GhostSubRange::tracked_new(subset, *allocate_range));
-                assert(resource.allocated@ == constant.fullrange.view_set() - resource.free@);
+                assert(resource.allocated@ == self@.view_set()
+                    - free_set(freelist_model(freelist@)));
             }
         }
         lock_guard.drop();
@@ -491,17 +467,15 @@ impl RangeAllocator {
 
         proof! {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            resource.published = Some(published.duplicate());
+            resource.availability = Sum::Right(published.duplicate());
             if allocate_range is Some {
                 let ghost range = allocate_range -> 0;
                 lemma_alloc_suffix_model(self@, initial_map, freelist@, to_remove->0, range);
-                let tracked free_subset = resource.available.split(range.view_set());
-                resource.free.delete(free_subset);
                 let tracked allocated_subset = resource.allocated.insert_set(range.view_set());
                 let tracked token = GhostSubRange::tracked_new(allocated_subset, range);
                 allocated = Some(token);
-                assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
-                    - resource.free@);
+                assert(resource.allocated@ == self@.view_set()
+                    - free_set(freelist_model(freelist@)));
             } else {
                 allocated = None;
             }
@@ -536,7 +510,7 @@ impl RangeAllocator {
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
             let tracked allocated_subset = allocated.tracked_borrow();
             allocated_subset.agree(&resource.allocated);
-            if resource.initialized is Left {
+            if lock_guard@ is None {
                 assert(allocated_subset@.contains(range.start));
                 assert(false);
             }
@@ -728,13 +702,10 @@ impl RangeAllocator {
                 free_range,
             );
             let tracked resource = lock_guard.tracked_borrow_mut_resource();
-            resource.published = Some(published.duplicate());
+            resource.availability = Sum::Right(published.duplicate());
             resource.allocated.delete(allocated.tracked_into_subset());
-            let tracked free_subset = resource.free.insert_set(range.view_set());
-            resource.available.combine(free_subset);
-            assert(resource.allocated@ == lock_guard.constant().fullrange.view_set()
-                - resource.free@);
-            assert(resource.free@ == free_set(freelist_model(freelist@))) by {
+            assert(resource.allocated@ == self@.view_set()
+                - free_set(freelist_model(freelist@))) by {
                 if !merged_right {
                     assert(freelist@ == before_right_map);
                 }
@@ -750,23 +721,19 @@ impl RangeAllocator {
                 &&& concrete_freelist_wf(self@, freelist@)
                 &&& btree_map_wf(&freelist)
                 &&& freelist_blocks_not_adjacent(freelist@)
-                &&& ret.resource().free@ == free_set(freelist_model(freelist@))
-                &&& ret.resource().allocated@ == self@.view_set() - ret.resource().free@
+                &&& ret.resource().allocated@ == self@.view_set() - free_set(freelist_model(freelist@))
+                &&& ret.resource().availability matches Sum::Left(snapshot)
+                    ==> snapshot@ == free_set(freelist_model(freelist@))
             },
             ret.constant().fullrange == self@,
-            ret.constant().allocate_id == self.allocate_id(),
             ret.constant().free_id == self.free_id(),
             ret.constant().builder_phase_id == self.builder_phase_id(),
             ret.constant().free_snapshot_id == self.free_snapshot_id(),
-            ret.resource().snapshot.id() == self.free_snapshot_id(),
-            ret.resource().published matches Some(published) ==> published.id() == self.builder_phase_id(),
-            ret.resource().published is None ==> ret.resource().snapshot@ == ret.resource().free@,
-            ret.resource().available.id() == self.allocate_id(),
-            ret.resource().available@ == ret.resource().free@,
-            ret.resource().free.id() == self.allocate_id(),
+            match ret.resource().availability {
+                Sum::Left(snapshot) => snapshot.id() == self.free_snapshot_id(),
+                Sum::Right(published) => published.id() == self.builder_phase_id(),
+            },
             ret.resource().allocated.id() == self.free_id(),
-            ret.resource().initialized is Right,
-            ret.resource().initialized->Right_0.id() == ret.constant().initialized_id,
     )]
     fn get_freelist_guard(
         &self,
@@ -780,10 +747,7 @@ impl RangeAllocator {
             let mut freelist: BTreeMap<usize, FreeRange> = BTreeMap::new();
             freelist.insert(self.fullrange.start, FreeRange::new(self.fullrange.clone()));
             *lock_guard = Some(freelist);
-            proof_decl! {
-                let tracked resource = lock_guard.tracked_borrow_mut_resource();
-                let tracked pending = resource.initialized.tracked_swap_left(OneShotPending::alloc());
-                resource.initialized = Sum::Right(pending.set());
+            proof! {
                 assert(freelist_model(lock_guard@->0@) == Set::empty().insert(self@)) by {
                     assert forall|block: Range<usize>|
                         freelist_model(lock_guard@->0@).contains(block) <==>
