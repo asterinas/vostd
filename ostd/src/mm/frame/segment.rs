@@ -707,6 +707,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     )]
     #[verifier::spinoff_prover]
     pub fn slice(&self, range: &Range<usize>) -> Self {
+        hide(<MetaRegionOwners as Inv>::inv);
         assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
         assert!(range.start <= range.end && range.end <= self.size());
         let start = self.range.start + range.start;
@@ -785,6 +786,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 assert(paddr == (self.range.start + perm_idx * PAGE_SIZE) as usize);
+                assert(regions.slot_owner(paddr) == old(regions).slot_owner(paddr));
+                assert(old(regions).slot_owner(paddr).ref_count() <= REF_COUNT_MAX);
                 assert(allowed_to_panic_if(regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX))
                     by {
                     if regions.slot_owner(paddr).ref_count() >= REF_COUNT_MAX {
@@ -799,6 +802,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             };
             let tracked frame_permission = tracked_permission.get();
             proof {
+                assert(regions.slot_owner(paddr).ref_count() == old(regions).slot_owner(
+                    paddr,
+                ).ref_count() + 1);
+                assert(old(regions).slot_owner(paddr).ref_count() < REF_COUNT_MAX) by {
+                    reveal(<MetaRegionOwners as Inv>::inv);
+                    regions.lemma_contains_valid_frame_paddr(paddr);
+                    assert(regions.slot_owner(paddr).inv());
+                };
                 frame_permission.agree(
                     &self.tracked_perms.borrow().tracked_borrow().tracked_borrow(
                         perm_idx,
@@ -817,6 +828,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             }
         }
 
+        reveal(<MetaRegionOwners as Inv>::inv);
         proof_with!{ tracked_perms: Tracked(Some(raw_perms)) }
         Self { range: start..end, _marker: core::marker::PhantomData }
     }
