@@ -59,7 +59,6 @@ impl<T, A> IoPort<T, A> {
         &&& valid_io_port_access::<T>(self@)
         &&& self.tracked_claim@ matches Some(claim) ==> {
             &&& allocator::io_port_allocator_initialized()
-            &&& claim@.subset_of(Set::<usize>::range(0, (MAX_IO_PORT + 1) as usize))
             &&& self.claim_matches_set(claim@)
             &&& claim.id() == allocator::io_port_allocator_instance_id()
         }
@@ -194,7 +193,6 @@ impl<T, A> IoPort<T, A> {
     #[verus_spec(ret =>
         requires
             obeys_io_port_access_spec::<T>(),
-            port + size_of::<T>() <= u16::MAX,
             valid_io_port_access::<T>(port),
         ensures
             ret@ == port,
@@ -219,7 +217,6 @@ impl<T, A> IoPort<T, A> {
             obeys_io_port_access_spec::<T>(),
             valid_io_port_access::<T>(port),
             tracked_claim@ matches Some(claim) ==> {
-                &&& claim@.subset_of(Set::<usize>::range(0, (MAX_IO_PORT + 1) as usize))
                 &&& allocator::io_port_allocator_initialized()
                 &&& claim.id() == allocator::io_port_allocator_instance_id()
                 &&& claim@ == Set::<usize>::range(
