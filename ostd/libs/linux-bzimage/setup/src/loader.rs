@@ -114,6 +114,15 @@ fn load_segment(file: &xmas_elf::ElfFile, program: &xmas_elf::program::ProgramHe
     /* Rust 1.100 API rename; Origin Rust: MaybeUninit::fill(right, 0); */
     right.write_filled(0);
     proof! {
+        let contents = |slot: MaybeUninit<u8>| slot.mem_contents().value();
+        assert forall|i: int| 0 <= i < left@.len() implies
+            #[trigger] left@[i].mem_contents() == MemContents::Init(segment_data@[i]) by {
+            assert(left@.map_values(contents)[i] == segment_data@[i]);
+        }
+        assert forall|i: int| 0 <= i < right@.len() implies
+            #[trigger] right@[i].mem_contents() == MemContents::Init(0u8) by {
+            assert(right@.map_values(contents)[i] == 0);
+        }
         *loaded = Ghost(dst_slice@);
     }
 }
