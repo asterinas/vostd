@@ -6,6 +6,9 @@ description = "The linux bzImage setup binary"
 license = "MPL-2.0"
 repository = "https://github.com/asterinas/asterinas"
 
+[package.metadata.verus]
+verify = true
+
 [[bin]]
 name = "linux-bzimage-setup"
 path = "src/main.rs"
@@ -13,8 +16,12 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+vstd = { workspace = true }
+vstd_extra = { path = "../../../../verified_libs/vstd_extra", features = ["bzimage"] }
 cfg-if = "1.0.0"
-core2 = { version = "0.4.0", default-features = false, features = ["nightly"] }
+# core2 = { version = "0.4.0", default-features = false, features = ["nightly"] }
+# core2 0.4.0 is yanked; libflate 2.3.2 uses no_std_io2's I/O traits.
+no_std_io2 = { version = "0.9.4", default-features = false, features = ["alloc"] }
 libflate = { version = "2.1.0", default-features = false }
 linux-boot-params = { version = "0.16.0", path = "../boot-params" }
 uart_16550 = "0.3.0"
@@ -24,7 +31,9 @@ xmas-elf = "0.10.0"
 log = "0.4.20"
 uefi = { version = "0.32.0", features = ["global_allocator", "panic_handler", "logger", "qemu"]}
 uefi-raw = "0.8.0"
-tdx-guest = { version = "0.2.1", optional = true }
+# tdx-guest = { version = "0.2.1", optional = true }
+# Use x86_64 0.15.5; 0.14.13 lacks Rust 1.100's new Step methods.
+tdx-guest = { version = "0.4.0", optional = true }
 
 [features]
 default = ["cvm_guest"]

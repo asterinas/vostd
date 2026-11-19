@@ -11,6 +11,10 @@ pub mod fmt;
 pub mod ilog2;
 pub mod int_specs;
 pub mod iter;
+#[cfg(feature = "bzimage")]
+pub mod libflate;
+#[cfg(feature = "bzimage")]
+pub mod maybe_uninit;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;

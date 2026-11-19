@@ -3,7 +3,15 @@ use vstd::prelude::*;
 
 verus! {
 
-/// Rust 1.99.1, library/core/src/convert/mod.rs: AsMut<[T]> for [T]
+/// Rust 1.100.0, library/alloc/src/slice.rs: preserves length and clones elements.
+/// Clone/allocation may panic.
+pub assume_specification<T: Clone>[ <[T]>::to_vec ](slice: &[T]) -> (result: alloc::vec::Vec<T>)
+    ensures
+        result@.len() == slice@.len(),
+        forall|i: int| 0 <= i < result@.len() ==> #[trigger] cloned(slice@[i], result@[i]),
+;
+
+/// Rust 1.100.0, library/core/src/convert/mod.rs: AsMut<[T]> for [T]
 /// returns `self`. The reborrow preserves the entire slice on return and
 /// propagates all subsequent mutations back to the receiver without panicking.
 pub assume_specification<T>[ <[T] as core::convert::AsMut<[T]>>::as_mut ](slice: &mut [T]) -> (ret:
