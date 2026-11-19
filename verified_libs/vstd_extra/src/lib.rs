@@ -29,6 +29,7 @@ pub mod function_properties;
 pub mod ghost_tree;
 pub mod layout;
 pub mod number;
+pub mod objective;
 pub mod once;
 pub mod ownership;
 pub mod panic;
@@ -42,6 +43,7 @@ pub mod map_extra;
 
 pub mod prelude;
 pub mod range;
+pub mod raw_callback;
 pub mod raw_ptr;
 pub mod raw_ptr_extra;
 pub mod rcu_objects;

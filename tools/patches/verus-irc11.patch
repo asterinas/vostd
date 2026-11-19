@@ -334,7 +334,7 @@ diff --git a/source/vstd/atomic_weak.rs b/source/vstd/atomic_weak.rs
 new file mode 100644
 --- /dev/null
 +++ b/source/vstd/atomic_weak.rs
-@@ -0,0 +1,743 @@
+@@ -0,0 +1,783 @@
 +#[cfg(feature = "weak-memory")]
 +pub use weak_atomic_types::*;
 +
@@ -691,6 +691,46 @@ new file mode 100644
 +    &&& new_view.contains(message_view)
 +}
 +
++/// The store half of a read-modify-write whose load half is not acquire.
++/// The message also carries the view of the message read by the load half
++/// (to model release sequences), but that view only reaches the thread's
++/// acquire view. So, unlike `store_release`, the message view may be strictly
++/// larger than the thread's new view.
++pub open spec fn store_release_rmw<T>(
++    old_pt: AtomicPointsTo<T>,
++    new_pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    new_view: ThreadView,
++    val: T,
++    timestamp: nat,
++    message_view: ThreadView,
++) -> bool {
++    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
++    &&& store_view_increasing(old_view, new_view)
++    &&& store_insert_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& message_view.contains(new_view)
++}
++
++/// The store half of a relaxed read-modify-write whose load half is not acquire.
++/// As in `store_release_rmw`, the thread's new view need not contain the
++/// message view; it still contains the thread's release view.
++pub open spec fn store_relaxed_rmw<T>(
++    old_pt: AtomicPointsTo<T>,
++    new_pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    new_view: ThreadView,
++    release_view: ThreadView,
++    val: T,
++    timestamp: nat,
++    message_view: ThreadView,
++) -> bool {
++    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
++    &&& store_view_increasing(old_view, new_view)
++    &&& store_insert_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& message_view.contains(release_view)
++    &&& new_view.contains(release_view)
++}
++
 +/// After a store_mut, the locations's AtomicHistory is updated to be a singleton containing only the new store.
 +/// The timestamp of the store must not have previously been an entry in the location's AtomicHistory.
 +pub open spec fn store_mut_truncate_history<T>(
@@ -968,11 +1008,11 @@ new file mode 100644
 +                            },
 +                            Ordering::Release => {
 +                                &&& load_relaxed(*old(pt), old(vs)@, up@.intermediate_thread_view, acq_vs@@, v, up@.load_timestamp, up@.load_message_view)
-+                                &&& store_release(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, new, up@.load_timestamp + 1, up@.store_message_view)
++                                &&& store_release_rmw(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, new, up@.load_timestamp + 1, up@.store_message_view)
 +                            },
 +                            Ordering::Relaxed => {
 +                                &&& load_relaxed(*old(pt), old(vs)@, up@.intermediate_thread_view, acq_vs@@, v, up@.load_timestamp, up@.load_message_view)
-+                                &&& store_relaxed(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, rel_vs@, new, up@.load_timestamp + 1, up@.store_message_view)
++                                &&& store_relaxed_rmw(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, rel_vs@, new, up@.load_timestamp + 1, up@.store_message_view)
 +                            }
 +                        }
 +                    },
@@ -1082,7 +1122,7 @@ diff --git a/source/vstd/thread_view.rs b/source/vstd/thread_view.rs
 new file mode 100644
 --- /dev/null
 +++ b/source/vstd/thread_view.rs
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,462 @@
 +use super::cell::CellId;
 +use super::prelude::*;
 +use super::resource::algebra;
@@ -1323,28 +1363,31 @@ new file mode 100644
 +// Memory ownership permissions are objective independently of the type stored
 +// at the location. Their views describe global memory, not one thread's
 +// subjective weak-memory observations.
++// The stored value must itself be objective: reading it back out hands it to
++// the permission's owner, so e.g. `PointsTo<Tracked<ViewSeen>>` would let a
++// thread obtain another thread's view without synchronizing.
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::cell::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::pcell::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::cell::pcell::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::raw_ptr::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::raw_ptr::PointsTo<T> {
 +
 +}
 +
 +#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::simple_pptr::PointsTo<T> {
++unsafe impl<T: Objective> Objective for super::simple_pptr::PointsTo<T> {
 +
 +}
 +
@@ -1372,6 +1415,16 @@ new file mode 100644
 +
 +#[cfg(verus_keep_ghost)]
 +unsafe impl<T: Objective> Objective for Option<T> {
++
++}
++
++// `Vec` stores its capacity in a std pattern type, which hides the structural
++// auto-trait derivation; its elements and allocator are its only contents.
++#[cfg(all(verus_keep_ghost, feature = "alloc"))]
++unsafe impl<T: Objective, A: core::alloc::Allocator + Objective> Objective for alloc::vec::Vec<
++    T,
++    A,
++> {
 +
 +}
 +
