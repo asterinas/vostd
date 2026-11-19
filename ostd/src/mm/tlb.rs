@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::tlb::TlbModel;
+use crate::specs::mm::tlb::{FlushSet, TlbModel};
 
 use super::{
     PAGE_SIZE, Vaddr,
@@ -35,6 +35,13 @@ pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
     //_pin_current: G,
 }
 
+impl<'a> TlbFlusher<'a> {
+    /// The flushes issued but not yet dispatched.
+    pub closed spec fn pending(&self) -> FlushSet {
+        self.ops_stack@
+    }
+}
+
 } // verus!
 #[verus_verify]
 impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
@@ -45,6 +52,10 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     ///
     /// The flusher needs to stick to the current CPU. So please provide a
     /// guard that implements [`PinCurrentCpu`].
+    #[verus_spec(r =>
+        ensures
+            r.pending() == FlushSet::empty(),
+    )]
     pub fn new(target_cpus: &'a AtomicCpuSet /*, pin_current_guard: G*/) -> Self {
         Self {
             target_cpus,
@@ -60,12 +71,10 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// this CPU or remote CPUs. The flush requests are only performed when
     /// [`Self::dispatch_tlb_flush`] is called.
     #[verus_spec(
-        with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *final(model) == old(model).issue_tlb_flush(op),
-            final(model).inv(),
+            final(self).pending() == old(self).pending().join(op@)
+                || final(self).pending() == FlushSet::all_user(),
     )]
-    #[verifier::external_body]
     pub fn issue_tlb_flush(&mut self, op: TlbFlushOp) {
         self.ops_stack.push(op, None);
     }
@@ -78,12 +87,12 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// space program can still access the page through the TLB entries. This
     /// method is designed to be used in such cases.
     #[verus_spec(r =>
-        with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *final(model) == old(model).issue_tlb_flush(op),
-            final(model).inv(),
+            final(self).pending() == old(self).pending().join(op@)
+                || final(self).pending() == FlushSet::all_user(),
     )]
-    #[verifier::external_body]
+    // Verification note: `page_keeper` is commented out, so `drop_after_flush`
+    // is dropped once the request is recorded, not after the flush.
     pub fn issue_tlb_flush_with(
         &mut self,
         op: TlbFlushOp,
@@ -104,8 +113,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
         requires
             old(model).inv(),
         ensures
-            *final(model) == old(model).dispatch_tlb_flush_spec(),
-            final(model).inv(),
+            *final(model) == *old(model),
     )]
     pub fn dispatch_tlb_flush(&mut self) {
         unimplemented!() /*let irq_guard = crate::trap::irq::disable_local();
@@ -187,7 +195,6 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
 verus! {
 
 /// The operation to flush TLB entries.
-#[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TlbFlushOp {
     /// Flush all TLB entries except for the global entries.
@@ -196,6 +203,39 @@ pub enum TlbFlushOp {
     Address(Vaddr),
     /// Flush the TLB entries for the specified virtual address range.
     Range(Range<Vaddr>),
+}
+
+// `Structural` lets Verus read `op == TlbFlushOp::All` as spec equality, so
+// `OpsStack::push` knows a non-`All` op is pushed when it does not escalate.
+// `#[derive(Structural)]` cannot be used because `core::ops::Range` has no
+// `Structural` impl in Verus.
+//
+// SAFETY: `PartialEq` is derived, so it compares the variant and then the
+// fields: nothing for `All`, the `usize` for `Address`, and `start` and `end`
+// of the `Range<usize>` (whose `PartialEq` is also derived) for `Range`. This
+// is structural equality. A hand-written `PartialEq` would void this impl.
+unsafe impl Structural for TlbFlushOp {
+
+}
+
+impl View for TlbFlushOp {
+    type V = FlushSet;
+
+    open spec fn view(&self) -> FlushSet {
+        match *self {
+            TlbFlushOp::All => FlushSet::all_user(),
+            TlbFlushOp::Address(va) => FlushSet { all_user: false, vas: Set::empty().insert(va) },
+            // `tlb_flush_addr_range` invalidates one address per base page,
+            // starting from `range.start`.
+            TlbFlushOp::Range(range) => FlushSet {
+                all_user: false,
+                vas: Set::from_finite_type(
+                    |va: Vaddr|
+                        range.start <= va < range.end && (va - range.start) % PAGE_SIZE as int == 0,
+                ),
+            },
+        }
+    }
 }
 
 impl TlbFlushOp {
@@ -290,9 +330,43 @@ struct OpsStack {
     //    page_keeper: Vec<Frame<dyn AnyFrameMeta>>,
 }
 
+/// The meaning of the collected operations, in collection order.
+spec fn ops_flush_set(ops: Seq<Option<TlbFlushOp>>) -> FlushSet {
+    ops.fold_left(
+        FlushSet::empty(),
+        |acc: FlushSet, op: Option<TlbFlushOp>|
+            match op {
+                Some(op) => acc.join(op@),
+                None => acc,
+            },
+    )
+}
+
+impl View for OpsStack {
+    type V = FlushSet;
+
+    closed spec fn view(&self) -> FlushSet {
+        if self.need_flush_all {
+            FlushSet::all_user()
+        } else {
+            ops_flush_set(self.ops@[..self.size])
+        }
+    }
+}
+
 impl OpsStack {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.size <= FLUSH_ALL_OPS_THRESHOLD
+        &&& forall|i: int| 0 <= i < self.size ==> #[trigger] self.ops@[i] is Some
+    }
+
+    // Verus does not support the array-fill expression of a non-`Copy` type.
     #[verifier::external_body]
-    const fn new() -> Self {
+    const fn new() -> (r: Self)
+        ensures
+            r@ == FlushSet::empty(),
+    {
         Self {
             ops: [const { None };FLUSH_ALL_OPS_THRESHOLD],
             need_flush_all: false,
@@ -301,13 +375,22 @@ impl OpsStack {
         }
     }
 
-    #[verifier::external_body]
-    fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> (r: bool)
+        ensures
+            r ==> self@ == FlushSet::empty(),
+    {
         !self.need_flush_all && self.size == 0
     }
 
-    #[verifier::external_body]
-    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>) {
+    /// Escalating to a full flush covers every non-global entry, but may lose
+    /// the address-specific coverage of global entries.
+    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>)
+        ensures
+            final(self)@ == old(self)@.join(op@) || final(self)@ == FlushSet::all_user(),
+    {
+        proof {
+            use_type_invariant(&*self);
+        }
         if let Some(frame) = drop_after_flush {
             //            self.page_keeper.push(frame);
         }
@@ -320,12 +403,23 @@ impl OpsStack {
             self.size = 0;
             return;
         }
+        let ghost collected = self.ops@[..self.size];
         self.ops[self.size] = Some(op);
         self.size += 1;
+        proof {
+            assert(self.ops@[..self.size] =~= collected.push(Some(op)));
+            assert(collected.push(Some(op)).drop_last() =~= collected);
+        }
     }
 
-    #[verifier::external_body]
-    fn push_from(&mut self, other: &OpsStack) {
+    fn push_from(&mut self, other: &OpsStack)
+        ensures
+            final(self)@ == old(self)@.join(other@) || final(self)@ == FlushSet::all_user(),
+    {
+        proof {
+            use_type_invariant(&*self);
+            use_type_invariant(other);
+        }
         //        self.page_keeper.extend(other.page_keeper.iter().cloned());
         if self.need_flush_all {
             return;
@@ -335,9 +429,42 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        for i in 0..other.size {
+        let ghost start = self@;
+        let ghost start_size = self.size;
+        proof {
+            assert(other.ops@[..0] =~= Seq::<Option<TlbFlushOp>>::empty());
+            assert(start.join(FlushSet::empty()).vas =~= start.vas);
+        }
+        for i in 0..other.size
+            invariant
+                !self.need_flush_all,
+                !other.need_flush_all,
+                other.size <= FLUSH_ALL_OPS_THRESHOLD,
+                start_size + other.size < FLUSH_ALL_OPS_THRESHOLD,
+                self.size == start_size + i,
+                self@ == start.join(ops_flush_set(other.ops@[..i])),
+        {
+            proof {
+                use_type_invariant(&*self);
+                use_type_invariant(other);
+            }
+            let ghost collected = self.ops@[..self.size];
+            let ghost copied = other.ops@[..i];
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
+            proof {
+                let x = other.ops@[i as int];
+                assert(self.ops@[self.size - 1] == x);
+                assert(self.ops@[..self.size] =~= collected.push(x));
+                assert(other.ops@[..i + 1] =~= copied.push(x));
+                assert(collected.push(x).drop_last() =~= collected);
+                assert(copied.push(x).drop_last() =~= copied);
+                let prefix = ops_flush_set(copied);
+                if let Some(op) = x {
+                    assert((start.vas + prefix.vas) + op@.vas =~= start.vas + (prefix.vas
+                        + op@.vas));
+                }
+            }
         }
     }
 
@@ -357,8 +484,13 @@ impl OpsStack {
         self.clear_without_flush();
     }
 
-    #[verifier::external_body]
-    fn clear_without_flush(&mut self) {
+    fn clear_without_flush(&mut self)
+        ensures
+            final(self)@ == FlushSet::empty(),
+    {
+        proof {
+            use_type_invariant(&*self);
+        }
         self.need_flush_all = false;
         self.size = 0;
         //        self.page_keeper.clear();
