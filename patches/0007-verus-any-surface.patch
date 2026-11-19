@@ -1,13 +1,10 @@
 diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
 --- a/source/builtin/src/lib.rs
 +++ b/source/builtin/src/lib.rs
-@@ -2501,6 +2501,18 @@
- #[cfg(verus_keep_ghost)]
- #[rustc_diagnostic_item = "verus::verus_builtin::type_id_of"]
- pub fn type_id_of<T: ?Sized>(_x: &T) -> core::any::TypeId {
-+    unimplemented!();
-+}
-+
+@@ -2514,6 +2514,18 @@ pub fn type_id_of<T: ?Sized>(_x: &T) -> core::any::TypeId {
+     unimplemented!();
+ }
+ 
 +/// The value inside a trait object, read back at type `S`.
 +///
 +/// Meaningful exactly where `S` is the type that was erased -- the coercion is
@@ -17,13 +14,16 @@ diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
 +#[cfg(verus_keep_ghost)]
 +#[rustc_diagnostic_item = "verus::verus_builtin::dyn_value"]
 +pub fn dyn_value<S, T: ?Sized>(_x: &T) -> S {
-     unimplemented!();
- }
- 
++    unimplemented!();
++}
++
+ #[cfg(verus_keep_ghost)]
+ #[rustc_diagnostic_item = "verus::verus_builtin::is_smaller_than"]
+ pub fn is_smaller_than<A, B>(_: A, _: B) -> bool {
 diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/fn_call_to_vir.rs
 --- a/source/rust_verify/src/fn_call_to_vir.rs
 +++ b/source/rust_verify/src/fn_call_to_vir.rs
-@@ -536,10 +536,11 @@
+@@ -520,10 +520,11 @@ fn verus_item_to_vir<'tcx, 'a>(
          // `type_id` is the spec-level identity; the executable one is a real
          // `TypeId`, which vstd specifies as returning exactly this.
          let err = match verus_item {
@@ -38,11 +38,10 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
              _ => err,
          };
          return Err(err);
-@@ -1297,6 +1298,47 @@
-                 )?;
+@@ -1294,6 +1295,47 @@ fn verus_item_to_vir<'tcx, 'a>(
  
                  mk_expr(ExprX::NullaryOpr(vir::ast::NullaryOpr::TypeTag(t)))
-+            }
+             }
 +            ExprItem::DynValue => {
 +                record_spec_fn(bctx, expr);
 +                // dyn_value::<S, T>(x): S is the type to read back at, T the
@@ -83,13 +82,14 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
 +                    }
 +                    _ => panic!("internal error: expected Call for dyn_value"),
 +                }
-             }
++            }
              ExprItem::TypeIdOf => {
                  record_spec_fn(bctx, expr);
+                 // The type argument, not the argument's type: `type_id_of` takes
 diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/trait_conflicts.rs
 --- a/source/rust_verify/src/trait_conflicts.rs
 +++ b/source/rust_verify/src/trait_conflicts.rs
-@@ -428,9 +428,25 @@
+@@ -403,11 +403,27 @@ pub(crate) fn gen_check_trait_impl_conflicts(
      let dyn_traits: HashSet<Path> = vir::traits::get_dyn_traits(vir_crate);
      let traits_by_path: HashMap<Path, &vir::ast::Trait> =
          vir_crate.traits.iter().map(|t| (t.x.name.clone(), t)).collect();
@@ -108,14 +108,16 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
      let mut n_trait: usize = 0;
      for t in &vir_crate.traits {
          if !dyn_traits.contains(&t.x.name) {
-+            continue;
-+        }
-+        if unsized_blanketed.contains(&t.x.name) && vir::traits::is_tolerated_blanket_trait(t) {
-+            n_trait += 1;
              continue;
          }
++        if unsized_blanketed.contains(&t.x.name) && vir::traits::is_tolerated_blanket_trait(t) {
++            n_trait += 1;
++            continue;
++        }
          let name = state.trait_name(&t.x.name);
-@@ -579,7 +595,19 @@
+         let span = spans.from_air_span(&t.span, None);
+         let (mut generic_params, mut generic_bounds) = gen_generics(
+@@ -550,7 +566,19 @@ pub(crate) fn gen_check_trait_impl_conflicts(
              // them, which surfaces far away as
              // `Verus does not recognize associated type ... of trait ...`.
              match traits_by_path.get(&u_path) {
@@ -139,7 +141,7 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
 diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/verus_items.rs
 --- a/source/rust_verify/src/verus_items.rs
 +++ b/source/rust_verify/src/verus_items.rs
-@@ -147,6 +147,7 @@
+@@ -148,6 +148,7 @@ pub(crate) enum ExprItem {
      ArchWordBits,
      TypeId,
      TypeIdOf,
@@ -147,7 +149,7 @@ diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/veru
      ClosureToFnSpec,
      ClosureToFnProof,
      SignedMin,
-@@ -557,6 +558,7 @@
+@@ -559,6 +560,7 @@ fn verus_items_map() -> Vec<(&'static str, VerusItem)> {
          ("verus::verus_builtin::arch_word_bits",          VerusItem::Expr(ExprItem::ArchWordBits)),
          ("verus::verus_builtin::type_id",                 VerusItem::Expr(ExprItem::TypeId)),
          ("verus::verus_builtin::type_id_of",              VerusItem::Expr(ExprItem::TypeIdOf)),
@@ -386,7 +388,7 @@ new file mode 100644
 diff --git a/source/rust_verify_test/tests/safe_api.rs b/source/rust_verify_test/tests/safe_api.rs
 --- a/source/rust_verify_test/tests/safe_api.rs
 +++ b/source/rust_verify_test/tests/safe_api.rs
-@@ -241,6 +241,19 @@
+@@ -241,6 +241,19 @@ test_verify_one_file_with_options! {
      } => Err(err) => assert_vir_error_msg(err, "Verus does not currently support dyn")
  }
  
@@ -406,7 +408,7 @@ diff --git a/source/rust_verify_test/tests/safe_api.rs b/source/rust_verify_test
  test_verify_one_file_with_options! {
      #[test] any_returned ["-V check-api-safety"] => verus_code! {
          use vstd::prelude::*;
-@@ -252,7 +265,7 @@
+@@ -252,7 +265,7 @@ test_verify_one_file_with_options! {
          fn test() -> Box<dyn core::any::Any> {
              Box::new(foo)
          }
@@ -418,7 +420,7 @@ diff --git a/source/rust_verify_test/tests/safe_api.rs b/source/rust_verify_test
 diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
 --- a/source/vir/src/ast.rs
 +++ b/source/vir/src/ast.rs
-@@ -591,6 +591,10 @@
+@@ -591,6 +591,10 @@ pub enum UnaryOpr {
      /// the value's static type. For a sized static type the two coincide; for a
      /// `dyn T` the value's is the type erased into it.
      TypeTagOf(Typ),
@@ -432,7 +434,7 @@ diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
 diff --git a/source/vir/src/ast_visitor.rs b/source/vir/src/ast_visitor.rs
 --- a/source/vir/src/ast_visitor.rs
 +++ b/source/vir/src/ast_visitor.rs
-@@ -286,6 +286,11 @@
+@@ -286,6 +286,11 @@ pub(crate) trait AstVisitor<R: Returner, Err, Scope: Scoper> {
                  let t = self.visit_typ(t)?;
                  R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
              }
@@ -447,7 +449,7 @@ diff --git a/source/vir/src/ast_visitor.rs b/source/vir/src/ast_visitor.rs
 diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
 --- a/source/vir/src/def.rs
 +++ b/source/vir/src/def.rs
-@@ -81,6 +81,7 @@
+@@ -81,6 +81,7 @@ pub(crate) const PROJECT_POINTEE_METADATA_DECORATION: &str = "pointee_metadata%%
  const PREFIX_PROJECT_PARAM: &str = "Proj%";
  const PREFIX_TRAIT_BOUND: &str = "tr_bound%";
  const PREFIX_TO_DYN: &str = "to_dyn%";
@@ -455,7 +457,7 @@ diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
  pub(crate) const SIZED_BOUND: &str = "sized";
  const PREFIX_STATIC: &str = "static%";
  const PREFIX_BREAK_LABEL: &str = "break_label%";
-@@ -696,6 +697,10 @@
+@@ -713,6 +714,10 @@ impl NameCtxt {
          Arc::new(format!("{}{}", PREFIX_TRAIT_BOUND, self.path_to_string(trait_path)))
      }
  
@@ -469,7 +471,7 @@ diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
 diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
 --- a/source/vir/src/heuristics.rs
 +++ b/source/vir/src/heuristics.rs
-@@ -79,7 +79,8 @@
+@@ -79,7 +79,8 @@ fn insert_auto_ext_equal(ctx: &Ctx, exp: &Exp) -> Exp {
              | UnaryOpr::AutoDecreases
              | UnaryOpr::AutoLoopEnsures
              | UnaryOpr::ToDyn(..)
@@ -482,7 +484,7 @@ diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
 diff --git a/source/vir/src/interpreter.rs b/source/vir/src/interpreter.rs
 --- a/source/vir/src/interpreter.rs
 +++ b/source/vir/src/interpreter.rs
-@@ -1555,6 +1555,7 @@
+@@ -1557,6 +1557,7 @@ fn eval_expr_internal(ctx: &Ctx, state: &mut State, exp: &Exp) -> Result<Exp, Vi
                  }
                  ToDyn(..) => ok,
                  TypeTagOf(..) => ok,
@@ -493,13 +495,12 @@ diff --git a/source/vir/src/interpreter.rs b/source/vir/src/interpreter.rs
 diff --git a/source/vir/src/modes.rs b/source/vir/src/modes.rs
 --- a/source/vir/src/modes.rs
 +++ b/source/vir/src/modes.rs
-@@ -2339,6 +2339,22 @@
-         }
+@@ -2366,6 +2366,22 @@ fn check_expr(
          ExprX::UnaryOpr(UnaryOpr::LoopIsolationBoundary(_), e1) => {
              check_expr(ctxt, record, typing, outer_mode, expect, e1, outer_proph)
-+        }
+         }
 +        ExprX::UnaryOpr(UnaryOpr::DynValue(..), e1) => {
-+            if ctxt.check_ghost_blocks && typing.block_ghostness == Ghost::Exec {
++            if typing.block_ghostness == Ghost::Exec {
 +                return Err(error(&expr.span, "cannot use `dyn_value` in exec mode"));
 +            }
 +            let mut typing = typing.push_in_pure(true);
@@ -513,33 +514,33 @@ diff --git a/source/vir/src/modes.rs b/source/vir/src/modes.rs
 +                outer_proph,
 +            )?;
 +            Ok((Mode::Spec, Proph::No))
-         }
++        }
          ExprX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
-             if ctxt.check_ghost_blocks && typing.block_ghostness == Ghost::Exec {
+             if typing.block_ghostness == Ghost::Exec {
+                 return Err(error(&expr.span, "cannot use `type_id_of` in exec mode"));
 diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
 --- a/source/vir/src/poly.rs
 +++ b/source/vir/src/poly.rs
-@@ -685,6 +685,12 @@
-                 UnaryOpr::HasResolved(_t) => {
+@@ -686,6 +686,12 @@ fn visit_exp(ctx: &Ctx, state: &mut State, exp: &Exp) -> Exp {
                      let e = coerce_exp_to_poly(ctx, &e1);
                      mk_exp(ExpX::UnaryOpr(op.clone(), e.clone()))
-+                }
+                 }
 +                UnaryOpr::DynValue(_td, ts) => {
 +                    // dyn%val%T hands back the erased value, boxed, at the
 +                    // target type.
 +                    let e = coerce_exp_to_poly(ctx, &e1);
 +                    mk_exp_typ(&Arc::new(TypX::Boxed(ts.clone())), ExpX::UnaryOpr(op.clone(), e))
-                 }
++                }
                  UnaryOpr::TypeTagOf(_t) => {
                      // val%tag takes the value boxed, like the type it describes.
+                     let e = coerce_exp_to_poly(ctx, &e1);
 diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
 --- a/source/vir/src/sst_to_air.rs
 +++ b/source/vir/src/sst_to_air.rs
-@@ -1343,6 +1343,20 @@
-                 // invariants and ensures during loop construction. Unwrap and process
+@@ -1344,6 +1344,20 @@ pub(crate) fn exp_to_expr(ctx: &Ctx, exp: &Exp, expr_ctxt: &ExprCtxt) -> Result<
                  // the inner expression.
                  return exp_to_expr(ctx, e, expr_ctxt);
-+            }
+             }
 +            UnaryOpr::DynValue(td, ts) => {
 +                let TypX::Dyn(trait_path, typ_args, _) = &*undecorate_typ(td) else {
 +                    panic!("DynValue expects a dyn source type: {:?}", td)
@@ -553,13 +554,14 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
 +                }
 +                args.push(exp_to_expr(ctx, e, expr_ctxt)?);
 +                ident_apply(&ctx.name_ctxt.dyn_val(trait_path), &args)
-             }
++            }
              UnaryOpr::TypeTagOf(t) => {
                  let mut exprs: Vec<Expr> = typ_to_ids(t);
+                 exprs.push(exp_to_expr(ctx, e, expr_ctxt)?);
 diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
 --- a/source/vir/src/sst_util.rs
 +++ b/source/vir/src/sst_util.rs
-@@ -559,6 +559,9 @@
+@@ -623,6 +623,9 @@ impl ExpX {
                      HasType(t) => {
                          (format!("has_type({}, {:?})", exp.x.to_user_string(global), t), 99)
                      }
@@ -572,7 +574,7 @@ diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
 diff --git a/source/vir/src/sst_visitor.rs b/source/vir/src/sst_visitor.rs
 --- a/source/vir/src/sst_visitor.rs
 +++ b/source/vir/src/sst_visitor.rs
-@@ -318,6 +318,11 @@
+@@ -318,6 +318,11 @@ pub(crate) trait Visitor<R: Returner, Err, Scope: Scoper> {
                          let t = self.visit_typ(t)?;
                          R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
                      }
@@ -587,7 +589,7 @@ diff --git a/source/vir/src/sst_visitor.rs b/source/vir/src/sst_visitor.rs
 diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 --- a/source/vir/src/traits.rs
 +++ b/source/vir/src/traits.rs
-@@ -1044,11 +1044,20 @@
+@@ -1189,11 +1189,20 @@ pub fn trait_decls_to_air(ctx: &Ctx, krate: &crate::sst::KrateSst) -> Commands {
              ));
              let decl_to_dyn = Arc::new(DeclX::fun_or_const(
                  ctx.name_ctxt.to_dyn(&tr.x.name),
@@ -608,11 +610,10 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
  
              // Typing axiom for to_dyn:
              //   forall Self, A1..Am, x. has_type(x, Self) ==>
-@@ -1132,6 +1141,42 @@
-                 qid,
+@@ -1278,6 +1287,42 @@ pub fn trait_decls_to_air(ctx: &Ctx, krate: &crate::sst::KrateSst) -> Commands {
              ));
              let forall = mk_bind_expr(&bind, &air::ast_util::mk_eq(&lhs, &rhs));
-+            commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
+             commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
 +
 +            // A3: the coercion is the identity on the value, so reading it back
 +            // at the type it was written at returns it.
@@ -648,10 +649,11 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 +                qid,
 +            ));
 +            let forall = mk_bind_expr(&bind, &air::ast_util::mk_eq(&dyn_val, &x));
-             commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
++            commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
          }
      }
-@@ -1881,8 +1926,31 @@
+     Arc::new(commands)
+@@ -2038,8 +2083,31 @@ pub(crate) fn find_trait_impl_from_extension(
      return Err(err);
  }
  
@@ -684,7 +686,7 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
      // trait_typ_args[0] is the Self argument
      if let TypX::TypParam(slf) = &*ti.x.trait_typ_args[0] {
          // Self type is just a TypParam, so we have a blanket impl
-@@ -2170,7 +2238,7 @@
+@@ -2327,7 +2395,7 @@ fn compute_dyn_compatibility(
      }
      if let Some(d) = unsized_blanket_super {
          d
@@ -696,7 +698,7 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
 --- a/source/vir/src/triggers.rs
 +++ b/source/vir/src/triggers.rs
-@@ -142,8 +142,8 @@
+@@ -142,8 +142,8 @@ fn check_trigger_expr_arg(state: &mut State, arg: &Exp) {
                  // recurse inside coercions
                  check_trigger_expr_arg(state, arg)
              }
@@ -707,7 +709,7 @@ diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
                  check_trigger_expr_arg(state, arg)
              }
              UnaryOpr::AutoDecreases | UnaryOpr::AutoLoopEnsures => {
-@@ -303,7 +303,8 @@
+@@ -303,7 +303,8 @@ fn check_trigger_expr(
              | UnaryOpr::AutoLoopEnsures
              | UnaryOpr::ProofNote(_)
              | UnaryOpr::ToDyn(..)
@@ -720,17 +722,17 @@ diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
 diff --git a/source/vir/src/triggers_auto.rs b/source/vir/src/triggers_auto.rs
 --- a/source/vir/src/triggers_auto.rs
 +++ b/source/vir/src/triggers_auto.rs
-@@ -441,6 +441,10 @@
-             (false, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
-         }
-         ExpX::UnaryOpr(UnaryOpr::HasResolved(_), e1) => {
-+            let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
-+            (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
-+        }
-+        ExpX::UnaryOpr(UnaryOpr::DynValue(..), e1) => {
+@@ -445,6 +445,10 @@ fn gather_terms(ctxt: &mut Ctxt, ctx: &Ctx, exp: &Exp, depth: u64) -> (bool, Ter
              let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
              (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
          }
++        ExpX::UnaryOpr(UnaryOpr::DynValue(..), e1) => {
++            let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
++            (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
++        }
+         ExpX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
+             let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
+             (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
 diff --git a/source/vstd/std_specs/any.rs b/source/vstd/std_specs/any.rs
 --- a/source/vstd/std_specs/any.rs
 +++ b/source/vstd/std_specs/any.rs
@@ -744,7 +746,7 @@ diff --git a/source/vstd/std_specs/any.rs b/source/vstd/std_specs/any.rs
  use core::any::TypeId;
  
  verus! {
-@@ -15,4 +18,64 @@
+@@ -15,4 +18,64 @@ pub assume_specification[ <TypeId as PartialEq<TypeId>>::eq ](x: &TypeId, y: &Ty
          r == (*x == *y),
  ;
  

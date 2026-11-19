@@ -1,7 +1,7 @@
 diff --git a/source/rust_verify/src/rust_to_vir_base.rs b/source/rust_verify/src/rust_to_vir_base.rs
 --- a/source/rust_verify/src/rust_to_vir_base.rs
 +++ b/source/rust_verify/src/rust_to_vir_base.rs
-@@ -1315,7 +1315,32 @@
+@@ -1312,7 +1312,32 @@ pub(crate) fn mid_ty_to_vir_ghost<'tcx>(
          }
          TyKind::Dynamic(preds, _) => {
              use rustc_middle::ty::ExistentialPredicate;
@@ -37,7 +37,7 @@ diff --git a/source/rust_verify/src/rust_to_vir_base.rs b/source/rust_verify/src
 diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_test/tests/traits_dyn.rs
 --- a/source/rust_verify_test/tests/traits_dyn.rs
 +++ b/source/rust_verify_test/tests/traits_dyn.rs
-@@ -597,7 +597,7 @@
+@@ -597,7 +597,7 @@ test_verify_one_file! {
          trait T {}
          fn test(d: &(dyn T + Send)) {
          }
@@ -46,7 +46,7 @@ diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_te
  }
  
  test_verify_one_file! {
-@@ -605,7 +605,17 @@
+@@ -605,7 +605,17 @@ test_verify_one_file! {
          trait T {}
          fn test(d: &dyn Fn() -> ()) {
          }

@@ -1,93 +1,31 @@
 //! Specifications for bit-related standard-library functions.
-use crate::bits::u64_bit_is_set;
 use vstd::prelude::*;
+use vstd::std_specs::bits::axiom_u64_count_ones;
 
 verus! {
 
-/// The number of set bits among the lowest `n` bits of `w`.
-spec fn u64_set_bits_rec(w: u64, n: u64) -> int
-    decreases n,
-{
-    if n == 0 {
-        0
-    } else {
-        (if u64_bit_is_set(w, n - 1) {
-            1int
-        } else {
-            0int
-        }) + u64_set_bits_rec(w, (n - 1) as u64)
-    }
-}
-
 /// The number of set bits in a `u64` word.
+///
+/// vstd specifies `u64::count_ones` itself (in terms of `nat_count_ones`), so
+/// this is that count read as an `int`. It was a local recursive definition over
+/// `u64_bit_is_set` plus an `assume_specification` until vstd grew one; keeping
+/// both is a duplicate-specification error.
 pub closed spec fn u64_set_bits(w: u64) -> int {
-    u64_set_bits_rec(w, 64)
+    w.count_ones() as int
 }
 
-/// `u64::count_ones`: "Returns the number of ones in the binary representation
-/// of `self`" (core/src/num/uint_macros.rs, `intrinsics::ctpop`).
-pub assume_specification[ u64::count_ones ](v: u64) -> (r: u32)
-    ensures
-        r == u64_set_bits(v),
-;
-
-/// A nonzero word has at least one set bit (and zero has none).
+/// A nonzero word has at least one set bit (and zero has none), and the
+/// executable count agrees with the spec one -- the fact the local
+/// `assume_specification` used to supply.
 pub broadcast proof fn lemma_u64_set_bits_nonzero(w: u64)
     ensures
         #![trigger u64_set_bits(w)]
         (w != 0u64) == (1 <= u64_set_bits(w)),
         0 <= u64_set_bits(w) <= 64,
+        w.count_ones() == u64_set_bits(w),
 {
-    reveal(u64_set_bits);
-    lemma_u64_set_bits_rec_bounds(w, 64);
-    assert(w >> 64u64 == 0) by (bit_vector);
-}
+    broadcast use axiom_u64_count_ones;
 
-proof fn lemma_u64_set_bits_rec_bounds(w: u64, n: u64)
-    requires
-        n <= 64,
-    ensures
-        0 <= u64_set_bits_rec(w, n) <= n,
-        w >> n == 0 ==> ((w != 0) == (1 <= u64_set_bits_rec(w, n))),
-    decreases n,
-{
-    reveal_with_fuel(u64_set_bits_rec, 1);
-    if n != 0 {
-        let prev = (n - 1) as u64;
-        lemma_u64_set_bits_rec_bounds(w, prev);
-        if w >> n == 0 {
-            if w == 0 {
-                assert(u64_bit_is_set(w, prev as int) == false) by {
-                    assert((w & (1u64 << (prev as usize))) == 0u64) by (bit_vector)
-                        requires
-                            w == 0,
-                    ;
-                }
-                assert(w >> prev == 0) by (bit_vector)
-                    requires
-                        w == 0,
-                ;
-            } else {
-                if u64_bit_is_set(w, prev as int) {
-                    assert(1 <= u64_bit_is_set(w, prev as int) as int);
-                } else {
-                    assert((w & (1u64 << (prev as usize))) == 0u64);
-                    assert(w >> prev == 0) by (bit_vector)
-                        requires
-                            0 < n <= 64,
-                            prev == n - 1,
-                            w >> n == 0,
-                            (w & (1u64 << (prev as usize))) == 0u64,
-                    ;
-                }
-            }
-        }
-    } else {
-        assert(w >> n == w) by (bit_vector)
-            requires
-                n == 0,
-        ;
-    }
 }
 
 } // verus!

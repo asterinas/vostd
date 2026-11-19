@@ -9,7 +9,7 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
  use vir::ast::{
      AssocTypeImpl, CrateId, Dt, GenericBoundX, GenericBounds, Ident, Path, Primitive, Sizedness,
      TraitId, TypDecoration, TypDecorationArg,
-@@ -425,6 +426,8 @@
+@@ -400,6 +401,8 @@ pub(crate) fn gen_check_trait_impl_conflicts(
      // This works around https://github.com/rust-lang/rust/issues/57893 .
      // This (and vir::traits::get_dyn_traits) can be removed when that issue is fixed.
      let dyn_traits: HashSet<Path> = vir::traits::get_dyn_traits(vir_crate);
@@ -18,7 +18,7 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
      let mut n_trait: usize = 0;
      for t in &vir_crate.traits {
          if !dyn_traits.contains(&t.x.name) {
-@@ -465,6 +468,134 @@
+@@ -438,6 +441,132 @@ pub(crate) fn gen_check_trait_impl_conflicts(
          ));
          let trait_as_datatype = Box::new(TypX::Datatype(name, Vec::new(), t_args));
          let trait_polarity = rustc_middle::ty::ImplPolarity::Positive;
@@ -50,10 +50,8 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
 +            state,
 +            &t.x.typ_params.iter().map(|(x, _)| x.clone()).collect(),
 +            &non_self_bounds,
-+            None,
 +        );
-+        let (_, super_a_bounds) =
-+            gen_generics(state, &t.x.assoc_typs, &t.x.assoc_typs_bounds, None);
++        let (_, super_a_bounds) = gen_generics(state, &t.x.assoc_typs, &t.x.assoc_typs_bounds);
 +        super_bounds.extend(super_a_bounds);
 +
 +        // The supertraits have to be covered transitively, not just one hop. Each
@@ -156,7 +154,7 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
 diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_test/tests/traits_dyn.rs
 --- a/source/rust_verify_test/tests/traits_dyn.rs
 +++ b/source/rust_verify_test/tests/traits_dyn.rs
-@@ -584,6 +584,14 @@
+@@ -584,6 +584,14 @@ test_verify_one_file! {
      } => Err(err) => assert_vir_error_msg(err, "non-positive position")
  }
  
@@ -171,9 +169,9 @@ diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_te
  test_verify_one_file! {
      #[test] dyn_unsupported1 verus_code! {
          trait T {}
-@@ -778,3 +786,66 @@
-         }
-     } => Err(err) => assert_one_fails(err)
+@@ -971,3 +979,66 @@ test_verify_crates! {
+         },
+     ] => Err(err) => assert_vir_error_msg(err, "crate `b` makes trait `t::T` not Verus dyn-compatible (specification of function t::T::all_same uses Self outside of the receiver), but crate `a` already treats `t::T` as Verus dyn-compatible")
  }
 +
 +// `dyn T` gets an impl of every supertrait of `T`, transitively. Each emitted

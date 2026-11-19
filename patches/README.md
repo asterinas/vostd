@@ -4,8 +4,46 @@ Local changes to the `tools/verus` checkout, carried as patch files so a build i
 always *an upstream commit plus a reviewable set of files*.
 
 Seven patches, all against **`asterinas/verus`, branch `main`, commit
-`085772b8`** — the commit `cargo dv bootstrap --upgrade` lands on, which pins
-Rust 1.99.1:
+`025d77f2`** — which pins **Rust 1.100.0**, so `rust-toolchain.toml` moved with
+it (1.99.1 → 1.100.0).
+
+Moved there from `085772b8` on 2026-11-18, 46 commits of upstream. What that
+cost is recorded under *Rebasing onto `025d77f2`* below: one rebase conflict,
+two upstream API removals, and two downstream specs that upstream had grown
+itself.
+
+## Rebasing onto `025d77f2`
+
+Done 2026-11-18, 46 upstream commits. Of the 35 files the stack touches, 21 had
+moved. The textual rebase took **one** conflict, and the build then found two
+more breaks that no merge could have flagged -- which is the shape to expect: a
+clean rebase of this stack is not evidence it compiles.
+
+- **`rust_verify_test/tests/traits_dyn.rs`** -- a pure append collision. #3466
+  added 182 lines of dyn-compatibility tests at the end of the file, where
+  `0002` appends its own; both sides' last test block shares the file's closing
+  brace. Resolution is to keep both, upstream's first.
+- **`vir/src/modes.rs`** -- #3483 deleted `Ctxt::check_ghost_blocks` (ghost
+  blocks are now always checked), which `0001` and `0007` each read in a guard
+  (`ctxt.check_ghost_blocks && typing.block_ghostness == Ghost::Exec`). Upstream
+  rewrote its own sites by dropping the flag; ours do the same. Fixed in each
+  patch separately so every prefix of the stack still builds.
+- **`rust_verify/src/trait_conflicts.rs`** -- #3470 (Rust 1.100) removed
+  `gen_generics`'s fourth parameter, the `is_impl: Option<&TraitImpl>` hack for
+  `Option`'s `Clone` impl. `0002` passed `None` there, so deleting the argument
+  is exactly behaviour-preserving.
+
+`0003` survives, and is still worth sending upstream: #3466 *looks* like it
+fixes the same bug -- it threads `merged_traits` into
+`set_krate_dyn_compatibility` -- but `finish_dyn_compatability_checks`, the
+deferred check `0003` repairs, still builds its map from `krate.traits` alone.
+Verified against `025d77f2`, not assumed.
+
+Two downstream specs also had to move, because upstream grew its own versions of
+things `vostd` was carrying locally. Both are in *What the sync cost downstream*
+below.
+
+### Earlier moves
 
 Both were refreshed against `085772b8` on 2026-11-11, from `b63c76a4`. Three
 things needed hand-resolving, recorded here because they will recur on the next
@@ -175,25 +213,35 @@ associated type* errors while compiling **`vstd_extra`**, which looks like a
 broken `Cargo.toml` in this workspace and is not. `cargo dv bootstrap` fetches
 the right one; prefer it over any hand-managed checkout.
 
-The reference checkout is `../verus`. Two branches there matter:
+The reference checkout is `../verus`. Three branches there matter:
 
 - **`any-support`** is where development happens as of 2026-11-18: all seven
   patches as seven commits, one per patch and in the same order, based on
-  **`085772b8`** -- the `asterinas/verus` commit `tools/verus` sits on, fetched
-  into `../verus` from the local `tools/verus` path because `../verus`'s
-  `origin` is an SSH remote. It is deliberately *not* on the same lineage as the
-  other branches there. Its tree is byte-identical, across all 35 files, to the
-  `tools/verus` tree the counts below were measured against, and so is the tree
-  the patches produce from a pristine checkout -- both are checked the same way.
-  `0003` stays cherry-pickable on its own for a `verus-lang` PR: it touches
-  `query.rs` and `well_formed.rs`, which nothing else in the stack does.
+  **`025d77f2`** -- the `asterinas/verus` commit `tools/verus` sits on. Its tree
+  is byte-identical, across all 35 files, to the `tools/verus` tree the counts
+  below were measured against, and so is the tree the patches produce from a
+  pristine checkout -- both are checked the same way. `0003` stays
+  cherry-pickable on its own for a `verus-lang` PR: it touches `query.rs` and
+  `well_formed.rs`, which nothing else in the stack does, and it still applies
+  cleanly to `verus-lang` `main`.
+- `backup/any-support-085772b8` is the pre-rebase stack at `b7a76357c`, kept
+  because it is the only record of the 7 commits as they read against the old
+  base.
 - `typeid-and-dyn` is the older reference, on the `verus-lang` lineage, carrying
   type identity plus the supertrait work as they stood before this.
 
+Fetch `asterinas/verus` over **HTTPS**, not `origin`: `../verus`'s `origin` is
+`git@github.com:asterinas/verus.git`, the SSH key is not always available, and
+there is no `origin/main` ref to fall back on --
+`git fetch https://github.com/asterinas/verus.git main` is what works. Same for
+`verus-lang`, which is the `upstream` remote.
+
 `tools/verus` remains the toolchain this workspace verifies against, and still
-holds the changes as uncommitted working-tree edits; checking `any-support` out
-in `../verus` does not change that, and does not disturb `../verus`'s own
-checkout, which stays on `typeid-and-dyn` with its built binaries intact.
+holds the changes as uncommitted working-tree edits on top of `025d77f2`.
+`../verus`'s own checkout now sits on `backup/any-support-085772b8`, since
+`any-support` is checked out in the scratch worktree the rebase was built and
+tested in; `git -C ../verus switch any-support` needs that worktree removed
+first.
 
 **Its two internal design docs are gone.**
 `source/docs/internal/type-identity-emission.md` and `type-identity-prelude.md`
@@ -208,14 +256,70 @@ record until they are rewritten.
 ## Refreshing a patch
 
 Regenerate against the **bootstrapped `tools/verus`** or against `any-support`,
-which sits on the same commit; both are on the `asterinas` lineage. Do *not*
-diff against `../verus`'s other branches, which reach `verus-lang` through its
-`upstream` remote: such a diff needs a three-way merge and a hand-resolved
-conflict in `vstd/std_specs/mod.rs`, where both lineages add a module at the
-same alphabetical slot. (`../verus`'s `origin` *is* `asterinas/verus`, but over
-SSH and never fetched — there is no `origin/main` ref — which is why `085772b8`
-came in from the local `tools/verus` path and why only `any-support` contains
-it.)
+which sits on the same commit. Do *not* diff against `../verus`'s **older**
+branches, which carry
+an earlier generation of this work: that is where the three-way merge and the
+hand-resolved `vstd/std_specs/mod.rs` conflict came from, not from the lineage
+as such.
+
+### The stack is lineage-neutral
+
+Measured twice on 2026-11-18, before and after the move to `025d77f2`, and
+worth re-measuring whenever either fork moves: the patches are **not** specific
+to `asterinas`. All seven apply in order with a plain `git apply`, no three-way
+merge, to `verus-lang/verus` `main` -- at `86e7f117f` from the old base, and
+again at `a95764f23` from the new one, where the `asterinas` base is 3 commits
+ahead and 7 behind.
+
+Measure this with a **sequential** apply and plain `git apply`. Two traps, both
+of which produced a false "all seven conflict" here: these patch files carry no
+`index` lines, so `git apply --3way` cannot find its blobs and degrades to
+direct application; and `0004`, `0006` and `0007` genuinely fail *standalone*
+because their context is text an earlier patch adds, which says nothing about
+the stack. In zsh, also beware `P=dir/000$k-*.patch` -- assignment does not
+glob, and the resulting "can't open patch" reads exactly like a conflict.
+
+From the old base the reason was structural: of the **35 files the stack
+touches, none differed between the two bases.** The forks shared merge-base
+`28029acb4` and diverged in only eight files, which the patches did not go
+near:
+
+| file | which fork is ahead |
+| --- | --- |
+| `.github/workflows/promote-update-test.yml`, `upstream-sync.yml` | `asterinas` CI only |
+| `rust_verify/src/rust_to_vir_func.rs`, `rust_to_vir_impl.rs`, `vir/src/modes.rs`, `rust_verify_test/tests/external_fn_specification.rs` | `asterinas` — projection normalization before filtering external trait impls |
+| `vstd/bytes.rs`, `rust_verify_test/tests/std.rs` | `verus-lang` — `from_le_bytes` |
+
+It builds and passes its tests there, too -- measured on the `86e7f117f` base.
+On a `verus-lang` worktree with all seven applied, `cargo build --release --features singular` succeeds, `vstd`
+itself comes out **2228 verified, 0 errors**, and eleven suites are green --
+**667 passed, 0 failed**, 5 ignored:
+
+| suite | passed | suite | passed |
+| --- | --- | --- | --- |
+| `type_id` | 29 | `safe_api` | 35 |
+| `any` | 10 | `traits_modules` | 37 |
+| `traits_dyn` | 52 | `std` | 65 |
+| `traits` | 223 | `external_fn_specification` | 82 |
+| `external_traits` | 43 | `erase` | 6 |
+| `marker_traits` | 85 | | |
+
+The first eight counts are identical to the `asterinas` build's. `std` and
+`external_fn_specification` are the two suites whose *files* differ between the
+forks, so their counts are base-dependent by construction and are not
+comparable across lineages.
+
+These suites run in seconds, which looks wrong and is not: the cases are tiny
+crates that mostly do not import `vstd`. Confirmed by negative control rather
+than by assumption -- `VERUS_Z3_PATH=/nonexistent/z3` turns a passing case
+straight into a failure, so the harness is really spawning the built
+`rust_verify` and really calling z3.
+
+What stays lineage-bound is **verifying `vostd`**, which is a separate question
+from whether the patches land: a `verus-lang` `vstd` lacks the `bitvec`/`wyz`
+specifications `ostd` depends on, which is the seven-error symptom described
+above. The patches are portable; the `vstd` this workspace verifies against is
+not.
 
 With a stack this size, reverse-applying one patch to isolate another stops
 being workable -- several of them touch the same files, and two of them append
@@ -224,7 +328,7 @@ pristine worktree, snapshot the files any patch touches after each step, and
 emit each patch as the diff between consecutive snapshots:
 
     W=$(mktemp -d)/w
-    git -C tools/verus worktree add -q --detach $W 085772b8
+    git -C tools/verus worktree add -q --detach $W 025d77f2
     # for k in 1..7: snapshot, git -C $W apply patches/000k-*.patch, snapshot
     # patch k = diff(snapshot k-1, snapshot k), per file
 
@@ -243,7 +347,7 @@ Then check the result rather than trusting it, and check the *whole tree*, not
 just the files you think you touched:
 
     W=$(mktemp -d)/w
-    git -C tools/verus worktree add -q --detach $W 085772b8
+    git -C tools/verus worktree add -q --detach $W 025d77f2
     for p in patches/0*.patch; do git -C $W apply $PWD/$p || echo "FAILED $p"; done
     diff -rq $W/source tools/verus/source --exclude=target --exclude=target-verus \
         --exclude=.verus-log --exclude=z3 --exclude=cvc5 | grep -v Cargo.lock
@@ -254,6 +358,47 @@ reproduce the tree the counts were measured against. Run it before every commit
 that touches `tools/verus`. These patches had
 silently gone stale once across a `TypeId` -> `TypeIdSpec` rename, and a
 regenerated one had silently dropped two files that were untracked at the time.
+
+## What the sync cost downstream
+
+Upstream grew its own versions of two things `vostd` was carrying, and both
+needed a downstream edit. Neither touched executable code or a proof body.
+
+**`verified_libs/vstd_extra/src/external/bits.rs` -- a duplicate
+specification.** #3513 added `count_ones` to `vstd`, so the local
+`assume_specification[ u64::count_ones ]` became a hard
+*duplicate specification for `core::num::impl&%9::count_ones`* error, which
+fails the build rather than the proof. The local `u64_set_bits` was a recursive
+definition over `u64_bit_is_set`; it is now `w.count_ones() as int`, and
+`lemma_u64_set_bits_nonzero` is discharged by `broadcast use
+axiom_u64_count_ones`, whose two clauses (`<= 64`, and `== 0` iff the word is
+zero) are exactly what the local lemma proved. That deleted ~60 lines of
+bit-vector proof and 9 verification conditions. The lemma gained one clause,
+`w.count_ones() == u64_set_bits(w)`, which is what the deleted
+`assume_specification` used to supply to callers; `u64_set_bits` stays `closed`,
+so the clause is proved inside the module where the body is visible.
+
+**`ostd/src/util/range_alloc.rs` -- a new hypothesis on `BTreeMap::iter`.**
+#3494 strengthened the guard on `iter`'s postcondition from
+`key_obeys_cmp_spec::<Key>()` to `key_obeys_cmp_spec::<Key>() &&
+btree_map_wf(m)`, so a caller now learns nothing about the iterator without
+`btree_map_wf`. Five errors in two `for (key, value) in freelist.iter()` loops,
+all of them downstream of `it.seq().unref().to_set() == freelist@.kv_pairs()`
+failing before the loop.
+
+`btree_map_wf` is uninterpreted: `BTreeMap::new` establishes it and `insert` and
+`remove` preserve it, so it has to be *carried*, and carried at the concrete
+level -- the view does not determine it. Four conjuncts, no proof bodies:
+
+- `ResourceInvariant::inv`'s `Sum::Right` branch gains
+  `btree_map_wf(&freelist->0)`. This is the one that matters; the lock invariant
+  takes the concrete `Option<BTreeMap<..>>`, so the predicate is expressible
+  there at all.
+- `get_freelist_guard`'s `ensures` gains `btree_map_wf(&freelist)`. Callers see
+  only what that contract spells out, and it was view-level
+  (`concrete_freelist_wf(self@, freelist@)`) -- which is why adding the fact to
+  `inv` alone left the loops still failing.
+- the two loop invariants gain `btree_map_wf(freelist)`.
 
 ## Applying to a fresh checkout
 
@@ -322,10 +467,26 @@ Verify:
 
     cargo dv verify -p ostd                                 # 1567 verified, 0 errors
 
-Measured 2026-11-18 against `asterinas/verus` `main` at `085772b8` with all seven
+Measured 2026-11-18 against `asterinas/verus` `main` at `025d77f2` with all seven
 patches applied, on `typeid-rework` at `b4a530050`, from a cleaned verification
-target (see the caching note below -- anything less is a cache hit).
-`vstd_extra` is at 773, and `vstd` itself builds at 1968 verified, 0 errors.
+target (see the caching note below -- anything less is a cache hit), and again
+after `make fmt`. `vstd_extra` is at **764**, and the `vstd` that ships with the
+toolchain builds at **2338** verified, 0 errors.
+
+Upstream's own suites are green on this base too -- eleven of them,
+**700 passed, 0 failed**, 5 ignored: `type_id` 29, `any` 10, `traits_dyn` 57,
+`traits` 230, `external_traits` 52, `marker_traits` 85, `safe_api` 35,
+`traits_modules` 37, `std` 77, `external_fn_specification` 82, `erase` 6. Four
+of those counts rose with the move (upstream's own new cases), `traits_dyn`
+among them -- #3466's dyn-compatibility tests pass alongside `0007`'s narrowed
+`core::any::Any` exemption, which is the pairing most at risk here.
+
+`ostd` is unchanged at 1567 across the move to `025d77f2`, which is the point:
+46 commits of upstream and a rustc bump cost two downstream specs and no proofs.
+`vstd_extra` fell 773 -> 764 because the duplicate `count_ones` specification
+went away with its recursive definition, and the toolchain's `vstd` rose
+2228 -> 2338 on upstream's own new specs, neither of which is a change in this
+work.
 
 The number moved twice on the way here, both times downward and both times
 because a workaround went away: the `type_id_of` migration deleted the three

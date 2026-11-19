@@ -1,12 +1,10 @@
 diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_test/tests/traits_dyn.rs
 --- a/source/rust_verify_test/tests/traits_dyn.rs
 +++ b/source/rust_verify_test/tests/traits_dyn.rs
-@@ -857,5 +857,120 @@
-         trait Q: P<u8> + P<u16> { fn q(&self) -> u64; }
-         fn needs_p<A, X: P<A> + ?Sized>(x: &X) { }
+@@ -1052,3 +1052,118 @@ test_verify_one_file! {
          fn test(x: &dyn Q) { needs_p::<u8, _>(x); needs_p::<u16, _>(x); }
-+    } => Ok(())
-+}
+     } => Ok(())
+ }
 +
 +// Erasing a value of a *type parameter* preserves the trait's spec functions.
 +// The per-impl axiom only fires once the impl is resolved, so this used to be
@@ -29,8 +27,8 @@ diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_te
 +            let d: Box<dyn T> = Box::new(v);
 +            assert(d.f() == v.f());
 +        }
-     } => Ok(())
- }
++    } => Ok(())
++}
 +
 +// Quantifying over the erased type must not collapse two erasures: a `dyn T`
 +// built from `A` keeps `A`'s answer and not `B`'s.
@@ -125,7 +123,7 @@ diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_te
 diff --git a/source/vir/src/sst_to_air_func.rs b/source/vir/src/sst_to_air_func.rs
 --- a/source/vir/src/sst_to_air_func.rs
 +++ b/source/vir/src/sst_to_air_func.rs
-@@ -870,6 +870,19 @@
+@@ -870,6 +870,19 @@ pub fn func_axioms_to_air(
                  return Ok((Arc::new(decl_commands), check_commands));
              }
  
@@ -148,12 +146,10 @@ diff --git a/source/vir/src/sst_to_air_func.rs b/source/vir/src/sst_to_air_func.
 diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 --- a/source/vir/src/traits.rs
 +++ b/source/vir/src/traits.rs
-@@ -1249,8 +1249,235 @@
-     );
-     let def_axiom = mk_unnamed_axiom(e_forall);
+@@ -1396,6 +1396,233 @@ pub(crate) fn dyn_spec_fn_axiom(
      decl_commands.push(Arc::new(CommandX::Global(def_axiom)));
-+}
-+
+ }
+ 
 +/// Transitive supertrait references of `tr_path`, as (path, trait args) with the
 +/// args written in terms of `tr_path`'s own parameters, `Self` first.
 +///
@@ -207,8 +203,8 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 +        refs.push((u_path, u_args));
 +    }
 +    refs
- }
- 
++}
++
 +/// Every generic dyn axiom for one trait spec method: the method's own trait,
 +/// plus every reached `dyn D` whose transitive supertraits include it.
 +pub(crate) fn dyn_spec_fn_axioms_generic(

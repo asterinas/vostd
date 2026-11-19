@@ -1,7 +1,7 @@
 diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/fn_call_to_vir.rs
 --- a/source/rust_verify/src/fn_call_to_vir.rs
 +++ b/source/rust_verify/src/fn_call_to_vir.rs
-@@ -1253,13 +1253,46 @@
+@@ -1249,13 +1249,46 @@ fn verus_item_to_vir<'tcx, 'a>(
              ExprItem::TypeId => {
                  record_spec_fn(bctx, expr);
                  assert!(args.len() == 0);
@@ -52,7 +52,7 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
 diff --git a/source/rust_verify_test/tests/type_id.rs b/source/rust_verify_test/tests/type_id.rs
 --- a/source/rust_verify_test/tests/type_id.rs
 +++ b/source/rust_verify_test/tests/type_id.rs
-@@ -197,6 +197,65 @@
+@@ -197,6 +197,65 @@ test_verify_one_file! {
      } => Err(err) => assert_one_fails(err)
  }
  

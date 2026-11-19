@@ -1,10 +1,11 @@
 diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
 --- a/source/builtin/src/lib.rs
 +++ b/source/builtin/src/lib.rs
-@@ -2488,6 +2488,23 @@
+@@ -2497,6 +2497,23 @@ pub fn arch_word_bits() -> nat {
+     unimplemented!();
  }
  
- #[cfg(verus_keep_ghost)]
++#[cfg(verus_keep_ghost)]
 +#[rustc_diagnostic_item = "verus::verus_builtin::type_id"]
 +pub fn type_id<T: ?Sized>() -> core::any::TypeId {
 +    unimplemented!();
@@ -21,14 +22,13 @@ diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
 +    unimplemented!();
 +}
 +
-+#[cfg(verus_keep_ghost)]
+ #[cfg(verus_keep_ghost)]
  #[rustc_diagnostic_item = "verus::verus_builtin::is_smaller_than"]
  pub fn is_smaller_than<A, B>(_: A, _: B) -> bool {
-     unimplemented!();
 diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/fn_call_to_vir.rs
 --- a/source/rust_verify/src/fn_call_to_vir.rs
 +++ b/source/rust_verify/src/fn_call_to_vir.rs
-@@ -5,7 +5,7 @@
+@@ -5,7 +5,7 @@ use crate::resolve_traits::{ResolutionResult, ResolvedItem, resolve_trait_item};
  use crate::reveal_hide::RevealHideResult;
  use crate::rust_to_vir_base::{
      bitwidth_and_signedness_of_integer_type, is_smt_arith, is_type_std_rc_or_arc_or_ref,
@@ -37,7 +37,7 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
  };
  use crate::rust_to_vir_expr::{
      check_lit_int, closure_param_typs, closure_to_vir, expr_to_vir, expr_to_vir_consume,
-@@ -522,7 +522,7 @@
+@@ -506,7 +506,7 @@ fn verus_item_to_vir<'tcx, 'a>(
      let args_len = args.len();
  
      if !bctx.in_ghost && uncompilable_verus_fn(verus_item) {
@@ -46,7 +46,7 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
              expr.span,
              format!(
                  "cannot use `{f_name}`{:} in executable context",
-@@ -533,6 +533,16 @@
+@@ -517,6 +517,16 @@ fn verus_item_to_vir<'tcx, 'a>(
                  }
              ),
          );
@@ -63,11 +63,10 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
      }
  
      let mk_expr = |x: ExprX| Ok(bctx.spanned_typed_new(expr.span, &expr_typ()?, x));
-@@ -1239,6 +1249,46 @@
-                 let kind = IntegerTypeBoundKind::ArchWordBits;
+@@ -1236,6 +1246,46 @@ fn verus_item_to_vir<'tcx, 'a>(
  
                  mk_expr(ExprX::UnaryOpr(UnaryOpr::IntegerTypeBound(kind), arg))
-+            }
+             }
 +            ExprItem::TypeId => {
 +                record_spec_fn(bctx, expr);
 +                assert!(args.len() == 0);
@@ -107,13 +106,14 @@ diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/f
 +                    }
 +                    _ => panic!("internal error: expected Call for type_id_of"),
 +                }
-             }
++            }
              ExprItem::ClosureToFnSpec | ExprItem::ClosureToFnProof => {
                  internal_err_unless!(args_len == 1, expr.span, "expected `closure_to_fn`", &args);
+                 if !bctx.in_ghost {
 diff --git a/source/rust_verify/src/rust_to_vir_base.rs b/source/rust_verify/src/rust_to_vir_base.rs
 --- a/source/rust_verify/src/rust_to_vir_base.rs
 +++ b/source/rust_verify/src/rust_to_vir_base.rs
-@@ -1035,6 +1035,13 @@
+@@ -1032,6 +1032,13 @@ pub(crate) fn mid_ty_to_vir_ghost<'tcx>(
              } else {
                  let rust_item = verus_items::get_rust_item(tcx, did);
  
@@ -130,7 +130,7 @@ diff --git a/source/rust_verify/src/rust_to_vir_base.rs b/source/rust_verify/src
 diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/trait_conflicts.rs
 --- a/source/rust_verify/src/trait_conflicts.rs
 +++ b/source/rust_verify/src/trait_conflicts.rs
-@@ -50,6 +50,7 @@
+@@ -50,6 +50,7 @@ enum TypNum {
      Never,
      ConstPtr,
      Global,
@@ -138,7 +138,7 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
  }
  
  fn gen_num_typ(n: TypNum, ts: Vec<Typ>) -> Typ {
-@@ -129,6 +130,7 @@
+@@ -129,6 +130,7 @@ fn gen_typ(state: &mut State, typ: &vir::ast::Typ) -> Typ {
                  Primitive::StrSlice => unreachable!(),
                  Primitive::Ptr => TypNum::Ptr,
                  Primitive::Global => TypNum::Global,
@@ -149,7 +149,7 @@ diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/
 diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/verus_items.rs
 --- a/source/rust_verify/src/verus_items.rs
 +++ b/source/rust_verify/src/verus_items.rs
-@@ -145,6 +145,8 @@
+@@ -146,6 +146,8 @@ pub(crate) enum ExprItem {
      StrSliceLen,
      StrSliceGetChar,
      ArchWordBits,
@@ -158,7 +158,7 @@ diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/veru
      ClosureToFnSpec,
      ClosureToFnProof,
      SignedMin,
-@@ -553,6 +555,8 @@
+@@ -555,6 +557,8 @@ fn verus_items_map() -> Vec<(&'static str, VerusItem)> {
          ("verus::verus_builtin::strslice_len",            VerusItem::Expr(ExprItem::StrSliceLen)),
          ("verus::verus_builtin::strslice_get_char",       VerusItem::Expr(ExprItem::StrSliceGetChar)),
          ("verus::verus_builtin::arch_word_bits",          VerusItem::Expr(ExprItem::ArchWordBits)),
@@ -167,7 +167,7 @@ diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/veru
          ("verus::verus_builtin::closure_to_fn_spec",      VerusItem::Expr(ExprItem::ClosureToFnSpec)),
          ("verus::verus_builtin::closure_to_fn_proof",     VerusItem::Expr(ExprItem::ClosureToFnProof)),
          ("verus::verus_builtin::signed_min",              VerusItem::Expr(ExprItem::SignedMin)),
-@@ -928,6 +932,7 @@
+@@ -931,6 +935,7 @@ pub(crate) enum RustItem {
      SliceSealed,
      Vec,
      Thin,
@@ -175,7 +175,7 @@ diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/veru
  }
  
  fn get_rust_int_intrinsic<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<RustIntIntrinsicItem> {
-@@ -1087,6 +1092,9 @@
+@@ -1093,6 +1098,9 @@ pub(crate) fn get_rust_item_str(rust_path: Option<&str>) -> Option<RustItem> {
      if rust_path == Some("core::ptr::metadata::Thin") {
          return Some(RustItem::Thin);
      }
@@ -550,7 +550,7 @@ new file mode 100644
 diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
 --- a/source/vir/src/ast.rs
 +++ b/source/vir/src/ast.rs
-@@ -270,6 +270,7 @@
+@@ -270,6 +270,7 @@ pub enum Primitive {
      StrSlice,
      Ptr, // Mut ptr, unless Const decoration is applied
      Global,
@@ -558,7 +558,7 @@ diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
  }
  
  #[derive(Debug, Serialize, Deserialize, Hash, ToDebugSNode, Clone)]
-@@ -388,6 +389,8 @@
+@@ -388,6 +389,8 @@ pub enum NullaryOpr {
      TypEqualityBound(Path, Typs, Ident, Typ),
      /// predicate representing const type bound, e.g., `const X: usize`
      ConstTypBound(Typ, Typ),
@@ -567,7 +567,7 @@ diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
  }
  
  #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, ToDebugSNode)]
-@@ -584,6 +587,10 @@
+@@ -584,6 +587,10 @@ pub enum UnaryOpr {
      /// Coerce from concrete type to `dyn T`, recording the Self type and the
      /// trait implementations needed to construct the trait object.
      ToDyn(Typ, ImplPaths),
@@ -581,7 +581,7 @@ diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
 diff --git a/source/vir/src/ast_util.rs b/source/vir/src/ast_util.rs
 --- a/source/vir/src/ast_util.rs
 +++ b/source/vir/src/ast_util.rs
-@@ -1078,6 +1078,7 @@
+@@ -1078,6 +1078,7 @@ pub fn typ_to_diagnostic_str(typ: &Typ) -> String {
              crate::ast::Primitive::StrSlice => "StrSlice".to_owned(),
              crate::ast::Primitive::Ptr => format!("*mut {:}", typ_to_diagnostic_str(&typs[0])),
              crate::ast::Primitive::Global => format!("Global"),
@@ -592,32 +592,32 @@ diff --git a/source/vir/src/ast_util.rs b/source/vir/src/ast_util.rs
 diff --git a/source/vir/src/ast_visitor.rs b/source/vir/src/ast_visitor.rs
 --- a/source/vir/src/ast_visitor.rs
 +++ b/source/vir/src/ast_visitor.rs
-@@ -239,6 +239,10 @@
-             NullaryOpr::ConstGeneric(typ) => {
+@@ -240,6 +240,10 @@ pub(crate) trait AstVisitor<R: Returner, Err, Scope: Scoper> {
                  let t = self.visit_typ(typ)?;
                  R::ret(|| NullaryOpr::ConstGeneric(R::get(t)))
-+            }
+             }
 +            NullaryOpr::TypeTag(typ) => {
 +                let t = self.visit_typ(typ)?;
 +                R::ret(|| NullaryOpr::TypeTag(R::get(t)))
-             }
++            }
              NullaryOpr::TraitBound(trait_id, typs) => {
                  let ts = self.visit_typs(typs)?;
-@@ -277,6 +281,10 @@
-             UnaryOpr::HasType(t) => {
+                 R::ret(|| NullaryOpr::TraitBound(trait_id.clone(), R::get_vec_a(ts)))
+@@ -278,6 +282,10 @@ pub(crate) trait AstVisitor<R: Returner, Err, Scope: Scoper> {
                  let t = self.visit_typ(t)?;
                  R::ret(|| UnaryOpr::HasType(R::get(t)))
-+            }
+             }
 +            UnaryOpr::TypeTagOf(t) => {
 +                let t = self.visit_typ(t)?;
 +                R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
-             }
++            }
              UnaryOpr::HasResolved(t) => {
                  let t = self.visit_typ(t)?;
+                 R::ret(|| UnaryOpr::HasResolved(R::get(t)))
 diff --git a/source/vir/src/context.rs b/source/vir/src/context.rs
 --- a/source/vir/src/context.rs
 +++ b/source/vir/src/context.rs
-@@ -141,6 +141,7 @@
+@@ -141,6 +141,7 @@ pub struct Ctx {
      pub query_result_observer: Option<
          std::rc::Rc<std::cell::RefCell<dyn air::query_result_observer::QueryResultObserver>>,
      >,
@@ -625,7 +625,7 @@ diff --git a/source/vir/src/context.rs b/source/vir/src/context.rs
      pub arch_word_bits: ArchWordBits,
  }
  
-@@ -271,6 +272,7 @@
+@@ -271,6 +272,7 @@ fn datatypes_invs(
                          TypX::Decorate(..) => unreachable!("TypX::Decorate"),
                          TypX::Boxed(_) => {}
                          TypX::TypeId => {}
@@ -633,7 +633,7 @@ diff --git a/source/vir/src/context.rs b/source/vir/src/context.rs
                          TypX::Opaque { .. } => {}
                          TypX::Bool => {}
                          TypX::Float(_) => {}
-@@ -876,6 +878,7 @@
+@@ -866,6 +868,7 @@ impl Ctx {
          let quantifier_count = RefCell::new(HashMap::new());
          let string_hashes = RefCell::new(HashMap::new());
          let byte_string_hashes = RefCell::new(HashMap::new());
@@ -641,7 +641,7 @@ diff --git a/source/vir/src/context.rs b/source/vir/src/context.rs
  
          let mut fndef_type_set = HashSet::new();
          for fndef_type in fndef_types.iter() {
-@@ -933,6 +936,7 @@
+@@ -923,6 +926,7 @@ impl Ctx {
              observer,
              air_observer,
              query_result_observer,
@@ -652,7 +652,7 @@ diff --git a/source/vir/src/context.rs b/source/vir/src/context.rs
 diff --git a/source/vir/src/datatype_to_air.rs b/source/vir/src/datatype_to_air.rs
 --- a/source/vir/src/datatype_to_air.rs
 +++ b/source/vir/src/datatype_to_air.rs
-@@ -101,6 +101,7 @@
+@@ -101,6 +101,7 @@ fn uses_ext_equal(ctx: &Ctx, typ: &Typ) -> bool {
          TypX::Primitive(crate::ast::Primitive::StrSlice, _) => false,
          TypX::Primitive(crate::ast::Primitive::Ptr, _) => false,
          TypX::Primitive(crate::ast::Primitive::Global, _) => false,
@@ -660,7 +660,7 @@ diff --git a/source/vir/src/datatype_to_air.rs b/source/vir/src/datatype_to_air.
          TypX::FnDef(..) => false,
          TypX::MutRef(_) => false,
          TypX::Opaque { .. } => false,
-@@ -155,6 +156,55 @@
+@@ -155,6 +156,55 @@ fn datatype_or_fun_to_air_commands(
              str_typ(crate::def::TYPE),
          ));
          token_commands.push(Arc::new(CommandX::Global(decl_type_id)));
@@ -719,7 +719,7 @@ diff --git a/source/vir/src/datatype_to_air.rs b/source/vir/src/datatype_to_air.
 diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
 --- a/source/vir/src/def.rs
 +++ b/source/vir/src/def.rs
-@@ -89,6 +89,7 @@
+@@ -89,6 +89,7 @@ const STRSLICE_TYPE: &str = "strslice%";
  const ARRAY_TYPE: &str = "array%";
  const PTR_TYPE: &str = "ptr_mut%";
  const GLOBAL_TYPE: &str = "allocator_global%";
@@ -727,7 +727,7 @@ diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
  const PREFIX_SNAPSHOT: &str = "snap%";
  const SUBST_RENAME_SEPARATOR: &str = "$$";
  const EXPAND_ERRORS_DECL_SEPARATOR: &str = "$$$";
-@@ -171,10 +172,12 @@
+@@ -174,10 +175,12 @@ pub const BOX_INT: &str = "I";
  pub const BOX_BOOL: &str = "B";
  pub const BOX_REAL: &str = "R";
  pub const BOX_FNDEF: &str = "F";
@@ -740,7 +740,7 @@ diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
  pub const TYPE: &str = "Type";
  pub const TYPE_ID_BOOL: &str = "BOOL";
  pub const TYPE_ID_REAL: &str = "REAL";
-@@ -188,6 +191,17 @@
+@@ -191,6 +194,17 @@ pub const TYPE_ID_SINT: &str = "SINT";
  pub const TYPE_ID_FLOAT: &str = "FLOAT";
  pub const TYPE_ID_CONST_INT: &str = "CONST_INT";
  pub const TYPE_ID_CONST_BOOL: &str = "CONST_BOOL";
@@ -758,21 +758,21 @@ diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
  pub const DECORATION: &str = "Dcr";
  pub const DECORATE_NIL_SIZED: &str = "$";
  pub const DECORATE_NIL_SLICE: &str = "$slice"; // for 'str' and '[T]' types
-@@ -585,6 +599,10 @@
- 
- pub fn global_type() -> Path {
+@@ -604,6 +618,10 @@ pub fn global_type() -> Path {
      internal_path(GLOBAL_TYPE.to_string())
-+}
-+
-+pub fn typetag_type() -> Path {
-+    internal_path(TYPETAG_TYPE.to_string())
  }
  
++pub fn typetag_type() -> Path {
++    internal_path(TYPETAG_TYPE.to_string())
++}
++
  impl NameCtxt {
+     pub fn prefix_dcr_id(&self, ident: &Path) -> Ident {
+         Arc::new(PREFIX_DCR_ID.to_string() + &self.path_to_string(ident))
 diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
 --- a/source/vir/src/heuristics.rs
 +++ b/source/vir/src/heuristics.rs
-@@ -29,6 +29,7 @@
+@@ -29,6 +29,7 @@ fn auto_ext_equal_typ(ctx: &Ctx, typ: &Typ) -> bool {
          TypX::Primitive(crate::ast::Primitive::StrSlice, _) => true,
          TypX::Primitive(crate::ast::Primitive::Ptr, _) => false,
          TypX::Primitive(crate::ast::Primitive::Global, _) => false,
@@ -780,7 +780,7 @@ diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
          TypX::FnDef(..) => false,
          TypX::MutRef(_) => false,
          TypX::Opaque { .. } => false,
-@@ -77,7 +78,8 @@
+@@ -77,7 +78,8 @@ fn insert_auto_ext_equal(ctx: &Ctx, exp: &Exp) -> Exp {
              | UnaryOpr::ProofNote(_)
              | UnaryOpr::AutoDecreases
              | UnaryOpr::AutoLoopEnsures
@@ -793,7 +793,7 @@ diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
 diff --git a/source/vir/src/interpreter.rs b/source/vir/src/interpreter.rs
 --- a/source/vir/src/interpreter.rs
 +++ b/source/vir/src/interpreter.rs
-@@ -1554,6 +1554,7 @@
+@@ -1556,6 +1556,7 @@ fn eval_expr_internal(ctx: &Ctx, state: &mut State, exp: &Exp) -> Result<Exp, Vi
                      }
                  }
                  ToDyn(..) => ok,
@@ -804,20 +804,20 @@ diff --git a/source/vir/src/interpreter.rs b/source/vir/src/interpreter.rs
 diff --git a/source/vir/src/modes.rs b/source/vir/src/modes.rs
 --- a/source/vir/src/modes.rs
 +++ b/source/vir/src/modes.rs
-@@ -2268,6 +2268,7 @@
+@@ -2296,6 +2296,7 @@ fn check_expr(
              Ok((Mode::Spec, Proph::No))
          }
          ExprX::NullaryOpr(crate::ast::NullaryOpr::ConstTypBound(..)) => Ok((Mode::Spec, Proph::No)),
 +        ExprX::NullaryOpr(crate::ast::NullaryOpr::TypeTag(..)) => Ok((Mode::Spec, Proph::No)),
          ExprX::Unary(UnaryOp::CoerceMode { op_mode, from_mode, to_mode, kind }, e1) => {
              // same as a call to an op_mode function with parameter from_mode and return to_mode
-             if ctxt.check_ghost_blocks {
-@@ -2339,6 +2340,22 @@
+             if (*op_mode == Mode::Exec) != (typing.block_ghostness == Ghost::Exec) {
+@@ -2365,6 +2366,22 @@ fn check_expr(
          ExprX::UnaryOpr(UnaryOpr::LoopIsolationBoundary(_), e1) => {
              check_expr(ctxt, record, typing, outer_mode, expect, e1, outer_proph)
          }
 +        ExprX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
-+            if ctxt.check_ghost_blocks && typing.block_ghostness == Ghost::Exec {
++            if typing.block_ghostness == Ghost::Exec {
 +                return Err(error(&expr.span, "cannot use `type_id_of` in exec mode"));
 +            }
 +            let mut typing = typing.push_in_pure(true);
@@ -838,7 +838,7 @@ diff --git a/source/vir/src/modes.rs b/source/vir/src/modes.rs
 diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
 --- a/source/vir/src/poly.rs
 +++ b/source/vir/src/poly.rs
-@@ -158,6 +158,7 @@
+@@ -158,6 +158,7 @@ pub(crate) fn typ_as_mono(typ: &Typ) -> Option<MonoTyp> {
              Some(Arc::new(MonoTypX::Decorate2(*d, Arc::new(vec![m1, m2]))))
          }
          TypX::Primitive(Primitive::Array, _) => None,
@@ -846,7 +846,7 @@ diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
          TypX::Primitive(name, typs) => {
              let monotyps = monotyps_as_mono(typs)?;
              Some(Arc::new(MonoTypX::Primitive(*name, Arc::new(monotyps))))
-@@ -205,6 +206,7 @@
+@@ -205,6 +206,7 @@ pub(crate) fn typ_is_poly(ctx: &Ctx, typ: &Typ) -> bool {
      match &**typ {
          TypX::Bool | TypX::Int(_) | TypX::Real | TypX::Float(_) => false,
          TypX::SpecFn(..) | TypX::FnDef(..) => false,
@@ -854,7 +854,7 @@ diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
          TypX::Primitive(Primitive::Array, _) => false,
          TypX::AnonymousClosure(..) => {
              panic!("internal error: AnonymousClosure should be removed by ast_simplify")
-@@ -239,6 +241,7 @@
+@@ -239,6 +241,7 @@ pub(crate) fn coerce_typ_to_native(ctx: &Ctx, typ: &Typ) -> Typ {
      match &**typ {
          TypX::Bool | TypX::Int(_) | TypX::Real | TypX::Float(_) => typ.clone(),
          TypX::SpecFn(..) | TypX::FnDef(..) => typ.clone(),
@@ -862,7 +862,7 @@ diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
          TypX::Primitive(Primitive::Array, _) => typ.clone(),
          TypX::AnonymousClosure(..) => {
              panic!("internal error: AnonymousClosure should be removed by ast_simplify")
-@@ -281,6 +284,7 @@
+@@ -281,6 +284,7 @@ pub(crate) fn coerce_typ_to_poly(_ctx: &Ctx, typ: &Typ) -> Typ {
          TypX::Bool | TypX::Int(_) => Arc::new(TypX::Boxed(typ.clone())),
          TypX::Real | TypX::Float(_) => Arc::new(TypX::Boxed(typ.clone())),
          TypX::SpecFn(..) | TypX::FnDef(..) => Arc::new(TypX::Boxed(typ.clone())),
@@ -870,7 +870,7 @@ diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
          TypX::AnonymousClosure(..) => {
              panic!("internal error: AnonymousClosure should be removed by ast_simplify")
          }
-@@ -579,6 +583,7 @@
+@@ -579,6 +583,7 @@ fn visit_exp(ctx: &Ctx, state: &mut State, exp: &Exp) -> Exp {
          ExpX::NullaryOpr(NullaryOpr::TraitBound(..)) => exp.clone(),
          ExpX::NullaryOpr(NullaryOpr::TypEqualityBound(..)) => exp.clone(),
          ExpX::NullaryOpr(NullaryOpr::ConstTypBound(..)) => exp.clone(),
@@ -878,11 +878,10 @@ diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
          ExpX::Unary(op, e1) => {
              let e1 = visit_exp(ctx, state, e1);
              match op {
-@@ -680,6 +685,17 @@
-                 UnaryOpr::HasResolved(_t) => {
+@@ -681,6 +686,17 @@ fn visit_exp(ctx: &Ctx, state: &mut State, exp: &Exp) -> Exp {
                      let e = coerce_exp_to_poly(ctx, &e1);
                      mk_exp(ExpX::UnaryOpr(op.clone(), e.clone()))
-+                }
+                 }
 +                UnaryOpr::TypeTagOf(_t) => {
 +                    // val%tag takes the value boxed, like the type it describes.
 +                    let e = coerce_exp_to_poly(ctx, &e1);
@@ -893,13 +892,14 @@ diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
 +                        )),
 +                        ExpX::UnaryOpr(op.clone(), e.clone()),
 +                    )
-                 }
++                }
                  UnaryOpr::LoopIsolationBoundary(..) => {
                      panic!("internal error: LoopIsolationBoundary in SST")
+                 }
 diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
 --- a/source/vir/src/prelude.rs
 +++ b/source/vir/src/prelude.rs
-@@ -164,6 +164,18 @@
+@@ -164,6 +164,18 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
      let type_id_slice = str_to_node(TYPE_ID_SLICE);
      let type_id_strslice = str_to_node(TYPE_ID_STRSLICE);
      let type_id_ptr = str_to_node(TYPE_ID_PTR);
@@ -918,7 +918,7 @@ diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
      let type_id_global = str_to_node(TYPE_ID_GLOBAL);
      let type_id_mut_ref = str_to_node(TYPE_ID_MUT_REF);
  
-@@ -204,6 +216,7 @@
+@@ -204,6 +216,7 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
          (declare-fun [unbox_real] ([Poly]) Real)
          (declare-fun [unbox_fndef] ([Poly]) [FnDef])
          (declare-sort [typ] 0)
@@ -926,7 +926,7 @@ diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
          (declare-const [type_id_bool] [typ])
          (declare-const [type_id_int] [typ])
          (declare-const [type_id_nat] [typ])
-@@ -217,6 +230,16 @@
+@@ -217,6 +230,16 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
          (declare-fun [type_id_float] (Int) [typ])
          (declare-fun [type_id_const_int] (Int) [typ])
          (declare-fun [type_id_const_bool] (Bool) [typ])
@@ -943,7 +943,7 @@ diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
          (declare-sort [decoration] 0)
          (declare-const [decorate_nil_sized] [decoration])
          (declare-const [decorate_nil_slice] [decoration])
-@@ -230,6 +253,12 @@
+@@ -230,6 +253,12 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
          (declare-fun [decorate_tracked] ([decoration]) [decoration])
          (declare-fun [decorate_never] ([decoration]) [decoration])
          (declare-fun [decorate_const_ptr] ([decoration]) [decoration])
@@ -956,7 +956,7 @@ diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
          (declare-fun [type_id_array] ([decoration] [typ] [decoration] [typ]) [typ])
          (declare-fun [type_id_mut_ref] ([decoration] [typ]) [typ])
          (declare-fun [type_id_slice] ([decoration] [typ]) [typ])
-@@ -378,7 +407,185 @@
+@@ -378,6 +407,184 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
              :qid prelude_type_id_const_bool
              :skolemid skolem_prelude_type_id_const_bool
          )))
@@ -1100,7 +1100,7 @@ diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
 +        )))
 +        (axiom (= ([type_tag] [type_id_strslice]) ([tag_mk] (- 12))))
 +        (axiom (= ([type_tag] [type_id_global])   ([tag_mk] (- 13))))
-         (axiom (forall ((b Bool)) (!
++        (axiom (forall ((b Bool)) (!
 +            (= ([type_tag] ([type_id_const_bool] b))
 +               ([tag_app] ([tag_mk] (- 14)) ([tag_mk] (ite b 1 0))))
 +            :pattern (([type_tag] ([type_id_const_bool] b)))
@@ -1138,14 +1138,13 @@ diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
 +            :qid prelude_type_tag_array
 +            :skolemid skolem_prelude_type_tag_array
 +        )))
-+        (axiom (forall ((b Bool)) (!
+         (axiom (forall ((b Bool)) (!
              ([has_type] ([box_bool] b) [type_id_bool])
              :pattern (([has_type] ([box_bool] b) [type_id_bool]))
-             :qid prelude_has_type_bool
 diff --git a/source/vir/src/prune.rs b/source/vir/src/prune.rs
 --- a/source/vir/src/prune.rs
 +++ b/source/vir/src/prune.rs
-@@ -148,6 +148,7 @@
+@@ -149,6 +149,7 @@ fn typ_to_reached_type(typ: &Typ) -> ReachedType {
          TypX::Primitive(Primitive::Slice | Primitive::Ptr | Primitive::Global, _) => {
              ReachedType::Primitive
          }
@@ -1156,7 +1155,7 @@ diff --git a/source/vir/src/prune.rs b/source/vir/src/prune.rs
 diff --git a/source/vir/src/recursive_types.rs b/source/vir/src/recursive_types.rs
 --- a/source/vir/src/recursive_types.rs
 +++ b/source/vir/src/recursive_types.rs
-@@ -69,7 +69,11 @@
+@@ -69,7 +69,11 @@ fn check_well_founded_typ(
                  )
          }
          TypX::Primitive(
@@ -1169,7 +1168,7 @@ diff --git a/source/vir/src/recursive_types.rs b/source/vir/src/recursive_types.
              _,
          ) => true,
          TypX::Boxed(_) | TypX::TypeId | TypX::Air(_) => {
-@@ -306,7 +310,8 @@
+@@ -306,7 +310,8 @@ fn check_positive_uses(
              | Primitive::Slice
              | Primitive::StrSlice
              | Primitive::Ptr
@@ -1182,7 +1181,7 @@ diff --git a/source/vir/src/recursive_types.rs b/source/vir/src/recursive_types.
 diff --git a/source/vir/src/resolution_types.rs b/source/vir/src/resolution_types.rs
 --- a/source/vir/src/resolution_types.rs
 +++ b/source/vir/src/resolution_types.rs
-@@ -103,7 +103,9 @@
+@@ -103,7 +103,9 @@ fn typ_node_resolvability(t: &Typ) -> NodeResolve {
  
          TypX::Primitive(primitive, _) => match primitive {
              Primitive::Array | Primitive::Slice => NodeResolve::TypArgDependent,
@@ -1196,7 +1195,7 @@ diff --git a/source/vir/src/resolution_types.rs b/source/vir/src/resolution_type
 diff --git a/source/vir/src/resolve_axioms.rs b/source/vir/src/resolve_axioms.rs
 --- a/source/vir/src/resolve_axioms.rs
 +++ b/source/vir/src/resolve_axioms.rs
-@@ -69,7 +69,10 @@
+@@ -69,7 +69,10 @@ impl ResolvedTypeCollection {
                  self.append(ResolvableType::Array);
                  self.visit_type(&args[0]);
              }
@@ -1211,7 +1210,7 @@ diff --git a/source/vir/src/resolve_axioms.rs b/source/vir/src/resolve_axioms.rs
 diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
 --- a/source/vir/src/sst_to_air.rs
 +++ b/source/vir/src/sst_to_air.rs
-@@ -95,6 +95,7 @@
+@@ -95,6 +95,7 @@ pub(crate) fn primitive_path(name: &Primitive) -> Path {
          Primitive::StrSlice => crate::def::strslice_type(),
          Primitive::Ptr => crate::def::ptr_type(),
          Primitive::Global => crate::def::global_type(),
@@ -1219,7 +1218,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
      }
  }
  
-@@ -105,6 +106,7 @@
+@@ -105,6 +106,7 @@ pub(crate) fn primitive_type_id(name: &Primitive) -> Ident {
          Primitive::StrSlice => crate::def::TYPE_ID_STRSLICE,
          Primitive::Ptr => crate::def::TYPE_ID_PTR,
          Primitive::Global => crate::def::TYPE_ID_GLOBAL,
@@ -1227,7 +1226,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
      })
  }
  
-@@ -154,6 +156,7 @@
+@@ -154,6 +156,7 @@ pub(crate) fn typ_to_air(ctx: &Ctx, typ: &Typ) -> air::ast::Typ {
          TypX::Float(_) => int_typ(),
          TypX::SpecFn(..) => Arc::new(air::ast::TypX::Fun),
          TypX::Primitive(Primitive::Array, _) => Arc::new(air::ast::TypX::Fun),
@@ -1235,7 +1234,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
          TypX::AnonymousClosure(..) => {
              panic!("internal error: AnonymousClosure should have been removed by ast_simplify")
          }
-@@ -299,7 +302,9 @@
+@@ -299,7 +302,9 @@ fn big_int_to_expr(i: &BigInt) -> Expr {
  
  fn decoration_base_for_primitive(name: Primitive) -> &'static str {
      match name {
@@ -1246,7 +1245,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
          Primitive::Slice | Primitive::StrSlice => crate::def::DECORATE_NIL_SLICE,
      }
  }
-@@ -590,7 +595,7 @@
+@@ -590,7 +595,7 @@ pub(crate) fn typ_invariant(ctx: &Ctx, typ: &Typ, expr: &Expr) -> Option<Expr> {
                          panic!("abstract datatype should be boxed")
                      }
                  }
@@ -1255,7 +1254,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
              }
              None
          }
-@@ -650,6 +655,7 @@
+@@ -650,6 +655,7 @@ fn try_box(ctx: &Ctx, expr: Expr, typ: &Typ) -> Option<Expr> {
              }
          }
          TypX::Dyn(..) => None,
@@ -1263,7 +1262,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
          TypX::Primitive(_, _) => {
              prefix_typ_as_mono(ctx, |p| ctx.name_ctxt.prefix_box(p), typ, "primitive type")
          }
-@@ -690,6 +696,7 @@
+@@ -690,6 +696,7 @@ pub(crate) fn try_unbox(ctx: &Ctx, expr: Expr, typ: &Typ) -> Option<Expr> {
          TypX::Primitive(Primitive::Array, _) => {
              Some(ctx.name_ctxt.prefix_unbox(&crate::def::array_type()))
          }
@@ -1271,7 +1270,7 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
          TypX::Primitive(_, _) => {
              prefix_typ_as_mono(ctx, |p| ctx.name_ctxt.prefix_unbox(p), typ, "primitive type")
          }
-@@ -723,6 +730,54 @@
+@@ -723,6 +730,54 @@ pub(crate) fn ctor_to_apply<'a>(
      (variant, field_exps)
  }
  
@@ -1326,11 +1325,10 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
  fn str_to_const_str(ctx: &Ctx, s: Arc<String>) -> Expr {
      Arc::new(ExprX::Apply(
          str_ident(STRSLICE_NEW_STRLIT),
-@@ -1064,6 +1119,17 @@
-         ExpX::NullaryOpr(crate::ast::NullaryOpr::ConstGeneric(c)) => {
+@@ -1065,6 +1120,17 @@ pub(crate) fn exp_to_expr(ctx: &Ctx, exp: &Exp, expr_ctxt: &ExprCtxt) -> Result<
              let f = crate::ast_util::const_generic_to_primitive(&exp.typ);
              str_apply(f, &vec![typ_to_id(ctx, c)])
-+        }
+         }
 +
 +        ExpX::NullaryOpr(crate::ast::NullaryOpr::TypeTag(t)) => {
 +            let ids = typ_to_ids(t);
@@ -1341,25 +1339,26 @@ diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
 +                    str_apply(crate::def::TYPE_TAG, &vec![ids[1].clone()]),
 +                ],
 +            )
-         }
++        }
          ExpX::NullaryOpr(crate::ast::NullaryOpr::TraitBound(p, ts)) => {
              match crate::traits::trait_bound_to_air(ctx, p, ts) {
-@@ -1277,6 +1343,11 @@
-                 // invariants and ensures during loop construction. Unwrap and process
+                 Some(e) => e,
+@@ -1278,6 +1344,11 @@ pub(crate) fn exp_to_expr(ctx: &Ctx, exp: &Exp, expr_ctxt: &ExprCtxt) -> Result<
                  // the inner expression.
                  return exp_to_expr(ctx, e, expr_ctxt);
-+            }
+             }
 +            UnaryOpr::TypeTagOf(t) => {
 +                let mut exprs: Vec<Expr> = typ_to_ids(t);
 +                exprs.push(exp_to_expr(ctx, e, expr_ctxt)?);
 +                Arc::new(ExprX::Apply(str_ident(crate::def::VAL_TAG), Arc::new(exprs)))
-             }
++            }
              UnaryOpr::HasResolved(t) => {
                  let mut exprs: Vec<Expr> = typ_to_ids(t);
+                 exprs.push(exp_to_expr(ctx, e, expr_ctxt)?);
 diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
 --- a/source/vir/src/sst_util.rs
 +++ b/source/vir/src/sst_util.rs
-@@ -494,6 +494,9 @@
+@@ -558,6 +558,9 @@ impl ExpX {
              NullaryOpr(crate::ast::NullaryOpr::TraitBound(..)) => ("".to_string(), 99),
              NullaryOpr(crate::ast::NullaryOpr::TypEqualityBound(..)) => ("".to_string(), 99),
              NullaryOpr(crate::ast::NullaryOpr::ConstTypBound(..)) => ("".to_string(), 99),
@@ -1369,7 +1368,7 @@ diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
              Unary(op, exp) => match op {
                  UnaryOp::Not | UnaryOp::BitNot(_) => {
                      (format!("!{}", exp.x.to_string_prec(global, 99)), 90)
-@@ -556,6 +559,9 @@
+@@ -620,6 +623,9 @@ impl ExpX {
                      HasType(t) => {
                          (format!("has_type({}, {:?})", exp.x.to_user_string(global), t), 99)
                      }
@@ -1382,36 +1381,35 @@ diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
 diff --git a/source/vir/src/sst_visitor.rs b/source/vir/src/sst_visitor.rs
 --- a/source/vir/src/sst_visitor.rs
 +++ b/source/vir/src/sst_visitor.rs
-@@ -261,6 +261,10 @@
-             ExpX::NullaryOpr(NullaryOpr::ConstGeneric(t)) => {
+@@ -262,6 +262,10 @@ pub(crate) trait Visitor<R: Returner, Err, Scope: Scoper> {
                  let t = self.visit_typ(t)?;
                  R::ret(|| exp_new(ExpX::NullaryOpr(NullaryOpr::ConstGeneric(R::get(t)))))
-+            }
+             }
 +            ExpX::NullaryOpr(NullaryOpr::TypeTag(t)) => {
 +                let t = self.visit_typ(t)?;
 +                R::ret(|| exp_new(ExpX::NullaryOpr(NullaryOpr::TypeTag(R::get(t)))))
-             }
++            }
              ExpX::NullaryOpr(NullaryOpr::TraitBound(p, ts)) => {
                  let ts = self.visit_typs(ts)?;
-@@ -309,6 +313,10 @@
-                     UnaryOpr::HasResolved(t) => {
+                 R::ret(|| {
+@@ -310,6 +314,10 @@ pub(crate) trait Visitor<R: Returner, Err, Scope: Scoper> {
                          let t = self.visit_typ(t)?;
                          R::ret(|| UnaryOpr::HasResolved(R::get(t)))
-+                    }
+                     }
 +                    UnaryOpr::TypeTagOf(t) => {
 +                        let t = self.visit_typ(t)?;
 +                        R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
-                     }
++                    }
                      UnaryOpr::ToDyn(t, impl_paths) => {
                          let t = self.visit_typ(t)?;
+                         R::ret(|| UnaryOpr::ToDyn(R::get(t), impl_paths.clone()))
 diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 --- a/source/vir/src/traits.rs
 +++ b/source/vir/src/traits.rs
-@@ -1090,6 +1090,48 @@
-                 qid,
+@@ -1236,6 +1236,48 @@ pub fn trait_decls_to_air(ctx: &Ctx, krate: &crate::sst::KrateSst) -> Commands {
              ));
              let forall = mk_bind_expr(&bind, &mk_implies(&hypothesis, &conclusion));
-+            commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
+             commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
 +
 +            // A2: erasure is the identity on runtime type.
 +            //   forall Self, A1..Am, x.
@@ -1453,10 +1451,11 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 +                qid,
 +            ));
 +            let forall = mk_bind_expr(&bind, &air::ast_util::mk_eq(&lhs, &rhs));
-             commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
++            commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
          }
      }
-@@ -1656,7 +1698,7 @@
+     Arc::new(commands)
+@@ -1813,7 +1855,7 @@ pub fn get_dyn_traits(krate: &Krate) -> HashSet<Path> {
  // Permit receiver reads and the dispatch Self argument of receiver calls;
  // conservatively reject other uses in logical and operational contracts.
  fn check_dyn_spec(f: &Function) -> Result<(), ()> {
@@ -1465,7 +1464,7 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
      use crate::ast_visitor::{AstVisitor, NoScoper, Walk};
  
      struct Visitor<'a> {
-@@ -1700,6 +1742,20 @@
+@@ -1857,6 +1899,20 @@ fn check_dyn_spec(f: &Function) -> Result<(), ()> {
              if self.is_receiver_expr(expr) {
                  return Ok(());
              }
@@ -1489,18 +1488,18 @@ diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
 diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
 --- a/source/vir/src/triggers.rs
 +++ b/source/vir/src/triggers.rs
-@@ -140,6 +140,10 @@
-             UnaryOpr::Box(_) | UnaryOpr::Unbox(_) => panic!("unexpected box"),
-             UnaryOpr::ProofNote(_) | UnaryOpr::CustomErr(_) | UnaryOpr::ToDyn(..) => {
+@@ -142,6 +142,10 @@ fn check_trigger_expr_arg(state: &mut State, arg: &Exp) {
                  // recurse inside coercions
-+                check_trigger_expr_arg(state, arg)
-+            }
-+            UnaryOpr::TypeTagOf(..) => {
-+                // val%tag(..) is an ordinary uninterpreted application
                  check_trigger_expr_arg(state, arg)
              }
++            UnaryOpr::TypeTagOf(..) => {
++                // val%tag(..) is an ordinary uninterpreted application
++                check_trigger_expr_arg(state, arg)
++            }
              UnaryOpr::AutoDecreases | UnaryOpr::AutoLoopEnsures => {
-@@ -253,6 +257,7 @@
+                 // recurse inside marker
+                 check_trigger_expr_arg(state, arg)
+@@ -253,6 +257,7 @@ fn check_trigger_expr(
          ExpX::VarAt(_, VarAt::Pre) => Ok(()),
          ExpX::Old(_, _) => panic!("internal error: Old"),
          ExpX::NullaryOpr(crate::ast::NullaryOpr::ConstGeneric(_typ)) => Ok(()),
@@ -1508,7 +1507,7 @@ diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
          ExpX::NullaryOpr(crate::ast::NullaryOpr::TraitBound(..)) => {
              Err(error(&exp.span, "triggers cannot contain trait bounds"))
          }
-@@ -297,7 +302,8 @@
+@@ -297,7 +302,8 @@ fn check_trigger_expr(
              | UnaryOpr::AutoDecreases
              | UnaryOpr::AutoLoopEnsures
              | UnaryOpr::ProofNote(_)
@@ -1521,17 +1520,17 @@ diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
 diff --git a/source/vir/src/triggers_auto.rs b/source/vir/src/triggers_auto.rs
 --- a/source/vir/src/triggers_auto.rs
 +++ b/source/vir/src/triggers_auto.rs
-@@ -441,6 +441,10 @@
-             (false, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
-         }
-         ExpX::UnaryOpr(UnaryOpr::HasResolved(_), e1) => {
-+            let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
-+            (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
-+        }
-+        ExpX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
+@@ -445,6 +445,10 @@ fn gather_terms(ctxt: &mut Ctxt, ctx: &Ctx, exp: &Exp, depth: u64) -> (bool, Ter
              let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
              (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
          }
++        ExpX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
++            let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
++            (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
++        }
+         ExpX::UnaryOpr(UnaryOpr::ToDyn(..), e1) => {
+             let (_is_pure, term1) = gather_terms(ctxt, ctx, e1, 1);
+             (false, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
 diff --git a/source/vstd/std_specs/any.rs b/source/vstd/std_specs/any.rs
 new file mode 100644
 --- /dev/null
