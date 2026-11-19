@@ -379,11 +379,18 @@ impl Waiter {
             cancel_cond.requires(()),
         )]
         loop {
-            if let Some(res) = cond() {
-                assert(cond.ensures((), Some(res))) by {
-                    admit();
-                };  // FIXME:
-                proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
+            /* Binding the scrutinee first keeps `call_ensures` reachable in the branch; with
+             * the call inline, `if let` desugars to a `None` comparison and the solver cannot
+             * recover `r == Some(res)` (verus-lang/verus#2295).
+             * Origin Rust: if let Some(res) = cond() {
+             */
+            let r = cond();
+            if let Some(res) = r {
+                assert(r == Some(res));
+                assert(cond.ensures((), Some(res)));
+                // The postcondition talks about the entry-state closure, while `cond` has
+                // advanced past this call, so the fact above cannot reach the exit.
+                proof! { admit(); }
                 return Ok(res);
             };
             if let Err(e) = cancel_cond() {
