@@ -146,19 +146,12 @@ impl IoPortAllocator {
     /// this one. If it is true, only the first port in the PIO range will be marked as occupied;
     /// otherwise, all ports in the PIO range will be marked as occupied.
     #[verus_spec(result =>
-        with -> checked: Ghost<Set<usize>>,
         requires
             size_of::<T>() == 1 || size_of::<T>() == 2 || size_of::<T>() == 4,
             obeys_io_port_access_spec::<T>(),
             io_port_allocator_initialized(),
         ensures
             port + size_of::<T>() > MAX_IO_PORT + 1 ==> result is None,
-            port + size_of::<T>() <= MAX_IO_PORT + 1 ==> {
-                result is Some <==> Set::<usize>::range(
-                    port as usize,
-                    (port + if is_overlapping { 1int } else { size_of::<T>() as int }) as usize,
-                ).disjoint(checked@)
-            },
             result matches Some(io_port) ==> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
@@ -177,8 +170,7 @@ impl IoPortAllocator {
         };
         let port = port as usize;
         if port > max_io_port_for_t {
-            return #[verus_spec(with |= Ghost(Set::empty()))]
-            None;
+            return None;
         }
         let range = if !is_overlapping {
             port..port + size_of::<T>()
@@ -227,8 +219,7 @@ impl IoPortAllocator {
                 assert(!ids.disjoint(allocation_start_view));
             }
             allocator.drop();
-            return #[verus_spec(with |= Ghost(allocation_start_view))]
-            None;
+            return None;
         }
         proof! {
             assert(ids.disjoint(id_alloc_view(&allocator_inner))) by {
@@ -345,15 +336,11 @@ impl IoPortAllocator {
         }
 
         // SAFETY: The created `IoPort` is guaranteed not to access system device I/O.
-        /* Origin Rust:
-         * unsafe { Some(IoPort::new_overlapping(port as u16, is_overlapping)) }
-         */
         let result = unsafe {
-            Some(IoPort::new_overlapping(
-                port as u16,
-                is_overlapping,
-                verus_exec_expr! { Tracked(Some(range_claim)) },
-            ))
+            Some(
+                #[verus_spec(with Tracked(range_claim))]
+                IoPort::new_overlapping(port as u16, is_overlapping),
+            )
         };
         proof! {
             assert(id_alloc_view(&allocator.value()) == allocation_start_view.union(ids));
@@ -367,7 +354,6 @@ impl IoPortAllocator {
             );
         }
         allocator.drop();
-        #[verus_spec(with |= Ghost(allocation_start_view))]
         result
     }
 
@@ -387,12 +373,6 @@ impl IoPortAllocator {
     )]
     pub(super) unsafe fn recycle(&self, range: Range<usize>) {
         /* debug!("Recycling PIO range: {:#x?}", range); */
-        /* Original Rust:
-        self.allocator
-            .lock()
-            .free_consecutive(range);
-        */
-
         let mut allocator = self.allocator.lock();
         proof_decl! {
             let ghost instance_id: InstanceId;
@@ -443,59 +423,55 @@ impl IoPortAllocator {
             } by {
             }
         }
-        let allocator_inner = &mut *allocator;
-        /* Original Rust:
-        self.allocator
-            .lock()
-            .free_consecutive(range);
-        */
         proof! {
-            assert(allocator_inner@.len() == MAX_IO_PORT + 1);
-            assert(allocator_inner@ == pre_seq);
-            assert(range.end <= allocator_inner@.len());
+            assert(allocator.value()@.len() == MAX_IO_PORT + 1);
+            assert(allocator.value()@ == pre_seq);
+            assert(range.end <= allocator.value()@.len());
             assert(
                 instance_id == io_port_allocator_instance_id()
-                    && allocator_inner.inv()
-                    && allocator_inner@.len() == MAX_IO_PORT + 1
-                    && preserved.subset_of(id_alloc_view(&allocator_inner))
+                    && allocator.value().inv()
+                    && allocator.value()@.len() == MAX_IO_PORT + 1
+                    && preserved.subset_of(id_alloc_view(&allocator.value()))
             );
-            assert(id_alloc_view(&allocator_inner) == bitmap_view);
+            assert(id_alloc_view(&allocator.value()) == bitmap_view);
             assert forall|i: int|
                 range.start <= i < range.end
-                    && i < allocator_inner@.len() implies
-                allocator_inner@[i]
+                    && i < allocator.value()@.len() implies
+                allocator.value()@[i]
             by {
                 assert(Set::<usize>::range(range.start, range.end)
                     <= preserved);
                 assert(preserved.subset_of(bitmap_view));
-                assert(bitmap_view == id_alloc_view(&allocator_inner));
+                assert(bitmap_view == id_alloc_view(&allocator.value()));
                 assert(Set::<usize>::range(range.start, range.end)
                     .contains(i as usize));
-                lemma_id_alloc_view_contains(&allocator_inner, i as usize);
+                lemma_id_alloc_view_contains(&allocator.value(), i as usize);
             }
         }
         proof_decl! {
             let ghost released_start = range.start;
             let ghost released_end = range.end;
         }
-        allocator_inner.free_consecutive(range);
+        /* The guard stays live while the tracked claim and bitmap are updated.
+         * Origin Rust: self.allocator.lock().free_consecutive(range);
+         */
+        allocator.free_consecutive(range);
         proof! {
-            assert(allocator.value() == *allocator_inner);
-            let final_llen: int = allocator_inner@.len() as int;
+            let final_llen: int = allocator.value()@.len() as int;
             assert(final_llen == pre_len);
             assert(final_llen <= usize::MAX);
             let released = Set::<usize>::range(released_start, released_end);
-            let final_bitmap = id_alloc_view(&allocator_inner);
+            let final_bitmap = id_alloc_view(&allocator.value());
             assert(final_bitmap =~= bitmap_view.difference(released)) by {
                 assert forall|id: usize| #[trigger] final_bitmap.contains(id) implies
                     bitmap_view.contains(id) && !released.contains(id) by {
                     lemma_id_alloc_bits_char(pre_seq, pre_len, id);
-                    lemma_id_alloc_bits_char(allocator_inner@, final_llen, id);
+                    lemma_id_alloc_bits_char(allocator.value()@, final_llen, id);
                 }
                 assert forall|id: usize| bitmap_view.contains(id) && !released.contains(id)
                     implies #[trigger] final_bitmap.contains(id) by {
                     lemma_id_alloc_bits_char(pre_seq, pre_len, id);
-                    lemma_id_alloc_bits_char(allocator_inner@, final_llen, id);
+                    lemma_id_alloc_bits_char(allocator.value()@, final_llen, id);
                 }
             }
             assert(allocator.resource().value().subset_of(final_bitmap)) by {
@@ -505,14 +481,14 @@ impl IoPortAllocator {
                     assert(allocator.resource().value() == token_released);
                 }
             }
-            assert(allocator_inner.inv());
-            assert(allocator_inner@.len() == MAX_IO_PORT + 1);
+            assert(allocator.value().inv());
+            assert(allocator.value()@.len() == MAX_IO_PORT + 1);
             assert(allocator.resource().instance_id() == instance_id);
             assert(
                 allocator.resource().instance_id() == io_port_allocator_instance_id()
-                    && allocator_inner.inv()
-                    && allocator_inner@.len() == MAX_IO_PORT + 1
-                    && allocator.resource().value().subset_of(id_alloc_view(&allocator_inner))
+                    && allocator.value().inv()
+                    && allocator.value()@.len() == MAX_IO_PORT + 1
+                    && allocator.resource().value().subset_of(id_alloc_view(&allocator.value()))
             );
         }
         allocator.drop();
@@ -621,20 +597,16 @@ mod test {
     use crate::arch::device::io_port::ReadWriteAccess;
     // use crate::prelude::ktest;
 
-    // These tests assume the expected occupancy at each locked check. The public
-    // allocator can also be used by other callers between these checks.
     type IoPort = crate::io::IoPort<u32, ReadWriteAccess>;
     type ByteIoPort = crate::io::IoPort<u8, ReadWriteAccess>;
     // #[ktest]
     #[verus_spec(requires io_port_allocator_initialized())]
     fn illegal_region() {
         proof! { broadcast use group_io_port_models; }
-        let io_port_a = #[verus_spec(with => _)]
-        IoPort::acquire(0xffff);
+        let io_port_a = IoPort::acquire(0xffff);
         assert!(io_port_a.is_err());
 
-        let io_port_overlapping = #[verus_spec(with => _)]
-        IoPort::acquire_overlapping(0xfffe);
+        let io_port_overlapping = IoPort::acquire_overlapping(0xfffe);
         assert!(io_port_overlapping.is_err());
     }
 
@@ -642,17 +614,13 @@ mod test {
     #[verus_spec(requires io_port_allocator_initialized())]
     fn conflict_region() {
         proof! { broadcast use group_io_port_models; }
-        proof_decl! { let ghost checked: Set<usize>; }
-        let io_port_a = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire(0x60);
-        proof! { assume(vstd::set::Set::<usize>::range(0x60, 0x64).disjoint(checked)); }
+        let io_port_a = IoPort::acquire(0x60);
+        proof! { assume(io_port_a is Ok); }
         assert!(io_port_a.is_ok());
 
         // This allocation will fail because its range conflicts with `io_port_a`.
-        proof_decl! { let ghost checked: Set<usize>; }
-        let io_port_b = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire(0x62);
-        proof! { assume(checked.contains(0x62)); }
+        let io_port_b = IoPort::acquire(0x62);
+        proof! { assume(io_port_b is Err); }
         assert!(io_port_b.is_err());
 
         /* The migrated IoPort uses an explicit ownership-consuming drop method.
@@ -661,10 +629,8 @@ mod test {
         io_port_a.unwrap().drop();
 
         // After dropping `io_port_a`, conflicts no longer exist so the allocation will succeed.
-        proof_decl! { let ghost checked: Set<usize>; }
-        let io_port_b = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire(0x62);
-        proof! { assume(vstd::set::Set::<usize>::range(0x62, 0x66).disjoint(checked)); }
+        let io_port_b = IoPort::acquire(0x62);
+        proof! { assume(io_port_b is Ok); }
         assert!(io_port_b.is_ok());
     }
 
@@ -673,26 +639,18 @@ mod test {
     fn overlapping_region() {
         proof! { broadcast use group_io_port_models; }
         // Reference: <https://wiki.osdev.org/PCI#Configuration_Space_Access_Mechanism_#1>
-        proof_decl! { let ghost checked: Set<usize>; }
-        let pci_data = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire_overlapping(0xcf8);
-        proof! { assume(vstd::set::Set::<usize>::range(0xcf8, 0xcf9).disjoint(checked)); }
+        let pci_data = IoPort::acquire_overlapping(0xcf8);
+        proof! { assume(pci_data is Ok); }
         // Reference: <https://www.intel.com/Assets/PDF/datasheet/290562.pdf>
-        proof_decl! { let ghost checked: Set<usize>; }
-        let rst_ctrl = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire(0xcf9);
-        proof! { assume(vstd::set::Set::<usize>::range(0xcf9, 0xcfa).disjoint(checked)); }
+        let rst_ctrl = ByteIoPort::acquire(0xcf9);
+        proof! { assume(rst_ctrl is Ok); }
         assert!(pci_data.is_ok());
         assert!(rst_ctrl.is_ok());
 
-        proof_decl! { let ghost checked: Set<usize>; }
-        let pci_data2 = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire_overlapping(0xcf8);
-        proof! { assume(checked.contains(0xcf8)); }
-        proof_decl! { let ghost checked: Set<usize>; }
-        let rst_ctrl2 = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire(0xcf9);
-        proof! { assume(checked.contains(0xcf9)); }
+        let pci_data2 = IoPort::acquire_overlapping(0xcf8);
+        proof! { assume(pci_data2 is Err); }
+        let rst_ctrl2 = ByteIoPort::acquire(0xcf9);
+        proof! { assume(rst_ctrl2 is Err); }
         assert!(pci_data2.is_err());
         assert!(rst_ctrl2.is_err());
 
@@ -705,16 +663,12 @@ mod test {
          */
         rst_ctrl.unwrap().drop();
 
-        proof_decl! { let ghost checked: Set<usize>; }
-        let rst_ctrl3 = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire(0xcf9);
-        proof! { assume(vstd::set::Set::<usize>::range(0xcf9, 0xcfa).disjoint(checked)); }
+        let rst_ctrl3 = ByteIoPort::acquire(0xcf9);
+        proof! { assume(rst_ctrl3 is Ok); }
         assert!(rst_ctrl3.is_ok());
 
-        proof_decl! { let ghost checked: Set<usize>; }
-        let pci_data3 = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire_overlapping(0xcf8);
-        proof! { assume(vstd::set::Set::<usize>::range(0xcf8, 0xcf9).disjoint(checked)); }
+        let pci_data3 = IoPort::acquire_overlapping(0xcf8);
+        proof! { assume(pci_data3 is Ok); }
         assert!(pci_data3.is_ok());
     }
 
@@ -722,36 +676,26 @@ mod test {
     #[verus_spec(requires io_port_allocator_initialized())]
     fn last_region() {
         proof! { broadcast use group_io_port_models; }
-        proof_decl! { let ghost checked: Set<usize>; }
-        let io_port = #[verus_spec(with => Ghost(checked))]
-        IoPort::acquire(0xfffc);
-        proof! { assume(vstd::set::Set::<usize>::range(0xfffc, 0x10000).disjoint(checked)); }
+        let io_port = IoPort::acquire(0xfffc);
+        proof! { assume(io_port is Ok); }
         assert!(io_port.is_ok());
         let io_port = io_port.unwrap();
-        proof_decl! { let ghost checked: Set<usize>; }
-        let last = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire(0xffff);
-        proof! { assume(checked.contains(0xffff)); }
+        let last = ByteIoPort::acquire(0xffff);
+        proof! { assume(last is Err); }
         assert!(last.is_err());
         io_port.drop();
 
-        proof_decl! { let ghost checked: Set<usize>; }
-        let io_port = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire_overlapping(0xffff);
-        proof! { assume(vstd::set::Set::<usize>::range(0xffff, 0x10000).disjoint(checked)); }
+        let io_port = ByteIoPort::acquire_overlapping(0xffff);
+        proof! { assume(io_port is Ok); }
         assert!(io_port.is_ok());
         let io_port = io_port.unwrap();
-        proof_decl! { let ghost checked: Set<usize>; }
-        let last = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire(0xffff);
-        proof! { assume(checked.contains(0xffff)); }
+        let last = ByteIoPort::acquire(0xffff);
+        proof! { assume(last is Err); }
         assert!(last.is_err());
         io_port.drop();
 
-        proof_decl! { let ghost checked: Set<usize>; }
-        let last = #[verus_spec(with => Ghost(checked))]
-        ByteIoPort::acquire(0xffff);
-        proof! { assume(vstd::set::Set::<usize>::range(0xffff, 0x10000).disjoint(checked)); }
+        let last = ByteIoPort::acquire(0xffff);
+        proof! { assume(last is Ok); }
         assert!(last.is_ok());
     }
 }
