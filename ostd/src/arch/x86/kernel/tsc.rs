@@ -4,6 +4,8 @@
 use vstd::{arithmetic::div_mod::lemma_fundamental_div_mod, prelude::*};
 use vstd_extra::ownership::Inv;
 
+use crate::specs::context::cpu_feature_model;
+
 /*
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -105,6 +107,7 @@ impl CpuidSamples {
     with Tracked(samples): Tracked<&mut Ghost<CpuidSamples>>
     ensures
         final(samples)@.inv(),
+        final(samples)@.max_leaf == cpu_feature_model().max_basic_leaf,
     returns
         (match final(samples)@.frequency_hz() {
             Some(hz) => Some(hz as u64),

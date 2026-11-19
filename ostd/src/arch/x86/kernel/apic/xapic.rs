@@ -4,6 +4,8 @@
 use vstd::{arithmetic::div_mod::lemma_small_mod, prelude::*, raw_ptr::axiom_ptr_mut_from_data};
 use vstd_extra::{debug_assert, external::ptr, layout::lemma_primitive_layout};
 
+use crate::specs::context::{CpuFeature, cpu_feature_model};
+
 use x86::apic::xapic;
 
 use super::ApicTimer;
@@ -43,9 +45,6 @@ impl XApic {
 
     /// Trusted: the register-file vaddr, as `XApic::new` maps it.
     pub uninterp spec fn apic_register_file_vaddr_spec() -> usize;
-
-    /// Trusted: the CPUID.01H:EDX[9] local-APIC flag.
-    pub uninterp spec fn has_xapic_spec() -> bool;
 }
 
 } // verus!
@@ -63,7 +62,7 @@ impl XApic {
     #[verus_verify(external_body)]
     #[verus_spec(ret =>
         ensures
-            (ret is Some) == XApic::has_xapic_spec(),
+            cpu_feature_model().max_basic_leaf >= 1 ==> (ret is Some) == cpu_feature_model().supports(CpuFeature::XApic),
             ret matches Some(x) ==> {
                 &&& x.mmio_addr() == XApic::apic_register_file_vaddr_spec()
                 &&& XApic::apic_register_file_vaddr_spec() + 1024 <= usize::MAX
@@ -146,12 +145,14 @@ impl XApic {
         self.write(xapic::XAPIC_SVR, svr);
     }
 
-    /* `__cpuid` has no verifier model; trusted body under `external_body`. */
-    #[verus_verify(external_body)]
-    #[verus_spec(returns XApic::has_xapic_spec())]
+    #[verus_spec(ret =>
+        ensures
+            cpu_feature_model().max_basic_leaf >= 1 ==> ret == cpu_feature_model().supports(CpuFeature::XApic),
+    )]
     pub(super) fn has_xapic() -> bool {
         let value = unsafe { core::arch::x86_64::__cpuid(1) };
-        value.edx & 0x100 != 0
+        // asterinas/asterinas#2395 corrected this check from EDX[8] (CMPXCHG8B) to EDX[9] (APIC).
+        value.edx & (1 << 9) != 0
     }
 }
 
