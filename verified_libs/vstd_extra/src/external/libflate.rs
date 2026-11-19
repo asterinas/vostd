@@ -153,14 +153,14 @@ pub trait ExWrite {
     ;
 }
 
-#[cfg(not(feature = "bzimage-std"))]
+#[cfg(not(feature = "std"))]
 impl WriteSpecImpl for Vec<u8> {
     open spec fn writer_state(&self) -> WriterState {
         WriterState::Bytes(self@)
     }
 }
 
-#[cfg(feature = "bzimage-std")]
+#[cfg(feature = "std")]
 impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
     open spec fn writer_state(&self) -> WriterState {
         WriterState::Bytes(self@)
@@ -258,7 +258,7 @@ pub trait ExRead {
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
             reader_model_valid::<Self>() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
-                &&& !cfg!(feature = "bzimage-std") ==> result is Ok
+                &&& !cfg!(feature = "std") ==> result is Ok
                 &&& result matches Ok(count) ==> {
                     &&& count == plain.len()
                     &&& final(output)@ == old(output)@ + plain

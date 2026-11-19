@@ -11,9 +11,10 @@ default = []
 # The isolated IRC11 toolchain builds vstd with weak-memory support. Keep this
 # feature as a source gate so the mainline vstd dependency remains unchanged.
 irc11 = []
-std = ["vstd/std"]
+std = ["vstd/std", "libflate/std"]
+# OSTD rustdoc sets cfg(feature = "std") while its codec dependencies use no_std.
+# Only load the codec specs for the bzImage crates.
 bzimage = []
-bzimage-std = ["bzimage", "libflate/std", "no_std_io2/std"]
 
 [dependencies]
 vstd = { workspace = true }
