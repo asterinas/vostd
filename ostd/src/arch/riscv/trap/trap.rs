@@ -13,11 +13,13 @@
 // These changes are released under the following license:
 //
 // SPDX-License-Identifier: MPL-2.0
-use core::arch::{asm, global_asm};
+use vstd::prelude::*;
+
+/*use core::arch::{asm, global_asm};*/
 
 use crate::arch::cpu::context::GeneralRegs;
 
-#[cfg(target_arch = "riscv32")]
+/*#[cfg(target_arch = "riscv32")]
 global_asm!(
     r"
     .equ XLENB, 4
@@ -59,7 +61,7 @@ pub unsafe fn init() {
     asm!("csrw sscratch, zero");
     // Set the exception vector address
     asm!("csrw stvec, {}", in(reg) trap_entry as usize);
-}
+}*/
 
 /// Trap frame of kernel interrupt
 ///
@@ -73,6 +75,7 @@ pub unsafe fn init() {
 ///     println!("TRAP! tf: {:#x?}", tf);
 /// }
 /// ```
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct TrapFrame {
@@ -85,7 +88,10 @@ pub struct TrapFrame {
 }
 
 /// Saved registers on a trap.
-#[derive(Debug, Default, Clone, Copy)]
+// Origin Rust: #[derive(Debug, Default, Clone, Copy)]
+// The explicit Default implementation exposes the derived zero initialization to Verus.
+#[verus_verify]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub(in crate::arch) struct RawUserContext {
     /// General registers
@@ -96,7 +102,28 @@ pub(in crate::arch) struct RawUserContext {
     pub(in crate::arch) sepc: usize,
 }
 
+verus! {
+
 impl RawUserContext {
+    pub open(in crate::arch) spec fn default_spec() -> Self {
+        Self { general: GeneralRegs::default_spec(), sstatus: 0, sepc: 0 }
+    }
+}
+
+} // verus!
+#[verus_verify]
+impl Default for RawUserContext {
+    #[verus_spec(returns Self::default_spec())]
+    fn default() -> Self {
+        Self {
+            general: GeneralRegs::default(),
+            sstatus: 0,
+            sepc: 0,
+        }
+    }
+}
+
+/*impl RawUserContext {
     /// Goes to user space with the context, and comes back when a trap occurs.
     ///
     /// On return, the context will be reset to the status before the trap.
@@ -110,4 +137,4 @@ impl RawUserContext {
 extern "C" {
     fn trap_entry();
     fn run_user(regs: &mut RawUserContext);
-}
+}*/
