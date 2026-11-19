@@ -40,14 +40,16 @@ verus! {
 
 impl CpuFeatureModel {
     /// TSC frequency returned by OSTD in Hz, preserving its leaf gate and kHz truncation.
-    pub open spec fn tsc_frequency_hz(self) -> Option<u64> {
+    /// `base_eax` records the raw CPUID.16H:EAX value when the fallback reads it.
+    pub open spec fn tsc_frequency_hz(self, base_eax: Option<u32>) -> Option<u64> {
         if self.max_basic_leaf <= 0x15 || self.tsc_denominator == 0 || self.tsc_numerator == 0 {
             None
         } else {
             let crystal_khz = if self.crystal_hz / 1000 != 0 {
                 self.crystal_hz as int / 1000
             } else {
-                self.base_mhz as int * 1000 * self.tsc_denominator / self.tsc_numerator as int
+                base_eax.unwrap_or(0) as int * 1000 * self.tsc_denominator
+                    / self.tsc_numerator as int
             };
             if crystal_khz == 0 {
                 None
@@ -72,8 +74,22 @@ impl CpuFeatureModel {
 /// - The result matches the sampled-register calculation, including kHz truncation.
 ///   Physical clock accuracy is outside the proof.
 ///
-#[verus_spec(returns cpu_feature_model().tsc_frequency_hz())]
+#[verus_spec(
+    with Tracked(base_eax): Tracked<&mut Ghost<Option<u32>>>
+    ensures
+        ({
+            let model = cpu_feature_model();
+            final(base_eax)@.is_some() == (
+                model.max_basic_leaf >= 0x16 && model.tsc_denominator != 0
+                    && model.tsc_numerator != 0 && model.crystal_hz / 1000 == 0
+            )
+        }),
+    returns cpu_feature_model().tsc_frequency_hz(final(base_eax)@)
+)]
 pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
+    proof! {
+        *base_eax = Ghost(None);
+    }
     // Check the max cpuid supported
     let cpuid = cpuid!(0);
     let max_cpuid = cpuid.eax;
@@ -98,6 +114,7 @@ pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
         cpuid = cpuid!(0x16);
         let base_mhz = cpuid.eax;
         proof! {
+            *base_eax = Ghost(Some(base_mhz));
             // Assume the hardware-reported base frequency and crystal ratio keep
             // both intermediate products within u32, as on practical CPUs.
             assume(base_mhz * 1000 <= u32::MAX);

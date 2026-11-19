@@ -24,8 +24,6 @@ pub ghost struct CpuFeatureModel {
     pub tsc_numerator: u32,
     /// CPUID.(0x15, 0):ECX, the nominal core crystal clock frequency in Hz.
     pub crystal_hz: u32,
-    /// Raw CPUID.(0x16, 0):EAX. Bits 15:0 encode the base frequency in MHz. OSTD reads all 32 bits.
-    pub base_mhz: u32,
 }
 
 impl CpuFeatureModel {
@@ -43,7 +41,6 @@ impl CpuFeatureModel {
             tsc_denominator: tsc.eax,
             tsc_numerator: tsc.ebx,
             crystal_hz: tsc.ecx,
-            base_mhz: reference((0x16, 0)).eax,
         }
     }
 }
@@ -62,7 +59,8 @@ pub open spec fn cpu_feature_model() -> CpuFeatureModel {
 /// Whether `result`, read at (`leaf`, `subleaf`), agrees with `model`.
 ///
 /// Fixes the maximum basic leaf, the modeled feature bits and the TSC calibration
-/// fields for supported queries. Other queries and register bits are unconstrained.
+/// fields of leaf 0x15. The base frequency in leaf 0x16 is scoped to a logical
+/// processor (Intel SDM Vol. 1, Table 21-54).
 pub open spec fn cpuid_consistent(
     model: CpuFeatureModel,
     leaf: u32,
@@ -82,7 +80,6 @@ pub open spec fn cpuid_consistent(
             model.tsc_numerator,
             model.crystal_hz,
         ),
-        0x16 => result.eax == model.base_mhz,
         _ => true,
     }
 }
