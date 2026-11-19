@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use core::{mem::MaybeUninit, ops::Range};
 
 use crate::sync::Mutex;
@@ -54,6 +56,9 @@ pub(super) unsafe fn init(boot_params: &'static linux_boot_params::BootParams) {
     });
 }
 
+/// Trusted: normal returns have the requested length; allocation may panic.
+#[verifier::external_body]
+#[verus_spec(dst => ensures dst@.len() == size)]
 pub fn alloc_at(addr: usize, size: usize) -> &'static mut [MaybeUninit<u8>] {
     let mut state = STATE.lock();
     let state = state.as_mut().unwrap();

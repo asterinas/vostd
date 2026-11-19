@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module is used to compress kernel ELF.
 use vstd::prelude::*;
+use vstd_extra::external::libflate::{group_libflate_models, gzip_encoding, zlib_encoding};
 
 use std::{
     ffi::{OsStr, OsString},
@@ -75,7 +76,18 @@ impl From<&OsStr> for PayloadEncoding {
 }
 
 /// Encoding the kernel ELF using the provided format.
+#[verus_spec(result =>
+    ensures
+        match encoding {
+            PayloadEncoding::Raw => result@ == kernel@,
+            PayloadEncoding::Gzip => gzip_encoding(kernel@, result@),
+            PayloadEncoding::Zlib => zlib_encoding(kernel@, result@),
+        },
+)]
 pub fn encode_kernel(kernel: Vec<u8>, encoding: PayloadEncoding) -> Vec<u8> {
+    proof! {
+        broadcast use group_libflate_models;
+    }
     match encoding {
         PayloadEncoding::Raw => kernel,
         PayloadEncoding::Gzip => {

@@ -323,6 +323,17 @@ pub open spec fn program_load_bytes(header: &ProgramHeader<'_>, input: Seq<u8>) 
     }
 }
 
+/// xmas-elf 0.10.0's ph_impl! delegates directly to Type_::as_type.
+pub assume_specification[ ProgramHeader64::get_type ](header: &ProgramHeader64) -> Result<
+    Type,
+    &'static str,
+>
+    returns
+        program_type_result(header.type_),
+    opens_invariants none
+    no_unwind
+;
+
 #[verifier::when_used_as_spec(program_header_type)]
 pub assume_specification<'a>[ ProgramHeader::<'a>::get_type ](header: &ProgramHeader<'a>) -> Result<
     Type,
@@ -352,6 +363,26 @@ pub assume_specification<'a>[ ProgramHeader::<'a>::offset ](header: &ProgramHead
 
 /// Audited only for Load: get_data delegates to raw_data and returns Undefined.
 /// Other segment types include dynamic/note parsing and receive no guarantees.
+pub assume_specification<'a>[ ProgramHeader64::get_data ](
+    header: &ProgramHeader64,
+    elf: &ElfFile<'a>,
+) -> (ret: Result<SegmentData<'a>, &'static str>)
+    ensures
+        ProgramHeader::Ph64(header).get_type() == Ok(Type::Load) && program_load_data_readable(
+            &ProgramHeader::Ph64(header),
+            elf.input@,
+        ) ==> {
+            ret matches Ok(SegmentData::Undefined(bytes)) && bytes@ == program_load_bytes(
+                &ProgramHeader::Ph64(header),
+                elf.input@,
+            )
+        },
+    opens_invariants none
+    no_unwind when ProgramHeader::Ph64(header).get_type() == Ok(Type::Load)
+    && program_load_data_readable(&ProgramHeader::Ph64(header), elf.input@)
+;
+
+/// The enum wrapper dispatches to the corresponding program header's get_data.
 pub assume_specification<'a>[ ProgramHeader::<'a>::get_data ](
     header: &ProgramHeader<'a>,
     elf: &ElfFile<'a>,
