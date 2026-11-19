@@ -47,20 +47,33 @@ impl CpuFeature {
     }
 }
 
-/// The CPU capabilities enumerated by CPUID, without OS enablement state.
+/// The CPU capabilities and nominal TSC calibration data enumerated by CPUID.
 pub ghost struct CpuFeatureModel {
     /// The maximum basic leaf reported by CPUID.(EAX=0):EAX.
     pub max_basic_leaf: u32,
     /// The raw feature bit. Its value is meaningful only for supported leaves.
     pub feature_bits: spec_fn(CpuFeature) -> bool,
+    /// CPUID.(0x15, 0):EAX, the denominator of the TSC/core crystal clock ratio.
+    pub tsc_denominator: u32,
+    /// CPUID.(0x15, 0):EBX, the numerator of that ratio.
+    pub tsc_numerator: u32,
+    /// CPUID.(0x15, 0):ECX, the nominal core crystal clock frequency in Hz.
+    pub crystal_hz: u32,
+    /// Raw CPUID.(0x16, 0):EAX. Bits 15:0 encode the base frequency in MHz. OSTD reads all 32 bits.
+    pub base_mhz: u32,
 }
 
 impl CpuFeatureModel {
     /// Constructs the shared model from the reference CPU's readings.
     pub open spec fn from_cpuid(reference: spec_fn((u32, u32)) -> CpuidResult) -> Self {
+        let tsc = reference((0x15, 0));
         Self {
             max_basic_leaf: reference((0, 0)).eax,
             feature_bits: |feature: CpuFeature| feature.bit_set_in(reference(feature.query())),
+            tsc_denominator: tsc.eax,
+            tsc_numerator: tsc.ebx,
+            crystal_hz: tsc.ecx,
+            base_mhz: reference((0x16, 0)).eax,
         }
     }
 
@@ -71,20 +84,21 @@ impl CpuFeatureModel {
     }
 }
 
-/// The CPU features shared by every logical CPU on which OSTD executes.
+/// The CPUID data shared by every logical CPU on which OSTD executes.
 ///
-/// The CPUID contracts assume that the maximum basic leaf and the modeled bits of
-/// supported leaves agree across those CPUs and remain stable throughout
-/// execution. This includes the values presented by firmware and virtualization,
-/// including TDX. [`lemma_cpuid_model_admits`] shows that these fields suffice to
-/// construct a shared model even when other bits vary between reads. OS enablement
-/// and instruction usability depend on additional processor state.
+/// The CPUID contracts assume that the maximum basic leaf agrees across those CPUs
+/// and remains stable throughout execution. For supported leaves, the same holds
+/// for the modeled feature bits and the nominal calibration fields of 0x15 and 0x16.
+/// This includes the values presented by firmware and virtualization, including TDX.
+/// [`lemma_cpuid_model_admits`] shows that these fields suffice to construct a shared model
+/// even when other bits vary between reads. OS enablement and instruction usability depend
+/// on additional processor state.
 pub uninterp spec fn cpu_feature_model() -> CpuFeatureModel;
 
 /// Whether `result`, read at (`leaf`, `subleaf`), agrees with `model`.
 ///
-/// Fixes the maximum basic leaf and, for each feature enumerated by this query whose
-/// leaf is supported, its bit. Other queries and register bits are unconstrained.
+/// Fixes the maximum basic leaf, the modeled feature bits and the TSC calibration
+/// fields for supported queries. Other queries and register bits are unconstrained.
 pub open spec fn cpuid_consistent(
     model: CpuFeatureModel,
     leaf: u32,
@@ -92,6 +106,15 @@ pub open spec fn cpuid_consistent(
     result: CpuidResult,
 ) -> bool {
     &&& (leaf, subleaf) == (0, 0) ==> result.eax == model.max_basic_leaf
+    &&& (leaf, subleaf) == (0x15, 0) && leaf <= model.max_basic_leaf ==> {
+        (result.eax, result.ebx, result.ecx) == (
+            model.tsc_denominator,
+            model.tsc_numerator,
+            model.crystal_hz,
+        )
+    }
+    &&& (leaf, subleaf) == (0x16, 0) && leaf <= model.max_basic_leaf ==> result.eax
+        == model.base_mhz
     &&& CpuFeature::variants().all(
         |feature: CpuFeature|
             feature.query() == (leaf, subleaf) && leaf <= model.max_basic_leaf ==> model.supports(
@@ -140,7 +163,7 @@ pub assume_specification[ x86::cpuid::native_cpuid::cpuid_count ](
 ;
 
 /// Every query in a batch agrees with the model built from `reference` when the
-/// observed CPU reports the same maximum basic leaf and modeled feature bits.
+/// observed CPU reports the same maximum basic leaf and modeled fields of supported leaves.
 /// The same reference can be used for observations from any CPU or time.
 pub proof fn lemma_cpuid_model_admits(
     reference: spec_fn((u32, u32)) -> CpuidResult,
@@ -149,6 +172,12 @@ pub proof fn lemma_cpuid_model_admits(
 )
     requires
         observed((0, 0)).eax == reference((0, 0)).eax,
+        0x15 <= reference((0, 0)).eax ==> {
+            let ref_tsc = reference((0x15, 0));
+            let obs_tsc = observed((0x15, 0));
+            (obs_tsc.eax, obs_tsc.ebx, obs_tsc.ecx) == (ref_tsc.eax, ref_tsc.ebx, ref_tsc.ecx)
+        },
+        0x16 <= reference((0, 0)).eax ==> observed((0x16, 0)).eax == reference((0x16, 0)).eax,
         CpuFeature::variants().all(
             |feature: CpuFeature|
                 feature.query().0 <= reference((0, 0)).eax ==> feature.bit_set_in(
