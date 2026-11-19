@@ -12,9 +12,12 @@ use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners:
 use super::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
-    frame::meta::{
-        AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-        mapping::meta_to_frame,
+    frame::{
+        MockFrameMeta,
+        meta::{
+            AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED, mapping::meta_to_frame,
+        },
     },
     kspace::FRAME_METADATA_RANGE,
 };
@@ -46,8 +49,96 @@ pub struct StoredPageTablePageMeta {
 pub enum MetaSlotStorage {
     Empty([u8; 39]),
     Untyped,
+    U32Frame(U32FrameMeta),
+    Mock(MockFrameMeta),
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
+}
+
+} // verus!
+macro_rules! impl_u32_frame_meta_repr {
+    ($meta:ident, $variant:ident, $field:ident) => {
+        verus! {
+            impl Inv for $meta {
+                open spec fn inv(self) -> bool {
+                    true
+                }
+            }
+
+            impl OwnerOf for $meta {
+                type Owner = Self;
+
+                open spec fn wf(self, owner: Self) -> bool {
+                    self == owner
+                }
+            }
+
+            impl Repr<MetaSlotStorage> for $meta {
+                open spec fn wf(r: MetaSlotStorage) -> bool {
+                    r is $variant
+                }
+
+                fn to_repr(self) -> MetaSlotStorage {
+                    MetaSlotStorage::$variant(self)
+                }
+
+                open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
+                    r->$field
+                }
+
+                fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
+                    match r {
+                        MetaSlotStorage::$variant(meta) => meta,
+                        _ => unreachable!(),
+                    }
+                }
+
+                fn from_borrowed_mut<'a>(r: &'a mut MetaSlotStorage) -> &'a mut Self {
+                    match r {
+                        MetaSlotStorage::$variant(meta) => meta,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        }
+    };
+}
+
+verus! {
+
+/// Concrete metadata carrying one u32 value for an untyped frame.
+#[derive(Debug, Default)]
+// Keep nested link metadata within the fixed slot layout.
+#[repr(C, packed)]
+pub struct U32FrameMeta {
+    pub value: u32,
+}
+
+} // verus!
+impl_u32_frame_meta_repr!(U32FrameMeta, U32Frame, U32Frame_0);
+impl_u32_frame_meta_repr!(MockFrameMeta, Mock, Mock_0);
+
+verus! {
+
+// SAFETY: The default `on_drop` callback does not access frame memory.
+unsafe impl AnyFrameMeta for U32FrameMeta {
+    uninterp spec fn vtable_ptr(&self) -> usize;
+
+    fn is_untyped(&self) -> bool
+        returns
+            true,
+    {
+        true
+    }
+}
+
+impl crate::mm::frame::untyped::AnyUFrameMeta for U32FrameMeta {
+
+}
+
+// SAFETY: The default `on_drop` callback does not access frame memory.
+unsafe impl AnyFrameMeta for MockFrameMeta {
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
 impl MetaSlotStorage {

@@ -608,7 +608,13 @@ impl<'a> VmWriter<'a, Infallible> {
                 Err(_) => {
                     *old(self) == *final(self)
                 },
-            }
+            },
+        returns
+            if old(self).avail() < core::mem::size_of::<T>() {
+                Err(Error::InvalidArgs)
+            } else {
+                Ok(())
+            },
     )]
     pub fn write_once<T: PodOnce>(&mut self, new_val: &T) -> Result<()> {
         if self.avail() < core::mem::size_of::<T>() {
@@ -1143,8 +1149,16 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            r matches Ok(collected) ==> collected.len() == old(self).remain(),
-            r is Err ==> *final(self) == *old(self),
+            match r {
+                Ok(collected) => {
+                    &&& collected.len() == old(self).remain()
+                    &&& final(self).cursor == old(self).end
+                },
+                Err(err) => {
+                    &&& err == Error::PageFault
+                    &&& *final(self) == *old(self)
+                },
+            },
     )]
     pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
         let len = self.remain();
@@ -1921,6 +1935,11 @@ impl<'a> VmWriter<'a, Fallible> {
                 &&& n <= old(self).avail()
                 &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
             },
+            r matches Ok(n) ==> n == vstd::math::min(len as int, old(self).avail() as int),
+            r matches Err((err, n)) ==> {
+                &&& err == Error::PageFault
+                &&& n < vstd::math::min(len as int, old(self).avail() as int)
+            },
     )]
     pub fn fill_zeros(&mut self, len: usize) -> core::result::Result<usize, (Error, usize)> {
         let len_to_set = self.avail().min(len);
@@ -2128,6 +2147,10 @@ macro_rules! impl_read_fallible {
                         &&& n <= old(writer).avail()
                         &&& r is Ok ==> n == vstd::math::min(old(self).remain() as int, old(writer).avail() as int)
                     },
+                    r matches Err((err, n)) ==> {
+                        &&& err == Error::PageFault
+                        &&& n < vstd::math::min(old(self).remain() as int, old(writer).avail() as int)
+                    },
             )]
             fn read_fallible(
                 &mut self,
@@ -2182,6 +2205,10 @@ macro_rules! impl_write_fallible {
                         &&& n <= old(self).avail()
                         &&& n <= old(reader).remain()
                         &&& r is Ok ==> n == vstd::math::min(old(self).avail() as int, old(reader).remain() as int)
+                    },
+                    r matches Err((err, n)) ==> {
+                        &&& err == Error::PageFault
+                        &&& n < vstd::math::min(old(self).avail() as int, old(reader).remain() as int)
                     },
             )]
             fn write_fallible(

@@ -597,6 +597,7 @@ impl<T, const TOTAL: usize> CountResource<T, TOTAL> {
             self.id() == frac.id(),
         ensures
             self.resource() == frac.resource(),
+            !self.is_resource_vacant(),
     {
         use_type_invariant(self);
         use_type_invariant(frac);

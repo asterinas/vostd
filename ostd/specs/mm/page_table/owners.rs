@@ -659,14 +659,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
         // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
-        assert forall|i: int|
-            #![trigger owner.has_child(i)]
-            0 <= i < NR_ENTRIES implies Self::pt_edge_at(owner, i) && PageTableOwner(
-            owner.child(i),
-        ).pt_inv_at_depth((depth - 1) as nat) by {
-            let child = owner.child(i);
-            assert(owner.has_child(i));
-            PageTableOwner(child).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
+        assert(PageTableOwner(owner).pt_inv_at_depth(depth)) by {
+            reveal(PageTableOwner::pt_inv_at_depth);
+            assert forall|i: int|
+                #![trigger owner.has_child(i)]
+                0 <= i < NR_ENTRIES implies Self::pt_edge_at(owner, i) && PageTableOwner(
+                owner.child(i),
+            ).pt_inv_at_depth((depth - 1) as nat) by {
+                let child = owner.child(i);
+                assert(owner.has_child(i));
+                PageTableOwner(child).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
+            };
         };
         // Unfold the parent after establishing the opaque child invariants.
         reveal(PageTableOwner::pt_inv_at_depth);

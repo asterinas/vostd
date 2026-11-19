@@ -270,7 +270,7 @@ Send + Sync {
     spec fn vtable_ptr(&self) -> usize where Self: Sized;
 }
 
-/*/// Makes a structure usable as a frame metadata.
+/// Makes a structure usable as a frame metadata.
 #[macro_export]
 macro_rules! impl_frame_meta_for {
     // Implement without specifying the drop behavior.
@@ -287,7 +287,7 @@ macro_rules! impl_frame_meta_for {
     };
 }
 
-pub use impl_frame_meta_for;*/
+pub use impl_frame_meta_for;
 
 /// The error type for getting the frame from a physical address.
 #[derive(Debug)]
