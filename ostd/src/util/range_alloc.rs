@@ -11,7 +11,6 @@ use vstd::{
         ghost_var::{GhostVar, GhostVarAuth},
         set::GhostSetAuth,
     },
-    seq_lib::lemma_seq_contains_after_push,
     std_specs::btree::{
         CursorMutModel, before_lower_bound, before_upper_bound, btree_map_wf,
         positioned_at_lower_bound, positioned_at_upper_bound,
@@ -256,7 +255,6 @@ impl RangeAllocator {
             let tracked updated_snapshot: Option<FreeSnapshot>;
             let ghost initial_map = lock_guard@->0@;
             let ghost initial_freelist = freelist_model(initial_map);
-            let ghost mut checked = Set::<(usize, FreeRange)>::empty();
         }
         let freelist = lock_guard.as_mut().unwrap();
         let mut target_node = None;
@@ -281,14 +279,10 @@ impl RangeAllocator {
                 },
             invariant_except_break
                 target_node is None,
-                checked == it.seq()[..it.index()].unref().to_set(),
-                it.index() == it.seq().len() ==> checked == it.seq().unref().to_set(),
-                forall|entry: (usize, FreeRange)|
-                    #![trigger checked.contains(entry)]
-                    checked.contains(entry) ==> !block_contains(
-                        entry.1.block,
-                        *allocate_range,
-                    ),
+                it.seq()[..it.index()].unref().all(
+                    |entry: (usize, FreeRange)| !block_contains(entry.1.block, *allocate_range),
+                ),
+                it.index() == it.seq().len() ==> it.seq()[..it.index()] == it.seq(),
             ensures
                 target_node is None ==> forall|entry: (usize, FreeRange)|
                     #![trigger freelist@.kv_pairs().contains(entry)]
@@ -306,20 +300,12 @@ impl RangeAllocator {
             }
             proof! {
                 let ghost entry = (*key, *value);
-                checked = checked.insert(entry);
-                assert(it.seq()[..it.index() + 1].unref() ==
-                    it.seq()[..it.index()].unref().push(entry));
-                assert(checked == it.seq()[..it.index() + 1].unref().to_set()) by {
-                    assert forall|candidate: (usize, FreeRange)|
-                        checked.contains(candidate) <==>
-                            it.seq()[..it.index() + 1].unref().to_set().contains(candidate) by {
-                        lemma_seq_contains_after_push(
-                            it.seq()[..it.index()].unref(),
-                            entry,
-                            candidate,
-                        );
-                    }
-                }
+                let ghost prefix = it.seq()[..it.index()].unref();
+                assert(it.seq()[..it.index() + 1].unref() == prefix.push(entry));
+                prefix.lemma_all_push(
+                    |entry: (usize, FreeRange)| !block_contains(entry.1.block, *allocate_range),
+                    entry,
+                );
                 if it.index() + 1 == it.seq().len() {
                     assert(it.seq()[..it.index() + 1] == it.seq());
                 }

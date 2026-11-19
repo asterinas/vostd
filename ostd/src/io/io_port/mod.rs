@@ -118,7 +118,6 @@ impl<T, A> IoPort<T, A> {
                 &&& io_port@ == port
                 &&& !io_port.is_overlapping()
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= MAX_IO_PORT + 1
             },
     )]
     pub fn acquire(port: u16) -> Result<IoPort<T, A>> {
@@ -143,7 +142,6 @@ impl<T, A> IoPort<T, A> {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping()
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= MAX_IO_PORT + 1
             },
     )]
     pub fn acquire_overlapping(port: u16) -> Result<IoPort<T, A>> {

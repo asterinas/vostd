@@ -156,7 +156,6 @@ impl IoPortAllocator {
                 &&& io_port@ == port
                 &&& io_port.is_overlapping() == is_overlapping
                 &&& io_port.is_allocated()
-                &&& port + size_of::<T>() <= MAX_IO_PORT + 1
             },
     )]
     pub(super) fn acquire<T, A>(&self, port: u16, is_overlapping: bool) -> Option<IoPort<T, A>> {

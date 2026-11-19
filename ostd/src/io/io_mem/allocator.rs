@@ -4,7 +4,7 @@ use vstd::{arithmetic::power2::is_pow2, prelude::*, resource::Loc};
 use vstd_extra::{
     once::OnceImpl,
     panic::allowed_to_panic_if,
-    range::{RangeExtraFns, lemma_ranges_disjoint, ranges_disjoint, ranges_separated},
+    range::{RangeExtraFns, ranges_separated},
     resource::flags::{OneShotPending, OneShotSet},
     resource_invariant::TrivialResourceInvariant,
     sum::Sum,
@@ -60,7 +60,6 @@ impl IoMemAllocator {
         proof! {
             broadcast use lemma_any_index;
             use_type_invariant(self);
-            lemma_windows_disjoint(self.allocators@);
         }
         proof_decl! {
             let tracked allocation_output: (Option<FreePermit>, Option<FreeSnapshot>);
@@ -111,8 +110,6 @@ impl IoMemAllocator {
         with
             Tracked(allocated): Tracked<FreePermit>,
         requires
-            range.start < range.end,
-            self.covers_range(range),
             allocated.range() == range,
             self.has_allocation(allocated.id(), range),
     )]
@@ -120,7 +117,6 @@ impl IoMemAllocator {
         proof! {
             broadcast use lemma_any_index;
             use_type_invariant(self);
-            lemma_windows_disjoint(self.allocators@);
         }
         let allocator = find_allocator(&self.allocators, &range).unwrap();
 
@@ -173,7 +169,7 @@ impl IoMemAllocatorBuilder {
     #[verus_spec(ret =>
         with -> state: Tracked<IoMemBuilderState>,
         requires
-            ranges_disjoint(ranges@),
+            ranges_separated(ranges@),
             ranges@.all(|range: Range<usize>| range.start <= range.end),
         ensures
             ret@ == ranges@,
@@ -194,9 +190,6 @@ impl IoMemAllocatorBuilder {
                 snapshots: Seq::tracked_empty(),
             };
         }
-        proof! {
-            lemma_ranges_disjoint(ranges@);
-        }
         #[verus_spec(it =>
             invariant
                 allocators@.len() == it.index(),
@@ -204,7 +197,6 @@ impl IoMemAllocatorBuilder {
                     &&& allocators@[j]@.start == it.seq()[j].start
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
-                ranges_disjoint(it.seq()),
                 ranges_separated(it.seq()),
                 it.seq().all(|range: Range<usize>| range.start <= range.end),
                 windows_disjoint(allocators@),
@@ -213,7 +205,6 @@ impl IoMemAllocatorBuilder {
                     0 <= i < it.index() ==> state.snapshots[i]@ == it.seq()[i].view_set(),
         )]
         for range in ranges {
-            proof! { lemma_windows_disjoint(allocators@); }
             proof_decl! {
                 let tracked snapshot: FreeSnapshot;
             }
@@ -230,16 +221,7 @@ impl IoMemAllocatorBuilder {
                     assert(it.seq()[i].end <= it.seq()[it.index()].start
                         || it.seq()[it.index()].end <= it.seq()[i].start);
                 }
-                let windows = allocators@.map_values(|allocator: RangeAllocator| allocator@);
-                assert forall|i: int, j: int| #![trigger windows[i], windows[j]]
-                    0 <= i < j < windows.len()
-                    implies windows[i].end <= windows[j].start
-                        || windows[j].end <= windows[i].start by {
-                    assert(allocators@[i]@.end <= allocators@[j]@.start
-                        || allocators@[j]@.end <= allocators@[i]@.start);
-                }
-                assert(ranges_separated(windows));
-                lemma_ranges_disjoint(windows);
+                assert(windows_disjoint(allocators@));
             }
         }
         proof! {
@@ -288,7 +270,6 @@ impl IoMemAllocatorBuilder {
 
         proof_decl! {
             use_type_invariant(self);
-            lemma_windows_disjoint(self.allocators@);
             let ghost index = choose|i: int| #[trigger] self.allocators@[i] == *allocator
                 && 0 <= i < self.allocators@.len();
             if self.can_remove(before, range) {
@@ -356,7 +337,10 @@ impl IoMemBuilderState {
 /// The MMIO windows are pairwise disjoint, so the first overlapping window found by
 /// `find_allocator` is the window containing a registered range, regardless of window order.
 closed spec fn windows_disjoint(allocators: Seq<RangeAllocator>) -> bool {
-    ranges_disjoint(allocators.map_values(|allocator: RangeAllocator| allocator@))
+    forall|i: int, j: int|
+        #![trigger allocators[i], allocators[j]]
+        0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
+            || allocators[j]@.end <= allocators[i]@.start
 }
 
 /// The abstract MMIO windows registered by platform boot code.
@@ -415,11 +399,6 @@ impl IoMemAllocatorBuilder {
 }
 
 impl IoMemAllocator {
-    /// Whether these local windows match the boot-time MMIO registry.
-    pub closed spec fn has_registered_windows(self) -> bool {
-        windows_match_registered(self.allocators@)
-    }
-
     /// Whether `id` is the allocation-token identity of a window containing `range`.
     pub closed spec fn has_allocation(self, id: Loc, range: Range<usize>) -> bool {
         self.allocators@.any(
@@ -610,7 +589,7 @@ mod test {
         let range = vec![io_mem_region_a.clone(), io_mem_region_b.clone()];
 
         proof! {
-            super::lemma_ranges_disjoint(range@);
+            assert(super::ranges_separated(range@));
         }
         proof_decl! {
             let tracked builder_state: super::IoMemBuilderState;
@@ -742,26 +721,6 @@ broadcast proof fn lemma_any_index<A>(seq: Seq<A>, predicate: spec_fn(A) -> bool
     if exists|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]) {
         let i = choose|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]);
         assert(predicate(seq[i]));
-    }
-}
-
-/// Exposes endpoint separation directly on allocator views for lookup proofs.
-proof fn lemma_windows_disjoint(allocators: Seq<RangeAllocator>)
-    requires
-        windows_disjoint(allocators),
-    ensures
-        forall|i: int, j: int|
-            #![trigger allocators[i], allocators[j]]
-            0 <= i < j < allocators.len() ==> allocators[i]@.end <= allocators[j]@.start
-                || allocators[j]@.end <= allocators[i]@.start,
-{
-    let ranges = allocators.map_values(|allocator: RangeAllocator| allocator@);
-    lemma_ranges_disjoint(ranges);
-    assert forall|i: int, j: int|
-        #![trigger allocators[i], allocators[j]]
-        0 <= i < j < allocators.len() implies allocators[i]@.end <= allocators[j]@.start
-        || allocators[j]@.end <= allocators[i]@.start by {
-        assert(ranges[i].end <= ranges[j].start || ranges[j].end <= ranges[i].start);
     }
 }
 
