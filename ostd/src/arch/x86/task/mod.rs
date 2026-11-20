@@ -4,7 +4,7 @@
 //! # Verified Properties
 //!
 //! Verus verifies the Rust register accessors and trusts `switch.S`.
-use vstd::prelude::*;
+use vstd::{prelude::*, raw_ptr::PointsTo};
 
 use crate::task::TaskContextApi;
 
@@ -153,8 +153,6 @@ extern "C" {
 
 #[cfg(verus_keep_ghost)]
 verus! {
-
-use vstd::raw_ptr::PointsTo;
 
 pub(crate) assume_specification[ context_switch ](
     cur: *mut TaskContext,
