@@ -7,9 +7,7 @@
 //! However, one can verify that if `acquire` succeeds, then acquiring a second overlapping range will fail.
 use vstd::{arithmetic::power2::is_pow2, modes::tracked_swap, prelude::*, resource::Loc};
 use vstd_extra::{
-    once::OnceImpl,
-    panic::allowed_to_panic_if,
-    range::ranges_separated,
+    once::OnceImpl, panic::allowed_to_panic_if, range::ranges_separated,
     resource_invariant::TrivialResourceInvariant,
 };
 
@@ -58,7 +56,6 @@ impl IoMemAllocator {
     pub fn acquire(&self, range: Range<usize>) -> Option<IoMem> {
         proof! {
             broadcast use lemma_any_index;
-            use_type_invariant(self);
         }
         proof_decl! {
             let tracked mut allocated: Option<FreePermit>;
@@ -174,12 +171,9 @@ impl IoMemAllocatorBuilder {
                     assert(it.seq()[i].end <= it.seq()[it.index()].start
                         || it.seq()[it.index()].end <= it.seq()[i].start);
                 }
-                assert(windows_disjoint(allocators@));
             }
         }
         proof! {
-            assert(allocators@.map_values(|allocator: RangeAllocator| allocator@)
-                =~= ranges@);
             if usize_ranges_match_registered(ranges@) {
                 assert(ranges@ =~= registered_io_mem_windows());
             }
@@ -399,9 +393,6 @@ mod test {
             (io_mem_region_a.end + PAGE_SIZE)..(io_mem_region_a.end + 10 * PAGE_SIZE);
         let range = vec![io_mem_region_a.clone(), io_mem_region_b.clone()];
 
-        proof! {
-            assert(super::ranges_separated(range@));
-        }
         let allocator =
             unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
 
@@ -448,7 +439,6 @@ broadcast proof fn lemma_any_index<A>(seq: Seq<A>, predicate: spec_fn(A) -> bool
 {
     if exists|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]) {
         let i = choose|i: int| 0 <= i < seq.len() && predicate(#[trigger] seq[i]);
-        assert(predicate(seq[i]));
     }
 }
 

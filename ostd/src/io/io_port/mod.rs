@@ -265,10 +265,6 @@ impl<T, A> IoPort<T, A> {
         proof! {
             use_type_invariant(&self);
             let claim = self.tracked_claim@.unwrap()@;
-            assert(claim.contains(self@ as usize));
-            assert(!self.is_overlapping() ==> claim.contains(
-                (self@ + size_of::<T>() - 1) as usize,
-            ));
         }
         let port = self.port as usize;
         let range = if !self.is_overlapping {
