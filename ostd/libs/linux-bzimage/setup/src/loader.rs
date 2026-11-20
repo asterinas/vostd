@@ -31,13 +31,15 @@ use xmas_elf::program::{ProgramHeader, SegmentData};
             }
         },
     ensures
-        final(loaded)@.len() == elf_program_headers(&elf_parse_result(file)->Ok_0).len(),
-        forall|i: int| 0 <= i < final(loaded)@.len() ==>
-            header_initialized(
-                elf_program_headers(&elf_parse_result(file)->Ok_0)[i],
-                file@,
-                #[trigger] final(loaded)@[i],
-            ),
+        elf_parse_result(file) matches Ok(parsed) ==> {
+            &&& final(loaded)@.len() == elf_program_headers(&parsed).len()
+            &&& forall|i: int| 0 <= i < final(loaded)@.len() ==>
+                header_initialized(
+                    elf_program_headers(&parsed)[i],
+                    file@,
+                    #[trigger] final(loaded)@[i],
+                )
+        },
 )]
 pub fn load_elf(file: &[u8]) {
     let elf = xmas_elf::ElfFile::new(file).unwrap();

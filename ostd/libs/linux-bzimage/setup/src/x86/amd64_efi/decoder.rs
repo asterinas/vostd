@@ -148,7 +148,7 @@ impl TryFromSpecImpl<&[u8]> for MagicNumber {
 }
 
 /// Raw ELF bytes pass through; compressed payloads require successful decoding.
-pub closed spec fn decoded_payload(payload: Seq<u8>) -> Option<Seq<u8>> {
+pub open spec fn decoded_payload(payload: Seq<u8>) -> Option<Seq<u8>> {
     if payload.len() >= 4 && payload[..4] == seq![0x7fu8, 0x45u8, 0x4cu8, 0x46u8] {
         Some(payload)
     } else if payload.len() >= 2 && payload[..2] == seq![0x1fu8, 0x8bu8] {
