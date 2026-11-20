@@ -38,6 +38,7 @@ pub struct IoPort<T, A> {
     value_marker: PhantomData<T>,
     access_marker: PhantomData<A>,
     // Erased allocator ownership; statically reserved ports carry no claim.
+    #[cfg(verus_keep_ghost_body)]
     tracked_claim: Tracked<Option<GhostSubset<usize>>>,
 }
 
@@ -185,12 +186,12 @@ impl<T, A> IoPort<T, A> {
             !ret.is_overlapping(),
     )]
     pub(crate) const unsafe fn new(port: u16) -> Self {
+        proof_with!{ tracked_claim: Tracked(None)}
         Self {
             port,
             is_overlapping: false,
             value_marker: PhantomData,
             access_marker: PhantomData,
-            tracked_claim: verus_exec_expr! { Tracked(None) },
         }
     }
 
@@ -228,12 +229,12 @@ impl<T, A> IoPort<T, A> {
             ret.is_allocated(),
     )]
     unsafe fn new_overlapping(port: u16, is_overlapping: bool) -> Self {
+        proof_with!{ tracked_claim: Tracked(Some(claim))}
         Self {
             port,
             is_overlapping,
             value_marker: PhantomData,
             access_marker: PhantomData,
-            tracked_claim: verus_exec_expr! { Tracked(Some(claim)) },
         }
     }
 
