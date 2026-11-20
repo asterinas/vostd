@@ -97,16 +97,6 @@ impl IoPortAllocation {
     {
         self.auth.delete(claim);
     }
-
-    /// Certifies `claim@ <= self.value()` (the claim's ids are currently allocated).
-    pub proof fn lemma_claim_includes(tracked &self, tracked claim: &GhostSubset<usize>)
-        requires
-            claim.id() == self.instance_id(),
-        ensures
-            claim@ <= self.value(),
-    {
-        claim.agree(&self.auth);
-    }
 }
 
 ghost struct IoPortAllocInvariant;
@@ -164,7 +154,10 @@ impl IoPortAllocator {
         }
         /* Verus does not support the generic inline const block used upstream. */
         let max_io_port_for_t = /* const */ {
+            // In practice, the only valid types for the `T` parameter are
+            // `u8`, `u16`, and `u32`.
             assert!(1 <= size_of::<T>() && size_of::<T>() <= 4);
+            // Compile-time calculation. No worry about integer overflow at runtime.
             MAX_IO_PORT as usize + 1 - size_of::<T>()
         };
         let port = port as usize;
@@ -403,7 +396,7 @@ impl IoPortAllocator {
         }
         proof! {
             let tracked r = allocator.tracked_borrow_mut_resource();
-            r.lemma_claim_includes(&claim);
+            claim.agree(&r.auth);
             assert(Set::<usize>::range(range.start, range.end) <= r.value());
             assert(r.value() == preserved);
             assert(Set::<usize>::range(range.start, range.end) <= preserved);

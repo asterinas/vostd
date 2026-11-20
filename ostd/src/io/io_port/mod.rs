@@ -92,9 +92,8 @@ impl<T, A> IoPort<T, A> {
 } // verus!
 /// Returns the initialized global PIO allocator.
 ///
-/// The executable body intentionally preserves the original `get().unwrap()` behavior. This
-/// helper is trusted only because Verus cannot connect an `exec static` to a spec-level boot-state
-/// predicate.
+/// This helper is trusted only because Verus cannot connect an `exec static` to 
+/// a spec-level boot-state predicate.
 #[verifier::external_body]
 #[verus_spec(
     requires allocator::io_port_allocator_initialized(),
