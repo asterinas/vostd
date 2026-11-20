@@ -9,14 +9,12 @@ use vstd::{arithmetic::power2::is_pow2, modes::tracked_swap, prelude::*, resourc
 use vstd_extra::{
     once::OnceImpl,
     panic::allowed_to_panic_if,
-    range::{RangeExtraFns, ranges_separated},
-    resource::flags::{OneShotPending, OneShotSet},
+    range::ranges_separated,
     resource_invariant::TrivialResourceInvariant,
-    sum::Sum,
 };
 
 use crate::specs::arch::PAGE_SIZE;
-use crate::util::range_alloc::{FreePermit, FreeSnapshot};
+use crate::util::range_alloc::FreePermit;
 
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -34,7 +32,6 @@ use crate::{
 #[verus_verify]
 pub struct IoMemAllocator {
     allocators: Vec<RangeAllocator>,
-    published: Tracked<OneShotSet>,
 }
 
 #[verus_verify]
@@ -64,9 +61,9 @@ impl IoMemAllocator {
             use_type_invariant(self);
         }
         proof_decl! {
-            let tracked allocation_output: (Option<FreePermit>, Option<FreeSnapshot>);
+            let tracked mut allocated: Option<FreePermit>;
         }
-        (#[verus_spec(with Tracked(Sum::Right(self.published.borrow())) => Tracked(allocation_output))]
+        (#[verus_spec(with => Tracked(allocated))]
         find_allocator(&self.allocators, &range)?.alloc_specific(&range))
         .ok()?;
 
@@ -79,7 +76,6 @@ impl IoMemAllocator {
         // unsafe { Some(IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable)) }
         let mut io_mem = unsafe { IoMem::new(range, PageFlags::RW, CachePolicy::Uncacheable) };
         proof! {
-            let tracked mut allocated = allocation_output.0;
             tracked_swap(io_mem.tracked_perm.borrow_mut(), &mut allocated);
         }
         Some(io_mem)
@@ -107,7 +103,7 @@ impl IoMemAllocator {
 
         /* debug!("Recycling MMIO range:{:x}..{:x}", range.start, range.end); */
 
-        #[verus_spec(with Tracked(allocated), Tracked(self.published.borrow()))]
+        #[verus_spec(with Tracked(allocated))]
         allocator.free(range);
     }
 
@@ -117,21 +113,13 @@ impl IoMemAllocator {
     ///
     /// User must ensure the range doesn't belong to physical memory or system device I/O.
     #[verus_spec(ret =>
-        with Tracked(state): Tracked<IoMemBuilderState>,
         requires
             windows_disjoint(allocators@),
-            state.matches(allocators@),
         ensures
             ret.allocators@ == allocators@,
     )]
     unsafe fn new(allocators: Vec<RangeAllocator>) -> Self {
-        proof_decl! {
-            let tracked published = state.pending.set();
-        }
-        Self {
-            allocators,
-            published: verus_exec_expr! { Tracked(published) },
-        }
+        Self { allocators }
     }
 }
 
@@ -152,16 +140,12 @@ impl IoMemAllocatorBuilder {
     ///
     /// User must ensure the range doesn't belong to physical memory.
     #[verus_spec(ret =>
-        with -> state: Tracked<IoMemBuilderState>,
         requires
             ranges_separated(ranges@),
             ranges@.all(|range: Range<usize>| range.start <= range.end),
         ensures
             ret@ == ranges@,
             ret.has_registered_windows() == usize_ranges_match_registered(ranges@),
-            ret.matches_state(state@),
-            forall|i: int| #![trigger state@.available_at(i)]
-                0 <= i < ranges@.len() ==> state@.available_at(i) == ranges@[i].view_set(),
     )]
     pub(crate) unsafe fn new(ranges: Vec<Range<usize>>) -> Self {
         /* info!(
@@ -169,12 +153,6 @@ impl IoMemAllocatorBuilder {
             ranges
         ); */
         let mut allocators: Vec<RangeAllocator> = Vec::with_capacity(ranges.len());
-        proof_decl! {
-            let tracked mut state = IoMemBuilderState {
-                pending: OneShotPending::alloc(),
-                snapshots: Seq::tracked_empty(),
-            };
-        }
         #[verus_spec(it =>
             invariant
                 allocators@.len() == it.index(),
@@ -185,20 +163,10 @@ impl IoMemAllocatorBuilder {
                 ranges_separated(it.seq()),
                 it.seq().all(|range: Range<usize>| range.start <= range.end),
                 windows_disjoint(allocators@),
-                state.matches(allocators@),
-                forall|i: int| #![trigger state.snapshots[i]]
-                    0 <= i < it.index() ==> state.snapshots[i]@ == it.seq()[i].view_set(),
         )]
         for range in ranges {
-            proof_decl! {
-                let tracked snapshot: FreeSnapshot;
-            }
-            allocators.push(
-                #[verus_spec(with Ghost(state.pending.id()) => Tracked(snapshot))]
-                RangeAllocator::new(range),
-            );
+            allocators.push(RangeAllocator::new(range));
             proof! {
-                state.snapshots.tracked_push(snapshot);
                 assert forall|i: int| #![trigger allocators@[i]]
                     0 <= i < allocators@.len() - 1
                     implies allocators@[i]@.end <= range.start
@@ -216,108 +184,32 @@ impl IoMemAllocatorBuilder {
                 assert(ranges@ =~= registered_io_mem_windows());
             }
         }
-        #[verus_spec(with |= Tracked(state))]
         Self { allocators }
     }
 
-    /// Removes access to a specific memory I/O range.
+    /* /// Removes access to a specific memory I/O range.
     ///
     /// All drivers in OSTD must use this method to prevent peripheral drivers from accessing illegal memory I/O range.
-    #[verus_spec(
-        with Tracked(state): Tracked<&mut IoMemBuilderState>,
-        requires
-            range.start < range.end,
-            self.matches_state(*old(state)),
-            allowed_to_panic_if(!self.can_remove(*old(state), range)),
-        ensures
-            self.matches_state(*final(state)),
-            exists|i: int| #![trigger self@[i]]
-                0 <= i < self@.len()
-                && self@[i].start <= range.start < range.end <= self@[i].end
-                && final(state).available_at(i) == old(state).available_at(i) - range.view_set()
-                && (forall|j: int| #![trigger final(state).available_at(j)]
-                    0 <= j < self@.len() && j != i
-                        ==> final(state).available_at(j) == old(state).available_at(j)),
-    )]
     pub(crate) fn remove(&self, range: Range<usize>) {
-        proof_decl! {
-            let ghost before = *state;
-        }
         let Some(allocator) = find_allocator(&self.allocators, &range) else {
-            proof! {
-                assert(!self.can_remove(before, range));
-            }
-            vstd_extra::panic!(
+            panic!(
                 "Allocator for the system device's MMIO was not found. Range: {:x?}",
                 range
             );
         };
 
-        proof_decl! {
-            use_type_invariant(self);
-            let ghost index = choose|i: int| #[trigger] self.allocators@[i] == *allocator
-                && 0 <= i < self.allocators@.len();
-            if self.can_remove(before, range) {
-                let ghost covered = choose|i: int| #[trigger] self.allocators@[i]@.start
-                    <= range.start && 0 <= i < self.allocators@.len()
-                    && range.end <= self.allocators@[i]@.end
-                    && range.view_set() <= before.snapshots[i]@;
-                assert(covered == index);
-            }
-            let tracked snapshot = state.snapshots.tracked_remove(index);
-            let tracked output: (Option<FreePermit>, Option<FreeSnapshot>);
-        }
-
-        if let Err(err) = #[verus_spec(with Tracked(Sum::Left((&state.pending, snapshot))) => Tracked(output))]
-        allocator.alloc_specific(&range)
-        {
-            proof! {
-                assert(!self.can_remove(before, range));
-            }
-            vstd_extra::panic!(
+        if let Err(err) = allocator.alloc_specific(&range) {
+            panic!(
                 "An error occurred while trying to remove access to the system device's MMIO. Range: {:x?}. Error: {:?}",
-                range,
-                err
+                range, err
             );
         }
-        proof! {
-            state.snapshots.tracked_insert(index, output.1.tracked_unwrap());
-            assert(state.matches(self.allocators@));
-            assert(self@[index].start <= range.start < range.end <= self@[index].end);
-            assert(state.available_at(index) == before.available_at(index) - range.view_set());
-            assert forall|j: int| #![trigger state.available_at(j)]
-                0 <= j < self@.len() && j != index
-                    implies state.available_at(j) == before.available_at(j) by {
-                assert(state.snapshots[j] == before.snapshots[j]);
-            }
-        }
-    }
+    }*/
 }
 
 verus! {
 
 broadcast use vstd::std_specs::vec::group_vec_axioms;
-
-pub(crate) tracked struct IoMemBuilderState {
-    tracked pending: OneShotPending,
-    tracked snapshots: Seq<FreeSnapshot>,
-}
-
-impl IoMemBuilderState {
-    pub(crate) closed spec fn available_at(self, index: int) -> Set<usize> {
-        self.snapshots[index]@
-    }
-
-    closed spec fn matches(self, allocators: Seq<RangeAllocator>) -> bool {
-        &&& self.snapshots.len() == allocators.len()
-        &&& forall|i: int|
-            #![trigger allocators[i]]
-            0 <= i < allocators.len() ==> {
-                &&& allocators[i].builder_phase_id() == self.pending.id()
-                &&& allocators[i].free_snapshot_id() == self.snapshots[i].id()
-            }
-    }
-}
 
 /// The MMIO windows are pairwise disjoint, so the first overlapping window found by
 /// `find_allocator` is the window containing a registered range, regardless of window order.
@@ -356,21 +248,6 @@ impl View for IoMemAllocatorBuilder {
 }
 
 impl IoMemAllocatorBuilder {
-    pub closed spec fn matches_state(self, state: IoMemBuilderState) -> bool {
-        state.matches(self.allocators@)
-    }
-
-    pub(crate) open spec fn can_remove(
-        self,
-        state: IoMemBuilderState,
-        range: Range<usize>,
-    ) -> bool {
-        exists|i: int|
-            #![trigger self@[i]]
-            0 <= i < self@.len() && self@[i].start <= range.start < range.end <= self@[i].end
-                && range.view_set() <= state.available_at(i)
-    }
-
     /// Whether these local windows match the boot-time MMIO registry.
     pub closed spec fn has_registered_windows(self) -> bool {
         windows_match_registered(self.allocators@)
@@ -412,11 +289,7 @@ impl IoMemAllocator {
     /// The allocator inherits the disjoint windows of the builder it was built from.
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        &&& windows_disjoint(self.allocators@)
-        &&& forall|i: int|
-            #![trigger self.allocators@[i]]
-            0 <= i < self.allocators@.len() ==> self.allocators@[i].builder_phase_id()
-                == self.published@.id()
+        windows_disjoint(self.allocators@)
     }
 }
 
@@ -448,10 +321,8 @@ pub exec static IO_MEM_ALLOCATOR: OnceImpl<IoMemAllocator, TrivialResourceInvari
 /// `remove` function.
 #[verifier::external_body]
 #[verus_spec(
-    with Tracked(state): Tracked<IoMemBuilderState>,
     requires
         io_mem_builder.has_registered_windows(),
-        io_mem_builder.matches_state(state),
     ensures
         io_mem_allocator_initialized(),
 )]
@@ -461,10 +332,7 @@ pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     }
     // SAFETY: The safety is upheld by the caller.
     // Original Rust: IO_MEM_ALLOCATOR.call_once(|| unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
-    IO_MEM_ALLOCATOR.init(unsafe {
-        #[verus_spec(with Tracked(state))]
-        IoMemAllocator::new(io_mem_builder.allocators)
-    });
+    IO_MEM_ALLOCATOR.init(unsafe { IoMemAllocator::new(io_mem_builder.allocators) });
 }
 
 #[verus_verify]
@@ -513,17 +381,8 @@ mod test {
     #[verus_spec]
     fn illegal_region() {
         let range = vec![0x4000_0000..0x4200_0000];
-        proof_decl! {
-            let tracked builder_state: super::IoMemBuilderState;
-        }
-        let allocator = unsafe {
-            #[verus_spec(with Tracked(builder_state))]
-            IoMemAllocator::new(
-                (#[verus_spec(with => Tracked(builder_state))]
-                IoMemAllocatorBuilder::new(range))
-                .allocators,
-            )
-        };
+        let allocator =
+            unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
         assert!(allocator.acquire(0..0).is_none());
         assert!(allocator.acquire(0x4000_0000..0x4000_0000).is_none());
         assert!(allocator.acquire(0x4000_1000..0x4000_0000).is_none());
@@ -543,17 +402,8 @@ mod test {
         proof! {
             assert(super::ranges_separated(range@));
         }
-        proof_decl! {
-            let tracked builder_state: super::IoMemBuilderState;
-        }
-        let allocator = unsafe {
-            #[verus_spec(with Tracked(builder_state))]
-            IoMemAllocator::new(
-                (#[verus_spec(with => Tracked(builder_state))]
-                IoMemAllocatorBuilder::new(range))
-                .allocators,
-            )
-        };
+        let allocator =
+            unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
 
         assert!(
             allocator

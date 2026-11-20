@@ -38,28 +38,21 @@ cfg_if!(
 /// 3. `MAX_IO_PORT` defined in `crate::arch::io` is guaranteed not to
 ///    exceed the maximum value specified by architecture.
 #[cfg_attr(target_arch = "x86_64", verus_spec(
-    with Tracked(state): Tracked<io_mem::IoMemBuilderState>,
     requires
         io_mem_builder.has_registered_windows(),
-        io_mem_builder.matches_state(state),
     ensures
         io_mem::io_mem_allocator_initialized(),
         io_port::io_port_allocator_initialized(),
 ))]
 #[cfg_attr(not(target_arch = "x86_64"), verus_spec(
-    with Tracked(state): Tracked<io_mem::IoMemBuilderState>,
     requires
         io_mem_builder.has_registered_windows(),
-        io_mem_builder.matches_state(state),
     ensures
         io_mem::io_mem_allocator_initialized(),
 ))]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
-    unsafe {
-        #[verus_spec(with Tracked(state))]
-        io_mem::allocator::init(io_mem_builder)
-    };
+    unsafe { io_mem::allocator::init(io_mem_builder) };
 
     // SAFETY: The safety is upheld by the caller.
     #[cfg(target_arch = "x86_64")]

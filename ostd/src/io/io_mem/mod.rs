@@ -19,7 +19,7 @@ use core::ops::{Deref, Range};
 use align_ext::AlignExt;
 
 pub(crate) use self::allocator::IoMemAllocatorBuilder;
-pub(super) use self::allocator::{IoMemBuilderState, io_mem_allocator_initialized};
+pub(super) use self::allocator::io_mem_allocator_initialized;
 use crate::{
     Error,
     mm::{
