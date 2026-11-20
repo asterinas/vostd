@@ -8,6 +8,7 @@ use vstd_extra::external::xmas_elf::{
     elf_parse_result, elf_program_headers, elf_program_headers_readable, program_load_bytes,
     program_load_data_readable,
 };
+use xmas_elf::program::Type;
 
 use core::mem::MaybeUninit;
 
@@ -23,7 +24,7 @@ use xmas_elf::program::{ProgramHeader, SegmentData};
                 let ph = #[trigger] elf_program_headers(&elf)[i];
                 ph matches ProgramHeader::Ph64(program) && {
                     &&& ph.get_type() is Ok
-                    &&& ph.get_type() == Ok(xmas_elf::program::Type::Load) ==> {
+                    &&& ph.get_type() == Ok(Type::Load) ==> {
                         &&& program_load_data_readable(&ph, elf.input@)
                         &&& program.file_size <= program.mem_size <= usize::MAX
                     }
@@ -58,7 +59,7 @@ pub fn load_elf(file: &[u8]) {
                 let ph = #[trigger] elf_program_headers(&elf)[i];
                 ph matches ProgramHeader::Ph64(program) && {
                     &&& ph.get_type() is Ok
-                    &&& ph.get_type() == Ok(xmas_elf::program::Type::Load) ==> {
+                    &&& ph.get_type() == Ok(Type::Load) ==> {
                         &&& program_load_data_readable(&ph, elf.input@)
                         &&& program.file_size <= program.mem_size <= usize::MAX
                     }
@@ -91,7 +92,7 @@ pub fn load_elf(file: &[u8]) {
 #[verus_spec(
     with Tracked(loaded): Tracked<&mut Ghost<Seq<MaybeUninit<u8>>>>,
     requires
-        ProgramHeader::Ph64(program).get_type() == Ok(xmas_elf::program::Type::Load),
+        ProgramHeader::Ph64(program).get_type() == Ok(Type::Load),
         program_load_data_readable(&ProgramHeader::Ph64(program), file.input@),
         program.file_size <= program.mem_size <= usize::MAX,
     ensures
@@ -154,7 +155,7 @@ pub open spec fn header_initialized(
 ) -> bool {
     match header {
         ProgramHeader::Ph64(program) => {
-            if header.get_type() == Ok(xmas_elf::program::Type::Load) {
+            if header.get_type() == Ok(Type::Load) {
                 segment_initialized(program, input, loaded)
             } else {
                 loaded == Seq::<MaybeUninit<u8>>::empty()

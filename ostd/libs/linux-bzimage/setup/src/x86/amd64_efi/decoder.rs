@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module is used to decompress payload.
 use vstd::{prelude::*, std_specs::convert::TryFromSpecImpl};
-use vstd_extra::external::libflate::{group_libflate_models, gzip_decoded, zlib_decoded};
+use vstd_extra::external::libflate::{
+    group_libflate_models, gzip_decoded, has_gzip_prefix, has_zlib_prefix, zlib_decoded,
+};
 
 extern crate alloc;
 
@@ -30,15 +32,7 @@ pub struct InvalidMagicNumber;
 impl TryFrom<&[u8]> for MagicNumber {
     type Error = InvalidMagicNumber;
 
-    #[verus_spec(result =>
-        ensures
-            result matches Ok(MagicNumber::Elf) <==>
-                slice@.len() >= 4 && slice@[..4] == seq![0x7fu8, 0x45u8, 0x4cu8, 0x46u8],
-            result matches Ok(MagicNumber::Gzip) <==>
-                slice@.len() >= 2 && slice@[..2] == seq![0x1fu8, 0x8bu8],
-            result matches Ok(MagicNumber::Zlib) <==>
-                slice@.len() >= 2 && slice@[..2] == seq![0x78u8, 0x9cu8],
-    )]
+    #[verus_spec(returns magic_number(slice@))]
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
         proof! {
 
@@ -135,28 +129,29 @@ impl TryFromSpecImpl<&[u8]> for MagicNumber {
     }
 
     open spec fn try_from_spec(slice: &[u8]) -> Result<Self, Self::Error> {
-        if slice@.len() >= 4 && slice@[..4] == seq![0x7fu8, 0x45u8, 0x4cu8, 0x46u8] {
-            Ok(Self::Elf)
-        } else if slice@.len() >= 2 && slice@[..2] == seq![0x1fu8, 0x8bu8] {
-            Ok(Self::Gzip)
-        } else if slice@.len() >= 2 && slice@[..2] == seq![0x78u8, 0x9cu8] {
-            Ok(Self::Zlib)
-        } else {
-            Err(InvalidMagicNumber)
-        }
+        magic_number(slice@)
+    }
+}
+
+pub open spec fn magic_number(payload: Seq<u8>) -> Result<MagicNumber, InvalidMagicNumber> {
+    if payload.len() >= 4 && payload[..4] == seq![0x7fu8, 0x45u8, 0x4cu8, 0x46u8] {
+        Ok(MagicNumber::Elf)
+    } else if has_gzip_prefix(payload) {
+        Ok(MagicNumber::Gzip)
+    } else if has_zlib_prefix(payload) {
+        Ok(MagicNumber::Zlib)
+    } else {
+        Err(InvalidMagicNumber)
     }
 }
 
 /// Raw ELF bytes pass through; compressed payloads require successful decoding.
 pub open spec fn decoded_payload(payload: Seq<u8>) -> Option<Seq<u8>> {
-    if payload.len() >= 4 && payload[..4] == seq![0x7fu8, 0x45u8, 0x4cu8, 0x46u8] {
-        Some(payload)
-    } else if payload.len() >= 2 && payload[..2] == seq![0x1fu8, 0x8bu8] {
-        gzip_decoded(payload)
-    } else if payload.len() >= 2 && payload[..2] == seq![0x78u8, 0x9cu8] {
-        zlib_decoded(payload)
-    } else {
-        None
+    match magic_number(payload) {
+        Ok(MagicNumber::Elf) => Some(payload),
+        Ok(MagicNumber::Gzip) => gzip_decoded(payload),
+        Ok(MagicNumber::Zlib) => zlib_decoded(payload),
+        Err(_) => None,
     }
 }
 
