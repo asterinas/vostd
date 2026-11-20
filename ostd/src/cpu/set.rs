@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use vstd::{
+    arithmetic::div_mod::lemma_fundamental_div_mod_converse,
     assert_seqs_equal,
     layout::size_of,
     prelude::*,
@@ -298,6 +299,7 @@ impl CpuSet {
                 lemma_u64_nonzero_has_set_bit(seq[idx]);
                 let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(seq[idx], b);
                 let j = 64 * idx + b;
+                lemma_fundamental_div_mod_converse(j, 64, idx, b);
                 assert(bit_at(seq, j));
                 assert(self@.contains(j));
             }

@@ -54,7 +54,7 @@ pub mod cfg_space;
 /*pub mod common_device;*/
 mod device_info;
 
-pub use device_info::{PciDeviceId, PciDeviceLocation};
+pub use device_info::{/* PciDeviceId, */ PciDeviceLocation};
 
 /*
 use self::{bus::PciBus, common_device::PciCommonDevice};
