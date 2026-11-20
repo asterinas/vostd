@@ -103,9 +103,14 @@ pub struct DmaStreamSlice<Dma, M: AnyUFrameMeta + ?Sized> {
 }
 
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<Dma, M> {
+    /// The slice invariant. The extent bounds are arithmetic rather than
+    /// `stream.nbytes()`-relative because `RwArc::wf()` hides the segment size.
     #[verifier::inline]
     open spec fn inv(self) -> bool {
         &&& self.len != 0
+        &&& self.offset + self.len <= usize::MAX
+        &&& self.offset <= usize::MAX - crate::mm::MAX_PADDR
+        &&& Dma::obeys_as_ref_spec()
         &&& self.stream.as_ref_spec().inner.wf()
     }
 }
@@ -152,19 +157,24 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     }
 
     /// Synchronizes the streaming DMA mapping with the device for the slice.
-    #[verifier::external_body]
+    #[verus_spec(r =>
+        requires
+            self.inv(),
+        ensures
+            self.inv(),
+    )]
     #[inline]
     pub fn sync(&self) -> Result<(), Error> where M: OwnerOf {
         self.stream.as_ref().sync(self.offset..self.offset + self.len)
     }
 
-    #[verus_spec(
+    /// Returns the device address of the first byte of the slice.
+    #[verus_spec(r =>
         requires
             self.inv(),
-        returns
-            /* */
+        ensures
+            self.inv(),
     )]
-    #[verifier::external_body]
     #[inline]
     pub fn daddr(&self) -> Daddr where M: OwnerOf {
         self.stream.as_ref().daddr() + self.offset
@@ -726,6 +736,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             self.inner.wf(),
         ensures
             self.inner.wf(),
+            is_valid_daddr(r),
     )]
     pub fn daddr(&self) -> Daddr {
         let inner = self.read_inner();

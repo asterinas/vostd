@@ -97,9 +97,12 @@ pub trait HasDaddr {
     fn daddr(&self) -> Daddr;
 }
 
+/// Whether `d` is a device address. Both the direct and the IOMMU mapping modes
+/// derive it from a physical address of the mapped segment, so it stays within
+/// `MAX_PADDR`.
 #[verifier::inline]
 pub open spec fn is_valid_daddr(d: Daddr) -> bool {
-    true
+    d <= crate::mm::MAX_PADDR
 }
 
 /// Checks whether the physical addresses has dma mapping.
