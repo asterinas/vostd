@@ -381,8 +381,6 @@ impl IoPortAllocator {
             assert(pre_len <= usize::MAX);
             assert(claim.id() == instance_id);
             assert(range.end <= allocator.value()@.len());
-        }
-        proof! {
             let tracked r = allocator.tracked_borrow_mut_resource();
             claim.agree(&r.auth);
             assert(Set::<usize>::range(range.start, range.end) <= r.value());
@@ -402,8 +400,6 @@ impl IoPortAllocator {
                 &&& !(range.start <= id < range.end)
             } by {
             }
-        }
-        proof! {
             assert(allocator.value()@.len() == MAX_IO_PORT + 1);
             assert(allocator.value()@ == pre_seq);
             assert(range.end <= allocator.value()@.len());
@@ -579,6 +575,7 @@ mod test {
 
     type IoPort = crate::io::IoPort<u32, ReadWriteAccess>;
     type ByteIoPort = crate::io::IoPort<u8, ReadWriteAccess>;
+
     // #[ktest]
     #[verus_spec(requires io_port_allocator_initialized())]
     fn illegal_region() {
@@ -599,8 +596,12 @@ mod test {
         assert!(io_port_a.is_ok());
 
         // This allocation will fail because its range conflicts with `io_port_a`.
-        let io_port_b = IoPort::acquire(0x62);
-        proof! { assume(io_port_b is Err); }
+        let mut io_port_b = IoPort::acquire(0x62);
+        proof! {
+            if let Ok(held) = &io_port_a {
+                lemma_conflicting_acquire_fails(held, &mut io_port_b, 0x62);
+            }
+        }
         assert!(io_port_b.is_err());
 
         /* The migrated IoPort uses an explicit ownership-consuming drop method.
@@ -627,10 +628,18 @@ mod test {
         assert!(pci_data.is_ok());
         assert!(rst_ctrl.is_ok());
 
-        let pci_data2 = IoPort::acquire_overlapping(0xcf8);
-        proof! { assume(pci_data2 is Err); }
-        let rst_ctrl2 = ByteIoPort::acquire(0xcf9);
-        proof! { assume(rst_ctrl2 is Err); }
+        let mut pci_data2 = IoPort::acquire_overlapping(0xcf8);
+        proof! {
+            if let Ok(held) = &pci_data {
+                lemma_conflicting_acquire_fails(held, &mut pci_data2, 0xcf8);
+            }
+        }
+        let mut rst_ctrl2 = ByteIoPort::acquire(0xcf9);
+        proof! {
+            if let Ok(held) = &rst_ctrl {
+                lemma_conflicting_acquire_fails(held, &mut rst_ctrl2, 0xcf9);
+            }
+        }
         assert!(pci_data2.is_err());
         assert!(rst_ctrl2.is_err());
 
@@ -656,26 +665,62 @@ mod test {
     #[verus_spec(requires io_port_allocator_initialized())]
     fn last_region() {
         proof! { broadcast use group_io_port_models; }
+        // let io_port = IoPort::acquire(0xfffc).unwrap();
+        // assert!(ByteIoPort::acquire(0xffff).is_err());
+        // drop(io_port);
         let io_port = IoPort::acquire(0xfffc);
         proof! { assume(io_port is Ok); }
-        assert!(io_port.is_ok());
         let io_port = io_port.unwrap();
-        let last = ByteIoPort::acquire(0xffff);
-        proof! { assume(last is Err); }
+        let mut last = ByteIoPort::acquire(0xffff);
+        proof! { lemma_conflicting_acquire_fails(&io_port, &mut last, 0xffff); }
         assert!(last.is_err());
         io_port.drop();
+
+        // let io_port = ByteIoPort::acquire_overlapping(0xffff).unwrap();
+        // assert!(ByteIoPort::acquire(0xffff).is_err());
+        // drop(io_port);
 
         let io_port = ByteIoPort::acquire_overlapping(0xffff);
         proof! { assume(io_port is Ok); }
-        assert!(io_port.is_ok());
         let io_port = io_port.unwrap();
-        let last = ByteIoPort::acquire(0xffff);
-        proof! { assume(last is Err); }
+        let mut last = ByteIoPort::acquire(0xffff);
+        proof! { lemma_conflicting_acquire_fails(&io_port, &mut last, 0xffff); }
         assert!(last.is_err());
         io_port.drop();
 
+        // assert!(ByteIoPort::acquire(0xffff).is_ok());
         let last = ByteIoPort::acquire(0xffff);
         proof! { assume(last is Ok); }
         assert!(last.is_ok());
     }
+
+    verus! {
+
+    proof fn lemma_conflicting_acquire_fails<T, U>(
+        tracked held: &crate::io::IoPort<T, ReadWriteAccess>,
+        tracked result: &mut crate::Result<crate::io::IoPort<U, ReadWriteAccess>>,
+        id: usize,
+    )
+        requires
+            held.is_allocated(),
+            forall|ids| #[trigger] held.claim_matches_set(ids) ==> ids.contains(id),
+            *old(result) matches Ok(candidate) ==> {
+                &&& candidate.is_allocated()
+                &&& forall|ids| #[trigger] candidate.claim_matches_set(ids) ==> ids.contains(id)
+            },
+        ensures
+            *final(result) == *old(result),
+            *final(result) is Err,
+    {
+        if let Ok(candidate) = result {
+            use_type_invariant(held);
+            use_type_invariant(&*candidate);
+            let tracked held_claim = held.tracked_claim.borrow().tracked_borrow();
+            let tracked mut candidate_claim = candidate.tracked_claim.borrow_mut().tracked_take();
+            candidate_claim.disjoint(held_claim);
+            assert(false);
+        }
+    }
+
+    } // verus!
 }
