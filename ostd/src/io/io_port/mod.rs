@@ -92,7 +92,7 @@ impl<T, A> IoPort<T, A> {
 } // verus!
 /// Returns the initialized global PIO allocator.
 ///
-/// This helper is trusted only because Verus cannot connect an `exec static` to 
+/// This helper is trusted only because Verus cannot connect an `exec static` to
 /// a spec-level boot-state predicate.
 #[verifier::external_body]
 #[verus_spec(
@@ -185,7 +185,7 @@ impl<T, A> IoPort<T, A> {
             !ret.is_overlapping(),
     )]
     pub(crate) const unsafe fn new(port: u16) -> Self {
-        proof_with!{ tracked_claim: Tracked(None)}
+        proof_with! { tracked_claim: Tracked(None)}
         Self {
             port,
             is_overlapping: false,
@@ -228,7 +228,7 @@ impl<T, A> IoPort<T, A> {
             ret.is_allocated(),
     )]
     unsafe fn new_overlapping(port: u16, is_overlapping: bool) -> Self {
-        proof_with!{ tracked_claim: Tracked(Some(claim))}
+        proof_with! { tracked_claim: Tracked(Some(claim))}
         Self {
             port,
             is_overlapping,

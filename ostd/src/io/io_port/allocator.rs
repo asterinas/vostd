@@ -174,19 +174,9 @@ impl IoPortAllocator {
         proof_decl! {
             let ghost instance_id = allocator.resource().instance_id();
             let ghost preserved = allocator.resource().value();
-        }
-        proof! {
-            assert(
-                instance_id == io_port_allocator_instance_id()
-                    && allocator.value().inv()
-                    && allocator.value()@.len() == MAX_IO_PORT + 1
-                    && preserved.subset_of(id_alloc_view(&allocator.value()))
-            );
-        }
-        let allocator_inner = &mut *allocator;
-        proof_decl! {
             let tracked range_claim: GhostSubset<usize>;
         }
+        let allocator_inner = &mut *allocator;
         proof_decl! {
             let ghost ids = Set::<usize>::range(range.start, range.end);
             let ghost allocation_start_view = id_alloc_view(&allocator_inner);
