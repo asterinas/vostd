@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Trusted libflate 2.3.2/no_std_io2 0.9.4 models; codec correctness is assumed.
-//! Audited: libflate src/{gzip,zlib,finish}.rs. With `std`, I/O aliases std::io.
+//! Audited libflate sources include src/{gzip,zlib,finish}.rs.
 //! Validity is limited to Vec<u8>, byte slices, and their default codecs.
 use vstd::prelude::*;
 
@@ -136,7 +136,6 @@ pub trait ExWrite {
 
     spec fn writer_state(&self) -> WriterState;
 
-    /// Models codec writes; Vec states only describe their backing sinks.
     fn write_all(&mut self, input: &[u8]) -> (result: Result<(), io::Error>)
         ensures
             writer_model_valid::<Self>() ==> match old(self).writer_state() {
@@ -154,7 +153,10 @@ pub trait ExWrite {
                         plain: plain + input@,
                     }
                 },
-                _ => true,
+                WriterState::Bytes(bytes) => {
+                    &&& result is Ok
+                    &&& final(self).writer_state() == WriterState::Bytes(bytes + input@)
+                },
             },
     ;
 }
@@ -260,7 +262,9 @@ pub trait ExRead {
 
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
-    /// Models successful reads; std allocation errors remain possible.
+    /// libflate 2.3.2 forwards its `std` feature to no_std_io2 0.9.4, which then
+    /// re-exports `std::io`. Its `read_to_end` can return an allocation error
+    /// from `Vec::try_reserve` even when the input decodes successfully.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
             reader_model_valid::<Self>() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
