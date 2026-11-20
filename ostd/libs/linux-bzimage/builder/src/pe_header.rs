@@ -750,6 +750,17 @@ pub(crate) open spec fn pe_section_layout_spec(
     )
 }
 
+/// The four arguments passed by the original helper to its constructor callback.
+closed spec fn pe_section_constructor_args(virtual_addr: usize, mem_size: usize, base: usize) -> (
+    u32,
+    u32,
+    u32,
+    u32,
+) {
+    let layout = pe_section_layout_spec(virtual_addr, mem_size, base);
+    (layout.0, layout.1, layout.0, layout.2)
+}
+
 proof fn lemma_pe_section_layout(addr: usize, size: usize, base: usize)
     requires
         valid_pe_section(addr, size, base),
@@ -769,17 +780,6 @@ proof fn lemma_pe_section_layout(addr: usize, size: usize, base: usize)
         addr as int,
         FILE_ALIGNMENT as int,
     );
-}
-
-/// The four arguments passed by the original helper to its constructor callback.
-closed spec fn pe_section_constructor_args(virtual_addr: usize, mem_size: usize, base: usize) -> (
-    u32,
-    u32,
-    u32,
-    u32,
-) {
-    let layout = pe_section_layout_spec(virtual_addr, mem_size, base);
-    (layout.0, layout.1, layout.0, layout.2)
 }
 
 } // verus!
