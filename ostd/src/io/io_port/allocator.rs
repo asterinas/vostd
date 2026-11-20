@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
-//! //! # Verification Design
+//! # Verification Design
 //! We do not expose ghost tokens representing the permission to allocate a fresh range of I/O ports.
 //! So one cannot verify whether `acquire` will succeed or not.
 //!
