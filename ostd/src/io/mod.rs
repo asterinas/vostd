@@ -52,7 +52,7 @@ cfg_if!(
 ))]
 pub(crate) unsafe fn init(io_mem_builder: IoMemAllocatorBuilder) {
     // SAFETY: The safety is upheld by the caller.
-    unsafe { io_mem::allocator::init(io_mem_builder) };
+    unsafe { io_mem::init(io_mem_builder) };
 
     // SAFETY: The safety is upheld by the caller.
     #[cfg(target_arch = "x86_64")]

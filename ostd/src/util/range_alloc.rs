@@ -633,7 +633,7 @@ struct FreeRange {
 
 #[verus_verify]
 impl FreeRange {
-    #[verus_spec(ret => returns (Self { block: range }))]
+    #[verus_spec(returns (Self { block: range }))]
     const fn new(range: Range<usize>) -> Self {
         Self { block: range }
     }

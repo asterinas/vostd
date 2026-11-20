@@ -64,7 +64,7 @@ impl IoMemAllocator {
         find_allocator(&self.allocators, &range)?.alloc_specific(&range))
         .ok()?;
 
-        // debug!("Acquiring MMIO range:{:x}..{:x}", range.start, range.end);
+        /* debug!("Acquiring MMIO range:{:x?}..{:x?}", range.start, range.end); */
 
         proof! {
             reveal_with_fuel(is_pow2, 13);
