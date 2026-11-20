@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O port allocator.
+//! //! # Verification Design
+//! We do not expose ghost tokens representing the permission to allocate a fresh range of I/O ports.
+//! So one cannot verify whether `acquire` will succeed or not.
+//!
+//! However, one can verify that if `acquire` succeeds, then acquiring a second overlapping range will fail.
 #[cfg(feature = "irc11")]
 use vstd::thread_view::Objective;
 use vstd::{
@@ -643,13 +648,9 @@ mod test {
         assert!(pci_data2.is_err());
         assert!(rst_ctrl2.is_err());
 
-        /* The migrated IoPort uses an explicit ownership-consuming drop method.
-         * Origin Rust: drop(pci_data);
-         */
+        // drop(pci_data);
+        // drop(rst_ctrl);
         pci_data.unwrap().drop();
-        /* The migrated IoPort uses an explicit ownership-consuming drop method.
-         * Origin Rust: drop(rst_ctrl);
-         */
         rst_ctrl.unwrap().drop();
 
         let rst_ctrl3 = ByteIoPort::acquire(0xcf9);
@@ -696,31 +697,31 @@ mod test {
 
     verus! {
 
-    proof fn lemma_conflicting_acquire_fails<T, U>(
-        tracked held: &crate::io::IoPort<T, ReadWriteAccess>,
-        tracked result: &mut crate::Result<crate::io::IoPort<U, ReadWriteAccess>>,
-        id: usize,
-    )
-        requires
-            held.is_allocated(),
-            forall|ids| #[trigger] held.claim_matches_set(ids) ==> ids.contains(id),
-            *old(result) matches Ok(candidate) ==> {
-                &&& candidate.is_allocated()
-                &&& forall|ids| #[trigger] candidate.claim_matches_set(ids) ==> ids.contains(id)
-            },
-        ensures
-            *final(result) == *old(result),
-            *final(result) is Err,
-    {
-        if let Ok(candidate) = result {
-            use_type_invariant(held);
-            use_type_invariant(&*candidate);
-            let tracked held_claim = held.tracked_claim.borrow().tracked_borrow();
-            let tracked mut candidate_claim = candidate.tracked_claim.borrow_mut().tracked_take();
-            candidate_claim.disjoint(held_claim);
-            assert(false);
-        }
+proof fn lemma_conflicting_acquire_fails<T, U>(
+    tracked held: &crate::io::IoPort<T, ReadWriteAccess>,
+    tracked result: &mut crate::Result<crate::io::IoPort<U, ReadWriteAccess>>,
+    id: usize,
+)
+    requires
+        held.is_allocated(),
+        forall|ids| #[trigger] held.claim_matches_set(ids) ==> ids.contains(id),
+        *old(result) matches Ok(candidate) ==> {
+            &&& candidate.is_allocated()
+            &&& forall|ids| #[trigger] candidate.claim_matches_set(ids) ==> ids.contains(id)
+        },
+    ensures
+        *final(result) == *old(result),
+        *final(result) is Err,
+{
+    if let Ok(candidate) = result {
+        use_type_invariant(held);
+        use_type_invariant(&*candidate);
+        let tracked held_claim = held.tracked_claim.borrow().tracked_borrow();
+        let tracked mut candidate_claim = candidate.tracked_claim.borrow_mut().tracked_take();
+        candidate_claim.disjoint(held_claim);
+        assert(false);
     }
+}
 
-    } // verus!
+} // verus!
 }

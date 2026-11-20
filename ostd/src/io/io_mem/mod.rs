@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 //! I/O memory and its allocator that allocates memory I/O (MMIO) to device drivers.
+//!
+//! # Verification Design
+//! Verification follows the intended exclusive ownership model: Multiple `IoMem` instances should not overlap, and
+//！the `Clone` and `IoMem::slice` are disabled.
 use vstd::{arithmetic::power2::is_pow2, prelude::*};
 
 use crate::specs::{
     arch::PAGE_SIZE,
     mm::{io::VmIoOwner, virt_mem::VirtPtr},
 };
+use crate::util::range_alloc::FreePermit;
 
 pub(super) mod allocator;
 
@@ -27,7 +32,10 @@ use crate::{
 };
 
 /// I/O memory.
-#[derive(Debug, Clone)]
+/* Exclusive ownership does not allow `Clone`
+ * Origin Rust: #[derive(Debug, Clone)]
+ */
+#[derive(Debug)]
 #[verus_verify]
 pub struct IoMem {
     kvirt_area: Arc<KVirtArea>,
@@ -35,6 +43,8 @@ pub struct IoMem {
     offset: usize,
     limit: usize,
     pa: Paddr,
+    #[cfg(verus_keep_ghost_body)]
+    tracked_perm: Tracked<Option<FreePermit>>,
 }
 
 verus! {
@@ -44,6 +54,11 @@ impl IoMem {
     /// Logical offset into the page-aligned mapping.
     pub closed spec fn offset_spec(&self) -> usize {
         self.offset
+    }
+
+    /// The allocator-issued permit for the original MMIO range, if present.
+    pub closed spec fn allocation_perm(&self) -> Option<FreePermit> {
+        self.tracked_perm@
     }
 }
 
@@ -69,6 +84,8 @@ impl IoMem {
             result matches Ok(io_mem) ==> {
                 &&& io_mem.paddr() == range.start
                 &&& io_mem.length() == range.end - range.start
+                &&& io_mem.allocation_perm() matches Some(permit)
+                &&& permit.range() == range
             },
     )]
     pub fn acquire(range: Range<Paddr>) -> Result<IoMem> {
@@ -93,22 +110,12 @@ impl IoMem {
         self.limit
     }
 
+    /* Exclusive ownership does not allow `slice`
     /// Slices the `IoMem`, returning another `IoMem` representing the subslice.
     ///
     /// # Panics
     ///
     /// This method will panic if the range is empty or out of bounds.
-    #[verus_verify]
-    #[verus_spec(result =>
-        requires
-            range.start < range.end <= self.length(),
-            self.offset_spec() + range.start <= usize::MAX,
-            self.paddr() + range.start <= usize::MAX,
-        ensures
-            result.offset_spec() == self.offset_spec() + range.start,
-            result.length() == range.end - range.start,
-            result.paddr() == self.paddr() + range.start,
-    )]
     pub fn slice(&self, range: Range<usize>) -> Self {
         // This ensures `range.start < range.end` and `range.end <= limit`.
         assert!(!range.is_empty() && range.end <= self.limit);
@@ -121,6 +128,7 @@ impl IoMem {
             pa: self.pa + range.start,
         }
     }
+    */
 
     /// Creates a new `IoMem`.
     ///
@@ -139,6 +147,7 @@ impl IoMem {
             result.length()
                 == range.end - range.start,
             result.offset_spec() < PAGE_SIZE,
+            result.allocation_perm() is None,
     )]
     pub(crate) unsafe fn new(range: Range<Paddr>, flags: PageFlags, cache: CachePolicy) -> Self {
         let first_page_start = range.start.align_down(PAGE_SIZE);
@@ -185,6 +194,7 @@ impl IoMem {
         // physical address range is I/O memory, so it is safe to map.
         let kva = unsafe { KVirtArea::map_untracked_frames(area_size, 0, frames_range, prop) };
 
+        proof_with! { tracked_perm: Tracked(None) }
         Self {
             kvirt_area: Arc::new(kva),
             offset: range.start - first_page_start,
