@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(target_os = "none")))]
 extern crate std;
 
 use core::fmt::{Display, Formatter};
@@ -13,14 +13,14 @@ use crate::panic::allowed_to_panic_if;
 verus! {
 
 // TODO: Propose the Any proxy to upstream vstd and coordinate panic_any permissions.
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(target_os = "none")))]
 #[verifier::external_trait_specification]
 pub trait ExAny: 'static {
     type ExternalTraitSpecificationFor: core::any::Any;
 }
 
 /// Rust 1.100, library/std/src/panic.rs: begin_panic forwards this payload to the panic handler.
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(target_os = "none")))]
 pub assume_specification<M: 'static + core::any::Any + Send>[ std::panic::panic_any::<M> ](
     msg: M,
 ) -> !
