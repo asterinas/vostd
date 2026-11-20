@@ -175,8 +175,6 @@ impl IoPortAllocator {
             let ghost instance_id = allocator.resource().instance_id();
             let ghost preserved = allocator.resource().value();
             let tracked range_claim: GhostSubset<usize>;
-        }
-        proof_decl! {
             let ghost ids = Set::<usize>::range(range.start, range.end);
             let ghost allocation_start_view = id_alloc_view(&allocator.value());
         }
