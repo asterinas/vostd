@@ -13,9 +13,7 @@ use vstd::{
     std_specs::cmp::OrdSpec,
 };
 use vstd_extra::{
-    debug_assert,
-    range::RangeExtraFns,
-    resource::range::GhostSubRange,
+    debug_assert, range::RangeExtraFns, resource::range::GhostSubRange,
     resource_invariant::ResourceInvariant,
 };
 
@@ -130,8 +128,9 @@ impl ResourceInvariant<Option<BTreeMap<usize, FreeRange>>> for FreelistInvariant
                 &&& btree_map_wf(&freelist)
                 &&& concrete_freelist_wf(constant.fullrange, freelist@)
                 &&& freelist_blocks_not_adjacent(freelist@)
-                &&& resource.allocated@ == constant.fullrange.view_set()
-                    - free_set(freelist_model(freelist@))
+                &&& resource.allocated@ == constant.fullrange.view_set() - free_set(
+                    freelist_model(freelist@),
+                )
             },
         }
     }
