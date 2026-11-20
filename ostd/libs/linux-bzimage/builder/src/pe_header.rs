@@ -495,6 +495,7 @@ fn build_pe_sec_headers_from(elf: &xmas_elf::ElfFile) -> AllPeSectionHdrs {
             reveal(is_pow2);
             assert(is_pow2(SECTION_ALIGNMENT as int)) by (compute_only);
             lemma_nat_align_up_sound(segment.mem_size() as nat, SECTION_ALIGNMENT as nat);
+            assert(segment.virtual_addr() as int % (FILE_ALIGNMENT as int) == 0);
             lemma_mod_multiples_vanish(
                 (LEGACY_SETUP_SEC_SIZE - SETUP32_LMA) / (FILE_ALIGNMENT as int),
                 segment.virtual_addr() as int,

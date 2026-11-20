@@ -14,6 +14,7 @@ pub mod int_specs;
 pub mod io_port;
 pub mod iter;
 pub mod nonnull;
+mod panic;
 pub mod ptr;
 pub mod range;
 pub mod slice;
