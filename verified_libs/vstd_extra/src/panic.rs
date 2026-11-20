@@ -1,6 +1,9 @@
 //! Runtime panic helper whose type (`-> !`) lets Verus discharge
 //! post-conditions by branch elimination at the call site.
+use core::fmt::{Arguments, Display, Error, Formatter};
 use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::fmt::DisplaySpecImpl;
 use vstd::vpanic;
 
 verus! {
@@ -24,6 +27,23 @@ pub fn panic_diverge() -> !
         allowed_to_panic_if(true),
 {
     vpanic!("");
+}
+
+/// Forwards native formatting arguments during panic handling. The caller of
+/// `format_args!` has already checked the individual formatting preconditions.
+#[doc(hidden)]
+pub struct PanicMessage<'a>(pub Arguments<'a>);
+
+impl DisplaySpecImpl for PanicMessage<'_> {
+    open spec fn fmt_req(&self, f: &Formatter<'_>) -> bool {
+        true
+    }
+}
+
+impl Display for PanicMessage<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.write_fmt(self.0)
+    }
 }
 
 /// Extension trait providing a panicking `unwrap` that models Rust's

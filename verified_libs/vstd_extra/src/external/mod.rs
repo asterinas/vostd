@@ -12,6 +12,7 @@ pub mod ilog2;
 pub mod int_specs;
 pub mod iter;
 pub mod nonnull;
+mod panic;
 pub mod ptr;
 pub mod range;
 pub mod slice;
