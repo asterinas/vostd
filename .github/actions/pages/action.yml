@@ -67,6 +67,16 @@ runs:
         cp -r tools/site/. site/
         echo "site root:"; ls site
 
+    - name: Sync bugs found by verification
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if ! python3 tools/verification_bugs.py site/stats/verification-bugs.json; then
+          rm -f site/stats/verification-bugs.json
+          echo "::warning::Could not sync verification bugs from asterinas/vostd#645"
+        fi
+
     - name: Upload pages artifact
       uses: actions/upload-pages-artifact@v5
       with:
