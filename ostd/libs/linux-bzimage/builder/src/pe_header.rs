@@ -494,11 +494,10 @@ fn build_pe_sec_headers_from(elf: &xmas_elf::ElfFile) -> AllPeSectionHdrs {
         proof! {
             reveal(is_pow2);
             assert(is_pow2(SECTION_ALIGNMENT as int)) by (compute_only);
-            lemma_nat_align_up_sound(segment.mem_size() as nat, SECTION_ALIGNMENT as nat);
-            lemma_mod_multiples_vanish(
-                (LEGACY_SETUP_SEC_SIZE - SETUP32_LMA) / (FILE_ALIGNMENT as int),
-                segment.virtual_addr() as int,
-                FILE_ALIGNMENT as int,
+            lemma_pe_section_layout(
+                segment.virtual_addr() as usize,
+                segment.mem_size() as usize,
+                base,
             );
         }
         assert_eq!(
@@ -760,6 +759,27 @@ closed spec fn pe_section_constructor_args(virtual_addr: usize, mem_size: usize,
 ) {
     let layout = pe_section_layout_spec(virtual_addr, mem_size, base);
     (layout.0, layout.1, layout.0, layout.2)
+}
+
+proof fn lemma_pe_section_layout(addr: usize, size: usize, base: usize)
+    requires
+        valid_pe_section(addr, size, base),
+    ensures
+        ({
+            let layout = pe_section_layout_spec(addr, size, base);
+            &&& size <= layout.0 < size + SECTION_ALIGNMENT
+            &&& layout.0 % (SECTION_ALIGNMENT as u32) == 0
+            &&& layout.1 % (SECTION_ALIGNMENT as u32) == 0
+            &&& layout.2 % (FILE_ALIGNMENT as u32) == 0
+            &&& base == SETUP32_LMA - LEGACY_SETUP_SEC_SIZE ==> layout.1 == layout.2
+        }),
+{
+    lemma_nat_align_up_sound(size as nat, SECTION_ALIGNMENT as nat);
+    lemma_mod_multiples_vanish(
+        (LEGACY_SETUP_SEC_SIZE - SETUP32_LMA) / (FILE_ALIGNMENT as int),
+        addr as int,
+        FILE_ALIGNMENT as int,
+    );
 }
 
 } // verus!
