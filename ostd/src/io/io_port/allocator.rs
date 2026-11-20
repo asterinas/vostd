@@ -176,10 +176,9 @@ impl IoPortAllocator {
             let ghost preserved = allocator.resource().value();
             let tracked range_claim: GhostSubset<usize>;
         }
-        let allocator_inner = &mut *allocator;
         proof_decl! {
             let ghost ids = Set::<usize>::range(range.start, range.end);
-            let ghost allocation_start_view = id_alloc_view(&allocator_inner);
+            let ghost allocation_start_view = id_alloc_view(&allocator.value());
         }
         if range.clone().any(
             #[verus_spec(ret: bool =>
@@ -191,10 +190,10 @@ impl IoPortAllocator {
             )]
             |i| {
                 proof! {
-                    lemma_id_alloc_view_contains(&allocator_inner, i);
+                    lemma_id_alloc_view_contains(&allocator.value(), i);
                     assert(ids.contains(i));
                 }
-                allocator_inner.is_allocated(i)
+                allocator.is_allocated(i)
             },
         ) {
             proof! {
@@ -204,32 +203,33 @@ impl IoPortAllocator {
             return None;
         }
         proof! {
-            assert(ids.disjoint(id_alloc_view(&allocator_inner))) by {
+            assert(ids.disjoint(id_alloc_view(&allocator.value()))) by {
                 assert forall|id: usize| #[trigger] ids.contains(id) implies
-                    !id_alloc_view(&allocator_inner).contains(id) by {
+                    !id_alloc_view(&allocator.value()).contains(id) by {
                     assert(IteratorSpec::remaining(&range)[
                         id as int - range.start as int
                     ] == id);
                 }
             }
             assert forall|id: usize| ids.contains(id) implies
-                id < allocator_inner@.len() by {
+                id < allocator.value()@.len() by {
             }
             assert forall|id: usize|
                 range.start <= id < range.end implies
-                !id_alloc_view(&allocator_inner).contains(id) by {
+                !id_alloc_view(&allocator.value()).contains(id) by {
             }
         }
         #[verus_spec(allocation_iter =>
             invariant
-                allocator_inner.inv(),
-                allocator_inner@.len()
-                    == MAX_IO_PORT + 1,
-                range.end <= allocator_inner@.len(),
+                allocator.value().inv(),
+                allocator.value()@.len() == MAX_IO_PORT + 1,
+                range.end <= allocator.value()@.len(),
                 instance_id == io_port_allocator_instance_id(),
+                allocator.resource().instance_id() == instance_id,
+                allocator.resource().value() == preserved,
                 preserved.subset_of(allocation_start_view),
-                preserved.subset_of(id_alloc_view(&allocator_inner)),
-                id_alloc_view(&allocator_inner) ==
+                preserved.subset_of(id_alloc_view(&allocator.value())),
+                id_alloc_view(&allocator.value()) ==
                     allocation_start_view.union(
                         Set::<usize>::range(
                             range.start,
@@ -239,20 +239,20 @@ impl IoPortAllocator {
                 forall|id: usize|
                     (range.start + allocation_iter.index()) as usize <= id <
                         range.end ==>
-                    !id_alloc_view(&allocator_inner).contains(id),
+                    !id_alloc_view(&allocator.value()).contains(id),
         )]
         for i in range.clone() {
             proof_decl! {
-                let ghost old_view = id_alloc_view(&allocator_inner);
-                let ghost old_seq = allocator_inner@;
-                let ghost old_len = (allocator_inner@.len()) as int;
+                let ghost old_view = id_alloc_view(&allocator.value());
+                let ghost old_seq = allocator.value()@;
+                let ghost old_len = allocator.value()@.len() as int;
             }
             proof! {
                 assert(i ==
                     (range.start + allocation_iter.index()) as usize);
-                assert(i < allocator_inner@.len());
-                assert(allocator_inner.inv());
-                assert(!id_alloc_view(&allocator_inner).contains(i));
+                assert(i < allocator.value()@.len());
+                assert(allocator.value().inv());
+                assert(!id_alloc_view(&allocator.value()).contains(i));
                 assert(preserved.subset_of(old_view.insert(i))) by {
                     assert forall|id: usize|
                         #[trigger] preserved.contains(id) implies
@@ -260,10 +260,10 @@ impl IoPortAllocator {
                     }
                 }
             }
-            allocator_inner.alloc_specific(i);
+            allocator.alloc_specific(i);
             proof! {
-                assert(allocator_inner@.len() == old_len);
-                assert(id_alloc_view(&allocator_inner) == old_view.insert(i)) by {
+                assert(allocator.value()@.len() == old_len);
+                assert(id_alloc_view(&allocator.value()) == old_view.insert(i)) by {
                     assert(Set::<usize>::range(range.start, i).insert(i)
                         =~= Set::<usize>::range(
                             range.start,
@@ -285,26 +285,26 @@ impl IoPortAllocator {
                         }
                     }
                     assert forall|j: usize|
-                        #![trigger id_alloc_view(&allocator_inner).contains(j)]
-                        id_alloc_view(&allocator_inner).contains(j)
+                        #![trigger id_alloc_view(&allocator.value()).contains(j)]
+                        id_alloc_view(&allocator.value()).contains(j)
                         == old_view.insert(i).contains(j) by {
                         lemma_id_alloc_bits_char(old_seq, old_len, j);
-                        lemma_id_alloc_bits_char(allocator_inner@, old_len, j);
-                        assert(allocator_inner@ == old_seq.update(i as int, true));
-                        assert(allocator_inner@[j as int] == (if j == i {
+                        lemma_id_alloc_bits_char(allocator.value()@, old_len, j);
+                        assert(allocator.value()@ == old_seq.update(i as int, true));
+                        assert(allocator.value()@[j as int] == (if j == i {
                             true
                         } else {
                             old_seq[j as int]
                         }));
                     }
                 }
-                assert(preserved.subset_of(id_alloc_view(&allocator_inner)));
+                assert(preserved.subset_of(id_alloc_view(&allocator.value())));
                 assert(
-                instance_id == io_port_allocator_instance_id()
-                    && allocator_inner.inv()
-                    && allocator_inner@.len() == MAX_IO_PORT + 1
-                    && preserved.subset_of(id_alloc_view(&allocator_inner))
-            );
+                    instance_id == io_port_allocator_instance_id()
+                        && allocator.value().inv()
+                        && allocator.value()@.len() == MAX_IO_PORT + 1
+                        && preserved.subset_of(id_alloc_view(&allocator.value()))
+                );
             }
         }
         proof! {
