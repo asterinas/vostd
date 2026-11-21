@@ -18,6 +18,20 @@ macro_rules! assert {
 
 #[macro_export]
 macro_rules! assert_eq {
+    // Borrow each operand once, as in core::assert_eq!, and defer formatting to the panic handler.
+    ($l:expr, $r:expr, $($msg:tt)+) => {
+        match (&$l, &$r) {
+            (left, right) => {
+                if !(*left == *right) {
+                    ::core::panic!("{}", $crate::panic::PanicMessage(::core::format_args!(
+                        "assertion `left == right` failed: {}\n  left: {:?}\n right: {:?}",
+                        $crate::panic::PanicMessage(::core::format_args!($($msg)+)),
+                        *left, *right,
+                    )))
+                }
+            }
+        }
+    };
     ($l:expr, $r:expr) => {
         if ($l != $r) {
             $crate::panic::panic_diverge()
