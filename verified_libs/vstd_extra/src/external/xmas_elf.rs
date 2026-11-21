@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Trusted specifications for xmas-elf 0.10.0's parsing and header access.
-use vstd::{
-    layout::{align_of, size_of},
-    prelude::*,
-    std_specs::iter::IteratorSpec,
-};
+use vstd::{prelude::*, std_specs::iter::IteratorSpec};
 use xmas_elf::{
     ElfFile,
     header::{Class, Header, HeaderPt1, HeaderPt2, HeaderPt2_, Machine_, Type_ as HeaderType},
@@ -15,8 +11,7 @@ use xmas_elf::{
     sections::{Rela, SectionData, SectionHeader, SectionHeader_, ShType},
 };
 
-use super::slice::as_ptr_spec;
-use crate::panic::allowed_to_panic_if;
+use crate::{external::slice::as_ptr_spec, panic::allowed_to_panic_if};
 
 verus! {
 
@@ -54,6 +49,10 @@ global layout ElfHeader64 is size == 48, align == 8;
 global layout ProgramHeader32 is size == 32, align == 4;
 
 global layout ProgramHeader64 is size == 56, align == 8;
+
+global layout Rela<u32> is size == 12, align == 4;
+
+global layout Rela<u64> is size == 24, align == 8;
 
 #[verifier::external_type_specification]
 pub struct ExHeaderType(HeaderType);
@@ -567,11 +566,26 @@ pub uninterp spec fn section_decode<'a>(section: &SectionHeader<'a>, elf: &ElfFi
     Result<SectionData<'a>, &'static str>,
 >;
 
+/// The typed slice returned by zero::read_array in the ELF32 and ELF64 Rela arms.
+pub uninterp spec fn section_rela_entries<'a, P>(
+    section: &SectionHeader<'a>,
+    elf: &ElfFile<'a>,
+) -> &'a [Rela<P>];
+
 pub open spec fn section_data_result<'a>(section: &SectionHeader<'a>, elf: &ElfFile<'a>) -> Result<
     SectionData<'a>,
     &'static str,
 > {
-    section_decode(section, elf)->Some_0
+    match section.get_type() {
+        Err(error) => Err(error),
+        Ok(ShType::Null) | Ok(ShType::NoBits) => Ok(SectionData::Empty),
+        Ok(ShType::Rela) => match elf.header.pt1.class() {
+            Class::ThirtyTwo => Ok(SectionData::Rela32(section_rela_entries(section, elf))),
+            Class::SixtyFour => Ok(SectionData::Rela64(section_rela_entries(section, elf))),
+            _ => arbitrary(),  // get_data reaches unreachable!() for these classes.
+        },
+        _ => section_decode(section, elf)->Some_0,
+    }
 }
 
 /// raw_data slices the file; zero::read_array then checks the whole array's size and alignment.
@@ -580,15 +594,16 @@ pub open spec fn section_data_readable(section: &SectionHeader<'_>, elf: &ElfFil
         Err(_) | Ok(ShType::Null) | Ok(ShType::NoBits) => true,
         Ok(ShType::Rela) => {
             let (offset, len) = section_file_extent(section);
-            let (size, align) = match elf.header.pt1.class() {
-                Class::ThirtyTwo => (size_of::<Rela<u32>>(), align_of::<Rela<u32>>()),
-                Class::SixtyFour => (size_of::<Rela<u64>>(), align_of::<Rela<u64>>()),
+            // Expose the checked layouts to callers in other crates.
+            let (size, align): (int, int) = match elf.header.pt1.class() {
+                Class::ThirtyTwo => (12, 4),
+                Class::SixtyFour => (24, 8),
                 _ => (0, 0),
             };
             &&& offset + len <= usize::MAX
             &&& offset + len <= elf.input@.len()
-            &&& size > 0 && len as int % (size as int) == 0
-            &&& align > 0 && (as_ptr_spec(elf.input).addr() + offset) % (align as int) == 0
+            &&& size > 0 && len as int % size == 0
+            &&& align > 0 && (as_ptr_spec(elf.input).addr() + offset) % align == 0
         },
         Ok(ShType::Group) => false,
         _ => section_decode(section, elf) is Some,
@@ -607,10 +622,12 @@ pub assume_specification<'a>[ SectionHeader::<'a>::get_data ](
         allowed_to_panic_if(!section_data_readable(section, elf)),
     ensures
         section_decode(section, elf) == Some(result),
-        result matches Ok(SectionData::Rela64(_)) ==> {
-            &&& section.get_type() matches Ok(ShType::Rela)
-            &&& elf.header.pt1.class() == Class::SixtyFour
-        },
+        (result matches Ok(SectionData::Rela64(_))) <==> (section.get_type() matches Ok(
+            ShType::Rela,
+        ) && elf.header.pt1.class() == Class::SixtyFour),
+        (result matches Ok(SectionData::Rela32(_))) <==> (section.get_type() matches Ok(
+            ShType::Rela,
+        ) && elf.header.pt1.class() == Class::ThirtyTwo),
     returns
         section_data_result(section, elf),
     opens_invariants none
