@@ -2,8 +2,6 @@
 //! post-conditions by branch elimination at the call site.
 use core::fmt::{Arguments, Display, Error, Formatter};
 use vstd::prelude::*;
-#[cfg(verus_keep_ghost)]
-use vstd::std_specs::fmt::DisplaySpecImpl;
 use vstd::vpanic;
 
 verus! {
@@ -34,7 +32,8 @@ pub fn panic_diverge() -> !
 #[doc(hidden)]
 pub struct PanicMessage<'a>(pub Arguments<'a>);
 
-impl DisplaySpecImpl for PanicMessage<'_> {
+#[cfg(verus_keep_ghost)]
+impl vstd::std_specs::fmt::DisplaySpecImpl for PanicMessage<'_> {
     open spec fn fmt_req(&self, f: &Formatter<'_>) -> bool {
         true
     }

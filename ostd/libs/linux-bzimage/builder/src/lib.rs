@@ -25,6 +25,7 @@ use vstd_extra::{
         elf_section_lookup, program_load_bytes, program_load_data_readable, section_data_readable,
     },
     panic::allowed_to_panic_if,
+    seq_extra::lemma_seq_all_add,
 };
 
 use mapping::{LEGACY_SETUP_SEC_SIZE, SETUP32_LMA};
@@ -220,13 +221,19 @@ spec fn flat_binary_spec(input: &[u8]) -> Seq<u8> {
     flat_binary_prefix(elf_program_headers(&elf), input@, elf_program_headers(&elf).len())
 }
 
+const R_X86_64_RELATIVE: u32 = 8;
+
+spec fn is_relative_reloc(entry: xmas_elf::sections::Rela<u64>) -> bool {
+    entry.get_type() == R_X86_64_RELATIVE
+}
+
 spec fn elf64_reloc_supported(input: &[u8]) -> bool {
     elf_parse_result(input) matches Ok(elf) && {
         &&& elf.header.pt1.class() == xmas_elf::header::Class::SixtyFour
         &&& elf.find_section_by_name(".rela") matches Some(section) && {
             &&& section.get_type() matches Ok(ShType::Rela)
             &&& section.get_data(&elf) matches Ok(SectionData::Rela64(entries)) && entries@.all(
-                |entry: xmas_elf::sections::Rela<u64>| entry.get_type() == 8,
+                |r| is_relative_reloc(r),
             )
         }
     }
@@ -247,12 +254,23 @@ spec fn elf_reloc_reads_ok(elf: &xmas_elf::ElfFile<'_>) -> bool {
         elf_parse_result(elf_file) is Ok,
         allowed_to_panic_if(!elf_reloc_reads_ok(&elf_parse_result(elf_file)->Ok_0) || !elf64_reloc_supported(elf_file)),
     ensures elf64_reloc_supported(elf_file),
+    no_unwind when
+        elf_parse_no_unwind(elf_file)
+        && elf_reloc_reads_ok(&elf_parse_result(elf_file)->Ok_0)
+        && elf64_reloc_supported(elf_file)
 )]
 fn assert_elf64_reloc_supported(elf_file: &[u8]) {
-    const R_X86_64_RELATIVE: u32 = 8;
     const WRONG_SECTION: &str = "the ELF64 relocation data is not of the correct type";
 
-    let elf = xmas_elf::ElfFile::new(elf_file).unwrap();
+    /* vstd's Result::unwrap lacks a conditional no_unwind contract.
+     * Origin Rust: let elf = xmas_elf::ElfFile::new(elf_file).unwrap();
+     */
+    let elf = match xmas_elf::ElfFile::new(elf_file) {
+        Ok(elf) => elf,
+        Err(error) => std::panic::panic_any(format!(
+            "called `Result::unwrap()` on an `Err` value: {error:?}"
+        )),
+    };
 
     /* Check Group before get_data because xmas-elf 0.10.0 does not validate
      * its flags reference. vstd requires unwrap to succeed;
@@ -275,17 +293,29 @@ fn assert_elf64_reloc_supported(elf_file: &[u8]) {
         )),
     };
 
-    rela64.iter().for_each(
-        #[verus_spec(_: () =>
-            requires allowed_to_panic_if(r.get_type() != R_X86_64_RELATIVE),
-            ensures r.get_type() == R_X86_64_RELATIVE,
-        )]
-        |r| {
-            assert_eq!(
-                r.get_type(),
-                R_X86_64_RELATIVE,
-                "the ELF64 relocation type is not supported"
-            )
-        },
-    );
+    /* Slice::split_first has the no_unwind contract missing from iter and for_each.
+     * Origin Rust:
+     * rela64.iter().for_each(|r| {
+     *     assert_eq!(r.get_type(), R_X86_64_RELATIVE, "the ELF64 relocation type is not supported")
+     * });
+     */
+    let mut remaining = rela64;
+    #[verifier::loop_isolation(false)]
+    #[verus_spec(
+        invariant
+            elf64_reloc_supported(elf_file) <==> remaining@.all(|r| is_relative_reloc(r)),
+        decreases remaining.len(),
+    )]
+    while let Some((r, rest)) = remaining.split_first() {
+        assert_eq!(
+            r.get_type(),
+            R_X86_64_RELATIVE,
+            "the ELF64 relocation type is not supported"
+        );
+        proof! {
+            assert(remaining@ == seq![*r] + rest@);
+            lemma_seq_all_add(seq![*r], rest@, |r| is_relative_reloc(r));
+        }
+        remaining = rest;
+    }
 }
