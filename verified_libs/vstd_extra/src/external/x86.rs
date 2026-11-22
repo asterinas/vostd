@@ -5,22 +5,23 @@
 //!
 //! CPU-bound contracts describe per-CPU registers and XCR0-dependent size;
 //! startup supplies their owner.
-//! spin::Once publication and reads are trusted native operations. The wrapper's
-//! construction and completion-witness lookup are checked; OnceImpl is a different
+//! spin::Once publication and reads are trusted native operations. Cell identity,
+//! witness duplication and agreement are checked; OnceImpl is a different
 //! runtime protocol and does not model spin::Once's waiting or poisoning behavior.
+use vstd::{prelude::*, resource::Loc};
+
+use crate::{
+    panic::allowed_to_panic_if, resource::ghost_resource::excl::ExclusiveGhost,
+    resource_invariant::ValueInvariant,
+};
+
 use core::arch::x86_64::CpuidResult;
 use spin::once::Once as SpinOnce;
-use vstd::{prelude::*, resource::Loc};
 use x86::cpuid::{CpuId, CpuIdResult, FeatureInfo};
 use x86_64::registers::{
     control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
     model_specific::{Efer, EferFlags},
     xcontrol::{XCr0, XCr0Flags},
-};
-
-use crate::{
-    panic::allowed_to_panic_if, resource::ghost_resource::excl::ExclusiveGhost,
-    resource_invariant::ValueInvariant,
 };
 
 pub use x86::{
@@ -37,8 +38,10 @@ pub use x86::{
 use x86_64::registers::model_specific::Msr;
 
 mod fpu_once_value {
-    use super::FeatureInfo;
     use vstd::prelude::*;
+
+    use super::FeatureInfo;
+
     verus! {
 
 pub trait Sealed {
@@ -176,6 +179,7 @@ pub ghost struct X86CpuSnapshot {
     pub pge: bool,
     pub nx: bool,
     pub user_xstates: u64,
+    pub supervisor_xstates: u64,
     pub max_basic_leaf: u32,
     pub xsave_size_for: spec_fn(u64) -> u32,
     pub x87_control: u16,
@@ -455,7 +459,16 @@ pub tracked struct FpuOnceInitialized<T: FpuOnceValue> {
     ghost value: T,
 }
 
+/// The immutable value published by a cell if its initialization completes.
+/// This model alone does not assert that publication has occurred.
+uninterp spec fn fpu_once_published_value<T: FpuOnceValue>(cell: Loc) -> T;
+
 impl<T: FpuOnceValue> FpuOnceInitialized<T> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.value == fpu_once_published_value::<T>(self.cell)
+    }
+
     pub closed spec fn cell(&self) -> Loc {
         self.cell
     }
@@ -469,13 +482,29 @@ impl<T: FpuOnceValue> FpuOnceInitialized<T> {
             r.cell() == self.cell(),
             r.value() == self.value(),
     {
+        use_type_invariant(self);
         FpuOnceInitialized { cell: self.cell, value: self.value }
+    }
+
+    pub proof fn lemma_agree(tracked &self, tracked other: &Self)
+        requires
+            self.cell() == other.cell(),
+        ensures
+            self.value() == other.value(),
+    {
+        use_type_invariant(self);
+        use_type_invariant(other);
     }
 }
 
 impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
     pub closed spec fn id(&self) -> Loc {
         self.tracked_identity@.id()
+    }
+
+    /// The cell's eventual published value; this does not imply completion.
+    pub closed spec fn published_value(&self) -> T {
+        fpu_once_published_value::<T>(self.id())
     }
 
     pub open spec fn value_inv(&self, value: T) -> bool {
@@ -503,7 +532,8 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
             initialized matches Some(witness) ==> witness.cell() == self.id(),
         ensures
             r matches Some(value) ==> self.value_inv(*value),
-            initialized matches Some(witness) ==> r is Some && *r->0 == witness.value(),
+            r matches Some(value) ==> *value == self.published_value(),
+            initialized is Some ==> r is Some,
         opens_invariants none
         no_unwind
     )]
@@ -526,6 +556,7 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
             forall|value: T| #[trigger] f.ensures((), value) ==> self.value_inv(value),
         ensures
             self.value_inv(*r.0),
+            *r.0 == self.published_value(),
             r.1@.cell() == self.id(),
             r.1@.value() == *r.0,
     {
@@ -541,8 +572,15 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
             self.value_inv(*r),
             *r == initialized.value(),
     {
-        (#[verus_spec(with Tracked(Some(initialized)))]
-        self.get()).unwrap()
+        /* Origin Rust: self.get().unwrap()
+         * Bind the read to the checked completion-witness agreement proof. */
+        let value = (#[verus_spec(with Tracked(Some(initialized)))]
+        self.get()).unwrap();
+        proof {
+            let tracked read = FpuOnceInitialized { cell: self.id(), value: *value };
+            read.lemma_agree(initialized);
+        }
+        value
     }
 }
 

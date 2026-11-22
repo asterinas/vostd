@@ -7,6 +7,8 @@
 //! The representation invariant bounds the byte-view length, not register contents
 //! or hardware restore validity. Save and mutable byte access may replace saved
 //! fields; hardware write bounds and restore validity remain for later XSAVE work.
+//! The cached XSAVE length is not proved equal to the enabled hardware size of a
+//! consuming CPU, even when its CPU identity and XCR0 match the initialization.
 use ostd_pod::pod_bytes;
 use vstd::{prelude::*, resource::Loc};
 use vstd_extra::{
@@ -16,8 +18,10 @@ use vstd_extra::{
         initialize_x87, read_cr0, read_enabled_xsave_size, read_xcr0,
     },
     panic::allowed_to_panic_if,
-    resource_invariant::{TrivialResourceInvariant, ValueInvariant},
+    resource_invariant::ValueInvariant,
 };
+
+use crate::specs::context::cpu_feature_model;
 
 use crate::arch::{cpu_features_cell_id, cpu_features_ref};
 
@@ -525,7 +529,10 @@ impl FpuInitialization {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.features.cell() == cpu_features_cell_id()
-        &&& self.max_features matches Some(witness) ==> witness.cell() == max_features_cell_id()
+        &&& self.max_features matches Some(witness) ==> {
+            witness.cell() == max_features_cell_id() && witness.value()
+                == cpu_feature_model().supported_xstates()
+        }
         &&& self.area_size matches Some(witness) ==> witness.cell() == xsave_size_cell_id()
         &&& self.uses_xsave() ==> self.max_features is Some && self.area_size is Some
     }
@@ -560,36 +567,19 @@ impl FpuInitialization {
         self.xcr0
     }
 
+    /// Relates CPU identity, register access and XSTATE support, but not the cached
+    /// length to this CPU's enabled hardware XSAVE size.
     pub open spec fn enabled_on(&self, cpu: &X86CpuRegisterOwner) -> bool {
         &&& self.configured_cpu() == cpu@.cpu
         &&& cpu.kernel_cpu()
         &&& if self.uses_xsave() {
-            self.configured_xcr0() == cpu@.xcr0 && cpu.xcr0_readable()
+            &&& self.configured_xcr0() == cpu@.xcr0
+            &&& cpu.xcr0_readable()
+            &&& cpu_feature_model().matches_xstates(cpu)
+            &&& self.supported_mask() == cpu@.user_xstates | cpu@.supervisor_xstates
         } else {
             cpu@.fpu && cpu@.fxsr && cpu@.cr0 & 12u64 == 0 && cpu@.cr4 & 0x200u64 != 0
         }
-    }
-
-    /// Records an already configured FXSAVE CPU and its completed feature cache.
-    pub(crate) proof fn tracked_legacy_initialization(
-        tracked cpu: &X86CpuRegisterOwner,
-        tracked features: FpuOnceInitialized<x86::cpuid::FeatureInfo>,
-    ) -> (tracked result: Self)
-        requires
-            cpu.kernel_cpu(),
-            cpu@.fpu,
-            cpu@.fxsr,
-            cpu@.cr0 & 12u64 == 0,
-            cpu@.cr4 & 0x200u64 != 0,
-            features.cell() == cpu_features_cell_id(),
-            feature_info_ecx(features.value()) & (1u32 << 26) == 0,
-        ensures
-            result.enabled_on(cpu),
-            !result.uses_xsave(),
-            result.len() == 512,
-            result.supported_mask() == 0,
-    {
-        Self { features, max_features: None, area_size: None, cpu: cpu@.cpu, xcr0: cpu@.xcr0 }
     }
 }
 
@@ -684,6 +674,11 @@ impl FpuContext {
 
     pub closed spec fn bytes(&self) -> Seq<u8> {
         pod_bytes(*self.xsave_area)[..self.area_size]
+    }
+
+    /// Backing bytes outside the slice exposed by as_bytes and as_bytes_mut.
+    pub closed spec fn unexposed_bytes(&self) -> Seq<u8> {
+        pod_bytes(*self.xsave_area)[self.area_size..]
     }
 
     pub closed spec fn state(&self) -> FpuState {
@@ -787,11 +782,13 @@ impl FpuContext {
     /// Returns the FPU context as a mutable byte slice.
     ///
     /// Editing these bytes may invalidate the hardware restore image.
+    /// The backing bytes outside the returned slice remain unchanged.
     #[verus_spec(r =>
         ensures final(self).len() == old(self).len(),
                 r.len() == old(self).len(),
                 r@ == old(self).bytes(),
                 final(r)@ == final(self).bytes(),
+                final(self).unexposed_bytes() == old(self).unexposed_bytes(),
     )]
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         proof! { use_type_invariant(&*self); broadcast use VERUS_layout_of_XSaveArea; }
@@ -1025,23 +1022,32 @@ const _: () = {
     assert!(core::mem::offset_of!(FxSaveArea, tag) == 4);
     assert!(core::mem::offset_of!(FxSaveArea, mxcsr) == 24);
 };
-/// The XSTATE features (user & supervisor) supported by the processor.
-/* Origin Rust: static XSTATE_MAX_FEATURES: Once<u64> = Once::new();
- * Carry a completion witness without changing the published mask. */
-#[verus_verify]
-static XSTATE_MAX_FEATURES: FpuOnce<u64, TrivialResourceInvariant> =
-    verus_exec_expr! { FpuOnce::new(Ghost(TrivialResourceInvariant)) };
 verus! {
+
+ghost struct XStateFeaturesInvariant;
+
+impl ValueInvariant<u64> for XStateFeaturesInvariant {
+    open spec fn inv(features: u64) -> bool {
+        features == cpu_feature_model().supported_xstates()
+    }
+}
 
 uninterp spec fn max_features_cell_id() -> Loc;
 
 uninterp spec fn xsave_size_cell_id() -> Loc;
 
 } // verus!
+/// The XSTATE features (user & supervisor) supported by the processor.
+/* Origin Rust: static XSTATE_MAX_FEATURES: Once<u64> = Once::new();
+ * Carry a completion witness without changing the published mask. */
+#[verus_verify]
+static XSTATE_MAX_FEATURES: FpuOnce<u64, XStateFeaturesInvariant> =
+    verus_exec_expr! { FpuOnce::new(Ghost(XStateFeaturesInvariant)) };
+
 #[inline]
 #[verus_verify(external_body)]
 #[verus_spec(r => ensures r.id() == max_features_cell_id())]
-fn max_features_ref() -> &'static FpuOnce<u64, TrivialResourceInvariant> {
+fn max_features_ref() -> &'static FpuOnce<u64, XStateFeaturesInvariant> {
     &XSTATE_MAX_FEATURES
 }
 
@@ -1090,6 +1096,7 @@ pub(in crate::arch) fn enable_essential_features(
         old(cpu)@.fxsr,
         old(cpu)@.cr4 & 0x200u64 != 0,
         old(cpu)@.max_basic_leaf >= 0xd,
+        cpu_feature_model().matches_xstates(old(cpu)),
         576 <= (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) <= 4096,
         features_initialized.cell() == cpu_features_cell_id(),
         allowed_to_panic_if(true),
@@ -1109,7 +1116,9 @@ pub(in crate::arch) fn enable_essential_features(
         }),
 {
     let (_, Tracked(max_features)) = max_features_ref().call_once(
-        ||
+        || -> (r: u64)
+            ensures
+                XStateFeaturesInvariant::inv(r),
             {
                 const XSTATE_CPUID: u32 = 0x0000000d;
 
@@ -1119,6 +1128,8 @@ pub(in crate::arch) fn enable_essential_features(
                 let ghost high0 = res0.edx;
                 assert((low0 as u64) <= u64::MAX - ((high0 as u64) << 32)) by (bit_vector);
                 let mut features = res0.eax as u64 + ((res0.edx as u64) << 32);
+                assert(low0 as u64 + ((high0 as u64) << 32) == low0 as u64 | ((high0 as u64) << 32))
+                    by (bit_vector);
 
                 // Find supervisor xstates supported by the processor.
                 let res1 = x86::cpuid::cpuid!(XSTATE_CPUID, 1);
@@ -1126,6 +1137,9 @@ pub(in crate::arch) fn enable_essential_features(
                 let ghost high1 = res1.edx;
                 assert((low1 as u64) <= u64::MAX - ((high1 as u64) << 32)) by (bit_vector);
                 features |= res1.ecx as u64 + ((res1.edx as u64) << 32);
+
+                assert(low1 as u64 + ((high1 as u64) << 32) == low1 as u64 | ((high1 as u64) << 32))
+                    by (bit_vector);
 
                 features
             },
@@ -1188,15 +1202,6 @@ pub(in crate::arch) fn enable_essential_features(
 }
 
 impl FpuContext {
-    proof fn lemma_same_state_bytes(&self, other: &Self)
-        requires
-            self.len() == other.len(),
-            self.state() == other.state(),
-        ensures
-            self.bytes() == other.bytes(),
-    {
-    }
-
     pub proof fn lemma_initial_state_bytes(&self, other: &Self, features: u64)
         requires
             self.len() == other.len(),
@@ -1246,6 +1251,21 @@ impl FpuContext {
             }
         }
         self.lemma_same_state_bytes(source);
+    }
+}
+
+} // verus!
+// Auxiliary representation proofs.
+verus! {
+
+impl FpuContext {
+    proof fn lemma_same_state_bytes(&self, other: &Self)
+        requires
+            self.len() == other.len(),
+            self.state() == other.state(),
+        ensures
+            self.bytes() == other.bytes(),
+    {
     }
 }
 

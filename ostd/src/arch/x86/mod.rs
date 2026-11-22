@@ -228,6 +228,7 @@ pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
         old(cpu)@.fpu, old(cpu)@.xsave,
         old(cpu)@.fsgsbase, old(cpu)@.fxsr, old(cpu)@.sse, old(cpu)@.pge, old(cpu)@.nx,
         old(cpu)@.max_basic_leaf >= 0xd,
+        cpu_feature_model().matches_xstates(old(cpu)),
         old(cpu)@.xsave ==> old(cpu)@.xcr0 & !old(cpu)@.user_xstates == 0,
         xcr0_flag_groups_valid(enabled_fpu_xcr0(old(cpu)@.xcr0) & XCR0_KNOWN_MASK),
         enabled_fpu_xcr0(old(cpu)@.xcr0) & !old(cpu)@.user_xstates == 0,
