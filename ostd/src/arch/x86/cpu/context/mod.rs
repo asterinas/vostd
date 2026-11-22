@@ -1,41 +1,63 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
+//!
+//! Register instructions and spin::Once publication use the contracts in
+//! vstd_extra::external::x86. Save/load remain outside verification and have no
+//! verified contracts.
+//! The representation invariant bounds the byte-view length, not register contents
+//! or hardware restore validity. Save and mutable byte access may replace saved
+//! fields; hardware write bounds and restore validity remain for later XSAVE work.
+use ostd_pod::pod_bytes;
+use vstd::{prelude::*, resource::Loc};
+use vstd_extra::{
+    external::x86::{
+        CR0_KNOWN_MASK, FpuOnce, FpuOnceInitialized, X86CpuRegisterOwner, XCR0_KNOWN_MASK,
+        clear_cr0_fpu_flags, cr0_emulate_coprocessor, cr0_or, cr0_task_switched, feature_info_ecx,
+        initialize_x87, read_cr0, read_enabled_xsave_size, read_xcr0,
+    },
+    panic::allowed_to_panic_if,
+    resource_invariant::{TrivialResourceInvariant, ValueInvariant},
+};
+
+use crate::arch::{cpu_features_cell_id, cpu_features_ref};
+
 use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
-use bitflags_upstream::bitflags;
-use cfg_if::cfg_if;
+/*use bitflags_upstream::bitflags;*/
+/*use cfg_if::cfg_if;*/
 use log::debug;
 use ostd_pod::Pod;
-use spin::Once;
-use x86::bits64::segmentation::wrfsbase;
-use x86_64::registers::{
+/*use spin::Once;*/
+/*use x86::bits64::segmentation::wrfsbase;*/
+/*use x86_64::registers::{
     control::{Cr0, Cr0Flags},
     rflags::RFlags,
     xcontrol::XCr0,
-};
+};*/
 
 use crate::{
     arch::{
         CPU_FEATURES,
-        trap::{RawUserContext, TrapFrame},
+        /*trap::{RawUserContext, TrapFrame},*/
     },
-    mm::Vaddr,
+    /*mm::Vaddr,
     task::scheduler,
     trap::call_irq_callback_functions,
-    user::{ReturnReason, UserContextApi, UserContextApiInternal},
+    user::{ReturnReason, UserContextApi, UserContextApiInternal},*/
 };
 
-cfg_if! {
+/*cfg_if! {
     if #[cfg(feature = "cvm_guest")] {
         mod tdx;
 
         use tdx::VirtualizationExceptionHandler;
     }
-}
+}*/
 
 pub use x86::cpuid;
 
+/*
 /// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Default, Debug)]
 #[repr(C)]
@@ -488,7 +510,158 @@ cpu_context_impl_getter_setter!(
     [rflags, set_rflags],
     [fsbase, set_fsbase],
     [gsbase, set_gsbase]
-);
+);*/
+verus! {
+
+pub tracked struct FpuInitialization {
+    features: FpuOnceInitialized<x86::cpuid::FeatureInfo>,
+    max_features: Option<FpuOnceInitialized<u64>>,
+    area_size: Option<FpuOnceInitialized<usize>>,
+    ghost cpu: nat,
+    ghost xcr0: u64,
+}
+
+impl FpuInitialization {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.features.cell() == cpu_features_cell_id()
+        &&& self.max_features matches Some(witness) ==> witness.cell() == max_features_cell_id()
+        &&& self.area_size matches Some(witness) ==> witness.cell() == xsave_size_cell_id()
+        &&& self.uses_xsave() ==> self.max_features is Some && self.area_size is Some
+    }
+
+    pub closed spec fn len(&self) -> usize {
+        if self.uses_xsave() {
+            match self.area_size {
+                Some(witness) => witness.value(),
+                None => 512,
+            }
+        } else {
+            512
+        }
+    }
+
+    pub closed spec fn supported_mask(&self) -> u64 {
+        match self.max_features {
+            Some(witness) => witness.value(),
+            None => 0,
+        }
+    }
+
+    pub closed spec fn uses_xsave(&self) -> bool {
+        feature_info_ecx(self.features.value()) & (1u32 << 26) != 0
+    }
+
+    pub closed spec fn configured_cpu(&self) -> nat {
+        self.cpu
+    }
+
+    pub closed spec fn configured_xcr0(&self) -> u64 {
+        self.xcr0
+    }
+
+    pub open spec fn enabled_on(&self, cpu: &X86CpuRegisterOwner) -> bool {
+        &&& self.configured_cpu() == cpu@.cpu
+        &&& cpu.kernel_cpu()
+        &&& if self.uses_xsave() {
+            self.configured_xcr0() == cpu@.xcr0 && cpu.xcr0_readable()
+        } else {
+            cpu@.fpu && cpu@.fxsr && cpu@.cr0 & 12u64 == 0 && cpu@.cr4 & 0x200u64 != 0
+        }
+    }
+
+    /// Records an already configured FXSAVE CPU and its completed feature cache.
+    pub(crate) proof fn tracked_legacy_initialization(
+        tracked cpu: &X86CpuRegisterOwner,
+        tracked features: FpuOnceInitialized<x86::cpuid::FeatureInfo>,
+    ) -> (tracked result: Self)
+        requires
+            cpu.kernel_cpu(),
+            cpu@.fpu,
+            cpu@.fxsr,
+            cpu@.cr0 & 12u64 == 0,
+            cpu@.cr4 & 0x200u64 != 0,
+            features.cell() == cpu_features_cell_id(),
+            feature_info_ecx(features.value()) & (1u32 << 26) == 0,
+        ensures
+            result.enabled_on(cpu),
+            !result.uses_xsave(),
+            result.len() == 512,
+            result.supported_mask() == 0,
+    {
+        Self { features, max_features: None, area_size: None, cpu: cpu@.cpu, xcr0: cpu@.xcr0 }
+    }
+}
+
+pub ghost struct FxSaveState {
+    pub control: u16,
+    pub status: u16,
+    pub tag: u16,
+    pub op: u16,
+    pub ip: u32,
+    pub cs: u32,
+    pub dp: u32,
+    pub ds: u32,
+    pub mxcsr: u32,
+    pub mxcsr_mask: u32,
+    pub st_space: [u32; 32],
+    pub xmm_space: [u32; 64],
+    pub padding: [u32; 12],
+    pub reserved: [u32; 12],
+}
+
+pub ghost struct FpuState {
+    pub legacy: FxSaveState,
+    pub features: u64,
+    pub compaction: u64,
+    pub reserved: [u64; 6],
+    pub extended_state_area: [u8; MAX_XSAVE_AREA_SIZE - 512 - 64],
+}
+
+impl FpuState {
+    pub open spec fn initialized(&self, features: u64) -> bool {
+        &&& self.legacy.control == 0x037f
+        &&& self.legacy.status == 0
+        &&& self.legacy.tag == 0xffff
+        &&& self.legacy.op == 0
+        &&& self.legacy.ip == 0 && self.legacy.cs == 0
+        &&& self.legacy.dp == 0 && self.legacy.ds == 0
+        &&& self.legacy.mxcsr == 0x1f80 && self.legacy.mxcsr_mask == 0
+        &&& self.legacy.st_space@.all(|word: u32| word == 0)
+        &&& self.legacy.xmm_space@.all(|word: u32| word == 0)
+        &&& self.legacy.padding@.all(|word: u32| word == 0)
+        &&& self.legacy.reserved@.all(|word: u32| word == 0)
+        &&& self.features == features && self.compaction == 0
+        &&& self.reserved@.all(|word: u64| word == 0)
+        &&& self.extended_state_area@.all(|byte: u8| byte == 0)
+    }
+
+    /// The parts that clone clears rather than copying from its source.
+    pub open spec fn has_zeroed_clone_padding(&self, area_size: usize) -> bool {
+        let extended_len = if area_size > 512 {
+            area_size - 576
+        } else {
+            0
+        };
+        self.reserved@.all(|word: u64| word == 0) && self.extended_state_area@[extended_len..].all(
+            |byte: u8| byte == 0,
+        )
+    }
+
+    pub open spec fn copied_from(&self, source: &Self, area_size: usize) -> bool {
+        let extended_len = if area_size > 512 {
+            area_size - 576
+        } else {
+            0
+        };
+        &&& area_size == 512 || 576 <= area_size <= self.extended_state_area@.len() + 512 + 64
+        &&& self.legacy == source.legacy
+        &&& self.features == source.features
+        &&& self.compaction == source.compaction
+        &&& self.extended_state_area@[..extended_len] == source.extended_state_area@[..extended_len]
+        &&& self.has_zeroed_clone_padding(area_size)
+    }
+}
 
 /// The FPU context of user task.
 ///
@@ -500,19 +673,77 @@ pub struct FpuContext {
 }
 
 impl FpuContext {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.area_size == 512 || 576 <= self.area_size <= MAX_XSAVE_AREA_SIZE
+    }
+
+    pub closed spec fn len(&self) -> usize {
+        self.area_size
+    }
+
+    pub closed spec fn bytes(&self) -> Seq<u8> {
+        pod_bytes(*self.xsave_area)[..self.area_size]
+    }
+
+    pub closed spec fn state(&self) -> FpuState {
+        self.xsave_area.state()
+    }
+
+    pub open spec fn has_initial_state(&self, features: u64) -> bool {
+        self.state().initialized(features)
+    }
+
+    pub open spec fn copied_from(&self, source: &Self) -> bool {
+        self.len() == source.len() && self.state().copied_from(&source.state(), source.len())
+    }
+}
+
+global layout FxSaveArea is size == 512, align == 16;
+
+global layout XSaveArea is size == 4096, align == 64;
+
+} // verus!
+#[verus_verify]
+impl FpuContext {
     /// Creates a new FPU context.
+    #[verus_spec(r =>
+        with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
+        requires init.enabled_on(cpu),
+        ensures r.len() == init.len(),
+                r.has_initial_state(if init.uses_xsave() {
+                    (cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()
+                } else { 0 }),
+    )]
     pub fn new() -> Self {
+        proof! {
+            use_type_invariant(init);
+            broadcast use { VERUS_layout_of_FxSaveArea, VERUS_layout_of_XSaveArea };
+        }
         let mut area_size = size_of::<FxSaveArea>();
-        if CPU_FEATURES.get().unwrap().has_xsave() {
-            area_size = area_size.max(*XSAVE_AREA_SIZE.get().unwrap());
+        /* Origin Rust: if CPU_FEATURES.get().unwrap().has_xsave() {
+         * Use the completion witness; get_initialized executes the same get/unwrap. */
+        if verus_exec_expr! { cpu_features_ref().get_initialized(Tracked(&init.features)) }
+            .has_xsave()
+        {
+            /* Origin Rust: area_size = area_size.max(*XSAVE_AREA_SIZE.get().unwrap());
+             * Preserve the read while making its completion obligation explicit. */
+            area_size = area_size.max(
+                *verus_exec_expr! { xsave_size_ref().get_initialized(Tracked(init.area_size.tracked_borrow())) },
+            );
         }
 
         Self {
-            xsave_area: Box::new(XSaveArea::new()),
+            xsave_area: Box::new(
+                #[verus_spec(with Tracked(cpu), Tracked(init))]
+                self::XSaveArea::new(),
+            ),
             area_size,
         }
     }
+}
 
+impl FpuContext {
     /// Saves CPU's current FPU context to this instance.
     pub fn save(&mut self) {
         let mem_addr = self.as_bytes_mut().as_mut_ptr();
@@ -540,24 +771,59 @@ impl FpuContext {
 
         debug!("Load FPU context");
     }
+}
 
+#[verus_verify]
+impl FpuContext {
     /// Returns the FPU context as a byte slice.
+    #[verus_spec(r =>
+        ensures r@ == self.bytes(), r.len() == self.len(),
+    )]
     pub fn as_bytes(&self) -> &[u8] {
+        proof! { use_type_invariant(&*self); broadcast use VERUS_layout_of_XSaveArea; }
         &self.xsave_area.as_bytes()[..self.area_size]
     }
 
     /// Returns the FPU context as a mutable byte slice.
+    ///
+    /// Editing these bytes may invalidate the hardware restore image.
+    #[verus_spec(r =>
+        ensures final(self).len() == old(self).len(),
+                r.len() == old(self).len(),
+                r@ == old(self).bytes(),
+                final(r)@ == final(self).bytes(),
+    )]
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        proof! { use_type_invariant(&*self); broadcast use VERUS_layout_of_XSaveArea; }
         &mut self.xsave_area.as_bytes_mut()[..self.area_size]
     }
 }
 
+/* Origin Rust:
 impl Default for FpuContext {
     fn default() -> Self {
         Self::new()
     }
 }
+ * The standard trait signature cannot carry the CPU and initialization
+ * resources required by this body. */
+#[verus_verify]
+impl FpuContext {
+    #[verus_spec(r =>
+        with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
+        requires init.enabled_on(cpu),
+        ensures r.len() == init.len(),
+                r.has_initial_state(if init.uses_xsave() {
+                    (cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()
+                } else { 0 }),
+    )]
+    pub fn default() -> Self {
+        #[verus_spec(with Tracked(cpu), Tracked(init))]
+        self::FpuContext::new()
+    }
+}
 
+/* Origin Rust:
 impl Clone for FpuContext {
     fn clone(&self) -> Self {
         let mut xsave_area = Box::new(XSaveArea::new());
@@ -576,11 +842,52 @@ impl Clone for FpuContext {
         }
     }
 }
+ * The standard trait signature cannot carry the CPU and initialization
+ * resources required by XSaveArea::new. */
+#[verus_verify]
+impl FpuContext {
+    /// Copies saved fields and the active extended prefix; reserved words and the inactive tail are zeroed.
+    #[verus_spec(r =>
+        with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
+        requires init.uses_xsave() ==> cpu.xcr0_readable(),
+        ensures r.len() == self.len(), r.copied_from(self),
+    )]
+    pub fn clone(&self) -> Self {
+        proof! {
+            use_type_invariant(&*self);
+            broadcast use VERUS_layout_of_FxSaveArea;
+        }
+        let mut xsave_area = Box::new(
+            #[verus_spec(with Tracked(cpu), Tracked(init))]
+            self::XSaveArea::new(),
+        );
+        xsave_area.fxsave_area = self.xsave_area.fxsave_area;
+        xsave_area.features = self.xsave_area.features;
+        xsave_area.compaction = self.xsave_area.compaction;
+        if self.area_size > size_of::<FxSaveArea>() {
+            let len = self.area_size - size_of::<FxSaveArea>() - 64;
+            xsave_area.extended_state_area[..len]
+                .copy_from_slice(&self.xsave_area.extended_state_area[..len]);
+        }
+
+        proof! {
+            let extended_len = if self.area_size > 512 { self.area_size - 576 } else { 0 };
+            assert(xsave_area.extended_state_area@[..extended_len]
+                == self.xsave_area.extended_state_area@[..extended_len]);
+        }
+
+        Self {
+            xsave_area,
+            area_size: self.area_size,
+        }
+    }
+}
 
 /// The modern FPU context format (as saved and restored by the `XSAVE` and `XRSTOR` instructions).
 #[repr(C)]
 #[repr(align(64))]
 #[derive(Clone, Copy, Debug, Pod)]
+#[verus_verify]
 struct XSaveArea {
     fxsave_area: FxSaveArea,
     features: u64,
@@ -589,15 +896,57 @@ struct XSaveArea {
     extended_state_area: [u8; MAX_XSAVE_AREA_SIZE - size_of::<FxSaveArea>() - 64],
 }
 
+#[verus_verify]
 impl XSaveArea {
+    #[verus_spec(r =>
+        with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
+        requires init.uses_xsave() ==> cpu.xcr0_readable(),
+        ensures r.state().initialized(if init.uses_xsave() {
+            (cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()
+        } else { 0 }),
+    )]
     fn new() -> Self {
-        let features = if CPU_FEATURES.get().unwrap().has_xsave() {
-            XCr0::read().bits() & XSTATE_MAX_FEATURES.get().unwrap()
-        } else {
-            0
+        proof! { use_type_invariant(init); broadcast use VERUS_layout_of_FxSaveArea; }
+        /* Origin Rust: let features = if CPU_FEATURES.get().unwrap().has_xsave() {
+         * Completion witnesses provide the original get/unwrap's preconditions. */
+        let features =
+            if verus_exec_expr! { cpu_features_ref().get_initialized(Tracked(&init.features)) }
+                .has_xsave()
+            {
+                /* Origin Rust: XCr0::read().bits() & XSTATE_MAX_FEATURES.get().unwrap()
+                 * The same register read carries explicit current-CPU authority. */
+                verus_exec_expr! {{
+                    let bits = read_xcr0(Tracked(cpu)).bits();
+                    bits & *max_features_ref().get_initialized(Tracked(init.max_features.tracked_borrow()))
+                }}
+            } else {
+                0
+            };
+        /* Origin Rust: let mut xsave_area = Self::new_zeroed();
+         * Pod::new_zeroed has no field-value contract; initialize the same integer
+         * fields explicitly to prove their values without another trusted model. */
+        let mut xsave_area = Self {
+            fxsave_area: FxSaveArea {
+                control: 0,
+                status: 0,
+                tag: 0,
+                op: 0,
+                ip: 0,
+                cs: 0,
+                dp: 0,
+                ds: 0,
+                mxcsr: 0,
+                mxcsr_mask: 0,
+                st_space: [0; 32],
+                xmm_space: [0; 64],
+                padding: [0; 12],
+                reserved: [0; 12],
+            },
+            features: 0,
+            compaction: 0,
+            reserved: [0; 6],
+            extended_state_area: [0; MAX_XSAVE_AREA_SIZE - size_of::<FxSaveArea>() - 64],
         };
-
-        let mut xsave_area = Self::new_zeroed();
         // Set the initial values for the FPU context. Refer to Intel SDM, Table 11-1:
         // "IA-32 and Intel® 64 Processor States Following Power-up, Reset, or INIT (Contd.)".
         xsave_area.fxsave_area.control = 0x037F;
@@ -613,6 +962,7 @@ impl XSaveArea {
 #[repr(C)]
 #[repr(align(16))]
 #[derive(Clone, Copy, Debug, Pod)]
+#[verus_verify]
 struct FxSaveArea {
     control: u16,         // x87 FPU Control Word
     status: u16,          // x87 FPU Status Word
@@ -630,53 +980,273 @@ struct FxSaveArea {
     reserved: [u32; 12], // Software reserved
 }
 
+verus! {
+
+impl XSaveArea {
+    closed spec fn state(&self) -> FpuState {
+        FpuState {
+            legacy: FxSaveState {
+                control: self.fxsave_area.control,
+                status: self.fxsave_area.status,
+                tag: self.fxsave_area.tag,
+                op: self.fxsave_area.op,
+                ip: self.fxsave_area.ip,
+                cs: self.fxsave_area.cs,
+                dp: self.fxsave_area.dp,
+                ds: self.fxsave_area.ds,
+                mxcsr: self.fxsave_area.mxcsr,
+                mxcsr_mask: self.fxsave_area.mxcsr_mask,
+                st_space: self.fxsave_area.st_space,
+                xmm_space: self.fxsave_area.xmm_space,
+                padding: self.fxsave_area.padding,
+                reserved: self.fxsave_area.reserved,
+            },
+            features: self.features,
+            compaction: self.compaction,
+            reserved: self.reserved,
+            extended_state_area: self.extended_state_area,
+        }
+    }
+}
+
+} // verus!
+/* Origin Rust: <none; new executable code>
+ * Check the layouts used by the standard XSAVE format and the byte-slice views. */
+const _: () = {
+    assert!(size_of::<FxSaveArea>() == 512);
+    assert!(core::mem::align_of::<FxSaveArea>() == 16);
+    assert!(size_of::<XSaveArea>() == MAX_XSAVE_AREA_SIZE);
+    assert!(core::mem::align_of::<XSaveArea>() == 64);
+    assert!(core::mem::offset_of!(XSaveArea, fxsave_area) == 0);
+    assert!(core::mem::offset_of!(XSaveArea, features) == 512);
+    assert!(core::mem::offset_of!(XSaveArea, compaction) == 520);
+    assert!(core::mem::offset_of!(XSaveArea, reserved) == 528);
+    assert!(core::mem::offset_of!(XSaveArea, extended_state_area) == 576);
+    assert!(core::mem::offset_of!(FxSaveArea, tag) == 4);
+    assert!(core::mem::offset_of!(FxSaveArea, mxcsr) == 24);
+};
 /// The XSTATE features (user & supervisor) supported by the processor.
-static XSTATE_MAX_FEATURES: Once<u64> = Once::new();
+/* Origin Rust: static XSTATE_MAX_FEATURES: Once<u64> = Once::new();
+ * Carry a completion witness without changing the published mask. */
+#[verus_verify]
+static XSTATE_MAX_FEATURES: FpuOnce<u64, TrivialResourceInvariant> =
+    verus_exec_expr! { FpuOnce::new(Ghost(TrivialResourceInvariant)) };
+verus! {
+
+uninterp spec fn max_features_cell_id() -> Loc;
+
+uninterp spec fn xsave_size_cell_id() -> Loc;
+
+} // verus!
+#[inline]
+#[verus_verify(external_body)]
+#[verus_spec(r => ensures r.id() == max_features_cell_id())]
+fn max_features_ref() -> &'static FpuOnce<u64, TrivialResourceInvariant> {
+    &XSTATE_MAX_FEATURES
+}
 
 /// Mask features which are restored when returning to user space.
 ///
 /// X87 | SSE | AVX | OPMASK | ZMM_HI256 | HI16_ZMM
 const XFEATURE_MASK_USER_RESTORE: u64 = 0b1110_0111;
 
-/// The real size in bytes of the XSAVE area containing all states enabled by XCRO | IA32_XSS.
-static XSAVE_AREA_SIZE: Once<usize> = Once::new();
+/* Origin Rust: static XSAVE_AREA_SIZE: Once<usize> = Once::new();
+ * Attach the capacity predicate that every publishing closure must prove. */
+verus! {
 
-/// The max size in bytes of the XSAVE area.
-const MAX_XSAVE_AREA_SIZE: usize = 4096;
+ghost struct XSaveSizeInvariant;
 
-pub(in crate::arch) fn enable_essential_features() {
-    XSTATE_MAX_FEATURES.call_once(|| {
-        const XSTATE_CPUID: u32 = 0x0000000d;
-
-        // Find user xstates supported by the processor.
-        let res0 = cpuid::cpuid!(XSTATE_CPUID, 0);
-        let mut features = res0.eax as u64 + ((res0.edx as u64) << 32);
-
-        // Find supervisor xstates supported by the processor.
-        let res1 = cpuid::cpuid!(XSTATE_CPUID, 1);
-        features |= res1.ecx as u64 + ((res1.edx as u64) << 32);
-
-        features
-    });
-
-    XSAVE_AREA_SIZE.call_once(|| {
-        let cpuid = cpuid::CpuId::new();
-        let size = cpuid
-            .get_extended_state_info()
-            .unwrap()
-            .xsave_area_size_enabled_features() as usize;
-        debug_assert!(size <= MAX_XSAVE_AREA_SIZE);
-        size
-    });
-
-    if CPU_FEATURES.get().unwrap().has_fpu() {
-        let mut cr0 = Cr0::read();
-        cr0.remove(Cr0Flags::TASK_SWITCHED | Cr0Flags::EMULATE_COPROCESSOR);
-
-        unsafe {
-            Cr0::write(cr0);
-            // Flush out any pending x87 state.
-            core::arch::asm!("fninit");
-        }
+impl ValueInvariant<usize> for XSaveSizeInvariant {
+    open spec fn inv(size: usize) -> bool {
+        576 <= size <= 4096
     }
 }
+
+} // verus!
+/// The real size in bytes of the XSAVE area containing all states enabled by XCRO | IA32_XSS.
+#[verus_verify]
+static XSAVE_AREA_SIZE: FpuOnce<usize, XSaveSizeInvariant> =
+    verus_exec_expr! { FpuOnce::new(Ghost(XSaveSizeInvariant)) };
+#[inline]
+#[verus_verify(external_body)]
+#[verus_spec(r => ensures r.id() == xsave_size_cell_id())]
+fn xsave_size_ref() -> &'static FpuOnce<usize, XSaveSizeInvariant> {
+    &XSAVE_AREA_SIZE
+}
+
+/// The max size in bytes of the XSAVE area.
+#[verus_verify]
+const MAX_XSAVE_AREA_SIZE: usize = 4096;
+
+verus! {
+
+pub(in crate::arch) fn enable_essential_features(
+    Tracked(cpu): Tracked<&mut X86CpuRegisterOwner>,
+    Tracked(features_initialized): Tracked<&FpuOnceInitialized<x86::cpuid::FeatureInfo>>,
+) -> (result: Tracked<FpuInitialization>)
+    requires
+        old(cpu).xcr0_readable(),
+        old(cpu)@.fpu,
+        old(cpu)@.fxsr,
+        old(cpu)@.cr4 & 0x200u64 != 0,
+        old(cpu)@.max_basic_leaf >= 0xd,
+        576 <= (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) <= 4096,
+        features_initialized.cell() == cpu_features_cell_id(),
+        allowed_to_panic_if(true),
+    ensures
+        result@.enabled_on(final(cpu)),
+        if result@.uses_xsave() {
+            576 <= result@.len() <= 4096
+        } else {
+            result@.len() == 512
+        },
+        final(cpu)@ == (vstd_extra::external::x86::X86CpuSnapshot {
+            cr0: old(cpu)@.cr0 & !12u64,
+            x87_control: 0x037f,
+            x87_status: 0,
+            x87_tag: 0xffff,
+            ..old(cpu)@
+        }),
+{
+    let (_, Tracked(max_features)) = max_features_ref().call_once(
+        ||
+            {
+                const XSTATE_CPUID: u32 = 0x0000000d;
+
+                // Find user xstates supported by the processor.
+                let res0 = x86::cpuid::cpuid!(XSTATE_CPUID, 0);
+                let ghost low0 = res0.eax;
+                let ghost high0 = res0.edx;
+                assert((low0 as u64) <= u64::MAX - ((high0 as u64) << 32)) by (bit_vector);
+                let mut features = res0.eax as u64 + ((res0.edx as u64) << 32);
+
+                // Find supervisor xstates supported by the processor.
+                let res1 = x86::cpuid::cpuid!(XSTATE_CPUID, 1);
+                let ghost low1 = res1.ecx;
+                let ghost high1 = res1.edx;
+                assert((low1 as u64) <= u64::MAX - ((high1 as u64) << 32)) by (bit_vector);
+                features |= res1.ecx as u64 + ((res1.edx as u64) << 32);
+
+                features
+            },
+    );
+
+    /* Origin Rust: XSAVE_AREA_SIZE.call_once(|| {
+     *     let cpuid = cpuid::CpuId::new();
+     *     let size = cpuid.get_extended_state_info().unwrap()
+     *         .xsave_area_size_enabled_features() as usize;
+     *     debug_assert!(size <= MAX_XSAVE_AREA_SIZE);
+     *     size
+     * });
+     * The initializer closure must prove its returned size satisfies the capacity bound. */
+    let tracked read_cpu = &*cpu;
+    let (_, Tracked(area_size)) = xsave_size_ref().call_once(
+        || -> (r: usize)
+            ensures
+                576 <= r <= MAX_XSAVE_AREA_SIZE,
+            {
+                let size = read_enabled_xsave_size(Tracked(read_cpu));
+                debug_assert!(size <= MAX_XSAVE_AREA_SIZE);
+                size
+            },
+    );
+    /* Origin Rust: if CPU_FEATURES.get().unwrap().has_fpu() {
+     * Use the completion witness returned by the real call_once. */
+    if cpu_features_ref().get_initialized(Tracked(features_initialized)).has_fpu() {
+        /* Origin Rust: let mut cr0 = Cr0::read();
+         * Bind the hardware read to the same CPU resource. */
+        let mut cr0 = read_cr0(Tracked(&*cpu));
+        /* Origin Rust: cr0.remove(Cr0Flags::TASK_SWITCHED | Cr0Flags::EMULATE_COPROCESSOR);
+         * The external BitOr operation requires a contract. */
+        assert(8u64 | 4u64 == 12u64) by (bit_vector);
+        cr0.remove(cr0_or(cr0_task_switched(), cr0_emulate_coprocessor()));
+
+        unsafe {
+            /* Origin Rust: Cr0::write(cr0);
+             * Retain the write while carrying the register state transition. */
+            let ghost raw_cr0 = cpu@.cr0;
+            let ghost new_cr0 = vstd_extra::external::x86::cr0_bits(cr0);
+            assert(new_cr0 == (raw_cr0 & CR0_KNOWN_MASK) & !12u64);
+            clear_cr0_fpu_flags(cr0, Tracked(&mut *cpu));
+            // Flush out any pending x87 state.
+            /* Origin Rust: core::arch::asm!("fninit");
+             * Only this hardware instruction remains a trusted boundary. */
+            assert((raw_cr0 & !12u64) & 12u64 == 0) by (bit_vector);
+            initialize_x87(Tracked(&mut *cpu));
+        }
+    }
+    let tracked features = features_initialized.tracked_duplicate();
+    Tracked(
+        FpuInitialization {
+            features,
+            max_features: Some(max_features),
+            area_size: Some(area_size),
+            cpu: cpu@.cpu,
+            xcr0: cpu@.xcr0,
+        },
+    )
+}
+
+impl FpuContext {
+    proof fn lemma_same_state_bytes(&self, other: &Self)
+        requires
+            self.len() == other.len(),
+            self.state() == other.state(),
+        ensures
+            self.bytes() == other.bytes(),
+    {
+    }
+
+    pub proof fn lemma_initial_state_bytes(&self, other: &Self, features: u64)
+        requires
+            self.len() == other.len(),
+            self.has_initial_state(features),
+            other.has_initial_state(features),
+        ensures
+            self.bytes() == other.bytes(),
+    {
+        let left = self.state();
+        let right = other.state();
+        assert(left.legacy.st_space =~= right.legacy.st_space);
+        assert(left.legacy.xmm_space =~= right.legacy.xmm_space);
+        assert(left.legacy.padding =~= right.legacy.padding);
+        assert(left.legacy.reserved =~= right.legacy.reserved);
+        assert(left.reserved =~= right.reserved);
+        assert(left.extended_state_area =~= right.extended_state_area);
+        self.lemma_same_state_bytes(other);
+    }
+
+    /// Byte equality requires the source's zeroed header reserve and inactive tail.
+    pub proof fn lemma_copied_bytes(&self, source: &Self)
+        requires
+            self.copied_from(source),
+            source.state().has_zeroed_clone_padding(source.len()),
+        ensures
+            self.bytes() == source.bytes(),
+    {
+        let left = self.state();
+        let right = source.state();
+        let extended_len = if source.len() > 512 {
+            source.len() - 576
+        } else {
+            0
+        };
+        assert(left.reserved =~= right.reserved);
+        assert(left.extended_state_area =~= right.extended_state_area) by {
+            assert forall|i: int|
+                0 <= i < left.extended_state_area.len() implies left.extended_state_area[i]
+                == right.extended_state_area[i] by {
+                if i < extended_len {
+                    assert(left.extended_state_area@[..extended_len][i]
+                        == right.extended_state_area@[..extended_len][i]);
+                } else {
+                    assert(left.extended_state_area@[extended_len..][i - extended_len] == 0);
+                    assert(right.extended_state_area@[extended_len..][i - extended_len] == 0);
+                }
+            }
+        }
+        self.lemma_same_state_bytes(source);
+    }
+}
+
+} // verus!

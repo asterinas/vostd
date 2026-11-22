@@ -72,6 +72,7 @@ pub unsafe trait Pod: Copy + Sized {
     #[verus_spec(r =>
         ensures
             r.len() == core::mem::size_of::<Self>(),
+            r@ == pod_bytes(*old(self)),
             final(r)@ == pod_bytes(*final(self)),
             *final(self) == decode_pod::<Self>(final(r)@),
     )]
