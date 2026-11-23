@@ -32,6 +32,8 @@ use crate::{
     },
 };
 
+pub(crate) mod idt;
+
 verus! {
 
 /// The x86 instance of the architecture-wide specification contract.
