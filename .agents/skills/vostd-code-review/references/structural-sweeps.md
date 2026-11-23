@@ -8,7 +8,7 @@ procedures, not additional review rules or a separate input/output format.
 
 Use the immutable inputs already captured by the main skill: the committed series
 in `pr` / `diff`, or target snapshots and range unions in `files`. Search surrounding
-repository context with `rg` as needed; never substitute live target bytes for the
+repository context as needed; never substitute live target bytes for the
 captured input. Keep commit intent associated with its changes. A search may extend
 beyond reporting scope, but a finding's primary location must satisfy the main
 skill's scope rules. Record unavailable dependency sources as evidence gaps.
