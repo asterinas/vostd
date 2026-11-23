@@ -81,7 +81,8 @@ pub open spec fn platform_allocation_may_fail(addr: usize, size: usize) -> bool 
 #[verifier::external_body]
 #[verus_spec(dst =>
     requires
-        allowed_to_panic_if(crate::x86::alloc_at_panic_condition(addr, size)),
+        allowed_to_panic_if(addr == 0 || addr + size > usize::MAX || size > isize::MAX),
+        allowed_to_panic_if(platform_allocation_may_fail(addr, size)),
     ensures
         dst@.len() == size,
 )]

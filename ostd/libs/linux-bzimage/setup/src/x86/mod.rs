@@ -24,16 +24,9 @@ cfg_if::cfg_if! {
 verus! {
 
 #[cfg(target_arch = "x86_64")]
-use amd64_efi::alloc::platform_allocation_may_fail;
+pub use amd64_efi::alloc::platform_allocation_may_fail;
 #[cfg(target_arch = "x86")]
-use legacy_i386::alloc::platform_allocation_may_fail;
-
-pub open spec fn alloc_at_panic_condition(addr: usize, size: usize) -> bool {
-    ||| addr == 0
-    ||| addr + size > usize::MAX
-    ||| size > isize::MAX
-    ||| platform_allocation_may_fail(addr, size)
-}
+pub use legacy_i386::alloc::platform_allocation_may_fail;
 
 } // verus!
 

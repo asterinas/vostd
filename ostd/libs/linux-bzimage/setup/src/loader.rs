@@ -145,7 +145,10 @@ global layout usize is size == 4;
 pub open spec fn segment_allocation_panic_condition(
     program: &xmas_elf::program::ProgramHeader64,
 ) -> bool {
-    crate::x86::alloc_at_panic_condition(program.physical_addr as usize, program.mem_size as usize)
+    let addr = program.physical_addr as usize;
+    let size = program.mem_size as usize;
+    ||| addr == 0 || addr + size > usize::MAX || size > isize::MAX
+    ||| crate::x86::platform_allocation_may_fail(addr, size)
 }
 
 pub open spec fn segment_initialized(
