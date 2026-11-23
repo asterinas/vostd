@@ -6,7 +6,6 @@ use crate::specs::{
     mm::page_table::{cursor::owners::*, owners::PageTableOwner, *},
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,
 };
@@ -322,51 +321,6 @@ impl<C: PageTableConfig> CursorView<C> {
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         self.split_if_mapped_huge_spec(new_size).lemma_split_while_huge_compose(s1, s2);
-    }
-
-    /// When `split_while_huge(size)` is a no-op and the view is `present()`,
-    /// the mapping at `cur_va` already has `page_size <= size`.
-    pub proof fn split_while_huge_noop_implies_page_size_le(self, size: usize)
-        requires
-            self.inv(),
-            size >= PAGE_SIZE,
-            self.split_while_huge(size) == self,
-            self.present(),
-        ensures
-            self.query_mapping().page_size <= size,
-    {
-        let m = self.query_mapping();
-        if m.page_size > size {
-            let new_size = m.page_size / NR_ENTRIES;
-            self.lemma_query_mapping();
-            assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                if m.page_size == 2097152 {
-                } else if m.page_size == 1073741824 {
-                } else {
-                    assert(false);
-                }
-            };
-            Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
-            let new_self = self.split_if_mapped_huge_spec(new_size);
-            new_self.split_while_huge_refinement(size, m);
-            let p = choose|p: Mapping| #[trigger]
-                new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
-                    && m.va_range.end <= p.va_range.end && m.pa_range.start == (p.pa_range.start + (
-                m.va_range.start - p.va_range.start)) as Paddr && m.property == p.property;
-            if self.mappings.contains(p) {
-            } else {
-                let new_mappings = Set::<int>::range(
-                    0int,
-                    m.page_size as int / new_size as int,
-                ).map(|n: int| Self::split_index(m, new_size, n as usize));
-                let k = choose|k: int|
-                    0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
-                        m,
-                        new_size,
-                        k as usize,
-                    ) == p;
-            }
-        }
     }
 
     /// When the mapping at `cur_va` is exactly one split-step above `size`
@@ -686,9 +640,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_node(),
             self.level > 1,
         ensures
-            self@.split_while_huge(page_size::<PagingConsts>((self.level - 1) as PagingLevel))
-                == self@,
+            self@.split_while_huge(page_size::<C>((self.level - 1) as PagingLevel)) == self@,
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
         self.view_preserves_inv();
         if self@.present() {
             let subtree = self.cur_subtree();
@@ -718,8 +673,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_barrier_va(),
         ensures
-            self@.split_while_huge(page_size::<PagingConsts>(self.level as PagingLevel)) == self@,
+            self@.split_while_huge(page_size::<C>(self.level as PagingLevel)) == self@,
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
         self.view_preserves_inv();
         if self@.present() {
             self.lemma_cur_subtree_inv();
@@ -740,29 +697,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
             self@.cur_va == old_view.cur_va,
             old_view.present(),
-            old_view.query_mapping().page_size > page_size::<PagingConsts>(
+            old_view.query_mapping().page_size > page_size::<C>(self.level as PagingLevel),
+            old_view.query_mapping().page_size / NR_ENTRIES == page_size::<C>(
                 self.level as PagingLevel,
             ),
-            old_view.query_mapping().page_size / NR_ENTRIES == page_size::<PagingConsts>(
-                self.level as PagingLevel,
-            ),
-            old_view.query_mapping().page_size % page_size::<PagingConsts>(
-                self.level as PagingLevel,
-            ) == 0,
+            old_view.query_mapping().page_size % page_size::<C>(self.level as PagingLevel) == 0,
             self@.mappings =~= old_view.split_if_mapped_huge_spec(
-                page_size::<PagingConsts>(self.level as PagingLevel),
+                page_size::<C>(self.level as PagingLevel),
             ).mappings,
         ensures
-            self@ == old_view.split_while_huge(
-                page_size::<PagingConsts>(self.level as PagingLevel),
-            ),
+            self@ == old_view.split_while_huge(page_size::<C>(self.level as PagingLevel)),
     {
-        let ps = page_size::<PagingConsts>(self.level as PagingLevel);
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
+        let ps = page_size::<C>(self.level as PagingLevel);
         let m = old_view.query_mapping();
         let f = old_view.mappings.filter(
             |m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end,
         );
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
+        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values::<C>();
         old_view.split_while_huge_one_step(ps);
         old_view.lemma_split_while_huge_preserves_cur_va(ps);
     }

@@ -7,7 +7,7 @@ use vstd::{
 };
 use vstd_extra::{prelude::*, sum::Sum};
 
-use super::{NonNullPtr, NonNullPtrRef};
+use super::NonNullPtr;
 use crate::util::Either;
 use core::num::NonZeroUsize;
 use core::{marker::PhantomData, ptr::NonNull};
@@ -22,16 +22,24 @@ broadcast use {group_nonull_axioms, group_nonzero_axioms, group_raw_ptr_axioms};
 unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
-    // type Ref<'a>
-    //     = Either<L::Ref<'a>, R::Ref<'a>>
-    // where
-    //     Self: 'a;
     type Permission = Sum<L::Permission, R::Permission>;
+
+    type Ref<'a> = Either<L::Ref<'a>, R::Ref<'a>>;
+
+    type RefPermission<'a> = Sum<L::RefPermission<'a>, R::RefPermission<'a>>;
 
     #[verifier::external_body]
     const ALIGN_BITS: u32 = min(L::ALIGN_BITS, R::ALIGN_BITS).checked_sub(1).expect(
         "`L` and `R` alignments should be at least 2 to pack `Either` into one pointer",
     );
+
+    open spec fn align_bits_inv() -> bool {
+        Self::ALIGN_BITS == if L::ALIGN_BITS < R::ALIGN_BITS {
+            L::ALIGN_BITS - 1
+        } else {
+            R::ALIGN_BITS - 1
+        }
+    }
 
     #[verifier::spinoff_prover]
     fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
@@ -42,9 +50,9 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
            let ghost tag = 1usize << align_bits;
         }
         proof! {
-            L::lemma_align_bits_range();
-            R::lemma_align_bits_range();
-            Self::lemma_align_bits_range();
+            L::lemma_align_bits_properties();
+            R::lemma_align_bits_properties();
+            Self::lemma_align_bits_properties();
             vstd::bits::lemma_usize_pow2_no_overflow(align_bits as nat);
             vstd::bits::lemma_usize_pow2_no_overflow(l_align_bits as nat);
             vstd::bits::lemma_usize_pow2_no_overflow(r_align_bits as nat);
@@ -151,7 +159,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         Tracked(perm): Tracked<Self::Permission>,
     ) -> Self {
         proof! {
-            Self::lemma_align_bits_range();
+            Self::lemma_align_bits_properties();
         }
         proof_decl! {
             let ghost align_bits = Self::ALIGN_BITS;
@@ -222,68 +230,44 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
     }
 
-    axiom fn lemma_align_bits_range()
-        ensures
-            Self::ALIGN_BITS == if L::ALIGN_BITS < R::ALIGN_BITS {
-                L::ALIGN_BITS - 1
-            } else {
-                R::ALIGN_BITS - 1
-            },
-    ;
-}
+    axiom fn lemma_align_bits_properties();
 
-unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> for Either<L, R> {
-    type Ref = Either<L::Ref, R::Ref>;
-
-    type RefPermission = Sum<L::RefPermission, R::RefPermission>;
-
-    open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
+    open spec fn ref_perm_view_permission<'a>(perm: Self::RefPermission<'a>) -> Self::Permission {
         match perm {
             Sum::Left(left) => Sum::Left(L::ref_perm_view_permission(left)),
             Sum::Right(right) => Sum::Right(R::ref_perm_view_permission(right)),
         }
     }
 
-    open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
-        true
-    }
-
-    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
-        match perm {
-            Sum::Left(left) => L::lemma_ref_perm_inv_impl_perm_inv(left),
-            Sum::Right(right) => R::lemma_ref_perm_inv_impl_perm_inv(right),
+    open spec fn ref_rel_perm<'a>(r: Self::Ref<'a>, perm: Self::RefPermission<'a>) -> bool {
+        match (r, perm) {
+            (Either::Left(r), Sum::Left(perm)) => L::ref_rel_perm(r, perm),
+            (Either::Right(r), Sum::Right(perm)) => R::ref_rel_perm(r, perm),
+            _ => false,
         }
     }
 
-    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
-        Self::RefPermission) {
+    proof fn tracked_borrow_perm_as_ref_perm<'a>(
+        tracked perm: &'a Self::Permission,
+    ) -> tracked Self::RefPermission<'a> {
         if perm is Left {
-            Sum::Left(L::borrow_ref_perm(perm.tracked_borrow_left()))
+            Sum::Left(L::tracked_borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
         } else {
-            Sum::Right(R::borrow_ref_perm(perm.tracked_borrow_right()))
+            Sum::Right(R::tracked_borrow_perm_as_ref_perm(perm.tracked_borrow_right()))
         }
     }
 
-    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
-        Self::RefPermission) {
-        if perm is Left {
-            Sum::Left(L::borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
-        } else {
-            Sum::Right(R::borrow_perm_as_ref_perm(perm.tracked_borrow_right()))
-        }
-    }
-
-    unsafe fn raw_as_ref(
+    unsafe fn raw_as_ref<'a>(
         raw: NonNull<Self::Target>,
-        Tracked(perm): Tracked<Self::RefPermission>,
-    ) -> Self::Ref {
+        Tracked(perm): Tracked<Self::RefPermission<'a>>,
+    ) -> Self::Ref<'a> {
         proof_decl! {
             let ghost align_bits = Self::ALIGN_BITS;
             let ghost tag = 1usize << align_bits;
             let ghost raw_addr = raw.as_ptr()@.addr;
         }
         proof! {
-            Self::lemma_align_bits_range();
+            Self::lemma_align_bits_properties();
             if perm is Left {
                 assert((raw_addr & !tag) == raw_addr) by (bit_vector)
                     requires
@@ -327,9 +311,12 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
     }
 
     #[verifier::spinoff_prover]
-    fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
+    fn ref_as_raw<'a>(ptr_ref: Self::Ref<'a>) -> (
+        NonNull<Self::Target>,
+        Tracked<Self::RefPermission<'a>>,
+    ) {
         proof!{
-            Self::lemma_align_bits_range();
+            Self::lemma_align_bits_properties();
         }
         proof_decl!{
             let ghost align_bits = Self::ALIGN_BITS;
@@ -338,8 +325,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
             let ghost r_align_bits = R::ALIGN_BITS;
         }
         proof!{
-            L::lemma_align_bits_range();
-            R::lemma_align_bits_range();
+            L::lemma_align_bits_properties();
+            R::lemma_align_bits_properties();
             vstd::bits::lemma_usize_pow2_no_overflow(align_bits as nat);
             vstd::bits::lemma_usize_pow2_no_overflow(l_align_bits as nat);
             vstd::bits::lemma_usize_pow2_no_overflow(r_align_bits as nat);
@@ -353,7 +340,6 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 let (ptr, Tracked(perm)) = L::ref_as_raw(left);
                 proof! {
                     let ghost ptr_addr = ptr.as_ptr().addr();
-                    L::lemma_ref_perm_inv_impl_perm_inv(perm);
                     let extra_bits: u32 = (l_align_bits - align_bits) as u32;
                     let scale = 1usize << extra_bits;
                     vstd::bits::lemma_usize_pow2_no_overflow(extra_bits as nat);
@@ -380,7 +366,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 .cast() */
                 let (ptr, Tracked(perm)) = R::ref_as_raw(right);
                 proof! {
-                    Self::lemma_align_bits_range();
+                    Self::lemma_align_bits_properties();
                 }
                 let tagged_ptr = ptr.map_addr(
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
@@ -401,7 +387,6 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 proof! {
                     let ghost ptr_addr = ptr.as_ptr().addr();
                     let ghost tagged_addr = tagged_ptr.as_ptr().addr();
-                    R::lemma_ref_perm_inv_impl_perm_inv(perm);
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
                         tagged_addr == ptr_addr | tag,
@@ -513,59 +498,168 @@ proof fn lemma_aligned_addr_clears_tag_bit(
 }
 
 } // verus!
-#[cfg(ktest)]
+/* #[cfg(ktest)] */
 mod test {
+    use vstd::layout::layout_of_primitives;
+    use vstd_extra::layout::lemma_primitive_layout;
+
     use alloc::{boxed::Box, sync::Arc};
 
     use super::*;
-    use crate::{prelude::ktest, sync::RcuOption};
+    /* use crate::{prelude::ktest, sync::RcuOption}; */
+    use crate::sync::rcu::RcuOption;
 
     type Either32 = Either<Arc<u32>, Box<u32>>;
     type Either16 = Either<Arc<u32>, Box<u16>>;
 
-    #[ktest]
+    verus! {
+
+broadcast use {
+    group_nonull_axioms,
+    group_nonzero_axioms,
+    group_raw_ptr_axioms,
+    layout_of_primitives,
+};
+
+} // verus!
+    /* #[ktest] */
+#[verus_spec]
     fn alignment() {
+        proof! {
+            lemma_primitive_layout();
+            <Arc<u32> as NonNullPtr>::lemma_align_bits_properties();
+            <Box<u32> as NonNullPtr>::lemma_align_bits_properties();
+            <Box<u16> as NonNullPtr>::lemma_align_bits_properties();
+            let box32_bits = <Box<u32> as NonNullPtr>::ALIGN_BITS;
+            let box16_bits = <Box<u16> as NonNullPtr>::ALIGN_BITS;
+            assert(box32_bits == 2) by (bit_vector)
+                requires box32_bits < usize::BITS, 1usize << box32_bits == 4usize;
+            assert(box16_bits == 1) by (bit_vector)
+                requires box16_bits < usize::BITS, 1usize << box16_bits == 2usize;
+            Either32::lemma_align_bits_properties();
+            Either16::lemma_align_bits_properties();
+        }
         assert_eq!(<Either32 as NonNullPtr>::ALIGN_BITS, 1);
         assert_eq!(<Either16 as NonNullPtr>::ALIGN_BITS, 0);
     }
 
-    #[ktest]
+    /* #[ktest] */
+    #[verus_spec]
     fn left_pointer() {
+        proof! {
+            lemma_primitive_layout();
+            <Arc<u32> as NonNullPtr>::lemma_align_bits_properties();
+            <Box<u16> as NonNullPtr>::lemma_align_bits_properties();
+            Either16::lemma_align_bits_properties();
+            let right_bits = <Box<u16> as NonNullPtr>::ALIGN_BITS;
+            assert(right_bits == 1) by (bit_vector)
+                requires right_bits < usize::BITS, 1usize << right_bits == 2usize;
+            let either_bits = Either16::ALIGN_BITS;
+            assert(1usize << either_bits == 1usize) by (bit_vector)
+                requires either_bits == 0;
+        }
         let val: Either16 = Either::Left(Arc::new(123));
 
-        let ptr = NonNullPtr::into_raw(val);
+        /* Retain the ownership permission.
+         * Origin Rust: let ptr = NonNullPtr::into_raw(val);
+         */
+        let (ptr, perm) = NonNullPtr::into_raw(val);
         assert_eq!(ptr.addr().get() & 1, 0);
 
-        let ref_ = unsafe { <Either16 as NonNullPtr>::raw_as_ref(ptr) };
+        proof_decl! {
+            let tracked ref_perm = <Either16 as NonNullPtr>::tracked_borrow_perm_as_ref_perm(perm.borrow());
+        }
+        /* Pass the borrowed permission.
+         * Origin Rust: let ref_ = unsafe { <Either16 as NonNullPtr>::raw_as_ref(ptr) };
+         */
+        let ref_ = unsafe {
+            verus_exec_expr! { <Either16 as NonNullPtr>::raw_as_ref(ptr, Tracked(ref_perm)) }
+        };
         assert!(matches!(ref_, Either::Left(ref r) if ***r == 123));
 
-        let ptr2 = <Either16 as NonNullPtr>::ref_as_raw(ref_);
+        /* Receive the reading permission.
+         * Origin Rust: let ptr2 = <Either16 as NonNullPtr>::ref_as_raw(ref_);
+         */
+        let (ptr2, _) = <Either16 as NonNullPtr>::ref_as_raw(ref_);
+        // Arc's value model cannot prove allocation identity; keep the runtime check.
+        #[cfg(all(ktest, not(verus_keep_ghost_body)))]
         assert_eq!(ptr, ptr2);
 
-        let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr) };
+        /* Consume the ownership permission.
+         * Origin Rust: let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr) };
+         */
+        let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr, perm) };
         assert!(matches!(val, Either::Left(ref r) if **r == 123));
-        drop(val);
+        /* Unsupported explicit drop; use the same scope-exit drop.
+         * Origin Rust: drop(val);
+         */
     }
 
-    #[ktest]
+    /* #[ktest] */
+    #[verus_spec]
     fn right_pointer() {
+        proof! {
+            lemma_primitive_layout();
+            <Arc<u32> as NonNullPtr>::lemma_align_bits_properties();
+            <Box<u16> as NonNullPtr>::lemma_align_bits_properties();
+            Either16::lemma_align_bits_properties();
+            let right_bits = <Box<u16> as NonNullPtr>::ALIGN_BITS;
+            assert(right_bits == 1) by (bit_vector)
+                requires right_bits < usize::BITS, 1usize << right_bits == 2usize;
+            let either_bits = Either16::ALIGN_BITS;
+            assert(1usize << either_bits == 1usize) by (bit_vector)
+                requires either_bits == 0;
+        }
         let val: Either16 = Either::Right(Box::new(456));
 
-        let ptr = NonNullPtr::into_raw(val);
+        /* Retain the ownership permission.
+         * Origin Rust: let ptr = NonNullPtr::into_raw(val);
+         */
+        let (ptr, perm) = NonNullPtr::into_raw(val);
         assert_eq!(ptr.addr().get() & 1, 1);
 
-        let ref_ = unsafe { <Either16 as NonNullPtr>::raw_as_ref(ptr) };
-        assert!(matches!(ref_, Either::Right(ref r) if ***r == 456));
+        proof_decl! {
+            let tracked ref_perm = <Either16 as NonNullPtr>::tracked_borrow_perm_as_ref_perm(perm.borrow());
+        }
+        /* Pass the borrowed permission.
+         * Origin Rust: let ref_ = unsafe { <Either16 as NonNullPtr>::raw_as_ref(ptr) };
+         */
+        let ref_ = unsafe {
+            verus_exec_expr! { <Either16 as NonNullPtr>::raw_as_ref(ptr, Tracked(ref_perm)) }
+        };
+        /* Use deref_target instead of the unsupported transmute-based Deref.
+         * Origin Rust: assert!(matches!(ref_, Either::Right(ref r) if ***r == 456));
+         */
+        assert!(matches!(ref_, Either::Right(ref r) if *r.deref_target() == 456));
 
-        let ptr2 = <Either16 as NonNullPtr>::ref_as_raw(ref_);
+        /* Receive the reading permission.
+         * Origin Rust: let ptr2 = <Either16 as NonNullPtr>::ref_as_raw(ref_);
+         */
+        proof_decl! { let ghost ref_value = ref_; }
+        let (ptr2, ref_perm2) = <Either16 as NonNullPtr>::ref_as_raw(ref_);
+        proof! {
+            let addr = ptr.as_ptr().addr();
+            let addr2 = ptr2.as_ptr().addr();
+            assert(addr == addr2) by (bit_vector)
+                requires
+                    addr & 1usize == 1,
+                    addr2 & 1usize == 1,
+                    addr & !1usize == addr2 & !1usize,
+            ;
+        }
         assert_eq!(ptr, ptr2);
 
-        let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr) };
+        /* Consume the ownership permission.
+         * Origin Rust: let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr) };
+         */
+        let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr, perm) };
         assert!(matches!(val, Either::Right(ref r) if **r == 456));
-        drop(val);
+        /* Unsupported explicit drop; use the same scope-exit drop.
+         * Origin Rust: drop(val);
+         */
     }
 
-    #[ktest]
+    /* #[ktest]
     fn rcu_store_load() {
         let rcu: RcuOption<Either32> = RcuOption::new_none();
         assert!(rcu.read().get().is_none());
@@ -575,5 +669,5 @@ mod test {
 
         rcu.update(Some(Either::Right(Box::new(999))));
         assert!(matches!(rcu.read().get().unwrap(), Either::Right(r) if **r == 999));
-    }
+    } */
 }

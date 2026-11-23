@@ -7,7 +7,7 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use vstd::{pervasive::arbitrary, prelude::*, vpanic};
-use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::may_panic, prelude::*};
+use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::allowed_to_panic_if, prelude::*};
 
 use crate::specs::{
     arch::*,
@@ -17,41 +17,41 @@ use crate::specs::{
             mapping::{
                 group_page_meta, lemma_meta_to_paddr_biinjective, lemma_paddr_to_meta_biinjective,
             },
-            meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         io::VmIoOwner,
-        page_table::{cursor::owners::CursorOwner, *},
+        page_table::{cursor::owners::CursorOwner, node::entry_owners::EntryOwner, *},
         tlb::TlbModel,
         virt_mem::{MemView, VirtPtr},
     },
-    task::InAtomicMode,
 };
 
-use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
-use crate::cpu::{AtomicCpuSet, CpuSet};
-use crate::error::Error;
-use crate::mm::frame::meta::mapping::meta_to_frame;
-use crate::mm::frame::untyped::UFrame;
-use crate::mm::frame::{Frame, MetaSlot};
-use crate::mm::kspace::KERNEL_PAGE_TABLE;
-use crate::mm::kspace::KernelPtConfig;
-use crate::mm::page_table::*;
-use crate::mm::tlb::*;
 use crate::mm::{
-    KERNEL_VADDR_RANGE,
-    page_table::{EntryOwner, PageTableFrag, PageTableGuard},
+    KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, Vaddr, frame::meta::MetaSlot,
+    kspace::KernelPtConfig, page_table::PageTableGuard, page_table::*, tlb::*,
 };
-use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    io::{Fallible, VmReader, VmWriter},
-    page_prop::PageProperty,
-};
+
 use crate::sync::RoArc;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
+
+use crate::{
+    Error,
+    arch::mm::{PAGE_SIZE, PageTableEntry, PagingConsts, current_page_table_paddr},
+    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    // cpu_local_cell,
+    mm::{
+        AnyUFrameMeta, Frame, MAX_USERSPACE_VADDR, PageProperty, PagingLevel, UFrame, VmReader,
+        VmWriter,
+        io::Fallible,
+        kspace::KERNEL_PAGE_TABLE,
+        page_table::{self, PageTable, PageTableConfig, PageTableFrag},
+        tlb::{TlbFlushOp, TlbFlusher},
+    },
+    prelude::*,
+    task::{DisabledPreemptGuard, atomic_mode::AsAtomicModeGuard, disable_preempt},
+};
 
 #[path = "../../specs/mm/vm_space.rs"]
 pub mod vm_space_specs;
@@ -138,16 +138,15 @@ verus! {
 ///    }
 /// }
 /// ```
-pub struct VmSpace<'a> {
+pub struct VmSpace {
     pub pt: PageTable<UserPtConfig>,
     pub cpus: AtomicCpuSet,
-    pub _marker: PhantomData<&'a ()>,
 }
 
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl<'a> VmSpace<'a> {
+impl VmSpace {
     #[inline]
     #[verus_spec(r =>
         with
@@ -196,9 +195,9 @@ impl<'a> VmSpace<'a> {
         }
         let pt = {
             #[verus_spec(with Tracked(kernel_owner), Tracked(regions), Tracked(guards))]
-            kpt.create_user_page_table::<crate::specs::task::AnyAtomicGuard>()
+            kpt.create_user_page_table()
         };
-        Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()), _marker: PhantomData }
+        Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()) }
     }
 
     /// Gets an immutable cursor in the virtual address range.
@@ -229,7 +228,7 @@ impl<'a> VmSpace<'a> {
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
-            crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
+            crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // On the success branch, the returned cursor owner satisfies
             // its invariant. Follows from the underlying PT::cursor's
             // ensures: r is Ok ⇒ cursor_new_success_conditions (by
@@ -237,15 +236,15 @@ impl<'a> VmSpace<'a> {
             // hold ⇒ cursor_owner.inv().
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        Cursor<'a, G>,
+    pub fn cursor<'a, G: AsAtomicModeGuard>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        Cursor<'a>,
     > {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         proof {
             lemma_vaddr_range_spec_user();
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -294,19 +293,21 @@ impl<'a> VmSpace<'a> {
             owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
-            crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
+            crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // See `cursor` above for the derivation.
             cursor_owner@ matches Some(c) ==> c.inv(),
     )]
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    pub fn cursor_mut<'a, G: AsAtomicModeGuard>(
+        &'a self,
+        guard: &'a G,
+        va: &Range<Vaddr>,
+    ) -> Result<CursorMut<'a>> {
         proof_decl! {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         proof {
             lemma_vaddr_range_spec_user();
-            lemma_page_size_spec_values();
+            lemma_page_size_spec_values::<PagingConsts>();
         }
         match {
             #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
@@ -368,7 +369,7 @@ impl<'a> VmSpace<'a> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&'a mut VmSpaceOwner>,
+            Tracked(owner): Tracked<&mut VmSpaceOwner>,
                 -> reader_owner: Tracked<Option<VmIoOwner>>,
         requires
             old(owner).inv(),
@@ -385,7 +386,7 @@ impl<'a> VmSpace<'a> {
             // reader. `nat` arithmetic subsumes the overflow case.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a, Fallible>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -442,7 +443,7 @@ impl<'a> VmSpace<'a> {
             // Range bound is necessary for success: see `reader` above.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
-    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a, Fallible>> {
+    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -472,10 +473,10 @@ impl<'a> VmSpace<'a> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
-pub struct Cursor<'a, A: InAtomicMode>(pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>);
+pub struct Cursor<'a>(pub crate::mm::page_table::Cursor<'a, UserPtConfig>);
 
 #[verus_verify]
-impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
+impl<'rcu> Cursor<'rcu> {
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
@@ -503,7 +504,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             // the resolved leaf frame when *that specific slot* is
             // saturated — precisely propagated from
             // `Cursor::query_panic_condition`.
-            old(self).0.query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
+            allowed_to_panic_if(old(self).0.query_panic_condition(*old(owner), *old(regions))),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).0.query_panic_condition(*old(owner), *old(regions)),
@@ -555,7 +556,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.find_next_panic_condition(len) ==> may_panic(),
+            allowed_to_panic_if(old(self).0.find_next_panic_condition(len)),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -605,7 +606,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
             // in its `pop_level` repositioning ascent.
-            old(self).0.jump_panic_condition(va) ==> may_panic(),
+            allowed_to_panic_if(old(self).0.jump_panic_condition(va)),
         ensures
             !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -635,15 +636,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 ///
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
-pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
+pub struct CursorMut<'a> {
+    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
 }
 
 #[verus_verify]
-impl<'a, A: InAtomicMode> CursorMut<'a, A> {
+impl<'a> CursorMut<'a> {
     /// Queries the mapping at the current virtual address.
     ///
     /// This is the same as [`Cursor::query`].
@@ -677,8 +678,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // Out-of-range → graceful `Err`; the sole panic is cloning the
             // resolved leaf frame when *that specific slot* is saturated —
             // precisely propagated from `Cursor::query_panic_condition`.
-            old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions))
-                ==> may_panic(),
+            allowed_to_panic_if(old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions))),
         ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             !old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions)),
@@ -725,7 +725,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
+            allowed_to_panic_if(old(self).pt_cursor.0.find_next_panic_condition(len)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -777,7 +777,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
             // in its `pop_level` repositioning ascent.
-            old(self).pt_cursor.0.jump_panic_condition(va) ==> may_panic(),
+            allowed_to_panic_if(old(self).pt_cursor.0.jump_panic_condition(va)),
         ensures
             !old(self).pt_cursor.0.jump_panic_condition(va),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -846,7 +846,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(tlb_model).inv(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
-            old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }) ==> may_panic(),
+            allowed_to_panic_if(old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop })),
         ensures
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
@@ -934,10 +934,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             // Large unmaps may clone a removed subtree root before deferred reclamation.
-            len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
+            allowed_to_panic_if(len >= crate::mm::page_size::<PagingConsts>(2)),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
-            old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
+            allowed_to_panic_if(old(self).pt_cursor.0.find_next_panic_condition(len)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
@@ -976,7 +976,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         #[verus_spec(
             invariant
-                len >= crate::mm::page_size::<PagingConsts>(2) ==> may_panic(),
+                allowed_to_panic_if(len >= crate::mm::page_size::<PagingConsts>(2)),
                 end_va == start_va + len,
                 self.pt_cursor.0.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
@@ -1536,7 +1536,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     && <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_in) ==>
                         <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_out),
 
-            old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
+            allowed_to_panic_if(old(self).pt_cursor.0.find_next_panic_condition(len)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -1605,21 +1605,9 @@ impl RCClone for MappedItem {
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for UserPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        0..256
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
-        true
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        true
-    }
+    // Work around verus! dropping `open` on trait associated constants.
+    #[verus::internal(open)]
+    const TOP_LEVEL_INDEX_RANGE: Range<usize> = 0..256;
 
     type E = PageTableEntry;
 

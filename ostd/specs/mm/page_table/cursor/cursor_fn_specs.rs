@@ -9,10 +9,8 @@ use crate::specs::{
             vaddr_range_proofs::lemma_page_table_managed_index_bounds, *,
         },
     },
-    task::InAtomicMode,
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
     PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
@@ -28,15 +26,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.barrier_va.start <= va < self.barrier_va.end,
-            va % C::BASE_PAGE_SIZE() == 0,
+            va % C::BASE_PAGE_SIZE == 0,
         ensures
             self.locked_range().start <= va < self.locked_range().end,
             vaddr_leading_part_spec::<C>(va) == page_table_coverage_start_spec::<C>(),
-            C::TOP_LEVEL_INDEX_RANGE().start <= pte_index_spec::<C>(va, C::NR_LEVELS())
-                < C::TOP_LEVEL_INDEX_RANGE().end,
+            C::TOP_LEVEL_INDEX_RANGE.start <= pte_index_spec::<C>(va, C::NR_LEVELS)
+                < C::TOP_LEVEL_INDEX_RANGE.end,
     {
         C::lemma_paging_consts_properties();
-        C::axiom_current_paging_consts_hardcoded();
         C::lemma_page_table_config_constant_properties();
         self.lemma_locked_range_span();
         lemma_same_node_vaddr_leading_part_match::<C>(
@@ -50,21 +47,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     /// Checks the range validity, ordering, and alignment enforced by the executable constructor.
     pub open spec fn cursor_new_input_valid(va: Range<Vaddr>) -> bool {
         &&& va.start < va.end
-        &&& va.start % C::BASE_PAGE_SIZE() == 0
-        &&& va.end % C::BASE_PAGE_SIZE() == 0
+        &&& va.start % C::BASE_PAGE_SIZE == 0
+        &&& va.end % C::BASE_PAGE_SIZE == 0
         &&& is_valid_range_spec::<C>(va)
     }
 
     /// Conditions for verified construction, including representable slot successors.
     pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
-        let top = C::NR_LEVELS();
+        let top = C::NR_LEVELS;
         let end = page_table_coverage_end_spec::<C>();
         // A request wholly in the last root slot must descend when root leaves are unsupported.
-        let reserve_level = if top > 1 && C::HIGHEST_TRANSLATION_LEVEL() < top && end - page_size::<
+        let reserve_level = if top > 1 && C::HIGHEST_TRANSLATION_LEVEL < top && end - page_size::<
             C,
         >(top) <= va.start {
             (top - 1) as PagingLevel
@@ -144,12 +141,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// `node_start == nat_align_down(self.va, page_size(lv + 1))` and
     /// `node_size == page_size(lv + 1)`).
     pub open spec fn jump_node_holds(self, lv: PagingLevel, va: Vaddr) -> bool {
-        let nstart = nat_align_down(
-            self.va as nat,
-            page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat,
-        );
+        let nstart = nat_align_down(self.va as nat, page_size::<C>((lv + 1) as PagingLevel) as nat);
         &&& nstart <= va as nat
-        &&& (va as nat) - nstart < page_size::<PagingConsts>((lv + 1) as PagingLevel) as nat
+        &&& (va as nat) - nstart < page_size::<C>((lv + 1) as PagingLevel) as nat
     }
 
     /// Structural (reachability) panic condition for `jump`: it diverges on a
@@ -175,14 +169,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 }
 
 // ─── CursorMut specs ──────────────────────────────────────────────────────────
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     /// Runtime checks for mapping an item, matching the source's range and alignment checks.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.0.va >= self.0.barrier_va.end
-        ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
+        ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL
         ||| C::item_into_raw(item).1 > self.0.guard_level
-        ||| self.0.va % page_size::<PagingConsts>(C::item_into_raw(item).1) != 0
-        ||| self.0.va + page_size::<PagingConsts>(C::item_into_raw(item).1) > self.0.barrier_va.end
+        ||| self.0.va % page_size::<C>(C::item_into_raw(item).1) != 0
+        ||| self.0.va + page_size::<C>(C::item_into_raw(item).1) > self.0.barrier_va.end
     }
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
@@ -199,7 +193,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
     pub open spec fn item_not_mapped(item: C::Item, regions: MetaRegionOwners) -> bool {
         let (pa, level, prop, perm) = C::item_into_raw(item);
-        let size = page_size::<PagingConsts>(level);
+        let size = page_size::<C>(level);
         let range = pa..(pa + size) as usize;
         perm@ is Some ==> regions.paddr_range_not_mapped(range)
     }
@@ -288,6 +282,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     regions1,
                 ),
     {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
         assert forall|item: C::Item|
             Self::item_slot_in_regions(
                 item,
@@ -309,7 +305,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         new_view: CursorView<C>,
     ) -> bool {
         let (pa, level, prop, _perm) = C::item_into_raw(item);
-        new_view == old_view.map_spec(pa, page_size::<PagingConsts>(level), prop)
+        new_view == old_view.map_spec(pa, page_size::<C>(level), prop)
     }
 }
 

@@ -606,11 +606,14 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
     }
 }
 
-/* impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for SpinLockGuard<'_, T, G> {
+#[verus_verify]
+impl<T: /*?Sized + */fmt::Debug, G: SpinGuardian, I: ResourceInvariant<T>> fmt::Debug
+    for SpinLockGuard<'_, T, G, I>
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}*/
+}
 
 // `G::Guard` is `!Send` and `!Sync`, so is `SpinLockGuard`.
 #[verus_verify]

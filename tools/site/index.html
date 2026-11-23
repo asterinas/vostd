@@ -51,10 +51,20 @@
 
     <section class="card">
       <h2>Verified lines of code over time</h2>
+      <p class="card-note">Hover to reveal data points and select a point to view its commit. Drag the slider below to choose a time range.</p>
       <div class="chart" id="history-chart" role="img" aria-label="Line chart of verified, trusted, spec, proof lines of code and verified API count over time"></div>
       <details class="data-table">
         <summary>View data</summary>
         <div id="history-table"></div>
+      </details>
+    </section>
+
+    <section class="card" id="verification-bugs">
+      <h2>Bugs found</h2>
+      <p class="card-note"><a href="https://github.com/asterinas/vostd/issues/645">Tracking issue #645</a></p>
+      <details class="data-table">
+        <summary>View list</summary>
+        <div id="bugs-table"></div>
       </details>
     </section>
 
@@ -64,6 +74,15 @@
       <details class="data-table">
         <summary>View list</summary>
         <div id="api-table"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Unverified APIs</h2>
+      <p class="card-note">Mainline APIs with no verified match by source file and qualified name.</p>
+      <details class="data-table">
+        <summary>View list</summary>
+        <div id="unverified-api-table"></div>
       </details>
     </section>
 

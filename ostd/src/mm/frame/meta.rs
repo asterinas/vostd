@@ -85,7 +85,7 @@ use vstd::{
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
-    panic::{may_panic, panic_diverge},
+    panic::{allowed_to_panic_if, panic_diverge},
     prelude::*,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     sum::Sum,
@@ -96,7 +96,6 @@ use crate::specs::{
     mm::frame::{mapping::frame_to_index, meta_owners::*, meta_region_owners::MetaRegionOwners},
 };
 
-use align_ext::AlignExt;
 use core::{
     alloc::Layout,
     any::Any,
@@ -107,19 +106,21 @@ use core::{
     result::Result,
     sync::atomic::{AtomicU64, Ordering},
 };
+
+use align_ext::AlignExt;
 //use log::info;
 
 use self::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
 use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        /*VmReader,*/
-        /*Infallible,*/ Paddr,
+        Infallible,
+        Paddr,
         PagingLevel,
         //Segment,
         Vaddr,
+        VmReader,
         kspace::FRAME_METADATA_RANGE,
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
         paddr_to_vaddr,
@@ -388,7 +389,6 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             -> permissions: Tracked<Option<Sum<FracMetadataPerm, MetadataPerm>>>
         requires
             old(regions).inv(),
@@ -409,7 +409,6 @@ impl MetaSlot {
                     as_unique_ptr,
                     *old(regions),
                     *final(regions),
-                    *final(repr_perm),
                     permissions@->0,
                 )
             },
@@ -474,7 +473,6 @@ impl MetaSlot {
         unsafe {
             #[verus_spec(with
                 Tracked(&mut metadata_perm),
-                Tracked(repr_perm)
             )]
             slot.write_meta(metadata)
         };
@@ -523,7 +521,7 @@ impl MetaSlot {
             -> permission: Tracked<Option<FracMetadataPerm>>,
         requires
             old(regions).inv(),
-            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            allowed_to_panic_if(valid_frame_paddr(paddr) && old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         ensures
             final(regions).inv(),
             res matches Ok(ptr) ==> {
@@ -567,7 +565,7 @@ impl MetaSlot {
                 regions.contains(frame_to_index(paddr)),
                 slot == regions.slots[frame_to_index(paddr)].value(),
                 slot_perm == Some(old(regions).slots[frame_to_index(paddr)]),
-                old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+                allowed_to_panic_if(old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         {
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
 
@@ -639,7 +637,7 @@ impl MetaSlot {
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != REF_COUNT_UNUSED,
-            old(rc_perm).value() >= REF_COUNT_MAX ==> may_panic(),
+            allowed_to_panic_if(old(rc_perm).value() >= REF_COUNT_MAX),
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,
             old(rc_perm).value() < REF_COUNT_MAX,
@@ -741,7 +739,6 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(metadata_perm): Tracked<&mut MetadataPerm>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             self.storage.id() == old(metadata_perm).storage_perm.id(),
             self.vtable_ptr == old(metadata_perm).vtable_ptr_perm.pptr(),
@@ -753,11 +750,9 @@ impl MetaSlot {
             final(metadata_perm).vtable_ptr_perm.is_init(),
             <M as Repr<MetaSlotStorage>>::wf(
                 final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
             ),
             M::from_repr_spec(
                 final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
             ) == metadata,
     )]
     pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -775,12 +770,7 @@ impl MetaSlot {
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
         // unsafe { ptr.cast::<M>().write(metadata) };
-        write_metadata_into_storage(
-            &self.storage,
-            Tracked(metadata_perm),
-            Tracked(repr_perm),
-            metadata,
-        );
+        write_metadata_into_storage(&self.storage, Tracked(metadata_perm), metadata);
     }
 
     /// Drops the metadata and deallocates the frame.

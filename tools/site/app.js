@@ -48,31 +48,28 @@ function baseText() {
 
 /* ---------------------------------------------------------------- tiles */
 
-function renderTiles(snapshot, historyPoints) {
+function renderTiles(snapshot, historyPoints, bugs) {
   const totals = snapshot.totals;
   const current = historyPoints.length ? historyPoints[historyPoints.length - 1] : null;
   const previous =
     historyPoints.length > 1 ? historyPoints[historyPoints.length - 2] : null;
 
   const specs = [
-    { label: "Total executable LoC", value: totals.total, deltaKey: null },
+    { label: "Total executable LoC", value: totals.total },
     {
-      label: "Verified",
-      value: totals.verified_exec,
-      deltaKey: "verified_exec",
-      upIsGood: true,
+      label: "Total verified LoC",
+      value: totals.verified_exec + totals.trusted,
+      trusted: totals.trusted,
+      deltaKeys: ["verified_exec", "trusted"],
+      deltaUnit: "lines",
     },
-    {
-      label: "Trusted boundary",
-      value: totals.trusted,
-      deltaKey: "trusted",
-      upIsGood: false,
-    },
+    { label: "Bugs found", value: bugs?.length, href: "#verification-bugs" },
     {
       label: "Verified APIs",
-      value: totals.verified_apis ?? 0,
-      deltaKey: "verified_apis",
-      upIsGood: true,
+      value: totals.verified_apis,
+      total: totals.total_apis,
+      deltaKeys: ["verified_apis"],
+      deltaUnit: "APIs",
     },
   ];
 
@@ -81,31 +78,36 @@ function renderTiles(snapshot, historyPoints) {
   for (const spec of specs) {
     const tile = document.createElement("div");
     tile.className = "tile";
-    const label = document.createElement("div");
+    const label = document.createElement(spec.href ? "a" : "div");
     label.className = "tile-label";
     label.textContent = spec.label;
+    if (spec.href) label.href = spec.href;
     const value = document.createElement("div");
     value.className = "tile-value";
-    value.textContent = fmtFull(spec.value);
+    value.textContent = spec.value == null ? "—" : fmtFull(spec.value);
+    if (spec.total != null) {
+      value.textContent += ` / ${fmtFull(spec.total)}`;
+    }
     tile.append(label, value);
+    if (spec.trusted != null) {
+      const boundary = document.createElement("div");
+      boundary.className = "tile-detail";
+      boundary.textContent = `Trusted boundary: ${fmtFull(spec.trusted)} LoC`;
+      tile.append(boundary);
+    }
 
     if (
-      spec.deltaKey &&
+      spec.deltaKeys &&
       previous &&
       current &&
-      current[spec.deltaKey] != null &&
-      previous[spec.deltaKey] != null
+      spec.deltaKeys.every((key) => current[key] != null && previous[key] != null)
     ) {
-      const delta = current[spec.deltaKey] - previous[spec.deltaKey];
+      const delta = spec.deltaKeys.reduce((sum, key) => sum + (current[key] - previous[key]), 0);
       const deltaEl = document.createElement("div");
       deltaEl.className = "tile-delta";
       if (delta !== 0) deltaEl.classList.add(delta > 0 ? "up" : "down");
-      if (spec.upIsGood === false && delta !== 0) {
-        deltaEl.classList.toggle("up", delta < 0);
-        deltaEl.classList.toggle("down", delta > 0);
-      }
       const sign = delta > 0 ? "+" : "";
-      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaKey === "verified_apis" ? "APIs" : "lines"} vs previous commit`;
+      deltaEl.textContent = `${sign}${fmtFull(delta)} ${spec.deltaUnit} vs previous commit`;
       tile.append(deltaEl);
     }
     host.append(tile);
@@ -134,10 +136,10 @@ function renderHistoryChart(points) {
   const series = SERIES.map((s) => ({
     name: s.name,
     type: "line",
-    showSymbol: points.length <= 24,
+    showSymbol: false,
     symbol: "circle",
-    symbolSize: 8,
-    itemStyle: { color: css(s.cssVar), borderColor: text.surface, borderWidth: 2 },
+    symbolSize: 7,
+    itemStyle: { color: css(s.cssVar) },
     lineStyle: { width: 2, color: css(s.cssVar) },
     emphasis: { focus: "series" },
     dimension: 0,
@@ -156,7 +158,7 @@ function renderHistoryChart(points) {
       itemHeight: 4,
       textStyle: { color: text.ink2 },
     },
-    grid: { left: 56, right: 20, top: 34, bottom: 44 },
+    grid: { left: 65, right: 24, top: 55, bottom: 75 },
     tooltip: {
       trigger: "axis",
       confine: true,
@@ -165,8 +167,10 @@ function renderHistoryChart(points) {
       borderColor: "transparent",
       textStyle: { color: text.ink },
       formatter: (params) => {
-        const [date] = params[0].value;
-        const head = esc(new Date(date).toISOString().slice(0, 10));
+        const point = points[params[0].dataIndex];
+        const sha = String(point.sha || "").slice(0, 8);
+        const head = (sha ? `<strong>${esc(sha)}</strong> · ` : "") +
+          esc(new Date(point.date).toISOString().slice(0, 10));
         const rows = params
           .slice()
           .sort((a, b) => b.value[1] - a.value[1])
@@ -197,7 +201,27 @@ function renderHistoryChart(points) {
       },
       splitLine: { lineStyle: { color: text.grid, width: 1 } },
     },
+    dataZoom: [{
+      type: "slider",
+      bottom: 12,
+      height: 20,
+      borderColor: css("--border"),
+      backgroundColor: text.surface,
+      fillerColor: text.grid,
+      dataBackground: {
+        lineStyle: { color: text.ink3 },
+        areaStyle: { color: text.grid },
+      },
+      textStyle: { color: text.ink2 },
+    }],
     series,
+  });
+  chart.on("click", (params) => {
+    if (params.componentType !== "series") return;
+    const sha = points[params.dataIndex]?.sha;
+    if (typeof sha === "string" && /^[0-9a-f]{40}$/i.test(sha)) {
+      window.open(`https://github.com/asterinas/vostd/commit/${sha}`, "_blank", "noopener");
+    }
   });
   registerChart(chart, host);
 }
@@ -580,25 +604,89 @@ function renderApiTable(snapshot) {
     );
     return;
   }
-  host.replaceChildren(
-    table(
-      entries
-        .slice()
-        .sort((a, b) =>
-          (a.group + a.name).localeCompare(b.group + b.name))
-        .map((api) => {
-          const link = document.createElement("a");
-          link.textContent = api.name;
-          // Snapshot links are relative to the published documentation root.
-          if (api.doc_path && !api.doc_path.split("/").includes("..") &&
-              /^[a-zA-Z0-9_./#%~-]+$/.test(api.doc_path)) {
-            link.href = `verusdoc/${api.doc_path}`;
-          }
-          return [link, api.group, api.location];
-        }),
-      ["Verified API", "Module", "Location"],
-    ),
-  );
+  const unmatchedIndices = new Set(snapshot.verified_apis_unmatched_indices ?? []);
+  const matched = [];
+  const unmatched = [];
+  entries.forEach((api, index) => {
+    (unmatchedIndices.has(index) ? unmatched : matched).push(api);
+  });
+  const rows = [...matched.sort(compareApis), ...unmatched.sort(compareApis)].map((api) => {
+    const link = document.createElement("a");
+    link.textContent = api.name;
+    // Snapshot links are relative to the published documentation root.
+    if (api.doc_path && !api.doc_path.split("/").includes("..") &&
+        /^[a-zA-Z0-9_./#%~-]+$/.test(api.doc_path)) {
+      link.href = `verusdoc/${api.doc_path}`;
+    }
+    return [link, api.group, api.location];
+  });
+  const headers = ["Verified API", "Module", "Location"];
+  const grid = table(rows, headers);
+  if (unmatched.length) {
+    const section = grid.createTBody();
+    const heading = document.createElement("th");
+    heading.colSpan = headers.length;
+    heading.scope = "rowgroup";
+    heading.className = "api-group-heading";
+    heading.textContent = `Verified APIs without a mainline match (${fmtFull(unmatched.length)})`;
+    section.insertRow().append(heading);
+    const primary = grid.tBodies[0];
+    for (const row of Array.from(primary.rows).slice(matched.length)) section.append(row);
+  }
+  host.replaceChildren(grid);
+}
+
+function compareApis(a, b) {
+  return a.group.localeCompare(b.group) || a.name.localeCompare(b.name);
+}
+
+function renderVerificationBugs(bugs) {
+  const host = document.getElementById("bugs-table");
+  if (!bugs) {
+    host.replaceChildren(placeholder("Bug data is unavailable. See the tracking issue for the current list."));
+    return;
+  }
+  const labels = { fixed: "Fixed", confirmed: "Confirmed", reported: "Reported" };
+  const columns = ["Bug", "Status", "References"];
+  const rows = bugs.map(({description, status, references}) => {
+    const links = document.createElement("span");
+    for (const reference of references) {
+      if (!/^https:\/\/github\.com\/asterinas\/[\w.-]+\/(issues|pull)\/\d+$/.test(reference.url)) continue;
+      if (links.childNodes.length) links.append(" · ");
+      const link = document.createElement("a");
+      link.href = reference.url;
+      link.textContent = reference.label;
+      links.append(link);
+    }
+    return [description, labels[status] ?? status, links];
+  });
+  host.replaceChildren(table(rows, columns));
+}
+
+function renderUnverifiedApiTable(snapshot) {
+  const host = document.getElementById("unverified-api-table");
+  const entries = snapshot.unverified_apis_list;
+  if (!Array.isArray(entries) || !entries.length) {
+    host.replaceChildren(placeholder(Array.isArray(entries)
+      ? "Every mainline API matched a verified API."
+      : "Mainline API comparison is unavailable for this snapshot."));
+    return;
+  }
+  const sha = snapshot.mainline_sha;
+  const base = /^[a-f0-9]{40}$/.test(sha) ? `https://github.com/asterinas/vostd/blob/${sha}/` : null;
+  const rows = entries.slice()
+    .sort(compareApis)
+    .map((api) => {
+      const match = /^(ostd\/[\w./-]+\.rs):(\d+):\d+$/.exec(api.location);
+      if (!base || !match || match[1].split("/").includes("..")) {
+        return [api.name, api.group, api.location];
+      }
+      const link = document.createElement("a");
+      link.textContent = api.name;
+      link.href = `${base}${match[1]}#L${match[2]}`;
+      return [link, api.group, api.location];
+    });
+  host.replaceChildren(table(rows, ["Unverified API", "Module", "Mainline location"]));
 }
 
 /* ------------------------------------------------------------- plumbing */
@@ -629,10 +717,13 @@ async function loadJson(url) {
 }
 
 async function main() {
-  const [snapshot, history] = await Promise.all([
+  const [snapshot, history, bugData] = await Promise.all([
     loadJson("stats/snapshot.json"),
     loadJson("stats/history.json"),
+    loadJson("stats/verification-bugs.json").catch(() => null),
   ]);
+  const bugs = Array.isArray(bugData) ? bugData : null;
+  renderVerificationBugs(bugs);
 
   if (!snapshot) {
     document.getElementById("snapshot-meta").textContent =
@@ -653,12 +744,13 @@ async function main() {
     `snapshot ${shaShort} · ${fmtFull(snapshot.totals.total)} executable LoC budget` +
     (snapshot.mainline_sha ? ` · mainline ${String(snapshot.mainline_sha).slice(0, 8)}` : "");
 
-  renderTiles(snapshot, liveData.points);
+  renderTiles(snapshot, liveData.points, bugs);
   renderHistoryChart(liveData.points);
   renderTreemapChart(snapshot);
   renderHistoryTable(liveData.points);
   renderTreemapTable(snapshot);
   renderApiTable(snapshot);
+  renderUnverifiedApiTable(snapshot);
 
   let resizeFrame;
   const observer = new ResizeObserver(() => {

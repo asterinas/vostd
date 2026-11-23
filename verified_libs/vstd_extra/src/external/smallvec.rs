@@ -15,6 +15,8 @@
 //! spec and, where a `requires` fits, excluded by that precondition;
 //! `SmallVec::reserve` rounds the capacity up to the next power of two, so those
 //! bounds use a factor of 2.
+use crate::layout::{lemma_atomic_u64_layout, lemma_primitive_layout};
+
 use core::{
     ops::{Deref, DerefMut, Index, IndexMut},
     slice::SliceIndex,
@@ -35,11 +37,7 @@ type U64Array2 = [u64; 2];
 
 type AtomicU64Array2 = [AtomicU64; 2];
 
-global layout u64 is size == 8, align == 8;
-
 global layout U64Array2 is size == 16, align == 8;
-
-global layout AtomicU64 is size == 8, align == 8;
 
 global layout AtomicU64Array2 is size == 16, align == 8;
 
@@ -88,23 +86,25 @@ pub broadcast axiom fn axiom_smallvec_array_size_of_array<T, const N: usize>()
 ;
 
 /// The `[u64; 2]` used by `CpuSet` is a well-formed `SmallVec` backing store.
-/// Its concrete layout declarations above are checked by rustc.
+/// Its array and shared element layouts are checked by rustc.
 pub broadcast proof fn lemma_smallvec_array_u64_2()
     ensures
         #[trigger] obeys_smallvec_array::<[u64; 2]>(),
 {
     broadcast use axiom_smallvec_array_size_of_array;
 
+    lemma_primitive_layout();
 }
 
 /// The `[AtomicU64; 2]` used by `AtomicCpuSet` is a well-formed `SmallVec`
-/// backing store. Its concrete layout declarations above are checked by rustc.
+/// backing store. Its array and shared element layouts are checked by rustc.
 pub broadcast proof fn lemma_smallvec_array_atomic_u64_2()
     ensures
         #[trigger] obeys_smallvec_array::<[AtomicU64; 2]>(),
 {
     broadcast use axiom_smallvec_array_size_of_array;
 
+    lemma_atomic_u64_layout();
 }
 
 /// `SmallVec`'s single-position indexing precondition is the slice bounds check.

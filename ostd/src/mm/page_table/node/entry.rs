@@ -8,47 +8,34 @@ use crate::specs::{
     mm::{
         frame::{
             mapping::{frame_to_index, meta_to_index},
+            meta_owners::{MetadataPerm, typed_meta_value},
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{INC_LEVELS, PageTableOwner},
+        page_table::PageTableOwner,
     },
-    task::InAtomicMode,
 };
 
-use super::*;
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::{
-    mm::{nr_subpage_per_huge, nr_subpage_per_huge_spec, page_prop::PageProperty},
-    //    sync::RcuDrop,
-    //    task::atomic_mode::InAtomicMode,
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel,
+    frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED, meta::mapping::meta_to_frame},
+    page_table::*,
 };
-use core::marker::PhantomData;
-use core::ops::Deref;
+
+use super::{Child, ChildRef, PageTableEntryTrait, PageTableGuard, PageTableNode};
+use crate::{
+    mm::{
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size,
+        page_table::{PageTableConfig, PageTableNodeRef},
+    },
+    // sync::RcuDrop,
+    task::atomic_mode::InAtomicMode,
+};
 
 verus! {
 
 broadcast use group_ghost_tree_lemmas;
-
-/// A reference to a page table node.
-pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
-
-/// A guard that holds the lock of a page table node.
-pub struct PageTableGuard<'rcu, C: PageTableConfig> {
-    pub inner: PageTableNodeRef<'rcu, C>,
-}
-
-impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
-    type Target = PageTableNodeRef<'rcu, C>;
-
-    #[verus_spec(ensures returns self.inner)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     /// The page table entry.
@@ -116,10 +103,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     #[verus_spec(
         with Tracked(metadata_perm): Tracked<&MetadataPerm>,
         requires
-            self.node.inner.external_meta_wf(*metadata_perm, ()),
+            self.node.inner.external_meta_wf(*metadata_perm),
         returns
             self.pte.is_present() && !self.pte.is_last(
-                typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).level,
+                typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).level,
             ),
     )]
     pub(in crate::mm) fn is_node(&self) -> bool {
@@ -136,8 +123,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             self.invariants(*owner, *regions),
-            self.node.inner.external_meta_wf(*metadata_perm, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).level == owner.parent_level,
+            self.node.inner.external_meta_wf(*metadata_perm),
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).level == owner.parent_level,
         ensures
             res.invariants(*owner, *regions),
     )]
@@ -487,8 +474,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(owner).inv(),
             old(owner).value().path.len() == old(owner).level(),
             old(self).node_matching(old(owner).value(), *old(parent_owner), *old(self).node),
-            old(owner).level() < INC_LEVELS - 1,
-            old(owner).level() + old(parent_owner).level() == INC_LEVELS,
+            old(owner).level() < C::NR_LEVELS,
+            old(owner).level() + old(parent_owner).level() == C::NR_LEVELS + 1,
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
             final(regions).slots == old(regions).slots,
@@ -546,7 +533,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
     )]
     #[verifier::spinoff_prover]
-    pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
+    pub(in crate::mm) fn alloc_if_none(&mut self, guard: &'rcu dyn InAtomicMode) -> Option<
         PageTableGuard<'rcu, C>,
     > {
         let entry_is_present = self.pte.is_present();
@@ -710,8 +697,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(parent_owner).relate_guard(*old(self).node),
             old(parent_owner).inv(),
             old(parent_owner).level() == old(owner).value().parent_level,
-            old(parent_owner).level() < NR_LEVELS,
-            old(owner).level() + old(parent_owner).level() == INC_LEVELS,
+            old(parent_owner).level() <= C::NR_LEVELS,
+            old(owner).level() + old(parent_owner).level() == C::NR_LEVELS + 1,
             old(self).node_matching(old(owner).value(), *old(parent_owner), *old(self).node),
             old(parent_owner).metaregion_sound_node(*old(regions)),
             old(owner).value().is_frame() && old(parent_owner).level() > 1 ==>
@@ -729,7 +716,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     == Set::<int>::range(0, NR_ENTRIES as int).map(|i: int|
                         CursorView::<C>::split_index(
                             PageTableOwner(*old(owner)).view_rec(old(owner).value().path).choose(),
-                            page_size::<PagingConsts>((old(parent_owner).level() - 1) as PagingLevel),
+                            page_size::<C>((old(parent_owner).level() - 1) as PagingLevel),
                             i as usize))
                 &&& final(guards).lock_held(res->0.inner.slot_vaddr())
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
@@ -740,7 +727,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] final(owner).children()[j])->0.value().frame().mapped_pa
                         == old(owner).value().frame().mapped_pa
-                            + j * page_size::<PagingConsts>((old(parent_owner).level() - 1) as PagingLevel)
+                            + j * page_size::<C>((old(parent_owner).level() - 1) as PagingLevel)
                 &&& final(owner).value().path == old(owner).value().path
                 &&& final(owner).value().metaregion_sound(*final(regions))
                 &&& OwnerSubtree::implies(
@@ -792,7 +779,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     #[trigger] final(parent_owner).children_perm.value()[j]
                         == old(parent_owner).children_perm.value()[j],
     )]
-    pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
+    pub(in crate::mm) fn split_if_mapped_huge(&mut self, guard: &'rcu dyn InAtomicMode) -> Option<
         PageTableGuard<'rcu, C>,
     > {
         #[verus_spec(with Tracked(Some(regions.tracked_borrow_slot_owner(self.node.inner.start_paddr_spec()).metadata_perm.tracked_borrow())))]
@@ -863,7 +850,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             C::lemma_paging_consts_properties();
-            C::axiom_current_paging_consts_hardcoded();
+            C::lemma_page_table_config_constant_properties();
             assert forall|j: int| 0 <= j < NR_ENTRIES implies {
                 &&& (#[trigger] new_owner.children()[j]) is Some
                 &&& new_owner.child(j).value().inv()
@@ -884,8 +871,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_page.inv(),
                 new_owner.value().node_permission is None,
                 new_owner.value().node().matches_permission(new_page.frac_metadata_perm()),
-                nr_subpage_per_huge_spec::<C>() == NR_ENTRIES,
-                1 < level < NR_LEVELS,
+                nr_subpage_per_huge::<C>() == NR_ENTRIES,
+                1 < level <= C::NR_LEVELS,
                 *self == *old(self),
                 // Keep the original guard loan tied to the guard stored in Entry.
                 *final(self.node) == *final(old(self).node),
@@ -898,7 +885,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     0 <= j < i ==> #[trigger] new_owner.child(j).value().frame().prop == prop,
                 forall|j: int|
                     0 <= j < i ==> #[trigger] new_owner.child(j).value().frame().mapped_pa == pa + j
-                        * page_size::<PagingConsts>((level - 1) as PagingLevel),
+                        * page_size::<C>((level - 1) as PagingLevel),
                 owner.value().is_frame(),
                 owner.value().parent_level == level,
                 owner.value().frame().mapped_pa == pa,
@@ -907,8 +894,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value().frame_permission() is None,
                 pa == old(owner).value().frame().mapped_pa,
                 level == old(parent_owner).level(),
-                pa % page_size::<PagingConsts>(level) == 0,
-                pa + page_size::<PagingConsts>(level) <= MAX_PADDR,
+                pa % page_size::<C>(level) == 0,
+                pa + page_size::<C>(level) <= MAX_PADDR,
                 regions.inv(),
                 MetaSlot::claim_unused_slot_region_spec(
                     meta_to_frame(new_owner_meta_addr),
@@ -953,8 +940,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     i <= j < NR_ENTRIES ==> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
                         &&& new_owner.children()[j].unwrap().value().is_absent()
-                        &&& new_owner.value().node().children_perm.value()[j]
-                            == C::E::new_absent_spec()
+                        &&& new_owner.value().node().children_perm.value()[j] == C::E::new_absent()
                     },
                 // Children [0, i) have been replaced with frames.
                 forall|j: int|
@@ -968,7 +954,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         {
             proof {
                 C::lemma_page_table_config_constant_properties();
-                C::axiom_current_paging_consts_hardcoded();
 
                 assert(new_owner.child(i as int).inv());
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
@@ -1047,7 +1032,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 };
                 assert forall|j: int| 0 <= j <= i implies #[trigger] new_owner.child(
                     j,
-                ).value().frame().mapped_pa == pa + j * page_size::<PagingConsts>(
+                ).value().frame().mapped_pa == pa + j * page_size::<C>(
                     (level - 1) as PagingLevel,
                 ) by {
                     if j != i {
@@ -1073,9 +1058,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& #[trigger] initialized_owner.child(j).value().metaregion_sound(*regions)
                 &&& initialized_owner.child(j).value().is_frame()
                 &&& initialized_owner.child(j).value().frame().prop == prop
-                &&& initialized_owner.child(j).value().frame().mapped_pa == pa + j * page_size::<
-                    PagingConsts,
-                >((level - 1) as PagingLevel)
+                &&& initialized_owner.child(j).value().frame().mapped_pa == pa + j * page_size::<C>(
+                    (level - 1) as PagingLevel,
+                )
             } by {};
         }
         self.pte = {
@@ -1155,12 +1140,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (
             #[trigger] owner.children()[j])->0.value().frame().mapped_pa == old(
                 owner,
-            ).value().frame().mapped_pa + j * page_size::<PagingConsts>(
+            ).value().frame().mapped_pa + j * page_size::<C>(
                 (old(parent_owner).level() - 1) as PagingLevel,
             ) by {
-                assert(owner.child(j).value().frame().mapped_pa == pa + j * page_size::<
-                    PagingConsts,
-                >((level - 1) as PagingLevel));
+                assert(owner.child(j).value().frame().mapped_pa == pa + j * page_size::<C>(
+                    (level - 1) as PagingLevel,
+                ));
             };
             assert forall|j: int| 0 <= j < NR_ENTRIES implies (
             #[trigger] owner.children()[j])->0.value().frame().prop == old(
@@ -1556,13 +1541,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(owner).inv(),
             old(owner).value().path.len() == old(owner).level(),
             old(owner).value().is_absent(),
-            old(owner).level() < INC_LEVELS - 1,
+            old(owner).level() < C::NR_LEVELS,
             old(owner).value().metaregion_sound(*old(regions)),
             old(parent_owner).inv(),
             old(parent_owner).relate_guard(*old(self)),
             old(parent_owner).level() == old(owner).value().parent_level,
             old(parent_owner).level() > 1,
-            old(owner).level() + old(parent_owner).level() == INC_LEVELS,
+            old(owner).level() + old(parent_owner).level() == C::NR_LEVELS + 1,
             old(parent_owner).metaregion_sound_node(*old(regions)),
             idx < NR_ENTRIES,
             old(owner).value().match_pte(
@@ -1640,10 +1625,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value().node().slot_vaddr() ==> final(guards).unlocked(i),
     )]
-    pub(in crate::mm) fn alloc_absent_child<A: InAtomicMode>(
+    pub(in crate::mm) fn alloc_absent_child(
         &mut self,
         idx: usize,
-        guard: &'rcu A,
+        guard: &'rcu dyn InAtomicMode,
     ) -> PageTableGuard<'rcu, C> {
         #[verus_spec(with Tracked(Some(regions.tracked_borrow_slot_owner(self.inner.start_paddr_spec()).metadata_perm.tracked_borrow())))]
         let level = self.level();

@@ -615,10 +615,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
         &&& new_writer.wf(new_writer_own)
         &&& match r {
             Ok(_) => {
-                &&& new_writer.avail_spec() == 0
-                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range.start == old_writer_own.range.start
-                    + old_writer.avail_spec()
+                &&& new_writer.avail() == 0
+                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail()
+                &&& new_writer_own.range.start == old_writer_own.range.start + old_writer.avail()
             },
             Err(_) => {
                 &&& new_writer == old_writer
@@ -645,10 +644,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
         &&& new_reader.wf(new_reader_own)
         &&& match r {
             Ok(_) => {
-                &&& new_reader.remain_spec() == 0
-                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_reader_own.range.start == old_reader_own.range.start
-                    + old_reader.remain_spec()
+                &&& new_reader.remain() == 0
+                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain()
+                &&& new_reader_own.range.start == old_reader_own.range.start + old_reader.remain()
             },
             Err(_) => {
                 &&& new_reader == old_reader
@@ -690,7 +688,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
         }
         if len == 0 {
             proof {
-                assert(writer.avail_spec() == 0);
+                assert(writer.avail() == 0);
             }
             return Ok(());
         }
@@ -702,7 +700,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
-            assert(reader.remain_spec() >= len);
+            assert(reader.remain() >= len);
         }
 
         let copied = match reader.read_fallible(writer) {
@@ -755,7 +753,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
         }
         if len == 0 {
             proof {
-                assert(reader.remain_spec() == 0);
+                assert(reader.remain() == 0);
             }
             return Ok(());
         }
@@ -763,7 +761,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
         proof {
             writer_own.advance(offset);
 
-            assert(writer.avail_spec() >= len);
+            assert(writer.avail() >= len);
         }
         let copied = match writer.write_fallible(reader) {
             Ok(copied) => copied,

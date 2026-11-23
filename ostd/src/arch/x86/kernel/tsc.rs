@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(unused_variables)]
 
+use vstd::{arithmetic::div_mod::lemma_remainder_lower, prelude::*};
+
+use crate::specs::context::{CpuFeatureModel, cpu_feature_model};
+
+/*
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use log::info;
+use log::info;*/
 use x86::cpuid::cpuid;
 
+/*
 use crate::{
     arch::{
         timer::{
@@ -16,7 +22,9 @@ use crate::{
     },
     trap::irq::IrqLine,
 };
+*/
 
+/*
 /// The frequency of TSC(Hz)
 pub(in crate::arch) static TSC_FREQ: AtomicU64 = AtomicU64::new(0);
 
@@ -26,13 +34,62 @@ pub fn init_tsc_freq() {
     TSC_FREQ.store(tsc_freq, Ordering::Relaxed);
     info!("TSC frequency:{:?} Hz", tsc_freq);
 }
+*/
 
+verus! {
+
+impl CpuFeatureModel {
+    /// TSC frequency returned by OSTD in Hz, preserving its leaf gate and kHz truncation.
+    /// `base_eax` records the raw CPUID.16H:EAX value when the fallback reads it.
+    pub open spec fn tsc_frequency_hz(self, base_eax: Option<u32>) -> Option<u64> {
+        if self.max_basic_leaf <= 0x15 || self.tsc_denominator == 0 || self.tsc_numerator == 0 {
+            None
+        } else {
+            let crystal_khz = if self.crystal_hz / 1000 != 0 {
+                self.crystal_hz as int / 1000
+            } else {
+                base_eax.unwrap_or(0) as int * 1000 * self.tsc_denominator
+                    / self.tsc_numerator as int
+            };
+            if crystal_khz == 0 {
+                None
+            } else {
+                Some((crystal_khz * 1000 * self.tsc_numerator / self.tsc_denominator as int) as u64)
+            }
+        }
+    }
+}
+
+} // verus!
 /// Determines TSC frequency via CPUID. If the CPU does not support calculating TSC frequency by
 /// CPUID, the function will return None. The unit of the return value is KHz.
 ///
 /// Ref: function `native_calibrate_tsc` in linux `arch/x86/kernel/tsc.c`
 ///
+/// ## Safety
+/// - Arithmetic is proved panic-free assuming the CPUID base-frequency products
+///   fit in u32; native CPUID reads are trusted.
+///
+/// ## Functional Correctness
+/// - The result matches the sampled-register calculation, including kHz truncation.
+///   Physical clock accuracy is outside the proof.
+///
+#[verus_spec(
+    with Tracked(base_eax): Tracked<&mut Ghost<Option<u32>>>
+    ensures
+        ({
+            let model = cpu_feature_model();
+            final(base_eax)@.is_some() == (
+                model.max_basic_leaf >= 0x16 && model.tsc_denominator != 0
+                    && model.tsc_numerator != 0 && model.crystal_hz / 1000 == 0
+            )
+        }),
+    returns cpu_feature_model().tsc_frequency_hz(final(base_eax)@)
+)]
 pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
+    proof! {
+        *base_eax = Ghost(None);
+    }
     // Check the max cpuid supported
     let cpuid = cpuid!(0);
     let max_cpuid = cpuid.eax;
@@ -56,17 +113,37 @@ pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
     if crystal_khz == 0 && max_cpuid >= 0x16 {
         cpuid = cpuid!(0x16);
         let base_mhz = cpuid.eax;
+        proof! {
+            *base_eax = Ghost(Some(base_mhz));
+            // Assume the hardware-reported base frequency and crystal ratio keep
+            // both intermediate products within u32, as on practical CPUs.
+            assume(base_mhz * 1000 <= u32::MAX);
+            assume(base_mhz * 1000 * eax_denominator <= u32::MAX);
+        }
         crystal_khz = base_mhz * 1000 * eax_denominator / ebx_numerator;
+        proof! {
+            lemma_remainder_lower(base_mhz * 1000 * eax_denominator, ebx_numerator as int);
+        }
     }
 
     if crystal_khz == 0 {
         None
     } else {
         let crystal_hz = crystal_khz as u64 * 1000;
+        proof! {
+            assert(crystal_hz * ebx_numerator <= u64::MAX) by (nonlinear_arith)
+                requires
+                    0 <= crystal_khz * 1000 <= u32::MAX
+                        || 0 <= crystal_khz * ebx_numerator <= u32::MAX,
+                    crystal_hz == crystal_khz * 1000,
+                    0 < ebx_numerator <= u32::MAX,
+            {}
+        }
         Some(crystal_hz * ebx_numerator as u64 / eax_denominator as u64)
     }
 }
 
+/*
 /// When kernel cannot get the TSC frequency from CPUID, it can leverage
 /// the PIT to calculate this frequency.
 pub fn determine_tsc_freq_via_pit() -> u64 {
@@ -121,3 +198,4 @@ pub fn determine_tsc_freq_via_pit() -> u64 {
         IS_FINISH.store(true, Ordering::Release);
     }
 }
+*/
