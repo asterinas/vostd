@@ -115,6 +115,7 @@ pub assume_specification<T>[ <*mut T>::is_aligned ](ptr: *mut T) -> bool
     returns
         ptr.addr() % core::mem::align_of::<T>() == 0,
     opens_invariants none
+    no_unwind
 ;
 
 /// Models wrapping pointer addition.

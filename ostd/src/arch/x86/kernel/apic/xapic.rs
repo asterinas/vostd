@@ -243,7 +243,16 @@ fn set_apic_base_address(address: usize) {
 
 /// Gets xAPIC base address
 #[verus_verify]
+#[verus_spec(base =>
+    ensures
+        base % mm::PAGE_SIZE == 0,
+        base + 1024 <= usize::MAX,
+)]
 pub(super) fn get_xapic_base_address() -> usize {
+    proof! {
+        assert(forall|msr: u64| ((msr & 0xf_ffff_f000) as usize) % mm::PAGE_SIZE == 0)
+            by (bit_vector);
+    }
     unsafe {
         (x86_64::registers::model_specific::Msr::new(IA32_APIC_BASE_MSR).read() & 0xf_ffff_f000)
             as usize
