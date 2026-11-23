@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Finite-set models and proof lemmas for half-open ranges.
-use vstd::{prelude::*, set_lib::FiniteRange, std_specs::cmp::PartialOrdIs};
+use vstd::{
+    laws_cmp::{
+        obeys_cmp, obeys_cmp_ord, obeys_cmp_partial_ord, obeys_partial_cmp_spec_properties,
+    },
+    laws_eq::{obeys_concrete_eq, obeys_eq_spec_properties},
+    prelude::*,
+    set_lib::{FiniteRange, range_set_properties},
+    std_specs::cmp::PartialOrdIs,
+};
+
+use crate::set_extra::pairwise_disjoint;
 
 use core::ops::Range;
 
@@ -54,6 +64,15 @@ pub proof fn lemma_seq_range_union_contains<T: FiniteRange>(s: Seq<Range<T>>, x:
         assert(range_sets.to_set().contains(range_sets[i]));
         range_sets.to_set().lemma_flatten_contains(x);
     }
+}
+
+/// Endpoint separation for distinct range positions, including empty ranges.
+pub open spec fn ranges_disjoint<T: FiniteRange + Ord>(ranges: Seq<Range<T>>) -> bool {
+    forall|i: int, j: int|
+        #![trigger ranges[i], ranges[j]]
+        0 <= i < j < ranges.len() ==> ranges[i].end.is_le(&ranges[j].start) || ranges[j].end.is_le(
+            &ranges[i].start,
+        )
 }
 
 } // verus!

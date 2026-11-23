@@ -14,6 +14,7 @@ pub assume_specification[ core::time::Duration::new ](secs: u64, nanos: u32) -> 
     returns
         duration_new_spec(secs, nanos),
     opens_invariants none
+    no_unwind when secs + nanos / 1_000_000_000 <= u64::MAX
 ;
 
 } // verus!

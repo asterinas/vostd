@@ -45,8 +45,8 @@ pub mod bus;
 /*pub mod console;*/
 pub mod cpu;
 pub mod error;
-/*pub mod io;
-pub mod logger;*/
+pub mod io;
+/*pub mod logger;*/
 pub mod mm;
 /*pub mod panic;*/
 pub mod prelude;

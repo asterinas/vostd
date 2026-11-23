@@ -22,8 +22,8 @@ xmas-elf = "0.10.0"
 bytemuck = "1.17.0"
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-x86 = "0.52.0"
 x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
+x86 = "0.52.0"
 
 [lints]
 workspace = true
