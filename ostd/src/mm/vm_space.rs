@@ -1522,11 +1522,11 @@ impl<'a> CursorMut<'a> {
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
-            // POTENTIALLY UNSOUND PATCH: trackedness preservation. For UserPtConfig
-            // this is trivially true (tracked is constant). See `Entry::protect`.
+            // Every well-formed raw item for `UserPtConfig` is tracked.
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<<UserPtConfig as PageTableConfig>::Perm>>| #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && UserPtConfig::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     UserPtConfig::item_into_raw(UserPtConfig::item_from_raw(
                         pa, level, p_out, perm,
                     )).3@ is Some
