@@ -260,8 +260,6 @@ spec fn elf_reloc_reads_ok(elf: &xmas_elf::ElfFile<'_>) -> bool {
         && elf64_reloc_supported(elf_file)
 )]
 fn assert_elf64_reloc_supported(elf_file: &[u8]) {
-    const WRONG_SECTION: &str = "the ELF64 relocation data is not of the correct type";
-
     /* vstd's Result::unwrap lacks a conditional no_unwind contract.
      * Origin Rust: let elf = xmas_elf::ElfFile::new(elf_file).unwrap();
      */
@@ -282,6 +280,7 @@ fn assert_elf64_reloc_supported(elf_file: &[u8]) {
     let Some(section) = elf.find_section_by_name(".rela") else {
         std::panic::panic_any("called `Option::unwrap()` on a `None` value");
     };
+    const WRONG_SECTION: &str = "the ELF64 relocation data is not of the correct type";
     if matches!(section.get_type(), Ok(ShType::Group)) {
         std::panic::panic_any(WRONG_SECTION);
     }
