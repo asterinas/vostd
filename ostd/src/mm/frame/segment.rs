@@ -1001,7 +1001,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
         Seq::new(IteratorSpec::remaining(self).len(), |i: int| true)
     }
 
-    // The loop in frame_to_segment needs the metric to establish iterator finiteness.
     open spec fn decrease(&self) -> Option<nat> {
         Some(self.len() as nat)
     }
