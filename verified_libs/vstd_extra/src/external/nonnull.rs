@@ -7,7 +7,7 @@ use vstd::std_specs::{cmp::*, nonzero::*, ptr::*};
 
 verus! {
 
-/// Rust 1.99.1 core/src/ptr/non_null.rs: equality delegates to raw-pointer equality.
+/// Rust 1.100.0 core/src/ptr/non_null.rs: equality delegates to raw-pointer equality.
 pub assume_specification<T: PointeeSized>[ <NonNull<T> as core::cmp::PartialEq>::eq ](
     left: &NonNull<T>,
     right: &NonNull<T>,
@@ -51,7 +51,7 @@ pub open spec fn nonnull_addr_spec_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> 
     ptr.addr_spec()
 }
 
-/// Trusted model of Rust 1.99.1's `core/src/ptr/non_null.rs::NonNull::addr`:
+/// Trusted model of Rust 1.100.0's `core/src/ptr/non_null.rs::NonNull::addr`:
 /// returns the nonzero address of the underlying pointer.
 #[verifier::when_used_as_spec(nonnull_addr_spec_wrapper)]
 pub assume_specification<T: PointeeSized>[ NonNull::<T>::addr ](ptr: NonNull<T>) -> NonZeroUsize
@@ -61,7 +61,7 @@ pub assume_specification<T: PointeeSized>[ NonNull::<T>::addr ](ptr: NonNull<T>)
     no_unwind
 ;
 
-/// Trusted model of Rust 1.99.1's `core/src/ptr/non_null.rs::NonNull::map_addr`:
+/// Trusted model of Rust 1.100.0's `core/src/ptr/non_null.rs::NonNull::map_addr`:
 /// calls `f` on the address and preserves the pointer's metadata and provenance.
 pub assume_specification<T: PointeeSized>[ NonNull::<T>::map_addr ](
     ptr: NonNull<T>,
@@ -121,6 +121,7 @@ pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](ptr: Non
         ret.as_ptr() == ptr.as_ptr() as *mut U,
     returns
         ptr.cast_spec::<U>(),
+    no_unwind
 ;
 
 // Specification for NonNull::dangling(), uninterpreted because the ptr only has to satisfy the alignment requirement.
@@ -134,6 +135,7 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
         ret.as_ptr()@.provenance == Provenance::null(),
     returns
         nonnull_dangling_spec::<T>(),
+    no_unwind
 ;
 
 #[verifier::inline]

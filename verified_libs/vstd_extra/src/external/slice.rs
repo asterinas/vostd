@@ -3,7 +3,7 @@ use vstd::prelude::*;
 
 verus! {
 
-/// Rust 1.99.1, library/core/src/convert/mod.rs: AsMut<[T]> for [T]
+/// Rust 1.100.0, library/core/src/convert/mod.rs: AsMut<[T]> for [T]
 /// returns `self`. The reborrow preserves the entire slice on return and
 /// propagates all subsequent mutations back to the receiver without panicking.
 pub assume_specification<T>[ <[T] as core::convert::AsMut<[T]>>::as_mut ](slice: &mut [T]) -> (ret:
@@ -19,6 +19,7 @@ pub assume_specification<T>[ <[T] as core::convert::AsMut<[T]>>::as_mut ](slice:
 pub assume_specification<T>[ <[T]>::as_ptr ](s: &[T]) -> (r: *const T)
     ensures
         r == as_ptr_spec(s),
+    no_unwind
 ;
 
 pub uninterp spec fn as_ptr_spec<T>(s: &[T]) -> *const T;
@@ -28,6 +29,7 @@ pub uninterp spec fn as_mut_ptr_spec<T>(s: &mut [T]) -> *mut T;
 pub assume_specification<T>[ <[T]>::as_mut_ptr ](s: &mut [T]) -> (r: *mut T)
     ensures
         r == as_mut_ptr_spec(s),
+    no_unwind
 ;
 
 /// AXIOM: A slice's one-past-the-end byte address fits in `usize`.
@@ -43,14 +45,15 @@ pub broadcast axiom fn axiom_slice_addr_no_overflow(s: &[u8])
 ;
 
 /// Spec for `core::slice::from_raw_parts`. We promise only that the resulting
-/// slice has the requested length; soundness for the memory aliased lives in
-/// the `unsafe` contract upheld by the caller.
+/// slice has the requested length and that the call does not unwind.
+/// The caller must uphold Rust's safety contract.
 pub assume_specification<'a, T>[ core::slice::from_raw_parts::<'a, T> ](
     data: *const T,
     len: usize,
 ) -> (ret: &'a [T])
     ensures
         ret.len() == len,
+    no_unwind
 ;
 
 /// Spec for `core::slice::from_raw_parts_mut`. As above.
@@ -60,6 +63,7 @@ pub assume_specification<'a, T>[ core::slice::from_raw_parts_mut::<'a, T> ](
 ) -> (ret: &'a mut [T])
     ensures
         ret.len() == len,
+    no_unwind
 ;
 
 /// Fills every element with a clone of `value`; the length is unchanged.
