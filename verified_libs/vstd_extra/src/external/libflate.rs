@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Trusted libflate 2.3.2/no_std_io2 0.9.4 models; codec correctness is assumed.
+//! Trusted libflate 2.3.2 models; codec correctness is assumed.
 //! Audited libflate sources include src/{gzip,zlib,finish}.rs.
 //! Validity is limited to Vec<u8>, byte slices, and their default codecs.
 use vstd::prelude::*;
@@ -7,6 +7,11 @@ use vstd::prelude::*;
 use alloc::vec::Vec;
 use libflate::{Finish, gzip, zlib};
 use no_std_io2::io;
+
+use super::no_std_io2::{
+    ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl, WriterState, axiom_slice_reader_model,
+    axiom_vec_writer_model, reader_model_valid, writer_model_valid,
+};
 
 verus! {
 
@@ -40,10 +45,6 @@ pub struct ExFinish<T, E>(Finish<T, E>);
 
 #[verifier::external_type_specification]
 #[verifier::external_body]
-pub struct ExIoError(io::Error);
-
-#[verifier::external_type_specification]
-#[verifier::external_body]
 pub struct ExDefaultLz77Encoder(libflate::lz77::DefaultLz77Encoder);
 
 /// First-member decoding with checksum validation; None means invalid/incomplete data.
@@ -71,21 +72,6 @@ pub open spec fn zlib_encoding(plain: Seq<u8>, stream: Seq<u8>) -> bool {
     &&& zlib_decoded(stream) == Some(plain)
 }
 
-pub ghost enum WriterState {
-    Bytes(Seq<u8>),
-    Gzip { prefix: Seq<u8>, plain: Seq<u8> },
-    Zlib { prefix: Seq<u8>, plain: Seq<u8> },
-}
-
-pub uninterp spec fn writer_model_valid<W: ?Sized>() -> bool;
-
-pub uninterp spec fn reader_model_valid<R: ?Sized>() -> bool;
-
-pub broadcast axiom fn axiom_vec_writer_model()
-    ensures
-        #[trigger] writer_model_valid::<Vec<u8>>(),
-;
-
 pub broadcast axiom fn axiom_gzip_writer_model()
     ensures
         #[trigger] writer_model_valid::<gzip::Encoder<Vec<u8>>>(),
@@ -94,11 +80,6 @@ pub broadcast axiom fn axiom_gzip_writer_model()
 pub broadcast axiom fn axiom_zlib_writer_model()
     ensures
         #[trigger] writer_model_valid::<zlib::Encoder<Vec<u8>>>(),
-;
-
-pub broadcast axiom fn axiom_slice_reader_model<'a>()
-    ensures
-        #[trigger] reader_model_valid::<&'a [u8]>(),
 ;
 
 pub broadcast axiom fn axiom_gzip_reader_model<'a>()
@@ -127,52 +108,6 @@ pub uninterp spec fn zlib_state<W, E>(encoder: &zlib::Encoder<W, E>) -> WriterSt
 #[verifier::external_trait_specification]
 pub trait ExLz77Encode {
     type ExternalTraitSpecificationFor: libflate::lz77::Lz77Encode;
-}
-
-#[verifier::external_trait_specification]
-#[verifier::external_trait_extension(WriteSpec via WriteSpecImpl)]
-pub trait ExWrite {
-    type ExternalTraitSpecificationFor: io::Write;
-
-    spec fn writer_state(&self) -> WriterState;
-
-    fn write_all(&mut self, input: &[u8]) -> (result: Result<(), io::Error>)
-        ensures
-            writer_model_valid::<Self>() ==> match old(self).writer_state() {
-                WriterState::Gzip { prefix, plain } => {
-                    &&& result is Ok
-                    &&& final(self).writer_state() == WriterState::Gzip {
-                        prefix,
-                        plain: plain + input@,
-                    }
-                },
-                WriterState::Zlib { prefix, plain } => {
-                    &&& result is Ok
-                    &&& final(self).writer_state() == WriterState::Zlib {
-                        prefix,
-                        plain: plain + input@,
-                    }
-                },
-                WriterState::Bytes(bytes) => {
-                    &&& result is Ok
-                    &&& final(self).writer_state() == WriterState::Bytes(bytes + input@)
-                },
-            },
-    ;
-}
-
-#[cfg(not(feature = "std"))]
-impl WriteSpecImpl for Vec<u8> {
-    open spec fn writer_state(&self) -> WriterState {
-        WriterState::Bytes(self@)
-    }
-}
-
-#[cfg(feature = "std")]
-impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
-    open spec fn writer_state(&self) -> WriterState {
-        WriterState::Bytes(self@)
-    }
 }
 
 impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
@@ -254,35 +189,6 @@ pub assume_specification<T, E>[ Finish::<T, E>::into_result ](finish: Finish<T, 
             Some(error) => Err(error),
         },
 ;
-
-#[verifier::external_trait_specification]
-#[verifier::external_trait_extension(ReadSpec via ReadSpecImpl)]
-pub trait ExRead {
-    type ExternalTraitSpecificationFor: io::Read;
-
-    spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
-
-    /// libflate 2.3.2 forwards its `std` feature to no_std_io2 0.9.4, which then
-    /// re-exports `std::io`. Its `read_to_end` can return an allocation error
-    /// from `Vec::try_reserve` even when the input decodes successfully.
-    fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
-        ensures
-            reader_model_valid::<Self>() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
-                &&& !cfg!(feature = "std") ==> result is Ok
-                &&& result matches Ok(count) ==> {
-                    &&& count == plain.len()
-                    &&& final(output)@ == old(output)@ + plain
-                    &&& final(self).remaining_bytes() == Some(Seq::<u8>::empty())
-                }
-            }),
-    ;
-}
-
-impl ReadSpecImpl for &[u8] {
-    open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
-        Some(self@)
-    }
-}
 
 pub uninterp spec fn gzip_remaining<R>(decoder: &gzip::Decoder<R>) -> Option<Seq<u8>>;
 

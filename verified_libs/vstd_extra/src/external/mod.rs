@@ -17,6 +17,8 @@ pub mod iter;
 pub mod libflate;
 #[cfg(feature = "bzimage")]
 pub mod maybe_uninit;
+#[cfg(feature = "bzimage")]
+pub mod no_std_io2;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;
