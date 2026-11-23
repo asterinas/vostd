@@ -30,6 +30,7 @@ pub assume_specification[ core::str::from_utf8 ](v: &[u8]) -> (res: Result<
             &&& s.spec_bytes() =~= v@
         },
         res matches Err(_) ==> !valid_utf8(v@),
+    no_unwind
 ;
 
 } // verus!
