@@ -193,7 +193,7 @@ impl IoPortAllocator {
             )]
             |i| {
                 proof! {
-                    lemma_id_alloc_view_contains(&allocator.value(), i);
+                    assert(allocation_start_view.contains(i) == allocator.value()@[i as int]);
                 }
                 allocator.is_allocated(i)
             },
@@ -387,31 +387,6 @@ pub(in crate::io) unsafe fn init() {
     });
 }
 
-// Auxiliary proof lemmas for the id-alloc bitmap model.
-verus! {
-
-/// Characterizes `id_alloc_bits`: `id_alloc_bits(s, end).contains(j)` holds exactly when
-/// `0 <= j < end` and `s[j]` is `true`.
-proof fn lemma_id_alloc_bits_char(s: Seq<bool>, end: int, j: usize)
-    requires
-        0 <= end <= usize::MAX,
-        s.len() >= end,
-    ensures
-        id_alloc_bits(s, end).contains(j) == (j < end && s[j as int]),
-{
-}
-
-/// For an in-bounds id, `id_alloc_view` membership coincides with the allocated bitmap bit.
-proof fn lemma_id_alloc_view_contains(allocator: &IdAlloc, id: usize)
-    requires
-        allocator.inv(),
-        id < allocator@.len() <= usize::MAX,
-    ensures
-        id_alloc_view(allocator).contains(id) == allocator@[id as int],
-{
-}
-
-} // verus!
 // #[cfg(ktest)]
 mod test {
     use vstd::prelude::*;

@@ -12,14 +12,14 @@ use crate::specs::{
 };
 use crate::util::range_alloc::FreePermit;
 
-pub(super) mod allocator;
+mod allocator;
 
 use core::ops::{Deref, Range};
 
 use align_ext::AlignExt;
 
 pub(crate) use self::allocator::IoMemAllocatorBuilder;
-pub(super) use self::allocator::io_mem_allocator_initialized;
+pub(super) use self::allocator::{init, io_mem_allocator_initialized};
 use crate::{
     Error,
     mm::{
