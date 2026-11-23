@@ -555,32 +555,32 @@ impl UserContextApi for UserContext {
     /// # Verified Properties
     /// ## Postconditions
     /// - Preserves every other saved register, the trap metadata and the pending exception.
-    #[verus_spec(ensures
-        final(self).general_regs_spec() == (GeneralRegs {
-            rip: ip,
-            ..old(self).general_regs_spec()
-        }),
-        final(self).trap_number() == old(self).trap_number(),
-        final(self).trap_error_code() == old(self).trap_error_code(),
-        final(self).exception_spec() == old(self).exception_spec(),
-    )]
-    fn set_instruction_pointer(&mut self, ip: usize) {
+    fn set_instruction_pointer(&mut self, ip: usize)
+        ensures
+            final(self).general_regs_spec() == (GeneralRegs {
+                rip: ip,
+                ..old(self).general_regs_spec()
+            }),
+            final(self).trap_number() == old(self).trap_number(),
+            final(self).trap_error_code() == old(self).trap_error_code(),
+            final(self).exception_spec() == old(self).exception_spec(),
+    {
         self.set_rip(ip);
     }
 
     /// # Verified Properties
     /// ## Postconditions
     /// - Preserves every other saved register, the trap metadata and the pending exception.
-    #[verus_spec(ensures
-        final(self).general_regs_spec() == (GeneralRegs {
-            rsp: sp,
-            ..old(self).general_regs_spec()
-        }),
-        final(self).trap_number() == old(self).trap_number(),
-        final(self).trap_error_code() == old(self).trap_error_code(),
-        final(self).exception_spec() == old(self).exception_spec(),
-    )]
-    fn set_stack_pointer(&mut self, sp: usize) {
+    fn set_stack_pointer(&mut self, sp: usize)
+        ensures
+            final(self).general_regs_spec() == (GeneralRegs {
+                rsp: sp,
+                ..old(self).general_regs_spec()
+            }),
+            final(self).trap_number() == old(self).trap_number(),
+            final(self).trap_error_code() == old(self).trap_error_code(),
+            final(self).exception_spec() == old(self).exception_spec(),
+    {
         self.set_rsp(sp)
     }
 

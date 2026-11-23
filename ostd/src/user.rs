@@ -17,11 +17,6 @@ pub(crate) trait UserContextApiInternal {
     fn as_trap_frame(&self) -> TrapFrame;
 }*/
 
-// Expand these declarations after verus! so #[verus_spec] generates each trait contract once.
-macro_rules! verus_spec_methods {
-    ($($method:tt)*) => { $($method)* };
-}
-
 verus! {
 
 /// The common interface that every CPU architecture-specific [`UserContext`] implements.
@@ -38,53 +33,59 @@ pub trait UserContextApi {
     /// The saved stack pointer.
     spec fn stack_pointer_spec(&self) -> usize;
 
-    verus_spec_methods! {
-        /// Gets the trap number of this interrupt.
-        #[verifier::when_used_as_spec(trap_number_spec)]
-        #[verus_spec(returns self.trap_number())]
-        fn trap_number(&self) -> usize;
+    /// Gets the trap number of this interrupt.
+    #[verifier::when_used_as_spec(trap_number_spec)]
+    fn trap_number(&self) -> usize
+        returns
+            self.trap_number(),
+    ;
 
-        /// Gets the trap error code of this interrupt.
-        #[verifier::when_used_as_spec(trap_error_code_spec)]
-        #[verus_spec(returns self.trap_error_code())]
-        fn trap_error_code(&self) -> usize;
+    /// Gets the trap error code of this interrupt.
+    #[verifier::when_used_as_spec(trap_error_code_spec)]
+    fn trap_error_code(&self) -> usize
+        returns
+            self.trap_error_code(),
+    ;
 
-        /// Sets the instruction pointer
-        ///
-        /// # Verified Properties
-        /// ## Postconditions
-        /// - Preserves the saved stack pointer and trap metadata.
-        #[verus_spec(ensures
+    /// Sets the instruction pointer
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves the saved stack pointer and trap metadata.
+    fn set_instruction_pointer(&mut self, ip: usize)
+        ensures
             final(self).instruction_pointer() == ip,
             final(self).stack_pointer() == old(self).stack_pointer(),
             final(self).trap_number() == old(self).trap_number(),
             final(self).trap_error_code() == old(self).trap_error_code(),
-        )]
-        fn set_instruction_pointer(&mut self, ip: usize);
+    ;
 
-        /// Gets the instruction pointer
-        #[verifier::when_used_as_spec(instruction_pointer_spec)]
-        #[verus_spec(returns self.instruction_pointer())]
-        fn instruction_pointer(&self) -> usize;
+    /// Gets the instruction pointer
+    #[verifier::when_used_as_spec(instruction_pointer_spec)]
+    fn instruction_pointer(&self) -> usize
+        returns
+            self.instruction_pointer(),
+    ;
 
-        /// Sets the stack pointer
-        ///
-        /// # Verified Properties
-        /// ## Postconditions
-        /// - Preserves the saved instruction pointer and trap metadata.
-        #[verus_spec(ensures
+    /// Sets the stack pointer
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - Preserves the saved instruction pointer and trap metadata.
+    fn set_stack_pointer(&mut self, sp: usize)
+        ensures
             final(self).stack_pointer() == sp,
             final(self).instruction_pointer() == old(self).instruction_pointer(),
             final(self).trap_number() == old(self).trap_number(),
             final(self).trap_error_code() == old(self).trap_error_code(),
-        )]
-        fn set_stack_pointer(&mut self, sp: usize);
+    ;
 
-        /// Gets the stack pointer
-        #[verifier::when_used_as_spec(stack_pointer_spec)]
-        #[verus_spec(returns self.stack_pointer())]
-        fn stack_pointer(&self) -> usize;
-    }
+    /// Gets the stack pointer
+    #[verifier::when_used_as_spec(stack_pointer_spec)]
+    fn stack_pointer(&self) -> usize
+        returns
+            self.stack_pointer(),
+    ;
 }
 
 } // verus!
