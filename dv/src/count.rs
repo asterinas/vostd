@@ -392,7 +392,7 @@ mod tests {
 
         let paths = module_source_paths(&src.join("lib.rs"), "sync::rwlock", "x86_64-unknown-none")
             .unwrap();
-        assert_eq!(paths, [src.join("sync/rwlock.rs")]);
+        assert_eq!(paths, [src.join("sync/rwlock.rs").canonicalize().unwrap()]);
     }
 
     #[test]
@@ -406,7 +406,7 @@ mod tests {
 
         let paths =
             module_source_paths(&src.join("lib.rs"), "sync", "x86_64-unknown-none").unwrap();
-        assert_eq!(paths, [src.join("sync")]);
+        assert_eq!(paths, [src.join("sync").canonicalize().unwrap()]);
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod tests {
 
         let paths =
             module_source_paths(&src.join("lib.rs"), "arch::irq", "x86_64-unknown-none").unwrap();
-        assert_eq!(paths, [src.join("arch/x86/irq.rs")]);
+        assert_eq!(paths, [src.join("arch/x86/irq.rs").canonicalize().unwrap()]);
     }
 
     #[test]
@@ -450,11 +450,14 @@ mod tests {
             "riscv64imac-unknown-none-elf",
         )
         .unwrap();
-        assert_eq!(riscv, [src.join("arch/riscv/irq.rs")]);
+        assert_eq!(
+            riscv,
+            [src.join("arch/riscv/irq.rs").canonicalize().unwrap()]
+        );
 
         let x86 =
             module_source_paths(&src.join("lib.rs"), "arch::irq", "x86_64-unknown-none").unwrap();
-        assert_eq!(x86, [src.join("arch/x86/irq.rs")]);
+        assert_eq!(x86, [src.join("arch/x86/irq.rs").canonicalize().unwrap()]);
     }
 
     #[test]

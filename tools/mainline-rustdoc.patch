@@ -1,0 +1,35 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index be13d3320..25642e5e2 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -78,0 +79,8 @@ codegen-units = 1
++
++[workspace.package]
++edition = "2021"
++repository = "https://github.com/asterinas/asterinas"
++license = "MPL-2.0"
++
++[workspace.dependencies]
++bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
+diff --git a/ostd/src/panic.rs b/ostd/src/panic.rs
+index 21c50179d..dc130bbae 100644
+--- a/ostd/src/panic.rs
++++ b/ostd/src/panic.rs
+@@ -130,0 +131,10 @@ pub fn print_stack_trace() {
++
++#[cfg(doc)]
++pub(crate) struct PanicGuard;
++
++#[cfg(doc)]
++impl PanicGuard {
++    pub(crate) fn new() -> Self {
++        Self
++    }
++}
+diff --git a/ostd/src/sync/guard.rs b/ostd/src/sync/guard.rs
+index b0a90fd00..4084254f0 100644
+--- a/ostd/src/sync/guard.rs
++++ b/ostd/src/sync/guard.rs
+@@ -4 +4 @@ use crate::{
+-    irq::{DisabledLocalIrqGuard, disable_local},
++    trap::irq::{DisabledLocalIrqGuard, disable_local},

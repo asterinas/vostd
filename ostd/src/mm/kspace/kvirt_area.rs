@@ -6,7 +6,7 @@ use vstd_extra::{
     assert,
     cast_ptr::Repr,
     ownership::{InvView, OwnerOf},
-    panic::may_panic,
+    panic::allowed_to_panic_if,
     prelude::Inv,
 };
 
@@ -439,9 +439,8 @@ impl KVirtArea {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
-            Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())
-                ==> may_panic(),
-            kvirt_alloc_oom_condition(area_size) ==> may_panic(),
+            allowed_to_panic_if(Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())),
+            allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
@@ -530,17 +529,15 @@ impl KVirtArea {
         for frame in it: frames.into_iter()
             invariant
                 cursor.0.invariants(cursor_owner, *regions, *guards),
-                // Carry the requires implication into the loop body so
-                // that may_panic is derivable per-iteration when a guard
-                // implies the bounds-panic condition (mirrors jump's
-                // per-iteration `jump_panic_condition ==> may_panic()`).
-                Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())
-                    ==> may_panic(),
+                // Carry the conditional no-panic guarantee through each iteration.
+                allowed_to_panic_if(
+                    Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
+                ),
                 // Cursor VA tracking (purely structural — no bounds).
                 // Lets the per-iter capacity assert below chain a
                 // `cursor.va >= barrier ⟹ map_offset + frames.len()*PAGE
                 // > area_size` derivation that fires `map_frames_bounds_panic_condition`'s
-                // capacity disjunct ⟹ `may_panic()` via the invariant.
+                // capacity disjunct, so the invariant permits the panic.
                 it.seq().len() == frames.len(),
                 0 <= it.index() <= frames.len(),
                 cursor.0.barrier_va.start == range.start + map_offset,
@@ -716,10 +713,10 @@ impl KVirtArea {
             forall|level: PagingLevel|
                 2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                     pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
-            pa_range.end - pa_range.start >= page_size::<PagingConsts>(2) ==> may_panic(),
+            allowed_to_panic_if(pa_range.end - pa_range.start >= page_size::<PagingConsts>(2)),
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
             !Self::map_untracked_frames_bounds_panic_condition(area_size, map_offset, &pa_range),
-            kvirt_alloc_oom_condition(area_size) ==> may_panic(),
+            allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
@@ -786,7 +783,7 @@ impl KVirtArea {
                     forall|level: PagingLevel|
                         2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==> len
                             != page_size::<PagingConsts>(level),
-                    len >= page_size::<PagingConsts>(2) ==> may_panic(),
+                    allowed_to_panic_if(len >= page_size::<PagingConsts>(2)),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
                     forall|pa: Paddr, level: PagingLevel|
                         1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL
