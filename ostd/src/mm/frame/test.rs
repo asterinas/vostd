@@ -219,7 +219,10 @@ mod linked_list {
             #[verus_spec(with Tracked(&list_own))]
             list.is_empty()
         );
-        /* list.push_front(frame1.try_into().unwrap()); */
+        /* `try_from_shared` takes `Tracked(regions)` for verification.
+         * `.ok()` avoids the `Frame: Debug` bound on `Result::unwrap()`.
+         * Origin Rust: list.push_front(frame1.try_into().unwrap());
+         */
         let frame1 = (#[verus_spec(with Tracked(regions))]
         UniqueFrame::try_from_shared(frame1))
         .ok()
