@@ -17,80 +17,78 @@ pub(crate) trait UserContextApiInternal {
     fn as_trap_frame(&self) -> TrapFrame;
 }*/
 
+verus! {
+
 /// The common interface that every CPU architecture-specific [`UserContext`] implements.
-#[verus_verify]
 pub trait UserContextApi {
     /// The saved trap vector number.
-    #[cfg(verus_keep_ghost)]
-    #[verus_spec]
-    #[verifier::spec]
-    fn trap_number_spec(&self) -> usize;
+    spec fn trap_number_spec(&self) -> usize;
 
     /// The saved trap error code.
-    #[cfg(verus_keep_ghost)]
-    #[verus_spec]
-    #[verifier::spec]
-    fn trap_error_code_spec(&self) -> usize;
+    spec fn trap_error_code_spec(&self) -> usize;
 
     /// The saved instruction pointer.
-    #[cfg(verus_keep_ghost)]
-    #[verus_spec]
-    #[verifier::spec]
-    fn instruction_pointer_spec(&self) -> usize;
+    spec fn instruction_pointer_spec(&self) -> usize;
 
     /// The saved stack pointer.
-    #[cfg(verus_keep_ghost)]
-    #[verus_spec]
-    #[verifier::spec]
-    fn stack_pointer_spec(&self) -> usize;
+    spec fn stack_pointer_spec(&self) -> usize;
 
     /// Gets the trap number of this interrupt.
     #[verifier::when_used_as_spec(trap_number_spec)]
-    #[verus_spec(returns self.trap_number())]
-    fn trap_number(&self) -> usize;
+    fn trap_number(&self) -> usize
+        returns
+            self.trap_number(),
+    ;
 
     /// Gets the trap error code of this interrupt.
     #[verifier::when_used_as_spec(trap_error_code_spec)]
-    #[verus_spec(returns self.trap_error_code())]
-    fn trap_error_code(&self) -> usize;
+    fn trap_error_code(&self) -> usize
+        returns
+            self.trap_error_code(),
+    ;
 
     /// Sets the instruction pointer
     ///
     /// # Verified Properties
     /// ## Postconditions
     /// - Preserves the saved stack pointer and trap metadata.
-    #[verus_spec(ensures
-        final(self).instruction_pointer() == ip,
-        final(self).stack_pointer() == old(self).stack_pointer(),
-        final(self).trap_number() == old(self).trap_number(),
-        final(self).trap_error_code() == old(self).trap_error_code(),
-    )]
-    fn set_instruction_pointer(&mut self, ip: usize);
+    fn set_instruction_pointer(&mut self, ip: usize)
+        ensures
+            final(self).instruction_pointer() == ip,
+            final(self).stack_pointer() == old(self).stack_pointer(),
+            final(self).trap_number() == old(self).trap_number(),
+            final(self).trap_error_code() == old(self).trap_error_code(),
+    ;
 
     /// Gets the instruction pointer
     #[verifier::when_used_as_spec(instruction_pointer_spec)]
-    #[verus_spec(returns self.instruction_pointer())]
-    fn instruction_pointer(&self) -> usize;
+    fn instruction_pointer(&self) -> usize
+        returns
+            self.instruction_pointer(),
+    ;
 
     /// Sets the stack pointer
     ///
     /// # Verified Properties
     /// ## Postconditions
     /// - Preserves the saved instruction pointer and trap metadata.
-    #[verus_spec(ensures
-        final(self).stack_pointer() == sp,
-        final(self).instruction_pointer() == old(self).instruction_pointer(),
-        final(self).trap_number() == old(self).trap_number(),
-        final(self).trap_error_code() == old(self).trap_error_code(),
-    )]
-    fn set_stack_pointer(&mut self, sp: usize);
+    fn set_stack_pointer(&mut self, sp: usize)
+        ensures
+            final(self).stack_pointer() == sp,
+            final(self).instruction_pointer() == old(self).instruction_pointer(),
+            final(self).trap_number() == old(self).trap_number(),
+            final(self).trap_error_code() == old(self).trap_error_code(),
+    ;
 
     /// Gets the stack pointer
     #[verifier::when_used_as_spec(stack_pointer_spec)]
-    #[verus_spec(returns self.stack_pointer())]
-    fn stack_pointer(&self) -> usize;
+    fn stack_pointer(&self) -> usize
+        returns
+            self.stack_pointer(),
+    ;
 }
 
+} // verus!
 /*/// Code execution in the user mode.
 ///
 /// This type enables executing the code in user space from a task in the kernel
