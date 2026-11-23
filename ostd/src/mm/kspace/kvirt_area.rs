@@ -251,17 +251,15 @@ pub uninterp spec fn kvirt_alloc_spec(size: usize) -> Result<
     RangeAllocError,
 >;
 
-pub axiom fn kvirt_alloc_range_bounds(
-    area_size: usize,
-    map_offset: usize,
-    r: core::ops::Range<Vaddr>,
-)
+pub axiom fn axiom_kvirt_alloc_range_bounds(area_size: usize, r: core::ops::Range<Vaddr>)
     ensures
-        kvirt_alloc_spec(area_size) == Ok::<core::ops::Range<Vaddr>, RangeAllocError>(r) ==> r.start
-            <= r.end && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start
-            + map_offset <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0
-            && KERNEL_BASE_VADDR <= r.start && r.end <= FRAME_METADATA_BASE_VADDR
-            && page_table_managed_start_spec::<KernelPtConfig>() <= r.start,
+        kvirt_alloc_spec(area_size) == Ok::<core::ops::Range<Vaddr>, RangeAllocError>(r) ==> {
+            &&& KERNEL_BASE_VADDR <= r.start <= r.end <= FRAME_METADATA_BASE_VADDR
+            &&& r.end - r.start == area_size
+            &&& r.start % PAGE_SIZE == 0
+            &&& r.end % PAGE_SIZE == 0
+            &&& page_table_managed_start_spec::<KernelPtConfig>() <= r.start
+        },
 ;
 
 /// Aligned ranges within the kernel page table's managed bounds are valid for KernelPtConfig.
@@ -316,14 +314,9 @@ impl Inv for KVirtArea {
     open spec fn inv(self) -> bool {
         &&& KERNEL_BASE_VADDR
             <= self.range.start
-        // See `kvirt_alloc_range_bounds`: the real allocator draws from
-        // VMALLOC, whose upper bound is FRAME_METADATA_BASE_VADDR. This
-        // leaves `end + PAGE_SIZE <= KERNEL_END_VADDR` with plenty of
-        // margin, so a one-past-end cursor open stays sound.
-        &&& self.range.end
-            <= FRAME_METADATA_BASE_VADDR
-        // Page alignment: guaranteed by `kvirt_alloc_range_bounds` at
-        // construction, preserved by every operation (no op touches range).
+        // See `axiom_kvirt_alloc_range_bounds`: the real allocator draws from
+        // VMALLOC, whose upper bound is FRAME_METADATA_BASE_VADDR.
+        &&& self.range.end <= FRAME_METADATA_BASE_VADDR
         &&& self.range.start % PAGE_SIZE == 0
         &&& self.range.end % PAGE_SIZE == 0
         &&& self.range.start <= self.range.end
@@ -439,7 +432,7 @@ impl KVirtArea {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
-            allowed_to_panic_if(Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())),
+            !Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
             allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
             old(regions).inv(),
             owner.inv(),
@@ -485,7 +478,7 @@ impl KVirtArea {
         let range = range_res.unwrap();
 
         proof {
-            kvirt_alloc_range_bounds(area_size, map_offset, range);
+            axiom_kvirt_alloc_range_bounds(area_size, range);
             assert(KERNEL_BASE_VADDR > 0) by (compute_only);
         }
 
@@ -750,7 +743,7 @@ impl KVirtArea {
         let range = range_res.unwrap();
 
         proof {
-            kvirt_alloc_range_bounds(area_size, map_offset, range);
+            axiom_kvirt_alloc_range_bounds(area_size, range);
         }
 
         if pa_range.start < pa_range.end {
