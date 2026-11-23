@@ -1996,7 +1996,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             forall |p: PageProperty| op.requires((p,)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<C::Perm>>| #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && C::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     C::item_into_raw(C::item_from_raw(pa, level, p_out, perm)).3@
                         is Some
                 ) == (perm@ is Some),
@@ -3420,7 +3421,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             forall |p: PageProperty| op.requires((p,)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<C::Perm>>| #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && C::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     C::item_into_raw(C::item_from_raw(pa, level, p_out, perm)).3@
                         is Some
                 ) == (perm@ is Some),
