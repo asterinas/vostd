@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(unused_variables)]
 
-use vstd::{arithmetic::div_mod::lemma_remainder_lower, prelude::*};
-
-use crate::specs::context::{CpuFeatureModel, cpu_feature_model};
+use vstd::{arithmetic::div_mod::lemma_fundamental_div_mod, prelude::*};
+use vstd_extra::ownership::Inv;
 
 /*
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -38,23 +37,51 @@ pub fn init_tsc_freq() {
 
 verus! {
 
-impl CpuFeatureModel {
-    /// TSC frequency returned by OSTD in Hz, preserving its leaf gate and kHz truncation.
-    /// `base_eax` records the raw CPUID.16H:EAX value when the fallback reads it.
-    pub open spec fn tsc_frequency_hz(self, base_eax: Option<u32>) -> Option<u64> {
-        if self.max_basic_leaf <= 0x15 || self.tsc_denominator == 0 || self.tsc_numerator == 0 {
+/// CPUID values sampled by one invocation.
+pub ghost struct CpuidSamples {
+    pub max_leaf: u32,
+    /// Leaf 0x15: (denominator, numerator, crystal Hz).
+    pub leaf15: Option<(u32, u32, u32)>,
+    pub base_mhz: Option<u32>,
+}
+
+impl Inv for CpuidSamples {
+    open spec fn inv(self) -> bool {
+        &&& self.leaf15.is_some() == (self.max_leaf > 0x15)
+        &&& self.base_mhz.is_some() == match self.leaf15 {
+            Some((a, b, c)) => a != 0 && b != 0 && c / 1000 == 0 && self.max_leaf >= 0x16,
+            None => false,
+        }
+    }
+}
+
+impl CpuidSamples {
+    /// Frequency in Hz, preserving kHz truncation.
+    pub open spec fn frequency_hz(self) -> Option<int> {
+        if self.max_leaf <= 0x15 {
             None
         } else {
-            let crystal_khz = if self.crystal_hz / 1000 != 0 {
-                self.crystal_hz as int / 1000
-            } else {
-                base_eax.unwrap_or(0) as int * 1000 * self.tsc_denominator
-                    / self.tsc_numerator as int
-            };
-            if crystal_khz == 0 {
-                None
-            } else {
-                Some((crystal_khz * 1000 * self.tsc_numerator / self.tsc_denominator as int) as u64)
+            match self.leaf15 {
+                None => None,
+                Some((a, b, c)) => {
+                    if a == 0 || b == 0 {
+                        None
+                    } else {
+                        let khz = if c / 1000 != 0 {
+                            c as int / 1000
+                        } else {
+                            match self.base_mhz {
+                                Some(base) => base as int * 1000 * a / b as int,
+                                None => 0,
+                            }
+                        };
+                        if khz == 0 {
+                            None
+                        } else {
+                            Some(khz * 1000 * b / a as int)
+                        }
+                    }
+                },
             }
         }
     }
@@ -75,24 +102,22 @@ impl CpuFeatureModel {
 ///   Physical clock accuracy is outside the proof.
 ///
 #[verus_spec(
-    with Tracked(base_eax): Tracked<&mut Ghost<Option<u32>>>
+    with Tracked(samples): Tracked<&mut Ghost<CpuidSamples>>
     ensures
-        ({
-            let model = cpu_feature_model();
-            final(base_eax)@.is_some() == (
-                model.max_basic_leaf >= 0x16 && model.tsc_denominator != 0
-                    && model.tsc_numerator != 0 && model.crystal_hz / 1000 == 0
-            )
-        }),
-    returns cpu_feature_model().tsc_frequency_hz(final(base_eax)@)
+        final(samples)@.inv(),
+    returns
+        (match final(samples)@.frequency_hz() {
+            Some(hz) => Some(hz as u64),
+            None => None,
+        })
 )]
 pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
-    proof! {
-        *base_eax = Ghost(None);
-    }
     // Check the max cpuid supported
     let cpuid = cpuid!(0);
     let max_cpuid = cpuid.eax;
+    proof! {
+        *samples = Ghost(CpuidSamples { max_leaf: max_cpuid, leaf15: None, base_mhz: None });
+    }
     if max_cpuid <= 0x15 {
         return None;
     }
@@ -100,6 +125,12 @@ pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
     // TSC frequecny = ecx * ebx / eax
     // CPUID 0x15: Time Stamp Counter and Nominal Core Crystal Clock Information Leaf
     let mut cpuid = cpuid!(0x15);
+    proof! {
+        *samples = Ghost(CpuidSamples {
+            leaf15: Some((cpuid.eax, cpuid.ebx, cpuid.ecx)),
+            ..samples@
+        });
+    }
     if cpuid.eax == 0 || cpuid.ebx == 0 {
         return None;
     }
@@ -114,7 +145,7 @@ pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
         cpuid = cpuid!(0x16);
         let base_mhz = cpuid.eax;
         proof! {
-            *base_eax = Ghost(Some(base_mhz));
+            *samples = Ghost(CpuidSamples { base_mhz: Some(base_mhz), ..samples@ });
             // Assume the hardware-reported base frequency and crystal ratio keep
             // both intermediate products within u32, as on practical CPUs.
             assume(base_mhz * 1000 <= u32::MAX);
@@ -122,7 +153,7 @@ pub fn determine_tsc_freq_via_cpuid() -> Option<u64> {
         }
         crystal_khz = base_mhz * 1000 * eax_denominator / ebx_numerator;
         proof! {
-            lemma_remainder_lower(base_mhz * 1000 * eax_denominator, ebx_numerator as int);
+            lemma_fundamental_div_mod(base_mhz * 1000 * eax_denominator, ebx_numerator as int);
         }
     }
 

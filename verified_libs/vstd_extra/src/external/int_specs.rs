@@ -7,7 +7,7 @@ verus! {
 
 /// Little-endian bytes as implemented by core's uint_macros::to_le_bytes
 /// (`to_le().to_ne_bytes()`), independent of the host endianness. Source:
-/// Rust 1.100.0 (0ef1bc386), library/core/src/num/uint_macros.rs; the delegated
+/// Rust 1.99.1 (58cf8f9c3), library/core/src/num/uint_macros.rs; the delegated
 /// to_ne_bytes uses a transmute to the same-width byte array.
 pub assume_specification[ u16::to_le_bytes ](value: u16) -> (bytes: [u8; 2])
     ensures
@@ -42,6 +42,15 @@ pub assume_specification[ u16::is_power_of_two ](self_: u16) -> (r: bool)
 pub assume_specification[ u32::is_power_of_two ](self_: u32) -> (r: bool)
     returns
         is_pow2(self_ as int),
+    opens_invariants none
+    no_unwind
+;
+
+/// On a little-endian target, converting a native-endian `u32` to little endian is the identity.
+#[cfg(target_endian = "little")]
+pub assume_specification[ u32::to_le ](value: u32) -> u32
+    returns
+        value,
     opens_invariants none
     no_unwind
 ;
