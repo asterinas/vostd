@@ -65,11 +65,8 @@ impl SerialPort {
         requires
             port <= u16::MAX - 6,
         ensures
-            ret@.len() == 7,
-            forall|i: int| 0 <= i < 7 ==> {
-                &&& #[trigger] ret@[i] == port + i
-                &&& valid_io_port_access::<u8>(ret@[i])
-            },
+            ret@ == Seq::new(7, |i: int| (port + i) as u16),
+            ret@.all(|addr: u16| valid_io_port_access::<u8>(addr)),
     )]
     pub const unsafe fn new(port: u16) -> Self {
         // SAFETY: The safety is upheld by the caller.
@@ -87,11 +84,6 @@ impl SerialPort {
     }
 
     /// Initializes the serial port.
-    #[verus_spec(
-        ensures
-            self@.len() == 7,
-            forall|i: int| 0 <= i < 5 ==> valid_io_port_access::<u8>(#[trigger] self@[i]),
-    )]
     pub fn init(&self) {
         // Disable interrupts
         self.int_en.write(0x00);
@@ -114,33 +106,18 @@ impl SerialPort {
 
     /// Sends data to the data port
     #[inline]
-    #[verus_spec(
-        ensures
-            self@.len() == 7,
-            valid_io_port_access::<u8>(self@[0]),
-    )]
     pub fn send(&self, data: u8) {
         self.data.write(data);
     }
 
     /// Receives data from the data port
     #[inline]
-    #[verus_spec(
-        ensures
-            self@.len() == 7,
-            valid_io_port_access::<u8>(self@[0]),
-    )]
     pub fn recv(&self) -> u8 {
         self.data.read()
     }
 
     /// Gets line status
     #[inline]
-    #[verus_spec(
-        ensures
-            self@.len() == 7,
-            valid_io_port_access::<u8>(self@[5]),
-    )]
     pub fn line_status(&self) -> u8 {
         self.line_status.read()
     }
