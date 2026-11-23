@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
+use vstd_extra::panic::allowed_to_panic_if;
 
 use core::mem::MaybeUninit;
 
 use uefi::boot::AllocateType;
 
-/// Trusted: normal returns have the requested length; allocation may panic.
+/// Firmware can reject even a valid address and size.
 #[verifier::external_body]
-#[verus_spec(dst => ensures dst@.len() == size)]
+#[verus_spec(dst =>
+    requires
+        allowed_to_panic_if(true),
+    ensures
+        dst@.len() == size,
+)]
 pub fn alloc_at(addr: usize, size: usize) -> &'static mut [MaybeUninit<u8>] {
     assert_ne!(addr, 0, "the address to allocate is zero");
     assert!(

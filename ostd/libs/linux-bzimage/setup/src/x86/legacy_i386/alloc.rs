@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
+use vstd_extra::panic::allowed_to_panic_if;
 
 use core::{mem::MaybeUninit, ops::Range};
 
@@ -56,9 +57,14 @@ pub(super) unsafe fn init(boot_params: &'static linux_boot_params::BootParams) {
     });
 }
 
-/// Trusted: normal returns have the requested length; allocation may panic.
+/// A valid range can already be in use or the used-range table can be full.
 #[verifier::external_body]
-#[verus_spec(dst => ensures dst@.len() == size)]
+#[verus_spec(dst =>
+    requires
+        allowed_to_panic_if(true),
+    ensures
+        dst@.len() == size,
+)]
 pub fn alloc_at(addr: usize, size: usize) -> &'static mut [MaybeUninit<u8>] {
     let mut state = STATE.lock();
     let state = state.as_mut().unwrap();
