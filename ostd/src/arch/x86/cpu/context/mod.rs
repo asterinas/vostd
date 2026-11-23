@@ -525,23 +525,24 @@ bitflags! {
     }
 }
 
-verus! {
-
+#[verus_verify]
 impl UserContextApi for UserContext {
-    closed spec fn trap_number_spec(&self) -> usize {
-        self.user_context.trap_num
-    }
+    verus_trait_impl! {
+        closed spec fn trap_number_spec(&self) -> usize {
+            self.user_context.trap_num
+        }
 
-    closed spec fn trap_error_code_spec(&self) -> usize {
-        self.user_context.error_code
-    }
+        closed spec fn trap_error_code_spec(&self) -> usize {
+            self.user_context.error_code
+        }
 
-    open spec fn instruction_pointer_spec(&self) -> usize {
-        self.general_regs_spec().rip
-    }
+        open spec fn instruction_pointer_spec(&self) -> usize {
+            self.general_regs_spec().rip
+        }
 
-    open spec fn stack_pointer_spec(&self) -> usize {
-        self.general_regs_spec().rsp
+        open spec fn stack_pointer_spec(&self) -> usize {
+            self.general_regs_spec().rsp
+        }
     }
 
     fn trap_number(&self) -> usize {
@@ -555,32 +556,32 @@ impl UserContextApi for UserContext {
     /// # Verified Properties
     /// ## Postconditions
     /// - Preserves every other saved register, the trap metadata and the pending exception.
-    fn set_instruction_pointer(&mut self, ip: usize)
-        ensures
-            final(self).general_regs_spec() == (GeneralRegs {
-                rip: ip,
-                ..old(self).general_regs_spec()
-            }),
-            final(self).trap_number() == old(self).trap_number(),
-            final(self).trap_error_code() == old(self).trap_error_code(),
-            final(self).exception_spec() == old(self).exception_spec(),
-    {
+    #[verus_spec(ensures
+        final(self).general_regs_spec() == (GeneralRegs {
+            rip: ip,
+            ..old(self).general_regs_spec()
+        }),
+        final(self).trap_number() == old(self).trap_number(),
+        final(self).trap_error_code() == old(self).trap_error_code(),
+        final(self).exception_spec() == old(self).exception_spec(),
+    )]
+    fn set_instruction_pointer(&mut self, ip: usize) {
         self.set_rip(ip);
     }
 
     /// # Verified Properties
     /// ## Postconditions
     /// - Preserves every other saved register, the trap metadata and the pending exception.
-    fn set_stack_pointer(&mut self, sp: usize)
-        ensures
-            final(self).general_regs_spec() == (GeneralRegs {
-                rsp: sp,
-                ..old(self).general_regs_spec()
-            }),
-            final(self).trap_number() == old(self).trap_number(),
-            final(self).trap_error_code() == old(self).trap_error_code(),
-            final(self).exception_spec() == old(self).exception_spec(),
-    {
+    #[verus_spec(ensures
+        final(self).general_regs_spec() == (GeneralRegs {
+            rsp: sp,
+            ..old(self).general_regs_spec()
+        }),
+        final(self).trap_number() == old(self).trap_number(),
+        final(self).trap_error_code() == old(self).trap_error_code(),
+        final(self).exception_spec() == old(self).exception_spec(),
+    )]
+    fn set_stack_pointer(&mut self, sp: usize) {
         self.set_rsp(sp)
     }
 
@@ -593,7 +594,6 @@ impl UserContextApi for UserContext {
     }
 }
 
-} // verus!
 macro_rules! cpu_context_impl_getter_setter {
     ( $( [ $field: ident, $setter_name: ident] ),*) => {
         #[verus_verify]
