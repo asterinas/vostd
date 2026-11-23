@@ -121,6 +121,7 @@ pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](ptr: Non
         ret.as_ptr() == ptr.as_ptr() as *mut U,
     returns
         ptr.cast_spec::<U>(),
+    no_unwind
 ;
 
 // Specification for NonNull::dangling(), uninterpreted because the ptr only has to satisfy the alignment requirement.
@@ -134,6 +135,7 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
         ret.as_ptr()@.provenance == Provenance::null(),
     returns
         nonnull_dangling_spec::<T>(),
+    no_unwind
 ;
 
 #[verifier::inline]
