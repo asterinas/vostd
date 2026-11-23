@@ -222,6 +222,7 @@ mod linked_list {
         /* list.push_front(frame1.try_into().unwrap()); */
         let frame1 = (#[verus_spec(with Tracked(regions))]
         UniqueFrame::try_from_shared(frame1))
+        .ok()
         .unwrap();
         proof_decl! {
             let tracked mut owner1 = UniqueFrameOwner {
@@ -236,6 +237,7 @@ mod linked_list {
         proof_decl! { let ghost before_unique2 = *regions; }
         let frame2 = (#[verus_spec(with Tracked(regions))]
         UniqueFrame::try_from_shared(frame2))
+        .ok()
         .unwrap();
         proof! {
             list_own.lemma_relate_region_preserved_external_change(before_unique2, *regions);
@@ -253,6 +255,7 @@ mod linked_list {
         proof_decl! { let ghost before_unique3 = *regions; }
         let frame3 = (#[verus_spec(with Tracked(regions))]
         UniqueFrame::try_from_shared(frame3))
+        .ok()
         .unwrap();
         proof! {
             list_own.lemma_relate_region_preserved_external_change(before_unique3, *regions);
