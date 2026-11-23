@@ -1,6 +1,12 @@
 #![allow(non_snake_case)]
 #[allow(unused_parens)]
 #[allow(unused_braces)]
+#[cfg(target_arch = "x86_64")]
+pub mod context;
+pub mod layout;
+
+#[allow(unused_parens)]
+#[allow(unused_braces)]
 #[allow(rustdoc::invalid_rust_codeblocks)]
 #[allow(rustdoc::invalid_html_tags)]
 pub mod arch;

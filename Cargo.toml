@@ -6,9 +6,10 @@ members = [
     "ostd",
     "ostd/libs/align_ext",
     "ostd/libs/id-alloc",
+    "ostd/libs/linux-bzimage/builder",
     "ostd/libs/ostd-pod",
     # "ostd/libs/ostd-macros",
-    # "ostd/libs/ostd-test",
+    "ostd/libs/ostd-test",
     # "kernel/libs/int-to-c-enum",
 ]
 exclude = [

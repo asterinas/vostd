@@ -80,13 +80,14 @@ use vstd::{
     atomic::{PAtomicU64, PermissionU64},
     cell::pcell_maybe_uninit,
     prelude::*,
-    simple_pptr::{PPtr, PointsTo},
+    simple_pptr::PPtr,
 };
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
-    panic::{may_panic, panic_diverge},
+    panic::{allowed_to_panic_if, panic_diverge},
     prelude::*,
+    raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     sum::Sum,
 };
 
@@ -95,7 +96,6 @@ use crate::specs::{
     mm::frame::{mapping::frame_to_index, meta_owners::*, meta_region_owners::MetaRegionOwners},
 };
 
-use align_ext::AlignExt;
 use core::{
     alloc::Layout,
     any::Any,
@@ -106,19 +106,21 @@ use core::{
     result::Result,
     sync::atomic::{AtomicU64, Ordering},
 };
+
+use align_ext::AlignExt;
 //use log::info;
 
 use self::mapping::{frame_to_meta, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
 use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        /*VmReader,*/
-        /*Infallible,*/ Paddr,
+        Infallible,
+        Paddr,
         PagingLevel,
         //Segment,
         Vaddr,
+        VmReader,
         kspace::FRAME_METADATA_RANGE,
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
         paddr_to_vaddr,
@@ -316,7 +318,7 @@ pub enum GetFrameError {
 /// Verus ensures that the pointer is properly dereferenced with a permission object, so creating it is safe.
 #[verus_spec(res =>
     with
-        Tracked(slot_perm): Tracked<Option<&'static vstd::simple_pptr::PointsTo<MetaSlot>>>
+        Tracked(slot_perm): Tracked<Option<&'static ExposedPointsTo<MetaSlot>>>
     requires
         valid_frame_paddr(paddr) ==> {
             &&& slot_perm is Some
@@ -335,12 +337,13 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError>
         return Err(GetFrameError::OutOfBound);
     }
     let vaddr = mapping::frame_to_meta(paddr);
-    let ptr = PPtr::<MetaSlot>::from_addr(vaddr);
+    // Origin Rust: let ptr = vaddr as *mut MetaSlot;
+    let ptr = ptr_from_addr(vaddr, Tracked(slot_perm.tracked_borrow()));
 
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
-    // Ok(unsafe { &*ptr })
-    Ok(ptr.borrow(Tracked(slot_perm.tracked_borrow())))
+    // Origin Rust: Ok(unsafe { &*ptr })
+    Ok(ptr_ref(ptr, Tracked(slot_perm.tracked_borrow())))
 }
 
 #[verus_verify]
@@ -352,7 +355,7 @@ impl MetaSlot {
     #[verifier::external_body]
     #[verus_spec(
         with
-            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&ExposedPointsTo<MetaSlot>>,
         requires
             self == perm.value(),
         returns
@@ -386,7 +389,6 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             -> permissions: Tracked<Option<Sum<FracMetadataPerm, MetadataPerm>>>
         requires
             old(regions).inv(),
@@ -398,6 +400,7 @@ impl MetaSlot {
             res matches Ok(res) ==> {
                 &&& valid_frame_paddr(paddr)
                 &&& res.addr() == frame_to_meta(paddr)
+                &&& res == final(regions).slots[frame_to_index(paddr)].ptr()
                 &&& final(regions).inv()
                 &&& permissions@ is Some
                 &&& Self::get_from_unused_spec(
@@ -406,7 +409,6 @@ impl MetaSlot {
                     as_unique_ptr,
                     *old(regions),
                     *final(regions),
-                    *final(repr_perm),
                     permissions@->0,
                 )
             },
@@ -415,7 +417,7 @@ impl MetaSlot {
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> Result<PPtr<Self>, GetFrameError> {
+    ) -> Result<*const Self, GetFrameError> {
         proof_decl! {
             let tracked slot_perm = if valid_frame_paddr(paddr) {
                 Some(regions.tracked_borrow_slot(paddr))
@@ -471,7 +473,6 @@ impl MetaSlot {
         unsafe {
             #[verus_spec(with
                 Tracked(&mut metadata_perm),
-                Tracked(repr_perm)
             )]
             slot.write_meta(metadata)
         };
@@ -495,9 +496,9 @@ impl MetaSlot {
         } else {
             Some(Sum::Left(slot_own.metadata_perm.split_one()))
         };
-        // Ok(slot as *const MetaSlot)
+        // Origin Rust: Ok(slot as *const MetaSlot)
         proof_with!(|= Tracked(perm));
-        Ok(PPtr::from_addr(frame_to_meta(paddr)))
+        Ok(ptr_from_addr(frame_to_meta(paddr), Tracked(slot_perm.tracked_borrow())))
     }
 
     /// Gets another owning pointer to the metadata slot from the given page.
@@ -520,14 +521,15 @@ impl MetaSlot {
             -> permission: Tracked<Option<FracMetadataPerm>>,
         requires
             old(regions).inv(),
-            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            allowed_to_panic_if(valid_frame_paddr(paddr) && old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         ensures
             final(regions).inv(),
             res matches Ok(ptr) ==> {
                 &&& Self::get_from_in_use_success_spec(paddr, *old(regions), *final(regions), permission@->0)
                 &&& valid_frame_paddr(paddr)
                 &&& permission@ is Some
-                &&& ptr == old(regions).slots[frame_to_index(paddr)].pptr()
+                &&& ptr.addr() == frame_to_meta(paddr)
+                &&& ptr == final(regions).slots[frame_to_index(paddr)].ptr()
             },
             res is Err ==> {
                 &&& *final(regions) == *old(regions)
@@ -535,7 +537,7 @@ impl MetaSlot {
             }
     )]
     #[verifier::exec_allows_no_decreases_clause]
-    pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
+    pub(super) fn get_from_in_use(paddr: Paddr) -> Result<*const Self, GetFrameError> {
         proof_decl! {
             if valid_frame_paddr(paddr) {
                 regions.lemma_contains_valid_frame_paddr(paddr);
@@ -562,7 +564,8 @@ impl MetaSlot {
                 valid_frame_paddr(paddr),
                 regions.contains(frame_to_index(paddr)),
                 slot == regions.slots[frame_to_index(paddr)].value(),
-                old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+                slot_perm == Some(old(regions).slots[frame_to_index(paddr)]),
+                allowed_to_panic_if(old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         {
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
 
@@ -596,8 +599,14 @@ impl MetaSlot {
                         last_ref_cnt + 1,
                     ).is_ok() {
                         let tracked permission = slot_own.metadata_perm.split_one();
+                        // Origin Rust: return Ok(slot as *const MetaSlot);
                         return #[verus_spec(with |= Tracked(Some(permission)))]
-                        Ok(PPtr::from_addr(frame_to_meta(paddr)));
+                        Ok(
+                            ptr_from_addr(
+                                frame_to_meta(paddr),
+                                Tracked(slot_perm.tracked_borrow()),
+                            ),
+                        );
                     }
                     proof {
                         vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
@@ -628,7 +637,7 @@ impl MetaSlot {
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != REF_COUNT_UNUSED,
-            old(rc_perm).value() >= REF_COUNT_MAX ==> may_panic(),
+            allowed_to_panic_if(old(rc_perm).value() >= REF_COUNT_MAX),
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,
             old(rc_perm).value() < REF_COUNT_MAX,
@@ -658,7 +667,7 @@ impl MetaSlot {
     /// This is an internal function, so it is fine to require the caller to verify this.
     #[verus_spec(
         with
-            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&ExposedPointsTo<MetaSlot>>,
         requires
             perm.value() == self,
             Self::frame_paddr_safety_cond(*perm),
@@ -730,7 +739,6 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(metadata_perm): Tracked<&mut MetadataPerm>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             self.storage.id() == old(metadata_perm).storage_perm.id(),
             self.vtable_ptr == old(metadata_perm).vtable_ptr_perm.pptr(),
@@ -742,11 +750,9 @@ impl MetaSlot {
             final(metadata_perm).vtable_ptr_perm.is_init(),
             <M as Repr<MetaSlotStorage>>::wf(
                 final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
             ),
             M::from_repr_spec(
                 final(metadata_perm).storage_perm.value(),
-                *final(repr_perm),
             ) == metadata,
     )]
     pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -764,12 +770,7 @@ impl MetaSlot {
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
         // unsafe { ptr.cast::<M>().write(metadata) };
-        write_metadata_into_storage(
-            &self.storage,
-            Tracked(metadata_perm),
-            Tracked(repr_perm),
-            metadata,
-        );
+        write_metadata_into_storage(&self.storage, Tracked(metadata_perm), metadata);
     }
 
     /// Drops the metadata and deallocates the frame.

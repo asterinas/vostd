@@ -1,7 +1,7 @@
 use vstd::{
     cell::{self, pcell_maybe_uninit},
     prelude::*,
-    simple_pptr::*,
+    resource::Loc,
 };
 use vstd_extra::{array_ptr, ownership::*};
 
@@ -9,11 +9,10 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{mapping::*, meta_owners::*, meta_region_owners::MetaRegionOwners},
-        page_table::owners::INC_LEVELS,
+        page_table::owners::tree_level_for,
     },
 };
 
-use crate::arch::mm::PagingConsts;
 use crate::mm::{
     Paddr, PagingConstsTrait, PagingLevel, Vaddr,
     frame::meta::{META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::meta_to_frame},
@@ -189,13 +188,17 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 /// - `children_perm` is an array permission for the underlying frame in which the node
 ///   is allocated, interpreted as an array of `NR_ENTRIES` page table entries
 /// - `slot_index` identifies the underlying frame's index in the metadata region
+/// - `metadata` and `metadata_id` are identity snapshots, not permissions.
+///   The owning Frame or incoming PTE holds this node's counted token.
 /// - Each node is a page table with a level between 1 and 4 (on x86); `level` tracks
 ///   the level of this node.
 /// - `tree_level` is the level field of the `ghost_tree::TreeNode` that carries this object.
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
-    pub frame_permission: FracMetadataPerm,
+    /// Identity snapshots; the incoming PTE or owning Frame holds the token.
+    pub ghost metadata: MetadataPerm,
+    pub ghost metadata_id: Loc,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub ghost tree_level: int,
     pub ghost slot_index: int,
@@ -204,14 +207,13 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_own.inv()
-        &&& self.frame_permission.frac() == 1
-        &&& 1 <= self.level() <= NR_LEVELS
+        &&& 1 <= self.level() <= C::NR_LEVELS
         &&& self.children_perm.wf()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(
             meta_to_frame(index_to_meta(self.slot_index)),
         )
-        &&& self.tree_level == INC_LEVELS - self.level() - 1
+        &&& self.tree_level == tree_level_for::<C>(self.level())
         &&& 0 <= self.slot_index < max_meta_slots()
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
@@ -222,20 +224,11 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
-    pub proof fn tracked_borrow_frame_metadata_perm(
-        tracked permission: &FracMetadataPerm,
-    ) -> (tracked res: &MetadataPerm)
-        ensures
-            *res == permission.resource(),
-    {
-        permission.tracked_borrow()
-    }
-
-    pub proof fn tracked_borrow_metadata_perm(tracked &self) -> tracked &MetadataPerm
-        returns
-            self.frame_permission.resource(),
-    {
-        self.frame_permission.tracked_borrow()
+    /// Relates an actual counted token to this non-owning node identity.
+    pub open spec fn matches_permission(self, permission: FracMetadataPerm) -> bool {
+        &&& permission.frac() == 1
+        &&& permission.id() == self.metadata_id
+        &&& permission.resource() == self.metadata
     }
 
     /// The meta address of this node's slot, computed from `slot_index`.
@@ -244,15 +237,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
-        typed_meta_wf::<PageTablePageMeta<C>>(
-            *regions.slots[self.slot_index],
-            self.frame_permission.resource(),
-            (),
-        )
+        typed_meta_wf::<PageTablePageMeta<C>>(*regions.slots[self.slot_index], self.metadata)
     }
 
     pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
-        typed_meta_value::<PageTablePageMeta<C>>(self.frame_permission.resource(), ())
+        typed_meta_value::<PageTablePageMeta<C>>(self.metadata)
     }
 
     pub open spec fn level(self) -> PagingLevel {
@@ -266,27 +255,15 @@ impl<C: PageTableConfig> NodeOwner<C> {
         let idx = self.slot_index;
         &&& regions.contains(idx)
         &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
-        &&& self.frame_permission.id() == regions.slot_owners[idx].metadata_perm.id()
+        &&& self.metadata_id == regions.slot_owners[idx].metadata_perm.id()
+        &&& self.metadata == regions.slot_owners[idx].metadata_perm()
         &&& self.meta_wf(regions)
-        &&& self.meta_value().wf(
-            self.meta_own,
-        )
-        // A page-table node's slot is tracked with `PageTable` usage (guaranteed
-        // by `PageTableNode::alloc`). This discriminates node slots from
-        // data-frame slots (`Frame`) by `usage` alone, so a
-        // freshly-allocated node (whose slot was `UNUSED`) can't collide with an
-        // existing live node — giving `alloc_if_none`/`split` the parent≠child
-        // slot distinctness without a PointsTo-linearity axiom.
+        &&& self.meta_value().wf(self.meta_own)
         &&& regions.slot_owners[self.slot_index].usage is PageTable
-        // `nr_children` counts the present PTEs in `children_perm`. A settled-node
-        // invariant (it is momentarily broken mid-`replace`/`alloc_if_none`, between
-        // the PTE write and the counter update, which is why it lives here rather
-        // than in `inv()`). Lets `nr_children_*_slot_bound` be proven, not axiomatized.
         &&& self.count_consistent()
     }
 
     /// `nr_children` equals the number of present PTEs in `children_perm`.
-    /// Held by a settled node (see `metaregion_sound_node`'s use site).
     pub open spec fn count_consistent(self) -> bool {
         self.meta_own.nr_children.value() == count_present(self.children_perm.value())
     }
@@ -329,8 +306,12 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.wf(self)
-        &&& guard.inner.inner@.external_meta_wf(self.frame_permission.resource(), ())
+        &&& guard.inner@.wf(self)
+        &&& guard.inner.external_meta_wf(self.metadata)
+        &&& guard.inner@.tracked_metadata_perm@ matches Some(permission) ==> {
+            &&& guard.inner.inv()
+            &&& self.matches_permission(permission)
+        }
     }
 }
 

@@ -4,6 +4,8 @@
 //!     rest of OSTD;
 //!  2. the routine booting into the actual kernel;
 //!  3. the routine booting the other processors in the SMP context.
+use vstd::prelude::*;
+
 pub mod memory_region;
 //pub mod smp;
 
@@ -57,6 +59,7 @@ pub enum BootloaderAcpiArg {
 }
 
 /// The framebuffer arguments.
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 pub struct BootloaderFramebufferArg {
     /// The address of the buffer.

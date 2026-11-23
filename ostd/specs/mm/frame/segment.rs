@@ -16,7 +16,10 @@ use crate::specs::{
 
 use crate::mm::{
     Paddr, Vaddr,
-    frame::{AnyFrameMeta, Segment, meta::MetaSlot},
+    frame::{
+        Segment,
+        meta::{AnyFrameMeta, MetaSlot},
+    },
     paddr_to_vaddr,
 };
 use core::ops::Range;

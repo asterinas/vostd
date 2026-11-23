@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,13 +36,11 @@ TRUSTED = "trusted"
 UNVERIFIED = "unverified"
 UNPLANNED = "unplanned"
 
-TEST_DIRECTORY_NAMES = {"test", "tests"}
-
 # Modules outside the verification plan, following code_treemap.py: their
 # whole executable-LoC budget is drawn as unplanned and vostd counts are
 # ignored for them.
 UNPLANNED_ARCH_MODULES = {"boot", "iommu", "tdx_guest"}
-UNPLANNED_LIBS = {"linux-bzimage", "ostd-macros", "ostd-test"}
+UNPLANNED_LIBS = {"ostd-macros"}
 # code_treemap.py's special case: vostd's align_ext is plain Rust, so its
 # verified line count comes from this constant instead of line_count.
 ALIGN_EXT_VERIFIED_EXEC = 24
@@ -101,10 +100,11 @@ def is_unplanned_module(group: str, child: str) -> bool:
 # trusted away (external_body), excluding trait impls without bodies and
 # auto-derived impl items.
 
+# `when_used_as_spec` redirects calls in specifications and leaves the
+# annotated function executable.
 SPEC_ONLY_ATTRS = (
     "#[verus::internal(spec)]",
     "#[verus::internal(proof)]",
-    "#[verifier::when_used_as_spec(",
 )
 TRUSTED_ATTRS = {"#[verifier::external_body]"}
 TRAIT_IMPL_NO_BODY_ATTRS = {"#[attr = Inline(Hint)]"}
@@ -142,7 +142,10 @@ def is_trait_impl_without_body(item: dict[str, Any]) -> bool:
 
 
 def is_automatically_derived_impl(item: dict[str, Any]) -> bool:
-    return "automatically_derived" in item.get("attrs", [])
+    return any(
+        attr in {"automatically_derived", "#[automatically_derived]"}
+        for attr in item_attr_strings(item)
+    )
 
 
 def trim_source_path(filename: str) -> str:
@@ -303,15 +306,22 @@ def collect_verified_apis(doc_json_path: Path) -> tuple[int, list[dict[str, str]
     return len(entries), entries
 
 
-def is_test_source(relative: Path) -> bool:
-    parts = [part.casefold() for part in relative.parts]
-    filename = parts[-1] if parts else ""
-    stem = Path(filename).stem.casefold()
-    return (
-        stem in TEST_DIRECTORY_NAMES
-        or any(part in TEST_DIRECTORY_NAMES for part in parts)
-        or stem.endswith(("_test", "_tests"))
-    )
+def unmatched_api_indices(
+    entries: list[dict[str, str]], baseline: list[dict[str, str]],
+) -> list[int]:
+    def key(entry: dict[str, str]) -> tuple[str, str]:
+        # Line numbers shift as specifications and proofs are added.
+        return entry["location"].rsplit(":", 2)[0], entry["name"]
+
+    remaining = Counter(map(key, baseline))
+    unmatched = []
+    for index, entry in enumerate(entries):
+        identity = key(entry)
+        if remaining[identity]:
+            remaining[identity] -= 1
+        else:
+            unmatched.append(index)
+    return unmatched
 
 
 def run_line_count_file(
@@ -453,8 +463,7 @@ def inventory(roots: list[tuple[str, Path]]) -> dict[tuple[str, Path], Path]:
     for kind, root in roots:
         for file in sorted(root.rglob("*.rs"), key=lambda p: str(p)):
             relative = file.relative_to(root)
-            if not is_test_source(relative):
-                files[(kind, relative)] = file
+            files[(kind, relative)] = file
     return files
 
 
@@ -589,7 +598,6 @@ def count_spec_proof(
         for report, error in [
             run_line_count_file(line_count_path, path, no_external_by_default=True)
             for path in sorted(root.rglob("*.rs"), key=lambda p: str(p))
-            if not is_test_source(path.relative_to(root))
         ]:
             if error:
                 warnings.append(error)
@@ -668,6 +676,7 @@ def write_snapshot(
     specs: tuple[int, int, int] | None = None,
     verified_apis: int | None = None,
     api_entries: list[dict[str, str]] | None = None,
+    mainline_apis: list[dict[str, str]] | None = None,
 ) -> None:
     totals = totals_of(modules)
     totals_dict = totals.as_dict()
@@ -679,6 +688,8 @@ def write_snapshot(
         totals_dict["proof_all"] = totals.proof + proof
     if verified_apis is not None:
         totals_dict["verified_apis"] = verified_apis
+    if mainline_apis is not None:
+        totals_dict["total_apis"] = len(mainline_apis)
     snapshot = {
         "date": date,
         "sha": sha,
@@ -693,6 +704,13 @@ def write_snapshot(
     }
     if api_entries is not None:
         snapshot["verified_apis_list"] = api_entries
+        if mainline_apis is not None:
+            unmatched = unmatched_api_indices(mainline_apis, api_entries)
+            totals_dict["verified_mainline_apis"] = len(mainline_apis) - len(unmatched)
+            snapshot["unverified_apis_list"] = [mainline_apis[i] for i in unmatched]
+            snapshot["verified_apis_unmatched_indices"] = unmatched_api_indices(
+                api_entries, mainline_apis,
+            )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     print(f"Snapshot: {output}")
@@ -766,11 +784,57 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             print(f"warning: rustdoc JSON not found, skipping API count: {doc_json}",
                   file=sys.stderr)
 
+    mainline_apis = None
+    if args.mainline_doc_json:
+        total, mainline_apis = collect_verified_apis(args.mainline_doc_json)
+        print(f"Mainline APIs: {total:,}")
+
     sha = args.sha or git_output(REPO_ROOT, "rev-parse", "HEAD")
     date = args.date or git_output(REPO_ROOT, "show", "-s", "--format=%cI", sha) or ""
     write_snapshot(modules, args.output, sha, date, args.mainline_sha, specs,
-                   verified_apis, api_entries)
+                   verified_apis, api_entries, mainline_apis)
     print_report(modules, warnings)
+    return 0
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Compare a snapshot's key totals against the last point of a history file.
+
+    Prints a markdown table for the CI job summary (Verified, Trusted
+    boundary, Verified APIs). A missing or empty history is not an error —
+    there is simply nothing to compare against yet.
+    """
+    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
+    history_path = Path(args.history)
+    previous: dict[str, Any] = {}
+    if history_path.is_file():
+        points = (json.loads(history_path.read_text(encoding="utf-8")).get("points") or [])
+        if points:
+            previous = points[-1]
+    if not previous:
+        print("No previous history yet: this would be the first recorded point")
+        return 0
+
+    current = snapshot["totals"]
+    print(f'Compared to the last recorded point '
+          f'({str(previous.get("sha") or "?")[:7]} at {previous.get("date") or "?"})')
+    print()
+    print("| Metric | Last recorded | This run | Δ |")
+    print("|---|---:|---:|---:|")
+    for key, label in (
+        (VERIFIED, "Verified"),
+        (TRUSTED, "Trusted boundary"),
+        ("verified_apis", "Verified APIs"),
+    ):
+        old = previous.get(key)
+        new = current.get(key)
+        if old is None or new is None:
+            last, now, delta = "n/a", "n/a" if new is None else f"{new:,}", "n/a"
+        else:
+            last, now = f"{old:,}", f"{new:,}"
+            change = new - old
+            delta = f"{change:+,}"
+        print(f"| {label} | {last} | {now} | {delta} |")
     return 0
 
 
@@ -795,8 +859,9 @@ def cmd_record(args: argparse.Namespace) -> int:
         "spec": totals.get("spec_all", totals["spec"]),
         "proof": totals.get("proof_all", totals["proof"]),
     }
-    if "verified_apis" in totals:
-        point["verified_apis"] = totals["verified_apis"]
+    for key in ("verified_apis", "verified_mainline_apis"):
+        if key in totals:
+            point[key] = totals[key]
     for existing in points:
         if existing.get("sha") == point["sha"]:
             existing.update(point)  # reruns refresh the same commit
@@ -854,6 +919,10 @@ def parse_args() -> argparse.ArgumentParser:
         "counted into totals.verified_apis",
     )
     snapshot.add_argument("--mainline-sha", help="commit the mainline checkout is at")
+    snapshot.add_argument(
+        "--mainline-doc-json", type=Path,
+        help="mainline rustdoc JSON used as the API coverage baseline",
+    )
     snapshot.add_argument("--arch", help="keep only one arch platform, e.g. x86")
     snapshot.add_argument(
         "--exclude",
@@ -871,6 +940,13 @@ def parse_args() -> argparse.ArgumentParser:
     record.add_argument("--snapshot", type=Path, required=True)
     record.add_argument("--history", type=Path, required=True)
     record.set_defaults(func=cmd_record)
+
+    diff = subparsers.add_parser(
+        "diff", help="print the change of key totals vs. the last history point"
+    )
+    diff.add_argument("--snapshot", type=Path, required=True)
+    diff.add_argument("--history", type=Path, required=True)
+    diff.set_defaults(func=cmd_diff)
 
     return parser
 

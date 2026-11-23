@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
+use vstd_extra::ownership::Inv;
 
 /// A type containing either a [`Left`] value `L` or a [`Right`] value `R`.
 ///
@@ -15,6 +16,18 @@ pub enum Either<L, R> {
     Right(R),
 }
 
+verus! {
+
+impl<L: Inv, R: Inv> Inv for Either<L, R> {
+    open spec fn inv(self) -> bool {
+        match self {
+            Self::Left(left) => left.inv(),
+            Self::Right(right) => right.inv(),
+        }
+    }
+}
+
+} // verus!
 impl<L, R> Either<L, R> {
     #[verus_verify(dual_spec)]
     /// Converts to the left value, if any.

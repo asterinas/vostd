@@ -1,0 +1,53 @@
+[package]
+name = "rust-dv"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "rust-dv"
+path = "src/main.rs"
+
+[[bin]]
+name = "dummy-rustc"
+path = "src/dummy_rustc.rs"
+
+[[bin]]
+name = "pre_commit"
+path = "src/pre_commit.rs"
+
+
+[lib]
+name = "rust_dv"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4.5.35", features = ["derive"] }
+clap-cargo = "0.18.3"
+cargo_metadata = { version = "*" }
+memoize = { version = "*" }
+colored = { version = "*" }
+git2 = { version = "0.21.0", features = ["https", "ssh"] }
+# cargo_toml = { version = "*" }
+# relative-path = { version = "*" }
+project-root = { version = "*" }
+# glob ={ version = "*" }
+anyhow = { version = "*" }
+regex = { version = "*" }
+touch = { version = "*" }
+toml = { version = "*" }
+serde = { version = "*", features = ["derive"] }
+serde_json = { version = "*" }
+askama = { version = "0.13.1", features = ["derive"] }
+indexmap = { version = "*", features = ["serde"] }
+dotenv = { version = "*" }
+log = { version = "*" }
+log4rs = { version = "*", features = ["gzip"] }
+walkdir = { version = "*" }
+toml_edit = { version = "*" }
+
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = { version = "*" }
+proc-macro2 = { version = "*" }
+tempfile = { version = "*" }

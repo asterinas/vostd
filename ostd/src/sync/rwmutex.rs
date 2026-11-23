@@ -6,7 +6,6 @@ use vstd::{
     cell::{self, CellId, pcell::*},
     prelude::*,
     resource::Loc,
-    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::{
     resource::ghost_resource::{count_auth::*, count_ghost::*, csum::*, excl::*},
@@ -621,12 +620,6 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexReadGuard<'_, T> {
     }
 }
 
-impl<T: fmt::Debug> DebugSpecImpl for RwMutexReadGuard<'_, T> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
-    }
-}
-
 impl<T: fmt::Debug> fmt::Debug for RwMutexReadGuard<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
@@ -699,12 +692,6 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexWriteGuard<'_, T> {
         }
         // unsafe { &*self.inner.val.get() }
         self.inner.val.borrow(Tracked(self.tracked_perm.borrow()))
-    }
-}
-
-impl<T: fmt::Debug> DebugSpecImpl for RwMutexWriteGuard<'_, T> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
     }
 }
 
@@ -1056,12 +1043,6 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
         self.inner.val.borrow(
             Tracked(self.tracked_token.borrow().tracked_borrow().tracked_borrow()),
         )
-    }
-}
-
-impl<T: fmt::Debug> DebugSpecImpl for RwMutexUpgradeableGuard<'_, T> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
     }
 }
 

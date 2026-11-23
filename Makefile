@@ -28,13 +28,14 @@ verify-riscv: verify-riscv64imac-unknown-none-elf
 verify-loongarch: verify-loongarch64-unknown-none-softfloat
 
 fmt:
+	cargo fmt --manifest-path dv/Cargo.toml --all
 	cargo dv fmt
 
 build:
 	cargo dv build
 
 doc:
-	cargo dv build -- --no-verify
+	cargo dv build --package ostd -- --no-verify
 	cargo dv doc --package ostd
 
 verus:

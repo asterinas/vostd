@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
+use crate::specs::context::cpu_feature_model;
+
 use x86::msr::{
     IA32_APIC_BASE, IA32_X2APIC_APICID, IA32_X2APIC_CUR_COUNT, IA32_X2APIC_DIV_CONF,
     IA32_X2APIC_EOI, IA32_X2APIC_ESR, IA32_X2APIC_ICR, IA32_X2APIC_INIT_COUNT,
@@ -7,17 +11,25 @@ use x86::msr::{
 
 use super::ApicTimer;
 
+verus! {
+
 #[derive(Debug)]
 pub struct X2Apic {
     _private: (),
 }
 
+} // verus!
 // The APIC instance can be shared among threads running on the same CPU, but not among those
 // running on different CPUs. Therefore, it is not `Send`/`Sync`.
 impl !Send for X2Apic {}
 impl !Sync for X2Apic {}
 
+#[verus_verify]
 impl X2Apic {
+    #[verus_spec(ret =>
+        ensures
+            cpu_feature_model().max_basic_leaf >= 1 ==> (ret is Some) == cpu_feature_model().supports_x2apic,
+    )]
     pub(crate) fn new() -> Option<Self> {
         if !Self::has_x2apic() {
             return None;
@@ -25,9 +37,16 @@ impl X2Apic {
         Some(Self { _private: () })
     }
 
+    #[verus_spec(ret =>
+        ensures
+            cpu_feature_model().max_basic_leaf >= 1 ==> ret == cpu_feature_model().supports_x2apic,
+    )]
     pub(super) fn has_x2apic() -> bool {
         // x2apic::X2APIC::new()
         let value = unsafe { core::arch::x86_64::__cpuid(1) };
+        proof! {
+            assert(1u32 << 21 == 0x20_0000u32) by (compute);
+        }
         value.ecx & 0x20_0000 != 0
     }
 
@@ -59,6 +78,7 @@ impl X2Apic {
     }
 }
 
+#[verus_verify]
 impl super::Apic for X2Apic {
     fn id(&self) -> u32 {
         unsafe { rdmsr(IA32_X2APIC_APICID) as u32 }
@@ -74,6 +94,8 @@ impl super::Apic for X2Apic {
         }
     }
 
+    /* The polling loop terminates only on hardware action; whole op unverified. */
+    #[verus_verify(external_body)]
     unsafe fn send_ipi(&self, icr: super::Icr) {
         let _guard = crate::trap::irq::disable_local();
         // SAFETY: These `rdmsr` and `wrmsr` instructions write the interrupt command to APIC and
@@ -94,6 +116,7 @@ impl super::Apic for X2Apic {
     }
 }
 
+#[verus_verify]
 impl ApicTimer for X2Apic {
     fn set_timer_init_count(&self, value: u64) {
         unsafe {

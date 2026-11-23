@@ -55,6 +55,7 @@ impl AtomicCpuId {
             Self::inv_value(old(perm).view().value),
         ensures
             self.patomic_id() == final(perm).view().patomic,
+            ret is Ok <==> old(perm).view().value == Self::NONE,
             ret is Ok ==> final(perm).view().value == cpu_id.as_usize() as u32,
             ret matches Err(prev) ==> prev@ == old(perm).view().value
                 && final(perm).view().value == old(perm).view().value,

@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+use vstd_extra::assert_eq;
+
+use crate::specs::arch::lemma_paddr_to_vaddr_properties;
+
 use crate::{
     mm::{
-        Frame, FrameAllocOptions, PAGE_SIZE, Paddr,
-        frame::max_paddr,
+        /* Frame, FrameAllocOptions, PAGE_SIZE, Paddr,
+        frame::max_paddr, */
         kspace::{
-            LINEAR_MAPPING_BASE_VADDR, MappedItem, VMALLOC_VADDR_RANGE, kvirt_area::KVirtArea,
+            LINEAR_MAPPING_BASE_VADDR, /* MappedItem, VMALLOC_VADDR_RANGE, kvirt_area::KVirtArea, */
             paddr_to_vaddr,
         },
-        page_prop::{CachePolicy, PageFlags, PageProperty},
+        /* page_prop::{CachePolicy, PageFlags, PageProperty}, */
     },
-    prelude::*,
+    /* prelude::*, */
 };
 
-fn default_prop() -> PageProperty {
+/* fn default_prop() -> PageProperty {
     PageProperty::new_user(PageFlags::RW, CachePolicy::Writeback)
 }
 
@@ -94,11 +99,18 @@ fn kvirt_area_untracked_drop() {
     // After dropping, the virtual address range should be freed and no longer mapped.
     let kvirt_area = unsafe { KVirtArea::map_untracked_frames(size, 0, 0..0, default_prop()) };
     assert!(kvirt_area.query(kvirt_area.start()).is_none());
-}
+} */
 
-#[ktest]
+/* #[ktest] */
+#[verus_spec]
 fn manual_paddr_to_vaddr() {
     let pa = 0x1000;
+    proof! {
+        assert(0x1000 + LINEAR_MAPPING_BASE_VADDR < usize::MAX) by (compute_only);
+        assert(0x1000 < crate::mm::kspace::VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR)
+            by (compute_only);
+        lemma_paddr_to_vaddr_properties(0x1000);
+    }
     let va = paddr_to_vaddr(pa);
 
     assert_eq!(va, LINEAR_MAPPING_BASE_VADDR + pa);

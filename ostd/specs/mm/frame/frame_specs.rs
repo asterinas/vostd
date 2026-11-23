@@ -1,9 +1,5 @@
-use vstd::{
-    cell::CellId,
-    prelude::*,
-    simple_pptr::{self, PPtr, PointsTo},
-};
-use vstd_extra::{cast_ptr::*, ownership::*};
+use vstd::{cell::CellId, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{
     arch::*,
@@ -18,7 +14,8 @@ use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
         meta::{
-            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+            AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED,
             mapping::{frame_to_meta, meta_to_frame},
         },
         *,
@@ -38,7 +35,7 @@ pub open spec fn valid_slot_vaddr(addr: Vaddr) -> bool {
 
 /// The permission that is given out by `Frame::into_raw`
 pub tracked struct FrameRawPerms {
-    pub slot_perm: &'static simple_pptr::PointsTo<MetaSlot>,
+    pub slot_perm: &'static ExposedPointsTo<MetaSlot>,
     pub metadata_perm: FracMetadataPerm,
 }
 
@@ -51,7 +48,7 @@ unsafe impl vstd::thread_view::Objective for FrameRawPerms {
 
 impl FrameRawPerms {
     pub open spec fn slot_vaddr(self) -> Vaddr {
-        self.slot_perm.pptr().addr()
+        self.slot_perm.ptr().addr()
     }
 }
 
@@ -78,7 +75,7 @@ impl<M: ?Sized> Frame<M> {
     }
 
     /// Accessor for the [`MetaSlot`] permission tracked by this `Frame` handle.
-    pub open spec fn slot_perm(self) -> PointsTo<MetaSlot> {
+    pub open spec fn slot_perm(self) -> ExposedPointsTo<MetaSlot> {
         *self.tracked_slot_perm@
     }
 
@@ -99,7 +96,7 @@ impl<M: ?Sized> Frame<M> {
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
         &&& valid_slot_vaddr(self.slot_vaddr())
-        &&& self.slot_perm().pptr() == self.ptr
+        &&& self.slot_perm().ptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
 
@@ -114,14 +111,10 @@ impl<M: ?Sized> Frame<M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     /// Relates an externally stored metadata permission to this frame's slot permission.
-    pub open spec fn external_meta_wf(
-        self,
-        metadata_perm: MetadataPerm,
-        repr_perm: M::ReprPerm,
-    ) -> bool {
+    pub open spec fn external_meta_wf(self, metadata_perm: MetadataPerm) -> bool {
         &&& self.ptr_inv()
         &&& self.tracked_metadata_perm@ is None
-        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm, repr_perm)
+        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm)
     }
 }
 
@@ -144,7 +137,6 @@ impl<M: ?Sized> Frame<M> {
         self.ptr.addr()
     }
 
-    #[verifier::inline]
     pub open spec fn start_paddr_spec(self) -> Paddr {
         meta_to_frame(self.slot_vaddr())
     }
@@ -162,13 +154,13 @@ impl<M: ?Sized> Frame<M> {
 }
 
 impl<M: ?Sized> Frame<M> {
-    pub open spec fn from_raw_spec(
-        paddr: Paddr,
-        slot_perm: &'static PointsTo<MetaSlot>,
+    /// Models a frame handle using the pointer and metadata permissions supplied.
+    pub open spec fn from_perms_spec(
+        slot_perm: &'static ExposedPointsTo<MetaSlot>,
         metadata_perm: Option<FracMetadataPerm>,
     ) -> Self {
         Frame::<M> {
-            ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),
+            ptr: slot_perm.ptr(),
             _marker: PhantomData,
             #[cfg(verus_keep_ghost_body)]
             tracked_slot_perm: Tracked(slot_perm),

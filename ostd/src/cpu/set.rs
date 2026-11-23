@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use vstd::{
-    assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
+    arithmetic::div_mod::lemma_fundamental_div_mod_converse,
+    assert_seqs_equal,
+    layout::size_of,
+    prelude::*,
+    set::Set,
+    std_specs::{bits::axiom_u64_count_ones, iter::IteratorSpec},
 };
 use vstd_extra::{
     bits::{group_u64_bit_algebra, lemma_u64_and_zero, u64_bit_is_set},
-    external::{
-        bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
-        smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
-    },
+    external::smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
     ownership::Inv,
 };
 
@@ -69,7 +71,7 @@ broadcast use {
     group_smallvec_models,
     axiom_smallvec_from_iter_ensures,
     vstd::std_specs::iter::group_iter_axioms,
-    lemma_u64_set_bits_nonzero,
+    axiom_u64_count_ones,
     group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
     vstd::layout::layout_of_primitives,
@@ -111,7 +113,7 @@ impl Inv for CpuSet {
     /// The backing vector holds exactly `parts_for_cpus(cpu_count)` words, the view
     /// is bounded by `cpu_count`, and the unused tail bits (>= `cpu_count`) are clear.
     closed spec fn inv(self) -> bool {
-        &&& smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize)
+        &&& smallvec_view(&self.bits).len() == parts_for_cpus(cpu_count() as usize)
         &&& forall|j: int|
             #![trigger bit_at(smallvec_view(&self.bits), j)]
             cpu_count() <= j < 64 * smallvec_view(&self.bits).len() ==> !bit_at(
@@ -248,7 +250,7 @@ impl CpuSet {
                 idx <= smallvec_view(&self.bits).len(),
                 count == smallvec_view(&self.bits)[..idx].fold_left(
                     0,
-                    |count: int, word: u64| count + u64_set_bits(word),
+                    |count: int, word: u64| count + word.count_ones(),
                 ),
                 count <= 64 * idx,
             decreases
@@ -297,6 +299,7 @@ impl CpuSet {
                 lemma_u64_nonzero_has_set_bit(seq[idx]);
                 let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(seq[idx], b);
                 let j = 64 * idx + b;
+                lemma_fundamental_div_mod_converse(j, 64, idx, b);
                 assert(bit_at(seq, j));
                 assert(self@.contains(j));
             }
@@ -311,53 +314,33 @@ impl CpuSet {
         returns self@ == Set::range(0, cpu_count()),
     )]
     pub fn is_full(&self) -> bool {
-        /* `Enumerate` has no `IteratorSpecImpl` in the active vstd, so use an indexed loop
-         * with the same ascending word order and the same first-mismatch short circuit.
-         * Origin Rust: let num_cpus = num_cpus();
-         * self.bits.iter().enumerate().all(|(idx, part)| {
-         *     if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
-         *         *part == (1 << (num_cpus % BITS_PER_PART)) - 1
-         *     } else {
-         *         *part == !0
-         *     }
-         * })
-         */
         let num_cpus = num_cpus();
-        let mut idx = 0usize;
-        #[verus_spec(
-            invariant
-                self.inv(),
-                num_cpus == cpu_count(),
-                idx <= smallvec_view(&self.bits).len(),
-                forall|i: int|
-                    #![trigger smallvec_view(&self.bits)[i]]
-                    0 <= i < idx ==> smallvec_view(&self.bits)[i]
-                        == full_set_word(
-                            cpu_count(),
-                            smallvec_view(&self.bits).len() as int,
-                            i,
-                        ),
-            decreases
-                smallvec_view(&self.bits).len() - idx,
-        )]
-        while idx < self.bits.len() {
-            let expected = if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
-                (1 << (num_cpus % BITS_PER_PART)) - 1
-            } else {
-                !0
-            };
-            if self.bits[idx] != expected {
-                proof! {
-                    lemma_mismatched_word_imply_not_full_set(self, idx as int);
-                }
-                return false;
-            }
-            idx += 1;
-        }
         proof! {
-            lemma_full_bits_imply_full_set(self);
+            let seq = smallvec_view(&self.bits);
+            if forall|i: int| 0 <= i < seq.len() ==> #[trigger] seq[i]
+                == full_set_word(cpu_count(), seq.len() as int, i) {
+                lemma_full_bits_imply_full_set(self);
+            } else {
+                let idx = choose|i: int| 0 <= i < seq.len()
+                    && #[trigger] seq[i] != full_set_word(cpu_count(), seq.len() as int, i);
+                lemma_mismatched_word_imply_not_full_set(self, idx);
+            }
         }
-        true
+        self.bits.iter().enumerate().all(
+            #[verus_spec(ret: bool =>
+                ensures
+                    ret == (*part == full_set_word(
+                        cpu_count(), smallvec_view(&self.bits).len() as int, idx as int,
+                    )),
+            )]
+            |(idx, part): (usize, &InnerPart)| {
+                if idx == self.bits.len() - 1 && num_cpus % BITS_PER_PART != 0 {
+                    *part == (1 << (num_cpus % BITS_PER_PART)) - 1
+                } else {
+                    *part == !0
+                }
+            },
+        )
     }
 
     /// Adds all CPUs to the set.
@@ -406,7 +389,7 @@ impl CpuSet {
             IteratorSpec::decrease(&ret) is Some,
     )]
     pub fn iter(&self) -> impl Iterator<Item = CpuId> + '_ {
-        /* `Enumerate`, `FlatMap`, and `FilterMap` are not modeled by the active vstd, so scan
+        /* `FlatMap` and `FilterMap` are not modeled by the active vstd, so scan
          * the same bit positions with modeled `Filter` and `Map` adapters. The position order
          * and selected CPU IDs are unchanged.
          * Origin Rust: self.bits.iter().enumerate().flat_map(|(part_idx, &part)| {
@@ -450,9 +433,9 @@ impl CpuSet {
     #[verus_spec(ret =>
         requires
             num_cpus == cpu_count(),
-            2 * parts_for_cpus_spec(num_cpus) * size_of::<u64>() <= isize::MAX,
+            2 * parts_for_cpus(num_cpus) * size_of::<u64>() <= isize::MAX,
         ensures
-            smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus),
+            smallvec_view(&ret.bits).len() == parts_for_cpus(num_cpus),
         forall|i: int|
             #![trigger smallvec_view(&ret.bits)[i]]
             0 <= i < smallvec_view(&ret.bits).len() ==> smallvec_view(&ret.bits)[i]
@@ -467,7 +450,7 @@ impl CpuSet {
 
     #[verus_spec(
         requires
-            smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize),
+            smallvec_view(&self.bits).len() == parts_for_cpus(cpu_count() as usize),
             forall|j: int|
                 #![trigger bit_at(smallvec_view(&self.bits), j)]
                 0 <= j < cpu_count() ==> bit_at(smallvec_view(&self.bits), j),
@@ -525,7 +508,7 @@ impl AtomicCpuSet {
     /// The word count always matches the system's CPU count.
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        Self::num_parts(&self) == parts_for_cpus_spec(cpu_count() as usize)
+        Self::num_parts(&self) == parts_for_cpus(cpu_count() as usize)
     }
 }
 
@@ -648,7 +631,7 @@ spec fn bit_idx_spec(i: int) -> usize {
 
 /// Number of set bits in all words of `seq`.
 spec fn count_set_bits(seq: Seq<u64>) -> int {
-    seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
+    seq.fold_left(0, |count: int, word: u64| count + word.count_ones())
 }
 
 /// Expected value of word `idx` in a full CPU set.
@@ -752,12 +735,22 @@ proof fn lemma_full_bits_imply_full_set(set: &CpuSet)
         set@.contains(a) == Set::range(0, n).contains(a) by {
         if 0 <= a < n {
             let p = a / 64;
-            if a / 64 == len - 1 && n % 64 != 0 {
-                let mask = seq[p];
-                // Materialize the `!0u64 & mask` term: the broadcast masked-bit lemmas
-                // then chain (with `!0u64` as the word) to show that every in-range bit
-                // of the partial last word is set.
-                assert(!0u64 & mask == mask) by (bit_vector);
+            let word = seq[p];
+            let b = (a % 64) as u32;
+            if p == len - 1 && n % 64 != 0 {
+                let k = (n % 64) as u32;
+                assert((word & (1u64 << b)) != 0) by (bit_vector)
+                    requires
+                        b < k,
+                        0 < k < 64,
+                        word == (1u64 << k) - 1,
+                ;
+            } else {
+                assert((word & (1u64 << b)) != 0) by (bit_vector)
+                    requires
+                        b < 64,
+                        word == !0u64,
+                ;
             }
         }
     }

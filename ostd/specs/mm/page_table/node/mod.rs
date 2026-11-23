@@ -43,7 +43,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type Obligation = DropObligation<usize>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        s.lock_held(self.inner.inner@.slot_vaddr())
+        s.lock_held(self.inner.slot_vaddr())
     }
 
     open spec fn tracked_redeem_ensures(
@@ -52,18 +52,18 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        &&& s1.guards == s0.guards.remove(self.inner.inner@.slot_vaddr())
-        &&& obl.value() == self.inner.inner@.slot_vaddr()
+        &&& s1.guards == s0.guards.remove(self.inner.slot_vaddr())
+        &&& obl.value() == self.inner.slot_vaddr()
     }
 
     proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
-        s.guards = s.guards.remove(self.inner.inner@.slot_vaddr());
-        DropObligation::tracked_mint(self.inner.inner@.slot_vaddr())
+        s.guards = s.guards.remove(self.inner.slot_vaddr());
+        DropObligation::tracked_mint(self.inner.slot_vaddr())
     }
 
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& s.unlocked(self.inner.inner@.slot_vaddr())
-        &&& obl.value() == self.inner.inner@.slot_vaddr()
+        &&& s.unlocked(self.inner.slot_vaddr())
+        &&& obl.value() == self.inner.slot_vaddr()
     }
 
     open spec fn drop_ensures(
@@ -72,7 +72,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        s1.guards == s0.guards.insert(self.inner.inner@.slot_vaddr())
+        s1.guards == s0.guards.insert(self.inner.slot_vaddr())
     }
 }
 
@@ -131,59 +131,29 @@ pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
 ) -> Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    type ReprPerm = ();
-
-    open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
+    open spec fn wf(r: MetaSlotStorage) -> bool {
         matches!(r, MetaSlotStorage::PTNode(_))
     }
 
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (MetaSlotStorage::PTNode(self.into_spec()), ())
-    }
-
-    #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
-        unimplemented!()
-    }
-
-    open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
+    open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
         match r {
-            MetaSlotStorage::PTNode(node) => node.into_spec::<C>(),
+            MetaSlotStorage::PTNode(node) => node.into::<C>(),
             _ => arbitrary(),
         }
     }
 
+    fn to_repr(self) -> MetaSlotStorage {
+        MetaSlotStorage::PTNode(self.into())
+    }
+
     #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+    fn from_borrowed_mut<'a>(r: &'a mut MetaSlotStorage) -> &'a mut Self {
         unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed_mut<'a>(
-        r: &'a mut MetaSlotStorage,
-        Tracked(perm): Tracked<&'a mut ()>,
-    ) -> &'a mut Self {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self, perm: ()) {
-    }
-
-    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
-        match r {
-            MetaSlotStorage::PTNode(node) => {},
-            _ => {
-                assert(false);
-            },
-        }
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
     }
 }
 

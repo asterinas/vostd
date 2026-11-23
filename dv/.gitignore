@@ -1,0 +1,10 @@
+# Rust
+target/
+
+# macos
+.DS_Store
+
+#log
+*.log.json
+*.log.json.gz
+

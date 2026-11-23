@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
+use vstd_extra::{cast_ptr::*, ownership::*, prelude::*, raw_ptr::ExposedPointsTo};
 
 use crate::specs::{
     arch::MAX_NR_PAGES,
@@ -12,9 +12,10 @@ use crate::specs::{
 use super::meta_owners::*;
 use crate::mm::frame::{
     meta::{
-        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        AnyFrameMeta, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
         mapping::{frame_to_meta, meta_to_frame},
     },
+    unique::UniqueFrame,
     *,
 };
 
@@ -42,14 +43,14 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> 
     }
 
     /// The metadata-slot permission carried by this unique handle.
-    pub open spec fn slot_perm(self) -> vstd::simple_pptr::PointsTo<MetaSlot> {
+    pub open spec fn slot_perm(self) -> ExposedPointsTo<MetaSlot> {
         *self.tracked_slot_perm@
     }
 
     #[verifier::inline]
     pub open spec fn ptr_inv(self) -> bool {
         &&& valid_slot_vaddr(self.slot_vaddr())
-        &&& self.slot_perm().pptr() == self.ptr
+        &&& self.slot_perm().ptr() == self.ptr
         &&& self.slot_perm().is_init()
     }
 }
@@ -65,7 +66,6 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueF
 //FIXME: why do we need a index here?
 pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta_own: M::Owner,
-    pub repr_perm: Option<M::ReprPerm>,
     pub ghost slot_index: int,
 }
 
@@ -73,7 +73,6 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueF
     open spec fn inv(self) -> bool {
         &&& 0 <= self.slot_index < MAX_NR_PAGES
         &&& self.slot_index < max_meta_slots()
-        &&& self.repr_perm is Some
     }
 }
 
@@ -87,11 +86,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> OwnerOf for UniqueFrame<
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     pub open spec fn meta_wf(self, owner: UniqueFrameOwner<M>) -> bool {
-        typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), owner.repr_perm->0)
+        typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm())
     }
 
     pub open spec fn meta_value(self, owner: UniqueFrameOwner<M>) -> M {
-        typed_meta_value::<M>(self.metadata_perm(), owner.repr_perm->0)
+        typed_meta_value::<M>(self.metadata_perm())
     }
 
     /// Cross-object validity of a live UNIQUE handle against the region map —
@@ -117,15 +116,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         typed_meta_wf::<M>(
             *regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].metadata_perm.resource(),
-            self.repr_perm->0,
         )
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M {
-        typed_meta_value::<M>(
-            regions.slot_owners[self.slot_index].metadata_perm.resource(),
-            self.repr_perm->0,
-        )
+        typed_meta_value::<M>(regions.slot_owners[self.slot_index].metadata_perm.resource())
     }
 
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
@@ -143,29 +138,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.ref_count(self.slot_index) == REF_COUNT_UNIQUE
         &&& regions.slot_owners[self.slot_index].usage
             == regions.slot_owners[self.slot_index].metadata_perm().usage()
-    }
-
-    pub proof fn tracked_borrow_repr_perm(tracked &self) -> tracked &M::ReprPerm
-        requires
-            self.repr_perm is Some,
-        returns
-            self.repr_perm->0,
-    {
-        self.repr_perm.tracked_borrow()
-    }
-
-    pub proof fn tracked_borrow_mut_repr_perm(tracked &mut self) -> (tracked res: &mut M::ReprPerm)
-        requires
-            old(self).inv(),
-        ensures
-            *res == old(self).repr_perm->0,
-            final(self).meta_own == old(self).meta_own,
-            final(self).slot_index == old(self).slot_index,
-            final(self).repr_perm is Some,
-            final(self).repr_perm->0 == *final(res),
-            final(self).inv(),
-    {
-        self.repr_perm.tracked_borrow_mut()
     }
 }
 

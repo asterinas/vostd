@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module is used to compress kernel ELF.
+use vstd::prelude::*;
+
 use std::{
     ffi::{OsStr, OsString},
     io::Write,
@@ -9,6 +11,7 @@ use std::{
 use libflate::{gzip, zlib};
 use serde::{Deserialize, Serialize};
 
+#[verus_verify(external_derive(Serialize), external_derive(Deserialize))]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PayloadEncoding {
     #[default]
@@ -20,15 +23,41 @@ pub enum PayloadEncoding {
     Zlib,
 }
 
+#[verus_verify]
 impl FromStr for PayloadEncoding {
     type Err = String;
 
+    #[verus_spec(result =>
+        ensures
+            if s@ == "raw"@ {
+                result == Ok(Self::Raw)
+            } else if s@ == "gzip"@ {
+                result == Ok(Self::Gzip)
+            } else if s@ == "zlib"@ {
+                result == Ok(Self::Zlib)
+            } else {
+                result matches Err(message) && message@ == "Invalid encoding format: "@ + s@
+            },
+    )]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        /* Origin Rust:
         match s {
             "raw" => Ok(Self::Raw),
             "gzip" => Ok(Self::Gzip),
             "zlib" => Ok(Self::Zlib),
             _ => Err(format!("Invalid encoding format: {}", s)),
+        }
+        Rewritten to use existing vstd equality, to_owned, and push_str contracts.
+        */
+        match s {
+            value if value == "raw" => Ok(Self::Raw),
+            value if value == "gzip" => Ok(Self::Gzip),
+            value if value == "zlib" => Ok(Self::Zlib),
+            _ => {
+                let mut message = "Invalid encoding format: ".to_owned();
+                message.push_str(s);
+                Err(message)
+            }
         }
     }
 }
