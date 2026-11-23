@@ -4,7 +4,6 @@ use vstd::{
     prelude::*,
     std_specs::{
         convert::{FromSpec, FromSpecImpl},
-        fmt::{DebugSpecImpl, group_fmt_axioms},
         iter::{IteratorSpec, IteratorSpecImpl},
     },
 };
@@ -63,16 +62,8 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     tracked_perms: Tracked<Option<Seq<FrameRawPerms>>>,
 }
 
-impl<M: AnyFrameMeta + ?Sized> DebugSpecImpl for Segment<M> {
-    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
-        true
-    }
-}
-
 impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        broadcast use group_fmt_axioms;
-
         write!(f, "Segment({:#x}..{:#x})", self.range.start, self.range.end)
     }
 }

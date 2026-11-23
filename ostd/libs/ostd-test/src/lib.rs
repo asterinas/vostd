@@ -65,7 +65,7 @@
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
-use vstd::{prelude::*, std_specs::fmt::DisplaySpecImpl};
+use vstd::prelude::*;
 use vstd_extra::external::fmt::*;
 
 use alloc::{boxed::Box, string::String};
@@ -79,16 +79,6 @@ pub struct PanicInfo {
     pub col: usize,
 }
 
-verus! {
-
-impl DisplaySpecImpl for PanicInfo {
-    /// Panic information can be formatted without restricting its field values.
-    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
-        true
-    }
-}
-
-} // verus!
 #[verus_verify]
 impl core::fmt::Display for PanicInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
