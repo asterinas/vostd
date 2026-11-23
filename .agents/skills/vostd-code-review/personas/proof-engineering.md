@@ -15,10 +15,17 @@ below; if a rule named below no longer exists on the page, drop it. `proof-patte
 records recurring VOSTD proof shapes as supporting examples, not mandatory rules — never
 report a finding merely because the code diverges from a pattern.
 
+Read the assigned sections of `references/structural-sweeps.md` using the
+absolute path supplied in the pass prompt for operational checks. Maintainability
+owns helper consumers, localization, placement, imports, naming, modes and
+executable preservation; proof engineering owns semantic reuse, tracked-state
+and quantifier checks. Use available source evidence and record incomplete searches.
+
 **Concerns, in order:**
 
-1. Take the page's current rule list as your checklist; clear every rule with a finding
-   or an explicit compliance note citing line references.
+1. Take the available page's current rule list as your checklist. Record findings,
+   supported compliance, or unresolved checks using the supplied Evidence contract.
+   A missing page or unfinished check does not establish compliance or inapplicability.
 2. Contract-completeness sweep (`complete-external-contracts`). Enumerate every trusted
    external specification the proof relies on (imports from `vstd_extra::external`, and
    non-`pub` vstd items the proof unfolds). For each, check against the exact dependency
@@ -108,7 +115,8 @@ report a finding merely because the code diverges from a pattern.
    explicit triggers; executable indexing still needs non-panicking bounds (`requires` or
    `IndexSpec::index_req`), and a model of executable `get` preserves `Option`
    success/failure semantics — unspecified spec values do not replace that contract. For
-   quantifiers: prefer standard predicates such as `Seq::all` (their predicate-based
+   quantifiers: prefer standard predicates such as `Seq::all` and `Seq::any` for
+   universal and existential element properties respectively (their predicate-based
    triggers can reduce spurious instantiations vs broad index triggers like `s[i]`), use a
    subrange predicate when it reads better, and do not add an axiom for a fact derivable
    from the sequence definition.

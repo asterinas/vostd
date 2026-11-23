@@ -111,6 +111,12 @@ Run these steps in order.
    `decompose-before-raising-rlimit` and `upstream-reusable-specs`. Resolve the
    repository-context paths above and record relevant earlier history.
 
+   If a guideline page is missing, record it as unavailable; do not treat its rules
+   as removed or infer compliance. Use a replacement policy only when the user
+   explicitly designates it.
+   Otherwise continue the checks with available authority and record the missing
+   policy in the Evidence check record; do not manufacture guideline findings.
+
 2. **Activate personas.**
    Activate the maintainability and proof-engineering personas for every reviewed
    Verus path. Activate the Specification persona when reporting scope contains an
@@ -134,9 +140,9 @@ Run these steps in order.
 
 3. **Fan out.**
    Spawn the persona passes (see *Spawning*): by default **one isolated agent per
-   activated persona** — best recall. Each pass reads only its own persona block
-   (selective exposure), reviews the target itself, and returns its findings as
-   structured text under the *Evidence contract* below.
+   activated persona** — best recall. Each pass reads its own persona block and the
+   applicable sections of its procedure references (selective exposure), reviews the
+   target itself, and returns its findings as structured text under the *Evidence contract* below.
    If all activated passes exceed the available agent slots, queue the remaining
    pass until a slot is free; retain isolated persona contexts.
 
@@ -168,7 +174,8 @@ Run these steps in order.
    Merge findings that share one root cause into one entry carrying every violated
    rule's short name. Never drop a distinct guideline violation. Rank the survivors:
    `high` first, then `medium`, then `low`. Use internal `Compliance` records to
-   check review coverage; omit them from the final report.
+   check review coverage; omit the internal records from the final report, but
+   summarize material blocked/unexamined checks in its Evidence check record.
 
 6. **Write the output.** (see *Output format*)
 
@@ -212,11 +219,20 @@ Each pass prompt is built the same way:
 1. the persona file's full text (`personas/<persona>.md`), verbatim, as the stable head;
 2. the absolute paths of the repository-context table (guideline pages, existing
    verified-code roots, Verus binary, verification-gate configuration, branch);
-3. the mode and immutable review input: in `diff` or `pr` mode,
+3. the absolute paths of applicable procedure references, resolved from this skill
+   directory (the captured skill copy in `pr` mode), with the sections assigned to
+   that persona;
+4. the mode and immutable review input: in `diff` or `pr` mode,
    the absolute captured-log path, merge-base, HEAD, commit IDs, and changed paths;
    in `files` mode, each original target path plus its absolute snapshot path,
    content hash, and reporting ranges.
    Do not embed source or diff contents in the prompt.
+
+Append the following pass rules and the full *Evidence contract* (schema and
+interpretation instructions) to every prompt. An isolated persona must not need
+the parent conversation to recover its output contract. Include any missing
+guideline pages and user-designated replacements in the supplied context; a
+missing page is not evidence that its rules were removed.
 
 Pass rules stated in every prompt:
 
@@ -278,7 +294,8 @@ Pass rules stated in every prompt:
   polish — are not findings; mention them at most once under
   `Compliance`. A reportable documentation finding is always
   `low`.
-- Include a `Compliance` list of rules the code demonstrably follows, with line references.
+- Include a `Compliance` record for checked rules and unresolved checks, following
+  the existing Evidence contract; never represent missing evidence as compliance.
 - You may run read-only repository commands and standalone experiments in a disposable
   directory. Never edit, back up, restore, or construct modified variants of files in
   the shared working tree.
@@ -325,8 +342,12 @@ Compliance:
 For Specification, cover both API check IDs under `Findings` or `Compliance`.
 For maintainability and proof engineering, each current rule from the persona's
 guideline page appears at least once under either `Findings` or `Compliance` —
-a rule with no violation appears under `Compliance` only; never surface a
-manufactured finding to clear the list. For
+a rule with no established violation appears under `Compliance`. For a blocked or
+unexamined check, use the existing unknown-value convention (`status: null`) and
+explain the missing context or unfinished work in `compliance_or_na_reason`; do not
+add status values or fields. The orchestrator summarizes material gaps in the
+existing Evidence check record. Never manufacture compliance or a finding to clear
+the checklist. For
 workflow, include only the applicable triggered check(s); omit all non-triggered and
 all other workflow rules rather than recording N/A entries. Findings use a primary
 location inside the requested diff or file/range scope; out-of-scope support stays
@@ -336,6 +357,9 @@ assign the orchestrator's `confirmed` / `uncertain` / `refuted` verdict in perso
 output.
 
 ## Output format
+
+Apply the documentation-action filter in *Pass rules stated in every prompt*
+above to the consolidated report in every review mode.
 
 One Markdown file:
 

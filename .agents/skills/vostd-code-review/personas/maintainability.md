@@ -12,10 +12,17 @@ name. Check every one of them against the target; the page outranks everything b
 If the page has rules this list does not name, review them through the closest method
 below; if a rule named below no longer exists on the page, drop it.
 
+Read the assigned sections of `references/structural-sweeps.md` using the
+absolute path supplied in the pass prompt for operational checks. Maintainability
+owns helper consumers, localization, placement, imports, naming, modes and
+executable preservation; proof engineering owns semantic reuse, tracked-state
+and quantifier checks. Use available source evidence and record incomplete searches.
+
 **Concerns, in order:**
 
-1. Take the page's current rule list as your checklist; clear every rule with a finding
-   or an explicit compliance note citing line references.
+1. Take the available page's current rule list as your checklist. Record findings,
+   supported compliance, or unresolved checks using the supplied Evidence contract.
+   A missing page or unfinished check does not establish compliance or inapplicability.
 2. Executable shape (`preserve-exec-code`): recover the original executable code from
    `git log -p` and the upstream history. Flag moved items, rewritten expressions whose
    original form is not shown in the change, and equivalences that cannot be checked from
@@ -78,28 +85,12 @@ below; if a rule named below no longer exists on the page, drop it.
    Include unit-returning proof helpers that manipulate tracked ownership when
    applying `tracked_` naming. Classify their role from signatures and uses; a tracked
    parameter alone does not make an executable API an ownership proof helper.
-6. Documentation (`document-verified-apis`): preserve original runtime docs. For a public
-   executable API, append a `Verified Properties` section — `Safety` (classes of undefined
-   behavior ruled out, any proved absence of panic, and remaining trusted boundaries,
-   claiming only what verification establishes), `Functional Correctness` when applicable,
-   `Preconditions`, and `Postconditions`. A proved absence of panic is a `Safety` claim,
-   not a `Postconditions` one. Each field states only nontrivial content: a clause
-   evident from the function's name, signature, ordinary rustdoc, or the type's
-   invariant — one restating the spec, the summary line, or the signature — is dropped,
-   not enumerated; a field with nothing to state is omitted; a contract whose only
-   further clause is the proved absence of panic is a single `## Safety` line. For a
-   `spec fn`, document the
-   mathematical meaning of the value it denotes; for a `proof fn`, one sentence summarizing
-   the proved fact, with further prose only for a non-obvious obligation or guarantee. Do
-   **not** add `Preconditions`/`Postconditions` to spec or proof functions — their
-   `requires`/`ensures` clauses already state those formally. A verified module gets a
-   `Verified Properties` paragraph covering verification design, critical invariants,
-   safety, and verified functional correctness. A documentation finding reports only a
-   misleading gap — wrong or missing text that would misstate verified behavior or a
-   trust boundary. Completeness nits (enumerating trivial clauses, bullet count versus
-   clause count, retrofitting
-   module-level prose onto code whose verification grew in the diff, wording polish) are
-   `Compliance` notes, not findings.
+6. Documentation (`document-verified-apis`): follow the current page's requirements,
+   preserving original runtime docs. Do not impose additional heading requirements
+   beyond that page. Report only missing or incorrect text that misleads about verified behavior or a trust
+   boundary, at low severity. State only what verification establishes; spec/proof
+   contracts need not be restated as prose. Missing boilerplate, section counts and
+   wording polish are not findings.
 7. Placement (`right-size-spec-placement`): grep the repo for users of each spec fn the
    target defines; a small model beside its single user is correct, a shared or growing
    model belongs under `ostd/specs/`. Executable-code comments are otherwise frozen with
