@@ -264,16 +264,6 @@ impl UserContext {
         self.user_context.general
     }
 
-    /// The saved trap vector number.
-    pub closed spec fn trap_number_spec(&self) -> usize {
-        self.user_context.trap_num
-    }
-
-    /// The saved hardware trap error code.
-    pub closed spec fn trap_error_code_spec(&self) -> usize {
-        self.user_context.error_code
-    }
-
     /// The exception waiting to be consumed by the caller.
     pub closed spec fn exception_spec(&self) -> Option<CpuException> {
         self.exception
@@ -298,8 +288,8 @@ impl UserContext {
     #[verus_spec(r => ensures
         *r == old(self).general_regs_spec(),
         *final(r) == final(self).general_regs_spec(),
-        final(self).trap_number_spec() == old(self).trap_number_spec(),
-        final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+        final(self).trap_number() == old(self).trap_number(),
+        final(self).trap_error_code() == old(self).trap_error_code(),
         final(self).exception_spec() == old(self).exception_spec(),
     )]
     pub fn general_regs_mut(&mut self) -> &mut GeneralRegs {
@@ -314,8 +304,8 @@ impl UserContext {
     #[verus_spec(ensures
         final(self).exception_spec() == None::<CpuException>,
         final(self).general_regs_spec() == old(self).general_regs_spec(),
-        final(self).trap_number_spec() == old(self).trap_number_spec(),
-        final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+        final(self).trap_number() == old(self).trap_number(),
+        final(self).trap_error_code() == old(self).trap_error_code(),
         returns old(self).exception_spec(),
     )]
     pub fn take_exception(&mut self) -> Option<CpuException> {
@@ -331,8 +321,8 @@ impl UserContext {
         final(self).general_regs_spec() == (GeneralRegs {
             fsbase: tls, ..old(self).general_regs_spec()
         }),
-        final(self).trap_number_spec() == old(self).trap_number_spec(),
-        final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+        final(self).trap_number() == old(self).trap_number(),
+        final(self).trap_error_code() == old(self).trap_error_code(),
         final(self).exception_spec() == old(self).exception_spec(),
     )]
     pub fn set_tls_pointer(&mut self, tls: usize) {
@@ -538,12 +528,12 @@ bitflags! {
 verus! {
 
 impl UserContextApi for UserContext {
-    open spec fn trap_number_spec(&self) -> usize {
-        UserContext::trap_number_spec(self)
+    closed spec fn trap_number_spec(&self) -> usize {
+        self.user_context.trap_num
     }
 
-    open spec fn trap_error_code_spec(&self) -> usize {
-        UserContext::trap_error_code_spec(self)
+    closed spec fn trap_error_code_spec(&self) -> usize {
+        self.user_context.error_code
     }
 
     open spec fn instruction_pointer_spec(&self) -> usize {
@@ -571,8 +561,8 @@ impl UserContextApi for UserContext {
                 rip: ip,
                 ..old(self).general_regs_spec()
             }),
-            final(self).trap_number_spec() == old(self).trap_number_spec(),
-            final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+            final(self).trap_number() == old(self).trap_number(),
+            final(self).trap_error_code() == old(self).trap_error_code(),
             final(self).exception_spec() == old(self).exception_spec(),
     {
         self.set_rip(ip);
@@ -587,8 +577,8 @@ impl UserContextApi for UserContext {
                 rsp: sp,
                 ..old(self).general_regs_spec()
             }),
-            final(self).trap_number_spec() == old(self).trap_number_spec(),
-            final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+            final(self).trap_number() == old(self).trap_number(),
+            final(self).trap_error_code() == old(self).trap_error_code(),
             final(self).exception_spec() == old(self).exception_spec(),
     {
         self.set_rsp(sp)
@@ -626,8 +616,8 @@ macro_rules! cpu_context_impl_getter_setter {
                     final(self).general_regs_spec() == (GeneralRegs {
                         $field: $field, ..old(self).general_regs_spec()
                     }),
-                    final(self).trap_number_spec() == old(self).trap_number_spec(),
-                    final(self).trap_error_code_spec() == old(self).trap_error_code_spec(),
+                    final(self).trap_number() == old(self).trap_number(),
+                    final(self).trap_error_code() == old(self).trap_error_code(),
                     final(self).exception_spec() == old(self).exception_spec(),
                 )]
                 pub fn $setter_name(&mut self, $field: usize) {

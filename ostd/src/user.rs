@@ -37,14 +37,14 @@ pub trait UserContextApi {
     #[verifier::when_used_as_spec(trap_number_spec)]
     fn trap_number(&self) -> usize
         returns
-            self.trap_number_spec(),
+            self.trap_number(),
     ;
 
     /// Gets the trap error code of this interrupt.
     #[verifier::when_used_as_spec(trap_error_code_spec)]
     fn trap_error_code(&self) -> usize
         returns
-            self.trap_error_code_spec(),
+            self.trap_error_code(),
     ;
 
     /// Sets the instruction pointer
@@ -64,7 +64,7 @@ pub trait UserContextApi {
     #[verifier::when_used_as_spec(instruction_pointer_spec)]
     fn instruction_pointer(&self) -> usize
         returns
-            self.instruction_pointer_spec(),
+            self.instruction_pointer(),
     ;
 
     /// Sets the stack pointer
@@ -84,7 +84,7 @@ pub trait UserContextApi {
     #[verifier::when_used_as_spec(stack_pointer_spec)]
     fn stack_pointer(&self) -> usize
         returns
-            self.stack_pointer_spec(),
+            self.stack_pointer(),
     ;
 }
 
