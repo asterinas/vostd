@@ -84,6 +84,7 @@ impl SerialPort {
     }
 
     /// Initializes the serial port.
+    #[verus_spec]
     pub fn init(&self) {
         // Disable interrupts
         self.int_en.write(0x00);
@@ -106,18 +107,21 @@ impl SerialPort {
 
     /// Sends data to the data port
     #[inline]
+    #[verus_spec]
     pub fn send(&self, data: u8) {
         self.data.write(data);
     }
 
     /// Receives data from the data port
     #[inline]
+    #[verus_spec]
     pub fn recv(&self) -> u8 {
         self.data.read()
     }
 
     /// Gets line status
     #[inline]
+    #[verus_spec]
     pub fn line_status(&self) -> u8 {
         self.line_status.read()
     }
