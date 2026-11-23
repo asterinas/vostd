@@ -7,7 +7,7 @@
 //! However, one can verify that if `acquire` succeeds, then acquiring a second overlapping range will fail.
 use vstd::{arithmetic::power2::is_pow2, modes::tracked_swap, prelude::*, resource::Loc};
 use vstd_extra::{
-    once::OnceImpl, panic::allowed_to_panic_if, range::ranges_separated,
+    once::OnceImpl, panic::allowed_to_panic_if, range::ranges_disjoint,
     resource_invariant::TrivialResourceInvariant,
 };
 
@@ -138,7 +138,7 @@ impl IoMemAllocatorBuilder {
     /// User must ensure the range doesn't belong to physical memory.
     #[verus_spec(ret =>
         requires
-            ranges_separated(ranges@),
+            ranges_disjoint(ranges@),
             ranges@.all(|range: Range<usize>| range.start <= range.end),
         ensures
             ret@ == ranges@,
@@ -157,7 +157,7 @@ impl IoMemAllocatorBuilder {
                     &&& allocators@[j]@.start == it.seq()[j].start
                     &&& allocators@[j]@.end == it.seq()[j].end
                 },
-                ranges_separated(it.seq()),
+                ranges_disjoint(it.seq()),
                 it.seq().all(|range: Range<usize>| range.start <= range.end),
                 windows_disjoint(allocators@),
         )]
