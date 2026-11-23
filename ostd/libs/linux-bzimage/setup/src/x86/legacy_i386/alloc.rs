@@ -57,11 +57,31 @@ pub(super) unsafe fn init(boot_params: &'static linux_boot_params::BootParams) {
     });
 }
 
-/// A valid range can already be in use or the used-range table can be full.
+verus! {
+
+pub ghost struct LegacyRangeCheck {
+    pub in_usable_ram: bool,
+    pub overlaps_used: bool,
+    pub has_empty_slot: bool,
+}
+
+/// Possible checks for this request across the boot allocator's reachable states.
+/// None covers failure to borrow or unwrap STATE, or overflow while scanning E820.
+pub uninterp spec fn legacy_range_checks(addr: usize, size: usize) -> Set<Option<LegacyRangeCheck>>;
+
+pub open spec fn platform_allocation_may_fail(addr: usize, size: usize) -> bool {
+    let checks = legacy_range_checks(addr, size);
+    ||| checks.contains(None)
+    ||| exists|c: LegacyRangeCheck| #[trigger]
+        checks.contains(Some(c)) && (!c.in_usable_ram || c.overlaps_used || !c.has_empty_slot)
+}
+
+} // verus!
+
 #[verifier::external_body]
 #[verus_spec(dst =>
     requires
-        allowed_to_panic_if(true),
+        allowed_to_panic_if(crate::x86::alloc_at_panic_condition(addr, size)),
     ensures
         dst@.len() == size,
 )]

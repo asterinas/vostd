@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use core::arch::global_asm;
 
 cfg_if::cfg_if! {
@@ -18,6 +20,22 @@ cfg_if::cfg_if! {
         compile_error!("unsupported target architecture");
     }
 }
+
+verus! {
+
+#[cfg(target_arch = "x86_64")]
+use amd64_efi::alloc::platform_allocation_may_fail;
+#[cfg(target_arch = "x86")]
+use legacy_i386::alloc::platform_allocation_may_fail;
+
+pub open spec fn alloc_at_panic_condition(addr: usize, size: usize) -> bool {
+    ||| addr == 0
+    ||| addr + size > usize::MAX
+    ||| size > isize::MAX
+    ||| platform_allocation_may_fail(addr, size)
+}
+
+} // verus!
 
 global_asm!(
     include_str!("header.S"),

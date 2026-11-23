@@ -26,7 +26,7 @@ use xmas_elf::program::{ProgramHeader, SegmentData};
                 ph matches ProgramHeader::Ph64(program) && {
                     &&& ph.get_type() is Ok
                     &&& ph.get_type() == Ok(Type::Load) ==> {
-                        &&& allowed_to_panic_if(true)
+                        &&& allowed_to_panic_if(segment_allocation_panic_condition(program))
                         &&& program_load_data_readable(&ph, elf.input@)
                         &&& program.file_size <= program.mem_size <= usize::MAX
                     }
@@ -62,7 +62,7 @@ pub fn load_elf(file: &[u8]) {
                 ph matches ProgramHeader::Ph64(program) && {
                     &&& ph.get_type() is Ok
                     &&& ph.get_type() == Ok(Type::Load) ==> {
-                        &&& allowed_to_panic_if(true)
+                        &&& allowed_to_panic_if(segment_allocation_panic_condition(program))
                         &&& program_load_data_readable(&ph, elf.input@)
                         &&& program.file_size <= program.mem_size <= usize::MAX
                     }
@@ -95,7 +95,7 @@ pub fn load_elf(file: &[u8]) {
 #[verus_spec(
     with Tracked(loaded): Tracked<&mut Ghost<Seq<MaybeUninit<u8>>>>,
     requires
-        allowed_to_panic_if(true),
+        allowed_to_panic_if(segment_allocation_panic_condition(program)),
         ProgramHeader::Ph64(program).get_type() == Ok(Type::Load),
         program_load_data_readable(&ProgramHeader::Ph64(program), file.input@),
         program.file_size <= program.mem_size <= usize::MAX,
@@ -141,6 +141,12 @@ global layout usize is size == 8;
 
 #[cfg(target_pointer_width = "32")]
 global layout usize is size == 4;
+
+pub open spec fn segment_allocation_panic_condition(
+    program: &xmas_elf::program::ProgramHeader64,
+) -> bool {
+    crate::x86::alloc_at_panic_condition(program.physical_addr as usize, program.mem_size as usize)
+}
 
 pub open spec fn segment_initialized(
     program: &xmas_elf::program::ProgramHeader64,
