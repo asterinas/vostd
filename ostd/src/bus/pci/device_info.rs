@@ -6,6 +6,7 @@ use core::iter;
 
 // use super::cfg_space::PciDeviceCommonCfgOffset;
 
+/*
 /// PCI device ID
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PciDeviceId {
@@ -51,6 +52,7 @@ impl PciDeviceId {
         }
     }
 }
+*/
 
 */
 
