@@ -27,17 +27,9 @@ pub fn panic_diverge() -> !
     vpanic!("");
 }
 
-/// Forwards native formatting arguments during panic handling. The caller of
-/// `format_args!` has already checked the individual formatting preconditions.
+/// Forwards native formatting arguments during panic handling.
 #[doc(hidden)]
 pub struct PanicMessage<'a>(pub Arguments<'a>);
-
-#[cfg(verus_keep_ghost)]
-impl vstd::std_specs::fmt::DisplaySpecImpl for PanicMessage<'_> {
-    open spec fn fmt_req(&self, f: &Formatter<'_>) -> bool {
-        true
-    }
-}
 
 impl Display for PanicMessage<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {

@@ -2,10 +2,8 @@
 #[cfg(all(feature = "std", not(target_os = "none")))]
 extern crate std;
 
-use core::fmt::{Display, Formatter};
+use core::fmt::Display;
 use vstd::prelude::*;
-#[cfg(verus_keep_ghost)]
-use vstd::std_specs::fmt::DisplaySpec;
 
 #[cfg(verus_keep_ghost)]
 use crate::panic::allowed_to_panic_if;
@@ -34,7 +32,6 @@ pub assume_specification<M: 'static + core::any::Any + Send>[ std::panic::panic_
 pub assume_specification<T: Display>[ core::panicking::panic_display::<T> ](value: &T) -> !
     requires
         allowed_to_panic_if(true),
-        forall|f: &Formatter<'_>| value.fmt_req(f),
 ;
 
 } // verus!
