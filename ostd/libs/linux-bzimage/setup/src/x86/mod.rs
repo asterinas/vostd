@@ -29,7 +29,6 @@ pub use amd64_efi::alloc::platform_allocation_may_fail;
 pub use legacy_i386::alloc::platform_allocation_may_fail;
 
 } // verus!
-
 global_asm!(
     include_str!("header.S"),
     CFG_TARGET_ARCH_X86_64 = const CFG_TARGET_ARCH_X86_64,

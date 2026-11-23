@@ -77,7 +77,6 @@ pub open spec fn platform_allocation_may_fail(addr: usize, size: usize) -> bool 
 }
 
 } // verus!
-
 #[verifier::external_body]
 #[verus_spec(dst =>
     requires
