@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795416673572,
+  "lastUpdate": 1795421238801,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13980,6 +13980,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=390ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9b24997805c5dffb07662f607b8cf1acc4beb38",
+          "message": "Prove xAPIC base address alignment and bounds (#963)\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-23T16:00:43+08:00",
+          "tree_id": "59f3342429bb7924479fe3daf4995ecaa5fa2695",
+          "url": "https://github.com/asterinas/vostd/commit/e9b24997805c5dffb07662f607b8cf1acc4beb38"
+        },
+        "date": 1795421238144,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1061774680,
+            "unit": "rlimit",
+            "extra": "verified=4743 errors=0 smt-run=380,180ms wall=258,894ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 383678554,
+            "unit": "rlimit",
+            "extra": "smt-run=169,217ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 127715925,
+            "unit": "rlimit",
+            "extra": "smt-run=42,079ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 50368299,
+            "unit": "rlimit",
+            "extra": "smt-run=15,853ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=4,189ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9186788,
+            "unit": "rlimit",
+            "extra": "smt-run=2,552ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4435290,
+            "unit": "rlimit",
+            "extra": "smt-run=1,851ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=1,006ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=819ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910611,
+            "unit": "rlimit",
+            "extra": "smt-run=904ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115797,
+            "unit": "rlimit",
+            "extra": "smt-run=373ms"
           }
         ]
       }
