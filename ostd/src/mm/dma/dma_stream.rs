@@ -103,8 +103,6 @@ pub struct DmaStreamSlice<Dma, M: AnyUFrameMeta + ?Sized> {
 }
 
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<Dma, M> {
-    /// The slice invariant. The extent bounds are arithmetic rather than
-    /// `stream.nbytes()`-relative because `RwArc::wf()` hides the segment size.
     #[verifier::inline]
     open spec fn inv(self) -> bool {
         &&& self.len != 0
