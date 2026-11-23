@@ -531,8 +531,10 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
         requires
             initialized matches Some(witness) ==> witness.cell() == self.id(),
         ensures
-            r matches Some(value) ==> self.value_inv(*value),
-            r matches Some(value) ==> *value == self.published_value(),
+            r matches Some(value) ==> {
+                &&& self.value_inv(*value)
+                &&& *value == self.published_value()
+            },
             initialized is Some ==> r is Some,
         opens_invariants none
         no_unwind

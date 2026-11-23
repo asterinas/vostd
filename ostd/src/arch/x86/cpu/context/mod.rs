@@ -7,8 +7,6 @@
 //! The representation invariant bounds the byte-view length, not register contents
 //! or hardware restore validity. Save and mutable byte access may replace saved
 //! fields; hardware write bounds and restore validity remain for later XSAVE work.
-//! The cached XSAVE length is not proved equal to the enabled hardware size of a
-//! consuming CPU, even when its CPU identity and XCR0 match the initialization.
 use ostd_pod::pod_bytes;
 use vstd::{prelude::*, resource::Loc};
 use vstd_extra::{
@@ -533,7 +531,11 @@ impl FpuInitialization {
             witness.cell() == max_features_cell_id() && witness.value()
                 == cpu_feature_model().supported_xstates()
         }
-        &&& self.area_size matches Some(witness) ==> witness.cell() == xsave_size_cell_id()
+        &&& self.area_size matches Some(witness) ==> {
+            &&& witness.cell() == xsave_size_cell_id()
+            &&& 576 <= witness.value() <= MAX_XSAVE_AREA_SIZE
+            &&& witness.value() == platform_xsave_area_size()
+        }
         &&& self.uses_xsave() ==> self.max_features is Some && self.area_size is Some
     }
 
@@ -567,8 +569,9 @@ impl FpuInitialization {
         self.xcr0
     }
 
-    /// Relates CPU identity, register access and XSTATE support, but not the cached
-    /// length to this CPU's enabled hardware XSAVE size.
+    /// Relates CPU identity, register access and XSTATE support. In XSAVE mode,
+    /// startup/configuration preconditions bind the cached length to this CPU's
+    /// enabled hardware XSAVE size at its current XCR0.
     pub open spec fn enabled_on(&self, cpu: &X86CpuRegisterOwner) -> bool {
         &&& self.configured_cpu() == cpu@.cpu
         &&& cpu.kernel_cpu()
@@ -577,6 +580,7 @@ impl FpuInitialization {
             &&& cpu.xcr0_readable()
             &&& cpu_feature_model().matches_xstates(cpu)
             &&& self.supported_mask() == cpu@.user_xstates | cpu@.supervisor_xstates
+            &&& self.len() == (cpu@.xsave_size_for)(cpu@.xcr0) as usize
         } else {
             cpu@.fpu && cpu@.fxsr && cpu@.cr0 & 12u64 == 0 && cpu@.cr4 & 0x200u64 != 0
         }
@@ -1060,11 +1064,15 @@ const XFEATURE_MASK_USER_RESTORE: u64 = 0b1110_0111;
  * Attach the capacity predicate that every publishing closure must prove. */
 verus! {
 
+/// Startup/configuration preconditions relate this shared size to each enabled
+/// CPU's xsave_size_for(xcr0); no global equality axiom is assumed.
+pub uninterp spec fn platform_xsave_area_size() -> usize;
+
 ghost struct XSaveSizeInvariant;
 
 impl ValueInvariant<usize> for XSaveSizeInvariant {
     open spec fn inv(size: usize) -> bool {
-        576 <= size <= 4096
+        576 <= size <= 4096 && size == platform_xsave_area_size()
     }
 }
 
@@ -1098,15 +1106,13 @@ pub(in crate::arch) fn enable_essential_features(
         old(cpu)@.max_basic_leaf >= 0xd,
         cpu_feature_model().matches_xstates(old(cpu)),
         576 <= (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) <= 4096,
+        (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) as usize == platform_xsave_area_size(),
         features_initialized.cell() == cpu_features_cell_id(),
         allowed_to_panic_if(true),
     ensures
         result@.enabled_on(final(cpu)),
-        if result@.uses_xsave() {
-            576 <= result@.len() <= 4096
-        } else {
-            result@.len() == 512
-        },
+        result@.uses_xsave(),
+        576 <= result@.len() <= 4096,
         final(cpu)@ == (vstd_extra::external::x86::X86CpuSnapshot {
             cr0: old(cpu)@.cr0 & !12u64,
             x87_control: 0x037f,
@@ -1157,7 +1163,7 @@ pub(in crate::arch) fn enable_essential_features(
     let (_, Tracked(area_size)) = xsave_size_ref().call_once(
         || -> (r: usize)
             ensures
-                576 <= r <= MAX_XSAVE_AREA_SIZE,
+                XSaveSizeInvariant::inv(r),
             {
                 let size = read_enabled_xsave_size(Tracked(read_cpu));
                 debug_assert!(size <= MAX_XSAVE_AREA_SIZE);

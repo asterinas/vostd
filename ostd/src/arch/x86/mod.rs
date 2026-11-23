@@ -2,7 +2,9 @@
 //! Platform-specific code for the x86 platform.
 use vstd::prelude::*;
 use vstd_extra::{
-    external::x86::{FpuOnce, XCR0_KNOWN_MASK, feature_info_edx, xcr0_flag_groups_valid},
+    external::x86::{
+        FpuOnce, XCR0_KNOWN_MASK, feature_info_ecx, feature_info_edx, xcr0_flag_groups_valid,
+    },
     resource_invariant::ValueInvariant,
 };
 
@@ -64,7 +66,8 @@ pub(crate) ghost struct CpuFeaturesInvariant;
 
 impl ValueInvariant<FeatureInfo> for CpuFeaturesInvariant {
     open spec fn inv(info: FeatureInfo) -> bool {
-        feature_info_edx(info) & 1u32 != 0
+        &&& feature_info_edx(info) & 1u32 != 0
+        &&& feature_info_ecx(info) & (1u32 << 26) != 0
     }
 }
 
@@ -233,12 +236,13 @@ pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
         xcr0_flag_groups_valid(enabled_fpu_xcr0(old(cpu)@.xcr0) & XCR0_KNOWN_MASK),
         enabled_fpu_xcr0(old(cpu)@.xcr0) & !old(cpu)@.user_xstates == 0,
         576 <= (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) <= 4096,
+        (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) as usize
+            == cpu::context::platform_xsave_area_size(),
         vstd_extra::panic::allowed_to_panic_if(true),
     ensures initialization@.enabled_on(final(cpu)),
             final(cpu)@.fxsr,
-            if initialization@.uses_xsave() {
-                576 <= initialization@.len() <= 4096
-            } else { initialization@.len() == 512 },
+            initialization@.uses_xsave(),
+            576 <= initialization@.len() <= 4096,
             final(cpu)@ == (vstd_extra::external::x86::X86CpuSnapshot {
                 cr0: old(cpu)@.cr0 & !12u64,
                 cr4: old(cpu)@.cr4 | 0x50680u64,
@@ -255,6 +259,8 @@ pub(crate) fn enable_cpu_features() {
         write_xcr0, xcr0_avx, xcr0_bits, xcr0_hi16_zmm, xcr0_opmask, xcr0_or, xcr0_or_assign,
         xcr0_sse, xcr0_zmm_hi256,
     };
+
+    /*use x86_64::registers::{control::Cr4Flags, model_specific::EferFlags, xcontrol::XCr0Flags};*/
     proof_decl! { let tracked initialized; }
     verus_exec_expr! {{
         /* Origin Rust: CPU_FEATURES.call_once(|| {
