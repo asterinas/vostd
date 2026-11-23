@@ -96,7 +96,7 @@ pub fn load_elf(file: &[u8]) {
     with Tracked(loaded): Tracked<&mut Ghost<Seq<MaybeUninit<u8>>>>,
     requires
         allowed_to_panic_if(segment_allocation_panic_condition(program)),
-        ProgramHeader::Ph64(program).get_type() == Ok(Type::Load),
+        program.get_type() == Ok(Type::Load),
         program_load_data_readable(&ProgramHeader::Ph64(program), file.input@),
         program.file_size <= program.mem_size <= usize::MAX,
     ensures

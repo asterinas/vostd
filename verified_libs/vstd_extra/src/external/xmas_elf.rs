@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Trusted specifications for xmas-elf 0.10.0's parsing and header access.
-use vstd::{prelude::*, std_specs::iter::IteratorSpec};
+use vstd::{
+    layout::{align_of, size_of},
+    prelude::*,
+    std_specs::iter::IteratorSpec,
+};
 use xmas_elf::{
     ElfFile,
+    dynamic::Dynamic,
     header::{Class, Header, HeaderPt1, HeaderPt2, HeaderPt2_, Machine_, Type_ as HeaderType},
     program::{
         Flags, ProgramHeader, ProgramHeader32, ProgramHeader64, SegmentData, TYPE_GNU_RELRO,
         TYPE_HIOS, TYPE_HIPROC, TYPE_LOOS, TYPE_LOPROC, Type, Type_,
     },
+    sections::NoteHeader,
 };
 
 use super::slice::as_ptr_spec;
@@ -278,10 +284,14 @@ pub assume_specification[ <Type_ as core::default::Default>::default ]() -> (ret
         program_type_raw(ret) == 0,
 ;
 
+pub open spec fn program_header64_type(header: &ProgramHeader64) -> Result<Type, &'static str> {
+    program_type_result(header.type_)
+}
+
 pub open spec fn program_header_type(header: &ProgramHeader<'_>) -> Result<Type, &'static str> {
     match *header {
         ProgramHeader::Ph32(h) => program_type_result(h.type_),
-        ProgramHeader::Ph64(h) => program_type_result(h.type_),
+        ProgramHeader::Ph64(h) => h.get_type(),
     }
 }
 
@@ -324,12 +334,13 @@ pub open spec fn program_load_bytes(header: &ProgramHeader<'_>, input: Seq<u8>) 
 }
 
 /// xmas-elf 0.10.0's ph_impl! delegates directly to Type_::as_type.
+#[verifier::when_used_as_spec(program_header64_type)]
 pub assume_specification[ ProgramHeader64::get_type ](header: &ProgramHeader64) -> Result<
     Type,
     &'static str,
 >
     returns
-        program_type_result(header.type_),
+        program_header64_type(header),
     opens_invariants none
     no_unwind
 ;
@@ -361,25 +372,56 @@ pub assume_specification<'a>[ ProgramHeader::<'a>::offset ](header: &ProgramHead
     no_unwind
 ;
 
-/// Audited only for Load: get_data delegates to raw_data and returns Undefined.
-/// Other segment types include dynamic/note parsing and receive no guarantees.
+/// Sufficient conditions for the reads in xmas-elf 0.10.0's ph_impl!::get_data.
+pub open spec fn program_get_data_no_unwind(header: &ProgramHeader<'_>, elf: &ElfFile<'_>) -> bool {
+    match header.get_type() {
+        Err(_) | Ok(Type::Null) => true,
+        Ok(typ) => {
+            let len = header.file_size() as nat;
+            let addr = (as_ptr_spec(elf.input).addr() + header.offset()) as nat;
+            &&& program_load_data_readable(header, elf.input@)
+            &&& match typ {
+                Type::Dynamic => {
+                    // raw_data returns &[] for zero size, with no guaranteed entry alignment.
+                    &&& len > 0
+                    &&& match elf.header.pt1.class() {
+                        Class::ThirtyTwo => {
+                            &&& len % size_of::<Dynamic<u32>>() == 0
+                            &&& addr % align_of::<Dynamic<u32>>() == 0
+                        },
+                        Class::SixtyFour => {
+                            &&& len % size_of::<Dynamic<u64>>() == 0
+                            &&& addr % align_of::<Dynamic<u64>>() == 0
+                        },
+                        _ => false,
+                    }
+                },
+                Type::Note => {
+                    &&& elf.header.pt1.class() == Class::SixtyFour
+                    &&& len >= 12
+                    &&& addr % align_of::<NoteHeader>() == 0
+                },
+                _ => true,
+            }
+        },
+    }
+}
+
 pub assume_specification<'a>[ ProgramHeader64::get_data ](
     header: &ProgramHeader64,
     elf: &ElfFile<'a>,
 ) -> (ret: Result<SegmentData<'a>, &'static str>)
+    requires
+        program_get_data_no_unwind(&ProgramHeader::Ph64(header), elf),
     ensures
-        ProgramHeader::Ph64(header).get_type() == Ok(Type::Load) && program_load_data_readable(
-            &ProgramHeader::Ph64(header),
-            elf.input@,
-        ) ==> {
+        header.get_type() == Ok(Type::Load) ==> {
             ret matches Ok(SegmentData::Undefined(bytes)) && bytes@ == program_load_bytes(
                 &ProgramHeader::Ph64(header),
                 elf.input@,
             )
         },
     opens_invariants none
-    no_unwind when ProgramHeader::Ph64(header).get_type() == Ok(Type::Load)
-    && program_load_data_readable(&ProgramHeader::Ph64(header), elf.input@)
+    no_unwind when program_get_data_no_unwind(&ProgramHeader::Ph64(header), elf)
 ;
 
 /// The enum wrapper dispatches to the corresponding program header's get_data.
@@ -387,18 +429,17 @@ pub assume_specification<'a>[ ProgramHeader::<'a>::get_data ](
     header: &ProgramHeader<'a>,
     elf: &ElfFile<'a>,
 ) -> (ret: Result<SegmentData<'a>, &'static str>)
+    requires
+        program_get_data_no_unwind(header, elf),
     ensures
-        header.get_type() == Ok(Type::Load) && program_load_data_readable(header, elf.input@) ==> {
+        header.get_type() == Ok(Type::Load) ==> {
             ret matches Ok(SegmentData::Undefined(bytes)) && bytes@ == program_load_bytes(
                 header,
                 elf.input@,
             )
         },
     opens_invariants none
-    no_unwind when header.get_type() == Ok(Type::Load) && program_load_data_readable(
-    header,
-    elf.input@,
-)
+    no_unwind when program_get_data_no_unwind(header, elf)
 ;
 
 /// The virtual address stored in either ELF program-header representation.
