@@ -331,7 +331,7 @@ macro_rules! impl_external_ilog2 {
                 returns
                     log(2, x as int) as u32,
                 opens_invariants none
-                no_unwind when x > 0;
+                no_unwind;
 
             pub broadcast proof fn $pow2_lemma(e: u32, x: $uN)
                 requires

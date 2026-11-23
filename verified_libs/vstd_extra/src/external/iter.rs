@@ -11,9 +11,9 @@ verus! {
 
 /// Consumes the iterator, returning its first minimum or `None` if empty.
 ///
-/// Audited against Rust 1.100.0 (0ef1bc386), `library/core/src/iter/traits/iterator.rs`:
-/// `min` calls `reduce(Ord::min)` and retains the first equal minimum for lawful `Ord`.
-/// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.min>.
+/// Audited against Rust 1.99.1 (58cf8f9c3), `library/core/src/iter/traits/iterator.rs`:
+/// `min` calls `min_by(Ord::cmp)` and retains the first equal minimum.
+/// See <https://doc.rust-lang.org/1.99.1/core/iter/trait.Iterator.html#method.min>.
 /// TODO: Upstream this model; remove it when equivalent vstd support is available.
 #[verifier::external_trait_specification]
 pub trait ExIteratorMin {
@@ -34,7 +34,7 @@ pub uninterp spec fn iterator_min_post<I, A>(iter: I, ret: Option<A>) -> bool;
 /// Like vstd's provided-method specs in `std_specs/iter.rs`, this model trusts
 /// `obeys_prophetic_iter_laws()` to include consistency of consuming methods with
 /// `next`. Constraining the underlying implementations remains a vstd TODO.
-/// Membership and ordering guarantees additionally require vstd's comparison laws.
+/// Ordering guarantees additionally require vstd's comparison laws.
 pub broadcast axiom fn axiom_iterator_min_postcondition<
     A: Ord,
     I: Iterator<Item = A> + IteratorSpec,
@@ -45,24 +45,28 @@ pub broadcast axiom fn axiom_iterator_min_postcondition<
     ensures
         iter.produces().all(|p: bool| p),
         ret is None <==> iter.remaining().len() == 0,
-        obeys_cmp::<A>() ==> (ret matches Some(least) ==> {
+        ret matches Some(least) ==> {
             &&& iter.remaining().contains(least)
-            &&& forall|k: int|
-                #![trigger iter.remaining()[k]]
-                0 <= k < iter.remaining().len() ==> least.cmp_spec(&iter.remaining()[k])
-                    != Ordering::Greater
-            &&& exists|j: int|
-                0 <= j < iter.remaining().len() && iter.remaining()[j] == least && forall|k: int|
-                    0 <= k < j ==> (#[trigger] iter.remaining()[k]).cmp_spec(&least)
-                        == Ordering::Greater
-        }),
+            &&& obeys_cmp::<A>() ==> {
+                &&& forall|k: int|
+                    #![trigger iter.remaining()[k]]
+                    0 <= k < iter.remaining().len() ==> least.cmp_spec(&iter.remaining()[k])
+                        != Ordering::Greater
+                &&& exists|j: int|
+                    0 <= j < iter.remaining().len() && iter.remaining()[j] == least && forall|
+                        k: int,
+                    |
+                        0 <= k < j ==> (#[trigger] iter.remaining()[k]).cmp_spec(&least)
+                            == Ordering::Greater
+            }
+        },
 ;
 
 /// Consumes the iterator, returning its last maximum or `None` if empty.
 ///
-/// Audited against Rust 1.100.0 (0ef1bc386), `library/core/src/iter/traits/iterator.rs`:
-/// `max` calls `reduce(Ord::max)` and retains the last equal maximum for lawful `Ord`.
-/// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.max>.
+/// Audited against Rust 1.99.1 (58cf8f9c3), `library/core/src/iter/traits/iterator.rs`:
+/// `max` calls `max_by(Ord::cmp)` and retains the last equal maximum.
+/// See <https://doc.rust-lang.org/1.99.1/core/iter/trait.Iterator.html#method.max>.
 /// TODO: Upstream this model; remove it when equivalent vstd support is available.
 #[verifier::external_trait_specification]
 pub trait ExIteratorMax {
@@ -83,7 +87,7 @@ pub uninterp spec fn iterator_max_post<I, A>(iter: I, ret: Option<A>) -> bool;
 /// Like vstd's provided-method specs in `std_specs/iter.rs`, this model trusts
 /// `obeys_prophetic_iter_laws()` to include consistency of consuming methods with
 /// `next`. Constraining the underlying implementations remains a vstd TODO.
-/// Membership and ordering guarantees additionally require vstd's comparison laws.
+/// Ordering guarantees additionally require vstd's comparison laws.
 pub broadcast axiom fn axiom_iterator_max_postcondition<
     A: Ord,
     I: Iterator<Item = A> + IteratorSpec,
@@ -94,19 +98,21 @@ pub broadcast axiom fn axiom_iterator_max_postcondition<
     ensures
         iter.produces().all(|p: bool| p),
         ret is None <==> iter.remaining().len() == 0,
-        obeys_cmp::<A>() ==> (ret matches Some(greatest) ==> {
+        ret matches Some(greatest) ==> {
             &&& iter.remaining().contains(greatest)
-            &&& forall|k: int|
-                #![trigger iter.remaining()[k]]
-                0 <= k < iter.remaining().len() ==> greatest.cmp_spec(&iter.remaining()[k])
-                    != Ordering::Less
-            &&& exists|j: int|
-                0 <= j < iter.remaining().len() && iter.remaining()[j] == greatest && forall|k: int|
-
-                    j < k < iter.remaining().len() ==> (#[trigger] iter.remaining()[k]).cmp_spec(
-                        &greatest,
-                    ) == Ordering::Less
-        }),
+            &&& obeys_cmp::<A>() ==> {
+                &&& forall|k: int|
+                    #![trigger iter.remaining()[k]]
+                    0 <= k < iter.remaining().len() ==> greatest.cmp_spec(&iter.remaining()[k])
+                        != Ordering::Less
+                &&& exists|j: int|
+                    0 <= j < iter.remaining().len() && iter.remaining()[j] == greatest && forall|
+                        k: int,
+                    |
+                        j < k < iter.remaining().len() ==> (
+                        #[trigger] iter.remaining()[k]).cmp_spec(&greatest) == Ordering::Less
+            }
+        },
 ;
 
 /// Verus proxy for the standard library's array `IntoIter`.
