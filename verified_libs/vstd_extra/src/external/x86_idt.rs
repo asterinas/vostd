@@ -24,6 +24,18 @@ pub struct ExVirtAddr(VirtAddr);
 #[verifier::reject_recursive_types(F)]
 pub struct ExEntry<F>(Entry<F>);
 
+type IdtEntry = Entry<()>;
+
+global size_of IdtEntry == 16;
+
+pub broadcast proof fn lemma_idt_entry_layout()
+    ensures
+        #[trigger] vstd::layout::size_of::<Entry<()>>() == 16,
+{
+    broadcast use VERUS_layout_of_IdtEntry;
+
+}
+
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExEntryOptions(EntryOptions);

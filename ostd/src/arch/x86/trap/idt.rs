@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Configure the Interrupt Descriptor Table (IDT).
 use vstd::prelude::*;
-use vstd_extra::external::x86_idt::{
-    self, IdtrLoad, gate, idt_load_context, is_canonical, kernel_code_selector,
-    software_interrupt_safe, static_idt_at, usable_gate, valid_handler, valid_vector,
+use vstd_extra::{
+    external::x86_idt::{
+        self, IdtrLoad, gate, idt_load_context, is_canonical, kernel_code_selector,
+        lemma_idt_entry_layout, software_interrupt_safe, static_idt_at, usable_gate, valid_handler,
+        valid_vector,
+    },
+    panic::allowed_to_panic_if,
 };
-use vstd_extra::panic::allowed_to_panic_if;
 
 use alloc::boxed::Box;
 use core::arch::global_asm;
@@ -97,7 +100,7 @@ fn published_idt<F: FnOnce() -> Idt>(f: F) -> (&'static Idt, *const Entry<()>) {
 )]
 pub(super) fn init() {
     proof! {
-        broadcast use VERUS_layout_of_IdtEntry;
+        broadcast use lemma_idt_entry_layout;
     }
     /* Bind the pointer to the slice published by this Once, including on cache hits.
      * Origin Rust: let idt = *GLOBAL_IDT.call_once(|| {
@@ -183,10 +186,6 @@ pub(super) fn init() {
 }
 
 verus! {
-
-type IdtEntry = Entry<()>;
-
-global size_of IdtEntry == 16;
 
 impl Idt {
     #[verifier::type_invariant]
