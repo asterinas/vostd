@@ -4,11 +4,12 @@ use vstd::prelude::*;
 verus! {
 
 /// Rust 1.100.0, library/alloc/src/slice.rs: preserves length and clones elements.
-/// Clone/allocation may panic.
+/// An empty slice needs no allocation and clones no elements.
 pub assume_specification<T: Clone>[ <[T]>::to_vec ](slice: &[T]) -> (result: alloc::vec::Vec<T>)
     ensures
         result@.len() == slice@.len(),
         forall|i: int| 0 <= i < result@.len() ==> #[trigger] cloned(slice@[i], result@[i]),
+    no_unwind when slice.len() == 0
 ;
 
 /// Rust 1.100.0, library/core/src/convert/mod.rs: AsMut<[T]> for [T]
