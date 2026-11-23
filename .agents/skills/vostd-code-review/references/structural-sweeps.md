@@ -33,20 +33,16 @@ resolved repository and dependency source roots, then inspect the hits. Declarat
 are not independent consumers. Account for method calls, aliases, macros, trait
 implementations, broadcast groups and documented external consumers before deciding.
 
-- **`avoid-unused-spec-helpers`:** With no non-self consumer, check whether the helper
-  intentionally defines an abstraction used externally. Public visibility alone is
-  not evidence of a consumer. Report an unused helper only when the available source
-  and API evidence support the claim; with an incomplete tree, qualify the scope of
+- **`avoid-unused-spec-helpers`:** For a helper with no non-self consumer,
+  public visibility alone is not evidence of a consumer. Report an unused helper only
+  when the available source and API evidence support the claim; with an incomplete tree, qualify the scope of
   the search and leave external use unresolved. An empty body alone is not dead code.
-- **`inline-single-use-proof-helpers`:** For one external caller, examine whether the
-  helper adds an independent abstraction used by clients, real reuse, or demonstrated
-  solver-context isolation. Merely having an `ensures` clause, or stating a fact that
-  could hypothetically be reused, is not evidence of an independent abstraction.
-  Check its actual role and consumers. Otherwise keep that proof step in the caller.
-  Recursion requires a name,
-  not necessarily a module-level API: consider a local named proof function, preserving
-  its decreases argument. Do not recommend literal recursive expansion or claim that
-  inlining will verify without evidence.
+- **`inline-single-use-proof-helpers`:** For one external caller, test the
+  guideline's exceptions against actual uses and verification evidence. Merely having
+  an `ensures` clause, or stating a fact that could hypothetically be reused, is not
+  evidence of an independent abstraction. For recursive helpers, check that a proposed
+  local placement preserves the decreases argument. Do not recommend literal recursive
+  expansion or claim that inlining will verify without evidence.
 - **`reuse-existing-specifications`:** Inspect both new helpers and repeated inline
   conditions/proof steps. Search by the property being established as well as names:
   receiver/model predicates, existing postconditions, library operations and lemmas.
@@ -62,9 +58,8 @@ implementations, broadcast groups and documented external consumers before decid
   Missing vendored sources mean the reuse search is incomplete, not that no reuse exists.
 - **`defer-auxiliary-proof-functions`:** Read item order, not just declarations. Identify
   private side-obligation lemmas appearing before the APIs/critical proofs they support.
-  Keep public model/spec/proof APIs and `View`/`Inv` implementations with the interface;
-  move only internal scaffolding to the trailing helper section. Cite both helper and
-  following API locations. Do not classify every private proof as auxiliary.
+  Cite both helper and following API locations. Do not classify every private proof
+  as auxiliary.
 
 Also inspect proof-only local bindings introduced or left behind by changed proof
 blocks, or within the requested snapshots/ranges in `files` mode. For each candidate, search uses within its lexical scope, accounting for
