@@ -525,6 +525,7 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
 #[verus_verify]
 impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
     /// A None result is possible before completion, while running, or poisoned.
+    /// A None result describes only this observation, not subsequent calls.
     #[verus_verify(external_body)]
     #[verus_spec(r =>
         with Tracked(initialized): Tracked<Option<&FpuOnceInitialized<T>>>

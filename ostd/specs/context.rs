@@ -89,6 +89,8 @@ pub open spec fn cpu_feature_model() -> CpuFeatureModel {
 /// Fixes the maximum basic leaf, the modeled feature bits and the TSC calibration
 /// fields of leaf 0x15. The base frequency in leaf 0x16 is scoped to a logical
 /// processor (Intel SDM Vol. 1, Table 21-54).
+/// For leaf 0xD, only the support bitmaps in subleaves 0 and 1 are constrained.
+/// Component layout information in subleaves >= 2 remains outside this model.
 pub open spec fn cpuid_consistent(
     model: CpuFeatureModel,
     leaf: u32,
