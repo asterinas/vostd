@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795403429960,
+  "lastUpdate": 1795406182991,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -13710,6 +13710,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=392ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b94500acd5ecf9ff19354332252ea7a95f7a90df",
+          "message": "prove: arch::pci (x86) & io (#706)\n\n* prove: arch::pci (x86)\n\n* prove: io\n\n* prove: port allocation and access\n\n* refactor: move x86 I/O port specs to vstd_extra\n\n* refactor: replace state machine macros with ghost tokens\n\n* prove: derive io_mem window ordering from the boot builder\n\n* refactor: add specifications for bitmap-backed ID allocator and update dependencies\n\n* refine\n\n* prove: assume\n\n* refine\n\n* chore: add comments for modified exec code\n\n* fmt\n\n* prove: drop id-alloc assume_specifications, wire io_port to the proven IdAlloc\n\n* refine: according to the review skill\n\n* sync: ostd/src/io/io_port to 0.18.1\n\n* refine: replace `obeys_pio_model` with `valid_io_port_access` in I/O port handling\n\n* chore: update with `OnceImpl` update\n\n* refine: carry PIO allocator's ghost token via the lock's ResourceInvariant\n\n* refine: remove modeled id alloc wrapper\n\n* refine\n\n* refine: according to the review skill\n\n* refine: xinyi\n\n* chore: reorder\n\n* refine: xinyi on IoPort specs and PCI port encoding\n\n* refine: review skill\n\n* refine: review skill\n\n* refine: xinyi on simplify id_alloc_bits with seq fold\n\n* refine: xinyi on wrapper and as uszie\n\n* refactor: xinyi on enhance IoPort structure with tracked_claim for allocator ownership\n\n* refactor: update panic handling and improve allocator initialization specifications\n\n* fix\n\n* refactor: prove range allocator state tracking\n\n* Revert \"refactor: prove range allocator state tracking\"\n\nThis reverts commit 01d07e207324aff2beab34a26bc6414fd231b9f5.\n\n* refactor(io_mem): add verified range allocator state tracking\n\n* fix: IRC11\n\n* refactor: replace RangeAllocatorState with splittable range permissions\n\n* refactor: remove range allocator state in favor of splittable permissions to remove rlimit\n\n* simplify\n\n* refine\n\n* refine\n\n* refine\n\n* refine: clarify range allocator permission names\n\n* fix: align x86_64 dependency versions to fix verification build\n\n* fix: for risc-v\n\n* refactor: update specifications for id allocator and PCI address encoding\n\n* refine\n\n* refine\n\n* refine: add doc for allocated_id and free_id\n\n* refine: rename\n\n* refine: Simplify MMIO specifications and relax window ordering constraints\n\n* refine\n\n* refine\n\n* refine\n\n* simplify\n\n* fix: for loongarch\n\n* refine: restore continue in for due to Verus update\n\n* fix: update IRC11 ci\n\n* refine: Iterator::any with closure\n\n* refine: more restore\n\n* refine: restore exec code change\n\n* refine\n\n* refine\n\n* refine: merge proof\n\n* refine\n\n* refine\n\n* refine spec for rangeallocator::alloc\n\n* refine\n\n* fmt\n\n* refine\n\n* fix: remove task::AnyAtomicGuard\n\n* prove: ktest illegal_region\n\n* prove: ktest conflict_region\n\n* refine: comments and inv\n\n* refine: add axiom for io_port\n\n* refine: opt model\n\n* refine: minor\n\n* fix: update issue for valid_io_port_access\n\n* fix\n\n* fix const\n\n* fix error in cpu::set\n\n* fix for merge\n\n* refine\n\n* refine\n\n* refine\n\n* refine: keep MMIO allocation permissions inside the allocator\n\n* ktest for io_port\n\n* refine: update the executable code accordingly\n\n* refine: Seq::all\n\n* refine: fix I/O port acquisition bounds and contracts\n\n* fmt\n\n* fix merge error\n\n* refine: align with asterinas#4221\n\n* refine: remove const to keep max_io_port_for_t inside function\n\n* refine: trigger and comments\n\n* refine: comment\n\n* refine: require valid I/O port access types and specify out-of-range errors\n\n* refine: remove may_panic in requires for ktest\n\n* refine: drop redundant I/O port claim bounds and relax IoPort::new\n\n* refine: remove I/O port occupancy outputs and pass claims via verus_spec\n\n* refine: model free ranges for conditional MMIO reservation panics\n\n* refine: consolidate range allocator proof resources\n\n* refine: streamline range allocator proofs and remove redundant I/O specs\n\n* minor\n\n* update io_port exec code\n\n* fix some macro usage\n\n* add missing comments in ioport allocator\n\n* minor simplification\n\n* remove `allocater_inner` in `acquire`\n\n* minor\n\n* remove several assume in ioport allocator ktest\n\n* move `FreePemit` into `IoMem`\n\n* minor\n\n* simplify permission design\n\n* proof simplify\n\n* Update ci-irc11.yml\n\n* fmt\n\n* refine\n\n* fmt: cargo lock\n\n* remove `ranges_disjoint`\n\n* fix\n\n---------\n\nCo-authored-by: rikosellic <64517311+rikosellic@users.noreply.github.com>",
+          "timestamp": "2026-11-23T11:39:19+08:00",
+          "tree_id": "23d9c0e751779f86840362502898a12e53eacb0a",
+          "url": "https://github.com/asterinas/vostd/commit/b94500acd5ecf9ff19354332252ea7a95f7a90df"
+        },
+        "date": 1795406182274,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1061709733,
+            "unit": "rlimit",
+            "extra": "verified=4738 errors=0 smt-run=342,867ms wall=245,791ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 383678554,
+            "unit": "rlimit",
+            "extra": "smt-run=150,823ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 127715925,
+            "unit": "rlimit",
+            "extra": "smt-run=37,354ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 50368299,
+            "unit": "rlimit",
+            "extra": "smt-run=15,109ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,893ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9186788,
+            "unit": "rlimit",
+            "extra": "smt-run=2,277ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,496ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=946ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=732ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910611,
+            "unit": "rlimit",
+            "extra": "smt-run=839ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115797,
+            "unit": "rlimit",
+            "extra": "smt-run=315ms"
           }
         ]
       }
