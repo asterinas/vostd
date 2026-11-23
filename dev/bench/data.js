@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795427020534,
+  "lastUpdate": 1795436914530,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -14250,6 +14250,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=398ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aa424ec0f25fcbe142f6339e51c75024b77ef94",
+          "message": "prove: verify x86 serial register layout and port access bounds (#966)\n\n* Verify x86 serial register layout and port access bounds\n\n* Simplify serial port register contracts\n\n* Mark serial I/O methods for verification\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-23T20:17:41+08:00",
+          "tree_id": "3d4feb7a4602a16ec2335b884c610bf89233a15d",
+          "url": "https://github.com/asterinas/vostd/commit/2aa424ec0f25fcbe142f6339e51c75024b77ef94"
+        },
+        "date": 1795436913941,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1044509141,
+            "unit": "rlimit",
+            "extra": "verified=4748 errors=0 smt-run=286,969ms wall=203,509ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 384286048,
+            "unit": "rlimit",
+            "extra": "smt-run=135,558ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 127715925,
+            "unit": "rlimit",
+            "extra": "smt-run=29,574ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 50368299,
+            "unit": "rlimit",
+            "extra": "smt-run=13,875ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,844ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 9186788,
+            "unit": "rlimit",
+            "extra": "smt-run=1,784ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,269ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=746ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=580ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910611,
+            "unit": "rlimit",
+            "extra": "smt-run=630ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115797,
+            "unit": "rlimit",
+            "extra": "smt-run=285ms"
           }
         ]
       }
