@@ -1,5 +1,8 @@
 //! Runtime panic helper whose type (`-> !`) lets Verus discharge
 //! post-conditions by branch elimination at the call site.
+#[cfg(all(feature = "std", not(target_os = "none")))]
+extern crate std;
+
 use core::fmt::{Arguments, Display, Error, Formatter};
 use vstd::prelude::*;
 use vstd::vpanic;
@@ -17,6 +20,30 @@ mod internal {
 pub open spec fn allowed_to_panic_if(condition: bool) -> bool {
     condition ==> internal::may_panic()
 }
+
+// TODO: Propose the Any proxy to upstream vstd and coordinate panic_any permissions.
+#[cfg(all(feature = "std", not(target_os = "none")))]
+#[verifier::external_trait_specification]
+pub trait ExAny: 'static {
+    type ExternalTraitSpecificationFor: core::any::Any;
+}
+
+/// Rust 1.100, library/std/src/panic.rs: begin_panic forwards this payload to the panic handler.
+#[cfg(all(feature = "std", not(target_os = "none")))]
+pub assume_specification<M: 'static + core::any::Any + Send>[ std::panic::panic_any::<M> ](
+    msg: M,
+) -> !
+    requires
+        allowed_to_panic_if(true),
+;
+
+// Rust 1.100 core/src/panicking.rs: the single-Display form of panic! forwards
+// the argument to panic_fmt. Its Display implementation may run in the panic hook.
+// TODO: Propose this specification upstream once panic permissions are supported.
+pub assume_specification<T: Display>[ core::panicking::panic_display::<T> ](value: &T) -> !
+    requires
+        allowed_to_panic_if(true),
+;
 
 /// Unconditionally panics. The caller must permit a panic.
 #[verifier::external_body]
