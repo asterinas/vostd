@@ -1839,7 +1839,12 @@ pub mod install {
 
         #[test]
         fn bootstrap_takes_the_numbered_patches_whatever_they_are_called() {
-            for name in ["1-x.patch", "0001-first.patch", "0042-some-longer-name.patch", "9999-last.patch"] {
+            for name in [
+                "1-x.patch",
+                "0001-first.patch",
+                "0042-some-longer-name.patch",
+                "9999-last.patch",
+            ] {
                 assert!(patch_sequence(name).is_some(), "{name}");
             }
 
