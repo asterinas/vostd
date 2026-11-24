@@ -127,7 +127,7 @@ mod frame {
         assert_eq!(ref_count_before, 1);
         verus_exec_expr! { frame.drop(Tracked(regions)) }; /* drop(frame); */
         proof! {
-            assert(regions.slot_owner(paddr_before).ref_count() == REF_COUNT_UNUSED);
+            assert(regions.ref_count(frame_to_index(paddr_before)) == REF_COUNT_UNUSED);
         }
         let Ok(new_frame) = #[verus_spec(with Tracked(regions))]
         FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
