@@ -8,14 +8,16 @@
 //! Reference: <https://wiki.osdev.org/Programmable_Interval_Timer>
 //!
 
+use vstd::prelude::*;
+
 use crate::{
     arch::{
         device::io_port::WriteOnlyAccess,
-        kernel::{IRQ_CHIP, MappedIrqLine},
+        /* kernel::{IRQ_CHIP, MappedIrqLine}, */
         timer::TIMER_FREQ,
     },
     io::{IoPort, sensitive_io_port},
-    trap::irq::IrqLine,
+    /* trap::irq::IrqLine, */
 };
 
 /// PIT Operating Mode.
@@ -25,6 +27,7 @@ use crate::{
 ///
 /// Note that if IOAPIC is used to manage interrupts and square wave mode is enabled, the frequency at which
 /// clock interrupts are generated is `Frequency/2`.
+#[verus_verify]
 #[repr(u8)]
 pub enum OperatingMode {
     /// Triggers an interrupt (only on channel 0) when the counter is terminated (1 -> 0).
@@ -86,6 +89,7 @@ pub enum OperatingMode {
 }
 
 /// This bits tell the PIT what access mode is used for the selected channel.
+#[verus_verify]
 #[repr(u8)]
 enum AccessMode {
     /// When this command is sent, the current count is copied into latch register which can be read
@@ -101,6 +105,7 @@ enum AccessMode {
 }
 
 /// Used to select the configured channel in the `MODE_COMMAND_PORT` of the PIT.
+#[verus_verify]
 #[repr(u8)]
 enum Channel {
     /// Channel 0. For more details, check `CHANNEL0_PORT` static variable
@@ -164,24 +169,63 @@ sensitive_io_port! {
     }
 }
 
+crate::const_assert!(MODE_COMMAND_PORT.port() == 0x43 && CHANNEL0_PORT.port() == 0x40);
+
+#[verus_verify]
 const TIMER_RATE: u32 = 1193182;
 const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
+#[verus_verify]
 pub(crate) fn init(operating_mode: OperatingMode) {
+    proof_decl! {
+        let ghost expected_command: u8 = match operating_mode {
+            OperatingMode::InterruptOnTerminalCount => 0x30,
+            OperatingMode::OneShotHardwareRetriggerable => 0x32,
+            OperatingMode::RateGenerator => 0x34,
+            OperatingMode::SquareWaveGenerator => 0x36,
+            OperatingMode::SoftwareTriggeredStrobe => 0x38,
+            OperatingMode::HardwareTriggeredStrobe => 0x3A,
+        };
+        let tracked mut remaining = Ghost(seq![
+            (0x43u16, expected_command), (0x40u16, 0xA9u8), (0x40u16, 0x04u8),
+        ]);
+    }
     // Set PIT mode
     // Bit 0 is BCD/binary mode, which is always set to binary mode(value: 0)
-    MODE_COMMAND_PORT.write(
-        ((operating_mode as u8) << 1)
-            | ((AccessMode::LowAndHighByte as u8) << 4)
-            | ((Channel::Channel0 as u8) << 6),
-    );
+    /* Name the byte checked below.
+     * Origin Rust: MODE_COMMAND_PORT.write(((operating_mode as u8) << 1)
+     *     | ((AccessMode::LowAndHighByte as u8) << 4) | ((Channel::Channel0 as u8) << 6));
+     */
+    let command = ((operating_mode as u8) << 1)
+        | ((AccessMode::LowAndHighByte as u8) << 4)
+        | ((Channel::Channel0 as u8) << 6);
+    proof! {
+        assert(forall|mode: u8| mode <= 5 ==>
+            #[trigger] ((mode << 1u8) | (3u8 << 4u8) | (0u8 << 6u8)) == ((0x30 + mode * 2) as u8)) by (bit_vector);
+    }
+    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    MODE_COMMAND_PORT.write(command);
 
     // Set timer frequency
+    /* Name the two write operands for compile-time verification.
+     * Origin Rust: const CYCLE: u32 = TIMER_RATE / TIMER_FREQ as u32;
+     * CHANNEL0_PORT.write((CYCLE & 0xFF) as _);
+     * CHANNEL0_PORT.write((CYCLE >> 8) as _);
+     */
     const CYCLE: u32 = TIMER_RATE / TIMER_FREQ as u32;
-    CHANNEL0_PORT.write((CYCLE & 0xFF) as _);
-    CHANNEL0_PORT.write((CYCLE >> 8) as _);
+    const LOW: u8 = (CYCLE & 0xFF) as u8;
+    const HIGH: u8 = (CYCLE >> 8) as u8;
+    proof! {
+        assert(TIMER_FREQ == 1000 && CYCLE == 1193 && LOW == 0xA9 && HIGH == 0x04) by (compute);
+    }
+    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    CHANNEL0_PORT.write(LOW);
+    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    CHANNEL0_PORT.write(HIGH);
+    proof! { assert(remaining@.len() == 0); }
 }
 
+/* IRQ routing is outside the enabled kernel IRQ module.
 /// Enables the interrupt line that is connected to the PIT.
 pub(crate) fn enable_interrupt(irq_line: IrqLine) -> MappedIrqLine {
     IRQ_CHIP
@@ -190,3 +234,4 @@ pub(crate) fn enable_interrupt(irq_line: IrqLine) -> MappedIrqLine {
         .map_isa_pin_to(irq_line, TIMER_INTERRUPT)
         .unwrap()
 }
+*/

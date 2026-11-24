@@ -297,8 +297,24 @@ impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
 #[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
+    ///
+    /// A verified caller may pass an expected sequence. This write must match
+    /// its first port and value, and consumes that pair.
+    #[verus_spec(
+        with Tracked(expected): Tracked<Option<&mut Ghost<Seq<(u16, T)>>>>,
+        requires expected matches Some(writes) ==> {
+            &&& writes@.len() > 0
+            &&& writes@[0] == (self@, value)
+        },
+        ensures expected matches Some(writes) ==> final(writes)@ == writes@.drop_first(),
+    )]
     pub fn write(&self, value: T) {
-        proof! { use_type_invariant(self); }
+        proof! {
+            use_type_invariant(self);
+            if let Some(writes) = expected {
+                *writes = Ghost(writes@.drop_first());
+            }
+        }
         unsafe { PortWrite::write_to_port(self.port, value) }
     }
 }
@@ -355,7 +371,10 @@ macro_rules! sensitive_io_port {
     )* }) => {
         $(
             $(#[$meta])*
+            #[vstd::prelude::verus_spec(ensures $name@ == $port)]
             $vis static $name: IoPort<$size, $access> = {
+                // Only the erased build emits the linker record.
+                #[cfg(not(verus_keep_ghost_body))]
                 #[used]
                 // SAFETY: This is properly handled in the linker script.
                 #[unsafe(link_section = ".sensitive_io_ports")]
@@ -364,6 +383,7 @@ macro_rules! sensitive_io_port {
                     end: $name.port() + $name.size(),
                 };
 
+                vstd::prelude::proof! { broadcast use vstd_extra::external::group_io_port_models; }
                 unsafe { IoPort::new($port) }
             };
         )*
