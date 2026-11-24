@@ -641,7 +641,6 @@ impl FpuState {
         } else {
             0
         };
-        &&& area_size == 512 || 576 <= area_size <= self.extended_state_area@.len() + 512 + 64
         &&& self.legacy == source.legacy
         &&& self.features == source.features
         &&& self.compaction == source.compaction
@@ -661,7 +660,7 @@ pub struct FpuContext {
 
 impl FpuContext {
     #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
+    pub closed spec fn type_inv(self) -> bool {
         self.area_size == 512 || 576 <= self.area_size <= MAX_XSAVE_AREA_SIZE
     }
 
@@ -687,7 +686,9 @@ impl FpuContext {
     }
 
     pub open spec fn copied_from(&self, source: &Self) -> bool {
-        self.len() == source.len() && self.state().copied_from(&source.state(), source.len())
+        &&& self.len() == source.len()
+        &&& source.type_inv()
+        &&& self.state().copied_from(&source.state(), source.len())
     }
 }
 
@@ -1081,12 +1082,10 @@ fn xsave_size_ref() -> &'static FpuOnce<usize, XSaveSizeInvariant> {
 #[verus_verify]
 const MAX_XSAVE_AREA_SIZE: usize = 4096;
 
-verus! {
-
-pub(in crate::arch) fn enable_essential_features(
-    Tracked(cpu): Tracked<&mut X86CpuRegisterOwner>,
-    Tracked(features_initialized): Tracked<&FpuOnceInitialized<x86::cpuid::FeatureInfo>>,
-) -> (result: Tracked<FpuInitialization>)
+#[verus_spec(
+    with Tracked(cpu): Tracked<&mut X86CpuRegisterOwner>,
+         Tracked(features_initialized): Tracked<&FpuOnceInitialized<x86::cpuid::FeatureInfo>>
+         -> result: Tracked<FpuInitialization>
     requires
         old(cpu).xcr0_readable(),
         old(cpu)@.fpu,
@@ -1108,7 +1107,10 @@ pub(in crate::arch) fn enable_essential_features(
             x87_tag: 0xffff,
             ..old(cpu)@
         }),
-{
+)]
+pub(in crate::arch) fn enable_essential_features() {
+    proof_decl! { let tracked initialized; }
+    verus_exec_expr! {{
     let (_, Tracked(max_features)) = max_features_ref().call_once(
         || -> (r: u64)
             ensures
@@ -1184,16 +1186,21 @@ pub(in crate::arch) fn enable_essential_features(
         }
     }
     let tracked features = features_initialized.tracked_duplicate();
-    Tracked(
-        FpuInitialization {
+    proof {
+        initialized = FpuInitialization {
             features,
             max_features: Some(max_features),
             area_size: Some(area_size),
             cpu: cpu@.cpu,
             xcr0: cpu@.xcr0,
-        },
-    )
+        };
+    }
+    }}
+    proof_with!(|= Tracked(initialized));
+    ()
 }
+
+verus! {
 
 impl FpuContext {
     pub proof fn lemma_initial_state_bytes(&self, other: &Self, features: u64)

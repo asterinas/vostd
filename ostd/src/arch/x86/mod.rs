@@ -357,9 +357,9 @@ pub(crate) fn enable_cpu_features() {
         let ghost configured_cr4 = cpu@.cr4;
         assert(configured_cr4 & 0x200u64 != 0) by (bit_vector)
             requires configured_cr4 == old_cr4 | 0x50680u64;
-        let Tracked(result) = cpu::context::enable_essential_features(
-            Tracked(&mut *cpu), Tracked(&features_initialized)
-        );
+        let tracked result;
+        #[verus_spec(with Tracked(&mut *cpu), Tracked(&features_initialized) => Tracked(result))]
+        cpu::context::enable_essential_features();
         unsafe {
             // enable non-executable page protection
             /* Origin Rust: x86_64::registers::model_specific::Efer::update(|efer| {
