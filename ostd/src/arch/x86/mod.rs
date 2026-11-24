@@ -238,7 +238,6 @@ pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
         576 <= (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) <= 4096,
         (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) as usize
             == cpu::context::platform_xsave_area_size(),
-        vstd_extra::panic::allowed_to_panic_if(true),
     ensures initialization@.enabled_on(final(cpu)),
             final(cpu)@.fxsr,
             initialization@.uses_xsave(),

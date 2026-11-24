@@ -10,10 +10,7 @@
 //! runtime protocol and does not model spin::Once's waiting or poisoning behavior.
 use vstd::{prelude::*, resource::Loc};
 
-use crate::{
-    panic::allowed_to_panic_if, resource::ghost_resource::excl::ExclusiveGhost,
-    resource_invariant::ValueInvariant,
-};
+use crate::{resource::ghost_resource::excl::ExclusiveGhost, resource_invariant::ValueInvariant};
 
 use core::arch::x86_64::CpuidResult;
 use spin::once::Once as SpinOnce;
@@ -548,13 +545,13 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
 verus! {
 
 impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
+    /// May unwind if the initializer panics or another initializer poisons the cell.
     #[verifier::external_body]
     pub fn call_once<Init: FnOnce() -> T>(&self, f: Init) -> (r: (
         &T,
         Tracked<FpuOnceInitialized<T>>,
     ))
         requires
-            allowed_to_panic_if(true),
             f.requires(()),
             forall|value: T| #[trigger] f.ensures((), value) ==> self.value_inv(value),
         ensures

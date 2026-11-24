@@ -1,12 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
-//!
-//! Register instructions and spin::Once publication use the contracts in
-//! vstd_extra::external::x86. Save/load remain outside verification and have no
-//! verified contracts.
-//! The representation invariant bounds the byte-view length, not register contents
-//! or hardware restore validity. Save and mutable byte access may replace saved
-//! fields; hardware write bounds and restore validity remain for later XSAVE work.
 use ostd_pod::pod_bytes;
 use vstd::{prelude::*, resource::Loc};
 use vstd_extra::{
@@ -15,13 +8,13 @@ use vstd_extra::{
         clear_cr0_fpu_flags, cr0_emulate_coprocessor, cr0_or, cr0_task_switched, feature_info_ecx,
         initialize_x87, read_cr0, read_enabled_xsave_size, read_xcr0,
     },
-    panic::allowed_to_panic_if,
     resource_invariant::ValueInvariant,
 };
 
-use crate::specs::context::cpu_feature_model;
-
-use crate::arch::{cpu_features_cell_id, cpu_features_ref};
+use crate::{
+    arch::{cpu_features_cell_id, cpu_features_ref},
+    specs::context::cpu_feature_model,
+};
 
 use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
@@ -784,9 +777,6 @@ impl FpuContext {
     }
 
     /// Returns the FPU context as a mutable byte slice.
-    ///
-    /// Editing these bytes may invalidate the hardware restore image.
-    /// The backing bytes outside the returned slice remain unchanged.
     #[verus_spec(r =>
         ensures final(self).len() == old(self).len(),
                 r.len() == old(self).len(),
@@ -847,7 +837,6 @@ impl Clone for FpuContext {
  * resources required by XSaveArea::new. */
 #[verus_verify]
 impl FpuContext {
-    /// Copies saved fields and the active extended prefix; reserved words and the inactive tail are zeroed.
     #[verus_spec(r =>
         with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
         requires init.uses_xsave() ==> cpu.xcr0_readable(),
@@ -1060,8 +1049,6 @@ fn max_features_ref() -> &'static FpuOnce<u64, XStateFeaturesInvariant> {
 /// X87 | SSE | AVX | OPMASK | ZMM_HI256 | HI16_ZMM
 const XFEATURE_MASK_USER_RESTORE: u64 = 0b1110_0111;
 
-/* Origin Rust: static XSAVE_AREA_SIZE: Once<usize> = Once::new();
- * Attach the capacity predicate that every publishing closure must prove. */
 verus! {
 
 /// Startup/configuration preconditions relate this shared size to each enabled
@@ -1078,6 +1065,8 @@ impl ValueInvariant<usize> for XSaveSizeInvariant {
 
 } // verus!
 /// The real size in bytes of the XSAVE area containing all states enabled by XCRO | IA32_XSS.
+/* Origin Rust: static XSAVE_AREA_SIZE: Once<usize> = Once::new();
+ * Attach the capacity predicate that every publishing closure must prove. */
 #[verus_verify]
 static XSAVE_AREA_SIZE: FpuOnce<usize, XSaveSizeInvariant> =
     verus_exec_expr! { FpuOnce::new(Ghost(XSaveSizeInvariant)) };
@@ -1108,7 +1097,6 @@ pub(in crate::arch) fn enable_essential_features(
         576 <= (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) <= 4096,
         (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) as usize == platform_xsave_area_size(),
         features_initialized.cell() == cpu_features_cell_id(),
-        allowed_to_panic_if(true),
     ensures
         result@.enabled_on(final(cpu)),
         result@.uses_xsave(),
