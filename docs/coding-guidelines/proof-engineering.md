@@ -276,6 +276,15 @@ always `bytes.len()`, and callers now write
 `valid_device_scopes(bytes[scope_len..])` with the
 [`seq-range-slicing`](maintainability.md#seq-range-slicing) sugar.
 
+For a spec that accumulates a result in sequence order, prefer
+`seq[..count].fold_left(init, step)` when the recursion processes one
+element at a time. Preserve the prefix bounds, the initial value for an
+empty prefix, and the order and conditions of the accumulator updates.
+In PR [#931](https://github.com/asterinas/vostd/pull/931#discussion_r4596430926),
+`flat_binary_prefix` folds over the program headers in order, updating
+the binary for loadable segments and carrying the accumulator through
+unchanged for other headers.
+
 See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763971349),
 [#704](https://github.com/asterinas/vostd/pull/704#issuecomment-5265438143),
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573),
@@ -287,9 +296,24 @@ See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763
 <!-- guideline: quantifiers-and-triggers -->
 
 Prefer standard predicates such as `Seq::all` when they express the property
-directly. Their predicate-based triggers can reduce unnecessary instantiations
-compared with broad index triggers such as `s[i]`. Check the predicate's
-definition and verify the effect in the actual proof context.
+directly. Check the predicate's definition and verify the effect of its
+triggers in the actual proof context.
+
+When a bounded `forall` uses one index across multiple sequences, check
+whether it combines a property of each element with a position-wise relation.
+Express the element property with `Seq::all` and consider a sequence equality
+with `map_values` for the relation. Check that the rewritten clauses preserve
+the index domain, length guarantees, and element relation, including when the
+sequences are empty.
+
+In PR [#948](https://github.com/asterinas/vostd/pull/948#discussion_r4625954993),
+the slice contract asserted that every destination slot contained
+`MemContents::Init` of the corresponding returned element. The
+[rewrite](https://github.com/asterinas/vostd/commit/020854b) used
+`final(dst)@.all(|slot: MaybeUninit<T>| slot.mem_contents().is_init())`
+to express initialization and
+`final(ret)@ == final(dst)@.map_values(|slot: MaybeUninit<T>| slot.mem_contents().value())`
+to express value correspondence.
 
 Use a subrange predicate when it improves readability; retain an explicit
 quantifier when it better supports indexing or triggers. Do not add an axiom

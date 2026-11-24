@@ -22,7 +22,7 @@ preserve existing comments during proof work (see PR
 - [`restrict-generic-trusted-models`](proof-engineering.md#restrict-generic-trusted-models) — grant trusted model guarantees only to reviewed type and architecture combinations.
 - [`distinguish-spec-and-exec-indexing`](proof-engineering.md#distinguish-spec-and-exec-indexing) — use total spec indexing without dropping executable bounds checks or failure semantics.
 - [`reuse-existing-specifications`](proof-engineering.md#reuse-existing-specifications) — check `vstd` and existing or upstream models before introducing a new abstraction; remove cheats a verified proof replaces.
-- [`canonical-spec-models`](proof-engineering.md#canonical-spec-models) — use the simplest standard mathematical model that preserves the API semantics.
+- [`canonical-spec-models`](proof-engineering.md#canonical-spec-models) — use the simplest standard mathematical model that preserves the API semantics, including `Seq::fold_left` for ordered accumulation.
 - [`quantifiers-and-triggers`](proof-engineering.md#quantifiers-and-triggers) — use standard predicates and selective triggers to control quantifier instantiation.
 - [`implement-inv-for-models`](proof-engineering.md#implement-inv-for-models) — implement `Inv` for intrinsic model invariants a type invariant cannot enforce; never keep `Inv` and `type_invariant` for the same predicate.
 
@@ -38,7 +38,7 @@ preserve existing comments during proof work (see PR
 - [`attach-broadcast-axioms-once`](maintainability.md#attach-broadcast-axioms-once) — state a needed `broadcast use` once at the beginning of the function owning the proof step, not per branch.
 - [`group-imports-by-crate`](maintainability.md#group-imports-by-crate) — stack verification-added imports (`vstd`/`vstd_extra`, then `crate::specs`) above the original import list in blank-line-separated groups the formatter cannot cross, combine same-crate definitions into one `use`, and keep verification-added spec imports separate from inherited exec imports of that crate.
 - [`bind-option-payloads`](maintainability.md#bind-option-payloads) — bind a shared `Some` payload once instead of repeating implications and projections.
-- [`match-enum-results`](maintainability.md#match-enum-results) — express `Option`/`Result` shapes with `ret is Ok` and `ret matches Ok(id)`, and state each exhaustiveness direction once.
+- [`match-enum-results`](maintainability.md#match-enum-results) — express `Option`/`Result` shapes with `ret is Ok` and `ret matches Ok(id)`, state each exhaustiveness direction once, and use arrow projection for a known variant's payload.
 - [`preserve-exec-code`](maintainability.md#preserve-exec-code) — preserve executable code, existing comments, and source layout; distinguish actual rewrites from wrapping unchanged code in comments.
 - [`name-proof-roles`](maintainability.md#name-proof-roles) — name proof functions and resources after their proof and ownership roles.
 - [`avoid-unused-spec-helpers`](maintainability.md#avoid-unused-spec-helpers) — add spec and proof helpers only for a current caller or a documented abstraction boundary.
