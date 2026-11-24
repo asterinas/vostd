@@ -7,8 +7,10 @@ verus! {
 /*
 mod apic;
 mod hpet;
+*/
 pub(crate) mod pit;
 
+/*
 use core::sync::atomic::Ordering;
 
 use spin::Once;
@@ -21,6 +23,7 @@ use crate::{
     trap::{self, irq::IrqLine},
 };
 */
+
 /// The timer frequency (Hz).
 ///
 /// Here we choose 1000Hz since 1000Hz is easier for unit conversion and

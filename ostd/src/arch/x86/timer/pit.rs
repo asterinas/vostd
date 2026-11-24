@@ -7,15 +7,21 @@
 //!
 //! Reference: <https://wiki.osdev.org/Programmable_Interval_Timer>
 //!
+//! # Verified Properties
+//! Port layout and typed access ranges, command encoding, and the 1193-cycle
+//! divisor's low/high bytes are verified. PIO hardware write ordering, device
+//! effects, and IRQ0 generation are not modeled by these proofs.
+
+use vstd::prelude::*;
 
 use crate::{
     arch::{
         device::io_port::WriteOnlyAccess,
-        kernel::{IRQ_CHIP, MappedIrqLine},
+        /*kernel::{IRQ_CHIP, MappedIrqLine},*/
         timer::TIMER_FREQ,
     },
     io::{IoPort, sensitive_io_port},
-    trap::irq::IrqLine,
+    /*trap::irq::IrqLine,*/
 };
 
 /// PIT Operating Mode.
@@ -26,6 +32,7 @@ use crate::{
 /// Note that if IOAPIC is used to manage interrupts and square wave mode is enabled, the frequency at which
 /// clock interrupts are generated is `Frequency/2`.
 #[repr(u8)]
+#[verus_verify]
 pub enum OperatingMode {
     /// Triggers an interrupt (only on channel 0) when the counter is terminated (1 -> 0).
     /// The data port needs to be reset before the next interrupt.
@@ -87,6 +94,7 @@ pub enum OperatingMode {
 
 /// This bits tell the PIT what access mode is used for the selected channel.
 #[repr(u8)]
+#[verus_verify]
 enum AccessMode {
     /// When this command is sent, the current count is copied into latch register which can be read
     /// through the data port corresponding to the selected channel (I/O ports 0x40 to 0x42).
@@ -102,6 +110,7 @@ enum AccessMode {
 
 /// Used to select the configured channel in the `MODE_COMMAND_PORT` of the PIT.
 #[repr(u8)]
+#[verus_verify]
 enum Channel {
     /// Channel 0. For more details, check `CHANNEL0_PORT` static variable
     Channel0 = 0b00,
@@ -164,12 +173,41 @@ sensitive_io_port! {
     }
 }
 
+#[verus_verify]
 const TIMER_RATE: u32 = 1193182;
+#[verus_verify]
 const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
+#[verus_verify]
 pub(crate) fn init(operating_mode: OperatingMode) {
     // Set PIT mode
     // Bit 0 is BCD/binary mode, which is always set to binary mode(value: 0)
+    proof! {
+        let mode = operating_mode@;
+        assert(mode <= 5);
+        assert(verus_exec_expr!(operating_mode as u8) == mode);
+        let access = AccessMode::LowAndHighByte@;
+        let channel = Channel::Channel0@;
+        let command = (mode << 1) | (access << 4) | (channel << 6);
+        assert(command & 1 == 0
+            && (command >> 1) & 7 == mode
+            && (command >> 4) & 3 == 3
+            && (command >> 6) & 3 == 0) by (bit_vector)
+            requires mode <= 5, access == 3, channel == 0,
+                command == (mode << 1) | (access << 4) | (channel << 6);
+        assert(command_word(command, mode));
+        assert(((mode << 1) & (access << 4)) == 0
+            && ((mode << 1) & (channel << 6)) == 0
+            && ((access << 4) & (channel << 6)) == 0
+            && ((mode << 1) >> 1) == mode
+            && ((access << 4) >> 4) == access
+            && ((channel << 6) >> 6) == channel) by (bit_vector)
+            requires mode <= 5, access == 3, channel == 0;
+        assert(command_word(
+            ((verus_exec_expr!(operating_mode as u8)) << 1)
+                | ((verus_exec_expr!(AccessMode::LowAndHighByte as u8)) << 4)
+                | ((verus_exec_expr!(Channel::Channel0 as u8)) << 6), mode));
+    }
     MODE_COMMAND_PORT.write(
         ((operating_mode as u8) << 1)
             | ((AccessMode::LowAndHighByte as u8) << 4)
@@ -178,10 +216,34 @@ pub(crate) fn init(operating_mode: OperatingMode) {
 
     // Set timer frequency
     const CYCLE: u32 = TIMER_RATE / TIMER_FREQ as u32;
+    proof! {
+        assert(TIMER_FREQ == 1000);
+        assert(TIMER_FREQ <= u32::MAX);
+        assert(TIMER_FREQ as u32 == TIMER_FREQ);
+        assert(TIMER_FREQ as u32 != 0);
+        assert(CYCLE == 1193);
+        assert(1 <= CYCLE <= u16::MAX);
+        assert((CYCLE & 0xFF) <= u8::MAX) by (bit_vector)
+            requires CYCLE == 1193;
+        assert((CYCLE & 0xFF) as u8 == 0xA9) by (bit_vector)
+            requires CYCLE == 1193;
+    }
     CHANNEL0_PORT.write((CYCLE & 0xFF) as _);
+    proof! {
+        assert((CYCLE >> 8) <= u8::MAX) by (bit_vector)
+            requires CYCLE == 1193;
+        assert((CYCLE >> 8) as u8 == 0x04) by (bit_vector)
+            requires CYCLE == 1193;
+        let low = (CYCLE & 0xFF) as u8;
+        let high = (CYCLE >> 8) as u8;
+        assert(((high as u32) << 8) | (low as u32) == CYCLE) by (bit_vector)
+            requires CYCLE == 1193,
+                low == (CYCLE & 0xFF) as u8, high == (CYCLE >> 8) as u8;
+    }
     CHANNEL0_PORT.write((CYCLE >> 8) as _);
 }
 
+/*
 /// Enables the interrupt line that is connected to the PIT.
 pub(crate) fn enable_interrupt(irq_line: IrqLine) -> MappedIrqLine {
     IRQ_CHIP
@@ -189,4 +251,53 @@ pub(crate) fn enable_interrupt(irq_line: IrqLine) -> MappedIrqLine {
         .unwrap()
         .map_isa_pin_to(irq_line, TIMER_INTERRUPT)
         .unwrap()
+}*/
+
+macro_rules! impl_pit_field_view {
+    ($openness:ident $name:ident { $($variant:ident => $value:expr),+ $(,)? }) => {
+        verus! {
+        impl View for $name {
+            type V = u8;
+
+            $openness spec fn view(&self) -> u8 {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+        }
+        }
+    };
 }
+
+impl_pit_field_view!(open OperatingMode {
+    InterruptOnTerminalCount => 0b000,
+    OneShotHardwareRetriggerable => 0b001,
+    RateGenerator => 0b010,
+    SquareWaveGenerator => 0b011,
+    SoftwareTriggeredStrobe => 0b100,
+    HardwareTriggeredStrobe => 0b101,
+});
+impl_pit_field_view!(closed AccessMode {
+    LatchCountValueCommand => 0b00,
+    LowByteOnly => 0b01,
+    HighByteOnly => 0b10,
+    LowAndHighByte => 0b11,
+});
+impl_pit_field_view!(closed Channel {
+    Channel0 => 0b00,
+    Channel1 => 0b01,
+    Channel2 => 0b10,
+    ReadBackCommand => 0b11,
+});
+
+verus! {
+
+/// The binary, channel-zero, low-then-high-byte command used by `init`.
+spec fn command_word(command: u8, operating_mode: u8) -> bool {
+    &&& command & 1 == 0
+    &&& (command >> 1) & 7 == operating_mode
+    &&& (command >> 4) & 3 == 3
+    &&& (command >> 6) & 3 == 0
+}
+
+} // verus!

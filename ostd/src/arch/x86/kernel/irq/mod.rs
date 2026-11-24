@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-use alloc::{boxed::Box, vec::Vec};
+/*use alloc::{boxed::Box, vec::Vec};
 use core::{
     fmt,
     ops::{Deref, DerefMut},
@@ -12,9 +12,10 @@ use spin::Once;
 use super::acpi::get_acpi_tables;
 use crate::{Error, Result, io::IoMemAllocatorBuilder, sync::SpinLock, trap::irq::IrqLine};
 
-mod ioapic;
+mod ioapic;*/
 mod pic;
 
+/*
 /// An IRQ chip.
 ///
 /// This abstracts the hardware IRQ chips (or IRQ controllers), allowing the bus or device drivers
@@ -237,4 +238,4 @@ pub(in crate::arch) fn init(io_mem_builder: &IoMemAllocatorBuilder) {
         overrides: isa_overrides.into_boxed_slice(),
     };
     IRQ_CHIP.call_once(|| irq_chip);
-}
+}*/

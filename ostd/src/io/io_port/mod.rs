@@ -348,25 +348,64 @@ macro_rules! reserve_io_port_range {
 ///     }
 /// }
 /// ```
+/* Origin Rust:
+ * $vis static $name: IoPort<$size, $access> = {
+ *     #[used]
+ *     #[unsafe(link_section = ".sensitive_io_ports")]
+ *     static _RESERVED_IO_PORT_RANGE: crate::io::RawIoPortRange = crate::io::RawIoPortRange {
+ *         begin: $name.port(),
+ *         end: $name.port() + $name.size(),
+ *     };
+ *     unsafe { IoPort::new($port) }
+ * };
+ * Verus rejects link_section on a verified static. Keep registration outside
+ * the verified initializer and use literal endpoints without reading an exec static.
+ */
 macro_rules! sensitive_io_port {
     (unsafe { $(
-        $(#[$meta:meta])*
+        $(#[$($meta:tt)*])*
         $vis:vis static $name:ident: IoPort<$size:ty, $access:ty> = IoPort::new($port:expr);
     )* }) => {
         $(
-            $(#[$meta])*
-            $vis static $name: IoPort<$size, $access> = {
-                #[used]
-                // SAFETY: This is properly handled in the linker script.
-                #[unsafe(link_section = ".sensitive_io_ports")]
-                static _RESERVED_IO_PORT_RANGE: crate::io::RawIoPortRange = crate::io::RawIoPortRange {
-                    begin: $name.port(),
-                    end: $name.port() + $name.size(),
-                };
-
-                unsafe { IoPort::new($port) }
-            };
+            ::vstd::prelude::verus! {
+                $(#[$($meta)*])*
+                $vis exec static $name: $crate::io::IoPort<$size, $access>
+                    ensures
+                        ::vstd::view::View::view(&$name) == $port,
+                        !$name.is_overlapping(),
+                {
+                    proof {
+                        broadcast use ::vstd_extra::external::group_io_port_models;
+                        assert(::vstd_extra::external::obeys_io_port_access_spec::<$size>());
+                        assert(::vstd_extra::external::valid_io_port_access::<$size>($port));
+                    }
+                    unsafe { $crate::io::IoPort::new($port) }
+                }
+            }
+$crate::io::sensitive_io_port!(@register [$size, $port] [] $(#[$($meta)*])*);
         )*
+    };
+    (@register [$size:ty, $port:expr] [$($cfg:tt)*]) => {
+        $($cfg)*
+        #[verifier::external]
+        const _: () = {
+            #[used]
+            // SAFETY: This is properly handled in the linker script.
+            #[unsafe(link_section = ".sensitive_io_ports")]
+            static _RESERVED_IO_PORT_RANGE: $crate::io::RawIoPortRange = $crate::io::RawIoPortRange {
+                begin: $port,
+                end: $port + ::core::mem::size_of::<$size>() as u16,
+            };
+        };
+    };
+    (@register [$size:ty, $port:expr] [$($cfg:tt)*] #[cfg($($condition:tt)*)] $($rest:tt)*) => {
+        $crate::io::sensitive_io_port!(@register [$size, $port] [$($cfg)* #[cfg($($condition)*)]] $($rest)*);
+    };
+    (@register [$size:ty, $port:expr] [$($cfg:tt)*] #[cfg_attr($($condition:tt)*)] $($rest:tt)*) => {
+        $crate::io::sensitive_io_port!(@register [$size, $port] [$($cfg)* #[cfg_attr($($condition)*)]] $($rest)*);
+    };
+    (@register [$size:ty, $port:expr] [$($cfg:tt)*] #[$other:meta] $($rest:tt)*) => {
+        $crate::io::sensitive_io_port!(@register [$size, $port] [$($cfg)*] $($rest)*);
     };
 }
 
