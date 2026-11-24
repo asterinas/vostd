@@ -166,18 +166,6 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
         self.stream.as_ref().sync(self.offset..self.offset + self.len)
     }
 
-    /// Returns the device address of the first byte of the slice.
-    #[verus_spec(r =>
-        requires
-            self.inv(),
-        ensures
-            self.inv(),
-    )]
-    #[inline]
-    pub fn daddr(&self) -> Daddr where M: OwnerOf {
-        self.stream.as_ref().daddr() + self.offset
-    }
-
     /// Returns a reader to read data from the slice.
     #[inline]
     #[verus_spec(r =>
@@ -343,6 +331,20 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 },
             }
         }
+    }
+}
+
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> HasDaddr for DmaStreamSlice<
+    Dma,
+    M,
+> {
+    open spec fn daddr_requires(&self) -> bool {
+        self.inv()
+    }
+
+    #[inline]
+    fn daddr(&self) -> Daddr {
+        self.stream.as_ref().daddr() + self.offset
     }
 }
 
@@ -718,29 +720,28 @@ impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
 }
 
 #[verus_verify]
-impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf> HasDaddr for DmaStream<M> {
     /// Returns the starting device address.
     ///
     /// This is a glue-layer wrapper over [`Self::daddr_inner`].
     ///
     /// # Verified Properties
-    /// ## Preconditions
-    /// - The inner [`RwArc`] is well-formed.
     /// ## Postconditions
     /// - The inner [`RwArc`] remains well-formed.
     #[inline(always)]
     #[verus_spec(r =>
-        requires
-            self.inner.wf(),
         ensures
             self.inner.wf(),
             is_valid_daddr(r),
     )]
-    pub fn daddr(&self) -> Daddr {
+    fn daddr(&self) -> Daddr {
         let inner = self.read_inner();
         Self::daddr_inner(&inner)
     }
+}
 
+#[verus_verify]
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     /// Returns the DMA direction.
     ///
     /// This is a glue-layer wrapper over [`Self::direction_inner`].
