@@ -9,7 +9,7 @@ use libflate::{Finish, gzip, zlib};
 use no_std_io2::io;
 
 use super::no_std_io2::{
-    ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl, WriterState, axiom_slice_reader_model,
+    ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl, axiom_slice_reader_model,
     axiom_vec_writer_model, reader_model_valid, writer_model_valid,
 };
 
@@ -101,9 +101,14 @@ pub broadcast group group_libflate_models {
     axiom_zlib_reader_model,
 }
 
-pub uninterp spec fn gzip_state<W, E>(encoder: &gzip::Encoder<W, E>) -> WriterState;
+pub ghost struct EncoderState<W> {
+    pub initial_writer: W,
+    pub plain: Seq<u8>,
+}
 
-pub uninterp spec fn zlib_state<W, E>(encoder: &zlib::Encoder<W, E>) -> WriterState;
+pub uninterp spec fn gzip_state<W, E>(encoder: &gzip::Encoder<W, E>) -> Option<EncoderState<W>>;
+
+pub uninterp spec fn zlib_state<W, E>(encoder: &zlib::Encoder<W, E>) -> Option<EncoderState<W>>;
 
 #[verifier::external_trait_specification]
 pub trait ExLz77Encode {
@@ -111,14 +116,18 @@ pub trait ExLz77Encode {
 }
 
 impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
-    open spec fn writer_state(&self) -> WriterState {
-        gzip_state(self)
+    open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
+        gzip_state(self) matches Some(state) ==> gzip_state(next) == Some(
+            EncoderState { plain: state.plain + input, ..state },
+        )
     }
 }
 
 impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
-    open spec fn writer_state(&self) -> WriterState {
-        zlib_state(self)
+    open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
+        zlib_state(self) matches Some(state) ==> zlib_state(next) == Some(
+            EncoderState { plain: state.plain + input, ..state },
+        )
     }
 }
 
@@ -127,12 +136,9 @@ pub assume_specification<W: io::Write>[ gzip::Encoder::<W>::new ](inner: W) -> (
     io::Error,
 >)
     ensures
-        writer_model_valid::<W>() ==> (inner.writer_state() matches WriterState::Bytes(prefix) ==> {
-            result matches Ok(encoder) && gzip_state(&encoder) == WriterState::Gzip {
-                prefix,
-                plain: Seq::empty(),
-            }
-        }),
+        writer_model_valid::<gzip::Encoder<W>>() ==> (result matches Ok(encoder) && gzip_state(
+            &encoder,
+        ) == Some(EncoderState { initial_writer: inner, plain: Seq::empty() })),
 ;
 
 pub assume_specification<W: io::Write>[ zlib::Encoder::<W>::new ](inner: W) -> (result: Result<
@@ -140,12 +146,9 @@ pub assume_specification<W: io::Write>[ zlib::Encoder::<W>::new ](inner: W) -> (
     io::Error,
 >)
     ensures
-        writer_model_valid::<W>() ==> (inner.writer_state() matches WriterState::Bytes(prefix) ==> {
-            result matches Ok(encoder) && zlib_state(&encoder) == WriterState::Zlib {
-                prefix,
-                plain: Seq::empty(),
-            }
-        }),
+        writer_model_valid::<zlib::Encoder<W>>() ==> (result matches Ok(encoder) && zlib_state(
+            &encoder,
+        ) == Some(EncoderState { initial_writer: inner, plain: Seq::empty() })),
 ;
 
 pub uninterp spec fn finish_value<T, E>(finish: Finish<T, E>) -> T;
@@ -157,13 +160,14 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ gzip::Enc
     E,
 >::finish ](encoder: gzip::Encoder<W, E>) -> (result: Finish<W, io::Error>)
     ensures
-        writer_model_valid::<gzip::Encoder<W, E>>() ==> (gzip_state(
-            &encoder,
-        ) matches WriterState::Gzip { prefix, plain } ==> {
+        writer_model_valid::<gzip::Encoder<W, E>>() ==> (gzip_state(&encoder) matches Some(state)
+            ==> {
             &&& finish_error(result) is None
             &&& exists|stream: Seq<u8>| #[trigger]
-                gzip_encoding(plain, stream) && finish_value(result).writer_state()
-                    == WriterState::Bytes(prefix + stream)
+                gzip_encoding(state.plain, stream) && state.initial_writer.wrote_all(
+                    stream,
+                    &finish_value(result),
+                )
         }),
 ;
 
@@ -172,13 +176,14 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ zlib::Enc
     E,
 >::finish ](encoder: zlib::Encoder<W, E>) -> (result: Finish<W, io::Error>)
     ensures
-        writer_model_valid::<zlib::Encoder<W, E>>() ==> (zlib_state(
-            &encoder,
-        ) matches WriterState::Zlib { prefix, plain } ==> {
+        writer_model_valid::<zlib::Encoder<W, E>>() ==> (zlib_state(&encoder) matches Some(state)
+            ==> {
             &&& finish_error(result) is None
             &&& exists|stream: Seq<u8>| #[trigger]
-                zlib_encoding(plain, stream) && finish_value(result).writer_state()
-                    == WriterState::Bytes(prefix + stream)
+                zlib_encoding(state.plain, stream) && state.initial_writer.wrote_all(
+                    stream,
+                    &finish_value(result),
+                )
         }),
 ;
 
