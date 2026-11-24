@@ -15,6 +15,7 @@ preserve existing comments during proof work (see PR
 
 ### Proof engineering
 
+- [`tie-panic-permission-to-concrete-conditions`](proof-engineering.md#tie-panic-permission-to-concrete-conditions) — tie panic permission to the condition that makes a panic path reachable and never add `allowed_to_panic_if(true)` to a function contract.
 - [`complete-external-contracts`](proof-engineering.md#complete-external-contracts) — model every relevant precondition, result, frame condition, and panic behavior at an external boundary, mirroring lazy, closure-driven adapter semantics.
 - [`name-assume-spec-receivers`](proof-engineering.md#name-assume-spec-receivers) — name an `assume_specification` receiver after its role (`l: &Layout`) and call the model spec fn by auto-deref instead of `self_` with `(*self_)`.
 - [`centralize-trusted-boundaries`](proof-engineering.md#centralize-trusted-boundaries) — keep unavoidable external specifications in `vstd_extra::external` and make their trust explicit.
