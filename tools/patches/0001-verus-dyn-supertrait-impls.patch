@@ -1,0 +1,173 @@
+diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/trait_conflicts.rs
+--- a/source/rust_verify/src/trait_conflicts.rs
++++ b/source/rust_verify/src/trait_conflicts.rs
+@@ -28,6 +28,7 @@
+ use crate::trait_check_ast::*;
+ use crate::trait_check_generate::*;
+ use std::collections::{HashMap, HashSet};
++use std::sync::Arc;
+ use vir::ast::{
+     AssocTypeImpl, CrateId, Dt, GenericBoundX, GenericBounds, Ident, Path, Primitive, Sizedness,
+     TraitId, TypDecoration, TypDecorationArg,
+@@ -398,6 +399,8 @@ pub(crate) fn gen_check_trait_impl_conflicts(
+     // This works around https://github.com/rust-lang/rust/issues/57893 .
+     // This (and vir::traits::get_dyn_traits) can be removed when that issue is fixed.
+     let dyn_traits: HashSet<Path> = vir::traits::get_dyn_traits(vir_crate);
++    let traits_by_path: HashMap<Path, &vir::ast::Trait> =
++        vir_crate.traits.iter().map(|t| (t.x.name.clone(), t)).collect();
+     let mut n_trait: usize = 0;
+     for t in &vir_crate.traits {
+         if !dyn_traits.contains(&t.x.name) {
+@@ -436,6 +439,94 @@ pub(crate) fn gen_check_trait_impl_conflicts(
+         ));
+         let trait_as_datatype = Box::new(TypX::Datatype(name, Vec::new(), t_args));
+         let trait_polarity = rustc_middle::ty::ImplPolarity::Positive;
++
++        // `dyn T` is also a `U` for every supertrait `U` of `T`, transitively.
++        let is_self_bound = |b: &vir::ast::GenericBound| match &**b {
++            GenericBoundX::Trait(TraitId::Path(_), targs) if targs.len() >= 1 => {
++                matches!(
++                    &*targs[0],
++                    vir::ast::TypX::TypParam(p) if *p == vir::def::trait_self_type_param()
++                )
++            }
++            _ => false,
++        };
++        let non_self_bounds: GenericBounds =
++            Arc::new(t.x.typ_bounds.iter().filter(|b| !is_self_bound(b)).cloned().collect());
++        let (_, mut super_bounds) = gen_generics(
++            state,
++            &t.x.typ_params.iter().map(|(x, _)| x.clone()).collect(),
++            &non_self_bounds,
++        );
++        let (_, super_a_bounds) = gen_generics(state, &t.x.assoc_typs, &t.x.assoc_typs_bounds);
++        super_bounds.extend(super_a_bounds);
++
++        let supertraits_of = |tr: &vir::ast::Trait| -> Vec<(Path, vir::ast::Typs)> {
++            tr.x.typ_bounds
++                .iter()
++                .filter_map(|bound| {
++                    let GenericBoundX::Trait(TraitId::Path(u_path), targs) = &**bound else {
++                        return None;
++                    };
++                    // Only a bound whose first argument is `Self` is a supertrait.
++                    if targs.len() < 1 {
++                        return None;
++                    }
++                    match &*targs[0] {
++                        vir::ast::TypX::TypParam(p) if *p == vir::def::trait_self_type_param() => {}
++                        _ => return None,
++                    }
++                    Some((u_path.clone(), targs.clone()))
++                })
++                .collect()
++        };
++
++        let mut worklist: Vec<(Path, vir::ast::Typs)> = supertraits_of(t);
++
++        let mut emitted: HashSet<String> = HashSet::new();
++        while let Some((u_path, u_targs)) = worklist.pop() {
++            if !emitted.insert(format!("{:?}{:?}", u_path, u_targs)) {
++                continue;
++            }
++
++            if let Some(u) = traits_by_path.get(&u_path) {
++                if u.x.typ_params.len() + 1 == u_targs.len() {
++                    let mut substs: HashMap<Ident, vir::ast::Typ> = HashMap::new();
++                    substs.insert(vir::def::trait_self_type_param(), u_targs[0].clone());
++                    for ((x, _), targ) in u.x.typ_params.iter().zip(u_targs[1..].iter()) {
++                        substs.insert(x.clone(), targ.clone());
++                    }
++                    for (v_path, v_targs) in supertraits_of(u) {
++                        let v_targs: vir::ast::Typs = Arc::new(
++                            v_targs
++                                .iter()
++                                .map(|typ| vir::sst_util::subst_typ(&substs, typ))
++                                .collect(),
++                        );
++                        worklist.push((v_path, v_targs));
++                    }
++                }
++            }
++
++            // An impl has to supply the supertrait's associated types, and we do
++            // not model those here yet.
++            match traits_by_path.get(&u_path) {
++                Some(u) if u.x.assoc_typs.len() == 0 => {}
++                _ => continue,
++            }
++            let u_name = state.trait_name(&u_path);
++            let u_args = gen_typ_slice(state, &u_targs[1..]);
++            state.trait_impls.push(TraitImpl {
++                span: spans.from_air_span(&t.span, None),
++                self_typ: self_typ.clone(),
++                generic_params: generic_params.clone(),
++                generic_bounds: super_bounds.clone(),
++                trait_as_datatype: Box::new(TypX::Datatype(u_name, Vec::new(), u_args)),
++                assoc_typs: Vec::new(),
++                trait_polarity,
++                is_clone: false,
++            });
++        }
++
+         let decl = TraitImpl {
+             span,
+             self_typ,
+diff --git a/source/rust_verify_test/tests/traits_dyn.rs b/source/rust_verify_test/tests/traits_dyn.rs
+--- a/source/rust_verify_test/tests/traits_dyn.rs
++++ b/source/rust_verify_test/tests/traits_dyn.rs
+@@ -971,3 +971,54 @@ test_verify_crates! {
+         },
+     ] => Err(err) => assert_vir_error_msg(err, "crate `b` makes trait `t::T` not Verus dyn-compatible (specification of function t::T::all_same uses Self outside of the receiver), but crate `a` already treats `t::T` as Verus dyn-compatible")
+ }
++
++test_verify_one_file! {
++    #[test] dyn_supertrait_transitive verus_code! {
++        trait P { spec fn p(&self) -> u64; }
++        trait Q: P { spec fn q(&self) -> u64; }
++        trait R: Q { fn r(&self) -> u64; }
++        fn needs_p<X: P + ?Sized>(x: &X) -> u64 { 0 }
++        fn test(x: &dyn R) -> u64 { needs_p(x) }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_supertrait_transitive_depth4 verus_code! {
++        trait T1 { spec fn f1(&self) -> u64; }
++        trait T2: T1 { spec fn f2(&self) -> u64; }
++        trait T3: T2 { spec fn f3(&self) -> u64; }
++        trait T4: T3 { fn f4(&self) -> u64; }
++        fn needs1<X: T1 + ?Sized>(x: &X) -> u64 { 0 }
++        fn test(x: &dyn T4) -> u64 { needs1(x) }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_supertrait_transitive_substitution verus_code! {
++        trait P<A> { spec fn p(&self, a: A) -> u64; }
++        trait Q<B>: P<B> { spec fn q(&self) -> u64; }
++        trait R: Q<u8> { fn r(&self) -> u64; }
++        fn needs_p<X: P<u8> + ?Sized>(x: &X) -> u64 { 0 }
++        fn test(x: &dyn R) -> u64 { needs_p(x) }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_supertrait_transitive_diamond verus_code! {
++        trait A { spec fn a(&self) -> u64; }
++        trait B: A { spec fn b(&self) -> u64; }
++        trait C: A { spec fn c(&self) -> u64; }
++        trait D: B + C { fn d(&self) -> u64; }
++        fn needs_a<X: A + ?Sized>(x: &X) -> u64 { 0 }
++        fn test(x: &dyn D) -> u64 { needs_a(x) }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_supertrait_transitive_two_instantiations verus_code! {
++        trait P<A> { spec fn p(&self, a: A) -> u64; }
++        trait Q: P<u8> + P<u16> { fn q(&self) -> u64; }
++        fn needs_p<A, X: P<A> + ?Sized>(x: &X) { }
++        fn test(x: &dyn Q) { needs_p::<u8, _>(x); needs_p::<u16, _>(x); }
++    } => Ok(())
++}

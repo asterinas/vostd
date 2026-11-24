@@ -1,0 +1,697 @@
+diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
+--- a/source/builtin/src/lib.rs
++++ b/source/builtin/src/lib.rs
+@@ -2514,6 +2514,13 @@ pub fn type_id_of<T: ?Sized>(_x: &T) -> core::any::TypeId {
+     unimplemented!();
+ }
+ 
++/// The value inside a trait object, read back at type `S`.
++#[cfg(verus_keep_ghost)]
++#[rustc_diagnostic_item = "verus::verus_builtin::dyn_value"]
++pub fn dyn_value<S, T: ?Sized>(_x: &T) -> S {
++    unimplemented!();
++}
++
+ #[cfg(verus_keep_ghost)]
+ #[rustc_diagnostic_item = "verus::verus_builtin::is_smaller_than"]
+ pub fn is_smaller_than<A, B>(_: A, _: B) -> bool {
+diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/fn_call_to_vir.rs
+--- a/source/rust_verify/src/fn_call_to_vir.rs
++++ b/source/rust_verify/src/fn_call_to_vir.rs
+@@ -520,10 +520,11 @@ fn verus_item_to_vir<'tcx, 'a>(
+         // `type_id` is the spec-level identity; the executable one is a real
+         // `TypeId`, which vstd specifies as returning exactly this.
+         let err = match verus_item {
+-            VerusItem::Expr(ExprItem::TypeId | ExprItem::TypeIdOf) => err.help(
+-                "use `core::any::TypeId::of::<T>()` in executable code; \
++            VerusItem::Expr(ExprItem::TypeId | ExprItem::TypeIdOf | ExprItem::DynValue) => err
++                .help(
++                    "use `core::any::TypeId::of::<T>()` in executable code; \
+                  `vstd::std_specs::any` specifies it as `type_id::<T>()`",
+-            ),
++                ),
+             _ => err,
+         };
+         return Err(err);
+@@ -1276,6 +1277,47 @@ fn verus_item_to_vir<'tcx, 'a>(
+ 
+                 mk_expr(ExprX::NullaryOpr(vir::ast::NullaryOpr::TypeTag(t)))
+             }
++            ExprItem::DynValue => {
++                record_spec_fn(bctx, expr);
++                // dyn_value::<S, T>(x): S is the type to read back at, T the
++                // trait object's type, taken from the argument's own type rather
++                // than from the parameter, which is `&T`.
++                let target = mid_ty_to_vir(
++                    tcx,
++                    &bctx.ctxt.verus_items,
++                    None::<&mut std::collections::HashMap<vir::ast::Path, rustc_span::def_id::DefId>>,
++                    bctx.fun_id,
++                    expr.span,
++                    &node_substs[0].expect_ty(),
++                    None,
++                )?;
++                let source = mid_ty_to_vir(
++                    tcx,
++                    &bctx.ctxt.verus_items,
++                    None::<&mut std::collections::HashMap<vir::ast::Path, rustc_span::def_id::DefId>>,
++                    bctx.fun_id,
++                    expr.span,
++                    &node_substs[1].expect_ty(),
++                    None,
++                )?;
++                if !matches!(&*vir::ast_util::undecorate_typ(&source), vir::ast::TypX::Dyn(..)) {
++                    return err_span(
++                        expr.span,
++                        "`dyn_value` reads the value inside a trait object, so its argument must \
++                         have a `dyn` type",
++                    );
++                }
++                match &expr.kind {
++                    ExprKind::Call(_, args) => {
++                        assert!(args.len() == 1);
++                        let arg0 = args.first().unwrap();
++                        let arg0 =
++                            expr_to_vir_consume(bctx, arg0).expect("internal compiler error");
++                        mk_expr(ExprX::UnaryOpr(UnaryOpr::DynValue(source, target), arg0))
++                    }
++                    _ => panic!("internal error: expected Call for dyn_value"),
++                }
++            }
+             ExprItem::TypeIdOf => {
+                 record_spec_fn(bctx, expr);
+                 // The type argument, not the argument's type: `type_id_of` takes
+diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/trait_conflicts.rs
+--- a/source/rust_verify/src/trait_conflicts.rs
++++ b/source/rust_verify/src/trait_conflicts.rs
+@@ -403,11 +403,21 @@ pub(crate) fn gen_check_trait_impl_conflicts(
+     let dyn_traits: HashSet<Path> = vir::traits::get_dyn_traits(vir_crate);
+     let traits_by_path: HashMap<Path, &vir::ast::Trait> =
+         vir_crate.traits.iter().map(|t| (t.x.name.clone(), t)).collect();
++    let unsized_blanketed: HashSet<Path> = vir_crate
++        .trait_impls
++        .iter()
++        .filter(|ti| vir::traits::is_unsized_blanket_impl(ti))
++        .map(|ti| ti.x.trait_path.clone())
++        .collect();
+     let mut n_trait: usize = 0;
+     for t in &vir_crate.traits {
+         if !dyn_traits.contains(&t.x.name) {
+             continue;
+         }
++        if unsized_blanketed.contains(&t.x.name) && vir::traits::is_tolerated_blanket_trait(t) {
++            n_trait += 1;
++            continue;
++        }
+         let name = state.trait_name(&t.x.name);
+         let span = spans.from_air_span(&t.span, None);
+         let (mut generic_params, mut generic_bounds) = gen_generics(
+@@ -512,7 +522,13 @@ pub(crate) fn gen_check_trait_impl_conflicts(
+             // An impl has to supply the supertrait's associated types, and we do
+             // not model those here yet.
+             match traits_by_path.get(&u_path) {
+-                Some(u) if u.x.assoc_typs.len() == 0 => {}
++                Some(u) if u.x.assoc_typs.len() == 0 => {
++                    if unsized_blanketed.contains(&u_path)
++                        && vir::traits::is_tolerated_blanket_trait(u)
++                    {
++                        continue;
++                    }
++                }
+                 _ => continue,
+             }
+             let u_name = state.trait_name(&u_path);
+diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/verus_items.rs
+--- a/source/rust_verify/src/verus_items.rs
++++ b/source/rust_verify/src/verus_items.rs
+@@ -148,6 +148,7 @@ pub(crate) enum ExprItem {
+     ArchWordBits,
+     TypeId,
+     TypeIdOf,
++    DynValue,
+     ClosureToFnSpec,
+     ClosureToFnProof,
+     SignedMin,
+@@ -559,6 +560,7 @@ fn verus_items_map() -> Vec<(&'static str, VerusItem)> {
+         ("verus::verus_builtin::arch_word_bits",          VerusItem::Expr(ExprItem::ArchWordBits)),
+         ("verus::verus_builtin::type_id",                 VerusItem::Expr(ExprItem::TypeId)),
+         ("verus::verus_builtin::type_id_of",              VerusItem::Expr(ExprItem::TypeIdOf)),
++        ("verus::verus_builtin::dyn_value",               VerusItem::Expr(ExprItem::DynValue)),
+         ("verus::verus_builtin::closure_to_fn_spec",      VerusItem::Expr(ExprItem::ClosureToFnSpec)),
+         ("verus::verus_builtin::closure_to_fn_proof",     VerusItem::Expr(ExprItem::ClosureToFnProof)),
+         ("verus::verus_builtin::signed_min",              VerusItem::Expr(ExprItem::SignedMin)),
+diff --git a/source/rust_verify_test/tests/any.rs b/source/rust_verify_test/tests/any.rs
+new file mode 100644
+--- /dev/null
++++ b/source/rust_verify_test/tests/any.rs
+@@ -0,0 +1,203 @@
++#![feature(rustc_private)]
++#[macro_use]
++mod common;
++use common::*;
++
++test_verify_one_file! {
++    #[test] dyn_any_is_a_legal_type verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        use verus_builtin::{type_id, type_id_of};
++        struct C(u64);
++        fn erase(c: &C) -> (r: &dyn Any)
++            ensures type_id_of(r) == type_id::<C>(),
++        {
++            c
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_any_is verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        struct C(u64);
++        struct D(u64);
++        fn accepts(c: &C) -> (r: bool)
++            ensures r,
++        {
++            let d: &dyn Any = c;
++            d.is::<C>()
++        }
++        fn rejects(c: &C) -> (r: bool)
++            ensures !r,
++        {
++            let d: &dyn Any = c;
++            d.is::<D>()
++        }
++    } => Ok(())
++}
++
++// Identity is decoration-sensitive, so a `C` erased is not a `&C`.
++test_verify_one_file! {
++    #[test] dyn_any_is_decoration_sensitive verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        struct C(u64);
++        fn test(c: &C) -> (r: bool)
++            ensures !r,
++        {
++            let d: &dyn Any = c;
++            d.is::<&C>()
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_any_supertrait_downcast_guard verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        use verus_builtin::{type_id, type_id_of};
++        unsafe trait AnyMeta: Any + Send + Sync {
++            spec fn is_untyped_spec(&self) -> bool;
++        }
++        struct M1;
++        unsafe impl AnyMeta for M1 { spec fn is_untyped_spec(&self) -> bool { true } }
++        struct M2;
++        unsafe impl AnyMeta for M2 { spec fn is_untyped_spec(&self) -> bool { false } }
++
++        fn is_meta<M: AnyMeta>(meta: &dyn AnyMeta) -> (r: bool)
++            ensures r == (type_id_of(meta) == type_id::<M>()),
++        {
++            (meta as &dyn Any).is::<M>()
++        }
++
++        fn end_to_end(m: &M1) -> (r: bool)
++            ensures r,
++        {
++            let d: &dyn AnyMeta = m;
++            is_meta::<M1>(d)
++        }
++
++        fn discriminates(m: &M1) -> (r: bool)
++            ensures !r,
++        {
++            let d: &dyn AnyMeta = m;
++            is_meta::<M2>(d)
++        }
++    } => Ok(())
++}
++
++// `dyn Any` being a legal type does not give it an identity of its own
++test_verify_one_file! {
++    #[test] dyn_any_type_id_still_rejected verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        use verus_builtin::type_id;
++        proof fn t() {
++            let x = type_id::<dyn Any>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++test_verify_one_file! {
++    #[test] dyn_value_roundtrip verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::dyn_value;
++        trait Tr { spec fn s(&self) -> u64; }
++        struct C(u64);
++        impl Tr for C { spec fn s(&self) -> u64 { self.0 } }
++        fn concrete(c: &C) {
++            let d: &dyn Tr = c;
++            assert(dyn_value::<C, _>(d) == *c);
++        }
++        fn generic<F: Tr>(v: &F) {
++            let d: &dyn Tr = v;
++            assert(dyn_value::<F, _>(d) == *v);
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_value_wrong_type_says_nothing verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::dyn_value;
++        trait Tr { spec fn s(&self) -> u64; }
++        struct C(u64);
++        struct D(u64);
++        impl Tr for C { spec fn s(&self) -> u64 { self.0 } }
++        impl Tr for D { spec fn s(&self) -> u64 { 0 } }
++        fn test(c: &C) {
++            let d: &dyn Tr = c;
++            assert(dyn_value::<D, _>(d) == D(c.0)); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++test_verify_one_file! {
++    #[test] dyn_value_requires_a_dyn_type verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::dyn_value;
++        struct C(u64);
++        proof fn test(c: &C) {
++            let x = dyn_value::<C, _>(c);
++        }
++    } => Err(err) => assert_vir_error_msg(err, "must have a `dyn` type")
++}
++
++test_verify_one_file! {
++    #[test] dyn_any_downcast_ref verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        struct C(u64);
++        struct D(u64);
++        fn downcast(c: &C) -> (r: u64)
++            ensures r == c.0,
++        {
++            let d: &dyn Any = c;
++            match d.downcast_ref::<C>() {
++                Some(back) => back.0,
++                None => {
++                    assert(false);
++                    0
++                }
++            }
++        }
++        fn refuses(c: &C) -> (r: bool)
++            ensures !r,
++        {
++            let d: &dyn Any = c;
++            d.downcast_ref::<D>().is_some()
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] dyn_any_downcast_boxed verus_code! {
++        use vstd::prelude::*;
++        use core::any::Any;
++        struct C(u64);
++        struct D(u64);
++        fn owned(c: C) -> (r: u64)
++            ensures r == c.0,
++        {
++            let b: Box<dyn Any> = Box::new(c);
++            match b.downcast::<C>() {
++                Ok(back) => (*back).0,
++                Err(_) => { assert(false); 0 }
++            }
++        }
++        fn retry(c: C) -> (r: u64)
++            ensures r == c.0,
++        {
++            let b: Box<dyn Any> = Box::new(c);
++            match b.downcast::<D>() {
++                Ok(_) => { assert(false); 0 }
++                Err(back) => match back.downcast::<C>() {
++                    Ok(got) => (*got).0,
++                    Err(_) => { assert(false); 0 }
++                }
++            }
++        }
++    } => Ok(())
++}
+diff --git a/source/rust_verify_test/tests/safe_api.rs b/source/rust_verify_test/tests/safe_api.rs
+--- a/source/rust_verify_test/tests/safe_api.rs
++++ b/source/rust_verify_test/tests/safe_api.rs
+@@ -252,7 +252,7 @@ test_verify_one_file_with_options! {
+         fn test() -> Box<dyn core::any::Any> {
+             Box::new(foo)
+         }
+-    } => Err(err) => assert_vir_error_msg(err, "trait core::any::Any not declared to Verus")
++    } => Ok(())
+ }
+ 
+ /////// Fancy trait support
+diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
+--- a/source/vir/src/ast.rs
++++ b/source/vir/src/ast.rs
+@@ -591,6 +591,9 @@ pub enum UnaryOpr {
+     /// the value's static type. For a sized static type the two coincide; for a
+     /// `dyn T` the value's is the type erased into it.
+     TypeTagOf(Typ),
++    /// The value inside a trait object, read back at a type: the first Typ is
++    /// the trait object's type, the second the type to read it back at.
++    DynValue(Typ, Typ),
+     /// Isolation boundary for the loop of the given label, which must be contained
+     /// in the boundary.
+     LoopIsolationBoundary(Label),
+diff --git a/source/vir/src/ast_visitor.rs b/source/vir/src/ast_visitor.rs
+--- a/source/vir/src/ast_visitor.rs
++++ b/source/vir/src/ast_visitor.rs
+@@ -286,6 +286,11 @@ pub(crate) trait AstVisitor<R: Returner, Err, Scope: Scoper> {
+                 let t = self.visit_typ(t)?;
+                 R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
+             }
++            UnaryOpr::DynValue(td, ts) => {
++                let td = self.visit_typ(td)?;
++                let ts = self.visit_typ(ts)?;
++                R::ret(|| UnaryOpr::DynValue(R::get(td), R::get(ts)))
++            }
+             UnaryOpr::HasResolved(t) => {
+                 let t = self.visit_typ(t)?;
+                 R::ret(|| UnaryOpr::HasResolved(R::get(t)))
+diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
+--- a/source/vir/src/def.rs
++++ b/source/vir/src/def.rs
+@@ -81,6 +81,7 @@ pub(crate) const PROJECT_POINTEE_METADATA_DECORATION: &str = "pointee_metadata%%
+ const PREFIX_PROJECT_PARAM: &str = "Proj%";
+ const PREFIX_TRAIT_BOUND: &str = "tr_bound%";
+ const PREFIX_TO_DYN: &str = "to_dyn%";
++const PREFIX_DYN_VAL: &str = "dyn_val%";
+ pub(crate) const SIZED_BOUND: &str = "sized";
+ const PREFIX_STATIC: &str = "static%";
+ const PREFIX_BREAK_LABEL: &str = "break_label%";
+@@ -713,6 +714,10 @@ impl NameCtxt {
+         Arc::new(format!("{}{}", PREFIX_TRAIT_BOUND, self.path_to_string(trait_path)))
+     }
+ 
++    pub fn dyn_val(&self, trait_path: &Path) -> Ident {
++        Arc::new(PREFIX_DYN_VAL.to_string() + &self.path_to_string(trait_path))
++    }
++
+     pub fn to_dyn(&self, trait_path: &Path) -> Ident {
+         Arc::new(format!("{}{}", PREFIX_TO_DYN, self.path_to_string(trait_path)))
+     }
+diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
+--- a/source/vir/src/heuristics.rs
++++ b/source/vir/src/heuristics.rs
+@@ -79,7 +79,8 @@ fn insert_auto_ext_equal(ctx: &Ctx, exp: &Exp) -> Exp {
+             | UnaryOpr::AutoDecreases
+             | UnaryOpr::AutoLoopEnsures
+             | UnaryOpr::ToDyn(..)
+-            | UnaryOpr::TypeTagOf(..) => {
++            | UnaryOpr::TypeTagOf(..)
++            | UnaryOpr::DynValue(..) => {
+                 exp.new_x(ExpX::UnaryOpr(op.clone(), insert_auto_ext_equal(ctx, e)))
+             }
+             UnaryOpr::HasResolved(..) => exp.clone(),
+diff --git a/source/vir/src/interpreter.rs b/source/vir/src/interpreter.rs
+--- a/source/vir/src/interpreter.rs
++++ b/source/vir/src/interpreter.rs
+@@ -1557,6 +1557,7 @@ fn eval_expr_internal(ctx: &Ctx, state: &mut State, exp: &Exp) -> Result<Exp, Vi
+                 }
+                 ToDyn(..) => ok,
+                 TypeTagOf(..) => ok,
++                DynValue(..) => ok,
+                 HasResolved(_) => ok,
+                 CustomErr(_) => Ok(e),
+                 AutoDecreases => Ok(e),
+diff --git a/source/vir/src/modes.rs b/source/vir/src/modes.rs
+--- a/source/vir/src/modes.rs
++++ b/source/vir/src/modes.rs
+@@ -2366,6 +2366,22 @@ fn check_expr(
+         ExprX::UnaryOpr(UnaryOpr::LoopIsolationBoundary(_), e1) => {
+             check_expr(ctxt, record, typing, outer_mode, expect, e1, outer_proph)
+         }
++        ExprX::UnaryOpr(UnaryOpr::DynValue(..), e1) => {
++            if typing.block_ghostness == Ghost::Exec {
++                return Err(error(&expr.span, "cannot use `dyn_value` in exec mode"));
++            }
++            let mut typing = typing.push_in_pure(true);
++            check_expr_has_mode(
++                ctxt,
++                record,
++                &mut typing,
++                Mode::Spec,
++                e1,
++                Mode::Spec,
++                outer_proph,
++            )?;
++            Ok((Mode::Spec, Proph::No))
++        }
+         ExprX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
+             if typing.block_ghostness == Ghost::Exec {
+                 return Err(error(&expr.span, "cannot use `type_id_of` in exec mode"));
+diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
+--- a/source/vir/src/poly.rs
++++ b/source/vir/src/poly.rs
+@@ -686,6 +686,12 @@ fn visit_exp(ctx: &Ctx, state: &mut State, exp: &Exp) -> Exp {
+                     let e = coerce_exp_to_poly(ctx, &e1);
+                     mk_exp(ExpX::UnaryOpr(op.clone(), e.clone()))
+                 }
++                UnaryOpr::DynValue(_td, ts) => {
++                    // dyn%val%T hands back the erased value, boxed, at the
++                    // target type.
++                    let e = coerce_exp_to_poly(ctx, &e1);
++                    mk_exp_typ(&Arc::new(TypX::Boxed(ts.clone())), ExpX::UnaryOpr(op.clone(), e))
++                }
+                 UnaryOpr::TypeTagOf(_t) => {
+                     // val%tag takes the value boxed, like the type it describes.
+                     let e = coerce_exp_to_poly(ctx, &e1);
+diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
+--- a/source/vir/src/sst_to_air.rs
++++ b/source/vir/src/sst_to_air.rs
+@@ -1344,6 +1344,18 @@ pub(crate) fn exp_to_expr(ctx: &Ctx, exp: &Exp, expr_ctxt: &ExprCtxt) -> Result<
+                 // the inner expression.
+                 return exp_to_expr(ctx, e, expr_ctxt);
+             }
++            UnaryOpr::DynValue(td, ts) => {
++                let TypX::Dyn(trait_path, typ_args, _) = &*undecorate_typ(td) else {
++                    panic!("DynValue expects a dyn source type: {:?}", td)
++                };
++
++                let mut args: Vec<Expr> = typ_to_ids(ts);
++                for t in typ_args.iter() {
++                    args.extend(typ_to_ids(t));
++                }
++                args.push(exp_to_expr(ctx, e, expr_ctxt)?);
++                ident_apply(&ctx.name_ctxt.dyn_val(trait_path), &args)
++            }
+             UnaryOpr::TypeTagOf(t) => {
+                 let mut exprs: Vec<Expr> = typ_to_ids(t);
+                 exprs.push(exp_to_expr(ctx, e, expr_ctxt)?);
+diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
+--- a/source/vir/src/sst_util.rs
++++ b/source/vir/src/sst_util.rs
+@@ -623,6 +623,9 @@ impl ExpX {
+                     HasType(t) => {
+                         (format!("has_type({}, {:?})", exp.x.to_user_string(global), t), 99)
+                     }
++                    DynValue(_td, ts) => {
++                        (format!("dyn_value({}, {:?})", exp.x.to_user_string(global), ts), 99)
++                    }
+                     TypeTagOf(t) => {
+                         (format!("type_id_of({}, {:?})", exp.x.to_user_string(global), t), 99)
+                     }
+diff --git a/source/vir/src/sst_visitor.rs b/source/vir/src/sst_visitor.rs
+--- a/source/vir/src/sst_visitor.rs
++++ b/source/vir/src/sst_visitor.rs
+@@ -318,6 +318,11 @@ pub(crate) trait Visitor<R: Returner, Err, Scope: Scoper> {
+                         let t = self.visit_typ(t)?;
+                         R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
+                     }
++                    UnaryOpr::DynValue(td, ts) => {
++                        let td = self.visit_typ(td)?;
++                        let ts = self.visit_typ(ts)?;
++                        R::ret(|| UnaryOpr::DynValue(R::get(td), R::get(ts)))
++                    }
+                     UnaryOpr::ToDyn(t, impl_paths) => {
+                         let t = self.visit_typ(t)?;
+                         R::ret(|| UnaryOpr::ToDyn(R::get(t), impl_paths.clone()))
+diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
+--- a/source/vir/src/traits.rs
++++ b/source/vir/src/traits.rs
+@@ -1189,11 +1189,17 @@ pub fn trait_decls_to_air(ctx: &Ctx, krate: &crate::sst::KrateSst) -> Commands {
+             ));
+             let decl_to_dyn = Arc::new(DeclX::fun_or_const(
+                 ctx.name_ctxt.to_dyn(&tr.x.name),
++                Arc::new(dparams.clone()),
++                str_typ(crate::def::POLY),
++            ));
++            let decl_dyn_val = Arc::new(DeclX::fun_or_const(
++                ctx.name_ctxt.dyn_val(&tr.x.name),
+                 Arc::new(dparams),
+                 str_typ(crate::def::POLY),
+             ));
+             commands.push(Arc::new(CommandX::Global(decl_trait_id)));
+             commands.push(Arc::new(CommandX::Global(decl_to_dyn)));
++            commands.push(Arc::new(CommandX::Global(decl_dyn_val)));
+ 
+             // Typing axiom for to_dyn:
+             //   forall Self, A1..Am, x. has_type(x, Self) ==>
+@@ -1278,6 +1284,32 @@ pub fn trait_decls_to_air(ctx: &Ctx, krate: &crate::sst::KrateSst) -> Commands {
+             ));
+             let forall = mk_bind_expr(&bind, &air::ast_util::mk_eq(&lhs, &rhs));
+             commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
++
++            let mut dyn_val_args: Vec<air::ast::Expr> = Vec::new();
++            for targ in typ_args.iter() {
++                dyn_val_args.extend(typ_to_ids(ctx, targ));
++            }
++            dyn_val_args.push(to_dyn.clone());
++            let dyn_val = ident_apply(&ctx.name_ctxt.dyn_val(&tr.x.name), &dyn_val_args);
++            let mut binders: Vec<air::ast::Binder<air::ast::Typ>> = Vec::new();
++            for typ_param in typ_params.iter() {
++                for (x, t) in crate::def::suffix_typ_param_ids_types(typ_param) {
++                    binders.push(ident_binder(&x.lower(), &str_typ(t)));
++                }
++            }
++            binders.push(ident_binder(&Arc::new(x_name.to_string()), &str_typ(crate::def::POLY)));
++            let qid = crate::def::new_internal_qid(
++                ctx,
++                format!("{}_dyn_val_to_dyn", path_as_friendly_rust_name(&tr.x.name)),
++            );
++            let bind = Arc::new(BindX::Quant(
++                Quant::Forall,
++                Arc::new(binders),
++                Arc::new(vec![Arc::new(vec![dyn_val.clone()])]),
++                qid,
++            ));
++            let forall = mk_bind_expr(&bind, &air::ast_util::mk_eq(&dyn_val, &x));
++            commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
+         }
+     }
+     Arc::new(commands)
+@@ -1811,8 +1843,19 @@ pub(crate) fn find_trait_impl_from_extension(
+     return Err(err);
+ }
+ 
++/// Is this the `core::any::Any` whose `?Sized` blanket impl we deliberately
++/// tolerate, despite rust#57893?
++///
++/// The hazard that issue describes is a blanket impl and the object impl
++/// *resolving differently*. `Any` as Verus sees it has no methods and no
++/// associated types, so there is nothing for the two impls to resolve differently about.
++pub fn is_tolerated_blanket_trait(tr: &Trait) -> bool {
++    let any_path = crate::path!(crate::ast::CrateId::Core => "any", "Any");
++    tr.x.name == any_path && tr.x.methods.len() == 0 && tr.x.assoc_typs.len() == 0
++}
++
+ // Is an impl of the form impl<A: ?Sized + ...> T<...> for A
+-fn is_unsized_blanket_impl(ti: &TraitImpl) -> bool {
++pub fn is_unsized_blanket_impl(ti: &TraitImpl) -> bool {
+     // trait_typ_args[0] is the Self argument
+     if let TypX::TypParam(slf) = &*ti.x.trait_typ_args[0] {
+         // Self type is just a TypParam, so we have a blanket impl
+@@ -2100,7 +2143,7 @@ fn compute_dyn_compatibility(
+     }
+     if let Some(d) = unsized_blanket_super {
+         d
+-    } else if unsized_blanketed_traits.contains(tr_path) {
++    } else if !is_tolerated_blanket_trait(tr) && unsized_blanketed_traits.contains(tr_path) {
+         Arc::new(DynCompatible::RejectUnsizedBlanketImpl { trait_path: tr_path.clone() })
+     } else {
+         Arc::new(DynCompatible::Accept)
+diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
+--- a/source/vir/src/triggers.rs
++++ b/source/vir/src/triggers.rs
+@@ -142,8 +142,8 @@ fn check_trigger_expr_arg(state: &mut State, arg: &Exp) {
+                 // recurse inside coercions
+                 check_trigger_expr_arg(state, arg)
+             }
+-            UnaryOpr::TypeTagOf(..) => {
+-                // val%tag(..) is an ordinary uninterpreted application
++            UnaryOpr::TypeTagOf(..) | UnaryOpr::DynValue(..) => {
++                // ordinary uninterpreted applications
+                 check_trigger_expr_arg(state, arg)
+             }
+             UnaryOpr::AutoDecreases | UnaryOpr::AutoLoopEnsures => {
+@@ -303,7 +303,8 @@ fn check_trigger_expr(
+             | UnaryOpr::AutoLoopEnsures
+             | UnaryOpr::ProofNote(_)
+             | UnaryOpr::ToDyn(..)
+-            | UnaryOpr::TypeTagOf(..) => Ok(()),
++            | UnaryOpr::TypeTagOf(..)
++            | UnaryOpr::DynValue(..) => Ok(()),
+             UnaryOpr::IsVariant { .. } | UnaryOpr::Field { .. } => {
+                 check_trigger_expr_arg(state, arg);
+                 Ok(())
+diff --git a/source/vir/src/triggers_auto.rs b/source/vir/src/triggers_auto.rs
+--- a/source/vir/src/triggers_auto.rs
++++ b/source/vir/src/triggers_auto.rs
+@@ -445,6 +445,10 @@ fn gather_terms(ctxt: &mut Ctxt, ctx: &Ctx, exp: &Exp, depth: u64) -> (bool, Ter
+             let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
+             (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
+         }
++        ExpX::UnaryOpr(UnaryOpr::DynValue(..), e1) => {
++            let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
++            (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
++        }
+         ExpX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
+             let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
+             (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
+diff --git a/source/vstd/std_specs/any.rs b/source/vstd/std_specs/any.rs
+--- a/source/vstd/std_specs/any.rs
++++ b/source/vstd/std_specs/any.rs
+@@ -1,6 +1,9 @@
+ #![allow(unused_imports)]
+ 
+ use super::super::prelude::*;
++use alloc::boxed::Box;
++use core::alloc::Allocator;
++use core::any::Any;
+ use core::any::TypeId;
+ 
+ verus! {
+@@ -15,4 +18,33 @@ pub assume_specification[ <TypeId as PartialEq<TypeId>>::eq ](x: &TypeId, y: &Ty
+         r == (*x == *y),
+ ;
+ 
++/// `core::any::Any`.
++#[verifier::external_trait_specification]
++pub trait ExAny: 'static {
++    type ExternalTraitSpecificationFor: Any;
++}
++
++/// `<dyn Any>::is::<T>()`.
++pub assume_specification<T: Any>[ <dyn Any>::is::<T> ](x: &dyn Any) -> (r: bool)
++    ensures
++        r == (type_id_of(x) == type_id::<T>()),
++;
++
++/// `<dyn Any>::downcast_ref::<T>()`.
++pub assume_specification<T: Any>[ <dyn Any>::downcast_ref::<T> ](x: &dyn Any) -> (r: Option<&T>)
++    ensures
++        r is Some <==> type_id_of(x) == type_id::<T>(),
++        r is Some ==> r->Some_0 == dyn_value::<T, _>(x),
++;
++
++/// `Box<dyn Any>::downcast::<T>()`.
++pub assume_specification<A: Allocator, T: Any>[ <Box<dyn Any, A>>::downcast::<T> ](
++    x: Box<dyn Any, A>,
++) -> (r: Result<Box<T, A>, Box<dyn Any, A>>)
++    ensures
++        r is Ok <==> type_id_of(&*x) == type_id::<T>(),
++        r is Ok ==> *r->Ok_0 == dyn_value::<T, _>(&*x),
++        r is Err ==> r->Err_0 == x,
++;
++
+ } // verus!
