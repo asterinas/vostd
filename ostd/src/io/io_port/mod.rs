@@ -297,25 +297,73 @@ impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
 #[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
-    ///
-    /// A verified caller may pass an expected sequence. This write must match
-    /// its first port and value, and consumes that pair.
-    #[verus_spec(
-        with Tracked(expected): Tracked<Option<&mut Ghost<Seq<(u16, T)>>>>,
-        requires expected matches Some(writes) ==> {
-            &&& writes@.len() > 0
-            &&& writes@[0] == (self@, value)
-        },
-        ensures expected matches Some(writes) ==> final(writes)@ == writes@.drop_first(),
-    )]
     pub fn write(&self, value: T) {
-        proof! {
-            use_type_invariant(self);
-            if let Some(writes) = expected {
-                *writes = Ghost(writes@.drop_first());
-            }
-        }
+        proof! { use_type_invariant(self); }
         unsafe { PortWrite::write_to_port(self.port, value) }
+    }
+}
+
+/// Access mode for ports that require a write history.
+#[verus_verify]
+pub(crate) struct RecordedWriteOnly;
+
+#[verus_verify]
+impl IoPort<u8, RecordedWriteOnly> {
+    #[inline]
+    #[verus_spec(
+        with Tracked(writes): Tracked<&mut Ghost<Seq<(u16, u8)>>>,
+        ensures final(writes)@ == old(writes)@.push((self@, value)),
+    )]
+    fn write(&self, value: u8) {
+        proof! { use_type_invariant(self); }
+        unsafe { PortWrite::write_to_port(self.port, value) }
+        proof! { *writes = Ghost(writes@.push((self@, value))); }
+    }
+}
+
+/// A group of byte registers with a single ordered history for all writes.
+#[verus_verify]
+pub(crate) struct PortWriter<const N: usize> {
+    ports: [&'static IoPort<u8, RecordedWriteOnly>; N],
+    #[cfg(verus_keep_ghost_body)]
+    tracked_writes: Tracked<Ghost<Seq<(u16, u8)>>>,
+}
+
+verus! {
+
+impl<const N: usize> PortWriter<N> {
+    pub(crate) closed spec fn view(self) -> Seq<(u16, u8)> {
+        self.tracked_writes@@
+    }
+
+    pub(crate) closed spec fn registers(self) -> [&'static IoPort<u8, RecordedWriteOnly>; N] {
+        self.ports
+    }
+}
+
+} // verus!
+#[verus_verify]
+impl<const N: usize> PortWriter<N> {
+    #[verus_spec(ret =>
+        ensures
+            ret@ == Seq::<(u16, u8)>::empty(),
+            ret.registers() == ports,
+    )]
+    pub(crate) fn new(ports: [&'static IoPort<u8, RecordedWriteOnly>; N]) -> Self {
+        proof_with! { tracked_writes: Tracked(Ghost(Seq::empty())) }
+        Self { ports }
+    }
+
+    #[inline]
+    #[verus_spec(
+        requires index < N,
+        ensures
+            final(self)@ == old(self)@.push((old(self).registers()[index as int]@, value)),
+            final(self).registers() == old(self).registers(),
+    )]
+    pub(crate) fn write(&mut self, index: usize, value: u8) {
+        #[verus_spec(with Tracked(self.tracked_writes.borrow_mut()))]
+        self.ports[index].write(value);
     }
 }
 
@@ -390,6 +438,33 @@ macro_rules! sensitive_io_port {
     };
 }
 
+/// Reserves a group of byte ports and binds their names to slots in one writer.
+/// The raw handles are scoped to the array initializer.
+macro_rules! recorded_io_ports {
+    (let mut $writer:ident; unsafe { $(
+        $(#[$meta:meta])*
+        $name:ident = $port:expr;
+    )+ }) => {
+        #[allow(non_snake_case)]
+        let (mut $writer, $($name,)+) = {
+            #[allow(non_camel_case_types)]
+            #[vstd::prelude::verus_verify]
+            enum Slot { $($name,)+ }
+
+            let ports = [$({
+                use $crate::io::{IoPort, RecordedWriteOnly};
+                $crate::io::sensitive_io_port! { unsafe {
+                    $(#[$meta])*
+                    static PORT: IoPort<u8, RecordedWriteOnly> = IoPort::new($port);
+                }}
+                &PORT
+            },)+];
+            ($crate::io::PortWriter::new(ports), $(Slot::$name as usize,)+)
+        };
+    };
+}
+
+pub(crate) use recorded_io_ports;
 pub(crate) use reserve_io_port_range;
 pub(crate) use sensitive_io_port;
 

@@ -87,29 +87,21 @@ impl SerialPort {
     #[verus_spec]
     pub fn init(&self) {
         // Disable interrupts
-        #[verus_spec(with Tracked(None))]
         self.int_en.write(0x00);
         // Enable DLAB
-        #[verus_spec(with Tracked(None))]
         self.line_ctrl.write(0x80);
         // Set maximum speed to 38400 bps by configuring DLL and DLM
-        #[verus_spec(with Tracked(None))]
         self.data.write(0x03);
-        #[verus_spec(with Tracked(None))]
         self.int_en.write(0x00);
         // Disable DLAB and set data word length to 8 bits
-        #[verus_spec(with Tracked(None))]
         self.line_ctrl.write(0x03);
         // Enable FIFO, clear TX/RX queues and
         // set interrupt watermark at 14 bytes
-        #[verus_spec(with Tracked(None))]
         self.fifo_ctrl.write(0xC7);
         // Mark data terminal ready, signal request to send
         // and enable auxiliary output #2 (used as interrupt line for CPU)
-        #[verus_spec(with Tracked(None))]
         self.modem_ctrl.write(0x0B);
         // Enable interrupts
-        #[verus_spec(with Tracked(None))]
         self.int_en.write(0x01);
     }
 
@@ -117,7 +109,6 @@ impl SerialPort {
     #[inline]
     #[verus_spec]
     pub fn send(&self, data: u8) {
-        #[verus_spec(with Tracked(None))]
         self.data.write(data);
     }
 

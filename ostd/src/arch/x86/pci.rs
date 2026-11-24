@@ -21,9 +21,7 @@ const BIT32_ALIGN_MASK: u32 = 0xFFFC;
 #[verus_verify]
 #[verus_spec(returns Ok::<(), crate::Error>(()))]
 pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> Result<()> {
-    #[verus_spec(with Tracked(None))]
     PCI_ADDRESS_PORT.write(encode_as_port(location) | (offset & BIT32_ALIGN_MASK));
-    #[verus_spec(with Tracked(None))]
     PCI_DATA_PORT.write(value.to_le());
     Ok(())
 }
@@ -31,7 +29,6 @@ pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> 
 #[verus_verify]
 #[verus_spec(result => ensures result is Ok)]
 pub(crate) fn read32(location: &PciDeviceLocation, offset: u32) -> Result<u32> {
-    #[verus_spec(with Tracked(None))]
     PCI_ADDRESS_PORT.write(encode_as_port(location) | (offset & BIT32_ALIGN_MASK));
     Ok(PCI_DATA_PORT.read().to_le())
 }
