@@ -24,8 +24,6 @@ pub mod time;
 pub mod vec;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
-#[cfg(target_arch = "x86_64")]
-pub mod x86_idt;
 pub mod xmas_elf;
 
 pub use acpi::*;

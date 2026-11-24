@@ -2,14 +2,13 @@
 //! Configure the Interrupt Descriptor Table (IDT).
 use vstd::prelude::*;
 use vstd_extra::{
-    external::x86_idt::{
+    external::x86::idt::{
         self, IdtrLoad, gate, idt_load_context, is_canonical, kernel_code_selector,
-        lemma_idt_entry_layout, static_idt_at, usable_gate,
+        lemma_idt_entry_layout, software_interrupt_safe, static_idt_at, usable_gate, valid_handler,
+        valid_vector,
     },
     panic::allowed_to_panic_if,
 };
-
-use crate::specs::arch::idt::{NUM_INTERRUPTS, valid_vectors, vector_table, vectors_ready};
 
 use alloc::boxed::Box;
 use core::arch::global_asm;
@@ -23,8 +22,31 @@ use x86_64::{
 
 global_asm!(include_str!("trap.S"));
 
+#[verus_verify]
+const NUM_INTERRUPTS: usize = 256;
+
 #[verus_spec(ensures gate(MISSING_ENTRY).reserved == 0)]
 const MISSING_ENTRY: Entry<()> = Entry::missing();
+
+extern "C" {
+    #[link_name = "trap_handler_table"]
+    static VECTORS: [usize; NUM_INTERRUPTS];
+}
+
+/// # Safety
+/// The linker must have relocated all 256 entries. The table must remain aligned,
+/// readable and immutable for the lifetime of the kernel.
+#[verifier::when_used_as_spec(vector_table_spec)]
+#[verifier::external_body]
+#[verus_spec(
+    requires vectors_ready(),
+    returns vector_table(),
+    opens_invariants none
+    no_unwind
+)]
+pub(super) unsafe fn vector_table() -> &'static [usize; NUM_INTERRUPTS] {
+    unsafe { &VECTORS }
+}
 
 /* The cached slice needs a type invariant that also holds on cache hits.
  * Origin Rust: static GLOBAL_IDT: Once<&'static [Entry<()>]> = Once::new();
@@ -160,7 +182,7 @@ pub(super) fn init() {
     proof_with!(|= Tracked(load));
     unsafe {
         proof_with!(Ghost(idt.entries@), Tracked(&mut load));
-        x86_idt::load_idtr(&idtr)
+        idt::load_idtr(&idtr)
     }
 }
 
@@ -184,6 +206,22 @@ pub(super) uninterp spec fn published_idt_base() -> u64;
 
 /// An earlier or racing initializer of `GLOBAL_IDT` can unwind and poison the cell.
 pub(super) uninterp spec fn idt_once_may_observe_poison() -> bool;
+
+/// The relocated table is an aligned, initialized, immutable region of 256
+/// `usize` entries that remains readable for the lifetime of the kernel.
+pub(super) uninterp spec fn vectors_ready() -> bool;
+
+pub(super) uninterp spec fn vector_table_spec() -> &'static [usize; NUM_INTERRUPTS];
+
+pub(super) open spec fn valid_vectors(vectors: &[usize; NUM_INTERRUPTS]) -> bool {
+    forall|i: int|
+        0 <= i < vectors@.len() ==> {
+            &&& is_canonical(#[trigger] vectors@[i] as u64)
+            &&& valid_handler::<()>(vectors@[i] as u64)
+            &&& valid_vector(vectors@[i] as u64, i)
+            &&& (i == 3 || i == 4) ==> software_interrupt_safe(vectors@[i] as u64, i)
+        }
+}
 
 pub(super) open spec fn entry_matches(entry: Entry<()>, handler: usize, vector: int) -> bool {
     let g = gate(entry);
