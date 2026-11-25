@@ -44,10 +44,11 @@ pub fn info_enabled(static_limit: LevelFilter) -> bool {
 }
 
 /// Forwards an enabled record to the global logger using the caller's module and location.
-/// The installed logger's callback and its formatting behavior are trusted.
+/// The installed logger and argument formatting may open invariants and unwind.
 #[doc(hidden)]
 #[track_caller]
 #[verus_verify(external_body)]
+#[verus_spec(opens_invariants any)]
 pub fn emit_info(module: &'static str, args: Arguments<'_>) {
     let caller = Location::caller();
     ::log::logger().log(

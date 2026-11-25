@@ -20,6 +20,8 @@ use crate::{
     /* trap::irq::IrqLine, */
 };
 
+verus! {
+
 /// PIT Operating Mode.
 ///
 /// Usually, only the rate generator, which is used to determine the base frequency of other timers
@@ -27,7 +29,6 @@ use crate::{
 ///
 /// Note that if IOAPIC is used to manage interrupts and square wave mode is enabled, the frequency at which
 /// clock interrupts are generated is `Frequency/2`.
-#[verus_verify]
 #[repr(u8)]
 pub enum OperatingMode {
     /// Triggers an interrupt (only on channel 0) when the counter is terminated (1 -> 0).
@@ -89,7 +90,6 @@ pub enum OperatingMode {
 }
 
 /// This bits tell the PIT what access mode is used for the selected channel.
-#[verus_verify]
 #[repr(u8)]
 enum AccessMode {
     /// When this command is sent, the current count is copied into latch register which can be read
@@ -105,7 +105,6 @@ enum AccessMode {
 }
 
 /// Used to select the configured channel in the `MODE_COMMAND_PORT` of the PIT.
-#[verus_verify]
 #[repr(u8)]
 enum Channel {
     /// Channel 0. For more details, check `CHANNEL0_PORT` static variable
@@ -139,6 +138,19 @@ enum Channel {
     ReadBackCommand = 0b11,
 }
 
+pub(crate) open spec fn init_writes(operating_mode: OperatingMode) -> Seq<(u16, u8)> {
+    let command: u8 = match operating_mode {
+        OperatingMode::InterruptOnTerminalCount => 0x30,
+        OperatingMode::OneShotHardwareRetriggerable => 0x32,
+        OperatingMode::RateGenerator => 0x34,
+        OperatingMode::SquareWaveGenerator => 0x36,
+        OperatingMode::SoftwareTriggeredStrobe => 0x38,
+        OperatingMode::HardwareTriggeredStrobe => 0x3A,
+    };
+    seq![(0x43, command), (0x40, 0xA9), (0x40, 0x04)]
+}
+
+} // verus!
 sensitive_io_port! {
     unsafe {
         /// The output from PIT channel 0 is connected to the PIC chip and generate "IRQ 0".
@@ -175,21 +187,13 @@ crate::const_assert!(MODE_COMMAND_PORT.port() == 0x43 && CHANNEL0_PORT.port() ==
 const TIMER_RATE: u32 = 1193182;
 const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
-#[verus_verify]
+/// Programs channel 0 and consumes the checked prefix of the caller's expected port writes.
+#[verus_spec(
+    with Tracked(remaining): Tracked<&mut Ghost<Seq<(u16, u8)>>>,
+    requires init_writes(operating_mode).is_prefix_of(old(remaining)@),
+    ensures old(remaining)@ == init_writes(operating_mode) + final(remaining)@,
+)]
 pub(crate) fn init(operating_mode: OperatingMode) {
-    proof_decl! {
-        let ghost expected_command: u8 = match operating_mode {
-            OperatingMode::InterruptOnTerminalCount => 0x30,
-            OperatingMode::OneShotHardwareRetriggerable => 0x32,
-            OperatingMode::RateGenerator => 0x34,
-            OperatingMode::SquareWaveGenerator => 0x36,
-            OperatingMode::SoftwareTriggeredStrobe => 0x38,
-            OperatingMode::HardwareTriggeredStrobe => 0x3A,
-        };
-        let tracked mut remaining = Ghost(seq![
-            (0x43u16, expected_command), (0x40u16, 0xA9u8), (0x40u16, 0x04u8),
-        ]);
-    }
     // Set PIT mode
     // Bit 0 is BCD/binary mode, which is always set to binary mode(value: 0)
     /* Name the byte checked below.
@@ -203,7 +207,7 @@ pub(crate) fn init(operating_mode: OperatingMode) {
         assert(forall|mode: u8| mode <= 5 ==>
             #[trigger] ((mode << 1u8) | (3u8 << 4u8) | (0u8 << 6u8)) == ((0x30 + mode * 2) as u8)) by (bit_vector);
     }
-    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    #[verus_spec(with Tracked(Some(remaining)))]
     MODE_COMMAND_PORT.write(command);
 
     // Set timer frequency
@@ -218,11 +222,11 @@ pub(crate) fn init(operating_mode: OperatingMode) {
     proof! {
         assert(TIMER_FREQ == 1000 && CYCLE == 1193 && LOW == 0xA9 && HIGH == 0x04) by (compute);
     }
-    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    #[verus_spec(with Tracked(Some(remaining)))]
     CHANNEL0_PORT.write(LOW);
-    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    #[verus_spec(with Tracked(Some(remaining)))]
     CHANNEL0_PORT.write(HIGH);
-    proof! { assert(remaining@.len() == 0); }
+    proof! { assert(old(remaining)@ =~= init_writes(operating_mode) + remaining@); }
 }
 
 /* IRQ routing is outside the enabled kernel IRQ module.
