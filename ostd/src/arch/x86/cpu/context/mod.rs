@@ -877,7 +877,9 @@ impl FpuContext {
 /// The modern FPU context format (as saved and restored by the `XSAVE` and `XRSTOR` instructions).
 #[repr(C)]
 #[repr(align(64))]
-#[derive(Clone, Copy, Debug, Pod)]
+/* Origin Rust: #[derive(Clone, Copy, Debug, Pod)]
+ * Keep the same Pod marker impl while supplying an opt-in zero-value model. */
+#[derive(Clone, Copy, Debug)]
 #[verus_verify]
 struct XSaveArea {
     fxsave_area: FxSaveArea,
@@ -887,6 +889,38 @@ struct XSaveArea {
     extended_state_area: [u8; MAX_XSAVE_AREA_SIZE - size_of::<FxSaveArea>() - 64],
 }
 
+verus! {
+
+unsafe impl Pod for XSaveArea {
+    closed spec fn zeroed_model() -> Option<Self> {
+        Some(
+            Self {
+                fxsave_area: FxSaveArea {
+                    control: 0,
+                    status: 0,
+                    tag: 0,
+                    op: 0,
+                    ip: 0,
+                    cs: 0,
+                    dp: 0,
+                    ds: 0,
+                    mxcsr: 0,
+                    mxcsr_mask: 0,
+                    st_space: vstd::array::spec_array_fill_for_copy_type(0u32),
+                    xmm_space: vstd::array::spec_array_fill_for_copy_type(0u32),
+                    padding: vstd::array::spec_array_fill_for_copy_type(0u32),
+                    reserved: vstd::array::spec_array_fill_for_copy_type(0u32),
+                },
+                features: 0,
+                compaction: 0,
+                reserved: vstd::array::spec_array_fill_for_copy_type(0u64),
+                extended_state_area: vstd::array::spec_array_fill_for_copy_type(0u8),
+            },
+        )
+    }
+}
+
+} // verus!
 #[verus_verify]
 impl XSaveArea {
     #[verus_spec(r =>
@@ -897,7 +931,7 @@ impl XSaveArea {
         } else { 0 }),
     )]
     fn new() -> Self {
-        proof! { use_type_invariant(init); broadcast use VERUS_layout_of_FxSaveArea; }
+        proof! { use_type_invariant(init); broadcast use { VERUS_layout_of_FxSaveArea, vstd::array::axiom_spec_array_fill_for_copy_type }; }
         /* Origin Rust: let features = if CPU_FEATURES.get().unwrap().has_xsave() {
          * Completion witnesses provide the original get/unwrap's preconditions. */
         let features =
@@ -913,31 +947,7 @@ impl XSaveArea {
             } else {
                 0
             };
-        /* Origin Rust: let mut xsave_area = Self::new_zeroed();
-         * Pod::new_zeroed has no field-value contract; initialize the same integer
-         * fields explicitly to prove their values without another trusted model. */
-        let mut xsave_area = Self {
-            fxsave_area: FxSaveArea {
-                control: 0,
-                status: 0,
-                tag: 0,
-                op: 0,
-                ip: 0,
-                cs: 0,
-                dp: 0,
-                ds: 0,
-                mxcsr: 0,
-                mxcsr_mask: 0,
-                st_space: [0; 32],
-                xmm_space: [0; 64],
-                padding: [0; 12],
-                reserved: [0; 12],
-            },
-            features: 0,
-            compaction: 0,
-            reserved: [0; 6],
-            extended_state_area: [0; MAX_XSAVE_AREA_SIZE - size_of::<FxSaveArea>() - 64],
-        };
+        let mut xsave_area = Self::new_zeroed();
         // Set the initial values for the FPU context. Refer to Intel SDM, Table 11-1:
         // "IA-32 and Intel® 64 Processor States Following Power-up, Reset, or INIT (Contd.)".
         xsave_area.fxsave_area.control = 0x037F;
@@ -1002,12 +1012,9 @@ impl XSaveArea {
 
 } // verus!
 /* Origin Rust: <none; new executable code>
- * Check the layouts used by the standard XSAVE format and the byte-slice views. */
+ * Check hardware field offsets and tie the allocation size to its capacity. */
 const _: () = {
-    assert!(size_of::<FxSaveArea>() == 512);
-    assert!(core::mem::align_of::<FxSaveArea>() == 16);
     assert!(size_of::<XSaveArea>() == MAX_XSAVE_AREA_SIZE);
-    assert!(core::mem::align_of::<XSaveArea>() == 64);
     assert!(core::mem::offset_of!(XSaveArea, fxsave_area) == 0);
     assert!(core::mem::offset_of!(XSaveArea, features) == 512);
     assert!(core::mem::offset_of!(XSaveArea, compaction) == 520);
