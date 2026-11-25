@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Trusted libflate 2.3.2 models; codec correctness is assumed.
-//! Audited libflate sources include src/{gzip,zlib,finish}.rs.
-//! Validity is limited to Vec<u8>, byte slices, and their default codecs.
 use vstd::prelude::*;
 
 use alloc::vec::Vec;
@@ -10,7 +8,7 @@ use no_std_io2::io;
 
 use super::no_std_io2::{
     ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl, axiom_slice_reader_model,
-    axiom_vec_writer_model, obeys_reader_model, obeys_writer_model,
+    axiom_vec_writer_model,
 };
 
 verus! {
@@ -74,22 +72,22 @@ pub open spec fn zlib_encoding(plain: Seq<u8>, stream: Seq<u8>) -> bool {
 
 pub broadcast axiom fn axiom_gzip_writer_model()
     ensures
-        #[trigger] obeys_writer_model::<gzip::Encoder<Vec<u8>>>(),
+        #[trigger] <gzip::Encoder<Vec<u8>> as WriteSpec>::obeys_writer_model(),
 ;
 
 pub broadcast axiom fn axiom_zlib_writer_model()
     ensures
-        #[trigger] obeys_writer_model::<zlib::Encoder<Vec<u8>>>(),
+        #[trigger] <zlib::Encoder<Vec<u8>> as WriteSpec>::obeys_writer_model(),
 ;
 
 pub broadcast axiom fn axiom_gzip_reader_model<'a>()
     ensures
-        #[trigger] obeys_reader_model::<gzip::Decoder<&'a [u8]>>(),
+        #[trigger] <gzip::Decoder<&'a [u8]> as ReadSpec>::obeys_reader_model(),
 ;
 
 pub broadcast axiom fn axiom_zlib_reader_model<'a>()
     ensures
-        #[trigger] obeys_reader_model::<zlib::Decoder<&'a [u8]>>(),
+        #[trigger] <zlib::Decoder<&'a [u8]> as ReadSpec>::obeys_reader_model(),
 ;
 
 pub broadcast group group_libflate_models {
@@ -116,6 +114,8 @@ pub trait ExLz77Encode {
 }
 
 impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
+    uninterp spec fn obeys_writer_model() -> bool;
+
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         gzip_state(self) matches Some(state) ==> gzip_state(next) == Some(
             EncoderState { plain: state.plain + input, ..state },
@@ -124,6 +124,8 @@ impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for gzip::Encode
 }
 
 impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
+    uninterp spec fn obeys_writer_model() -> bool;
+
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         zlib_state(self) matches Some(state) ==> zlib_state(next) == Some(
             EncoderState { plain: state.plain + input, ..state },
@@ -136,9 +138,10 @@ pub assume_specification<W: io::Write>[ gzip::Encoder::<W>::new ](inner: W) -> (
     io::Error,
 >)
     ensures
-        obeys_writer_model::<gzip::Encoder<W>>() ==> (result matches Ok(encoder) && gzip_state(
-            &encoder,
-        ) == Some(EncoderState { initial_writer: inner, plain: Seq::empty() })),
+        <gzip::Encoder<W> as WriteSpec>::obeys_writer_model() ==> (result matches Ok(encoder)
+            && gzip_state(&encoder) == Some(
+            EncoderState { initial_writer: inner, plain: Seq::empty() },
+        )),
 ;
 
 pub assume_specification<W: io::Write>[ zlib::Encoder::<W>::new ](inner: W) -> (result: Result<
@@ -146,9 +149,10 @@ pub assume_specification<W: io::Write>[ zlib::Encoder::<W>::new ](inner: W) -> (
     io::Error,
 >)
     ensures
-        obeys_writer_model::<zlib::Encoder<W>>() ==> (result matches Ok(encoder) && zlib_state(
-            &encoder,
-        ) == Some(EncoderState { initial_writer: inner, plain: Seq::empty() })),
+        <zlib::Encoder<W> as WriteSpec>::obeys_writer_model() ==> (result matches Ok(encoder)
+            && zlib_state(&encoder) == Some(
+            EncoderState { initial_writer: inner, plain: Seq::empty() },
+        )),
 ;
 
 pub uninterp spec fn finish_value<T, E>(finish: Finish<T, E>) -> T;
@@ -160,8 +164,9 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ gzip::Enc
     E,
 >::finish ](encoder: gzip::Encoder<W, E>) -> (result: Finish<W, io::Error>)
     ensures
-        obeys_writer_model::<gzip::Encoder<W, E>>() ==> (gzip_state(&encoder) matches Some(state)
-            ==> {
+        <gzip::Encoder<W, E> as WriteSpec>::obeys_writer_model() ==> (gzip_state(
+            &encoder,
+        ) matches Some(state) ==> {
             &&& finish_error(result) is None
             &&& exists|stream: Seq<u8>| #[trigger]
                 gzip_encoding(state.plain, stream) && state.initial_writer.wrote_all(
@@ -176,8 +181,9 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ zlib::Enc
     E,
 >::finish ](encoder: zlib::Encoder<W, E>) -> (result: Finish<W, io::Error>)
     ensures
-        obeys_writer_model::<zlib::Encoder<W, E>>() ==> (zlib_state(&encoder) matches Some(state)
-            ==> {
+        <zlib::Encoder<W, E> as WriteSpec>::obeys_writer_model() ==> (zlib_state(
+            &encoder,
+        ) matches Some(state) ==> {
             &&& finish_error(result) is None
             &&& exists|stream: Seq<u8>| #[trigger]
                 zlib_encoding(state.plain, stream) && state.initial_writer.wrote_all(
@@ -200,12 +206,16 @@ pub uninterp spec fn gzip_remaining<R>(decoder: &gzip::Decoder<R>) -> Option<Seq
 pub uninterp spec fn zlib_remaining<R>(decoder: &zlib::Decoder<R>) -> Option<Seq<u8>>;
 
 impl<R: io::Read> ReadSpecImpl for gzip::Decoder<R> {
+    uninterp spec fn obeys_reader_model() -> bool;
+
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         gzip_remaining(self)
     }
 }
 
 impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
+    uninterp spec fn obeys_reader_model() -> bool;
+
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         zlib_remaining(self)
     }
@@ -216,7 +226,7 @@ pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (r
     io::Error,
 >)
     ensures
-        obeys_reader_model::<R>() ==> (inner.remaining_bytes() matches Some(stream) && gzip_decoded(
+        R::obeys_reader_model() ==> (inner.remaining_bytes() matches Some(stream) && gzip_decoded(
             stream,
         ) matches Some(plain) ==> {
             result matches Ok(decoder) && gzip_remaining(&decoder) == Some(plain)
@@ -228,7 +238,7 @@ pub assume_specification<R: io::Read>[ zlib::Decoder::<R>::new ](inner: R) -> (r
     io::Error,
 >)
     ensures
-        obeys_reader_model::<R>() ==> (inner.remaining_bytes() matches Some(stream) && zlib_decoded(
+        R::obeys_reader_model() ==> (inner.remaining_bytes() matches Some(stream) && zlib_decoded(
             stream,
         ) matches Some(plain) ==> {
             result matches Ok(decoder) && zlib_remaining(&decoder) == Some(plain)

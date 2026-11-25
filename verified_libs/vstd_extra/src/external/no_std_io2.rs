@@ -11,18 +11,14 @@ verus! {
 #[verifier::external_body]
 pub struct ExIoError(io::Error);
 
-pub uninterp spec fn obeys_writer_model<W: ?Sized>() -> bool;
-
-pub uninterp spec fn obeys_reader_model<R: ?Sized>() -> bool;
-
 pub broadcast axiom fn axiom_vec_writer_model()
     ensures
-        #[trigger] obeys_writer_model::<Vec<u8>>(),
+        #[trigger] <Vec<u8> as WriteSpec>::obeys_writer_model(),
 ;
 
 pub broadcast axiom fn axiom_slice_reader_model<'a>()
     ensures
-        #[trigger] obeys_reader_model::<&'a [u8]>(),
+        #[trigger] <&'a [u8] as ReadSpec>::obeys_reader_model(),
 ;
 
 #[verifier::external_trait_specification]
@@ -30,19 +26,24 @@ pub broadcast axiom fn axiom_slice_reader_model<'a>()
 pub trait ExWrite {
     type ExternalTraitSpecificationFor: io::Write;
 
+    spec fn obeys_writer_model() -> bool;
+
     spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool;
 
     fn write_all(&mut self, input: &[u8]) -> (result: Result<(), io::Error>)
         ensures
-            obeys_writer_model::<Self>() ==> {
+            Self::obeys_writer_model() ==> {
                 &&& result is Ok
                 &&& old(self).wrote_all(input@, final(self))
             },
     ;
 }
 
+// Verus requires each extension impl to match the upstream Write impl.
 #[cfg(not(feature = "std"))]
 impl WriteSpecImpl for Vec<u8> {
+    uninterp spec fn obeys_writer_model() -> bool;
+
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         next@ == self@ + input
     }
@@ -50,6 +51,8 @@ impl WriteSpecImpl for Vec<u8> {
 
 #[cfg(feature = "std")]
 impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
+    uninterp spec fn obeys_writer_model() -> bool;
+
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         next@ == self@ + input
     }
@@ -60,6 +63,8 @@ impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
 pub trait ExRead {
     type ExternalTraitSpecificationFor: io::Read;
 
+    spec fn obeys_reader_model() -> bool;
+
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
     /// libflate 2.3.2 forwards its `std` feature to no_std_io2 0.9.4, which then
@@ -67,7 +72,7 @@ pub trait ExRead {
     /// from `Vec::try_reserve` even when the input decodes successfully.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
-            obeys_reader_model::<Self>() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
+            Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
                 &&& !cfg!(feature = "std") ==> result is Ok
                 &&& result matches Ok(count) ==> {
                     &&& count == plain.len()
@@ -79,6 +84,8 @@ pub trait ExRead {
 }
 
 impl ReadSpecImpl for &[u8] {
+    uninterp spec fn obeys_reader_model() -> bool;
+
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         Some(self@)
     }
