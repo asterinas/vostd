@@ -1009,7 +1009,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             },
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(250)]
+    #[verifier::rlimit(100)]
     pub fn take_current(&mut self) -> Option<UniqueFrame<Link<M>>> {
         hide(typed_meta_wf);
         hide(MetaSlotOwner::storage_perm);
@@ -1204,6 +1204,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(frame.wf_with_region(frame_own, *regions)) by {
                 reveal(typed_meta_wf);
             };
+            assert(owner.list_own.values() == owner0.list_own.values().remove(owner0.index));
+            assert(frame.meta_value(frame_own).meta == owner0.list_own.values()[owner0.index]);
             owner0.remove_owner_spec_implies_model_spec(*owner);
         }
         proof_with!(|= Tracked(Some(frame_own)));
@@ -1274,6 +1276,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         hide(MetaSlotOwner::vtable_ptr_perm);
         hide(<MetaRegionOwners as Inv>::inv);
         let ghost owner0 = *owner;
+        let ghost inserted_meta = frame.meta_value(*frame_own).meta;
         let ghost regions0 = *regions;
         let ghost nn = owner.index as int;
 
@@ -1434,6 +1437,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 reveal(<MetaRegionOwners as Inv>::inv);
             };
             assert(frame.wf_with_region(*frame_own, *regions));
+            assert(*regions == regions0.insert_slot_owner(paddr, regions.slot_owner(paddr)));
         }
 
         #[verus_spec(with
@@ -1507,6 +1511,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 );
             };
 
+            assert(owner.list_own.values() == oldl.values().insert(nn, inserted_meta));
             owner0.insert_owner_spec_implies_model_spec(flink, *owner);
         }
     }
