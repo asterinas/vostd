@@ -510,8 +510,8 @@ verus! {
 
 pub tracked struct FpuInitialization {
     features: FpuOnceInitialized<x86::cpuid::FeatureInfo>,
-    max_features: Option<FpuOnceInitialized<u64>>,
-    area_size: Option<FpuOnceInitialized<usize>>,
+    max_features: FpuOnceInitialized<u64>,
+    area_size: FpuOnceInitialized<usize>,
     ghost cpu: nat,
     ghost xcr0: u64,
 }
@@ -520,34 +520,20 @@ impl FpuInitialization {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.features.cell() == cpu_features_cell_id()
-        &&& self.max_features matches Some(witness) ==> {
-            witness.cell() == max_features_cell_id() && witness.value()
-                == cpu_feature_model().supported_xstates()
-        }
-        &&& self.area_size matches Some(witness) ==> {
-            &&& witness.cell() == xsave_size_cell_id()
-            &&& 576 <= witness.value() <= MAX_XSAVE_AREA_SIZE
-            &&& witness.value() == platform_xsave_area_size()
-        }
-        &&& self.uses_xsave() ==> self.max_features is Some && self.area_size is Some
+        &&& self.uses_xsave()
+        &&& self.max_features.cell() == max_features_cell_id()
+        &&& self.max_features.value() == cpu_feature_model().supported_xstates()
+        &&& self.area_size.cell() == xsave_size_cell_id()
+        &&& 576 <= self.area_size.value() <= MAX_XSAVE_AREA_SIZE
+        &&& self.area_size.value() == platform_xsave_area_size()
     }
 
     pub closed spec fn len(&self) -> usize {
-        if self.uses_xsave() {
-            match self.area_size {
-                Some(witness) => witness.value(),
-                None => 512,
-            }
-        } else {
-            512
-        }
+        self.area_size.value()
     }
 
     pub closed spec fn supported_mask(&self) -> u64 {
-        match self.max_features {
-            Some(witness) => witness.value(),
-            None => 0,
-        }
+        self.max_features.value()
     }
 
     pub closed spec fn uses_xsave(&self) -> bool {
@@ -562,21 +548,17 @@ impl FpuInitialization {
         self.xcr0
     }
 
-    /// Relates CPU identity, register access and XSTATE support. In XSAVE mode,
-    /// startup/configuration preconditions bind the cached length to this CPU's
+    /// Relates CPU identity, register access and XSTATE support.
+    /// Startup/configuration preconditions bind the cached length to this CPU's
     /// enabled hardware XSAVE size at its current XCR0.
     pub open spec fn enabled_on(&self, cpu: &X86CpuRegisterOwner) -> bool {
         &&& self.configured_cpu() == cpu@.cpu
         &&& cpu.kernel_cpu()
-        &&& if self.uses_xsave() {
-            &&& self.configured_xcr0() == cpu@.xcr0
-            &&& cpu.xcr0_readable()
-            &&& cpu_feature_model().matches_xstates(cpu)
-            &&& self.supported_mask() == cpu@.user_xstates | cpu@.supervisor_xstates
-            &&& self.len() == (cpu@.xsave_size_for)(cpu@.xcr0) as usize
-        } else {
-            cpu@.fpu && cpu@.fxsr && cpu@.cr0 & 12u64 == 0 && cpu@.cr4 & 0x200u64 != 0
-        }
+        &&& self.configured_xcr0() == cpu@.xcr0
+        &&& cpu.xcr0_readable()
+        &&& cpu_feature_model().matches_xstates(cpu)
+        &&& self.supported_mask() == cpu@.user_xstates | cpu@.supervisor_xstates
+        &&& self.len() == (cpu@.xsave_size_for)(cpu@.xcr0) as usize
     }
 }
 
@@ -704,9 +686,7 @@ impl FpuContext {
         with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
         requires init.enabled_on(cpu),
         ensures r.len() == init.len(),
-                r.has_initial_state(if init.uses_xsave() {
-                    (cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()
-                } else { 0 }),
+                r.has_initial_state((cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()),
     )]
     pub fn new() -> Self {
         proof! {
@@ -722,7 +702,7 @@ impl FpuContext {
             /* Origin Rust: area_size = area_size.max(*XSAVE_AREA_SIZE.get().unwrap());
              * Preserve the read while making its completion obligation explicit. */
             area_size = area_size.max(
-                *verus_exec_expr! { xsave_size_ref().get_initialized(Tracked(init.area_size.tracked_borrow())) },
+                *verus_exec_expr! { xsave_size_ref().get_initialized(Tracked(&init.area_size)) },
             );
         }
 
@@ -805,9 +785,7 @@ impl FpuContext {
         with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
         requires init.enabled_on(cpu),
         ensures r.len() == init.len(),
-                r.has_initial_state(if init.uses_xsave() {
-                    (cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()
-                } else { 0 }),
+                r.has_initial_state((cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()),
     )]
     pub fn default() -> Self {
         #[verus_spec(with Tracked(cpu), Tracked(init))]
@@ -840,7 +818,7 @@ impl Clone for FpuContext {
 impl FpuContext {
     #[verus_spec(r =>
         with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
-        requires init.uses_xsave() ==> cpu.xcr0_readable(),
+        requires cpu.xcr0_readable(),
         ensures r.len() == self.len(), r.copied_from(self),
     )]
     pub fn clone(&self) -> Self {
@@ -925,10 +903,8 @@ unsafe impl Pod for XSaveArea {
 impl XSaveArea {
     #[verus_spec(r =>
         with Tracked(cpu): Tracked<&X86CpuRegisterOwner>, Tracked(init): Tracked<&FpuInitialization>
-        requires init.uses_xsave() ==> cpu.xcr0_readable(),
-        ensures r.state().initialized(if init.uses_xsave() {
-            (cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()
-        } else { 0 }),
+        requires cpu.xcr0_readable(),
+        ensures r.state().initialized((cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()),
     )]
     fn new() -> Self {
         proof! { use_type_invariant(init); broadcast use { VERUS_layout_of_FxSaveArea, vstd::array::axiom_spec_array_fill_for_copy_type }; }
@@ -942,7 +918,7 @@ impl XSaveArea {
                  * The same register read carries explicit current-CPU authority. */
                 verus_exec_expr! {{
                     let bits = read_xcr0(Tracked(cpu)).bits();
-                    bits & *max_features_ref().get_initialized(Tracked(init.max_features.tracked_borrow()))
+                    bits & *max_features_ref().get_initialized(Tracked(&init.max_features))
                 }}
             } else {
                 0
@@ -1182,8 +1158,6 @@ pub(in crate::arch) fn enable_essential_features() {
             /* Origin Rust: Cr0::write(cr0);
              * Retain the write while carrying the register state transition. */
             let ghost raw_cr0 = cpu@.cr0;
-            let ghost new_cr0 = vstd_extra::external::x86::cr0_bits(cr0);
-            assert(new_cr0 == (raw_cr0 & CR0_KNOWN_MASK) & !12u64);
             clear_cr0_fpu_flags(cr0, Tracked(&mut *cpu));
             // Flush out any pending x87 state.
             /* Origin Rust: core::arch::asm!("fninit");
@@ -1196,8 +1170,8 @@ pub(in crate::arch) fn enable_essential_features() {
     proof {
         initialized = FpuInitialization {
             features,
-            max_features: Some(max_features),
-            area_size: Some(area_size),
+            max_features,
+            area_size,
             cpu: cpu@.cpu,
             xcr0: cpu@.xcr0,
         };

@@ -3,8 +3,9 @@
 //! the crate sources; the original constants are re-exported below. Also models the
 //! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors.
 //!
-//! CPU-bound contracts describe per-CPU registers and XCR0-dependent size;
-//! startup supplies their owner.
+//! CPU-bound register contracts require a caller-supplied `X86CpuRegisterOwner`.
+//! Owner construction and binding to the executing CPU are deferred to a
+//! `vstd_extra`-internal bootstrap boundary.
 //! spin::Once publication and reads are trusted native operations. Cell identity,
 //! witness duplication and agreement are checked; OnceImpl is a different
 //! runtime protocol and does not model spin::Once's waiting or poisoning behavior.
@@ -184,8 +185,8 @@ pub ghost struct X86CpuSnapshot {
     pub x87_tag: u16,
 }
 
-/// Exclusive authority bound to the actual executing CPU by startup/scheduler glue.
-/// There is deliberately no constructor that invents this hardware binding.
+/// Exclusive current-CPU authority required by the register contracts.
+/// Construction and startup/scheduler binding remain deferred.
 pub tracked struct X86CpuRegisterOwner {
     ghost snapshot: X86CpuSnapshot,
 }
