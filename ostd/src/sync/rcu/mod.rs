@@ -259,6 +259,10 @@ impl<P: NonNullPtr> RcuPtrGhost<P> {
 
 // This authority contains allocation ownership and bookkeeping only. Raw
 // addresses do not carry the pointee's subjective weak-memory observations.
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim assumes that every
+// hand-off of it is synchronized outside the model (SC atomics carry no views).
+// TODO: carry these permissions with views (`ViewAt`) or through `atomic_weak`.
 #[cfg(feature = "irc11")]
 unsafe impl<P: NonNullPtr> Objective for RcuPtrGhost<P> {
 
