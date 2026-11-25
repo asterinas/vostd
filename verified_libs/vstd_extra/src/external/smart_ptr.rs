@@ -76,11 +76,19 @@ pub tracked struct ArcPointsTo<T: 'static> {
 
 // Raw-memory ownership is global state and does not depend on a thread's
 // subjective weak-memory view.
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim assumes that every
+// hand-off of it is synchronized outside the model (SC atomics carry no views).
+// TODO: carry these permissions with views (`ViewAt`) or through `atomic_weak`.
 #[cfg(feature = "irc11")]
 unsafe impl<T> Objective for BoxPointsTo<T> {
 
 }
 
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim assumes that every
+// hand-off of it is synchronized outside the model (SC atomics carry no views).
+// TODO: carry these permissions with views (`ViewAt`) or through `atomic_weak`.
 #[cfg(feature = "irc11")]
 unsafe impl<T> Objective for ArcPointsTo<T> {
 
