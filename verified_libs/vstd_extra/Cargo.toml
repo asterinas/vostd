@@ -12,8 +12,6 @@ default = []
 # feature as a source gate so the mainline vstd dependency remains unchanged.
 irc11 = []
 std = ["vstd/std", "libflate/std"]
-# Codec and MaybeUninit specifications are needed only by the bzImage crates.
-bzimage = []
 
 [dependencies]
 vstd = { workspace = true }
