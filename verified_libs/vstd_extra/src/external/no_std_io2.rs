@@ -29,7 +29,19 @@ pub trait ExWrite {
     ;
 }
 
+#[cfg(not(feature = "std"))]
 impl WriteSpecImpl for Vec<u8> {
+    open spec fn obeys_writer_model() -> bool {
+        true
+    }
+
+    open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
+        next@ == self@ + input
+    }
+}
+
+#[cfg(feature = "std")]
+impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
     open spec fn obeys_writer_model() -> bool {
         true
     }
@@ -48,10 +60,12 @@ pub trait ExRead {
 
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
+    /// With `std`, the default implementation can fail while reserving output capacity.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
             Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
-                result matches Ok(count) && {
+                &&& !cfg!(feature = "std") ==> result is Ok
+                &&& result matches Ok(count) ==> {
                     &&& count == plain.len()
                     &&& final(output)@ == old(output)@ + plain
                     &&& final(self).remaining_bytes() == Some(Seq::<u8>::empty())

@@ -341,7 +341,6 @@ dependencies = [
  "bitflags 0.1.0",
  "bytemuck",
  "libflate",
- "no_std_io2",
  "serde",
  "vstd",
  "vstd_extra",

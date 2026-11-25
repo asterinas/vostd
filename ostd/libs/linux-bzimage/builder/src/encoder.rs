@@ -5,11 +5,11 @@ use vstd_extra::external::libflate::{group_libflate_models, gzip_encoding, zlib_
 
 use std::{
     ffi::{OsStr, OsString},
+    io::Write,
     str::FromStr,
 };
 
 use libflate::{gzip, zlib};
-use no_std_io2::io::Write;
 use serde::{Deserialize, Serialize};
 
 #[verus_verify(external_derive(Serialize), external_derive(Deserialize))]
