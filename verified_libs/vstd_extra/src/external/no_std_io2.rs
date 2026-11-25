@@ -60,10 +60,12 @@ pub trait ExRead {
 
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
+    /// The std slice and default readers propagate output allocation errors from Vec::try_reserve.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
             Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
-                result matches Ok(count) && {
+                &&& !cfg!(feature = "std") ==> result is Ok
+                &&& result matches Ok(count) ==> {
                     &&& count == plain.len()
                     &&& final(output)@ == old(output)@ + plain
                     &&& final(self).remaining_bytes() == Some(Seq::<u8>::empty())
