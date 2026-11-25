@@ -238,7 +238,6 @@ pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
         (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) as usize
             == cpu::context::platform_xsave_area_size(),
     ensures initialization@.enabled_on(final(cpu)),
-            final(cpu)@.fxsr,
             initialization@.uses_xsave(),
             576 <= initialization@.len() <= 4096,
             final(cpu)@ == (vstd_extra::external::x86::X86CpuSnapshot {
@@ -252,13 +251,13 @@ pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
 )]
 pub(crate) fn enable_cpu_features() {
     use vstd_extra::external::x86::{
-        cr4_bits, cr4_fsgsbase, cr4_or, cr4_or_assign, cr4_osfxsr, cr4_osxmmexcpt, cr4_osxsave,
-        cr4_page_global, enable_cr4_flags, enable_nxe, read_cr4, read_feature_info, read_xcr0,
-        write_xcr0, xcr0_avx, xcr0_bits, xcr0_hi16_zmm, xcr0_opmask, xcr0_or, xcr0_or_assign,
-        xcr0_sse, xcr0_zmm_hi256,
+        cr4_bits, cr4_or, cr4_or_assign, enable_cr4_flags, enable_nxe, read_cr4, read_feature_info,
+        read_xcr0, write_xcr0, xcr0_bits, xcr0_or, xcr0_or_assign,
     };
 
-    /*use x86_64::registers::{control::Cr4Flags, model_specific::EferFlags, xcontrol::XCr0Flags};*/
+    use x86_64::registers::{
+        control::Cr4Flags, /*model_specific::EferFlags,*/ xcontrol::XCr0Flags,
+    };
     proof_decl! { let tracked initialized; }
     verus_exec_expr! {{
         /* Origin Rust: CPU_FEATURES.call_once(|| {
@@ -282,8 +281,8 @@ pub(crate) fn enable_cpu_features() {
          *     | Cr4Flags::OSFXSR | Cr4Flags::OSXMMEXCPT_ENABLE | Cr4Flags::PAGE_GLOBAL;
          * Thin wrappers retain the native operators; their spec-trait impl is foreign. */
         cr4_or_assign(&mut cr4, cr4_or(cr4_or(cr4_or(cr4_or(
-            cr4_fsgsbase(), cr4_osxsave()), cr4_osfxsr()),
-            cr4_osxmmexcpt()), cr4_page_global()));
+            Cr4Flags::FSGSBASE, Cr4Flags::OSXSAVE), Cr4Flags::OSFXSR),
+            Cr4Flags::OSXMMEXCPT_ENABLE), Cr4Flags::PAGE_GLOBAL));
         unsafe {
             /* Origin Rust: x86_64::registers::control::Cr4::write(cr4);
              * Pass the linear state through the unchanged hardware write. */
@@ -299,14 +298,14 @@ pub(crate) fn enable_cpu_features() {
         let ghost initial_bits = xcr0_bits(xcr0);
         /* Origin Rust: xcr0 |= XCr0Flags::SSE;
          * Keep native BitOrAssign behind its narrow software contract. */
-        xcr0_or_assign(&mut xcr0, xcr0_sse());
+        xcr0_or_assign(&mut xcr0, XCr0Flags::SSE);
         let ghost after_sse = xcr0_bits(xcr0);
         let ghost mut avx_bits = 0u64;
         let ghost mut avx512_bits = 0u64;
         if has_avx() {
             /* Origin Rust: xcr0 |= XCr0Flags::AVX;
              * The external BitOrAssign operation requires a contract. */
-            xcr0_or_assign(&mut xcr0, xcr0_avx());
+            xcr0_or_assign(&mut xcr0, XCr0Flags::AVX);
             proof { avx_bits = 4u64; }
         }
 
@@ -316,8 +315,8 @@ pub(crate) fn enable_cpu_features() {
             assert((0x20u64 | 0x40u64) | 0x80u64 == 0xe0u64) by (bit_vector);
             /* Origin Rust: xcr0 |= XCr0Flags::OPMASK | XCr0Flags::ZMM_HI256 | XCr0Flags::HI16_ZMM;
              * Preserve the three native OR operations and their order. */
-            xcr0_or_assign(&mut xcr0, xcr0_or(xcr0_or(xcr0_opmask(),
-                xcr0_zmm_hi256()), xcr0_hi16_zmm()));
+            xcr0_or_assign(&mut xcr0, xcr0_or(xcr0_or(XCr0Flags::OPMASK,
+                XCr0Flags::ZMM_HI256), XCr0Flags::HI16_ZMM));
             proof { avx512_bits = 0xe0u64; }
         }
 

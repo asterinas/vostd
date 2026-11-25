@@ -9,8 +9,7 @@ use vstd::{
 use vstd_extra::{
     external::x86::{
         FpuOnce, FpuOnceInitialized, X86CpuRegisterOwner, XCR0_KNOWN_MASK, clear_cr0_fpu_flags,
-        cr0_emulate_coprocessor, cr0_or, cr0_task_switched, feature_info_ecx, initialize_x87,
-        read_cr0, read_enabled_xsave_size, read_xcr0,
+        cr0_or, feature_info_ecx, initialize_x87, read_cr0, read_enabled_xsave_size, read_xcr0,
     },
     resource_invariant::ValueInvariant,
 };
@@ -29,11 +28,11 @@ use log::debug;
 use ostd_pod::Pod;
 /*use spin::Once;*/
 /*use x86::bits64::segmentation::wrfsbase;*/
-/*use x86_64::registers::{
-    control::{Cr0, Cr0Flags},
-    rflags::RFlags,
-    xcontrol::XCr0,
-};*/
+use x86_64::registers::{
+    control::{/*Cr0,*/ Cr0Flags},
+    /*rflags::RFlags,
+    xcontrol::XCr0,*/
+};
 
 use crate::{
     arch::{
@@ -695,6 +694,57 @@ impl FpuContext {
         &&& source.type_inv()
         &&& self.state().copied_from(&source.state(), source.len())
     }
+
+    pub proof fn lemma_initial_state_bytes(&self, other: &Self, features: u64)
+        requires
+            self.len() == other.len(),
+            self.has_initial_state(features),
+            other.has_initial_state(features),
+        ensures
+            self.bytes() == other.bytes(),
+    {
+        let left = self.state();
+        let right = other.state();
+        assert(left.legacy.st_space =~= right.legacy.st_space);
+        assert(left.legacy.xmm_space =~= right.legacy.xmm_space);
+        assert(left.legacy.padding =~= right.legacy.padding);
+        assert(left.legacy.reserved =~= right.legacy.reserved);
+        assert(left.reserved =~= right.reserved);
+        assert(left.extended_state_area =~= right.extended_state_area);
+        self.lemma_same_state_bytes(other);
+    }
+
+    /// Byte equality requires the source's zeroed header reserve and inactive tail.
+    pub proof fn lemma_copied_bytes(&self, source: &Self)
+        requires
+            self.copied_from(source),
+            source.state().has_zeroed_clone_padding(source.len()),
+        ensures
+            self.bytes() == source.bytes(),
+    {
+        let left = self.state();
+        let right = source.state();
+        let extended_len = if source.len() > 512 {
+            source.len() - 576
+        } else {
+            0
+        };
+        assert(left.reserved =~= right.reserved);
+        assert(left.extended_state_area =~= right.extended_state_area) by {
+            assert forall|i: int|
+                0 <= i < left.extended_state_area.len() implies left.extended_state_area[i]
+                == right.extended_state_area[i] by {
+                if i < extended_len {
+                    assert(left.extended_state_area@[..extended_len][i]
+                        == right.extended_state_area@[..extended_len][i]);
+                } else {
+                    assert(left.extended_state_area@[extended_len..][i - extended_len] == 0);
+                    assert(right.extended_state_area@[extended_len..][i - extended_len] == 0);
+                }
+            }
+        }
+        self.lemma_same_state_bytes(source);
+    }
 }
 
 global layout FxSaveArea is size == 512, align == 16;
@@ -1175,7 +1225,7 @@ pub(in crate::arch) fn enable_essential_features() {
         /* Origin Rust: cr0.remove(Cr0Flags::TASK_SWITCHED | Cr0Flags::EMULATE_COPROCESSOR);
          * The external BitOr operation requires a contract. */
         assert(8u64 | 4u64 == 12u64) by (bit_vector);
-        cr0.remove(cr0_or(cr0_task_switched(), cr0_emulate_coprocessor()));
+        cr0.remove(cr0_or(Cr0Flags::TASK_SWITCHED, Cr0Flags::EMULATE_COPROCESSOR));
 
         unsafe {
             /* Origin Rust: Cr0::write(cr0);
@@ -1204,62 +1254,6 @@ pub(in crate::arch) fn enable_essential_features() {
     ()
 }
 
-verus! {
-
-impl FpuContext {
-    pub proof fn lemma_initial_state_bytes(&self, other: &Self, features: u64)
-        requires
-            self.len() == other.len(),
-            self.has_initial_state(features),
-            other.has_initial_state(features),
-        ensures
-            self.bytes() == other.bytes(),
-    {
-        let left = self.state();
-        let right = other.state();
-        assert(left.legacy.st_space =~= right.legacy.st_space);
-        assert(left.legacy.xmm_space =~= right.legacy.xmm_space);
-        assert(left.legacy.padding =~= right.legacy.padding);
-        assert(left.legacy.reserved =~= right.legacy.reserved);
-        assert(left.reserved =~= right.reserved);
-        assert(left.extended_state_area =~= right.extended_state_area);
-        self.lemma_same_state_bytes(other);
-    }
-
-    /// Byte equality requires the source's zeroed header reserve and inactive tail.
-    pub proof fn lemma_copied_bytes(&self, source: &Self)
-        requires
-            self.copied_from(source),
-            source.state().has_zeroed_clone_padding(source.len()),
-        ensures
-            self.bytes() == source.bytes(),
-    {
-        let left = self.state();
-        let right = source.state();
-        let extended_len = if source.len() > 512 {
-            source.len() - 576
-        } else {
-            0
-        };
-        assert(left.reserved =~= right.reserved);
-        assert(left.extended_state_area =~= right.extended_state_area) by {
-            assert forall|i: int|
-                0 <= i < left.extended_state_area.len() implies left.extended_state_area[i]
-                == right.extended_state_area[i] by {
-                if i < extended_len {
-                    assert(left.extended_state_area@[..extended_len][i]
-                        == right.extended_state_area@[..extended_len][i]);
-                } else {
-                    assert(left.extended_state_area@[extended_len..][i - extended_len] == 0);
-                    assert(right.extended_state_area@[extended_len..][i - extended_len] == 0);
-                }
-            }
-        }
-        self.lemma_same_state_bytes(source);
-    }
-}
-
-} // verus!
 // Auxiliary representation proofs.
 verus! {
 

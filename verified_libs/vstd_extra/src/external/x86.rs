@@ -18,7 +18,7 @@ use spin::once::Once as SpinOnce;
 use x86::cpuid::{CpuId, CpuIdResult, FeatureInfo};
 use x86_64::registers::{
     control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
-    model_specific::{Efer, EferFlags},
+    model_specific::{Efer, EferFlags, Msr},
     xcontrol::{XCr0, XCr0Flags},
 };
 
@@ -33,7 +33,6 @@ pub use x86::{
         IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR, IA32_X2APIC_VERSION,
     },
 };
-use x86_64::registers::model_specific::Msr;
 
 mod fpu_once_value {
     use vstd::prelude::*;
@@ -116,42 +115,39 @@ register_or_assign_contract!(Cr4Flags, cr4_bits, cr4_or_assign);
 
 register_or_assign_contract!(XCr0Flags, xcr0_bits, xcr0_or_assign);
 
-// Typed external constants are exec-only in Verus; expose their bits at an exec call.
 macro_rules! register_flag_constant {
-    ($flags:ty, $name:ident, $bits:ident, $value:expr, $get:ident) => { verus! {
-        #[inline]
-        #[verifier::external_body]
-        pub fn $get() -> (r: $flags)
+    ($flags:ty, $name:ident, $bits:ident, $value:expr) => { verus! {
+        pub assume_specification[ <$flags>::$name ] -> (r: $flags)
             ensures $bits(r) == $value,
             opens_invariants none
             no_unwind
-        { <$flags>::$name }
+        ;
     }};
 }
 
-register_flag_constant!(Cr0Flags, TASK_SWITCHED, cr0_bits, 8u64, cr0_task_switched);
+register_flag_constant!(Cr0Flags, TASK_SWITCHED, cr0_bits, 8u64);
 
-register_flag_constant!(Cr0Flags, EMULATE_COPROCESSOR, cr0_bits, 4u64, cr0_emulate_coprocessor);
+register_flag_constant!(Cr0Flags, EMULATE_COPROCESSOR, cr0_bits, 4u64);
 
-register_flag_constant!(Cr4Flags, FSGSBASE, cr4_bits, 0x10000u64, cr4_fsgsbase);
+register_flag_constant!(Cr4Flags, FSGSBASE, cr4_bits, 0x10000u64);
 
-register_flag_constant!(Cr4Flags, OSXSAVE, cr4_bits, 0x40000u64, cr4_osxsave);
+register_flag_constant!(Cr4Flags, OSXSAVE, cr4_bits, 0x40000u64);
 
-register_flag_constant!(Cr4Flags, OSFXSR, cr4_bits, 0x200u64, cr4_osfxsr);
+register_flag_constant!(Cr4Flags, OSFXSR, cr4_bits, 0x200u64);
 
-register_flag_constant!(Cr4Flags, OSXMMEXCPT_ENABLE, cr4_bits, 0x400u64, cr4_osxmmexcpt);
+register_flag_constant!(Cr4Flags, OSXMMEXCPT_ENABLE, cr4_bits, 0x400u64);
 
-register_flag_constant!(Cr4Flags, PAGE_GLOBAL, cr4_bits, 0x80u64, cr4_page_global);
+register_flag_constant!(Cr4Flags, PAGE_GLOBAL, cr4_bits, 0x80u64);
 
-register_flag_constant!(XCr0Flags, SSE, xcr0_bits, 2u64, xcr0_sse);
+register_flag_constant!(XCr0Flags, SSE, xcr0_bits, 2u64);
 
-register_flag_constant!(XCr0Flags, AVX, xcr0_bits, 4u64, xcr0_avx);
+register_flag_constant!(XCr0Flags, AVX, xcr0_bits, 4u64);
 
-register_flag_constant!(XCr0Flags, OPMASK, xcr0_bits, 0x20u64, xcr0_opmask);
+register_flag_constant!(XCr0Flags, OPMASK, xcr0_bits, 0x20u64);
 
-register_flag_constant!(XCr0Flags, ZMM_HI256, xcr0_bits, 0x40u64, xcr0_zmm_hi256);
+register_flag_constant!(XCr0Flags, ZMM_HI256, xcr0_bits, 0x40u64);
 
-register_flag_constant!(XCr0Flags, HI16_ZMM, xcr0_bits, 0x80u64, xcr0_hi16_zmm);
+register_flag_constant!(XCr0Flags, HI16_ZMM, xcr0_bits, 0x80u64);
 
 pub assume_specification[ Cr0Flags::remove ](flags: &mut Cr0Flags, removed: Cr0Flags)
     ensures
