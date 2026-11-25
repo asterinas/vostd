@@ -595,9 +595,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             frame.inv(),
             old(regions).inv(),
             frame.wf_with_region(*old(regions)),
+            old(regions).ref_count(frame.index()) == 1
+                ==> old(regions).slot_owners[frame.index()].paths_in_pt.is_empty(),
         ensures
-            res is Err || old(regions).slot_owners[frame.index()].paths_in_pt.is_empty()
-                ==> final(regions).inv(),
+            final(regions).inv(),
             res matches Ok(unique) ==> {
                 let paddr = frame.start_paddr_spec();
                 let old_slot = old(regions).slot_owner(paddr);
@@ -621,10 +622,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 let paddr = frame.start_paddr_spec();
                 let old_slot = old(regions).slot_owner(paddr);
                 let final_slot = final(regions).slot_owner(paddr);
-                &&& returned.inv()
-                &&& returned.ptr == frame.ptr
-                &&& returned.slot_perm() == frame.slot_perm()
-                &&& returned.metadata_perm() == frame.metadata_perm()
+                &&& returned == frame
                 &&& final_slot.ref_count_perm@ == old_slot.ref_count_perm@
                 &&& final(regions).ref_count(frame.index()) != REF_COUNT_UNIQUE
                 &&& *final(regions) == old(regions).insert_slot_owner(

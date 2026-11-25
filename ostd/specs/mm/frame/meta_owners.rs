@@ -13,7 +13,7 @@ use super::*;
 use crate::mm::{
     Paddr, PagingLevel, Vaddr,
     frame::{
-        MockFrameMeta,
+        MockFrameMeta, MockUFrameMeta,
         meta::{
             AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
             REF_COUNT_UNUSED, mapping::meta_to_frame,
@@ -49,7 +49,7 @@ pub struct StoredPageTablePageMeta {
 pub enum MetaSlotStorage {
     Empty([u8; 39]),
     Untyped,
-    U32Frame(U32FrameMeta),
+    MockU(MockUFrameMeta),
     Mock(MockFrameMeta),
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
@@ -104,24 +104,13 @@ macro_rules! impl_u32_frame_meta_repr {
     };
 }
 
-verus! {
-
-/// Concrete metadata carrying one u32 value for an untyped frame.
-#[derive(Debug, Default)]
-// Keep nested link metadata within the fixed slot layout.
-#[repr(C, packed)]
-pub struct U32FrameMeta {
-    pub value: u32,
-}
-
-} // verus!
-impl_u32_frame_meta_repr!(U32FrameMeta, U32Frame, U32Frame_0);
+impl_u32_frame_meta_repr!(MockUFrameMeta, MockU, MockU_0);
 impl_u32_frame_meta_repr!(MockFrameMeta, Mock, Mock_0);
 
 verus! {
 
 // SAFETY: The default `on_drop` callback does not access frame memory.
-unsafe impl AnyFrameMeta for U32FrameMeta {
+unsafe impl AnyFrameMeta for MockUFrameMeta {
     uninterp spec fn vtable_ptr(&self) -> usize;
 
     fn is_untyped(&self) -> bool
@@ -132,7 +121,7 @@ unsafe impl AnyFrameMeta for U32FrameMeta {
     }
 }
 
-impl crate::mm::frame::untyped::AnyUFrameMeta for U32FrameMeta {
+impl crate::mm::frame::untyped::AnyUFrameMeta for MockUFrameMeta {
 
 }
 

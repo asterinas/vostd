@@ -52,7 +52,7 @@ pub use frame_ref::FrameRef;
 
 /* #[cfg(ktest)] */
 mod test;
-pub use test::MockFrameMeta;
+pub use test::{MockFrameMeta, MockUFrameMeta};
 
 use crate::specs::{
     arch::*,

@@ -3,11 +3,14 @@ use vstd::prelude::*;
 use vstd_extra::{assert, assert_eq, ownership::Inv};
 
 use crate::mm::UniqueFrame;
-use crate::specs::mm::frame::{
-    linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner},
-    meta_owners::{U32FrameMeta, typed_meta_value, typed_meta_wf},
-    meta_region_owners::MetaRegionOwners,
-    unique::UniqueFrameOwner,
+use crate::specs::mm::{
+    embedding::list_store::tracked_empty_list_owner,
+    frame::{
+        linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner},
+        meta_owners::{typed_meta_value, typed_meta_wf},
+        meta_region_owners::MetaRegionOwners,
+        unique::UniqueFrameOwner,
+    },
 };
 
 use super::{allocator::FrameAllocOptions, *};
@@ -22,15 +25,16 @@ pub struct MockFrameMeta {
 }
 
 /* impl_frame_meta_for!(MockFrameMeta); */
-} // verus!
+
 /// Untyped mock metadata struct for testing
-/* #[derive(Debug, Default)]
-struct MockUFrameMeta {
+#[derive(Debug, Default)]
+#[repr(C, packed)]
+pub struct MockUFrameMeta {
     value: u32,
 }
-impl_untyped_frame_meta_for!(MockUFrameMeta); */
-type MockUFrameMeta = U32FrameMeta;
 
+/* impl_untyped_frame_meta_for!(MockUFrameMeta); */
+} // verus!
 // Frame allocation and management tests
 mod frame {
     use super::assert_eq;
@@ -209,10 +213,7 @@ mod linked_list {
 
         let mut list = LinkedList::new();
         proof_decl! {
-            let tracked mut list_own: LinkedListOwner<MockUFrameMeta> = LinkedListOwner {
-                list: Seq::tracked_empty(), _marker: core::marker::PhantomData,
-                metadata_perms: Seq::tracked_empty(), list_id: 0,
-            };
+            let tracked mut list_own = tracked_empty_list_owner::<MockUFrameMeta>();
         }
         proof! { reveal(LinkedListOwner::relate_region); }
         assert!(

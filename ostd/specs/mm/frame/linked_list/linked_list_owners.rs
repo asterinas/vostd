@@ -18,6 +18,7 @@ use super::*;
 use crate::mm::{
     Vaddr,
     frame::{
+        MockUFrameMeta,
         linked_list::{CursorMut, Link, LinkedList},
         meta::{AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_UNIQUE},
         unique::UniqueFrame,
@@ -31,32 +32,32 @@ verus! {
 #[repr(u8)]
 pub enum MetaSlotSmall {
     Empty,
-    U32(U32FrameMeta),
+    MockU(MockUFrameMeta),
 }
 
-impl Repr<MetaSlotSmall> for U32FrameMeta {
+impl Repr<MetaSlotSmall> for MockUFrameMeta {
     open spec fn wf(r: MetaSlotSmall) -> bool {
-        r is U32
+        r is MockU
     }
 
     fn to_repr(self) -> MetaSlotSmall {
-        MetaSlotSmall::U32(self)
+        MetaSlotSmall::MockU(self)
     }
 
     open spec fn from_repr_spec(r: MetaSlotSmall) -> Self {
-        r->U32_0
+        r->MockU_0
     }
 
     fn from_borrowed<'a>(r: &'a MetaSlotSmall) -> &'a Self {
         match r {
-            MetaSlotSmall::U32(meta) => meta,
+            MetaSlotSmall::MockU(meta) => meta,
             _ => unreachable!(),
         }
     }
 
     fn from_borrowed_mut<'a>(r: &'a mut MetaSlotSmall) -> &'a mut Self {
         match r {
-            MetaSlotSmall::U32(meta) => meta,
+            MetaSlotSmall::MockU(meta) => meta,
             _ => unreachable!(),
         }
     }
