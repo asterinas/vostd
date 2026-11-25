@@ -396,8 +396,12 @@ impl KVirtArea {
         ensures
             final(regions).inv(),
             !self.query_panic_condition(owner, addr, *old(regions)),
-            res is Some == owner.cursor_view_at(addr).present(),
-            res matches Some(item) ==> owner.cursor_view_at(addr).query_item_spec(item) is Some,
+            res matches Some(item) ==> {
+                let view = owner.cursor_view_at(addr);
+                &&& view.present()
+                &&& view.query_item_spec(item) is Some
+            },
+            owner.cursor_view_at(addr).present() ==> res is Some,
     )]
     #[verifier::spinoff_prover]
     pub fn query(&self, addr: Vaddr) -> Option<super::MappedItem> {
