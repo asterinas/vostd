@@ -2962,10 +2962,6 @@ pub proof fn lemma_fresh_unique_id_not_in_dom(m: Map<UniqueId, UniqueEntry>)
     lemma_finite_int_set_has_unused(m.dom());
 }
 
-spec fn meta_slot_indices() -> Seq<int> {
-    Seq::new(max_meta_slots() as nat, |i: int| i)
-}
-
 proof fn lemma_preserve_unlinked_slots(
     before: VmStore<'_>,
     after: MetaRegionOwners,
@@ -2973,22 +2969,20 @@ proof fn lemma_preserve_unlinked_slots(
 )
     requires
         before.structural_inv(),
-        meta_slot_indices().all(
-            |i: int| after.slot_owners[i] == before.regions.slot_owners[i] || target_idx == Some(i),
-        ),
+        forall|i: int|
+            0 <= i < max_meta_slots() ==> #[trigger] after.slot_owners[i]
+                == before.regions.slot_owners[i] || target_idx == Some(i),
         target_idx matches Some(i) ==> {
             0 <= i < max_meta_slots() ==> after.slot_owners[i].in_list_perm.value() == 0
         },
     ensures
-        meta_slot_indices().all(|i: int| after.slot_owners[i].in_list_perm.value() == 0),
+        forall|i: int|
+            0 <= i < max_meta_slots() ==> #[trigger] after.slot_owners[i].in_list_perm.value() == 0,
 {
     reveal(VmStore::structural_inv);
-    let indices = meta_slot_indices();
-    assert forall|j: int|
-        0 <= j < indices.len() implies after.slot_owners[#[trigger] indices[j]].in_list_perm.value()
+    assert forall|i: int|
+        0 <= i < max_meta_slots() implies #[trigger] after.slot_owners[i].in_list_perm.value()
         == 0 by {
-        let i = indices[j];
-        assert(i == j);
         if target_idx != Some(i) {
             assert(after.slot_owners[i] == before.regions.slot_owners[i]);
             assert(before.regions.slot_owners[i].in_list_perm.value() == 0);
