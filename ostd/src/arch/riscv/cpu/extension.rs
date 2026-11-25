@@ -209,15 +209,13 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
                     && rv32@[3] == b'2');
                 assert(rv64@[0] == b'r' && rv64@[1] == b'v' && rv64@[2] == b'6'
                     && rv64@[3] == b'4');
-                assert(bs[0] == bs[0] && bs[1] == bs[1] && bs[2] == bs[2] && bs[3] == bs[3]);
             }
         };
     }
     if ext_start >= isa_str.len() {
         proof! {
             let n = extension_table().len() as int;
-            assert(isa.value.len() == isa.value@.len());
-            assert(isa_str.spec_bytes().len() <= usize::MAX);
+            assert(isa_str.spec_bytes().len() <= isa.value.len());
             assert(first_end(isa_str.spec_bytes(), ext_start as int) == isa_str.spec_bytes().len())
                 by {
                 isa_str.spec_bytes()[ext_start..].index_of_first_ensures(b'_');
@@ -1179,9 +1177,9 @@ proof fn lemma_delim_skip_step(b: Seq<u8>, prev_hi: int, seg_start: int, seg_end
             extension_table().len() as int,
         ),
 {
-    lemma_extension_table_wf();
     broadcast use group_utf8_lib;
 
+    lemma_extension_table_wf();
     let n = extension_table().len() as int;
     let pred_old = |e: ExtensionData| has_name(b, 0, prev_hi, e.name.spec_bytes(), Some(0));
     let pred_new = |e: ExtensionData| has_name(b, 0, seg_end, e.name.spec_bytes(), Some(0));

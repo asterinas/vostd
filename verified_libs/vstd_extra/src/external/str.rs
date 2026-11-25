@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Specifications for the UTF-8 string APIs missing from `vstd`.
+//! Specifications and UTF-8 helper lemmas for string APIs missing from `vstd`.
 //!
 //! `vstd` models UTF-8 validity itself (`vstd::utf8::valid_utf8`) and specifies
 //! `str::from_utf8_unchecked`, but it does not specify `core::str::from_utf8`.
+//! In addition to `core::str::from_utf8`, this module provides reusable UTF-8
+//! lemmas relating `&str` byte/character views and ASCII character boundaries:
+//! - [`lemma_str_bytes_eq_iff_view_eq`]
+//! - [`lemma_single_byte_str`]
+//! - [`lemma_encode_utf8_contains_ascii`]
+//! - [`lemma_ascii_char_boundary_after`]
 use vstd::{
     prelude::*,
     string::StringSliceAdditionalSpecFns,
