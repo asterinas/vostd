@@ -2,7 +2,8 @@ diff --git a/Cargo.toml b/Cargo.toml
 index be13d3320..25642e5e2 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -78,0 +79,8 @@ codegen-units = 1
+@@ -78 +78,9 @@ panic = "abort"
+ codegen-units = 1
 +
 +[workspace.package]
 +edition = "2021"
@@ -11,11 +12,24 @@ index be13d3320..25642e5e2 100644
 +
 +[workspace.dependencies]
 +bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
+diff --git a/ostd/src/io/io_port/allocator.rs b/ostd/src/io/io_port/allocator.rs
+index d79969d1b..f7a01b754 100644
+--- a/ostd/src/io/io_port/allocator.rs
++++ b/ostd/src/io/io_port/allocator.rs
+@@ -6,2 +6,3 @@ use core::ops::Range;
+ use id_alloc::IdAlloc;
++use log::debug;
+ use spin::Once;
+@@ -10,3 +11,2 @@ use super::IoPort;
+ use crate::{
+-    debug,
+     io::RawIoPortRange,
 diff --git a/ostd/src/panic.rs b/ostd/src/panic.rs
 index 21c50179d..dc130bbae 100644
 --- a/ostd/src/panic.rs
 +++ b/ostd/src/panic.rs
-@@ -130,0 +131,10 @@ pub fn print_stack_trace() {
+@@ -130 +130,11 @@ pub fn print_stack_trace() {
+ }
 +
 +#[cfg(doc)]
 +pub(crate) struct PanicGuard;
@@ -30,6 +44,8 @@ diff --git a/ostd/src/sync/guard.rs b/ostd/src/sync/guard.rs
 index b0a90fd00..4084254f0 100644
 --- a/ostd/src/sync/guard.rs
 +++ b/ostd/src/sync/guard.rs
-@@ -4 +4 @@ use crate::{
+@@ -3,3 +3,3 @@
+ use crate::{
 -    irq::{DisabledLocalIrqGuard, disable_local},
 +    trap::irq::{DisabledLocalIrqGuard, disable_local},
+     task::{DisabledPreemptGuard, atomic_mode::AsAtomicModeGuard, disable_preempt},
