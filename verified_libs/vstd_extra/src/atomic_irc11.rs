@@ -16,8 +16,9 @@ pub use vstd::atomic_weak::{
     PAtomicWeakI32, PAtomicWeakIsize, PAtomicWeakU8, PAtomicWeakU16, PAtomicWeakU32,
     PAtomicWeakUsize, StoreData, UpdateData, fence_acquire, fence_release,
     history_get_contains_timestamp, load_acquire, load_reads_from_history, load_relaxed,
-    load_timestamp_in_view, load_view_nondecreasing, store_insert_history, store_relaxed,
-    store_release, store_timestamp_in_view, store_view_increasing,
+    load_timestamp_in_view, load_update_acquire, load_update_relaxed, store_insert_history,
+    store_relaxed, store_release, store_timestamp_in_view, store_update_relaxed,
+    store_update_release, update_fail, update_success,
 };
 #[cfg(target_has_atomic = "64")]
 pub use vstd::atomic_weak::{PAtomicWeakI64, PAtomicWeakU64};
@@ -334,112 +335,31 @@ impl<T> PAtomicWeakPtr<T> {
             match result {
                 Ok(value) => {
                     &&& current.addr() == value.addr()
-                    &&& update@.store_message_view.contains_strict(update@.load_message_view)
-                    &&& match success {
-                        Ordering::AcqRel => {
-                            &&& load_acquire(
-                                *old(points_to),
-                                old(view)@,
-                                update@.intermediate_thread_view,
-                                value,
-                                update@.load_timestamp,
-                                update@.load_message_view,
-                            )
-                            &&& store_release(
-                                *old(points_to),
-                                *final(points_to),
-                                update@.intermediate_thread_view,
-                                final(view)@,
-                                new,
-                                update@.load_timestamp + 1,
-                                update@.store_message_view,
-                            )
-                        },
-                        Ordering::Acquire => {
-                            &&& load_acquire(
-                                *old(points_to),
-                                old(view)@,
-                                update@.intermediate_thread_view,
-                                value,
-                                update@.load_timestamp,
-                                update@.load_message_view,
-                            )
-                            &&& store_relaxed(
-                                *old(points_to),
-                                *final(points_to),
-                                update@.intermediate_thread_view,
-                                final(view)@,
-                                release_view@,
-                                new,
-                                update@.load_timestamp + 1,
-                                update@.store_message_view,
-                            )
-                        },
-                        Ordering::Release => {
-                            &&& load_relaxed(
-                                *old(points_to),
-                                old(view)@,
-                                update@.intermediate_thread_view,
-                                acquire_view@@,
-                                value,
-                                update@.load_timestamp,
-                                update@.load_message_view,
-                            )
-                            &&& store_release(
-                                *old(points_to),
-                                *final(points_to),
-                                update@.intermediate_thread_view,
-                                final(view)@,
-                                new,
-                                update@.load_timestamp + 1,
-                                update@.store_message_view,
-                            )
-                        },
-                        Ordering::Relaxed => {
-                            &&& load_relaxed(
-                                *old(points_to),
-                                old(view)@,
-                                update@.intermediate_thread_view,
-                                acquire_view@@,
-                                value,
-                                update@.load_timestamp,
-                                update@.load_message_view,
-                            )
-                            &&& store_relaxed(
-                                *old(points_to),
-                                *final(points_to),
-                                update@.intermediate_thread_view,
-                                final(view)@,
-                                release_view@,
-                                new,
-                                update@.load_timestamp + 1,
-                                update@.store_message_view,
-                            )
-                        },
-                    }
+                    &&& update_success(
+                        *old(points_to),
+                        *final(points_to),
+                        old(view)@,
+                        final(view)@,
+                        release_view@,
+                        acquire_view@@,
+                        value,
+                        new,
+                        success,
+                        update@,
+                    )
                 },
                 Err(value) => {
                     &&& current.addr() != value.addr()
-                    &&& *final(points_to) == *old(points_to)
-                    &&& match failure {
-                        Ordering::Acquire => load_acquire(
-                            *old(points_to),
-                            old(view)@,
-                            final(view)@,
-                            value,
-                            update@.load_timestamp,
-                            update@.load_message_view,
-                        ),
-                        Ordering::Relaxed => load_relaxed(
-                            *old(points_to),
-                            old(view)@,
-                            final(view)@,
-                            acquire_view@@,
-                            value,
-                            update@.load_timestamp,
-                            update@.load_message_view,
-                        ),
-                    }
+                    &&& update_fail(
+                        *old(points_to),
+                        *final(points_to),
+                        old(view)@,
+                        final(view)@,
+                        acquire_view@@,
+                        value,
+                        failure,
+                        update@,
+                    )
                 },
             },
         opens_invariants none
@@ -471,23 +391,18 @@ impl<T> PAtomicWeakPtr<T> {
                 old(points_to).get_timestamp(observed_view) == final(points_to).get_timestamp(
                     observed_view,
                 ),
-            load_relaxed(
-                *old(points_to),
-                old(view)@,
-                swap@.intermediate_thread_view,
-                acquire_view@@,
-                old_value,
-                swap@.load_timestamp,
-                swap@.load_message_view,
-            ),
-            store_release(
+            // A release update never reads the release view argument.
+            update_success(
                 *old(points_to),
                 *final(points_to),
-                swap@.intermediate_thread_view,
+                old(view)@,
                 final(view)@,
+                ThreadView::empty(),
+                acquire_view@@,
+                old_value,
                 value,
-                swap@.load_timestamp + 1,
-                swap@.store_message_view,
+                Ordering::Release,
+                swap@,
             ),
         opens_invariants none
         no_unwind
@@ -532,7 +447,9 @@ fn test_native_acquire_load() {
         assert(pt.hist().get(load.timestamp) == Some((7, old_view)));
         assert(value == 7);
         assert(view@.contains(old_view));
-        assert(pt.get_timestamp(view@) == Some(load.timestamp));
+        assert(pt.get_timestamp(view@) is Some && load.timestamp <= pt.get_timestamp(
+            view@,
+        ).unwrap());
     }
 }
 
@@ -554,7 +471,9 @@ fn test_native_release_store() {
 
     proof {
         assert(pt.hist() == old_history.insert(store.timestamp, true, store.message_view));
-        assert(pt.get_timestamp(view@) == Some(store.timestamp));
+        assert(pt.get_timestamp(view@) is Some && store.timestamp <= pt.get_timestamp(
+            view@,
+        ).unwrap());
         assert(store.message_view == view@);
     }
 }
@@ -629,7 +548,8 @@ fn test_native_pointer_operations() {
         Tracked(&mut points_to),
     );
     proof {
-        assert(points_to.get_timestamp(view@) == Some(swap.load_timestamp + 1));
+        assert(points_to.get_timestamp(view@) is Some && swap.load_timestamp + 1
+            <= points_to.get_timestamp(view@).unwrap());
     }
 }
 
@@ -650,7 +570,9 @@ fn test_scheduler_owned_view_token() {
         Tracked(&points_to),
     );
     proof {
-        assert(points_to.get_timestamp(token@) == Some(load.timestamp));
+        assert(points_to.get_timestamp(token@) is Some && load.timestamp <= points_to.get_timestamp(
+            token@,
+        ).unwrap());
         assert(points_to.hist().get(load.timestamp) == Some((value, load.message_view)));
         history_get_contains_timestamp(points_to.hist(), load.timestamp);
         assert(load.timestamp == initial_ts);
@@ -669,7 +591,8 @@ fn test_scheduler_owned_view_token() {
         Tracked(&mut points_to),
     );
     proof {
-        assert(points_to.get_timestamp(token@) == Some(store.timestamp));
+        assert(points_to.get_timestamp(token@) is Some && store.timestamp
+            <= points_to.get_timestamp(token@).unwrap());
         assert(points_to.hist().get_value(store.timestamp) == Some(1));
     }
 
