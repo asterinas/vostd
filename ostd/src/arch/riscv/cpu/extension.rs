@@ -2,6 +2,7 @@
 //! RISC-V ISA extensions.
 use vstd::{
     prelude::*,
+    seq_lib::lemma_seq_contains_after_push,
     string::StringSliceAdditionalSpecFns,
     utf8::{
         encode_utf8_valid_utf8, group_utf8_lib, is_ascii_chars, is_char_boundary,
@@ -73,8 +74,9 @@ spec fn first_end(b: Seq<u8>, lo: int) -> int
 }
 
 spec fn isa_start(b: Seq<u8>) -> int {
-    if b.len() >= 4 && b[0] == b'r' && b[1] == b'v' && ((b[2] == b'3' && b[3] == b'2') || (b[2]
-        == b'6' && b[3] == b'4')) {
+    if seq![b'r', b'v', b'3', b'2'].is_prefix_of(b) || seq![b'r', b'v', b'6', b'4'].is_prefix_of(
+        b,
+    ) {
         4
     } else {
         0
@@ -133,7 +135,7 @@ spec fn table_bits(b: Seq<u8>, string: bool) -> u128 {
 /* Origin Rust:
  * Replace str::starts_with/split (generic over the unstable Pattern trait), requiring-Some
  * Option::unwrap, and unverified BitOrAssign with as_bytes().starts_with, bounded '_' scans,
- * unwrap_or_panic, and union.
+ * unwrap_or_panic, and union. Invalid UTF-8 still triggers a panic.
  * TODO: restore the original split-based code once vstd specifies str::starts_with and str::split.
 fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
     let mut extensions = IsaExtensions::empty();
@@ -173,21 +175,21 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
     extensions
 }
 */
-#[verus_spec(result =>
+#[verus_spec(
     requires
         allowed_to_panic_if(!valid_utf8(isa.value@)),
     ensures
         valid_utf8(isa.value@),
-        result.bits() == table_bits(isa.value@, true),
+    returns IsaExtensions::from_bits_retain(table_bits(isa.value@, true)),
 )]
 fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
-    let mut extensions = IsaExtensions::empty();
-    let isa_str = isa.as_str().unwrap_or_panic();
     proof! {
         broadcast use {encode_utf8_valid_utf8, is_char_boundary_start_end_of_seq};
 
         lemma_trim_trailing_nul_len(isa.value@);
     }
+    let mut extensions = IsaExtensions::empty();
+    let isa_str = isa.as_str().unwrap_or_panic();
 
     let ext_start =
         if isa_str.as_bytes().starts_with(b"rv32") || isa_str.as_bytes().starts_with(b"rv64") {
@@ -202,14 +204,10 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
             let bs = isa_str.spec_bytes();
             let rv32: &[u8] = b"rv32";
             let rv64: &[u8] = b"rv64";
-            assert(rv32@ =~= seq![b'r', b'v', b'3', b'2']);
-            assert(rv64@ =~= seq![b'r', b'v', b'6', b'4']);
-            if bs.len() >= 4 {
-                assert(rv32@[0] == b'r' && rv32@[1] == b'v' && rv32@[2] == b'3'
-                    && rv32@[3] == b'2');
-                assert(rv64@[0] == b'r' && rv64@[1] == b'v' && rv64@[2] == b'6'
-                    && rv64@[3] == b'4');
-            }
+            assert(rv32@ == seq![b'r', b'v', b'3', b'2']);
+            assert(rv64@ == seq![b'r', b'v', b'6', b'4']);
+            lemma_prefix_matches_slice(bs, rv32@);
+            lemma_prefix_matches_slice(bs, rv64@);
         };
     }
     if ext_start >= isa_str.len() {
@@ -299,6 +297,7 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
         }
         proof_decl! {
             let ghost prev_bits = extensions.bits();
+            let ghost found: Option<&ExtensionData>;
         }
         if let Some(ext_data) = EXTENSION_TABLE.iter().find(
             #[verus_spec(ret: bool =>
@@ -311,28 +310,15 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
         ) {
             extensions = extensions.union(ext_data.flag);
             proof! {
-                lemma_first_char_step(
-                    first_part@,
-                    it.index(),
-                    ch,
-                    extension_table().as_ref(),
-                    Some(ext_data),
-                    prev_bits,
-                    extensions.bits(),
-                );
+                found = Some(ext_data);
             }
         } else {
             proof! {
-                lemma_first_char_step(
-                    first_part@,
-                    it.index(),
-                    ch,
-                    extension_table().as_ref(),
-                    None,
-                    prev_bits,
-                    extensions.bits(),
-                );
+                found = None;
             }
+        }
+        proof! {
+            lemma_first_char_step(first_part@, it.index(), ch, found, prev_bits, extensions.bits());
         }
     }
 
@@ -469,6 +455,7 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
         }
         proof_decl! {
             let ghost prev_bits = extensions.bits();
+            let ghost found: Option<&ExtensionData>;
         }
         if let Some(ext_data) = EXTENSION_TABLE.iter().find(
             #[verus_spec(ret: bool =>
@@ -478,38 +465,27 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
         ) {
             extensions = extensions.union(ext_data.flag);
             proof! {
-                lemma_delim_find_step(
-                    single_base,
-                    bytes@,
-                    seg_end + 1,
-                    pos as int,
-                    part_start as int,
-                    part_end as int,
-                    b'_',
-                    part,
-                    extension_table().as_ref(),
-                    Some(ext_data),
-                    prev_bits,
-                    extensions.bits(),
-                );
+                found = Some(ext_data);
             }
         } else {
             proof! {
-                lemma_delim_find_step(
-                    single_base,
-                    bytes@,
-                    seg_end + 1,
-                    pos as int,
-                    part_start as int,
-                    part_end as int,
-                    b'_',
-                    part,
-                    extension_table().as_ref(),
-                    None,
-                    prev_bits,
-                    extensions.bits(),
-                );
+                found = None;
             }
+        }
+        proof! {
+            lemma_delim_find_step(
+                single_base,
+                bytes@,
+                seg_end + 1,
+                pos as int,
+                part_start as int,
+                part_end as int,
+                b'_',
+                part,
+                found,
+                prev_bits,
+                extensions.bits(),
+            );
         }
         pos = part_end;
     }
@@ -551,9 +527,8 @@ fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExt
     extensions
 }
 */
-#[verus_spec(result =>
-    ensures
-        result.bits() == table_bits(isa_extensions.value@, false),
+#[verus_spec(
+    returns IsaExtensions::from_bits_retain(table_bits(isa_extensions.value@, false)),
 )]
 fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExtensions {
     let mut extensions = IsaExtensions::empty();
@@ -619,6 +594,7 @@ fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExt
                 proof_decl! {
                     let ghost prev_bits = extensions.bits();
                     let ghost base = |_e: ExtensionData| false;
+                    let ghost found: Option<&ExtensionData>;
                 }
                 proof! {
                     lemma_bits_for_ext(
@@ -643,40 +619,27 @@ fn parse_isa_extensions_list(isa_extensions: &fdt::node::NodeProperty) -> IsaExt
                 ) {
                     extensions = extensions.union(ext_data.flag);
                     proof! {
-                        lemma_delim_find_step(
-                            base,
-                            isa_extensions_list@,
-                            0,
-                            prev_hi,
-                            pos as int,
-                            end as int,
-                            0,
-                            ext_name,
-                            extension_table().as_ref(),
-                            Some(ext_data),
-                            prev_bits,
-                            extensions.bits(),
-                        );
+                        found = Some(ext_data);
                     }
                 } else {
                     proof! {
-                        lemma_delim_find_step(
-                            base,
-                            isa_extensions_list@,
-                            0,
-                            prev_hi,
-                            pos as int,
-                            end as int,
-                            0,
-                            ext_name,
-                            extension_table().as_ref(),
-                            None,
-                            prev_bits,
-                            extensions.bits(),
-                        );
+                        found = None;
                     }
                 }
                 proof! {
+                    lemma_delim_find_step(
+                        base,
+                        isa_extensions_list@,
+                        0,
+                        prev_hi,
+                        pos as int,
+                        end as int,
+                        0,
+                        ext_name,
+                        found,
+                        prev_bits,
+                        extensions.bits(),
+                    );
                     lemma_bits_for_ext(
                         |e: ExtensionData|
                             base(e) || has_name(
@@ -984,11 +947,24 @@ proof fn lemma_bits_for_add_one(
     }
 }
 
+proof fn lemma_prefix_matches_slice(bytes: Seq<u8>, prefix: Seq<u8>)
+    ensures
+        prefix.is_prefix_of(bytes) <==> (prefix.len() <= bytes.len() && forall|i: int|
+            0 <= i < prefix.len() ==> #[trigger] prefix[i] == bytes[i]),
+{
+    if prefix.len() <= bytes.len() {
+        if prefix.is_prefix_of(bytes) {
+            bytes.lemma_prefix_index_eq(prefix);
+        } else if forall|i: int| 0 <= i < prefix.len() ==> #[trigger] prefix[i] == bytes[i] {
+            assert(prefix == bytes[..prefix.len()]);
+        }
+    }
+}
+
 proof fn lemma_first_char_step(
     chars: Seq<char>,
     k: int,
     ch: char,
-    items: Seq<&ExtensionData>,
     found: Option<&ExtensionData>,
     prev_bits: u128,
     new_bits: u128,
@@ -996,7 +972,6 @@ proof fn lemma_first_char_step(
     requires
         0 <= k < chars.len(),
         chars[k] == ch,
-        items == extension_table().as_ref(),
         prev_bits == bits_for(
             |e: ExtensionData|
                 e.name.spec_bytes().len() == 1 && e.name@.len() == 1 && chars[..k].contains(
@@ -1005,6 +980,7 @@ proof fn lemma_first_char_step(
             extension_table().len() as int,
         ),
         found matches Some(ext_data) ==> {
+            let items = extension_table().as_ref();
             &&& exists|idx: int| 0 <= idx < items.len() && items[idx] == ext_data
             &&& ext_data.name.spec_bytes().len() == 1
             &&& ext_data.name@.len() >= 1
@@ -1012,6 +988,7 @@ proof fn lemma_first_char_step(
             &&& new_bits == prev_bits | ext_data.flag.bits()
         },
         found is None ==> {
+            let items = extension_table().as_ref();
             &&& new_bits == prev_bits
             &&& forall|i: int|
                 0 <= i < items.len() ==> !((#[trigger] items[i]).name.spec_bytes().len() == 1
@@ -1027,26 +1004,16 @@ proof fn lemma_first_char_step(
         ),
 {
     lemma_extension_table_wf();
+    let items = extension_table().as_ref();
     let n = extension_table().len() as int;
     let pred_old = |e: ExtensionData|
         e.name.spec_bytes().len() == 1 && e.name@.len() == 1 && chars[..k].contains(e.name@[0]);
     let pred_new = |e: ExtensionData|
         e.name.spec_bytes().len() == 1 && e.name@.len() == 1 && chars[..k + 1].contains(e.name@[0]);
+    assert(chars[..k + 1] == chars[..k].push(ch));
     assert forall|c: char| #[trigger]
         chars[..k + 1].contains(c) <==> (chars[..k].contains(c) || c == ch) by {
-        if chars[..k + 1].contains(c) {
-            let p = choose|p: int| 0 <= p < k + 1 && #[trigger] chars[..k + 1][p] == c;
-            if p < k {
-                assert(chars[..k][p] == c);
-            }
-        }
-        if chars[..k].contains(c) {
-            let p = choose|p: int| 0 <= p < k && #[trigger] chars[..k][p] == c;
-            assert(chars[..k + 1][p] == c);
-        }
-        if c == ch {
-            assert(chars[..k + 1][k] == c);
-        }
+        lemma_seq_contains_after_push(chars[..k], ch, c);
     };
     if let Some(ext_data) = found {
         let idx = choose|idx: int| 0 <= idx < items.len() && items[idx] == ext_data;
@@ -1085,7 +1052,6 @@ proof fn lemma_delim_find_step(
     seg_end: int,
     d: u8,
     part: &str,
-    items: Seq<&ExtensionData>,
     found: Option<&ExtensionData>,
     prev_bits: u128,
     new_bits: u128,
@@ -1098,17 +1064,18 @@ proof fn lemma_delim_find_step(
         forall|k: int| seg_start <= k < seg_end ==> b[k] != d,
         part.spec_bytes() == b[seg_start..seg_end],
         d == 0u8 || d == b'_',
-        items == extension_table().as_ref(),
         prev_bits == bits_for(
             |e: ExtensionData| base(e) || has_name(b, lo, prev_hi, e.name.spec_bytes(), Some(d)),
             extension_table().len() as int,
         ),
         found matches Some(ext_data) ==> {
+            let items = extension_table().as_ref();
             &&& exists|idx: int| 0 <= idx < items.len() && items[idx] == ext_data
             &&& ext_data.name@ == part@
             &&& new_bits == prev_bits | ext_data.flag.bits()
         },
         found is None ==> {
+            let items = extension_table().as_ref();
             &&& new_bits == prev_bits
             &&& forall|i: int| 0 <= i < items.len() ==> (#[trigger] items[i]).name@ != part@
         },
@@ -1119,6 +1086,7 @@ proof fn lemma_delim_find_step(
         ),
 {
     lemma_extension_table_wf();
+    let items = extension_table().as_ref();
     let n = extension_table().len() as int;
     let pred_old = |e: ExtensionData|
         base(e) || has_name(b, lo, prev_hi, e.name.spec_bytes(), Some(d));

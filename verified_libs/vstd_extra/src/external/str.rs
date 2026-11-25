@@ -82,7 +82,7 @@ pub proof fn lemma_single_byte_str(s: &str)
     };
     assert(is_ascii_chars(s@));
     is_ascii_chars_encode_utf8(s@);
-    assert(s.spec_bytes() =~= seq![s@[0] as u8]);
+    assert(s.spec_bytes() == seq![s@[0] as u8]);
 }
 
 /// An ASCII byte appears in `encode_utf8(chars)` if and only if the corresponding character is in `chars`.
@@ -107,8 +107,8 @@ pub proof fn lemma_encode_utf8_contains_ascii(chars: Seq<char>, c: char)
             let s1 = seq![head];
             assert(is_ascii_chars(s1));
             is_ascii_chars_encode_utf8(s1);
-            assert(s1.drop_first() =~= Seq::<char>::empty());
-            assert(hs =~= seq![head as u8]);
+            assert(s1.drop_first() == Seq::<char>::empty());
+            assert(hs == seq![head as u8]);
             if head == c {
                 assert(encode_utf8(chars)[0] == c as u8);
             }
