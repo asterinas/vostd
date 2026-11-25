@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795436914530,
+  "lastUpdate": 1795584737513,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -14340,6 +14340,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=285ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffaa5108cea793a9609f025e5b1d7da72e889786",
+          "message": "doc: refine Verus coding guidelines and add a GitHub PR review posting skill (#972)\n\n* doc: forbid unconditional panic permission\n\n* doc: refine Verus guidelines for sequences and enum payloads\n\n* skill: add skill for posting review reports to GitHub PRs\n\n* skill: refine post-pr-review skill\n\n* skill: document when to define model-validity predicates as true",
+          "timestamp": "2026-11-25T13:12:24+08:00",
+          "tree_id": "12a47fc885b271643df6791ae64726a17956f813",
+          "url": "https://github.com/asterinas/vostd/commit/ffaa5108cea793a9609f025e5b1d7da72e889786"
+        },
+        "date": 1795584737066,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1040766440,
+            "unit": "rlimit",
+            "extra": "verified=4748 errors=0 smt-run=200,487ms wall=148,248ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 388630063,
+            "unit": "rlimit",
+            "extra": "smt-run=94,069ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 117160928,
+            "unit": "rlimit",
+            "extra": "smt-run=20,071ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 55667105,
+            "unit": "rlimit",
+            "extra": "smt-run=10,226ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,238ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,248ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=883ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=509ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=453ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=456ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115797,
+            "unit": "rlimit",
+            "extra": "smt-run=192ms"
           }
         ]
       }
