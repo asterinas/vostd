@@ -102,8 +102,6 @@ pub trait HasDaddr {
     fn daddr(&self) -> Daddr
         requires
             Self::daddr_requires(self),
-        ensures
-            Self::daddr_requires(self),
     ;
 }
 
