@@ -1172,21 +1172,11 @@ proof fn lemma_step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     let ghost s_before = *s;
     let tracked mut entry = s.tracked_extract_cursor(c);
     let ghost res = cursor::cursor_query_step(&mut entry, &mut s.regions);
-    assert forall|i: int|
-        0 <= i < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].in_list_perm.value()
-        == 0 by {
-        if res matches Some(paddr) && i == frame_to_index(paddr) {
-            assert(s.regions.slot_owners[i].in_list_perm
-                == s_before.regions.slot_owners[i].in_list_perm);
-        } else {
-            assert(s.regions.slot_owners[i] == s_before.regions.slot_owners[i]);
-        }
-        assert(s_before.regions.slot_owners[i].in_list_perm.value() == 0);
-    };
     match res {
-        Option::None => {},
+        Option::None => lemma_preserve_unlinked_slots(s_before, s.regions, None),
         Option::Some(paddr) => {
             let ghost target_idx = frame_to_index(paddr);
+            lemma_preserve_unlinked_slots(s_before, s.regions, Some(target_idx));
             let ghost id = fresh_frame_id(s.frames);
             lemma_fresh_frame_id_not_in_dom(s.frames);
             let tracked frame_entry = tracked_frame_entry_new(paddr);
@@ -1660,14 +1650,7 @@ proof fn lemma_step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId
     let tracked entry = s.tracked_extract_frame(fid);
     let ghost s_before = *s;
     frame::drop_step(&mut s.regions, entry);
-    assert forall|i: int|
-        0 <= i < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].in_list_perm.value()
-        == 0 by {
-        if i != target_idx {
-            assert(s.regions.slot_owners[i] == s_before.regions.slot_owners[i]);
-        }
-        assert(s_before.regions.slot_owners[i].in_list_perm.value() == 0);
-    };
+    lemma_preserve_unlinked_slots(s_before, s.regions, Some(target_idx));
     assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
         0 <= idx < max_meta_slots() && s.regions.ref_count(idx)
@@ -2401,15 +2384,7 @@ proof fn lemma_step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, padd
         // Transition the slot UNUSED → UNIQUE.
         let ghost s_before = *s;
         unique::unique_from_unused_embedded(&mut s.regions, paddr);
-        assert forall|i: int|
-            0 <= i
-                < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].in_list_perm.value()
-            == 0 by {
-            if i != frame_to_index(paddr) {
-                assert(s.regions.slot_owners[i] == s_before.regions.slot_owners[i]);
-            }
-            assert(s_before.regions.slot_owners[i].in_list_perm.value() == 0);
-        };
+        lemma_preserve_unlinked_slots(s_before, s.regions, Some(frame_to_index(paddr)));
 
         // Register the fresh UniqueEntry at a fresh id.
         let ghost uid = fresh_unique_id(s.unique_frames);
@@ -2455,14 +2430,7 @@ proof fn lemma_step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: Unique
     let ghost s_before = *s;
     let tracked _ue = s.tracked_extract_unique(uid);
     unique::from_unique_embedded(&mut s.regions, paddr);
-    assert forall|i: int|
-        0 <= i < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].in_list_perm.value()
-        == 0 by {
-        if i != idx {
-            assert(s.regions.slot_owners[i] == s_before.regions.slot_owners[i]);
-        }
-        assert(s_before.regions.slot_owners[i].in_list_perm.value() == 0);
-    };
+    lemma_preserve_unlinked_slots(s_before, s.regions, Some(idx));
 
     // Register the fresh shared FrameEntry.
     let ghost fid = fresh_frame_id(s.frames);
@@ -2554,15 +2522,7 @@ proof fn lemma_step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: Fr
         let tracked _fe = s.tracked_extract_frame(fid);
         let ghost s_before = *s;
         unique::try_from_shared_embedded(&mut s.regions, paddr);
-        assert forall|i: int|
-            0 <= i
-                < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].in_list_perm.value()
-            == 0 by {
-            if i != idx {
-                assert(s.regions.slot_owners[i] == s_before.regions.slot_owners[i]);
-            }
-            assert(s_before.regions.slot_owners[i].in_list_perm.value() == 0);
-        };
+        lemma_preserve_unlinked_slots(s_before, s.regions, Some(idx));
 
         // Register the fresh exclusive UniqueEntry.
         let ghost uid = fresh_unique_id(s.unique_frames);
@@ -3000,6 +2960,40 @@ pub proof fn lemma_fresh_unique_id_not_in_dom(m: Map<UniqueId, UniqueEntry>)
         !m.contains_key(fresh_unique_id(m)),
 {
     lemma_finite_int_set_has_unused(m.dom());
+}
+
+spec fn meta_slot_indices() -> Seq<int> {
+    Seq::new(max_meta_slots() as nat, |i: int| i)
+}
+
+proof fn lemma_preserve_unlinked_slots(
+    before: VmStore<'_>,
+    after: MetaRegionOwners,
+    target_idx: Option<int>,
+)
+    requires
+        before.structural_inv(),
+        meta_slot_indices().all(
+            |i: int| after.slot_owners[i] == before.regions.slot_owners[i] || target_idx == Some(i),
+        ),
+        target_idx matches Some(i) ==> {
+            0 <= i < max_meta_slots() ==> after.slot_owners[i].in_list_perm.value() == 0
+        },
+    ensures
+        meta_slot_indices().all(|i: int| after.slot_owners[i].in_list_perm.value() == 0),
+{
+    reveal(VmStore::structural_inv);
+    let indices = meta_slot_indices();
+    assert forall|j: int|
+        0 <= j < indices.len() implies after.slot_owners[#[trigger] indices[j]].in_list_perm.value()
+        == 0 by {
+        let i = indices[j];
+        assert(i == j);
+        if target_idx != Some(i) {
+            assert(after.slot_owners[i] == before.regions.slot_owners[i]);
+            assert(before.regions.slot_owners[i].in_list_perm.value() == 0);
+        }
+    };
 }
 
 } // verus!
