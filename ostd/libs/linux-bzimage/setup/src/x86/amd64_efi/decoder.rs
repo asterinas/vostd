@@ -85,7 +85,7 @@ impl TryFrom<&[u8]> for MagicNumber {
     }
 }
 
-/// Checking the encoding format and matching decoding methods to decode payload.
+/// Detects the format used to encode the payload and decodes the payload accordingly.
 ///
 /// For compressed input, the builder's `encode_kernel` establishes
 /// `gzip_encoding(kernel, stream)` or `zlib_encoding(kernel, stream)`. Each
