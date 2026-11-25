@@ -57,9 +57,11 @@ doc
 !/.agents/skills/
 .agents/skills/*
 !/.agents/skills/vostd-code-review/
+!/.agents/skills/post-pr-review/
 .claude/**
 !/.claude/skills/
 !/.claude/skills/vostd-code-review
+!/.claude/skills/post-pr-review
 .codex/
 .copilot/
 .github/copilot-instructions.md
