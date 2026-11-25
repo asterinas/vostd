@@ -189,7 +189,6 @@ crate::const_assert!(MODE_COMMAND_PORT.port() == 0x43 && CHANNEL0_PORT.port() ==
 const TIMER_RATE: u32 = 1193182;
 const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
-/// Programs channel 0 and consumes the checked prefix of the caller's expected port writes.
 #[verus_spec(
     with Tracked(remaining): Tracked<&mut PortWriteSequence<u8>>,
     requires init_writes(operating_mode).is_prefix_of(old(remaining)@),

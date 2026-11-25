@@ -326,9 +326,6 @@ impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
 #[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
-    ///
-    /// PIC and PIT writes require an expected sequence. When a sequence is
-    /// supplied, the first entry must match the port and value and is consumed.
     #[verus_spec(
         with Tracked(expected): Tracked<Option<&mut PortWriteSequence<T>>>,
         requires
