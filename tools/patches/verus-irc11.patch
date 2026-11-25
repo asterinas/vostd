@@ -1,29 +1,29 @@
 diff --git a/source/rust_verify_test/tests/core_special_setup.rs b/source/rust_verify_test/tests/core_special_setup.rs
 --- a/source/rust_verify_test/tests/core_special_setup.rs
 +++ b/source/rust_verify_test/tests/core_special_setup.rs
-@@ -35,6 +35,7 @@
+@@ -36,6 +36,7 @@ test_verify_one_file_with_options! {
              verus_keep_ghost,
              feature(fn_traits),
          )]
 +        #![cfg_attr(verus_keep_ghost, feature(auto_traits))]
          #![cfg_attr(verus_keep_ghost, verifier::exec_allows_no_decreases_clause)]
-
+ 
          #[verifier::external]
 diff --git a/source/vstd/Cargo.toml b/source/vstd/Cargo.toml
 --- a/source/vstd/Cargo.toml
 +++ b/source/vstd/Cargo.toml
-@@ -32,6 +32,7 @@
+@@ -32,6 +32,7 @@ alloc = []
  allocator = []
  strict_provenance_atomic_ptr = []
  allow_panic = [] # code is allowed to panic.
 +weak-memory = []
-
-
+ 
+ 
  [package.metadata.verus]
 diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
 --- a/source/vstd/atomic.rs
 +++ b/source/vstd/atomic.rs
-@@ -12,6 +12,8 @@
+@@ -12,6 +12,8 @@ use super::modes::*;
  use super::pervasive::*;
  use super::prelude::*;
  use super::raw_ptr::PointsTo;
@@ -31,157 +31,152 @@ diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
 +use super::thread_view::Objective;
  use super::view::*;
  use super::wrapping::*;
-
-@@ -63,6 +65,9 @@
+ 
+@@ -63,6 +65,9 @@ macro_rules! atomic_types {
              unused: $value_ty,
          }
-
+ 
 +        #[cfg(verus_keep_ghost)]
 +        unsafe impl Objective for $p_ident {}
 +
          pub ghost struct $p_data_ident {
              pub patomic: int,
              pub value: $value_ty,
-@@ -111,6 +116,9 @@
-             no_copy: NoCopy,
+@@ -112,6 +117,9 @@ macro_rules! atomic_types_generic {
              unusued: $value_ty,
          }
-+
+ 
 +        #[cfg(verus_keep_ghost)]
 +        unsafe impl<T> Objective for $p_ident<T> {}
-
++
          #[verifier::accept_recursive_types(T)]
          pub ghost struct $p_data_ident <T> {
+             pub patomic: int,
 diff --git a/source/vstd/atomic_ghost.rs b/source/vstd/atomic_ghost.rs
 --- a/source/vstd/atomic_ghost.rs
 +++ b/source/vstd/atomic_ghost.rs
-@@ -6,6 +6,8 @@
+@@ -6,6 +6,8 @@ use super::atomic::*;
  use super::invariant::*;
  use super::modes::*;
  use super::prelude::*;
 +#[cfg(all(verus_keep_ghost, feature = "weak-memory"))]
 +use super::thread_view::Objective;
-
+ 
  verus! {
-
-@@ -18,12 +20,12 @@
-
+ 
+@@ -18,12 +20,12 @@ pub open spec const ATOMIC_NS: int = 0;
+ 
  } // verus!
  macro_rules! declare_atomic_type {
 -    ($at_ident:ident, $patomic_ty:ident, $perm_ty:ty, $value_ty: ty, $atomic_pred_ty: ident) => {
 +    ($at_ident:ident, $patomic_ty:ident, $perm_ty:ty, $value_ty: ty, $atomic_pred_ty: ident $(, $objective:path)?) => {
          verus!{
-
+ 
          pub struct $atomic_pred_ty<Pred> { p: Pred }
-
+ 
 -        impl<K, G, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<Pred>
 +        impl<K, G $( : $objective )?, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<Pred>
              where Pred: AtomicInvariantPredicate<K, $value_ty, G>
          {
              #[verifier::prophetic]
-@@ -44,7 +46,7 @@
+@@ -44,7 +46,7 @@ macro_rules! declare_atomic_type {
          ///
          /// See the [`atomic_with_ghost!`] documentation for usage information.
-
+ 
 -        pub struct $at_ident<K, G, Pred>
 +        pub struct $at_ident<K, G $( : $objective )?, Pred>
              //where Pred: AtomicInvariantPredicate<K, $value_ty, G>
          {
              #[doc(hidden)]
-@@ -54,7 +56,7 @@
+@@ -54,7 +56,7 @@ macro_rules! declare_atomic_type {
              pub atomic_inv: Tracked<AtomicInvariant<(K, int), ($perm_ty, G), $atomic_pred_ty<Pred>>>,
          }
-
+ 
 -        impl<K, G, Pred> $at_ident<K, G, Pred> {
 +        impl<K, G $( : $objective )?, Pred> $at_ident<K, G, Pred> {
              pub open spec fn constant(&self) -> K {
                  self.atomic_inv@.constant().0
              }
-@@ -65,7 +67,7 @@
+@@ -65,7 +67,7 @@ macro_rules! declare_atomic_type {
              }
          }
-
+ 
 -        impl<K, G, Pred> $at_ident<K, G, Pred>
 +        impl<K, G $( : $objective )?, Pred> $at_ident<K, G, Pred>
              where Pred: AtomicInvariantPredicate<K, $value_ty, G>
          {
              #[inline(always)]
-@@ -110,12 +112,12 @@
+@@ -110,12 +112,12 @@ macro_rules! declare_atomic_type {
      };
  }
  macro_rules! declare_atomic_type_generic {
 -    ($at_ident:ident, $patomic_ty:ident, $perm_ty:ty, $value_ty: ty, $atomic_pred_ty: ident) => {
 +    ($at_ident:ident, $patomic_ty:ident, $perm_ty:ty, $value_ty: ty, $atomic_pred_ty: ident $(, $objective:path)?) => {
          verus!{
-
+ 
          pub struct $atomic_pred_ty<T, Pred> { t: T, p: Pred }
-
+ 
 -        impl<T, K, G, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<T, Pred>
 +        impl<T, K, G $( : $objective )?, Pred> InvariantPredicate<(K, int), ($perm_ty, G)> for $atomic_pred_ty<T, Pred>
              where Pred: AtomicInvariantPredicate<K, $value_ty, G>
          {
              #[verifier::prophetic]
-@@ -136,7 +138,7 @@
+@@ -136,7 +138,7 @@ macro_rules! declare_atomic_type_generic {
          ///
          /// See the [`atomic_with_ghost!`] documentation for usage information.
-
+ 
 -        pub struct $at_ident<T, K, G, Pred>
 +        pub struct $at_ident<T, K, G $( : $objective )?, Pred>
              //where Pred: AtomicInvariantPredicate<K, $value_ty, G>
          {
              #[doc(hidden)]
-@@ -146,7 +148,7 @@
+@@ -146,7 +148,7 @@ macro_rules! declare_atomic_type_generic {
              pub atomic_inv: Tracked<AtomicInvariant<(K, int), ($perm_ty, G), $atomic_pred_ty<T, Pred>>>,
          }
-
+ 
 -        impl<T, K, G, Pred> $at_ident<T, K, G, Pred>
 +        impl<T, K, G $( : $objective )?, Pred> $at_ident<T, K, G, Pred>
              where Pred: AtomicInvariantPredicate<K, $value_ty, G>
          {
              pub open spec fn well_formed(&self) -> bool {
-@@ -198,25 +200,34 @@
+@@ -198,25 +200,34 @@ macro_rules! declare_atomic_type_generic {
      };
  }
-
+ 
 -#[cfg(target_has_atomic = "64")]
 -declare_atomic_type!(AtomicU64, PAtomicU64, PermissionU64, u64, AtomicPredU64);
--
--declare_atomic_type!(AtomicU32, PAtomicU32, PermissionU32, u32, AtomicPredU32);
--declare_atomic_type!(AtomicU16, PAtomicU16, PermissionU16, u16, AtomicPredU16);
--declare_atomic_type!(AtomicU8, PAtomicU8, PermissionU8, u8, AtomicPredU8);
--declare_atomic_type!(AtomicUsize, PAtomicUsize, PermissionUsize, usize, AtomicPredUsize);
--
--#[cfg(target_has_atomic = "64")]
--declare_atomic_type!(AtomicI64, PAtomicI64, PermissionI64, i64, AtomicPredI64);
--
--declare_atomic_type!(AtomicI32, PAtomicI32, PermissionI32, i32, AtomicPredI32);
--declare_atomic_type!(AtomicI16, PAtomicI16, PermissionI16, i16, AtomicPredI16);
--declare_atomic_type!(AtomicI8, PAtomicI8, PermissionI8, i8, AtomicPredI8);
--declare_atomic_type!(AtomicIsize, PAtomicIsize, PermissionIsize, isize, AtomicPredIsize);
--
--declare_atomic_type!(AtomicBool, PAtomicBool, PermissionBool, bool, AtomicPredBool);
--
--declare_atomic_type_generic!(AtomicPtr, PAtomicPtr, PermissionPtr<T>, *mut T, AtomicPredPtr);
 +macro_rules! declare_atomic_types {
 +    ($($objective:path)?) => {
 +        #[cfg(target_has_atomic = "64")]
 +        declare_atomic_type!(AtomicU64, PAtomicU64, PermissionU64, u64, AtomicPredU64 $(, $objective)?);
-+
+ 
+-declare_atomic_type!(AtomicU32, PAtomicU32, PermissionU32, u32, AtomicPredU32);
+-declare_atomic_type!(AtomicU16, PAtomicU16, PermissionU16, u16, AtomicPredU16);
+-declare_atomic_type!(AtomicU8, PAtomicU8, PermissionU8, u8, AtomicPredU8);
+-declare_atomic_type!(AtomicUsize, PAtomicUsize, PermissionUsize, usize, AtomicPredUsize);
 +        declare_atomic_type!(AtomicU32, PAtomicU32, PermissionU32, u32, AtomicPredU32 $(, $objective)?);
 +        declare_atomic_type!(AtomicU16, PAtomicU16, PermissionU16, u16, AtomicPredU16 $(, $objective)?);
 +        declare_atomic_type!(AtomicU8, PAtomicU8, PermissionU8, u8, AtomicPredU8 $(, $objective)?);
 +        declare_atomic_type!(AtomicUsize, PAtomicUsize, PermissionUsize, usize, AtomicPredUsize $(, $objective)?);
-+
+ 
+-#[cfg(target_has_atomic = "64")]
+-declare_atomic_type!(AtomicI64, PAtomicI64, PermissionI64, i64, AtomicPredI64);
 +        #[cfg(target_has_atomic = "64")]
 +        declare_atomic_type!(AtomicI64, PAtomicI64, PermissionI64, i64, AtomicPredI64 $(, $objective)?);
-+
+ 
+-declare_atomic_type!(AtomicI32, PAtomicI32, PermissionI32, i32, AtomicPredI32);
+-declare_atomic_type!(AtomicI16, PAtomicI16, PermissionI16, i16, AtomicPredI16);
+-declare_atomic_type!(AtomicI8, PAtomicI8, PermissionI8, i8, AtomicPredI8);
+-declare_atomic_type!(AtomicIsize, PAtomicIsize, PermissionIsize, isize, AtomicPredIsize);
 +        declare_atomic_type!(AtomicI32, PAtomicI32, PermissionI32, i32, AtomicPredI32 $(, $objective)?);
 +        declare_atomic_type!(AtomicI16, PAtomicI16, PermissionI16, i16, AtomicPredI16 $(, $objective)?);
 +        declare_atomic_type!(AtomicI8, PAtomicI8, PermissionI8, i8, AtomicPredI8 $(, $objective)?);
 +        declare_atomic_type!(AtomicIsize, PAtomicIsize, PermissionIsize, isize, AtomicPredIsize $(, $objective)?);
-+
+ 
+-declare_atomic_type!(AtomicBool, PAtomicBool, PermissionBool, bool, AtomicPredBool);
 +        declare_atomic_type!(AtomicBool, PAtomicBool, PermissionBool, bool, AtomicPredBool $(, $objective)?);
-+
+ 
+-declare_atomic_type_generic!(AtomicPtr, PAtomicPtr, PermissionPtr<T>, *mut T, AtomicPredPtr);
 +        declare_atomic_type_generic!(AtomicPtr, PAtomicPtr, PermissionPtr<T>, *mut T, AtomicPredPtr $(, $objective)?);
 +    };
 +}
@@ -190,151 +185,14 @@ diff --git a/source/vstd/atomic_ghost.rs b/source/vstd/atomic_ghost.rs
 +declare_atomic_types!(Objective);
 +#[cfg(not(feature = "weak-memory"))]
 +declare_atomic_types!();
-
+ 
  /// Performs a given atomic operation on a given atomic
  /// while providing access to its ghost state.
-diff --git a/source/vstd/invariant.rs b/source/vstd/invariant.rs
---- a/source/vstd/invariant.rs
-+++ b/source/vstd/invariant.rs
-@@ -1,7 +1,8 @@
- #[allow(unused_imports)]
- use super::pervasive::*;
--#[allow(unused_imports)]
- use super::prelude::*;
-+#[cfg(verus_keep_ghost)]
-+use super::thread_view::Objective;
-
- // TODO:
- //  * utility for conveniently creating unique namespaces
-@@ -115,6 +116,7 @@
- ///
- /// **Note:** Rather than using `AtomicInvariant` directly, we generally recommend
- /// using the [`atomic_ghost` APIs](crate::atomic_ghost).
-+#[cfg(not(feature = "weak-memory"))]
- #[cfg_attr(verus_keep_ghost, verifier::proof)]
- #[cfg_attr(verus_keep_ghost, verifier::external_body)] /* vattr */
- #[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(K))]
-@@ -125,6 +127,20 @@
-     dummy1: super::prelude::AlwaysSyncSend<(K, Pred, *mut V)>,
- }
-
-+// TODO - document
-+// TODO - can we fold this into a single AtomicInvariant definition without the Objective trait bound?
-+// Creusot only implements Sync on AtomicInvariant when T: Send + Objective
-+#[cfg(feature = "weak-memory")]
-+#[cfg_attr(verus_keep_ghost, verifier::proof)]
-+#[cfg_attr(verus_keep_ghost, verifier::external_body)] /* vattr */
-+#[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(K))]
-+#[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(V))]
-+#[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(Pred))]
-+pub struct AtomicInvariant<K, V: Objective, Pred> {
-+    dummy: super::prelude::SyncSendIfSend<V>,
-+    dummy1: super::prelude::AlwaysSyncSend<(K, Pred, *mut V)>,
-+}
-+
- /// A `LocalInvariant` is a ghost object that provides "interior mutability"
- /// for ghost objects, specifically, for `tracked` ghost objects.
- /// A reference `&LocalInvariant` may be shared between clients.
-@@ -171,12 +187,12 @@
- impl<K, V, Pred> !Sync for LocalInvariant<K, V, Pred> {}
-
- macro_rules! declare_invariant_impl {
--    ($invariant:ident => $selfid:ident => $($into_inner_clause:tt)*) => {
-+    ($invariant:ident $(< $bound:path >)? => $selfid:ident => $($into_inner_clause:tt)*) => {
-         // note the path names of `inv` and `namespace` are harcoded into the VIR crate.
-
-         verus!{
-
--        impl<K, V, Pred> $invariant<K, V, Pred> {
-+        impl<K, V $( : $bound )?, Pred> $invariant<K, V, Pred> {
-             /// The constant specified upon the initialization of this `
-             #[doc = stringify!($invariant)]
-             ///`.
-@@ -187,7 +203,7 @@
-             pub uninterp spec fn namespace(&self) -> int;
-         }
-
--        impl<K, V, Pred: InvariantPredicate<K, V>> $invariant<K, V, Pred> {
-+        impl<K, V $( : $bound )?, Pred: InvariantPredicate<K, V>> $invariant<K, V, Pred> {
-             /// Returns `true` if it is possible to store the value `v` into the `
-             #[doc = stringify!($invariant)]
-             ///`.
-@@ -269,7 +285,10 @@
-     };
- }
-
-+#[cfg(not(feature = "weak-memory"))]
- declare_invariant_impl!(AtomicInvariant => self => opens_invariants [ self.namespace() ] );
-+#[cfg(feature = "weak-memory")]
-+declare_invariant_impl!(AtomicInvariant<Objective> => self => opens_invariants [ self.namespace() ] );
- declare_invariant_impl!(LocalInvariant => self => );
-
- #[doc(hidden)]
-@@ -361,11 +380,22 @@
- // Why does this use the 'static type param for the InvariantBlockGuard? This is because
- // AtomicInvariant doesn't need the lifetime-checking like LocalInvariant does. See the explanation
- // over `into_inner`.
--#[cfg(verus_keep_ghost)]
-+#[cfg(all(verus_keep_ghost, not(feature = "weak-memory")))]
- #[rustc_diagnostic_item = "verus::vstd::invariant::open_atomic_invariant_begin"]
- #[doc(hidden)]
- #[verifier::external] /* vattr */
- pub fn open_atomic_invariant_begin<'a, K, V, Pred: InvariantPredicate<K, V>>(
-+    _credit: OpenInvariantCredit,
-+    _inv: &'a AtomicInvariant<K, V, Pred>,
-+) -> (InvariantBlockGuard<'static>, V) {
-+    unimplemented!();
-+}
-+
-+#[cfg(all(verus_keep_ghost, feature = "weak-memory"))]
-+#[rustc_diagnostic_item = "verus::vstd::invariant::open_atomic_invariant_begin"]
-+#[doc(hidden)]
-+#[verifier::external] /* vattr */
-+pub fn open_atomic_invariant_begin<'a, K, V: Objective, Pred: InvariantPredicate<K, V>>(
-     _credit: OpenInvariantCredit,
-     _inv: &'a AtomicInvariant<K, V, Pred>,
- ) -> (InvariantBlockGuard<'static>, V) {
-diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
---- a/source/vstd/vstd.rs
-+++ b/source/vstd/vstd.rs
-@@ -32,7 +32,8 @@
- #![cfg_attr(all(feature = "alloc", verus_keep_ghost), feature(btree_cursors))]
- #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
- #![cfg_attr(verus_keep_ghost, feature(maybe_uninit_array_assume_init))]
- #![cfg_attr(verus_keep_ghost, feature(trivial_clone))]
-+#![cfg_attr(verus_keep_ghost, feature(auto_traits))]
-
- #[cfg(feature = "alloc")]
- extern crate alloc;
-@@ -40,6 +41,7 @@
- pub mod array;
- pub mod atomic;
- pub mod atomic_ghost;
-+pub mod atomic_weak;
- pub mod bits;
- pub mod bytes;
- pub mod calc_macro;
-@@ -80,6 +82,7 @@
- pub mod raw_ptr;
- pub mod relations;
- pub mod resource;
-+#[cfg(not(feature = "weak-memory"))]
- pub mod rwlock;
- pub mod seq;
- pub mod seq_lib;
-@@ -93,6 +96,7 @@
- pub mod string;
- #[cfg(feature = "std")]
- pub mod thread;
-+pub mod thread_view;
- pub mod tokens;
- pub mod utf8;
- pub mod view;
 diff --git a/source/vstd/atomic_weak.rs b/source/vstd/atomic_weak.rs
 new file mode 100644
 --- /dev/null
 +++ b/source/vstd/atomic_weak.rs
-@@ -0,0 +1,743 @@
+@@ -0,0 +1,1308 @@
 +#[cfg(feature = "weak-memory")]
 +pub use weak_atomic_types::*;
 +
@@ -380,6 +238,7 @@ new file mode 100644
 +    Tracked::assume_new()
 +}
 +
++#[verifier::ext_equal]
 +pub ghost struct AtomicHistory<T>(pub Map<nat, (T, ThreadView)>);
 +
 +impl<T> AtomicHistory<T> {
@@ -402,14 +261,14 @@ new file mode 100644
 +        recommends
 +            self.contains_timestamp(timestamp),
 +    {
-+        self.0.index(timestamp).0
++        self.index(timestamp).0
 +    }
 +
 +    pub open spec fn thread_view(&self, timestamp: nat) -> ThreadView
 +        recommends
 +            self.contains_timestamp(timestamp),
 +    {
-+        self.0.index(timestamp).1
++        self.index(timestamp).1
 +    }
 +
 +    pub open spec fn get(&self, timestamp: nat) -> Option<(T, ThreadView)> {
@@ -437,9 +296,22 @@ new file mode 100644
 +        AtomicHistory(self.0.insert(timestamp, (val, view)))
 +    }
 +
++    pub broadcast proof fn insert_def(&self, timestamp: nat, val: T, view: ThreadView)
++        ensures
++            #[trigger] self.insert(timestamp, val, view).0 == self.0.insert(timestamp, (val, view)),
++    {
++    }
++
 +    pub open spec fn remove(&self, timestamp: nat) -> Self {
 +        AtomicHistory(self.0.remove(timestamp))
 +    }
++
++    pub broadcast proof fn remove_def(&self, timestamp: nat)
++        ensures
++            #[trigger] self.remove(timestamp).0 == self.0.remove(timestamp),
++    {
++    }
++
 +
 +    pub open spec fn is_singleton(&self, timestamp: nat, val: (T, ThreadView)) -> bool {
 +        &&& self.contains_timestamp(timestamp)
@@ -505,6 +377,11 @@ new file mode 100644
 +    history_insert_contains_inserted_timestamp,
 +    history_insert_contains_timestamp_cases,
 +    history_get_contains_timestamp,
++    history_singleton_dom_singleton,
++    AtomicHistory::insert_def,
++    AtomicHistory::remove_def,
++    AtomicPointsTo::get_timestamp_monotonic,
++    AtomicPointsTo::get_timestamp_loc,
 +}
 +
 +#[verifier::external_body]
@@ -525,14 +402,23 @@ new file mode 100644
 +
 +    pub uninterp spec fn get_timestamp(&self, view: ThreadView) -> Option<nat>;
 +
-+    pub axiom fn get_timestamp_monotonic(tracked &self, v1: ThreadView, v2: ThreadView)
++    pub broadcast axiom fn get_timestamp_monotonic(&self, v1: ThreadView, v2: ThreadView)
 +        requires
 +            v1.contains(v2),
 +        ensures
++            #![trigger self.get_timestamp(v2), v1.contains(v2)]
++            #![trigger self.get_timestamp(v1), v1.contains(v2)]
 +            self.get_timestamp(v2).is_some() ==> {
 +                &&& self.get_timestamp(v1).is_some()
 +                &&& self.get_timestamp(v2).unwrap() <= self.get_timestamp(v1).unwrap()
 +            },
++    ;
++
++    pub broadcast axiom fn get_timestamp_loc(&self, other: Self, v: ThreadView)
++        requires
++            self.loc() == other.loc(),
++        ensures
++            #[trigger] self.get_timestamp(v) == #[trigger] other.get_timestamp(v),
 +    ;
 +
 +    pub axiom fn disjoint(tracked &mut self, tracked other: &Self)
@@ -550,7 +436,8 @@ new file mode 100644
 +    timestamp: nat,
 +) -> bool {
 +    &&& pt.get_timestamp(old_view).is_none() || pt.get_timestamp(old_view).unwrap() <= timestamp
-+    &&& pt.get_timestamp(new_view) == Some(timestamp)
++    &&& pt.get_timestamp(new_view).is_some()
++    &&& timestamp <= pt.get_timestamp(new_view).unwrap()
 +}
 +
 +/// On a load, the location's AtomicHistory must have included [timestamp -> (val, message_view)].
@@ -563,11 +450,6 @@ new file mode 100644
 +    hist.get(timestamp) == Some((val, message_view))
 +}
 +
-+/// After a load, the thread's new view will contain the old view.
-+pub open spec fn load_view_nondecreasing(old_view: ThreadView, new_view: ThreadView) -> bool {
-+    new_view.contains(old_view)
-+}
-+
 +pub open spec fn load_acquire<T>(
 +    pt: AtomicPointsTo<T>,
 +    old_view: ThreadView,
@@ -578,9 +460,8 @@ new file mode 100644
 +) -> bool {
 +    &&& load_timestamp_in_view(pt, old_view, new_view, timestamp)
 +    &&& load_reads_from_history(pt.hist(), val, timestamp, message_view)
-+    &&& load_view_nondecreasing(
++    &&& new_view.contains(
 +        old_view,
-+        new_view,
 +    )
 +    // because this is an acquire load, the message view is joined to the thread's current view
 +    &&& new_view.contains(message_view)
@@ -597,12 +478,51 @@ new file mode 100644
 +) -> bool {
 +    &&& load_timestamp_in_view(pt, old_view, new_view, timestamp)
 +    &&& load_reads_from_history(pt.hist(), val, timestamp, message_view)
-+    &&& load_view_nondecreasing(
++    &&& new_view.contains(
 +        old_view,
-+        new_view,
 +    )
 +    // because this is a relaxed load, the message view is joined to the thread's acquire view
 +    &&& acquire_view.contains(message_view)
++}
++
++pub open spec fn load_update_acquire<T>(
++    pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    int_view: ThreadView,
++    new_view: ThreadView,
++    val: T,
++    timestamp: nat,
++    load_message_view: ThreadView,
++    store_message_view: ThreadView,
++) -> bool {
++    &&& load_timestamp_in_view(pt, old_view, int_view, timestamp)
++    &&& load_reads_from_history(pt.hist(), val, timestamp, load_message_view)
++    &&& int_view.contains(
++        old_view,
++    )
++    // because this is an acquire load in an update, the store message view is joined to the thread's current view
++    // note that because this is an update, we also have store_message_view.contains_strict(load_message_view)
++    &&& new_view.contains(store_message_view)
++}
++
++pub open spec fn load_update_relaxed<T>(
++    pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    int_view: ThreadView,
++    acquire_view: ThreadView,
++    val: T,
++    timestamp: nat,
++    load_message_view: ThreadView,
++    store_message_view: ThreadView
++) -> bool {
++    &&& load_timestamp_in_view(pt, old_view, int_view, timestamp)
++    &&& load_reads_from_history(pt.hist(), val, timestamp, load_message_view)
++    &&& int_view.contains(
++        old_view,
++    )
++    // because this is a relaxed load in an update, the store message view is joined to the thread's acquire view
++    // note that because this is an update, we also have store_message_view.contains_strict(load_message_view)
++    &&& acquire_view.contains(store_message_view)
 +}
 +
 +/// On a store, the store's timestamp must be greater than that in the thread's old view.
@@ -618,14 +538,10 @@ new file mode 100644
 +) -> bool {
 +    &&& old_pt.get_timestamp(old_view).is_none() || old_pt.get_timestamp(old_view).unwrap()
 +        < timestamp
-+    &&& new_pt.get_timestamp(new_view) == Some(timestamp)
-+    &&& new_pt.get_timestamp(message_view) == Some(timestamp)
-+}
-+
-+/// After a store, the thread's new view will strictly contain its old view.
-+/// This is a strict containment because the new view will contain the timestamp of the store.
-+pub open spec fn store_view_increasing(old_view: ThreadView, new_view: ThreadView) -> bool {
-+    &&& new_view.contains_strict(old_view)
++    &&& new_pt.get_timestamp(new_view).is_some()
++    &&& timestamp <= new_pt.get_timestamp(new_view).unwrap()
++    &&& new_pt.get_timestamp(message_view).is_some()
++    &&& timestamp <= new_pt.get_timestamp(message_view).unwrap()
 +}
 +
 +/// After a store, the locations's AtomicHistory is updated to contain the store.
@@ -652,13 +568,9 @@ new file mode 100644
 +    message_view: ThreadView,
 +) -> bool {
 +    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
-+    &&& store_view_increasing(old_view, new_view)
-+    &&& store_insert_history(
-+        old_pt,
-+        new_pt,
-+        val,
-+        timestamp,
-+        message_view,
++    &&& store_insert_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& new_view.contains_strict(
++        old_view,
 +    )
 +    // because this is a release store, the message view is the thread's current view
 +    &&& message_view == new_view
@@ -675,13 +587,9 @@ new file mode 100644
 +    message_view: ThreadView,
 +) -> bool {
 +    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
-+    &&& store_view_increasing(old_view, new_view)
-+    &&& store_insert_history(
-+        old_pt,
-+        new_pt,
-+        val,
-+        timestamp,
-+        message_view,
++    &&& store_insert_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& new_view.contains_strict(
++        old_view,
 +    )
 +    // because this is a relaxed store, the message view contains the release view
 +    &&& message_view.contains(
@@ -715,13 +623,9 @@ new file mode 100644
 +    message_view: ThreadView,
 +) -> bool {
 +    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
-+    &&& store_view_increasing(old_view, new_view)
-+    &&& store_mut_truncate_history(
-+        old_pt,
-+        new_pt,
-+        val,
-+        timestamp,
-+        message_view,
++    &&& store_mut_truncate_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& new_view.contains_strict(
++        old_view,
 +    )
 +    // because this is a release store, the message view is the thread's current view
 +    &&& message_view == new_view
@@ -738,13 +642,9 @@ new file mode 100644
 +    message_view: ThreadView,
 +) -> bool {
 +    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
-+    &&& store_view_increasing(old_view, new_view)
-+    &&& store_mut_truncate_history(
-+        old_pt,
-+        new_pt,
-+        val,
-+        timestamp,
-+        message_view,
++    &&& store_mut_truncate_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& new_view.contains_strict(
++        old_view,
 +    )
 +    // because this is a relaxed store, the message view contains the release view
 +    &&& message_view.contains(
@@ -752,6 +652,189 @@ new file mode 100644
 +    )
 +    // and the thread's current view will now contain the message view
 +    &&& new_view.contains(message_view)
++}
++
++pub open spec fn store_update_release<T>(
++    old_pt: AtomicPointsTo<T>,
++    new_pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    new_view: ThreadView,
++    val: T,
++    timestamp: nat,
++    message_view: ThreadView,
++) -> bool {
++    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
++    &&& store_insert_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& new_view.contains_strict(
++        old_view,
++    )
++    // in case of a relaxed load, we cannot acquire the store message view into current view, because in an update,
++    // the store message view contains the load message view.
++    // note that in case of an acquire load, we will also have that the current view contains the store message view.
++    &&& message_view.contains(new_view)
++}
++
++pub open spec fn store_update_relaxed<T>(
++    old_pt: AtomicPointsTo<T>,
++    new_pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    new_view: ThreadView,
++    release_view: ThreadView,
++    val: T,
++    timestamp: nat,
++    message_view: ThreadView,
++) -> bool {
++    &&& store_timestamp_in_view(old_pt, new_pt, old_view, new_view, message_view, timestamp)
++    &&& store_insert_history(old_pt, new_pt, val, timestamp, message_view)
++    &&& new_view.contains_strict(
++        old_view,
++    )
++    // because this is a relaxed store, the message view contains the release view
++    &&& message_view.contains(
++        release_view,
++    )
++    // in case of a relaxed load, we cannot acquire the store message view into current view, because in an update,
++    // the store message view contains the load message view.
++    // note that in case of an acquire load, we will have that the current view contains the store message view.
++}
++
++/// A successful update is modeled as a load followed by a store, using the specified ordering.
++pub open spec fn update_success<T>(
++    old_pt: AtomicPointsTo<T>,
++    new_pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    new_view: ThreadView,
++    release_view: ThreadView,
++    acquire_view: ThreadView,
++    load_val: T,
++    store_val: T,
++    order: Ordering,
++    up: UpdateData,
++) -> bool {
++    &&& up.store_message_view.contains_strict(up.load_message_view)
++    &&& match order {
++        Ordering::AcqRel => {
++            &&& load_update_acquire(
++                old_pt,
++                old_view,
++                up.intermediate_thread_view,
++                new_view,
++                load_val,
++                up.load_timestamp,
++                up.load_message_view,
++                up.store_message_view,
++            )
++            &&& store_update_release(
++                old_pt,
++                new_pt,
++                up.intermediate_thread_view,
++                new_view,
++                store_val,
++                up.load_timestamp + 1,
++                up.store_message_view,
++            )
++        },
++        Ordering::Acquire => {
++            &&& load_update_acquire(
++                old_pt,
++                old_view,
++                up.intermediate_thread_view,
++                new_view,
++                load_val,
++                up.load_timestamp,
++                up.load_message_view,
++                up.store_message_view,
++            )
++            &&& store_update_relaxed(
++                old_pt,
++                new_pt,
++                up.intermediate_thread_view,
++                new_view,
++                release_view,
++                store_val,
++                up.load_timestamp + 1,
++                up.store_message_view,
++            )
++        },
++        Ordering::Release => {
++            &&& load_update_relaxed(
++                old_pt,
++                old_view,
++                up.intermediate_thread_view,
++                acquire_view,
++                load_val,
++                up.load_timestamp,
++                up.load_message_view,
++                up.store_message_view,
++            )
++            &&& store_update_release(
++                old_pt,
++                new_pt,
++                up.intermediate_thread_view,
++                new_view,
++                store_val,
++                up.load_timestamp + 1,
++                up.store_message_view,
++            )
++        },
++        Ordering::Relaxed => {
++            &&& load_update_relaxed(
++                old_pt,
++                old_view,
++                up.intermediate_thread_view,
++                acquire_view,
++                load_val,
++                up.load_timestamp,
++                up.load_message_view,
++                up.store_message_view,
++            )
++            &&& store_update_relaxed(
++                old_pt,
++                new_pt,
++                up.intermediate_thread_view,
++                new_view,
++                release_view,
++                store_val,
++                up.load_timestamp + 1,
++                up.store_message_view,
++            )
++        },
++        _ => false,  // SeqCst ordering not allowed
++    }
++}
++
++/// A failed update (e.g. failed compare_exchange) is modeled as a load under the specified ordering.
++pub open spec fn update_fail<T>(
++    old_pt: AtomicPointsTo<T>,
++    new_pt: AtomicPointsTo<T>,
++    old_view: ThreadView,
++    new_view: ThreadView,
++    acquire_view: ThreadView,
++    load_val: T,
++    order: Ordering,
++    up: UpdateData,
++) -> bool {
++    &&& new_pt == old_pt
++    &&& match order {
++        Ordering::Acquire => load_acquire(
++            old_pt,
++            old_view,
++            new_view,
++            load_val,
++            up.load_timestamp,
++            up.load_message_view,
++        ),
++        Ordering::Relaxed => load_relaxed(
++            old_pt,
++            old_view,
++            new_view,
++            acquire_view,
++            load_val,
++            up.load_timestamp,
++            up.load_message_view,
++        ),
++        _ => false,  // SeqCst ordering not allowed
++    }
 +}
 +
 +pub ghost struct LoadData {
@@ -860,6 +943,41 @@ new file mode 100644
 +
 +        #[inline(always)]
 +        #[verifier::external_body]
++        pub fn from_mut<'a>(v: &'a mut $value_ty) -> ((ato, pt, vs, ts): (
++            &'a mut Self,
++            Tracked<&'a mut AtomicPointsTo<$value_ty>>,
++            Tracked<ViewSeen>,
++            Ghost<nat>,
++        ))
++            ensures
++                ato.loc() == (pt@).loc(),
++                (pt@).hist().is_singleton(ts@, (*old(v), vs@@)),
++                (pt@).get_timestamp(vs@@) == Some(ts@),
++                forall |ts| final(pt@).hist().is_max_timestamp(ts) ==>  final(ato).loc() == final(pt@).loc() ==>  final(pt@).hist().value(ts) == *final(v),
++        {
++            // can't use $rust_ty::from_mut, so I'll inline it:
++            let p = unsafe { &mut *(v as *mut $value_ty as *mut Self) };
++            (p, Tracked::assume_new(), Tracked::assume_new(), Ghost::assume_new())
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        pub fn get_mut<'a>(&'a mut self, Tracked(pt) : Tracked<&'a mut AtomicPointsTo<$value_ty>>) -> ((val, vs, ts) : (&'a mut $value_ty, Tracked<ViewSeen>, Ghost<nat>))
++            requires
++                old(self).loc() == old(pt).loc()
++            ensures
++                *final(self) == *old(self),
++                final(self).loc() == final(pt).loc(),
++                old(pt).hist().is_max_timestamp(ts@),
++                *val == old(pt).hist().value(ts@),
++                vs@@ == old(pt).hist().thread_view(ts@),
++                final(pt).hist().value(ts@) == *final(val),
++        {
++            (self.ato.get_mut(), Tracked::assume_new(), Ghost::assume_new())
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
 +        #[verifier::atomic]
 +        pub fn load(
 +            &self,
@@ -956,33 +1074,11 @@ new file mode 100644
 +                match res {
 +                    Ok(v) => {
 +                        &&& current == v
-+                        &&& up@.store_message_view.contains_strict(up@.load_message_view)
-+                        &&& match success {
-+                            Ordering::AcqRel => {
-+                                &&& load_acquire(*old(pt), old(vs)@, up@.intermediate_thread_view, current, up@.load_timestamp, up@.load_message_view)
-+                                &&& store_release(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, new, up@.load_timestamp + 1, up@.store_message_view)
-+                            },
-+                            Ordering::Acquire => {
-+                                &&& load_acquire(*old(pt), old(vs)@, up@.intermediate_thread_view, current, up@.load_timestamp, up@.load_message_view)
-+                                &&& store_relaxed(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, rel_vs@, new, up@.load_timestamp + 1, up@.store_message_view)
-+                            },
-+                            Ordering::Release => {
-+                                &&& load_relaxed(*old(pt), old(vs)@, up@.intermediate_thread_view, acq_vs@@, v, up@.load_timestamp, up@.load_message_view)
-+                                &&& store_release(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, new, up@.load_timestamp + 1, up@.store_message_view)
-+                            },
-+                            Ordering::Relaxed => {
-+                                &&& load_relaxed(*old(pt), old(vs)@, up@.intermediate_thread_view, acq_vs@@, v, up@.load_timestamp, up@.load_message_view)
-+                                &&& store_relaxed(*old(pt), *final(pt), up@.intermediate_thread_view, final(vs)@, rel_vs@, new, up@.load_timestamp + 1, up@.store_message_view)
-+                            }
-+                        }
++                        &&& update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, current, new, success, up@)
 +                    },
 +                    Err(v) => {
 +                        &&& current != v
-+                        &&& *final(pt) == *old(pt)
-+                        &&& match failure {
-+                            Ordering::Acquire => load_acquire(*old(pt), old(vs)@, final(vs)@, v, up@.load_timestamp, up@.load_message_view),
-+                            Ordering::Relaxed => load_relaxed(*old(pt), old(vs)@, final(vs)@, acq_vs@@, v, up@.load_timestamp, up@.load_message_view)
-+                        }
++                        &&& update_fail(*old(pt), *final(pt), old(vs)@, final(vs)@, acq_vs@@, v, failure, up@)
 +                    }
 +                }
 +            opens_invariants none
@@ -991,7 +1087,60 @@ new file mode 100644
 +            return (self.ato.compare_exchange(current, new, success, failure), Tracked::assume_new(), Ghost::assume_new());
 +        }
 +
-+        // TODO - compare_exchange_weak, swap
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn compare_exchange_weak(
++            &self,
++            current: $value_ty,
++            new: $value_ty,
++            success: Ordering,
++            failure: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((res, acq_vs, up): (Result<$value_ty, $value_ty>, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                success matches Ordering::AcqRel || success matches Ordering::Acquire || success matches Ordering::Release || success matches Ordering::Relaxed,
++                failure matches Ordering::Acquire || failure matches Ordering::Relaxed
++            ensures
++                match res {
++                    Ok(v) => {
++                        &&& current == v
++                        &&& update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, current, new, success, up@)
++                    },
++                    Err(v) => {
++                        &&& update_fail(*old(pt), *final(pt), old(vs)@, final(vs)@, acq_vs@@, v, failure, up@)
++                    }
++                }
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.compare_exchange_weak(current, new, success, failure), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn swap(
++            &self,
++            v: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((res, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, res, v, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.swap(v, order), Tracked::assume_new(), Ghost::assume_new());
++        }
 +
 +        #[inline(always)]
 +        pub axiom fn truncate_history(tracked &mut self, tracked pt: &mut AtomicPointsTo<$value_ty>, tracked vs: &mut ViewSeen) -> (ts: nat)
@@ -1033,8 +1182,186 @@ new file mode 100644
 +    ($at_ident:ident, $rust_ty: ty, $value_ty: ty, $modname:ident) => {
 +        verus_impl!{
 +
-+        // this macro is currently a stub for the functions we plan to implement:
-+        // TODO - fetch_add_wrapping, fetch_sub_wrapping, fetch_add, fetch_sub, fetch_and, fetch_or, fetch_xor, fetch_nand, fetch_max, fetch_min
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_add_wrapping(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, $modname::wrapping_add(v, n), order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_add(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        // NOTE: specifying fetch_add in the weak setting is difficult since the precondition
++        // must be stated in terms of the current value, and there are several possible current values.
++        // Since there is no equivalent function in Rust and we think prohibiting wrapping can be done using an invariant,
++        // we defer `fetch_add` and the other non-wrapping arithmetic specs.
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_sub_wrapping(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, $modname::wrapping_sub(v, n), order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_sub(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_and(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, v & n, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_and(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_or(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, v | n, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_or(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_xor(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, v ^ n, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_xor(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_nand(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, !(v & n), order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_nand(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_max(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, if v > n { v } else { n }, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_max(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_min(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, if v < n { v } else { n }, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_min(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
 +
 +        }
 +    };
@@ -1044,45 +1371,245 @@ new file mode 100644
 +    ($at_ident:ident, $rust_ty: ty, $value_ty: ty) => {
 +        verus!{
 +
-+        // this macro is currently a stub for the functions we plan to implement:
-+        // TODO - fetch_and, fetch_or, fetch_xor, fetch_nand
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_and(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, v && n, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_and(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_or(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, v || n, order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_or(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_xor(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, (v && !n) || (!v && n), order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_xor(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
++
++        #[inline(always)]
++        #[verifier::external_body]
++        #[verifier::atomic]
++        pub fn fetch_nand(
++            &self,
++            n: $value_ty,
++            order: Ordering,
++            Tracked(vs): Tracked<&mut ViewSeen>,
++            Tracked(rel_vs): Tracked<ReleaseViewSeen>,
++            Tracked(pt): Tracked<&mut AtomicPointsTo<$value_ty>>,
++        ) -> ((v, acq_vs, up): ($value_ty, Tracked<AcquireViewSeen>, Ghost<UpdateData>))
++            requires
++                self.loc() == old(pt).loc(),
++                order matches Ordering::AcqRel || order matches Ordering::Acquire || order matches Ordering::Release || order matches Ordering::Relaxed,
++            ensures
++                update_success(*old(pt), *final(pt), old(vs)@, final(vs)@, rel_vs@, acq_vs@@, v, !(v && n), order, up@)
++            opens_invariants none
++            no_unwind
++        {
++            return (self.ato.fetch_nand(n, order), Tracked::assume_new(), Ghost::assume_new());
++        }
 +
 +        }
 +    };
 +}
 +
++#[cfg(target_has_atomic_primitive_alignment = "8")]
 +make_bool_atomic!(PAtomicWeakBool, AtomicBool, bool);
 +
++#[cfg(target_has_atomic_primitive_alignment = "8")]
 +make_unsigned_integer_atomic!(PAtomicWeakU8, AtomicU8, u8, u8_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "16")]
 +make_unsigned_integer_atomic!(PAtomicWeakU16, AtomicU16, u16, u16_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "32")]
 +make_unsigned_integer_atomic!(PAtomicWeakU32, AtomicU32, u32, u32_specs);
 +
 +#[cfg(target_has_atomic = "64")]
++#[cfg(target_has_atomic_primitive_alignment = "64")]
 +make_unsigned_integer_atomic!(PAtomicWeakU64, AtomicU64, u64, u64_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "ptr")]
 +make_unsigned_integer_atomic!(PAtomicWeakUsize, AtomicUsize, usize, usize_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "8")]
 +make_signed_integer_atomic!(PAtomicWeakI8, AtomicI8, i8, i8_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "16")]
 +make_signed_integer_atomic!(PAtomicWeakI16, AtomicI16, i16, i16_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "32")]
 +make_signed_integer_atomic!(PAtomicWeakI32, AtomicI32, i32, i32_specs);
 +
 +#[cfg(target_has_atomic = "64")]
++#[cfg(target_has_atomic_primitive_alignment = "64")]
 +make_signed_integer_atomic!(PAtomicWeakI64, AtomicI64, i64,i64_specs);
 +
++#[cfg(target_has_atomic_primitive_alignment = "ptr")]
 +make_signed_integer_atomic!(PAtomicWeakIsize, AtomicIsize, isize, isize_specs);
 +
 +// TODO - AtomicPtr
 +} // verus!
 +}
+diff --git a/source/vstd/invariant.rs b/source/vstd/invariant.rs
+--- a/source/vstd/invariant.rs
++++ b/source/vstd/invariant.rs
+@@ -1,7 +1,8 @@
+ #[allow(unused_imports)]
+ use super::pervasive::*;
+-#[allow(unused_imports)]
+ use super::prelude::*;
++#[cfg(verus_keep_ghost)]
++use super::thread_view::Objective;
+ 
+ // TODO:
+ //  * utility for conveniently creating unique namespaces
+@@ -115,6 +116,7 @@ pub trait InvariantPredicate<K, V> {
+ ///
+ /// **Note:** Rather than using `AtomicInvariant` directly, we generally recommend
+ /// using the [`atomic_ghost` APIs](crate::atomic_ghost).
++#[cfg(not(feature = "weak-memory"))]
+ #[cfg_attr(verus_keep_ghost, verifier::proof)]
+ #[cfg_attr(verus_keep_ghost, verifier::external_body)] /* vattr */
+ #[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(K))]
+@@ -125,6 +127,20 @@ pub struct AtomicInvariant<K, V, Pred> {
+     dummy1: super::prelude::AlwaysSyncSend<(K, Pred, *mut V)>,
+ }
+ 
++// TODO - document
++// TODO - can we fold this into a single AtomicInvariant definition without the Objective trait bound?
++// Creusot only implements Sync on AtomicInvariant when T: Send + Objective
++#[cfg(feature = "weak-memory")]
++#[cfg_attr(verus_keep_ghost, verifier::proof)]
++#[cfg_attr(verus_keep_ghost, verifier::external_body)] /* vattr */
++#[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(K))]
++#[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(V))]
++#[cfg_attr(verus_keep_ghost, verifier::accept_recursive_types(Pred))]
++pub struct AtomicInvariant<K, V: Objective, Pred> {
++    dummy: super::prelude::SyncSendIfSend<V>,
++    dummy1: super::prelude::AlwaysSyncSend<(K, Pred, *mut V)>,
++}
++
+ /// A `LocalInvariant` is a ghost object that provides "interior mutability"
+ /// for ghost objects, specifically, for `tracked` ghost objects.
+ /// A reference `&LocalInvariant` may be shared between clients.
+@@ -171,12 +187,12 @@ pub struct LocalInvariant<K, V, Pred> {
+ impl<K, V, Pred> !Sync for LocalInvariant<K, V, Pred> {}
+ 
+ macro_rules! declare_invariant_impl {
+-    ($invariant:ident => $selfid:ident => $($into_inner_clause:tt)*) => {
++    ($invariant:ident $(< $bound:path >)? => $selfid:ident => $($into_inner_clause:tt)*) => {
+         // note the path names of `inv` and `namespace` are harcoded into the VIR crate.
+ 
+         verus!{
+ 
+-        impl<K, V, Pred> $invariant<K, V, Pred> {
++        impl<K, V $( : $bound )?, Pred> $invariant<K, V, Pred> {
+             /// The constant specified upon the initialization of this `
+             #[doc = stringify!($invariant)]
+             ///`.
+@@ -187,7 +203,7 @@ macro_rules! declare_invariant_impl {
+             pub uninterp spec fn namespace(&self) -> int;
+         }
+ 
+-        impl<K, V, Pred: InvariantPredicate<K, V>> $invariant<K, V, Pred> {
++        impl<K, V $( : $bound )?, Pred: InvariantPredicate<K, V>> $invariant<K, V, Pred> {
+             /// Returns `true` if it is possible to store the value `v` into the `
+             #[doc = stringify!($invariant)]
+             ///`.
+@@ -269,7 +285,10 @@ macro_rules! declare_invariant_impl {
+     };
+ }
+ 
++#[cfg(not(feature = "weak-memory"))]
+ declare_invariant_impl!(AtomicInvariant => self => opens_invariants [ self.namespace() ] );
++#[cfg(feature = "weak-memory")]
++declare_invariant_impl!(AtomicInvariant<Objective> => self => opens_invariants [ self.namespace() ] );
+ declare_invariant_impl!(LocalInvariant => self => );
+ 
+ #[doc(hidden)]
+@@ -361,7 +380,7 @@ pub axiom fn create_open_invariant_credit() -> (tracked c: OpenInvariantCredit);
+ // Why does this use the 'static type param for the InvariantBlockGuard? This is because
+ // AtomicInvariant doesn't need the lifetime-checking like LocalInvariant does. See the explanation
+ // over `into_inner`.
+-#[cfg(verus_keep_ghost)]
++#[cfg(all(verus_keep_ghost, not(feature = "weak-memory")))]
+ #[rustc_diagnostic_item = "verus::vstd::invariant::open_atomic_invariant_begin"]
+ #[doc(hidden)]
+ #[verifier::external] /* vattr */
+@@ -372,6 +391,17 @@ pub fn open_atomic_invariant_begin<'a, K, V, Pred: InvariantPredicate<K, V>>(
+     unimplemented!();
+ }
+ 
++#[cfg(all(verus_keep_ghost, feature = "weak-memory"))]
++#[rustc_diagnostic_item = "verus::vstd::invariant::open_atomic_invariant_begin"]
++#[doc(hidden)]
++#[verifier::external] /* vattr */
++pub fn open_atomic_invariant_begin<'a, K, V: Objective, Pred: InvariantPredicate<K, V>>(
++    _credit: OpenInvariantCredit,
++    _inv: &'a AtomicInvariant<K, V, Pred>,
++) -> (InvariantBlockGuard<'static>, V) {
++    unimplemented!();
++}
++
+ #[cfg(verus_keep_ghost)]
+ #[rustc_diagnostic_item = "verus::vstd::invariant::open_local_invariant_begin"]
+ #[doc(hidden)]
 diff --git a/source/vstd/thread_view.rs b/source/vstd/thread_view.rs
 new file mode 100644
 --- /dev/null
 +++ b/source/vstd/thread_view.rs
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,470 @@
 +use super::cell::CellId;
 +use super::prelude::*;
 +use super::resource::algebra;
@@ -1144,7 +1671,7 @@ new file mode 100644
 +            #[trigger] v1.contains(v2),
 +            #[trigger] v2.contains(v3),
 +        ensures
-+            #[trigger] v1.contains(v3),
++            v1.contains(v3),
 +    ;
 +
 +    pub broadcast axiom fn contains_strict_contains(v1: Self, v2: Self)
@@ -1175,7 +1702,9 @@ new file mode 100644
 +    /// The result of joining a view with another view contains the original view.
 +    pub broadcast axiom fn join_contains(v1: Self, v2: Self)
 +        ensures
-+            #[trigger] v1.join(v2).contains(v1),
++            #![trigger v1.join(v2)]
++            v1.join(v2).contains(v1),
++            v1.join(v2).contains(v2)
 +    ;
 +}
 +
@@ -1253,6 +1782,22 @@ new file mode 100644
 +        ensures
 +            out@ == ThreadView::empty(),
 +    ;
++
++    /// Joins this [`ReleaseViewSeen`] permission with another [`ReleaseViewSeen`] to create a new [`ReleaseViewSeen`],
++    /// representing the join of the two views.
++    pub axiom fn join(tracked self, tracked other: Self) -> (tracked out: Self)
++        ensures
++            out@ == self@.join(other@),
++    ;
++
++    /// Creates a new [`ReleaseViewSeen`] representing a view which is contained in the view
++    /// corresponding to the original [`ReleaseViewSeen`].
++    pub axiom fn weaken(tracked self, v: ThreadView) -> (tracked out: Self)
++        requires
++            self@.contains(v),
++        ensures
++            out@ == v,
++    ;
 +}
 +
 +/// Resource representing the ``acquire view" in a thread's subjective view of memory, according to Rust's weak memory model.
@@ -1278,6 +1823,22 @@ new file mode 100644
 +    pub axiom fn new() -> (tracked out: Self)
 +        ensures
 +            out@ == ThreadView::empty(),
++    ;
++
++    /// Joins this [`AcquireViewSeen`] permission with another [`AcquireViewSeen`] to create a new [`AcquireViewSeen`],
++    /// representing the join of the two views.
++    pub axiom fn join(tracked self, tracked other: Self) -> (tracked out: Self)
++        ensures
++            out@ == self@.join(other@),
++    ;
++
++    /// Creates a new [`AcquireViewSeen`] representing a view which is contained in the view
++    /// corresponding to the original [`AcquireViewSeen`].
++    pub axiom fn weaken(tracked self, v: ThreadView) -> (tracked out: Self)
++        requires
++            self@.contains(v),
++        ensures
++            out@ == v,
 +    ;
 +}
 +
@@ -1308,46 +1869,6 @@ new file mode 100644
 +
 +}
 +
-+// Ghost-variable tokens are resource-algebra ownership and do not carry a
-+// thread's subjective weak-memory observations.
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::resource::ghost_var::GhostVar<T> {
-+
-+}
-+
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::resource::ghost_var::GhostVarAuth<T> {
-+
-+}
-+
-+// Memory ownership permissions are objective independently of the type stored
-+// at the location. Their views describe global memory, not one thread's
-+// subjective weak-memory observations.
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::PointsTo<T> {
-+
-+}
-+
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::pcell::PointsTo<T> {
-+
-+}
-+
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {
-+
-+}
-+
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::raw_ptr::PointsTo<T> {
-+
-+}
-+
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<T> Objective for super::simple_pptr::PointsTo<T> {
-+
-+}
-+
 +// primitive types are objective because they do not hold permissions
 +macro_rules! declare_primitive_is_objective {
 +    ($($a:ty),*) => {
@@ -1362,9 +1883,38 @@ new file mode 100644
 +
 +declare_primitive_is_objective!(bool, char, (), u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, int, nat, str);
 +
-+// Verus does not currently derive the auto-trait bound for a tuple when one of
-+// its elements is a type parameter. State the binary case explicitly since
-+// invariants commonly package a permission and user ghost state as a pair.
++// note: the fact that tuples are Objective (above) suffices for OBJMOD-SEP
++// OBJ with wand update
++#[cfg(verus_keep_ghost)]
++unsafe impl<'a, P: Objective, Q: Objective, F: ProofFnOnce> Objective for proof_fn<'a, F>(
++    tracked p: P,
++) -> tracked Q {
++
++}
++
++impl<T: ?Sized> !Objective for super::cell::pcell::PointsTo<T> {}
++impl<T> !Objective for super::cell::pcell_maybe_uninit::PointsTo<T> {}
++impl<T> !Objective for super::raw_ptr::PointsTo<T> {}
++// Local additions beyond upstream: the legacy cell and raw byte permissions are
++// non-atomic memory permissions as well.
++impl<V> !Objective for super::cell::PointsTo<V> {}
++impl !Objective for super::raw_ptr::PointsToRaw {}
++
++// Local addition: ghost-variable tokens are resource-algebra ownership and do
++// not carry a thread's subjective weak-memory observations.
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::resource::ghost_var::GhostVar<T> {
++
++}
++
++#[cfg(verus_keep_ghost)]
++unsafe impl<T> Objective for super::resource::ghost_var::GhostVarAuth<T> {
++
++}
++
++// Local addition: Verus does not currently derive the auto-trait bound for a
++// tuple or `Option` when an element is a type parameter. State the cases
++// commonly used by invariants explicitly; both remain bounded on their contents.
 +#[cfg(verus_keep_ghost)]
 +unsafe impl<A: Objective, B: Objective> Objective for (A, B) {
 +
@@ -1372,15 +1922,6 @@ new file mode 100644
 +
 +#[cfg(verus_keep_ghost)]
 +unsafe impl<T: Objective> Objective for Option<T> {
-+
-+}
-+
-+// note: the fact that tuples are Objective (above) suffices for OBJMOD-SEP
-+// OBJ with wand update
-+#[cfg(verus_keep_ghost)]
-+unsafe impl<'a, P: Objective, Q: Objective, F: ProofFnOnce> Objective for proof_fn<'a, F>(
-+    tracked p: P,
-+) -> tracked Q {
 +
 +}
 +
@@ -1425,7 +1966,7 @@ new file mode 100644
 +    /// Creates a new [`ViewAt`] from the given permission and lower bound on the synchronizing view.
 +    /// This permission will be safe to start using at some view that is larger than the given view `sn`,
 +    /// represented by the [`ViewSeen`] returned by this operation.
-+    pub axiom fn new_incl(tracked t: T, tracked vs_0: ViewSeen) -> (tracked (va, vs): (
++    pub proof fn new_incl(tracked t: T, tracked vs_0: ViewSeen) -> (tracked (va, vs): (
 +        Self,
 +        ViewSeen,
 +    ))
@@ -1433,7 +1974,14 @@ new file mode 100644
 +            va.value() == t,
 +            va.thread_view() == vs@,
 +            va.thread_view().contains(vs_0@),
-+    ;
++    {
++        broadcast use group_thread_view_axioms;
++
++        let tracked (va, vs) = ViewAt::new(t);
++        let tracked vs = vs.join(vs_0);
++        let tracked va = va.weaken(vs@);
++        (va, vs)
++    }
 +
 +    // Weaker version of `join_tup`.
 +    axiom fn join_tup_inner<U>(tracked v0: ViewAt<T>, tracked v1: ViewAt<U>) -> (tracked out:
@@ -1532,3 +2080,38 @@ new file mode 100644
 +}
 +
 +} // verus!
+diff --git a/source/vstd/vstd.rs b/source/vstd/vstd.rs
+--- a/source/vstd/vstd.rs
++++ b/source/vstd/vstd.rs
+@@ -33,6 +33,7 @@
+ #![cfg_attr(verus_keep_ghost, feature(panic_internals))]
+ #![cfg_attr(verus_keep_ghost, feature(maybe_uninit_array_assume_init))]
+ #![cfg_attr(verus_keep_ghost, feature(trivial_clone))]
++#![cfg_attr(verus_keep_ghost, feature(auto_traits))]
+ 
+ #[cfg(feature = "alloc")]
+ extern crate alloc;
+@@ -41,6 +42,7 @@ pub mod arithmetic;
+ pub mod array;
+ pub mod atomic;
+ pub mod atomic_ghost;
++pub mod atomic_weak;
+ pub mod bits;
+ pub mod bytes;
+ pub mod calc_macro;
+@@ -81,6 +83,7 @@ pub mod proph;
+ pub mod raw_ptr;
+ pub mod relations;
+ pub mod resource;
++#[cfg(not(feature = "weak-memory"))]
+ pub mod rwlock;
+ pub mod seq;
+ pub mod seq_lib;
+@@ -94,6 +97,7 @@ pub mod state_machine_internal;
+ pub mod string;
+ #[cfg(feature = "std")]
+ pub mod thread;
++pub mod thread_view;
+ pub mod tokens;
+ pub mod utf8;
+ pub mod view;
