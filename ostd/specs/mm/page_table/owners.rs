@@ -656,20 +656,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             PageTableOwner(owner).pt_inv(),
     {
         let depth = (INC_LEVELS - owner.level()) as nat;
-        // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
-        // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
-        // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
-        assert forall|i: int|
-            #![trigger owner.has_child(i)]
-            0 <= i < NR_ENTRIES implies Self::pt_edge_at(owner, i) && PageTableOwner(
-            owner.child(i),
-        ).pt_inv_at_depth((depth - 1) as nat) by {
-            let child = owner.child(i);
+        let parent = PageTableOwner(owner);
+        reveal_with_fuel(PageTableOwner::pt_inv_at_depth, 2);
+        if !parent.pt_inv_at_depth(depth) {
+            let i = choose|i: int|
+                0 <= i < NR_ENTRIES && !(Self::pt_edge_at(owner, i) && PageTableOwner(
+                    owner.child(i),
+                ).pt_inv_at_depth((depth - 1) as nat));
             assert(owner.has_child(i));
-            PageTableOwner(child).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
-        };
-        // Unfold the parent after establishing the opaque child invariants.
-        reveal(PageTableOwner::pt_inv_at_depth);
+            PageTableOwner(owner.child(i)).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
+            assert(Self::pt_edge_at(owner, i));
+        }
     }
 
     /// The frames produced by a huge-page split have exactly the split mapping view.

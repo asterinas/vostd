@@ -2,8 +2,10 @@
 use vstd::{arithmetic::power2::*, prelude::*};
 use vstd_extra::{external::ilog2::*, ownership::Inv};
 
-use crate::specs::arch::LEAF_PADDR_END;
-use crate::{mm::MAX_NR_LEVELS, specs::arch::valid_frame_paddr};
+use crate::{
+    mm::MAX_NR_LEVELS,
+    specs::arch::{LEAF_PADDR_END, valid_frame_paddr},
+};
 
 use alloc::fmt;
 use core::ops::Range;

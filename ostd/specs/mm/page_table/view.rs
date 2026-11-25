@@ -40,20 +40,6 @@ impl Mapping {
         set![4096, 2097152, 1073741824, 549755813888].contains(size)
     }
 
-    pub proof fn lemma_split_page_size(self)
-        requires
-            self.inv(),
-        ensures
-            0 < self.page_size / NR_ENTRIES < self.page_size,
-            self.page_size % (self.page_size / NR_ENTRIES) == 0,
-            self.page_size > PAGE_SIZE ==> Self::valid_page_size(self.page_size / NR_ENTRIES),
-    {
-        assert(4096usize % 8 == 0) by (compute_only);
-        assert(2097152usize % 4096 == 0) by (compute_only);
-        assert(1073741824usize % 2097152 == 0) by (compute_only);
-        assert(549755813888usize % 1073741824 == 0) by (compute_only);
-    }
-
     pub open spec fn disjoint_vaddrs(m1: Mapping, m2: Mapping) -> bool {
         m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
     }
@@ -61,8 +47,10 @@ impl Mapping {
     pub open spec fn disjoint_paddrs(m1: Mapping, m2: Mapping) -> bool {
         m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
+}
 
-    pub open spec fn inv(self) -> bool {
+impl Inv for Mapping {
+    open spec fn inv(self) -> bool {
         &&& Mapping::valid_page_size(self.page_size)
         &&& self.pa_range.start % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
@@ -76,6 +64,22 @@ impl Mapping {
         // high half; `va_range.start` is strictly less than `pow2(64)`
         // because `start + page_size == end <= pow2(64)` and `page_size > 0`.
         &&& self.va_range.end <= pow2(64)
+    }
+}
+
+impl Mapping {
+    pub proof fn lemma_split_page_size(self)
+        requires
+            Self::valid_page_size(self.page_size),
+        ensures
+            0 < self.page_size / NR_ENTRIES < self.page_size,
+            self.page_size % (self.page_size / NR_ENTRIES) == 0,
+            self.page_size > PAGE_SIZE ==> Self::valid_page_size(self.page_size / NR_ENTRIES),
+    {
+        assert(4096usize % 8 == 0) by (compute_only);
+        assert(2097152usize % 4096 == 0) by (compute_only);
+        assert(1073741824usize % 2097152 == 0) by (compute_only);
+        assert(549755813888usize % 1073741824 == 0) by (compute_only);
     }
 }
 

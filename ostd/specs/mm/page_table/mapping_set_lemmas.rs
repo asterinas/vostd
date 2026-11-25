@@ -1,4 +1,5 @@
 use vstd::{prelude::*, set_lib::*};
+use vstd_extra::ownership::Inv;
 
 use crate::specs::arch::{LEAF_PADDR_END, PAGE_SIZE, lemma_vaddr_range_spec_user};
 

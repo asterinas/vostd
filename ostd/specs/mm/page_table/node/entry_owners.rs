@@ -1,4 +1,8 @@
-use vstd::{modes::tracked_swap, prelude::*};
+use vstd::{
+    arithmetic::div_mod::{lemma_add_mod_noop, lemma_mod_mod, lemma_mod_multiples_basic},
+    modes::tracked_swap,
+    prelude::*,
+};
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -399,22 +403,21 @@ impl<C: PageTableConfig> EntryOwner<C> {
         let child_level = (self.parent_level - 1) as PagingLevel;
         let size = page_size::<C>(child_level) as int;
         lemma_page_size_spec_values::<C>();
-        assert(idx * size + size <= page_size::<C>(self.parent_level)) by {
-            if self.parent_level == 2 {
-            } else if self.parent_level == 3 {
-            } else {
-                assert(self.parent_level == 4);
-            }
-        };
+        lemma_page_size_next::<C>(child_level);
+        assert(idx * size + size <= NR_ENTRIES * size) by (nonlinear_arith)
+            requires
+                idx < NR_ENTRIES,
+                size > 0,
+        ;
         let child_pa = (pa + idx * size) as Paddr;
         lemma_va_align_page_size::<C>(pa, child_level);
-        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, size);
-        vstd::arithmetic::div_mod::lemma_add_mod_noop(pa as int, idx * size, size);
+        lemma_mod_multiples_basic(idx as int, size);
+        lemma_add_mod_noop(pa as int, idx * size, size);
         assert(child_pa as int % size == 0);
         if child_level == 2 {
-            vstd::arithmetic::div_mod::lemma_mod_mod(child_pa as int, 4096, 512);
+            lemma_mod_mod(child_pa as int, 4096, 512);
         } else if child_level == 3 {
-            vstd::arithmetic::div_mod::lemma_mod_mod(child_pa as int, 4096, 262144);
+            lemma_mod_mod(child_pa as int, 4096, 262144);
         }
     }
 

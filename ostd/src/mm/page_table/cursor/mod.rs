@@ -31,15 +31,17 @@ use vstd_extra::{
     panic::*,
 };
 
-use crate::specs::arch::LEAF_PADDR_END;
-use crate::specs::mm::{
-    frame::{
-        mapping::*,
-        meta_owners::{FracMetadataPerm, MetaSlotOwner},
-        meta_region_owners::MetaRegionOwners,
-    },
-    page_table::{
-        cursor::page_size_lemmas::*, mapping_set_lemmas::lemma_extend_empty_mapping_range,
+use crate::specs::{
+    arch::LEAF_PADDR_END,
+    mm::{
+        frame::{
+            mapping::*,
+            meta_owners::{FracMetadataPerm, MetaSlotOwner},
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{
+            cursor::page_size_lemmas::*, mapping_set_lemmas::lemma_extend_empty_mapping_range,
+        },
     },
 };
 

@@ -767,7 +767,7 @@ impl KVirtArea {
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
-            pa_range.end <= LEAF_PADDR_END,
+            pa_range.start < pa_range.end ==> pa_range.end <= LEAF_PADDR_END,
             forall|pa: Paddr, level: PagingLevel|
                 1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                 #[trigger]
@@ -889,7 +889,7 @@ impl KVirtArea {
                     cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 }
 
-                // SAFETY: The caller guarantees the safety of the target range.
+                // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
                 proof {
                     assert(cursor.item_wf(item, entry_owner)) by {
                         reveal(<CursorOwner<KernelPtConfig> as Inv>::inv);
