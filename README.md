@@ -1,5 +1,5 @@
 > [!NOTE]
-> This repository is currently in a transitional state: the components under `ostd/src/sync` and `ostd/libs/id-alloc` already track the upcoming Asterinas release [v0.18.1](https://github.com/asterinas/asterinas/releases/tag/v0.18.1), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
+> This repository is currently in a transitional state: the components under `ostd/src/sync`, `ostd/libs/id-alloc`, `ostd/src/io/io_port` and `ostd/src/boot/memory_region.rs` track Asterinas [v0.19.0](https://github.com/asterinas/asterinas/releases/tag/v0.19.0), while every other OSTD component is still based on [v0.16.0](https://github.com/asterinas/asterinas/releases/tag/v0.16.0).
 
 ---
 
