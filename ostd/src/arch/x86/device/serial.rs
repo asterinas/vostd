@@ -5,9 +5,11 @@
 use vstd::prelude::*;
 use vstd_extra::external::{group_io_port_models, valid_io_port_access};
 
+use crate::io::needs_write_sequence;
+
 use crate::{
     arch::device::io_port::{ReadWriteAccess, WriteOnlyAccess},
-    io::{IoPort, needs_write_sequence},
+    io::IoPort,
 };
 /// A serial port.
 ///

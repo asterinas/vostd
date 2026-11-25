@@ -2,11 +2,13 @@
 use vstd::prelude::*;
 use vstd_extra::info;
 
+use crate::io::PortWriteSequence;
+
 /*use log::info;*/
 
 use crate::{
     arch::device::io_port::WriteOnlyAccess,
-    io::{IoPort, PortWriteSequence, sensitive_io_port},
+    io::{IoPort, sensitive_io_port},
 };
 
 sensitive_io_port! {
