@@ -216,7 +216,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             Tracked(owner): Tracked<&LinkedListOwner<M>>,
         requires
             self.wf(*owner),
-            owner.inv(),
         ensures
             s == owner@.list.len(),
     )]
@@ -230,7 +229,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             Tracked(owner): Tracked<&LinkedListOwner<M>>,
         requires
             self.wf(*owner),
-            owner.inv(),
         ensures
             b ==> self.size == 0 && self.front is None && self.back is None,
             !b ==> self.size > 0 && self.front is Some && self.back is Some,
