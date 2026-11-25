@@ -79,8 +79,6 @@ fn published_idt<F: FnOnce() -> Idt>(f: F) -> (&'static Idt, *const Entry<()>) {
 /// The caller should only call this method once in the boot context for each available processor.
 /// This is not a safety requirement, however, because calling this method again will do nothing
 /// more than load the same IDT.
-///
-/// The stubs for vectors 21, 29, and 30 require that the CPU deliver no error code.
 #[verus_spec(
     with -> loaded: Tracked<IdtrLoad>,
     requires
