@@ -1,5 +1,20 @@
 # Proof Engineering
 
+### Tie panic permission to concrete conditions
+
+<!-- guideline: tie-panic-permission-to-concrete-conditions -->
+
+Never add `allowed_to_panic_if(true)` to a function contract. This applies to
+internal functions, public APIs, and external specifications. Use
+`allowed_to_panic_if(condition)` with a predicate that describes when the panic
+path is reachable. For example, an unwrap that panics on `None` requires
+`allowed_to_panic_if(!self.is_present())`. If the enclosing function's
+preconditions rule out the panic path, prove at the call site that the panic
+condition is false and omit the panic-permission clause from the enclosing
+contract.
+
+See [PR #959](https://github.com/asterinas/vostd/pull/959#discussion_r4677429944).
+
 ### Complete external contracts
 
 <!-- guideline: complete-external-contracts -->
@@ -17,8 +32,10 @@ selected key and must express the documented compatibility between the stored
 key ordering and borrowed-key ordering. Use ordinary preconditions for caller
 obligations and `allowed_to_panic_if(condition)` for paths that may panic.
 When the condition holds, the caller must permit a possible panic. Keep the
-condition tied to the concrete panic path. Postconditions apply on normal
-return.
+condition tied to the concrete panic path. Never use `allowed_to_panic_if(true)`
+in an `assume_specification`. Follow the
+[general panic-permission rule](#tie-panic-permission-to-concrete-conditions).
+Postconditions apply on normal return.
 
 `no_unwind` asserts that the modeled function never unwinds, regardless of the
 `requires` clause
@@ -171,13 +188,19 @@ If the external signature must remain generic, guard its guarantees with a
 model-validity predicate admitted only for reviewed instances. Include relevant
 storage, ordering, and index types.
 
+If the model's guarantees hold for every instance covered by a trait impl,
+define its model-validity predicate directly as `true`. Use an uninterpreted
+predicate with instance-specific axioms when only a reviewed subset of the impl
+is covered.
+
 For example, PR #742 limits its immutable `Seq<bool>` model to `bitvec` storage
 `u8`, `u32`, `usize`, and `u64` on 64-bit targets, with `Lsb0`. `BitStore` alone
 is insufficient because some implementations allow mutation through shared
 references.
 
 See also: PR [#742](https://github.com/asterinas/vostd/pull/742#issuecomment-5549732341)
-and [#742](https://github.com/asterinas/vostd/pull/742#issuecomment-5550882161).
+and its [follow-up discussion](https://github.com/asterinas/vostd/pull/742#issuecomment-5550882161),
+and PR [#948](https://github.com/asterinas/vostd/pull/948#discussion_r4690027007).
 
 ### Distinguish spec and exec indexing
 
@@ -259,6 +282,15 @@ always `bytes.len()`, and callers now write
 `valid_device_scopes(bytes[scope_len..])` with the
 [`seq-range-slicing`](maintainability.md#seq-range-slicing) sugar.
 
+For a spec that accumulates a result in sequence order, prefer
+`seq[..count].fold_left(init, step)` when the recursion processes one
+element at a time. Preserve the prefix bounds, the initial value for an
+empty prefix, and the order and conditions of the accumulator updates.
+In PR [#931](https://github.com/asterinas/vostd/pull/931#discussion_r4596430926),
+`flat_binary_prefix` folds over the program headers in order, updating
+the binary for loadable segments and carrying the accumulator through
+unchanged for other headers.
+
 See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763971349),
 [#704](https://github.com/asterinas/vostd/pull/704#issuecomment-5265438143),
 [#704](https://github.com/asterinas/vostd/pull/704#discussion_r3809917573),
@@ -270,9 +302,24 @@ See also: PR [#703](https://github.com/asterinas/vostd/pull/703#discussion_r3763
 <!-- guideline: quantifiers-and-triggers -->
 
 Prefer standard predicates such as `Seq::all` when they express the property
-directly. Their predicate-based triggers can reduce unnecessary instantiations
-compared with broad index triggers such as `s[i]`. Check the predicate's
-definition and verify the effect in the actual proof context.
+directly. Check the predicate's definition and verify the effect of its
+triggers in the actual proof context.
+
+When a bounded `forall` uses one index across multiple sequences, check
+whether it combines a property of each element with a position-wise relation.
+Express the element property with `Seq::all` and consider a sequence equality
+with `map_values` for the relation. Check that the rewritten clauses preserve
+the index domain, length guarantees, and element relation, including when the
+sequences are empty.
+
+In PR [#948](https://github.com/asterinas/vostd/pull/948#discussion_r4625954993),
+the slice contract asserted that every destination slot contained
+`MemContents::Init` of the corresponding returned element. The
+[rewrite](https://github.com/asterinas/vostd/commit/020854b) used
+`final(dst)@.all(|slot: MaybeUninit<T>| slot.mem_contents().is_init())`
+to express initialization and
+`final(ret)@ == final(dst)@.map_values(|slot: MaybeUninit<T>| slot.mem_contents().value())`
+to express value correspondence.
 
 Use a subrange predicate when it improves readability; retain an explicit
 quantifier when it better supports indexing or triggers. Do not add an axiom

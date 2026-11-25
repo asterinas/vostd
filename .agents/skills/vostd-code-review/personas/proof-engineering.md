@@ -115,11 +115,13 @@ and quantifier checks. Use available source evidence and record incomplete searc
    explicit triggers; executable indexing still needs non-panicking bounds (`requires` or
    `IndexSpec::index_req`), and a model of executable `get` preserves `Option`
    success/failure semantics — unspecified spec values do not replace that contract. For
-   quantifiers: prefer standard predicates such as `Seq::all` and `Seq::any` for
-   universal and existential element properties respectively (their predicate-based
-   triggers can reduce spurious instantiations vs broad index triggers like `s[i]`), use a
-   subrange predicate when it reads better, and do not add an axiom for a fact derivable
-   from the sequence definition.
+   quantifiers: prefer standard predicates such as `Seq::all` and check their actual
+   triggers. For each in-scope bounded `forall` sharing an index across sequences,
+   look for a separable element property and a position-wise relation. Check whether
+   `Seq::all` and a `map_values` equality can express those parts while preserving
+   the index domain, length guarantees, and empty-sequence behavior. Use a subrange
+   predicate when it reads better, and do not add an axiom for a fact derivable from
+   the sequence definition.
 7. Invariant modeling (`implement-inv-for-models`). When the target defines spec structs,
    check whether intrinsic validity is expressed as an `impl Inv` through `inv()` rather
    than a stand-alone `wf(...)` predicate, applying the pure-spec distinction below.
