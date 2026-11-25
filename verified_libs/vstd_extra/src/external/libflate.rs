@@ -56,7 +56,6 @@ pub open spec fn has_zlib_prefix(stream: Seq<u8>) -> bool {
     stream.len() >= 2 && stream[..2] == seq![0x78u8, 0x9cu8]
 }
 
-/// A relation, since gzip's default header may contain the current timestamp.
 pub open spec fn gzip_encoding(plain: Seq<u8>, stream: Seq<u8>) -> bool {
     &&& has_gzip_prefix(stream)
     &&& gzip_decoded(stream) == Some(plain)

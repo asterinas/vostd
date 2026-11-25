@@ -335,6 +335,13 @@ the payload-dependent facts (generalizing
 re-queries the result and the projections need their own `is_ok`
 guard.
 
+In spec code, prefer an arrow projection such as `res->Ok_0` or
+`opt->Some_0` to extract a payload when the corresponding variant is
+already established. Check which precondition, branch, or preceding fact
+establishes the variant. Use `matches` or `match` when the spec needs to
+inspect the variant and bind its payload together. See PR
+[#931](https://github.com/asterinas/vostd/pull/931#discussion_r4596421097).
+
 An `Err` arm earns its place only by stating a fact the `Ok`
 arms do not, as in the `from_utf8` model's
 `res matches Err(_) ==> !valid_utf8(v@)`; the `Ok` arms there do
