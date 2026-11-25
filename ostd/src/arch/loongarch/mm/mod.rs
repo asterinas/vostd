@@ -2,6 +2,7 @@
 use vstd::{arithmetic::power2::*, prelude::*};
 use vstd_extra::{external::ilog2::*, ownership::Inv};
 
+use crate::specs::arch::LEAF_PADDR_END;
 use crate::{mm::MAX_NR_LEVELS, specs::arch::valid_frame_paddr};
 
 use alloc::fmt;
@@ -583,10 +584,13 @@ impl PageTableEntryTrait for PageTableEntry {
             Self::new_page_req(pa, level, prop) && (prop.cache is Writeback
                 || prop.cache is Writethrough || prop.cache is Uncacheable) implies {
             &&& Self::new_page(pa, level, prop).is_present()
-            &&& (pa < MAX_PADDR ==> Self::new_page(pa, level, prop).paddr() == pa & !((PAGE_SIZE
-                - 1) as usize))
-            &&& (pa < MAX_PADDR && pa % PAGE_SIZE == 0 ==> Self::new_page(pa, level, prop).paddr()
-                == pa)
+            &&& (pa < LEAF_PADDR_END ==> Self::new_page(pa, level, prop).paddr() == pa & !((
+            PAGE_SIZE - 1) as usize))
+            &&& (pa < LEAF_PADDR_END && pa % PAGE_SIZE == 0 ==> Self::new_page(
+                pa,
+                level,
+                prop,
+            ).paddr() == pa)
             &&& Self::new_page(pa, level, prop).prop() == prop
             &&& Self::new_page(pa, level, prop).is_last(level)
         } by {
@@ -808,7 +812,8 @@ proof fn lemma_raw_properties(raw: usize)
         (((raw & PageTableEntry::PHYS_ADDR_MASK) >> 12) << 12) % PAGE_SIZE == 0,
         (((raw & PageTableEntry::PHYS_ADDR_MASK & !0x1000usize) >> 12) << 12) % PAGE_SIZE == 0,
         raw % PAGE_SIZE == 0 ==> raw & !0xfffusize == raw,
-        raw < MAX_PADDR ==> raw & PageTableEntry::PHYS_ADDR_MASK == raw & !0xfffusize,
+        raw < LEAF_PADDR_END ==> raw & PageTableEntry::PHYS_ADDR_MASK == raw & !0xfffusize,
+        raw & PageTableEntry::PHYS_ADDR_MASK < LEAF_PADDR_END,
         raw < MAX_PADDR ==> raw & PageTableEntry::PHYS_ADDR_MASK < MAX_PADDR,
         (raw & PageTableEntry::PHYS_ADDR_MASK) & 0x240usize == 0,
         (raw & PageTableEntry::PHYS_ADDR_MASK) & 0x40usize == 0,
@@ -984,8 +989,8 @@ proof fn lemma_new_page(pa: Paddr, prop: PageProperty)
         PageTableEntry::new_page(pa, 1, prop).prop() == prop,
         PageTableEntry::new_page(pa, 1, prop).is_present(),
         PageTableEntry::new_page(pa, 1, prop).is_last(1),
-        pa < MAX_PADDR ==> PageTableEntry::new_page(pa, 1, prop).paddr() == pa & !0xfffusize,
-        pa < MAX_PADDR && pa % PAGE_SIZE == 0 ==> PageTableEntry::new_page(pa, 1, prop).paddr()
+        pa < LEAF_PADDR_END ==> PageTableEntry::new_page(pa, 1, prop).paddr() == pa & !0xfffusize,
+        pa < LEAF_PADDR_END && pa % PAGE_SIZE == 0 ==> PageTableEntry::new_page(pa, 1, prop).paddr()
             == pa,
 {
     lemma_page_property_flag_constants();

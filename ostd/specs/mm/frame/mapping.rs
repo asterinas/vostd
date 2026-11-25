@@ -15,8 +15,9 @@ use core::{mem::size_of, ops::Range};
 
 verus! {
 
+/// Number of populated slots in the modeled boot memory configuration.
 pub open spec fn max_meta_slots() -> int {
-    (FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int
+    MAX_NR_PAGES as int
 }
 
 #[verifier::inline]

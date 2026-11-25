@@ -1,7 +1,7 @@
 use vstd::{arithmetic::power2::pow2, prelude::*};
 use vstd_extra::ownership::*;
 
-use crate::specs::arch::MAX_PADDR;
+use crate::specs::arch::LEAF_PADDR_END;
 
 use super::*;
 use crate::mm::{Paddr, Vaddr, page_prop::PageProperty};
@@ -10,7 +10,7 @@ use core::{marker::PhantomData, ops::Range};
 verus! {
 
 /// A `Mapping` maps a virtual address range to a physical address range.
-/// Its size, `page_size`, is fixed and must be one of 4096, 2097152, 1073741824.
+/// Its size corresponds to one leaf level of the modeled page table.
 /// The `va_range` and `pa_range` must be of size `page_size` and aligned on a
 /// page boundary.
 /// The `property` is a bitfield of flags that describe the properties of the mapping.
@@ -36,6 +36,24 @@ pub ghost struct PageTableView {
 }
 
 impl Mapping {
+    pub open spec fn valid_page_size(size: usize) -> bool {
+        set![4096, 2097152, 1073741824, 549755813888].contains(size)
+    }
+
+    pub proof fn lemma_split_page_size(self)
+        requires
+            self.inv(),
+        ensures
+            0 < self.page_size / NR_ENTRIES < self.page_size,
+            self.page_size % (self.page_size / NR_ENTRIES) == 0,
+            self.page_size > PAGE_SIZE ==> Self::valid_page_size(self.page_size / NR_ENTRIES),
+    {
+        assert(4096usize % 8 == 0) by (compute_only);
+        assert(2097152usize % 4096 == 0) by (compute_only);
+        assert(1073741824usize % 2097152 == 0) by (compute_only);
+        assert(549755813888usize % 1073741824 == 0) by (compute_only);
+    }
+
     pub open spec fn disjoint_vaddrs(m1: Mapping, m2: Mapping) -> bool {
         m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
     }
@@ -45,10 +63,10 @@ impl Mapping {
     }
 
     pub open spec fn inv(self) -> bool {
-        &&& set![4096, 2097152, 1073741824].contains(self.page_size)
+        &&& Mapping::valid_page_size(self.page_size)
         &&& self.pa_range.start % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
-        &&& self.pa_range.end <= MAX_PADDR
+        &&& self.pa_range.end <= LEAF_PADDR_END
         &&& self.va_range.start % self.page_size as int == 0
         &&& self.va_range.start + self.page_size as int == self.va_range.end
         &&& 0

@@ -31,6 +31,7 @@ use vstd_extra::{
     panic::*,
 };
 
+use crate::specs::arch::LEAF_PADDR_END;
 use crate::specs::mm::{
     frame::{
         mapping::*,
@@ -43,7 +44,7 @@ use crate::specs::mm::{
 };
 
 use crate::mm::{
-    MAX_NR_LEVELS, MAX_PADDR, Paddr,
+    MAX_NR_LEVELS, Paddr,
     frame::meta::{
         META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
     },
@@ -583,8 +584,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
 
                     proof {
                         let idx = frame_to_index(pa);
-                        old(regions).lemma_contains_valid_frame_paddr(pa);
-                        assert(old(regions).contains(idx));
+                        if raw_permission is Some {
+                            old(regions).lemma_contains_valid_frame_paddr(pa);
+                        }
                         if C::item_into_raw(item).3@ is Some && regions.ref_count(idx)
                             >= REF_COUNT_MAX {
                             assert(regions.contains(idx));
@@ -630,10 +632,12 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                     e.inv() && e.metaregion_sound(*old(regions)) implies e.metaregion_sound(
                     *regions,
                 ) by {
-                    if e.is_node() || e.is_frame() {
+                    if e.is_node() || (e.is_frame() && e.frame_is_tracked()) {
                         regions.lemma_contains_valid_frame_paddr(e.meta_slot_paddr().unwrap());
                     }
-                    if e.is_frame() {
+                    if e.is_frame() && !e.frame_is_tracked() {
+                        e.lemma_untracked_frame_metaregion_sound(*regions);
+                    } else if e.is_frame() {
                         let paddr = e.frame().mapped_pa;
                         let idx = frame_to_index(paddr);
                         C::lemma_perm_well_formed_with_region_preserved(
@@ -2942,7 +2946,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             C::lemma_page_table_config_constant_properties();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
             lemma_page_size_spec_values::<C>();
-            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level) <= MAX_PADDR) by {
+            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level) <= LEAF_PADDR_END)
+                by {
                 reveal(page_size_spec);
             };
         }
@@ -3033,8 +3038,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                     reveal(MetaSlotOwner::vtable_ptr_perm);
                 };
             };
-            regions.lemma_contains_valid_frame_paddr(pa);
-            if raw_permission is None {
+            if raw_permission is Some {
+                regions.lemma_contains_valid_frame_paddr(pa);
+            } else {
                 new_owner.value().lemma_untracked_frame_metaregion_sound(*regions);
             }
             assert(new_owner.value().metaregion_sound(*regions)) by {
@@ -3339,13 +3345,10 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                     reveal(CursorOwner::map_full_tree);
                 };
 
-                assert(regions_pre_remove.slot_owners.contains_key(removed_idx)) by {
-                    reveal(<MetaRegionOwners as Inv>::inv);
-                };
-                assert(regions_pre_remove.slots.contains_key(removed_idx)) by {
-                    reveal(<MetaRegionOwners as Inv>::inv);
-                };
                 if cur_st.value().frame_is_tracked() {
+                    regions_pre_remove.lemma_contains_valid_frame_paddr(
+                        cur_st.value().frame().mapped_pa,
+                    );
                     let tracked mut so_rm = regions.tracked_borrow_mut_slot_owner(
                         cur_st.value().frame().mapped_pa,
                     );

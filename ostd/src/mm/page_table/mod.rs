@@ -161,11 +161,13 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             Self::raw_item_well_formed((paddr, level, prop, perm)),
-            1 <= level <= Self::C::NR_LEVELS,
-            valid_frame_paddr(paddr),
-            paddr % page_size::<Self::C>(level) == 0,
-            paddr + page_size::<Self::C>(level) <= MAX_PADDR,
-            Self::E::new_page_req(paddr, level, prop),
+            perm@ is Some ==> {
+                &&& 1 <= level <= Self::C::NR_LEVELS
+                &&& valid_frame_paddr(paddr)
+                &&& paddr % page_size::<Self::C>(level) == 0
+                &&& paddr + page_size::<Self::C>(level) <= MAX_PADDR
+                &&& Self::E::new_page_req(paddr, level, prop)
+            },
         returns
             Self::item_into_raw(item),
     ;
@@ -262,7 +264,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     )
         requires
-            valid_frame_paddr(pa),
+            perm@ is Some ==> valid_frame_paddr(pa),
             Self::raw_item_well_formed((pa, level, old_prop, perm)),
             (Self::item_into_raw(Self::item_from_raw(pa, level, new_prop, perm)).3@ is Some) == (
             perm@ is Some),
@@ -280,7 +282,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     )
         requires
-            valid_frame_paddr(pa),
+            perm@ is Some ==> valid_frame_paddr(pa),
             Self::raw_item_well_formed((pa, level, prop, perm)),
             Self::E::new_page_req(pa, level, prop),
             level > 1,
@@ -314,7 +316,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     )
         requires
-            valid_frame_paddr(pa),
+            perm@ is Some ==> valid_frame_paddr(pa),
             Self::raw_item_well_formed((pa, level, prop, perm)),
         ensures
             Self::item_well_formed(Self::item_from_raw(pa, level, prop, perm)),
@@ -328,7 +330,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     )
         requires
-            valid_frame_paddr(pa),
+            perm@ is Some ==> valid_frame_paddr(pa),
             Self::raw_item_well_formed((pa, level, prop, perm)),
         ensures
             Self::item_into_raw(Self::item_from_raw(pa, level, prop, perm)) == (
@@ -348,7 +350,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         perm: Tracked<Option<Self::Perm>>,
     )
         requires
-            valid_frame_paddr(pa),
+            perm@ is Some ==> valid_frame_paddr(pa),
             Self::item_well_formed(item),
             Self::item_into_raw(item) == (pa, level, prop, perm),
         ensures
@@ -393,8 +395,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_from_raw(pa, level, prop, Self::item_into_raw(item).3) == item,
             Self::raw_item_well_formed((pa, level, prop, Self::item_into_raw(item).3)),
             Self::perm_well_formed_with_region(pa, Self::item_into_raw(item).3, regions),
-            valid_frame_paddr(pa),
-            regions.contains(frame_to_index(pa)),
+            Self::item_into_raw(item).3@ is Some ==> valid_frame_paddr(pa),
+            Self::item_into_raw(item).3@ is Some ==> regions.contains(frame_to_index(pa)),
             Self::item_into_raw(item).3@ is Some ==> {
                 &&& 0 < regions.slot_owner(pa).ref_count()
                 &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
@@ -1414,12 +1416,12 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
-            paddr < MAX_PADDR,
+            paddr < LEAF_PADDR_END,
             Self::new_page_req(paddr, level, prop),
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            valid_frame_paddr(res.paddr()),
+            valid_leaf_paddr(res.paddr()),
             res.is_present(),
             res.is_last(level),
             res.prop() == prop,
@@ -1539,9 +1541,9 @@ pub trait PageTableEntryTrait:
                 Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
                     || prop.cache is Writethrough || prop.cache is Uncacheable) ==> {
                     &&& Self::new_page(paddr, level, prop).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
-                        & !((PAGE_SIZE - 1) as usize))
-                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                    &&& (paddr < LEAF_PADDR_END ==> Self::new_page(paddr, level, prop).paddr()
+                        == paddr & !((PAGE_SIZE - 1) as usize))
+                    &&& (paddr < LEAF_PADDR_END && paddr % PAGE_SIZE == 0 ==> Self::new_page(
                         paddr,
                         level,
                         prop,

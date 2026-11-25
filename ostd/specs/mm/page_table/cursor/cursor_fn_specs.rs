@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use crate::specs::{
-    arch::PAGE_SIZE,
+    arch::{LEAF_PADDR_END, PAGE_SIZE, valid_leaf_paddr},
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
@@ -181,10 +181,15 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
-        let (paddr, level, prop, _perm) = C::item_into_raw(item);
-        &&& C::item_well_formed(
-            item,
-        )
+        let (paddr, level, prop, perm) = C::item_into_raw(item);
+        &&& C::item_well_formed(item)
+        &&& perm@ is None ==> {
+            &&& 1 <= level <= C::NR_LEVELS
+            &&& valid_leaf_paddr(paddr)
+            &&& paddr % page_size::<C>(level) == 0
+            &&& paddr + page_size::<C>(level) <= LEAF_PADDR_END
+            &&& C::E::new_page_req(paddr, level, prop)
+        }
         // Mapping may descend within the locked subtree, but cannot replace its parent PTE.
         &&& level <= self.0.guard_level
         &&& entry_owner.inv()
@@ -204,8 +209,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     ) -> bool {
         let (pa, _level, _prop, perm) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
-        &&& regions.contains(idx)
-        &&& perm@ is Some ==> {
+        perm@ is Some ==> {
+            &&& regions.contains(idx)
             &&& regions.slot_owners[idx].usage !is PageTable
             &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
         }
