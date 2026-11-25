@@ -60,12 +60,10 @@ pub trait ExRead {
 
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
-    /// With `std`, the default implementation can fail while reserving output capacity.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
             Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
-                &&& !cfg!(feature = "std") ==> result is Ok
-                &&& result matches Ok(count) ==> {
+                result matches Ok(count) && {
                     &&& count == plain.len()
                     &&& final(output)@ == old(output)@ + plain
                     &&& final(self).remaining_bytes() == Some(Seq::<u8>::empty())
