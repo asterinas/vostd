@@ -447,7 +447,9 @@ fn test_native_acquire_load() {
         assert(pt.hist().get(load.timestamp) == Some((7, old_view)));
         assert(value == 7);
         assert(view@.contains(old_view));
-        assert(pt.get_timestamp(view@) is Some && load.timestamp <= pt.get_timestamp(view@).unwrap());
+        assert(pt.get_timestamp(view@) is Some && load.timestamp <= pt.get_timestamp(
+            view@,
+        ).unwrap());
     }
 }
 
@@ -469,7 +471,9 @@ fn test_native_release_store() {
 
     proof {
         assert(pt.hist() == old_history.insert(store.timestamp, true, store.message_view));
-        assert(pt.get_timestamp(view@) is Some && store.timestamp <= pt.get_timestamp(view@).unwrap());
+        assert(pt.get_timestamp(view@) is Some && store.timestamp <= pt.get_timestamp(
+            view@,
+        ).unwrap());
         assert(store.message_view == view@);
     }
 }
@@ -544,7 +548,8 @@ fn test_native_pointer_operations() {
         Tracked(&mut points_to),
     );
     proof {
-        assert(points_to.get_timestamp(view@) is Some && swap.load_timestamp + 1 <= points_to.get_timestamp(view@).unwrap());
+        assert(points_to.get_timestamp(view@) is Some && swap.load_timestamp + 1
+            <= points_to.get_timestamp(view@).unwrap());
     }
 }
 
@@ -565,7 +570,9 @@ fn test_scheduler_owned_view_token() {
         Tracked(&points_to),
     );
     proof {
-        assert(points_to.get_timestamp(token@) is Some && load.timestamp <= points_to.get_timestamp(token@).unwrap());
+        assert(points_to.get_timestamp(token@) is Some && load.timestamp <= points_to.get_timestamp(
+            token@,
+        ).unwrap());
         assert(points_to.hist().get(load.timestamp) == Some((value, load.message_view)));
         history_get_contains_timestamp(points_to.hist(), load.timestamp);
         assert(load.timestamp == initial_ts);
@@ -584,7 +591,8 @@ fn test_scheduler_owned_view_token() {
         Tracked(&mut points_to),
     );
     proof {
-        assert(points_to.get_timestamp(token@) is Some && store.timestamp <= points_to.get_timestamp(token@).unwrap());
+        assert(points_to.get_timestamp(token@) is Some && store.timestamp
+            <= points_to.get_timestamp(token@).unwrap());
         assert(points_to.hist().get_value(store.timestamp) == Some(1));
     }
 
