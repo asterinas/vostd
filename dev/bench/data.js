@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795584737513,
+  "lastUpdate": 1795592618225,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -14430,6 +14430,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=192ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "etyyuiope@qq.com",
+            "name": "Hiroki Chen",
+            "username": "hiroki-chen"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d1da312c748254f82bb3d7cb57f5b41ba93209a",
+          "message": "Sync the IRC11 vstd patch with upstream verus irc11 (#952)\n\n* Sync the IRC11 vstd patch with upstream verus irc11\n\nPort the weak-memory core of verus-lang/verus@irc11 (d2b273e8):\n\n- atomic_weak.rs is upstream's, which fixes the update spec (a\n  non-acquire compare_exchange or swap no longer acquires the read\n  message view) and adds swap, fetch_*, compare_exchange_weak, and\n  get_mut/from_mut.\n- thread_view.rs is upstream's: join/weaken for Release/AcquireViewSeen,\n  a proved ViewAt::new_incl, and negative Objective impls for pcell,\n  pcell_maybe_uninit and raw_ptr PointsTo. The previous unconditional\n  Objective impls for all non-atomic PointsTo types are removed.\n\nLocal changes on top of upstream:\n\n- Fix compare_exchange{,_weak}: on failure, update_fail now receives the\n  value actually read rather than `current`. Upstream's version lets a\n  failed CAS prove `false`.\n- Also make the legacy cell::PointsTo and raw_ptr::PointsToRaw\n  non-Objective, and keep the bounded tuple/Option and GhostVar impls.\n- Keep the SC atomics (atomic.rs, atomic_ghost.rs) available under\n  weak-memory so OSTD still builds; upstream compiles them out.\n\nBecause SC atomics model no views, the locks and owners that publish\nnon-atomic permissions through them keep hand-written Objective impls.\nMark each one as a trusted assumption with a TODO to port it to\natomic_weak, and wrap Mutex's cell permission in MutexPerm to do the\nsame for Mutex. Restate the vstd_extra pointer wrapper's\ncompare_exchange/swap_release with update_success/update_fail, and\nrelax its examples to upstream's weaker post-access timestamp facts.\n\nAdd rejection tests for publishing a pcell permission through an atomic\ninvariant and for proving false from a failed compare_exchange, and run\nthem in the IRC11 workflow.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* update lockfile\n\n* Update ci-irc11.yml\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nCo-authored-by: rikosellic <64517311+rikosellic@users.noreply.github.com>",
+          "timestamp": "2026-11-25T15:35:37+08:00",
+          "tree_id": "7d7997c2f63d065b94ab5380f4e614d8bb99a83b",
+          "url": "https://github.com/asterinas/vostd/commit/5d1da312c748254f82bb3d7cb57f5b41ba93209a"
+        },
+        "date": 1795592617347,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1040770851,
+            "unit": "rlimit",
+            "extra": "verified=4748 errors=0 smt-run=299,862ms wall=216,821ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 388630063,
+            "unit": "rlimit",
+            "extra": "smt-run=134,839ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 117160928,
+            "unit": "rlimit",
+            "extra": "smt-run=33,041ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 55667105,
+            "unit": "rlimit",
+            "extra": "smt-run=15,469ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,143ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,857ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,415ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=821ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=616ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=672ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115797,
+            "unit": "rlimit",
+            "extra": "smt-run=286ms"
           }
         ]
       }
