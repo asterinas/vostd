@@ -6,10 +6,7 @@ use alloc::vec::Vec;
 use libflate::{Finish, gzip, zlib};
 use no_std_io2::io;
 
-use super::no_std_io2::{
-    ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl, axiom_slice_reader_model,
-    axiom_vec_writer_model,
-};
+use super::no_std_io2::{ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl};
 
 verus! {
 
@@ -91,10 +88,8 @@ pub broadcast axiom fn axiom_zlib_reader_model<'a>()
 ;
 
 pub broadcast group group_libflate_models {
-    axiom_vec_writer_model,
     axiom_gzip_writer_model,
     axiom_zlib_writer_model,
-    axiom_slice_reader_model,
     axiom_gzip_reader_model,
     axiom_zlib_reader_model,
 }

@@ -11,16 +11,6 @@ verus! {
 #[verifier::external_body]
 pub struct ExIoError(io::Error);
 
-pub broadcast axiom fn axiom_vec_writer_model()
-    ensures
-        #[trigger] <Vec<u8> as WriteSpec>::obeys_writer_model(),
-;
-
-pub broadcast axiom fn axiom_slice_reader_model<'a>()
-    ensures
-        #[trigger] <&'a [u8] as ReadSpec>::obeys_reader_model(),
-;
-
 #[verifier::external_trait_specification]
 #[verifier::external_trait_extension(WriteSpec via WriteSpecImpl)]
 pub trait ExWrite {
@@ -42,7 +32,9 @@ pub trait ExWrite {
 // Verus requires each extension impl to match the upstream Write impl.
 #[cfg(not(feature = "std"))]
 impl WriteSpecImpl for Vec<u8> {
-    uninterp spec fn obeys_writer_model() -> bool;
+    open spec fn obeys_writer_model() -> bool {
+        true
+    }
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         next@ == self@ + input
@@ -51,7 +43,9 @@ impl WriteSpecImpl for Vec<u8> {
 
 #[cfg(feature = "std")]
 impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
-    uninterp spec fn obeys_writer_model() -> bool;
+    open spec fn obeys_writer_model() -> bool {
+        true
+    }
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         next@ == self@ + input
@@ -84,7 +78,9 @@ pub trait ExRead {
 }
 
 impl ReadSpecImpl for &[u8] {
-    uninterp spec fn obeys_reader_model() -> bool;
+    open spec fn obeys_reader_model() -> bool {
+        true
+    }
 
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         Some(self@)
