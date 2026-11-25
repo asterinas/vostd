@@ -10,7 +10,7 @@ use no_std_io2::io;
 
 use super::no_std_io2::{
     ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl, axiom_slice_reader_model,
-    axiom_vec_writer_model, reader_model_valid, writer_model_valid,
+    axiom_vec_writer_model, obeys_reader_model, obeys_writer_model,
 };
 
 verus! {
@@ -74,22 +74,22 @@ pub open spec fn zlib_encoding(plain: Seq<u8>, stream: Seq<u8>) -> bool {
 
 pub broadcast axiom fn axiom_gzip_writer_model()
     ensures
-        #[trigger] writer_model_valid::<gzip::Encoder<Vec<u8>>>(),
+        #[trigger] obeys_writer_model::<gzip::Encoder<Vec<u8>>>(),
 ;
 
 pub broadcast axiom fn axiom_zlib_writer_model()
     ensures
-        #[trigger] writer_model_valid::<zlib::Encoder<Vec<u8>>>(),
+        #[trigger] obeys_writer_model::<zlib::Encoder<Vec<u8>>>(),
 ;
 
 pub broadcast axiom fn axiom_gzip_reader_model<'a>()
     ensures
-        #[trigger] reader_model_valid::<gzip::Decoder<&'a [u8]>>(),
+        #[trigger] obeys_reader_model::<gzip::Decoder<&'a [u8]>>(),
 ;
 
 pub broadcast axiom fn axiom_zlib_reader_model<'a>()
     ensures
-        #[trigger] reader_model_valid::<zlib::Decoder<&'a [u8]>>(),
+        #[trigger] obeys_reader_model::<zlib::Decoder<&'a [u8]>>(),
 ;
 
 pub broadcast group group_libflate_models {
@@ -136,7 +136,7 @@ pub assume_specification<W: io::Write>[ gzip::Encoder::<W>::new ](inner: W) -> (
     io::Error,
 >)
     ensures
-        writer_model_valid::<gzip::Encoder<W>>() ==> (result matches Ok(encoder) && gzip_state(
+        obeys_writer_model::<gzip::Encoder<W>>() ==> (result matches Ok(encoder) && gzip_state(
             &encoder,
         ) == Some(EncoderState { initial_writer: inner, plain: Seq::empty() })),
 ;
@@ -146,7 +146,7 @@ pub assume_specification<W: io::Write>[ zlib::Encoder::<W>::new ](inner: W) -> (
     io::Error,
 >)
     ensures
-        writer_model_valid::<zlib::Encoder<W>>() ==> (result matches Ok(encoder) && zlib_state(
+        obeys_writer_model::<zlib::Encoder<W>>() ==> (result matches Ok(encoder) && zlib_state(
             &encoder,
         ) == Some(EncoderState { initial_writer: inner, plain: Seq::empty() })),
 ;
@@ -160,7 +160,7 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ gzip::Enc
     E,
 >::finish ](encoder: gzip::Encoder<W, E>) -> (result: Finish<W, io::Error>)
     ensures
-        writer_model_valid::<gzip::Encoder<W, E>>() ==> (gzip_state(&encoder) matches Some(state)
+        obeys_writer_model::<gzip::Encoder<W, E>>() ==> (gzip_state(&encoder) matches Some(state)
             ==> {
             &&& finish_error(result) is None
             &&& exists|stream: Seq<u8>| #[trigger]
@@ -176,7 +176,7 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ zlib::Enc
     E,
 >::finish ](encoder: zlib::Encoder<W, E>) -> (result: Finish<W, io::Error>)
     ensures
-        writer_model_valid::<zlib::Encoder<W, E>>() ==> (zlib_state(&encoder) matches Some(state)
+        obeys_writer_model::<zlib::Encoder<W, E>>() ==> (zlib_state(&encoder) matches Some(state)
             ==> {
             &&& finish_error(result) is None
             &&& exists|stream: Seq<u8>| #[trigger]
@@ -216,7 +216,7 @@ pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (r
     io::Error,
 >)
     ensures
-        reader_model_valid::<R>() ==> (inner.remaining_bytes() matches Some(stream) && gzip_decoded(
+        obeys_reader_model::<R>() ==> (inner.remaining_bytes() matches Some(stream) && gzip_decoded(
             stream,
         ) matches Some(plain) ==> {
             result matches Ok(decoder) && gzip_remaining(&decoder) == Some(plain)
@@ -228,7 +228,7 @@ pub assume_specification<R: io::Read>[ zlib::Decoder::<R>::new ](inner: R) -> (r
     io::Error,
 >)
     ensures
-        reader_model_valid::<R>() ==> (inner.remaining_bytes() matches Some(stream) && zlib_decoded(
+        obeys_reader_model::<R>() ==> (inner.remaining_bytes() matches Some(stream) && zlib_decoded(
             stream,
         ) matches Some(plain) ==> {
             result matches Ok(decoder) && zlib_remaining(&decoder) == Some(plain)

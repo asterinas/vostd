@@ -11,18 +11,18 @@ verus! {
 #[verifier::external_body]
 pub struct ExIoError(io::Error);
 
-pub uninterp spec fn writer_model_valid<W: ?Sized>() -> bool;
+pub uninterp spec fn obeys_writer_model<W: ?Sized>() -> bool;
 
-pub uninterp spec fn reader_model_valid<R: ?Sized>() -> bool;
+pub uninterp spec fn obeys_reader_model<R: ?Sized>() -> bool;
 
 pub broadcast axiom fn axiom_vec_writer_model()
     ensures
-        #[trigger] writer_model_valid::<Vec<u8>>(),
+        #[trigger] obeys_writer_model::<Vec<u8>>(),
 ;
 
 pub broadcast axiom fn axiom_slice_reader_model<'a>()
     ensures
-        #[trigger] reader_model_valid::<&'a [u8]>(),
+        #[trigger] obeys_reader_model::<&'a [u8]>(),
 ;
 
 #[verifier::external_trait_specification]
@@ -34,7 +34,7 @@ pub trait ExWrite {
 
     fn write_all(&mut self, input: &[u8]) -> (result: Result<(), io::Error>)
         ensures
-            writer_model_valid::<Self>() ==> {
+            obeys_writer_model::<Self>() ==> {
                 &&& result is Ok
                 &&& old(self).wrote_all(input@, final(self))
             },
@@ -67,7 +67,7 @@ pub trait ExRead {
     /// from `Vec::try_reserve` even when the input decodes successfully.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
-            reader_model_valid::<Self>() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
+            obeys_reader_model::<Self>() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
                 &&& !cfg!(feature = "std") ==> result is Ok
                 &&& result matches Ok(count) ==> {
                     &&& count == plain.len()
