@@ -6,7 +6,7 @@ use vstd_extra::info;
 
 use crate::{
     arch::device::io_port::WriteOnlyAccess,
-    io::{IoPort, sensitive_io_port},
+    io::{IoPort, PortWriteSequence, sensitive_io_port},
 };
 
 sensitive_io_port! {
@@ -44,7 +44,7 @@ pub open spec fn mask_writes(master_mask: u8, slave_mask: u8) -> Seq<(u16, u8)> 
 /// Initializes and disables the 8259 Programmable Interrupt Controller (PIC).
 /// The checked writes consume the prefix of the caller's expected port writes.
 #[verus_spec(
-    with Tracked(remaining): Tracked<&mut Ghost<Seq<(u16, u8)>>>,
+    with Tracked(remaining): Tracked<&mut PortWriteSequence<u8>>,
     requires mask_writes(0xff, 0xff).is_prefix_of(old(remaining)@),
     ensures old(remaining)@ == mask_writes(0xff, 0xff) + final(remaining)@,
 )]
@@ -56,7 +56,7 @@ pub fn init_and_disable() {
 }
 
 #[verus_spec(
-    with Tracked(remaining): Tracked<&mut Ghost<Seq<(u16, u8)>>>,
+    with Tracked(remaining): Tracked<&mut PortWriteSequence<u8>>,
     requires mask_writes(master_mask, slave_mask).is_prefix_of(old(remaining)@),
     ensures old(remaining)@ == mask_writes(master_mask, slave_mask) + final(remaining)@,
 )]

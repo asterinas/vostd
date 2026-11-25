@@ -16,7 +16,7 @@ use crate::{
         /* kernel::{IRQ_CHIP, MappedIrqLine}, */
         timer::TIMER_FREQ,
     },
-    io::{IoPort, sensitive_io_port},
+    io::{IoPort, PortWriteSequence, sensitive_io_port},
     /* trap::irq::IrqLine, */
 };
 
@@ -189,7 +189,7 @@ const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
 /// Programs channel 0 and consumes the checked prefix of the caller's expected port writes.
 #[verus_spec(
-    with Tracked(remaining): Tracked<&mut Ghost<Seq<(u16, u8)>>>,
+    with Tracked(remaining): Tracked<&mut PortWriteSequence<u8>>,
     requires init_writes(operating_mode).is_prefix_of(old(remaining)@),
     ensures old(remaining)@ == init_writes(operating_mode) + final(remaining)@,
 )]

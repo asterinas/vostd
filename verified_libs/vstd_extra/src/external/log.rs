@@ -5,9 +5,6 @@ use vstd::prelude::*;
 use ::log::{Level, LevelFilter};
 use core::{fmt::Arguments, panic::Location};
 
-#[doc(hidden)]
-pub use ::log::STATIC_MAX_LEVEL;
-
 verus! {
 
 #[verifier::external_type_specification]
@@ -16,7 +13,7 @@ pub struct ExLevel(Level);
 #[verifier::external_type_specification]
 pub struct ExLevelFilter(LevelFilter);
 
-pub assume_specification[ ::log::STATIC_MAX_LEVEL ] -> LevelFilter
+assume_specification[ ::log::STATIC_MAX_LEVEL ] -> LevelFilter
 ;
 
 /// Reads the current runtime filter. A concurrent update can change the next read.
@@ -31,16 +28,9 @@ pub assume_specification[ ::log::max_level ]() -> LevelFilter
  */
 #[doc(hidden)]
 #[inline]
-#[verus_spec(result =>
-    ensures result ==> (static_limit is Info || static_limit is Debug || static_limit is Trace),
-)]
-pub fn info_enabled(static_limit: LevelFilter) -> bool {
-    match static_limit {
-        LevelFilter::Off | LevelFilter::Error | LevelFilter::Warn => false,
-        LevelFilter::Info | LevelFilter::Debug | LevelFilter::Trace => {
-            Level::Info <= ::log::max_level()
-        }
-    }
+#[verus_spec]
+pub fn info_enabled() -> bool {
+    Level::Info <= ::log::STATIC_MAX_LEVEL && Level::Info <= ::log::max_level()
 }
 
 /// Forwards an enabled record to the global logger using the caller's module and location.
@@ -67,7 +57,7 @@ pub fn emit_info(module: &'static str, args: Arguments<'_>) {
 #[macro_export]
 macro_rules! info {
     ($($arg:tt)+) => {{
-        if $crate::external::log::info_enabled($crate::external::log::STATIC_MAX_LEVEL) {
+        if $crate::external::log::info_enabled() {
             $crate::external::log::emit_info(::core::module_path!(), ::core::format_args!($($arg)+));
         }
     }};

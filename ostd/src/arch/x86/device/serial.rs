@@ -7,7 +7,7 @@ use vstd_extra::external::{group_io_port_models, valid_io_port_access};
 
 use crate::{
     arch::device::io_port::{ReadWriteAccess, WriteOnlyAccess},
-    io::IoPort,
+    io::{IoPort, needs_write_sequence},
 };
 /// A serial port.
 ///
@@ -34,6 +34,17 @@ pub struct SerialPort {
 verus! {
 
 broadcast use group_io_port_models;
+
+impl SerialPort {
+    #[verifier::type_invariant]
+    closed spec fn port_ranges_disjoint(&self) -> bool {
+        &&& !needs_write_sequence(self.data@)
+        &&& !needs_write_sequence(self.int_en@)
+        &&& !needs_write_sequence(self.fifo_ctrl@)
+        &&& !needs_write_sequence(self.line_ctrl@)
+        &&& !needs_write_sequence(self.modem_ctrl@)
+    }
+}
 
 impl View for SerialPort {
     type V = Seq<u16>;
@@ -64,6 +75,8 @@ impl SerialPort {
     #[verus_spec(ret =>
         requires
             port <= u16::MAX - 6,
+            forall|addr: u16| port <= addr <= port + 4 ==>
+                !#[trigger] needs_write_sequence(addr),
         ensures
             ret@ == Seq::new(7, |i: int| (port + i) as u16),
             ret@.all(|addr: u16| valid_io_port_access::<u8>(addr)),
@@ -86,6 +99,7 @@ impl SerialPort {
     /// Initializes the serial port.
     #[verus_spec]
     pub fn init(&self) {
+        proof! { use_type_invariant(self); }
         // Disable interrupts
         #[verus_spec(with Tracked(None))]
         self.int_en.write(0x00);
@@ -117,6 +131,7 @@ impl SerialPort {
     #[inline]
     #[verus_spec]
     pub fn send(&self, data: u8) {
+        proof! { use_type_invariant(self); }
         #[verus_spec(with Tracked(None))]
         self.data.write(data);
     }

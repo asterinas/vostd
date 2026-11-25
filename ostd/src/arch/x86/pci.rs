@@ -10,11 +10,13 @@ verus! {
 
 broadcast use group_io_port_models;
 
-exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
-
-exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
-
 } // verus!
+#[verus_spec(ensures PCI_ADDRESS_PORT@ == 0x0CF8)]
+static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
+
+#[verus_spec(ensures PCI_DATA_PORT@ == 0x0CFC)]
+static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
+
 #[verus_verify]
 const BIT32_ALIGN_MASK: u32 = 0xFFFC;
 
