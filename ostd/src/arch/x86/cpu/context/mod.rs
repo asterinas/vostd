@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
 use ostd_pod::pod_bytes;
-use vstd::{prelude::*, resource::Loc};
+use vstd::{
+    array::{axiom_spec_array_fill_for_copy_type, spec_array_fill_for_copy_type},
+    prelude::*,
+    resource::Loc,
+};
 use vstd_extra::{
     external::x86::{
-        CR0_KNOWN_MASK, FpuOnce, FpuOnceInitialized, X86CpuRegisterOwner, XCR0_KNOWN_MASK,
-        clear_cr0_fpu_flags, cr0_emulate_coprocessor, cr0_or, cr0_task_switched, feature_info_ecx,
-        initialize_x87, read_cr0, read_enabled_xsave_size, read_xcr0,
+        FpuOnce, FpuOnceInitialized, X86CpuRegisterOwner, XCR0_KNOWN_MASK, clear_cr0_fpu_flags,
+        cr0_emulate_coprocessor, cr0_or, cr0_task_switched, feature_info_ecx, initialize_x87,
+        read_cr0, read_enabled_xsave_size, read_xcr0,
     },
     resource_invariant::ValueInvariant,
 };
@@ -528,6 +532,17 @@ impl FpuInitialization {
         &&& self.area_size.value() == platform_xsave_area_size()
     }
 
+    /// Exposes initialization guarantees without revealing the cache witnesses.
+    pub proof fn lemma_type_inv(tracked &self)
+        ensures
+            self.uses_xsave(),
+            576 <= self.len() <= 4096,
+            self.len() == platform_xsave_area_size(),
+            self.supported_mask() == cpu_feature_model().supported_xstates(),
+    {
+        use_type_invariant(self);
+    }
+
     pub closed spec fn len(&self) -> usize {
         self.area_size.value()
     }
@@ -553,7 +568,6 @@ impl FpuInitialization {
     /// enabled hardware XSAVE size at its current XCR0.
     pub open spec fn enabled_on(&self, cpu: &X86CpuRegisterOwner) -> bool {
         &&& self.configured_cpu() == cpu@.cpu
-        &&& cpu.kernel_cpu()
         &&& self.configured_xcr0() == cpu@.xcr0
         &&& cpu.xcr0_readable()
         &&& cpu_feature_model().matches_xstates(cpu)
@@ -644,6 +658,15 @@ impl FpuContext {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         self.area_size == 512 || 576 <= self.area_size <= MAX_XSAVE_AREA_SIZE
+    }
+
+    /// Exposes byte-view length bounds while keeping the storage representation private.
+    pub proof fn lemma_type_inv(&self)
+        requires
+            self.type_inv(),
+        ensures
+            self.len() == 512 || 576 <= self.len() <= 4096,
+    {
     }
 
     pub closed spec fn len(&self) -> usize {
@@ -884,15 +907,15 @@ unsafe impl Pod for XSaveArea {
                     ds: 0,
                     mxcsr: 0,
                     mxcsr_mask: 0,
-                    st_space: vstd::array::spec_array_fill_for_copy_type(0u32),
-                    xmm_space: vstd::array::spec_array_fill_for_copy_type(0u32),
-                    padding: vstd::array::spec_array_fill_for_copy_type(0u32),
-                    reserved: vstd::array::spec_array_fill_for_copy_type(0u32),
+                    st_space: spec_array_fill_for_copy_type(0u32),
+                    xmm_space: spec_array_fill_for_copy_type(0u32),
+                    padding: spec_array_fill_for_copy_type(0u32),
+                    reserved: spec_array_fill_for_copy_type(0u32),
                 },
                 features: 0,
                 compaction: 0,
-                reserved: vstd::array::spec_array_fill_for_copy_type(0u64),
-                extended_state_area: vstd::array::spec_array_fill_for_copy_type(0u8),
+                reserved: spec_array_fill_for_copy_type(0u64),
+                extended_state_area: spec_array_fill_for_copy_type(0u8),
             },
         )
     }
@@ -907,7 +930,7 @@ impl XSaveArea {
         ensures r.state().initialized((cpu@.xcr0 & XCR0_KNOWN_MASK) & init.supported_mask()),
     )]
     fn new() -> Self {
-        proof! { use_type_invariant(init); broadcast use { VERUS_layout_of_FxSaveArea, vstd::array::axiom_spec_array_fill_for_copy_type }; }
+        proof! { use_type_invariant(init); broadcast use { VERUS_layout_of_FxSaveArea, axiom_spec_array_fill_for_copy_type }; }
         /* Origin Rust: let features = if CPU_FEATURES.get().unwrap().has_xsave() {
          * Completion witnesses provide the original get/unwrap's preconditions. */
         let features =
@@ -1072,8 +1095,6 @@ const MAX_XSAVE_AREA_SIZE: usize = 4096;
     requires
         old(cpu).xcr0_readable(),
         old(cpu)@.fpu,
-        old(cpu)@.fxsr,
-        old(cpu)@.cr4 & 0x200u64 != 0,
         old(cpu)@.max_basic_leaf >= 0xd,
         cpu_feature_model().matches_xstates(old(cpu)),
         576 <= (old(cpu)@.xsave_size_for)(old(cpu)@.xcr0) <= 4096,
@@ -1094,6 +1115,8 @@ const MAX_XSAVE_AREA_SIZE: usize = 4096;
 pub(in crate::arch) fn enable_essential_features() {
     proof_decl! { let tracked initialized; }
     verus_exec_expr! {{
+    /* Origin Rust: XSTATE_MAX_FEATURES.call_once(|| {
+     * Bind publication to the cell identity required by the initialization witness. */
     let (_, Tracked(max_features)) = max_features_ref().call_once(
         || -> (r: u64)
             ensures

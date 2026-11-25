@@ -58,8 +58,6 @@ pub(crate) fn init_cvm_guest() {
         Err(_) => {}
     }
 }*/
-/* Origin Rust: static CPU_FEATURES: Once<FeatureInfo> = Once::new();
- * Carry the initializer's predicate through the unchanged spin::Once protocol. */
 verus! {
 
 pub(crate) ghost struct CpuFeaturesInvariant;
@@ -74,6 +72,8 @@ impl ValueInvariant<FeatureInfo> for CpuFeaturesInvariant {
 pub(crate) uninterp spec fn cpu_features_cell_id() -> vstd::resource::Loc;
 
 } // verus!
+/* Origin Rust: static CPU_FEATURES: Once<FeatureInfo> = Once::new();
+ * Carry the initializer's predicate through the unchanged spin::Once protocol. */
 #[verus_verify]
 static CPU_FEATURES: FpuOnce<FeatureInfo, CpuFeaturesInvariant> =
     verus_exec_expr! { FpuOnce::new(Ghost(CpuFeaturesInvariant)) };
@@ -232,7 +232,6 @@ pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
         old(cpu)@.fsgsbase, old(cpu)@.fxsr, old(cpu)@.sse, old(cpu)@.pge, old(cpu)@.nx,
         old(cpu)@.max_basic_leaf >= 0xd,
         cpu_feature_model().matches_xstates(old(cpu)),
-        old(cpu)@.xsave ==> old(cpu)@.xcr0 & !old(cpu)@.user_xstates == 0,
         xcr0_flag_groups_valid(enabled_fpu_xcr0(old(cpu)@.xcr0) & XCR0_KNOWN_MASK),
         enabled_fpu_xcr0(old(cpu)@.xcr0) & !old(cpu)@.user_xstates == 0,
         576 <= (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) <= 4096,
@@ -352,11 +351,6 @@ pub(crate) fn enable_cpu_features() {
             write_xcr0(xcr0, Tracked(&mut *cpu));
         }
 
-        /* Origin Rust: cpu::context::enable_essential_features();
-         * Return the actual Once completion witnesses to the constructors. */
-        let ghost configured_cr4 = cpu@.cr4;
-        assert(configured_cr4 & 0x200u64 != 0) by (bit_vector)
-            requires configured_cr4 == old_cr4 | 0x50680u64;
         let tracked result;
         #[verus_spec(with Tracked(&mut *cpu), Tracked(&features_initialized) => Tracked(result))]
         cpu::context::enable_essential_features();

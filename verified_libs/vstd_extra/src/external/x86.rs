@@ -573,8 +573,6 @@ impl<T: FpuOnceValue, F: ValueInvariant<T>> FpuOnce<T, F> {
             self.value_inv(*r),
             *r == initialized.value(),
     {
-        /* Origin Rust: self.get().unwrap()
-         * Bind the read to the checked completion-witness agreement proof. */
         let value = (#[verus_spec(with Tracked(Some(initialized)))]
         self.get()).unwrap();
         proof {
