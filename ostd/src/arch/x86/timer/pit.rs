@@ -11,12 +11,14 @@
 use vstd::prelude::*;
 
 use crate::{
-    arch::{/* kernel::{IRQ_CHIP, MappedIrqLine}, */ timer::TIMER_FREQ},
-    io::recorded_io_ports,
+    arch::{
+        device::io_port::WriteOnlyAccess,
+        /* kernel::{IRQ_CHIP, MappedIrqLine}, */
+        timer::TIMER_FREQ,
+    },
+    io::{IoPort, sensitive_io_port},
     /* trap::irq::IrqLine, */
 };
-
-verus! {
 
 /// PIT Operating Mode.
 ///
@@ -25,6 +27,7 @@ verus! {
 ///
 /// Note that if IOAPIC is used to manage interrupts and square wave mode is enabled, the frequency at which
 /// clock interrupts are generated is `Frequency/2`.
+#[verus_verify]
 #[repr(u8)]
 pub enum OperatingMode {
     /// Triggers an interrupt (only on channel 0) when the counter is terminated (1 -> 0).
@@ -86,6 +89,7 @@ pub enum OperatingMode {
 }
 
 /// This bits tell the PIT what access mode is used for the selected channel.
+#[verus_verify]
 #[repr(u8)]
 enum AccessMode {
     /// When this command is sent, the current count is copied into latch register which can be read
@@ -101,6 +105,7 @@ enum AccessMode {
 }
 
 /// Used to select the configured channel in the `MODE_COMMAND_PORT` of the PIT.
+#[verus_verify]
 #[repr(u8)]
 enum Channel {
     /// Channel 0. For more details, check `CHANNEL0_PORT` static variable
@@ -134,59 +139,57 @@ enum Channel {
     ReadBackCommand = 0b11,
 }
 
-pub(crate) open spec fn init_writes(operating_mode: OperatingMode) -> Seq<(u16, u8)> {
-    let command: u8 = match operating_mode {
-        OperatingMode::InterruptOnTerminalCount => 0x30,
-        OperatingMode::OneShotHardwareRetriggerable => 0x32,
-        OperatingMode::RateGenerator => 0x34,
-        OperatingMode::SquareWaveGenerator => 0x36,
-        OperatingMode::SoftwareTriggeredStrobe => 0x38,
-        OperatingMode::HardwareTriggeredStrobe => 0x3A,
-    };
-    seq![(0x43, command), (0x40, 0xA9), (0x40, 0x04)]
+sensitive_io_port! {
+    unsafe {
+        /// The output from PIT channel 0 is connected to the PIC chip and generate "IRQ 0".
+        /// If connected to PIC, the IRQ0 will generate by the **rising edge** of the output voltage.
+        static CHANNEL0_PORT: IoPort<u8, WriteOnlyAccess> = IoPort::new(0x40);
+
+        /// The output from PIT channel 1 was once used for refreshing the DRAM or RAM so that
+        /// the capacitors don't forget their state.
+        ///
+        /// On later machines, the DRAM refresh is done with dedicated hardware and this channel
+        /// is no longer used.
+        static CHANNEL1_PORT: IoPort<u8, WriteOnlyAccess> = IoPort::new(0x41);
+
+        /// The output from PIT channel 2 is connected to the PC speaker, so the frequency of the
+        /// output determines the frequency of the sound produced by the speaker. For more information,
+        /// check <https://wiki.osdev.org/PC_Speaker>.
+        static CHANNEL2_PORT: IoPort<u8, WriteOnlyAccess> = IoPort::new(0x42);
+
+        /// PIT command port.
+        /// ```text
+        /// Bits         Usage
+        /// 6 and 7      channel
+        /// 4 and 5      Access mode
+        /// 1 to 3       Operating mode
+        /// 0            BCD/Binary mode: 0 = 16-bit binary, 1 = four-digit BCD
+        /// ```
+        static MODE_COMMAND_PORT: IoPort<u8, WriteOnlyAccess> = IoPort::new(0x43);
+    }
 }
 
-} // verus!
+crate::const_assert!(MODE_COMMAND_PORT.port() == 0x43 && CHANNEL0_PORT.port() == 0x40);
+
 #[verus_verify]
 const TIMER_RATE: u32 = 1193182;
 const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
-#[verus_spec(
-    with -> writes: Ghost<Seq<(u16, u8)>>,
-    ensures writes@ == init_writes(operating_mode),
-)]
+#[verus_verify]
 pub(crate) fn init(operating_mode: OperatingMode) {
-    recorded_io_ports! {
-        let mut ports;
-        unsafe {
-            /// The output from PIT channel 0 is connected to the PIC chip and generate "IRQ 0".
-            /// If connected to PIC, the IRQ0 will generate by the **rising edge** of the output voltage.
-            CHANNEL0_PORT = 0x40;
-
-            /// The output from PIT channel 1 was once used for refreshing the DRAM or RAM so that
-            /// the capacitors don't forget their state.
-            ///
-            /// On later machines, the DRAM refresh is done with dedicated hardware and this channel
-            /// is no longer used.
-            CHANNEL1_PORT = 0x41;
-
-            /// The output from PIT channel 2 is connected to the PC speaker, so the frequency of the
-            /// output determines the frequency of the sound produced by the speaker. For more information,
-            /// check <https://wiki.osdev.org/PC_Speaker>.
-            CHANNEL2_PORT = 0x42;
-
-            /// PIT command port.
-            /// ```text
-            /// Bits         Usage
-            /// 6 and 7      channel
-            /// 4 and 5      Access mode
-            /// 1 to 3       Operating mode
-            /// 0            BCD/Binary mode: 0 = 16-bit binary, 1 = four-digit BCD
-            /// ```
-            MODE_COMMAND_PORT = 0x43;
-        }
+    proof_decl! {
+        let ghost expected_command: u8 = match operating_mode {
+            OperatingMode::InterruptOnTerminalCount => 0x30,
+            OperatingMode::OneShotHardwareRetriggerable => 0x32,
+            OperatingMode::RateGenerator => 0x34,
+            OperatingMode::SquareWaveGenerator => 0x36,
+            OperatingMode::SoftwareTriggeredStrobe => 0x38,
+            OperatingMode::HardwareTriggeredStrobe => 0x3A,
+        };
+        let tracked mut remaining = Ghost(seq![
+            (0x43u16, expected_command), (0x40u16, 0xA9u8), (0x40u16, 0x04u8),
+        ]);
     }
-
     // Set PIT mode
     // Bit 0 is BCD/binary mode, which is always set to binary mode(value: 0)
     /* Name the byte checked below.
@@ -200,7 +203,8 @@ pub(crate) fn init(operating_mode: OperatingMode) {
         assert(forall|mode: u8| mode <= 5 ==>
             #[trigger] ((mode << 1u8) | (3u8 << 4u8) | (0u8 << 6u8)) == ((0x30 + mode * 2) as u8)) by (bit_vector);
     }
-    ports.write(MODE_COMMAND_PORT, command);
+    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    MODE_COMMAND_PORT.write(command);
 
     // Set timer frequency
     /* Name the two write operands for compile-time verification.
@@ -214,12 +218,11 @@ pub(crate) fn init(operating_mode: OperatingMode) {
     proof! {
         assert(TIMER_FREQ == 1000 && CYCLE == 1193 && LOW == 0xA9 && HIGH == 0x04) by (compute);
     }
-    ports.write(CHANNEL0_PORT, LOW);
-    ports.write(CHANNEL0_PORT, HIGH);
-    proof! { assert(ports@ =~= init_writes(operating_mode)); }
-    proof_decl! { let ghost history = ports@; }
-    #[verus_spec(with |= Ghost(history))]
-    ()
+    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    CHANNEL0_PORT.write(LOW);
+    #[verus_spec(with Tracked(Some(&mut remaining)))]
+    CHANNEL0_PORT.write(HIGH);
+    proof! { assert(remaining@.len() == 0); }
 }
 
 /* IRQ routing is outside the enabled kernel IRQ module.

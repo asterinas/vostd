@@ -19,7 +19,7 @@ cfg_if!(
         mod io_port;
 
         pub use self::io_port::IoPort;
-        pub(crate) use self::io_port::{recorded_io_ports, reserve_io_port_range, sensitive_io_port, PortWriter, RawIoPortRange, RecordedWriteOnly};
+        pub(crate) use self::io_port::{reserve_io_port_range, sensitive_io_port, RawIoPortRange};
     }
 );
 
