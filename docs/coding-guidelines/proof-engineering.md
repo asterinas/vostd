@@ -14,10 +14,14 @@ fact on which a proof relies: preconditions, postconditions, well-formedness, an
 
 For example, a `BTreeMap::get_mut` model must preserve entries other than the
 selected key and must express the documented compatibility between the stored
-key ordering and borrowed-key ordering. Exclude documented panic conditions with
-explicit preconditions, such as capacity or index bounds, rather than merely
-marking the operation `may_panic`. `no_unwind` asserts that the modeled function
-never unwinds — an unconditional claim, not one gated by the `requires` clause
+key ordering and borrowed-key ordering. Use ordinary preconditions for caller
+obligations and `allowed_to_panic_if(condition)` for paths that may panic.
+When the condition holds, the caller must permit a possible panic. Keep the
+condition tied to the concrete panic path. Postconditions apply on normal
+return.
+
+`no_unwind` asserts that the modeled function never unwinds, regardless of the
+`requires` clause
 (see the [Verus unwinding-signature reference](../../tools/verus/source/docs/guide/src/reference-unwind-sig.md)).
 A function with a real panic path, such as `usize::div_ceil` on a zero divisor,
 must not carry bare `no_unwind`, even when a `requires` clause excludes the

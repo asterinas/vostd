@@ -5,7 +5,6 @@ use vstd::{
     atomic_ghost::*,
     cell::{self, pcell::*},
     prelude::*,
-    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::prelude::*;
 
@@ -609,16 +608,6 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
             self.lock.release_lock();
         }
     }
-}
-
-verus! {
-impl<T: fmt::Debug, G: SpinGuardian, I: ResourceInvariant<T>> DebugSpecImpl
-    for SpinLockGuard<'_, T, G, I>
-{
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
-    }
-}
 }
 
 #[verus_verify]

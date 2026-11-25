@@ -6,7 +6,6 @@ use vstd::{
         pcell::{self, *},
     },
     prelude::*,
-    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::{prelude::*, resource::ghost_resource::excl::*};
 
@@ -308,12 +307,6 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
             proof_with!(self.tracked_perm);
             self.mutex.unlock();
         }
-    }
-}
-
-impl<T: fmt::Debug> DebugSpecImpl for MutexGuard<'_, T> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
     }
 }
 

@@ -3,6 +3,8 @@
 //! the crate sources; the original constants are re-exported below. Also models the
 //! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors.
 use vstd::prelude::*;
+
+use core::arch::x86_64::CpuidResult;
 use x86::cpuid::CpuIdResult;
 
 pub use x86::{
@@ -24,15 +26,9 @@ verus! {
 #[verifier::external_type_specification]
 pub struct ExCpuIdResult(CpuIdResult);
 
-/// Trusted native read: x86 0.52/raw-cpuid 10.7 delegates to `__cpuid_count`.
-/// Requires x86_64 outside SGX; registers are arbitrary per call.
-pub assume_specification[ x86::cpuid::native_cpuid::cpuid_count ](
-    leaf: u32,
-    subleaf: u32,
-) -> CpuIdResult
-    opens_invariants none
-    no_unwind
-;
+/// Exposes the four u32 result registers of the `core::arch` CPUID intrinsics.
+#[verifier::external_type_specification]
+pub struct ExCpuidResult(CpuidResult);
 
 pub assume_specification[ x86::apic::xapic::XAPIC_ID ] -> u32
     returns

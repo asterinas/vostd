@@ -30,20 +30,13 @@
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 use vstd::{
-    assert_maps_equal, assert_sets_equal,
-    atomic::PermissionU64,
-    map::assert_maps_equal_internal,
-    prelude::*,
-    simple_pptr::PPtr,
-    std_specs::{
-        cmp::PartialEqSpecImpl,
-        fmt::{DebugSpecImpl, group_fmt_axioms},
-    },
+    assert_maps_equal, assert_sets_equal, atomic::PermissionU64, map::assert_maps_equal_internal,
+    prelude::*, simple_pptr::PPtr, std_specs::cmp::PartialEqSpecImpl,
 };
 use vstd_extra::{
     cast_ptr::*,
     ownership::*,
-    panic::may_panic,
+    panic::allowed_to_panic_if,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
 };
 
@@ -141,19 +134,13 @@ unsafe impl<M: AnyFrameMeta + ?Sized> Sync for Frame<M> {
 
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> DebugSpecImpl for Frame<M> {
-    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
-        self.ptr_inv()
-    }
-}
-
+/*
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> core::fmt::Debug for Frame<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        broadcast use group_fmt_axioms;
-
         write!(f, "Frame({:#x})", self.start_paddr())
     }
 }
+*/
 
 verus!{
 
@@ -324,7 +311,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
         requires
             old(regions).inv(),
-            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            allowed_to_panic_if(valid_frame_paddr(paddr) && old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
         ensures
             final(regions).inv(),
             res matches Ok(res) ==> {
@@ -335,6 +322,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             },
             res is Err ==> *old(regions) == *final(regions),
     )]
+    #[verifier::spinoff_prover]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
         proof_decl!{
             let tracked frame_permission: Option<FracMetadataPerm>;
@@ -597,7 +585,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& self.wf_with_region(regions)
         &&& ref_count > 0
         &&& ref_count != REF_COUNT_UNUSED
-        &&& ref_count >= REF_COUNT_MAX ==> may_panic()
+        &&& allowed_to_panic_if(ref_count >= REF_COUNT_MAX)
     }
 
     open spec fn clone_ensures(
@@ -817,8 +805,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         old(regions).slot_owner(paddr).ref_count() > 0,
         old(regions).slot_owner(paddr).ref_count()
             != REF_COUNT_UNUSED,
-        old(regions).slot_owner(paddr).ref_count()
-            >= REF_COUNT_MAX ==> may_panic(),
+        allowed_to_panic_if(old(regions).slot_owner(paddr).ref_count() >= REF_COUNT_MAX),
     ensures
         final(regions).inv(),
         permission@.frac() == 1,
