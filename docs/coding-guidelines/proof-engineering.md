@@ -188,13 +188,19 @@ If the external signature must remain generic, guard its guarantees with a
 model-validity predicate admitted only for reviewed instances. Include relevant
 storage, ordering, and index types.
 
+If the model's guarantees hold for every instance covered by a trait impl,
+define its model-validity predicate directly as `true`. Use an uninterpreted
+predicate with instance-specific axioms when only a reviewed subset of the impl
+is covered.
+
 For example, PR #742 limits its immutable `Seq<bool>` model to `bitvec` storage
 `u8`, `u32`, `usize`, and `u64` on 64-bit targets, with `Lsb0`. `BitStore` alone
 is insufficient because some implementations allow mutation through shared
 references.
 
 See also: PR [#742](https://github.com/asterinas/vostd/pull/742#issuecomment-5549732341)
-and [#742](https://github.com/asterinas/vostd/pull/742#issuecomment-5550882161).
+and its [follow-up discussion](https://github.com/asterinas/vostd/pull/742#issuecomment-5550882161),
+and PR [#948](https://github.com/asterinas/vostd/pull/948#discussion_r4690027007).
 
 ### Distinguish spec and exec indexing
 
