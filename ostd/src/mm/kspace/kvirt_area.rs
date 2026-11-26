@@ -34,7 +34,7 @@ use crate::mm::{
         untyped::AnyUFrameMeta,
     },
     page_size,
-    page_table::{Child, CursorMut, PageTable, PageTableConfig, PageTableGuard},
+    page_table::{Child, Cursor, CursorMut, PageTable, PageTableConfig, PageTableGuard},
 };
 
 use core::marker::PhantomData;
@@ -339,7 +339,7 @@ impl KVirtArea {
         regions: MetaRegionOwners,
     ) -> bool {
         let va = nat_align_down(addr as nat, PAGE_SIZE as nat) as Vaddr;
-        ||| !(self.range.start <= addr < self.range.end)
+        ||| !(self.range.start <= addr <= self.range.end)
         ||| owner.pt_owner.query_leaf(va) matches Some(entry) && {
             &&& entry.is_frame()
             &&& entry.frame_is_tracked()
@@ -366,22 +366,88 @@ impl KVirtArea {
         self.range.start..self.range.end
     }
 
-    #[cfg(ktest)]
+    pub open spec fn len_spec(&self) -> usize {
+        self.range.end.saturating_sub(self.range.start)
+    }
+
+    /* #[cfg(ktest)] */
+    #[verifier::when_used_as_spec(len_spec)]
+    #[verus_spec(returns self.len())]
     pub fn len(&self) -> usize {
         self.range.len()
     }
 
-    #[cfg(ktest)]
+    /* #[cfg(ktest)] */
+    #[verus_spec(res =>
+        with
+            Tracked(owner): Tracked<KVirtAreaOwner>,
+            Ghost(root_guard): Ghost<PageTableGuard<'_, KernelPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards>,
+        requires
+            self.inv(),
+            page_table_managed_start_spec::<KernelPtConfig>() <= self.range.start,
+            self.range.start <= addr <= self.range.end,
+            owner.inv(),
+            old(regions).inv(),
+            owner.pt_owner.metaregion_sound(*old(regions)),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
+            allowed_to_panic_if(self.query_panic_condition(owner, addr, *old(regions))),
+        ensures
+            final(regions).inv(),
+            !self.query_panic_condition(owner, addr, *old(regions)),
+            res matches Some(item) ==> {
+                let view = owner.cursor_view_at(addr);
+                &&& view.present()
+                &&& view.query_item_spec(item) is Some
+            },
+            owner.cursor_view_at(addr).present() ==> res is Some,
+    )]
+    #[verifier::spinoff_prover]
     pub fn query(&self, addr: Vaddr) -> Option<super::MappedItem> {
         use align_ext::AlignExt;
 
         assert!(self.start() <= addr && self.end() >= addr);
+        proof {
+            PagingConsts::lemma_paging_consts_properties();
+            assert(FRAME_METADATA_BASE_VADDR + PAGE_SIZE < KERNEL_END_VADDR) by (compute_only);
+        }
         let start = addr.align_down(PAGE_SIZE);
         let vaddr = start..start + PAGE_SIZE;
-        let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+        /* The OnceImpl::get contract neither guarantees Some nor relates the returned
+         * page table to its tracked owner. The accessor supplies both guarantees.
+         * Origin Rust: let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+         */
+        let page_table = {
+            proof_decl! {
+                let tracked mut kpt_owner = Some(&owner.pt_owner);
+            }
+            #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
+            get_kernel_page_table()
+        };
         let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor(&preempt_guard, &vaddr).unwrap();
-        cursor.query().unwrap().1
+        let ghost area_owner = owner;
+        proof {
+            lemma_page_size_spec_values::<PagingConsts>();
+            lemma_vaddr_range_spec_kernel();
+            assert(start >= self.range.start);
+            lemma_kernel_range_valid(vaddr);
+            assert(FRAME_METADATA_BASE_VADDR + PAGE_SIZE < 0xffff_ff80_0000_0000int)
+                by (compute_only);
+            assert(Cursor::<KernelPtConfig>::cursor_new_success_conditions(vaddr));
+        }
+        let (mut cursor, Tracked(mut cursor_owner)) = (
+        #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
+        page_table.cursor(&preempt_guard, &vaddr)).unwrap();
+        proof {
+            cursor_owner.as_page_table_owner_preserves_view_mappings();
+            assert(cursor_owner@ == area_owner.cursor_view_at(addr));
+            cursor_owner.lemma_query_leaf_from_root();
+            assert(cursor.query_panic_condition(cursor_owner, *regions)
+                == self.query_panic_condition(area_owner, addr, *old(regions)));
+        }
+        (#[verus_spec(with Tracked(&mut cursor_owner), Tracked(regions), Tracked(guards))]
+        cursor.query()).unwrap().1
     }
 
     /// Caller-precludable *bounds* panic condition for [`Self::map_frames`]:
