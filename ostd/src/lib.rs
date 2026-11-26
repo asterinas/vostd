@@ -57,6 +57,9 @@ pub mod sync;
 pub mod task;
 pub mod timer;
 pub mod trap;
+/* Gate `user` to riscv64 while x86_64/loongarch64 `arch::trap` modules remain commented out.
+ * Origin Rust: pub mod user;
+ */
 #[cfg(target_arch = "riscv64")]
 pub mod user;
 pub mod util;

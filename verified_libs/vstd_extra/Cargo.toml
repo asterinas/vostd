@@ -25,5 +25,8 @@ bytemuck = "1.17.0"
 x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
 x86 = "0.52.0"
 
+[target.'cfg(target_arch = "riscv64")'.dependencies]
+riscv = { version = "0.11.1", default-features = false, features = ["s-mode"] }
+
 [lints]
 workspace = true

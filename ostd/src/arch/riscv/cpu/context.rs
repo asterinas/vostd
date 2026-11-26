@@ -4,7 +4,7 @@ use vstd::prelude::*;
 
 use core::fmt::Debug;
 
-use riscv::register::scause::{Exception, Interrupt, Trap};
+use riscv::register::scause::{Exception, /*Interrupt,*/ Trap};
 
 use crate::{
     arch::{
@@ -14,16 +14,115 @@ use crate::{
     user::{/*ReturnReason,*/ UserContextApi, UserContextApiInternal},
 };
 
+/// Userspace CPU context, including general-purpose registers and exception information.
+#[verus_verify]
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct UserContext {
+    user_context: RawUserContext,
+    trap: Trap,
+    cpu_exception_info: Option<CpuExceptionInfo>,
+}
+
+/// General registers.
+#[verus_verify]
+#[derive(Debug, /*Default,*/ Clone, Copy)]
+#[repr(C)]
+#[expect(missing_docs)]
+pub struct GeneralRegs {
+    pub zero: usize,
+    pub ra: usize,
+    pub sp: usize,
+    pub gp: usize,
+    pub tp: usize,
+    pub t0: usize,
+    pub t1: usize,
+    pub t2: usize,
+    pub s0: usize,
+    pub s1: usize,
+    pub a0: usize,
+    pub a1: usize,
+    pub a2: usize,
+    pub a3: usize,
+    pub a4: usize,
+    pub a5: usize,
+    pub a6: usize,
+    pub a7: usize,
+    pub s2: usize,
+    pub s3: usize,
+    pub s4: usize,
+    pub s5: usize,
+    pub s6: usize,
+    pub s7: usize,
+    pub s8: usize,
+    pub s9: usize,
+    pub s10: usize,
+    pub s11: usize,
+    pub t3: usize,
+    pub t4: usize,
+    pub t5: usize,
+    pub t6: usize,
+}
+
+/* Implement the derived zero default explicitly to give it a Verus specification.
+ * Origin Rust: #[derive(Default)]
+ */
+#[verus_verify]
+impl Default for GeneralRegs {
+    #[verus_spec(returns Self::default_spec())]
+    fn default() -> Self {
+        Self {
+            zero: usize::default(),
+            ra: usize::default(),
+            sp: usize::default(),
+            gp: usize::default(),
+            tp: usize::default(),
+            t0: usize::default(),
+            t1: usize::default(),
+            t2: usize::default(),
+            s0: usize::default(),
+            s1: usize::default(),
+            a0: usize::default(),
+            a1: usize::default(),
+            a2: usize::default(),
+            a3: usize::default(),
+            a4: usize::default(),
+            a5: usize::default(),
+            a6: usize::default(),
+            a7: usize::default(),
+            s2: usize::default(),
+            s3: usize::default(),
+            s4: usize::default(),
+            s5: usize::default(),
+            s6: usize::default(),
+            s7: usize::default(),
+            s8: usize::default(),
+            s9: usize::default(),
+            s10: usize::default(),
+            s11: usize::default(),
+            t3: usize::default(),
+            t4: usize::default(),
+            t5: usize::default(),
+            t6: usize::default(),
+        }
+    }
+}
+
+/// CPU exception information.
+//
+// TODO: Refactor the struct into an enum (similar to x86's `CpuException`).
+#[verus_verify]
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct CpuExceptionInfo {
+    /// The type of the exception.
+    pub code: Exception,
+    /// The error code associated with the exception.
+    pub page_fault_addr: usize,
+    pub error_code: usize, // TODO
+}
+
 verus! {
-
-#[verifier::external_type_specification]
-pub struct ExTrap(Trap);
-
-#[verifier::external_type_specification]
-pub struct ExException(Exception);
-
-#[verifier::external_type_specification]
-pub struct ExInterrupt(Interrupt);
 
 pub ghost struct UserContextView {
     pub frame: TrapFrame,
@@ -34,14 +133,6 @@ pub ghost struct UserContextView {
 impl UserContextView {
     pub open spec fn with_general(self, general: GeneralRegs) -> Self {
         Self { frame: TrapFrame { general, ..self.frame }, ..self }
-    }
-
-    pub open spec fn with_sp(self, sp: usize) -> Self {
-        self.with_general(GeneralRegs { sp, ..self.frame.general })
-    }
-
-    pub open spec fn with_tp(self, tp: usize) -> Self {
-        self.with_general(GeneralRegs { tp, ..self.frame.general })
     }
 }
 
@@ -101,113 +192,6 @@ impl View for UserContext {
 }
 
 } // verus!
-/// Userspace CPU context, including general-purpose registers and exception information.
-#[verus_verify]
-#[derive(Clone, Copy, Debug)]
-#[repr(C)]
-pub struct UserContext {
-    user_context: RawUserContext,
-    trap: Trap,
-    cpu_exception_info: Option<CpuExceptionInfo>,
-}
-
-/// General registers.
-// Origin Rust: #[derive(Debug, Default, Clone, Copy)]
-// The explicit Default implementation exposes the derived zero initialization to Verus.
-#[verus_verify]
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-#[expect(missing_docs)]
-pub struct GeneralRegs {
-    pub zero: usize,
-    pub ra: usize,
-    pub sp: usize,
-    pub gp: usize,
-    pub tp: usize,
-    pub t0: usize,
-    pub t1: usize,
-    pub t2: usize,
-    pub s0: usize,
-    pub s1: usize,
-    pub a0: usize,
-    pub a1: usize,
-    pub a2: usize,
-    pub a3: usize,
-    pub a4: usize,
-    pub a5: usize,
-    pub a6: usize,
-    pub a7: usize,
-    pub s2: usize,
-    pub s3: usize,
-    pub s4: usize,
-    pub s5: usize,
-    pub s6: usize,
-    pub s7: usize,
-    pub s8: usize,
-    pub s9: usize,
-    pub s10: usize,
-    pub s11: usize,
-    pub t3: usize,
-    pub t4: usize,
-    pub t5: usize,
-    pub t6: usize,
-}
-
-#[verus_verify]
-impl Default for GeneralRegs {
-    #[verus_spec(returns Self::default_spec())]
-    fn default() -> Self {
-        Self {
-            zero: 0,
-            ra: 0,
-            sp: 0,
-            gp: 0,
-            tp: 0,
-            t0: 0,
-            t1: 0,
-            t2: 0,
-            s0: 0,
-            s1: 0,
-            a0: 0,
-            a1: 0,
-            a2: 0,
-            a3: 0,
-            a4: 0,
-            a5: 0,
-            a6: 0,
-            a7: 0,
-            s2: 0,
-            s3: 0,
-            s4: 0,
-            s5: 0,
-            s6: 0,
-            s7: 0,
-            s8: 0,
-            s9: 0,
-            s10: 0,
-            s11: 0,
-            t3: 0,
-            t4: 0,
-            t5: 0,
-            t6: 0,
-        }
-    }
-}
-
-/// CPU exception information.
-//
-// TODO: Refactor the struct into an enum (similar to x86's `CpuException`).
-#[verus_verify]
-#[derive(Clone, Copy, Debug)]
-#[repr(C)]
-pub struct CpuExceptionInfo {
-    /// The type of the exception.
-    pub code: Exception,
-    /// The error code associated with the exception.
-    pub page_fault_addr: usize,
-    pub error_code: usize, // TODO
-}
-
 #[verus_verify]
 impl Default for UserContext {
     #[verus_spec(r => ensures
@@ -278,7 +262,9 @@ impl UserContext {
     }
 
     /// Sets thread-local storage pointer.
-    #[verus_spec(ensures final(self)@ == old(self)@.with_tp(tls))]
+    #[verus_spec(ensures final(self)@ == old(self)@.with_general(
+        GeneralRegs { tp: tls, ..old(self)@.frame.general }
+    ))]
     pub fn set_tls_pointer(&mut self, tls: usize) {
         self.set_tp(tls)
     }
@@ -373,7 +359,9 @@ impl UserContextApi for UserContext {
         self.sp()
     }
 
-    #[verus_spec(ensures final(self)@ == old(self)@.with_sp(sp))]
+    #[verus_spec(ensures final(self)@ == old(self)@.with_general(
+        GeneralRegs { sp, ..old(self)@.frame.general }
+    ))]
     fn set_stack_pointer(&mut self, sp: usize) {
         self.set_sp(sp);
     }
