@@ -109,7 +109,7 @@ pub axiom fn segment_from_unused_embedded(
         // Slots OUTSIDE the range are fully preserved.
         res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < max_meta_slots()
+            i < MAX_NR_PAGES
             && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -199,7 +199,7 @@ pub proof fn lemma_segment_drop_embedded(
         // Slots OUTSIDE the range are fully preserved.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < max_meta_slots()
+            i < MAX_NR_PAGES
             && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -324,7 +324,7 @@ pub(super) proof fn from_unused_step(
                 },
         res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < max_meta_slots()
+            i < MAX_NR_PAGES
             && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -392,7 +392,7 @@ pub(super) proof fn drop_step(
             },
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < max_meta_slots()
+            i < MAX_NR_PAGES
             && !(entry.range.start <= index_to_frame(i)
                     < entry.range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -452,7 +452,7 @@ pub axiom fn segment_clone_embedded(
         // Slots OUTSIDE the range are fully preserved.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < max_meta_slots()
+            i < MAX_NR_PAGES
             && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],

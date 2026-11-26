@@ -317,7 +317,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             valid_arch_paddr(paddr),
             1 <= parent_level <= C::NR_LEVELS,
             paddr % page_size::<C>(parent_level) == 0,
-            paddr + page_size::<C>(parent_level) <= ARCH_MAX_PADDR,
+            paddr + page_size::<C>(parent_level) <= CurrentArch::ARCH_MAX_PADDR,
             C::raw_item_well_formed((paddr, parent_level, prop, Tracked(None))),
             C::E::new_page_req(paddr, parent_level, prop),
         ensures
@@ -386,13 +386,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
             idx < NR_ENTRIES,
         ensures
             self.frame().mapped_pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)
-                < ARCH_MAX_PADDR,
+                < CurrentArch::ARCH_MAX_PADDR,
             ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % page_size::<C>((self.parent_level - 1) as PagingLevel) == 0,
             ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel) <= ARCH_MAX_PADDR,
+            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel)
+                <= CurrentArch::ARCH_MAX_PADDR,
             ((self.frame().mapped_pa + idx * page_size::<C>(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % PAGE_SIZE == 0,
@@ -655,7 +656,8 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& valid_arch_paddr(self.frame().mapped_pa)
             &&& self.frame_is_tracked() ==> valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size::<C>(self.parent_level) == 0
-            &&& self.frame().mapped_pa + page_size::<C>(self.parent_level) <= ARCH_MAX_PADDR
+            &&& self.frame().mapped_pa + page_size::<C>(self.parent_level)
+                <= CurrentArch::ARCH_MAX_PADDR
             &&& C::raw_item_well_formed(
                 (
                     self.frame().mapped_pa,

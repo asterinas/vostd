@@ -31,7 +31,7 @@ use vstd_extra::{
 };
 
 use crate::specs::{
-    arch::ARCH_MAX_PADDR,
+    arch::{ArchAddressSpaceModel, CurrentArch},
     mm::{
         frame::{
             mapping::*,
@@ -2936,8 +2936,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             C::lemma_page_table_config_constant_properties();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
             lemma_page_size_spec_values::<C>();
-            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level) <= ARCH_MAX_PADDR)
-                by {
+            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level)
+                <= CurrentArch::ARCH_MAX_PADDR) by {
                 reveal(page_size_spec);
             };
         }
@@ -2982,7 +2982,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
 
         let tracked new_owner = owner.continuations.tracked_borrow(
             owner.level - 1,
-        ).tracked_new_child(pa, prop, raw_permission, regions);
+        ).tracked_new_child(pa, prop, raw_permission);
 
         proof {
             let cont = owner1.continuations[owner1.level - 1];

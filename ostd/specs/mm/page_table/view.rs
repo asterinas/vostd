@@ -1,7 +1,7 @@
 use vstd::{arithmetic::power2::pow2, prelude::*};
 use vstd_extra::ownership::*;
 
-use crate::specs::arch::ARCH_MAX_PADDR;
+use crate::specs::arch::{ArchAddressSpaceModel, CurrentArch};
 
 use super::*;
 use crate::mm::{Paddr, Vaddr, page_prop::PageProperty};
@@ -54,7 +54,7 @@ impl Inv for Mapping {
         &&& Mapping::valid_page_size(self.page_size)
         &&& self.pa_range.start % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
-        &&& self.pa_range.end <= ARCH_MAX_PADDR
+        &&& self.pa_range.end <= CurrentArch::ARCH_MAX_PADDR
         &&& self.va_range.start % self.page_size as int == 0
         &&& self.va_range.start + self.page_size as int == self.va_range.end
         &&& 0

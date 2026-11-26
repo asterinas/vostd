@@ -750,7 +750,7 @@ impl KVirtArea {
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
-            pa_range.start < pa_range.end ==> pa_range.end <= ARCH_MAX_PADDR,
+            pa_range.start < pa_range.end ==> pa_range.end <= CurrentArch::ARCH_MAX_PADDR,
             forall|pa: Paddr, level: PagingLevel|
                 1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                 #[trigger]
@@ -846,7 +846,7 @@ impl KVirtArea {
                     cursor.0.barrier_va.start == va_range.start,
                     cursor.0.barrier_va.end == va_range.start + len,
                     pa_range.end == pa_range.start + len,
-                    pa_range.end <= ARCH_MAX_PADDR,
+                    pa_range.end <= CurrentArch::ARCH_MAX_PADDR,
             {
                 let pos: Ghost<int> = Ghost(it.index() as int);
 

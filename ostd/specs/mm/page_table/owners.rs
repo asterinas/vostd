@@ -1313,7 +1313,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(lb * limit + v + ps <= pow2(usize::BITS as nat));
             lemma_mod_0_add(m.va_range.start, ps, ps);
             assert(Mapping::valid_page_size(m.page_size));
-            assert(m.pa_range.start <= m.pa_range.end <= ARCH_MAX_PADDR);
+            assert(m.pa_range.start <= m.pa_range.end <= CurrentArch::ARCH_MAX_PADDR);
             assert forall|m2: Mapping| #[trigger]
                 self.view_rec(path).contains(m2) implies m2.inv() by {};
         } else if self.0.value().is_node() && path.len() < C::NR_LEVELS {

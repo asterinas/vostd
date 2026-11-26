@@ -570,23 +570,18 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         paddr: Paddr,
         prop: PageProperty,
         tracked permission: Option<C::Perm>,
-        tracked regions: &mut MetaRegionOwners,
     ) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
             self.level() <= C::NR_LEVELS,
-            permission is Some ==> old(regions).slots.contains_key(frame_to_index(paddr)),
             valid_arch_paddr(paddr),
-            permission is Some ==> valid_frame_paddr(paddr),
+            permission is Some ==> paddr < MAX_PADDR,
             paddr % page_size::<C>(self.level()) == 0,
-            paddr + page_size::<C>(self.level()) <= ARCH_MAX_PADDR,
+            paddr + page_size::<C>(self.level()) <= CurrentArch::ARCH_MAX_PADDR,
             C::raw_item_well_formed((paddr, self.level(), prop, Tracked(permission))),
             C::E::new_page_req(paddr, self.level(), prop),
             self.path().push_tail(self.idx as int).inv(),
         ensures
-            final(regions).slot_owners == old(regions).slot_owners,
-            final(regions).slots == old(regions).slots,
-            // Allocating a child doesn't touch the segment obligation ledger.
             res.value() == EntryOwner::<C>::new_frame(
                 paddr,
                 self.path().push_tail(self.idx as int),

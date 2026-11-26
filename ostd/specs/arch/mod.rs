@@ -55,7 +55,7 @@ pub type CurrentArch = loongarch::LoongArch;
 
 /// A base-page-aligned physical address below the modeled architecture bound.
 pub open spec fn valid_arch_paddr(pa: Paddr) -> bool {
-    pa % PAGE_SIZE == 0 && pa < CurrentArch::arch_max_paddr_spec()
+    pa % PAGE_SIZE == 0 && pa < CurrentArch::ARCH_MAX_PADDR
 }
 
 /// A physical address that can identify a base-page frame on the selected architecture.
