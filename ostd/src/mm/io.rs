@@ -1292,15 +1292,6 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             ),
     ;
 
-    /// Reads requested data at a specified offset into a given `VmWriter`.
-    ///
-    /// # No short reads
-    ///
-    /// On success, the `writer` must be written with the requested data
-    /// completely. If, for any reason, the requested data is only partially
-    /// available, then the method shall return an error.
-    fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()>;
-
     /// Reads a specified number of bytes at a specified offset into a given buffer.
     ///
     /// # No short reads
