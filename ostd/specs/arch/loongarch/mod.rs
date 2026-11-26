@@ -29,8 +29,15 @@ verus! {
 /// Checks address bounds; MMU and direct-mapping-window setup remain unverified.
 pub ghost struct LoongArch;
 
+/// Exclusive upper bound for physical addresses allowed in leaf mappings.
+pub const LEAF_PADDR_END: Paddr = 0x0001_0000_0000_0000;
+
 impl ArchAddressSpaceModel for LoongArch {
     type C = PagingConsts;
+
+    open spec fn leaf_paddr_end_spec() -> Paddr {
+        LEAF_PADDR_END
+    }
 
     open spec fn max_paddr_spec() -> Paddr {
         MAX_PADDR

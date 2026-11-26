@@ -37,8 +37,15 @@ verus! {
 /// The x86 instance of the architecture-wide specification contract.
 pub ghost struct X86Arch;
 
+/// Exclusive upper bound for physical addresses allowed in leaf mappings.
+pub const LEAF_PADDR_END: Paddr = 0x0010_0000_0000_0000;
+
 impl ArchAddressSpaceModel for X86Arch {
     type C = crate::arch::mm::PagingConsts;
+
+    open spec fn leaf_paddr_end_spec() -> Paddr {
+        LEAF_PADDR_END
+    }
 
     open spec fn max_paddr_spec() -> Paddr {
         MAX_PADDR

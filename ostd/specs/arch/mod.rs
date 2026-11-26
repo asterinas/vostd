@@ -53,18 +53,8 @@ pub type CurrentArch = riscv::RiscvArch;
 #[cfg(target_arch = "loongarch64")]
 pub type CurrentArch = loongarch::LoongArch;
 
-/// Exclusive end of the physical address range encodable by a leaf PTE.
-#[cfg(target_arch = "x86_64")]
-pub const LEAF_PADDR_END: usize = 0x0010_0000_0000_0000;
-
-#[cfg(target_arch = "riscv64")]
-pub const LEAF_PADDR_END: usize = 0x0100_0000_0000_0000;
-
-#[cfg(target_arch = "loongarch64")]
-pub const LEAF_PADDR_END: usize = 0x0001_0000_0000_0000;
-
 pub open spec fn valid_leaf_paddr(pa: Paddr) -> bool {
-    pa % PAGE_SIZE == 0 && pa < LEAF_PADDR_END
+    pa % PAGE_SIZE == 0 && pa < CurrentArch::leaf_paddr_end_spec()
 }
 
 /// A physical address that can identify a base-page frame on the selected architecture.
