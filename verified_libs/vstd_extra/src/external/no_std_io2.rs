@@ -60,9 +60,13 @@ pub trait ExRead {
 
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
-    /// Describes successful reads; modeled readers may still return an error.
+    /// Sufficient for an Ok result on normal return; does not guarantee allocation or termination.
+    spec fn read_to_end_success_condition(&self) -> bool;
+
+    /// Data correctness and absence of a returned error are separate guarantees.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
+            old(self).read_to_end_success_condition() ==> result is Ok,
             Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
                 result matches Ok(count) ==> {
                     &&& count == plain.len()
@@ -80,6 +84,10 @@ impl ReadSpecImpl for &[u8] {
 
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         Some(self@)
+    }
+
+    open spec fn read_to_end_success_condition(&self) -> bool {
+        false
     }
 }
 

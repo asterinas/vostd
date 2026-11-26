@@ -13,7 +13,7 @@ use core::convert::TryFrom;
 use libflate::{gzip, zlib};
 
 /* libflate 2.3 uses no_std_io2. Origin Rust: use core2::io::Read; */
-use no_std_io2::io::{self, Read};
+use no_std_io2::io::Read;
 
 #[verus_verify]
 /* Verus requires public visibility. Origin Rust: enum MagicNumber { */
@@ -90,12 +90,9 @@ impl TryFrom<&[u8]> for MagicNumber {
     requires
         decoded_payload(payload@) is Some,
     ensures
-        result matches Ok(kernel) ==> Some(kernel@) == decoded_payload(payload@),
+        Some(result@) == decoded_payload(payload@),
 )]
-/* Propagate read errors because the reader contract does not guarantee success.
- * Origin Rust: pub fn decode_payload(payload: &[u8]) -> Vec<u8> {
- */
-pub fn decode_payload(payload: &[u8]) -> Result<Vec<u8>, io::Error> {
+pub fn decode_payload(payload: &[u8]) -> Vec<u8> {
     proof! {
         broadcast use group_libflate_models;
     }
@@ -114,23 +111,14 @@ pub fn decode_payload(payload: &[u8]) -> Result<Vec<u8>, io::Error> {
         }
         MagicNumber::Gzip => {
             let mut decoder = gzip::Decoder::new(payload).unwrap();
-            /* Let the boot caller handle read errors without assuming success.
-             * Origin Rust: decoder.read_to_end(&mut kernel).unwrap();
-             */
-            decoder.read_to_end(&mut kernel)?;
+            decoder.read_to_end(&mut kernel).unwrap();
         }
         MagicNumber::Zlib => {
             let mut decoder = zlib::Decoder::new(payload).unwrap();
-            /* Let the boot caller handle read errors without assuming success.
-             * Origin Rust: decoder.read_to_end(&mut kernel).unwrap();
-             */
-            decoder.read_to_end(&mut kernel)?;
+            decoder.read_to_end(&mut kernel).unwrap();
         }
     }
-    /* Return the successfully decoded bytes through the fallible interface.
-     * Origin Rust: kernel
-     */
-    Ok(kernel)
+    kernel
 }
 
 verus! {

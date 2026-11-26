@@ -227,6 +227,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ///
     /// The old child is returned.
     ///
+    /// # Panics
+    ///
+    /// The method panics if the level of the new child does not match the
+    /// current node.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: Both old and new owners must satisfy the respective safety invariants for an [Entry](Entry::invariants)

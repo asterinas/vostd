@@ -86,11 +86,32 @@ pub broadcast axiom fn axiom_zlib_reader_model<'a>()
         #[trigger] <zlib::Decoder<&'a [u8]> as ReadSpec>::obeys_reader_model(),
 ;
 
+// no_std_io2 0.9.4 uses Vec::reserve, so allocation failure does not return Err.
+// For valid libflate 2.3.2 streams backed by slices, decoding and checksum checks
+// cannot return a read error. std uses try_reserve and has no such guarantee.
+pub broadcast axiom fn axiom_gzip_slice_read_to_end_success(decoder: &gzip::Decoder<&[u8]>)
+    requires
+        !cfg!(feature = "std"),
+        gzip_remaining(decoder) is Some,
+    ensures
+        #[trigger] ReadSpec::read_to_end_success_condition(decoder),
+;
+
+pub broadcast axiom fn axiom_zlib_slice_read_to_end_success(decoder: &zlib::Decoder<&[u8]>)
+    requires
+        !cfg!(feature = "std"),
+        zlib_remaining(decoder) is Some,
+    ensures
+        #[trigger] ReadSpec::read_to_end_success_condition(decoder),
+;
+
 pub broadcast group group_libflate_models {
     axiom_gzip_writer_model,
     axiom_zlib_writer_model,
     axiom_gzip_reader_model,
     axiom_zlib_reader_model,
+    axiom_gzip_slice_read_to_end_success,
+    axiom_zlib_slice_read_to_end_success,
 }
 
 pub ghost struct EncoderState<W> {
@@ -205,6 +226,8 @@ impl<R: io::Read> ReadSpecImpl for gzip::Decoder<R> {
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         gzip_remaining(self)
     }
+
+    uninterp spec fn read_to_end_success_condition(&self) -> bool;
 }
 
 impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
@@ -213,6 +236,8 @@ impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
     open spec fn remaining_bytes(&self) -> Option<Seq<u8>> {
         zlib_remaining(self)
     }
+
+    uninterp spec fn read_to_end_success_condition(&self) -> bool;
 }
 
 pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (result: Result<

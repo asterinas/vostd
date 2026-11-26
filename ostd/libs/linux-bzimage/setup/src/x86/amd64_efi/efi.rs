@@ -94,10 +94,7 @@ fn efi_phase_boot(boot_params: &mut BootParams) {
 
     // Decode the payload and load it as an ELF file.
     uefi::println!("[EFI stub] Decoding the kernel payload");
-    /* Preserve boot failure on a read error now propagated by decode_payload.
-     * Origin Rust: let kernel = decode_payload(crate::x86::payload());
-     */
-    let kernel = decode_payload(crate::x86::payload()).unwrap();
+    let kernel = decode_payload(crate::x86::payload());
     uefi::println!("[EFI stub] Loading the payload as an ELF file");
     crate::loader::load_elf(&kernel);
 }
