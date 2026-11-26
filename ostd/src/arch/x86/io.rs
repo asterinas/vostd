@@ -114,17 +114,17 @@ pub(super) open spec fn expected_mmio_ranges(regions: Seq<MemoryRegion>) -> Seq<
     ensures
         ret@ == expected_mmio_ranges(boot_info@.memory_regions@),
         ret.has_registered_windows() == usize_ranges_match_registered(ret@),
-        low_mmio_start(boot_info@.memory_regions@) < 0x1_0000_0000
-            <= high_mmio_start(boot_info@.memory_regions@) < 0x8000_0000_0000,
-        low_mmio_start(boot_info@.memory_regions@) % 0x1000_0000 == 0,
-        high_mmio_start(boot_info@.memory_regions@) % 0x1_0000_0000 == 0,
+        ret@[0].start < ret@[0].end == 0x1_0000_0000 <= ret@[1].start < ret@[1].end
+            == 0x8000_0000_0000,
+        ret@[0].start % 0x1000_0000 == 0,
+        ret@[1].start % 0x1_0000_0000 == 0,
 )]
 pub(super) fn construct_io_mem_allocator_builder() -> IoMemAllocatorBuilder {
     // TODO: Add MMIO regions below 1MB (e.g., VGA framebuffer).
     /* Verus cannot reference `spin::Once` static `EARLY_INFO` directly.
      * Origin Rust: let regions = &crate::boot::EARLY_INFO.get().unwrap().memory_regions;
      */
-    let regions = &(#[verus_spec(with Tracked(Some(boot_info)))]
+    let regions = &(#[verus_spec(with Tracked(boot_info))]
     crate::boot::get_early_info())
     .unwrap()
     .memory_regions;
@@ -219,8 +219,7 @@ pub(super) fn construct_io_mem_allocator_builder() -> IoMemAllocatorBuilder {
     // TODO: Update the High MMIO region in runtime.
     const HIGH_MMIO_TOP: usize = 0x8000_0000_0000;
     const HIGH_MMIO_ALIGN: usize = 0x1_0000_0000;
-    /* Bind intermediate iterators and closures so Verus proofs can relate each stage's model.
-     * Origin Rust:
+    /* Origin Rust:
      * let (upper_half_base, upper_half_len) = reserved_filter
      *     .filter(|r| r.base() >= u32::MAX as usize)
      *     .max_by(|a, b| a.base().cmp(&b.base()))

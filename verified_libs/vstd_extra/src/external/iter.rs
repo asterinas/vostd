@@ -115,7 +115,8 @@ pub broadcast axiom fn axiom_iterator_max_postcondition<
 /// `max_by` calls `reduce(|x, y| if compare(&x, &y) == Ordering::Greater { x } else { y })`
 /// and therefore retains the last maximal element for any total-preorder comparator.
 /// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.max_by>.
-/// TODO: Upstream this model; remove it when equivalent vstd support is available.
+/// TODO: Upstream this model to `vstd::std_specs::iter::ExIterator` (relaxing `compare.requires`
+/// to yielded pairs once integrated there); remove it when equivalent vstd support is available.
 #[verifier::external_trait_specification]
 pub trait ExIteratorMaxBy {
     type ExternalTraitSpecificationFor: Iterator;
@@ -127,30 +128,11 @@ pub trait ExIteratorMaxBy {
         F: FnMut(&Self::Item, &Self::Item) -> Ordering,
 
         requires
-            (forall|x: &Self::Item, y: &Self::Item| #[trigger] compare.requires((x, y)))
-                || iterator_max_by_req(self, compare),
+            forall|x: &Self::Item, y: &Self::Item| #[trigger] compare.requires((x, y)),
         ensures
             iterator_max_by_post(self, compare, ret),
     ;
 }
-
-/// Indirect precondition for `Iterator::max_by` so `ExIteratorMaxBy` need not depend on `IteratorSpec`.
-pub uninterp spec fn iterator_max_by_req<I, F>(iter: I, compare: F) -> bool;
-
-/// Satisfies `Iterator::max_by`'s comparator precondition for any prophetic iterator whose
-/// comparator accepts every ordered pair of elements yielded by `iter`.
-pub broadcast axiom fn axiom_iterator_max_by_req<
-    I: Iterator + IteratorSpec,
-    F: FnMut(&I::Item, &I::Item) -> Ordering,
->(iter: I, compare: F)
-    requires
-        iter.obeys_prophetic_iter_laws(),
-        forall|i: int, j: int|
-            0 <= i < j < iter.remaining().len() && iter.produces()[i] && iter.produces()[j]
-                ==> #[trigger] compare.requires((&iter.remaining()[i], &iter.remaining()[j])),
-    ensures
-        #[trigger] iterator_max_by_req(iter, compare),
-;
 
 /// The postcondition is indirect so the external trait need not depend on its extension.
 pub uninterp spec fn iterator_max_by_post<I, F, A>(iter: I, compare: F, ret: Option<A>) -> bool;
@@ -187,6 +169,8 @@ pub open spec fn comparator_agrees_with_preorder<A, F: FnMut(&A, &A) -> Ordering
 /// Like `axiom_iterator_max_postcondition`, this trusts `obeys_prophetic_iter_laws()`
 /// for consistency of consuming methods with `next`. Ordering optimality additionally
 /// requires `comparator_agrees_with_preorder`.
+/// Currently instantiated only for `Filter<Filter<core::slice::Iter<'_, MemoryRegion>, _>, _>`,
+/// whose `Filter::{fold, try_fold}` overrides in Rust 1.100 agree with `next`.
 pub broadcast axiom fn axiom_iterator_max_by_postcondition<
     A,
     F: FnMut(&A, &A) -> Ordering,

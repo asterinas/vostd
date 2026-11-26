@@ -102,9 +102,7 @@ mod early_info_witness {
     verus! {
 
 /// Monotone witness that [`EARLY_INFO`] has been initialized with the modeled [`EarlyBootInfo`].
-///
-/// Kept in a private submodule with a private field and no verified constructor so neither
-/// `crate::boot` nor child modules such as `crate::boot::memory_region` can forge a witness.
+/// Minted by the boot entry after initializing `EARLY_INFO` (out of scope here; all current callers are unverified).
 pub(crate) tracked struct EarlyBootInfoInit {
     ghost info: EarlyBootInfo,
 }
@@ -119,19 +117,17 @@ impl View for EarlyBootInfoInit {
 
 } // verus!
 }
+
 pub(crate) use early_info_witness::EarlyBootInfoInit;
-/* Isolates `spin::Once` static `EARLY_INFO`, which Verus cannot reference in specifications.
- * Origin Rust: <none; new executable code>
- */
-/// Returns the boot-time information published in [`EARLY_INFO`], if initialized.
-///
-/// This helper is trusted only because Verus cannot mention the `spin::Once` static
-/// [`EARLY_INFO`] directly in specifications or track its write-once initialization state.
+
+/* Origin Rust: <none; new executable code> */
+/// Returns the initialized boot-time information published in [`EARLY_INFO`].
+/// Trusted: Verus cannot track the write-once state of the `spin::Once` static.
 #[verifier::external_body]
 #[verus_spec(ret =>
-    with Tracked(init): Tracked<Option<&EarlyBootInfoInit>>
+    with Tracked(init): Tracked<&EarlyBootInfoInit>
     ensures
-        init matches Some(w) ==> ret matches Some(info) && *info == w@,
+        ret matches Some(info) && *info == init@,
     opens_invariants none
     no_unwind
 )]

@@ -14,7 +14,7 @@ use crate::{boot::EarlyBootInfoInit, mm::kspace::LINEAR_MAPPING_BASE_VADDR};
 use core::ptr::NonNull;
 
 use acpi::{AcpiHandler, AcpiTables, rsdp::Rsdp};
-use log::warn;
+/* use log::warn; */
 
 use crate::{
     boot::{self, BootloaderAcpiArg},
@@ -86,9 +86,7 @@ pub struct AcpiMemoryHandler {}
 
 #[verus_verify]
 impl AcpiHandler for AcpiMemoryHandler {
-    // Declaring `map_physical_region` in `ExAcpiHandler` triggers a Verus `recursive_types.rs`
-    // SCC cycle through `PhysicalMapping::<Self, T>::new`, so this method uses
-    // `assume_compatibility_with_trait_spec` to carry its concrete contract.
+    // Trusted: see `ExAcpiHandler` for why this contract bypasses the trait spec.
     #[verifier::assume_compatibility_with_trait_spec]
     #[verus_spec(ret =>
         requires
@@ -109,7 +107,7 @@ impl AcpiHandler for AcpiMemoryHandler {
         proof! {
             assert(LINEAR_MAPPING_BASE_VADDR > 0) by (compute_only);
         }
-        /* Verus does not support casting `usize` directly to generic `*mut T`.
+        /* Verus does not support casting `usize` directly to `*mut T`.
          * Origin Rust: let virtual_address = NonNull::new(paddr_to_vaddr(physical_address) as *mut T).unwrap();
          */
         let virtual_address = NonNull::new(core::ptr::with_exposed_provenance_mut::<T>(
@@ -128,18 +126,6 @@ impl AcpiHandler for AcpiMemoryHandler {
     }
 
     fn unmap_physical_region<T>(_region: &acpi::PhysicalMapping<Self, T>) {}
-}
-
-/* Isolates `log::warn!`, which expands to `log::__private_api::log` with a private trait bound.
- * Origin Rust: <none; new executable code>
- */
-/// Logs that no ACPI information was found during BIOS RSDP search.
-///
-/// Trusted only because `log::warn!` expands to `log::__private_api::log` with a private trait bound.
-#[verifier::external_body]
-#[verus_verify]
-fn warn_acpi_not_found() {
-    warn!("ACPI info not found!");
 }
 
 #[verus_spec(ret =>
@@ -161,7 +147,7 @@ pub(crate) fn get_acpi_tables() -> Option<AcpiTables<AcpiMemoryHandler>> {
     /* Verus cannot reference `spin::Once` static `EARLY_INFO` directly.
      * Origin Rust: let acpi_tables = match boot::EARLY_INFO.get().unwrap().acpi_arg {
      */
-    let acpi_tables = match (#[verus_spec(with Tracked(Some(boot_info)))]
+    let acpi_tables = match (#[verus_spec(with Tracked(boot_info))]
     boot::get_early_info())
     .unwrap()
     .acpi_arg
@@ -183,10 +169,7 @@ pub(crate) fn get_acpi_tables() -> Option<AcpiTables<AcpiMemoryHandler>> {
                     AcpiTables::from_rsdp(AcpiMemoryHandler {}, map.physical_start()).unwrap()
                 },
                 Err(_) => {
-                    /* `log::warn!` expands to `log::__private_api::log`, which Verus cannot verify directly.
-                     * Origin Rust: warn!("ACPI info not found!");
-                     */
-                    warn_acpi_not_found();
+                    /* warn!("ACPI info not found!"); */
                     return None;
                 }
             }
