@@ -27,6 +27,7 @@ use vstd_extra::ownership::*;
 
 use crate::specs::mm::page_table::*;
 
+use crate::cpu::cpu_count;
 use crate::mm::{Paddr, Vaddr};
 
 verus! {
@@ -58,7 +59,7 @@ impl FlushSet {
 }
 
 /// The address space that a TLB entry is tagged with.
-pub ghost enum AsId {
+pub ghost enum AddrSpaceId {
     /// Global entries. The model does not invalidate them on address-space
     /// switches or `TlbFlushOp::All`, although some architectures do.
     Kernel,
@@ -67,20 +68,21 @@ pub ghost enum AsId {
 }
 
 pub ghost struct TlbEntry {
-    pub asid: AsId,
+    pub asid: AddrSpaceId,
     pub map: Mapping,
 }
 
-/// An abstract CPU index. It is connected to `CpuId` by the code that owns
-/// the per-CPU resources, not by this model.
-pub type CpuIdx = nat;
+/// A CPU index: the view of a [`CpuId`], which lies in `0..cpu_count()`.
+///
+/// [`CpuId`]: crate::cpu::CpuId
+pub type CpuIdx = int;
 
 /// The state of one CPU's TLB, as an upper bound on what it may cache.
 pub ghost struct CpuTlbState {
     /// The user address space installed in CR3 or `satp`, if any.
-    pub active: Option<AsId>,
+    pub active: Option<AddrSpaceId>,
     /// The address spaces that may have entries cached on this CPU.
-    pub resident: Set<AsId>,
+    pub resident: Set<AddrSpaceId>,
     /// The entries that may be cached although their page tables no longer
     /// contain them.
     pub stale: Set<TlbEntry>,
@@ -88,7 +90,7 @@ pub ghost struct CpuTlbState {
 
 impl Inv for CpuTlbState {
     open spec fn inv(self) -> bool {
-        &&& self.resident.contains(AsId::Kernel)
+        &&& self.resident.contains(AddrSpaceId::Kernel)
         &&& self.active matches Some(asid) ==> self.resident.contains(asid)
         &&& forall|e: TlbEntry| #[trigger]
             self.stale.contains(e) ==> e.map.inv() && self.resident.contains(e.asid)
@@ -116,27 +118,22 @@ impl CpuTlb {
     }
 }
 
-/// The tracked TLBs of all CPUs, `0..num_cpus()`.
+/// The tracked TLBs of all CPUs, one for each `CpuId` in `0..cpu_count()`.
 pub tracked struct TlbModel {
-    ghost num_cpus: nat,
     tracked cpus: Map<CpuIdx, CpuTlb>,
 }
 
 impl Inv for TlbModel {
     closed spec fn inv(self) -> bool {
-        &&& forall|c: CpuIdx| #[trigger] self.cpus.contains_key(c) <==> c < self.num_cpus
+        &&& forall|c: CpuIdx| #[trigger] self.cpus.contains_key(c) <==> 0 <= c < cpu_count()
         &&& forall|c: CpuIdx|
             #![trigger self.cpus[c]]
-            c < self.num_cpus ==> self.cpus[c].cpu() == c && self.cpus[c]@.inv()
+            0 <= c < cpu_count() ==> self.cpus[c].cpu() == c && self.cpus[c]@.inv()
     }
 }
 
 impl TlbModel {
-    pub closed spec fn num_cpus(self) -> nat {
-        self.num_cpus
-    }
-
-    /// The TLB state of CPU `c`.
+    /// The TLB state of CPU `c`, the view of a `CpuId`.
     pub closed spec fn cpu_state(self, c: CpuIdx) -> CpuTlbState {
         self.cpus[c]@
     }
@@ -144,7 +141,7 @@ impl TlbModel {
     /// No CPU caches an entry that its page table no longer backs.
     pub open spec fn coherent(self) -> bool {
         forall|c: CpuIdx, e: TlbEntry|
-            c < self.num_cpus() ==> !#[trigger] self.cpu_state(c).stale.contains(e)
+            0 <= c < cpu_count() ==> !#[trigger] self.cpu_state(c).stale.contains(e)
     }
 }
 
