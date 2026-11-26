@@ -75,7 +75,7 @@ impl<T: 'static> StaticStorage<T> {
     #[verus_verify(external_body)]
     #[verus_spec(ret =>
         requires
-            vstd::layout::align_of::<T>() <= PAGE_SIZE,
+            align_of::<T>() <= PAGE_SIZE,
         ensures
             ret.addr() != 0,
             ret.addr() % align_of::<T>() == 0,
@@ -169,7 +169,7 @@ impl<T: 'static> CpuLocal<T, StaticStorage<T>> {
     /// This method is safe, but using the returned pointer will be unsafe.
     #[verus_spec(ret =>
         requires
-            vstd::layout::align_of::<T>() <= PAGE_SIZE,
+            align_of::<T>() <= PAGE_SIZE,
         ensures
             ret.addr() != 0,
             ret.addr() % align_of::<T>() == 0,

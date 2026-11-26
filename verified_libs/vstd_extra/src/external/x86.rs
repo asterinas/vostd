@@ -299,7 +299,8 @@ pub assume_specification[ TaskStateSegment::new ]() -> TaskStateSegment
 ;
 
 /// [`Descriptor::tss_segment_unchecked`](https://docs.rs/x86_64/0.15.5/x86_64/structures/gdt/enum.Descriptor.html#method.tss_segment_unchecked).
-/// Trusted boundary: live-memory dereference of `(*tss).iomap_base` and `'static` lifetime remain unmodeled unsafe caller obligations.
+/// Trusted boundary: live-memory dereference of `(*tss).iomap_base` and `'static` lifetime
+/// remain unmodeled unsafe caller obligations.
 pub assume_specification[ Descriptor::tss_segment_unchecked ](tss: *const TaskStateSegment) -> (ret:
     Descriptor)
     requires
@@ -322,7 +323,7 @@ pub assume_specification[ Descriptor::tss_segment_unchecked ](tss: *const TaskSt
 ;
 
 /// [`lgdt`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tables/fn.lgdt.html).
-/// Requires clauses encode the Intel SDM `LGDT` canonical base and integral 8-byte descriptor limit.
+/// Requires clauses encode Intel SDM `LGDT` canonical base and integral 8-byte descriptor limit.
 pub assume_specification[ lgdt ](gdt: &DescriptorTablePointer)
     requires
         is_canonical_vaddr(virt_addr_as_u64(gdt.base)),
@@ -332,7 +333,7 @@ pub assume_specification[ lgdt ](gdt: &DescriptorTablePointer)
 ;
 
 /// [`load_tss`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tables/fn.load_tss.html).
-/// Requires clauses encode the Intel SDM `LTR` non-null GDT selector constraint (index != 0, TI = 0).
+/// Requires clauses encode Intel SDM `LTR` non-null GDT selector constraints (index != 0, TI = 0).
 pub assume_specification[ load_tss ](sel: SegmentSelector)
     requires
         sel.index() != 0,
@@ -342,7 +343,7 @@ pub assume_specification[ load_tss ](sel: SegmentSelector)
 ;
 
 /// [`Star::write_raw`](https://docs.rs/x86_64/0.15.5/x86_64/registers/model_specific/struct.Star.html#method.write_raw).
-/// Requires clauses encode the Intel SDM `SYSRET`/`SYSCALL` GDT selector layout and RPL obligations.
+/// Requires clauses encode Intel SDM `SYSRET`/`SYSCALL` GDT selector layout and RPL obligations.
 pub assume_specification[ Star::write_raw ](sysret: u16, syscall: u16)
     requires
         (sysret & 0x7u16) == 3u16,

@@ -70,8 +70,6 @@ extern "C" {
     fn __cpu_local_end();
 }
 
-verus! {
-
 /// A trait to abstract any type that can be used as a slot for a CPU-local
 /// variable of type `T`.
 ///
@@ -82,6 +80,7 @@ verus! {
 ///
 /// The implementor must ensure that the returned pointer refers to the
 /// variable on the correct CPU.
+#[verus_verify]
 pub unsafe trait AnyStorage<T> {
     /// Gets the `const` pointer for the object on the current CPU.
     fn get_ptr_on_current(&self, guard: &DisabledLocalIrqGuard) -> *const T;
@@ -102,12 +101,12 @@ pub unsafe trait AnyStorage<T> {
 /// reference to the inner object, the object is always the one in the original
 /// core (when the reference is created), no matter which core the code is
 /// currently running on.
+#[verus_verify]
 pub struct CpuLocal<T, S: AnyStorage<T>> {
     storage: S,
     phantom: PhantomData<T>,
 }
 
-} // verus!
 /*impl<T: 'static, S: AnyStorage<T>> CpuLocal<T, S> {
     /// Gets access to the underlying value on the current CPU with a
     /// provided IRQ guard.
@@ -163,6 +162,7 @@ impl<'a, T: 'static, S: AnyStorage<T>> Deref for CpuLocalDerefGuard<'a, T, S> {
         unsafe { &*ptr }
     }
 }*/
+
 // SAFETY: Although multiple tasks may access the inner value `T` of a CPU-local
 // variable at different times, only one task can access it at any given moment.
 // We guarantee it by disabling the reference to the inner value, or turning off
