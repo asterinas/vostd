@@ -930,6 +930,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
     type Item = Frame<M>;
 
     #[verifier::rlimit(200)]
+    #[verifier::spinoff_prover]
     fn next(&mut self) -> Option<Self::Item> {
         proof {
             // This is a verification limitation that the `#[verifier::type_invariant]` can not be broken.
