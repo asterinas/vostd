@@ -14,7 +14,7 @@ use vstd::{
     pervasive::trigger,
     prelude::*,
 };
-use vstd_extra::{panic::*, prelude::*};
+use vstd_extra::prelude::*;
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a
@@ -113,10 +113,9 @@ macro_rules! impl_align_ext {
                 #[verus_spec(ret =>
                     requires
                         self + (align - 1) <= $uint_type::MAX,
-                        allowed_to_panic_if(!(align >= 2 && is_pow2(align as int))),
-                    ensures
                         align >= 2,
                         is_pow2(align as int),
+                    ensures
                         ret >= self,
                         ret % align == 0,
                         ret == nat_align_up(self as nat, align as nat),
@@ -178,10 +177,9 @@ macro_rules! impl_align_ext {
                 #[inline]
                 #[verus_spec(ret =>
                     requires
-                        allowed_to_panic_if(!(is_pow2(align as int) && align >= 2)),
-                    ensures
                         align >= 2,
                         is_pow2(align as int),
+                    ensures
                         ret <= self,
                         ret % align == 0,
                         ret == nat_align_down(self as nat, align as nat),

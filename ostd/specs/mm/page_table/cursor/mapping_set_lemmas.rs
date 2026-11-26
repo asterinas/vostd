@@ -670,6 +670,45 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
+    /// Looking up the cursor's address from the root follows the restored cursor path.
+    pub proof fn lemma_query_leaf_from_root(self)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+        ensures
+            self.as_page_table_owner().query_leaf(self.va) == PageTableOwner(
+                self.cur_subtree(),
+            ).query_leaf(self.va),
+    {
+        self.lemma_query_leaf_through_level(C::NR_LEVELS);
+    }
+
+    proof fn lemma_query_leaf_through_level(self, level: PagingLevel)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            self.level <= level <= C::NR_LEVELS,
+        ensures
+            self.restore_to_level(level).as_page_table_owner().query_leaf(self.va)
+                == PageTableOwner(self.cur_subtree()).query_leaf(self.va),
+        decreases level,
+    {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
+        self.lemma_restore_to_level(level);
+        let cont = self.restore_to_level(level);
+        cont.as_subtree_inv();
+        assert(cont.idx == pte_index_spec::<C>(self.va, level));
+        if level > self.level {
+            let child_level = (level - 1) as PagingLevel;
+            self.lemma_query_leaf_through_level(child_level);
+            assert(cont.child() == self.restore_to_level(child_level).as_subtree());
+        } else {
+            assert(cont.child() == self.cur_subtree());
+        }
+        reveal_with_fuel(PageTableOwner::query_leaf, 1);
+    }
+
     // Isolate address-range geometry from the caller's mapping-set algebra.
     #[verifier::spinoff_prover]
     proof fn lemma_higher_mapping_disjoint_from_lowest(self, i: int, m: Mapping)
