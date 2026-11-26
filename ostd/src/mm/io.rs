@@ -1035,8 +1035,12 @@ impl<'a> VmReader<'a, Infallible> {
 
 #[verus_verify]
 impl<'a> VmReader<'a, Fallible> {
-    /// Constructs a [`VmReader`] from a pointer and a length, which represents
-    /// a memory range in USER space.
+    /// Constructs a `VmReader` from a pointer and a length, which represents
+    /// a memory range in user space.
+    ///
+    /// # Safety
+    ///
+    /// The virtual address range `ptr..ptr + len` must be in user space.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -1288,6 +1292,72 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             ),
     ;
 
+    /// Reads requested data at a specified offset into a given `VmWriter`.
+    ///
+    /// # No short reads
+    ///
+    /// On success, the `writer` must be written with the requested data
+    /// completely. If, for any reason, the requested data is only partially
+    /// available, then the method shall return an error.
+    fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()>;
+
+    /// Reads a specified number of bytes at a specified offset into a given buffer.
+    ///
+    /// # No short reads
+    ///
+    /// Similar to [`read`].
+    ///
+    /// [`read`]: VmIo::read
+    fn read_bytes(&self, offset: usize, buf: &mut [u8], Tracked(owner): Tracked<&mut P>) -> (r:
+        Result<()>)
+        requires
+            !Self::obeys_vmio_read_requires(),
+    {
+        proof_decl! {
+            let tracked mut writer_own_inner: VmIoOwner;
+        }
+        #[verus_spec(with => Tracked(writer_own_inner))]
+        let infallible_writer = VmWriter::from(buf);
+        let mut writer = infallible_writer.to_fallible();
+        self.read(offset, &mut writer, Tracked(&mut writer_own_inner), Tracked(owner))
+    }
+
+    /// Reads a value of a specified type at a specified offset.
+    fn read_val<T: Pod>(&self, offset: usize, Tracked(owner): Tracked<&mut P>) -> (r: Result<T>)
+        requires
+            !Self::obeys_vmio_read_requires(),
+    {
+        let mut val = T::new_uninit();
+        match self.read_bytes(offset, val.as_bytes_mut(), Tracked(owner)) {
+            Ok(_) => Ok(val),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Reads a slice of a specified type at a specified offset.
+    ///
+    /// # No short reads
+    ///
+    /// Similar to [`read`].
+    ///
+    /// [`read`]: VmIo::read
+    fn read_slice<T: Pod>(
+        &self,
+        offset: usize,
+        slice: &mut [T],
+        Tracked(owner): Tracked<&mut P>,
+    ) -> (r: Result<()>)
+        requires
+            !Self::obeys_vmio_read_requires(),
+    {
+        let len_in_bytes = core::mem::size_of_val(slice);
+        let ptr = slice.as_mut_ptr() as *mut u8;
+        // SAFETY: the slice can be transmuted to a writable byte slice since
+        // the elements are all Plain-Old-Data (Pod) types.
+        let buf = unsafe { core::slice::from_raw_parts_mut(ptr, len_in_bytes) };
+        self.read_bytes(offset, buf, Tracked(owner))
+    }
+
     /// Writes all data from a given `VmReader` at a specified offset.
     ///
     /// # No short writes
@@ -1324,62 +1394,13 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             ),
     ;
 
-    /// Reads a specified number of bytes at a specified offset into a given buffer.
-    ///
-    /// Wraps `buf` in a [`VmWriter`] (whose tracked owner is minted internally
-    /// from the slice via [`VmWriter::from`]) and delegates to [`Self::read`].
-    /// The shallow contract here only forwards the result; impls with non-trivial
-    /// `read_requires` must override.
-    fn read_bytes(&self, offset: usize, buf: &mut [u8], Tracked(owner): Tracked<&mut P>) -> (r:
-        Result<()>)
-        requires
-            !Self::obeys_vmio_read_requires(),
-    {
-        proof_decl! {
-            let tracked mut writer_own_inner: VmIoOwner;
-        }
-        #[verus_spec(with => Tracked(writer_own_inner))]
-        let infallible_writer = VmWriter::from(buf);
-        let mut writer = infallible_writer.to_fallible();
-        self.read(offset, &mut writer, Tracked(&mut writer_own_inner), Tracked(owner))
-    }
-
-    /// Reads a value of a specified type at a specified offset.
-    fn read_val<T: Pod>(&self, offset: usize, Tracked(owner): Tracked<&mut P>) -> (r: Result<T>)
-        requires
-            !Self::obeys_vmio_read_requires(),
-    {
-        let mut val = T::new_uninit();
-        match self.read_bytes(offset, val.as_bytes_mut(), Tracked(owner)) {
-            Ok(_) => Ok(val),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Reads a slice of a specified type at a specified offset.
-    fn read_slice<T: Pod>(
-        &self,
-        offset: usize,
-        slice: &mut [T],
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
-        requires
-            !Self::obeys_vmio_read_requires(),
-    {
-        let len_in_bytes = core::mem::size_of_val(slice);
-        let ptr = slice.as_mut_ptr() as *mut u8;
-        // SAFETY: the slice can be transmuted to a writable byte slice since
-        // the elements are all Plain-Old-Data (Pod) types.
-        let buf = unsafe { core::slice::from_raw_parts_mut(ptr, len_in_bytes) };
-        self.read_bytes(offset, buf, Tracked(owner))
-    }
-
     /// Writes a specified number of bytes from a given buffer at a specified offset.
     ///
-    /// Wraps `buf` in a [`VmReader`] (whose tracked owner is minted internally
-    /// from the slice via [`VmReader::from`]) and delegates to [`Self::write`].
-    /// The shallow contract here only forwards the result; impls with non-trivial
-    /// `write_requires` must override.
+    /// # No short writes
+    ///
+    /// Similar to [`write`].
+    ///
+    /// [`write`]: VmIo::write
     fn write_bytes(&self, offset: usize, buf: &[u8], Tracked(owner): Tracked<&mut P>) -> (r: Result<
         (),
     >)
@@ -1820,9 +1841,16 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
 
 #[verus_verify]
 impl<'a> VmWriter<'a, Fallible> {
-    /// Constructs a [`VmWriter`] from a pointer and a length, which represents
-    /// a memory range in USER space.
+    /// Constructs a `VmWriter` from a pointer and a length, which represents
+    /// a memory range in user space.
     ///
+    /// The current context should be consistently associated with valid user space during the
+    /// entire lifetime `'a`. This is for correct semantics and is not a safety requirement.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be in user space for `len` bytes.
+    /// 
     /// # Verified Properties
     /// ## Preconditions
     /// - `ptr` must satisfy [`VirtPtr::inv`].

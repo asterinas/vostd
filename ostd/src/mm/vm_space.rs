@@ -351,9 +351,12 @@ impl VmSpace {
 
     /// Creates a reader to read data from the user space of the current task.
     ///
-    /// Returns [`Err`] if this [`VmSpace`] is not the user space of the current task
-    /// or the `vaddr` and `len` do not represent a valid user space memory range.
+    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    /// or the `vaddr` and `len` do not represent a user space memory range.
     ///
+    /// Users must ensure that no other page table is activated in the current task during the
+    /// lifetime of the created `VmReader`. This guarantees that the `VmReader` can operate correctly.
+    /// 
     /// # Verified Properties
     /// ## Preconditions
     /// - The [`VmSpaceOwner`] invariant must hold.
@@ -1489,6 +1492,10 @@ impl<'a> CursorMut<'a> {
     /// make the decision yourself on when and how to flush the TLB using
     /// [`Self::flusher`].
     ///
+    /// # Panics
+    ///
+    /// Panics if the length is longer than the remaining range of the cursor.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: The page table cursor safety invariants
@@ -1500,8 +1507,6 @@ impl<'a> CursorMut<'a> {
     /// ## Postconditions
     /// - **Correctness**: If the metadata region was well-formed before the call, it will be
     ///   well-formed after.
-    /// ## Panics
-    /// Panics if the length is longer than the remaining range of the cursor.
     /// ## Safety
     /// - From a soundness perspective changing a userspace page's `prop` field is safe.
     #[verus_spec(r =>

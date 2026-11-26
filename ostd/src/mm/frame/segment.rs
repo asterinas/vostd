@@ -585,6 +585,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// The resulting frames cannot be empty. So the offset cannot be neither
     /// zero nor the length of the frames.
     ///
+    /// # Panics
+    ///
+    /// The function panics if the offset is out of bounds, at either ends, or
+    /// not base-page-aligned.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - the segment must satisfy its invariant;
@@ -656,6 +661,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// The sliced byte offset range in indexed by the offset from the start of
     /// the contiguous frames. The resulting frames holds extra reference counts.
+    ///
+    /// # Panics
+    ///
+    /// The function panics if the byte offset range is out of bounds, or if
+    /// any of the ends of the byte offset range is not base-page aligned.
     ///
     /// # Verified Properties
     /// ## Postconditions
