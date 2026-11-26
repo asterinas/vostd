@@ -238,7 +238,6 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             Self::cursor_new_input_valid(*va)
                 ==> Self::cursor_new_success_conditions(*va),
             pt_own.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -2096,7 +2095,6 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             Cursor::<C>::cursor_new_input_valid(*va)
                 ==> Cursor::<C>::cursor_new_success_conditions(*va),
             pt_own.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -3370,14 +3368,18 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         frag
     }
 
-    /// Applies a property-changing operation to the next mapped frame in the range.
+    /// Applies the operation to the next slot of mapping within the range.
     ///
-    /// Scans forward from the cursor's current position through up to `len`
-    /// bytes looking for a mapped frame (using `find_next_impl` with
-    /// `split_huge = true`). If found, applies `op` to the frame's
-    /// [`PageProperty`], advances the cursor past it, and returns the
-    /// protected VA range. If no mapped frame exists in the range, returns
-    /// `None` and the cursor advances past the search window.
+    /// The range to be found in is the current virtual address with the
+    /// provided length.
+    ///
+    /// The function stops and yields the actually protected range if it has
+    /// actually protected a page, no matter if the following pages are also
+    /// required to be protected.
+    ///
+    /// It also makes the cursor moves forward to the next page after the
+    /// protected one. If no mapped pages exist in the following range, the
+    /// cursor will stop at the end of the range and return [`None`].
     ///
     /// # Safety
     ///
@@ -3385,7 +3387,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     ///  - the range being protected with the operation does not affect
     ///    kernel's memory safety;
     ///  - the privileged flag `AVAIL1` should not be altered if in the kernel
-    ///    page table (the restriction may be lifted in the future).
+    ///    page table (the restriction may be lifted in the futures).
     ///
     /// # Panics
     ///

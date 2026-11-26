@@ -111,8 +111,13 @@ impl<M: AnyUFrameMeta + ?Sized> SimpleResourceInvariant<
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     /// Creates a coherent DMA mapping backed by `segment`.
     ///
-    /// The `is_cache_coherent` argument specifies whether the target device can
-    /// access main memory in a CPU-cache-coherent way.
+    /// The `is_cache_coherent` argument specifies whether
+    /// the target device that the DMA mapping is prepared for
+    /// can access the main memory in a CPU cache coherent way
+    /// or not.
+    ///
+    /// The method fails if any part of the given `segment`
+    /// already belongs to a DMA mapping.
     #[verus_spec(r =>
         requires
             segment.inv(),
