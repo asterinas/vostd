@@ -1727,15 +1727,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             C::lemma_paging_consts_properties();
             C::lemma_page_table_config_constant_properties();
         }
-        /* Inline the removed Option extension, preserving its panic path.
-         * Origin Rust: let taken = self.path[self.level as usize - 1].take().unwrap_or_panic();
-         */
-        let taken = match self.path[self.level as usize - 1].take() {
-            Some(guard) => guard,
-            None => {
-                vstd::vpanic!("");
-            },
-        };
+        let taken = self.path[self.level as usize - 1].take().expect(
+            "Popping a level without a lock",
+        );
         proof {
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
