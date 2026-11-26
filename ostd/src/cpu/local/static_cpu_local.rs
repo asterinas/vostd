@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Statically-allocated CPU-local objects.
-use vstd::{layout::align_of, prelude::*};
+use vstd::prelude::*;
+
+use crate::mm::PAGE_SIZE;
 
 use core::marker::PhantomData;
 
@@ -63,27 +65,20 @@ macro_rules! cpu_local {
 #[verus_verify]
 pub struct StaticStorage<T: 'static>(T);
 
-/* Specialized `!Send` on `CpuLocal<T, StaticStorage<T>>` is rejected by rustc (E0366);
- * enforce `!Send` on `StaticStorage<T>` instead.
- * Origin Rust: impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
- */
 impl<T: 'static> !Send for StaticStorage<T> {}
 
 impl<T: 'static> StaticStorage<T> {
     /// Gets access to the underlying value through a raw pointer.
     ///
     /// This method is safe, but using the returned pointer will be unsafe.
-    // Trusted linker/hardware boundary: computes the current CPU's static
-    // CPU-local address from `arch::cpu::local::get_base()`, `&self`, and the
-    // linker symbols `__cpu_local_start`/`__cpu_local_end`. Relies on
-    // `CpuLocal::__new_static`'s `.cpu_local` placement safety contract and
-    // boot-time CPU-local base setup; `no_unwind` is omitted because
-    // `debug_assert!` can panic if those invariants are violated.
+    // Trusted: CPU-local base register and linker-symbol address arithmetic.
     #[verus_verify(external_body)]
     #[verus_spec(ret =>
+        requires
+            vstd::layout::align_of::<T>() <= PAGE_SIZE,
         ensures
             ret.addr() != 0,
-            ret.addr() as nat % align_of::<T>() == 0,
+            ret.addr() % align_of::<T>() == 0,
         opens_invariants none
     )]
     fn as_ptr(&self) -> *const T {
@@ -173,9 +168,11 @@ impl<T: 'static> CpuLocal<T, StaticStorage<T>> {
     ///
     /// This method is safe, but using the returned pointer will be unsafe.
     #[verus_spec(ret =>
+        requires
+            vstd::layout::align_of::<T>() <= PAGE_SIZE,
         ensures
             ret.addr() != 0,
-            ret.addr() as nat % align_of::<T>() == 0,
+            ret.addr() % align_of::<T>() == 0,
         opens_invariants none
     )]
     pub(crate) fn as_ptr(&self) -> *const T {

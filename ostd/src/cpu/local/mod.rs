@@ -35,7 +35,7 @@
 // [`crate::cpu_local_cell!`]) is that the CPU-local objects can be shared
 // across CPUs. While through a CPU-local cell object you can only access the
 // value on the current CPU, therefore enabling inner mutability without locks.
-use vstd::{layout::align_of, prelude::*};
+use vstd::prelude::*;
 
 /*mod cell;
 mod dyn_cpu_local;*/
@@ -83,44 +83,18 @@ verus! {
 /// The implementor must ensure that the returned pointer refers to the
 /// variable on the correct CPU.
 pub unsafe trait AnyStorage<T> {
-    /// Whether this storage supports [`Self::get_mut_ptr_on_target`] without panicking.
-    ///
-    /// Defaults to `false` because static storage (`StaticStorage<T>`) does not
-    /// support per-CPU mutable initialization pointers.
-    open spec fn supports_mut_ptr_on_target() -> bool {
-        false
-    }
-
     /// Gets the `const` pointer for the object on the current CPU.
-    fn get_ptr_on_current(&self, guard: &DisabledLocalIrqGuard) -> (ret: *const T)
-        ensures
-            ret.addr() != 0,
-            ret.addr() as nat % align_of::<T>() == 0,
-    ;
+    fn get_ptr_on_current(&self, guard: &DisabledLocalIrqGuard) -> *const T;
 
     /// Gets the `const` pointer for the object on a target CPU.
-    fn get_ptr_on_target(&self, cpu: CpuId) -> (ret: *const T)
-        ensures
-            ret.addr() != 0,
-            ret.addr() as nat % align_of::<T>() == 0,
-    ;
+    fn get_ptr_on_target(&self, cpu: CpuId) -> *const T;
 
     /// Gets the `mut` pointer for the object on a target CPU.
     ///
     /// This method is intended for use when initializing or dropping the storage.
-    /// Implementations for which [`Self::supports_mut_ptr_on_target`] is `false`
-    /// (such as `StaticStorage<T>`) panic if called.
-    fn get_mut_ptr_on_target(&mut self, cpu: CpuId) -> (ret: *mut T)
-        requires
-            Self::supports_mut_ptr_on_target(),
-        ensures
-            ret.addr() != 0,
-            ret.addr() as nat % align_of::<T>() == 0,
-            &*final(self) == &*old(self),
-    ;
+    fn get_mut_ptr_on_target(&mut self, cpu: CpuId) -> *mut T;
 }
 
-} // verus!
 /// A CPU-local variable for type `T`, backed by a storage of type `S`.
 ///
 /// CPU-local objects are instantiated once per CPU core. They can be shared to
@@ -128,14 +102,13 @@ pub unsafe trait AnyStorage<T> {
 /// reference to the inner object, the object is always the one in the original
 /// core (when the reference is created), no matter which core the code is
 /// currently running on.
-#[verus_verify]
 pub struct CpuLocal<T, S: AnyStorage<T>> {
     storage: S,
     phantom: PhantomData<T>,
 }
 
-/*
-impl<T: 'static, S: AnyStorage<T>> CpuLocal<T, S> {
+} // verus!
+/*impl<T: 'static, S: AnyStorage<T>> CpuLocal<T, S> {
     /// Gets access to the underlying value on the current CPU with a
     /// provided IRQ guard.
     ///
@@ -189,9 +162,7 @@ impl<'a, T: 'static, S: AnyStorage<T>> Deref for CpuLocalDerefGuard<'a, T, S> {
         // creating an immutable borrow here is valid.
         unsafe { &*ptr }
     }
-}
-*/
-
+}*/
 // SAFETY: Although multiple tasks may access the inner value `T` of a CPU-local
 // variable at different times, only one task can access it at any given moment.
 // We guarantee it by disabling the reference to the inner value, or turning off
@@ -211,15 +182,14 @@ impl<T: 'static, S: AnyStorage<T>> !Clone for CpuLocal<T, S> {}
 
 // In general, it does not make any sense to send instances of static `CpuLocal`
 // to other tasks as they should live on other CPUs to make sending useful.
-/* Specialized `!Send` is rejected on current rustc (E0366); enforced on `StaticStorage<T>` instead.
+/* rustc rejects specialized `!Send` (E0366); `!Send` moved to `StaticStorage<T>`.
  * Origin Rust: impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
  */
 
 /// The static CPU-local areas for APs.
 static CPU_LOCAL_STORAGES: Once<&'static [Paddr]> = Once::new();
 
-/*
-/// Copies the static CPU-local data on the bootstrap processor (BSP)
+/*/// Copies the static CPU-local data on the bootstrap processor (BSP)
 /// for application processors (APs).
 ///
 /// # Safety
@@ -311,8 +281,7 @@ pub(crate) fn get_ap(cpu_id: CpuId) -> Paddr {
         cpu_id.as_usize(),
     );
     paddr
-}
-*/
+}*/
 
 mod is_used {
     //! This module tracks whether any statically-allocated CPU-local

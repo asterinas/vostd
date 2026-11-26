@@ -1,5 +1,6 @@
 use vstd::{
     arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2},
+    layout::size_of,
     prelude::*,
 };
 use vstd_extra::{external::is_canonical_vaddr, prelude::*};
@@ -144,9 +145,12 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
 }
 
-/// AXIOM: Under OSTD's x86-64 four-level paging model, any live Rust slice
-/// reference has a 48-bit canonical virtual address.
+/// AXIOM: Under OSTD's x86-64 four-level paging model, any non-empty,
+/// non-ZST live Rust slice reference has a 48-bit canonical virtual address.
 pub broadcast axiom fn axiom_slice_as_ptr_canonical<T>(s: &[T])
+    requires
+        s@.len() > 0,
+        size_of::<T>() > 0,
     ensures
         is_canonical_vaddr((#[trigger] s.as_ptr()).addr() as u64),
 ;

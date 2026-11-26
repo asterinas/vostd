@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Configure the Global Descriptor Table (GDT).
 use vstd::{layout::layout_of_primitives, prelude::*};
-use vstd_extra::external::{
-    axiom_layout_of_array, axiom_size_of_val_sized, axiom_slice_as_ptr_nonnull,
-    lemma_segment_selector_new,
+use vstd_extra::{
+    external::{lemma_segment_selector_new, lemma_tss_layout},
+    layout::{axiom_layout_of_array, axiom_size_of_val_sized},
 };
 
 use crate::specs::arch::{axiom_slice_as_ptr_canonical, current_cs_reg};
@@ -36,19 +36,6 @@ use crate::cpu::local::{CpuLocal, StaticCpuLocal};
 ///
 /// The caller must ensure that no preemption can occur during the method, otherwise we may
 /// accidentally load a wrong GDT and TSS that actually belongs to another CPU.
-///
-/// # Verified Properties
-///
-/// ## Preconditions
-/// - The boot GDT has already loaded `CS` with the kernel 64-bit code selector
-///   (`SegmentSelector::new(1, PrivilegeLevel::Ring0)`).
-///
-/// ## Safety
-/// - Proves absence of panic across the `CS` check, TSS descriptor match, GDT
-///   indexing assertions, `gdtr.limit` arithmetic, and `VirtAddr::new`.
-/// - Trusts `StaticStorage::as_ptr`, `current_cs_reg`, `axiom_slice_as_ptr_canonical`,
-///   and the `x86_64` external specifications (`Descriptor::tss_segment_unchecked`,
-///   `lgdt`, `load_tss`, `Star::write_raw`).
 #[verus_verify]
 #[verus_spec(
     requires
@@ -60,9 +47,9 @@ pub(super) unsafe fn init() {
             layout_of_primitives,
             axiom_layout_of_array,
             axiom_size_of_val_sized,
-            axiom_slice_as_ptr_nonnull,
             axiom_slice_as_ptr_canonical,
             lemma_segment_selector_new,
+            lemma_tss_layout,
         };
     }
     let tss_ptr = LOCAL_TSS.as_ptr();
@@ -129,7 +116,6 @@ pub(super) unsafe fn init() {
 // No other special initialization is required because the kernel stack information is stored in
 // the TSS when we start the userspace program. See `syscall.S` for details.
 #[verus_verify]
-#[verus_spec]
 #[verifier::assume_unsupported_attributes]
 #[link_section = ".cpu_local_tss"]
 static LOCAL_TSS: StaticCpuLocal<TaskStateSegment> = {
