@@ -511,7 +511,7 @@ impl PageTableEntryTrait for PageTableEntry {
             },
             _ => {
                 //panic!("unsupported cache policy");
-                vstd::vpanic!("");
+                vstd::vpanic!("unsupported cache policy");
             },
         }
         proof {
