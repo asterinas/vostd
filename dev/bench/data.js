@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795675652233,
+  "lastUpdate": 1795680803389,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -14790,6 +14790,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=561ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64517311+rikosellic@users.noreply.github.com",
+            "name": "Xinyi Wan",
+            "username": "rikosellic"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbb955df0e9e5f6fe4c1d0e9877cf47990882b79",
+          "message": "fix: relax several public API preconditions (#980)\n\n* relax `UniqueFrame::from_unused` precondition\n\n* Allow zero-end cursor ranges to return errors\n\n* relax `VmIo::write_vals` preconditions",
+          "timestamp": "2026-11-26T16:05:08+08:00",
+          "tree_id": "d5b8ce74e957dc160c421306d601fab94cc0607d",
+          "url": "https://github.com/asterinas/vostd/commit/cbb955df0e9e5f6fe4c1d0e9877cf47990882b79"
+        },
+        "date": 1795680802505,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1011835394,
+            "unit": "rlimit",
+            "extra": "verified=4751 errors=0 smt-run=317,190ms wall=239,687ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 347071482,
+            "unit": "rlimit",
+            "extra": "smt-run=126,446ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 120348902,
+            "unit": "rlimit",
+            "extra": "smt-run=35,393ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 57842344,
+            "unit": "rlimit",
+            "extra": "smt-run=18,390ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,985ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=2,230ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,541ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=938ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=653ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=828ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1115797,
+            "unit": "rlimit",
+            "extra": "smt-run=337ms"
           }
         ]
       }
