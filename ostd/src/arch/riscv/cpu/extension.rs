@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! RISC-V ISA extensions.
-use bitflags_upstream::bitflags;
+use vstd::prelude::*;
+
 use spin::Once;
 
 use crate::arch::boot::DEVICE_TREE;
@@ -104,7 +105,7 @@ macro_rules! define_isa_extensions {
             $name:ident = $bit:expr, $str:expr, $doc:expr;
         )*
     ) => {
-        bitflags! {
+        bitflags::bitflags! {
             /// RISC-V ISA extensions
             pub struct IsaExtensions: u128 {
                 $(

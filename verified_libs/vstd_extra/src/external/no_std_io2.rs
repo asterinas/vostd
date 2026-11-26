@@ -29,27 +29,30 @@ pub trait ExWrite {
     ;
 }
 
-#[cfg(not(feature = "std"))]
-impl WriteSpecImpl for Vec<u8> {
-    open spec fn obeys_writer_model() -> bool {
-        true
-    }
+} // verus!
+macro_rules! impl_vec_writer_model {
+    ($($impl_header:tt)+) => {
+        verus! {
+            $($impl_header)+ {
+                open spec fn obeys_writer_model() -> bool {
+                    true
+                }
 
-    open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
-        next@ == self@ + input
-    }
+                open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
+                    next@ == self@ + input
+                }
+            }
+        }
+    };
 }
+
+#[cfg(not(feature = "std"))]
+impl_vec_writer_model!(impl WriteSpecImpl for Vec<u8>);
 
 #[cfg(feature = "std")]
-impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A> {
-    open spec fn obeys_writer_model() -> bool {
-        true
-    }
+impl_vec_writer_model!(impl<A: core::alloc::Allocator> WriteSpecImpl for Vec<u8, A>);
 
-    open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
-        next@ == self@ + input
-    }
-}
+verus! {
 
 #[verifier::external_trait_specification]
 #[verifier::external_trait_extension(ReadSpec via ReadSpecImpl)]

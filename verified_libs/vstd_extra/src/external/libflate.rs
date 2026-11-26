@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 
 use alloc::vec::Vec;
-use libflate::{Finish, gzip, zlib};
+use libflate::{Finish, gzip, lz77::Lz77Encode, zlib};
 use no_std_io2::io;
 
 use super::no_std_io2::{ReadSpec, ReadSpecImpl, WriteSpec, WriteSpecImpl};
@@ -125,10 +125,10 @@ pub uninterp spec fn zlib_state<W, E>(encoder: &zlib::Encoder<W, E>) -> Option<E
 
 #[verifier::external_trait_specification]
 pub trait ExLz77Encode {
-    type ExternalTraitSpecificationFor: libflate::lz77::Lz77Encode;
+    type ExternalTraitSpecificationFor: Lz77Encode;
 }
 
-impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
+impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
@@ -138,7 +138,7 @@ impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for gzip::Encode
     }
 }
 
-impl<W: io::Write, E: libflate::lz77::Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
+impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
@@ -174,10 +174,9 @@ pub uninterp spec fn finish_value<T, E>(finish: Finish<T, E>) -> T;
 
 pub uninterp spec fn finish_error<T, E>(finish: Finish<T, E>) -> Option<E>;
 
-pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ gzip::Encoder::<
-    W,
-    E,
->::finish ](encoder: gzip::Encoder<W, E>) -> (result: Finish<W, io::Error>)
+pub assume_specification<W: io::Write, E: Lz77Encode>[ gzip::Encoder::<W, E>::finish ](
+    encoder: gzip::Encoder<W, E>,
+) -> (result: Finish<W, io::Error>)
     ensures
         <gzip::Encoder<W, E> as WriteSpec>::obeys_writer_model() ==> (gzip_state(
             &encoder,
@@ -191,10 +190,9 @@ pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ gzip::Enc
         }),
 ;
 
-pub assume_specification<W: io::Write, E: libflate::lz77::Lz77Encode>[ zlib::Encoder::<
-    W,
-    E,
->::finish ](encoder: zlib::Encoder<W, E>) -> (result: Finish<W, io::Error>)
+pub assume_specification<W: io::Write, E: Lz77Encode>[ zlib::Encoder::<W, E>::finish ](
+    encoder: zlib::Encoder<W, E>,
+) -> (result: Finish<W, io::Error>)
     ensures
         <zlib::Encoder<W, E> as WriteSpec>::obeys_writer_model() ==> (zlib_state(
             &encoder,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::fmt::Debug;
+use vstd::prelude::*;
 
-use bitflags_upstream::bitflags;
+use core::fmt::Debug;
 
 pub struct ExtendedCapability(u64);
 
@@ -57,7 +57,7 @@ impl Debug for ExtendedCapability {
     }
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Extended Capability flags in IOMMU.
     ///
     /// TODO: Add adetailed description of each flag.
