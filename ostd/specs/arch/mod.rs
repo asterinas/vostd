@@ -53,7 +53,8 @@ pub type CurrentArch = riscv::RiscvArch;
 #[cfg(target_arch = "loongarch64")]
 pub type CurrentArch = loongarch::LoongArch;
 
-pub open spec fn valid_leaf_paddr(pa: Paddr) -> bool {
+/// A base-page-aligned physical address below the modeled architecture bound.
+pub open spec fn valid_arch_paddr(pa: Paddr) -> bool {
     pa % PAGE_SIZE == 0 && pa < CurrentArch::arch_max_paddr_spec()
 }
 

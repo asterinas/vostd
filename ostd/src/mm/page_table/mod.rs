@@ -1419,7 +1419,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            valid_leaf_paddr(res.paddr()),
+            valid_arch_paddr(res.paddr()),
             res.is_present(),
             res.is_last(level),
             res.prop() == prop,

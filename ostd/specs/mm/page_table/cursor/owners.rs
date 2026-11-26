@@ -576,7 +576,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.inv(),
             self.level() <= C::NR_LEVELS,
             permission is Some ==> old(regions).slots.contains_key(frame_to_index(paddr)),
-            valid_leaf_paddr(paddr),
+            valid_arch_paddr(paddr),
             permission is Some ==> valid_frame_paddr(paddr),
             paddr % page_size::<C>(self.level()) == 0,
             paddr + page_size::<C>(self.level()) <= ARCH_MAX_PADDR,

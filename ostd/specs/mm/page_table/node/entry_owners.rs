@@ -314,7 +314,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         prop: PageProperty,
     ) -> (tracked res: Self)
         requires
-            valid_leaf_paddr(paddr),
+            valid_arch_paddr(paddr),
             1 <= parent_level <= C::NR_LEVELS,
             paddr % page_size::<C>(parent_level) == 0,
             paddr + page_size::<C>(parent_level) <= ARCH_MAX_PADDR,
@@ -344,7 +344,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& if self.is_frame() && !self.frame_is_tracked() {
-            valid_leaf_paddr(pte.paddr())
+            valid_arch_paddr(pte.paddr())
         } else {
             valid_frame_paddr(pte.paddr())
         }
@@ -657,7 +657,7 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
         }
         &&& self.is_frame() ==> {
             &&& 1 <= self.parent_level <= C::NR_LEVELS
-            &&& valid_leaf_paddr(self.frame().mapped_pa)
+            &&& valid_arch_paddr(self.frame().mapped_pa)
             &&& self.frame_is_tracked() ==> valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size::<C>(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size::<C>(self.parent_level) <= ARCH_MAX_PADDR
