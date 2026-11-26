@@ -109,6 +109,8 @@ pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
     &&& frame.inv()
     &&& !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1)
+    &&& <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+    pa, level, prop_from_item)
     &&& (entry_owner.is_absent() || Child::Frame(pa, level, prop_from_item).wf(entry_owner))
 }
 

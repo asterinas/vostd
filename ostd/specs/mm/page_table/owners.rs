@@ -660,7 +660,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         reveal_with_fuel(PageTableOwner::pt_inv_at_depth, 2);
         if !parent.pt_inv_at_depth(depth) {
             let i = choose|i: int|
-                0 <= i < NR_ENTRIES && !(Self::pt_edge_at(owner, i) && PageTableOwner(
+                0 <= i < NR_ENTRIES && !(#[trigger] Self::pt_edge_at(owner, i) && PageTableOwner(
                     owner.child(i),
                 ).pt_inv_at_depth((depth - 1) as nat));
             assert(owner.has_child(i));

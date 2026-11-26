@@ -414,11 +414,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         lemma_mod_multiples_basic(idx as int, size);
         lemma_add_mod_noop(pa as int, idx * size, size);
         assert(child_pa as int % size == 0);
-        if child_level == 2 {
-            lemma_mod_mod(child_pa as int, 4096, 512);
-        } else if child_level == 3 {
-            lemma_mod_mod(child_pa as int, 4096, 262144);
-        }
+        lemma_page_size_div_mul_eq::<C>(child_level);
+        lemma_mod_mod(child_pa as int, C::BASE_PAGE_SIZE as int, size / C::BASE_PAGE_SIZE as int);
     }
 
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
@@ -614,8 +611,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_node() || (self.is_frame() && self.frame_is_tracked())
                 ==> self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
-            self.meta_slot_paddr() is Some && frame_to_index(self.meta_slot_paddr()->0)
-                == changed_idx ==> r1.inv(),
         ensures
             self.metaregion_sound(r1),
     {

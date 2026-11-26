@@ -183,12 +183,12 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
         let (paddr, level, prop, perm) = C::item_into_raw(item);
         &&& C::item_well_formed(item)
+        &&& C::E::new_page_req(paddr, level, prop)
         &&& perm@ is None ==> {
             &&& 1 <= level <= C::NR_LEVELS
             &&& valid_arch_paddr(paddr)
             &&& paddr % page_size::<C>(level) == 0
             &&& paddr + page_size::<C>(level) <= ARCH_MAX_PADDR
-            &&& C::E::new_page_req(paddr, level, prop)
         }
         // Mapping may descend within the locked subtree, but cannot replace its parent PTE.
         &&& level <= self.0.guard_level

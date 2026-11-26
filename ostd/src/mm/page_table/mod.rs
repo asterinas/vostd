@@ -166,7 +166,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 &&& valid_frame_paddr(paddr)
                 &&& paddr % page_size::<Self::C>(level) == 0
                 &&& paddr + page_size::<Self::C>(level) <= MAX_PADDR
-                &&& Self::E::new_page_req(paddr, level, prop)
             },
         returns
             Self::item_into_raw(item),
