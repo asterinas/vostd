@@ -4,7 +4,7 @@ use vstd_extra::{external::ilog2::*, ownership::Inv};
 
 use crate::{
     mm::MAX_NR_LEVELS,
-    specs::arch::{LEAF_PADDR_END, valid_frame_paddr},
+    specs::arch::{ARCH_MAX_PADDR, valid_frame_paddr},
 };
 
 use alloc::fmt;
@@ -511,9 +511,9 @@ impl PageTableEntryTrait for PageTableEntry {
             Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
                 || prop.cache is Writethrough || prop.cache is Uncacheable) implies {
             &&& Self::new_page(paddr, level, prop).is_present()
-            &&& (paddr < LEAF_PADDR_END ==> Self::new_page(paddr, level, prop).paddr() == paddr & !(
+            &&& (paddr < ARCH_MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr & !(
             (PAGE_SIZE - 1) as usize))
-            &&& (paddr < LEAF_PADDR_END && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+            &&& (paddr < ARCH_MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
                 paddr,
                 level,
                 prop,
@@ -732,9 +732,9 @@ proof fn lemma_auxiliary_bit_properties(addr: usize)
     ensures
         (((addr & PageTableEntry::PHYS_ADDR_MASK) >> 10) << 12) % PAGE_SIZE == 0,
         addr % PAGE_SIZE == 0 ==> addr & !((PAGE_SIZE - 1) as usize) == addr,
-        addr < LEAF_PADDR_END ==> addr & !((PAGE_SIZE - 1) as usize) < LEAF_PADDR_END,
+        addr < ARCH_MAX_PADDR ==> addr & !((PAGE_SIZE - 1) as usize) < ARCH_MAX_PADDR,
         addr < MAX_PADDR ==> addr & !((PAGE_SIZE - 1) as usize) < MAX_PADDR,
-        addr < LEAF_PADDR_END ==> (((((addr >> 12) << 10) | 1usize)
+        addr < ARCH_MAX_PADDR ==> (((((addr >> 12) << 10) | 1usize)
             & PageTableEntry::PHYS_ADDR_MASK) >> 10) << 12 == addr & !((PAGE_SIZE - 1) as usize),
 {
 }

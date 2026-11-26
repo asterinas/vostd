@@ -894,7 +894,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa == old(owner).value().frame().mapped_pa,
                 level == old(parent_owner).level(),
                 pa % page_size::<C>(level) == 0,
-                pa + page_size::<C>(level) <= LEAF_PADDR_END,
+                pa + page_size::<C>(level) <= ARCH_MAX_PADDR,
                 regions.inv(),
                 MetaSlot::claim_unused_slot_region_spec(
                     meta_to_frame(new_owner_meta_addr),

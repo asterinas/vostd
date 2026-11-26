@@ -31,7 +31,7 @@ use vstd_extra::{
 };
 
 use crate::specs::{
-    arch::LEAF_PADDR_END,
+    arch::ARCH_MAX_PADDR,
     mm::{
         frame::{
             mapping::*,
@@ -2938,7 +2938,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             C::lemma_page_table_config_constant_properties();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
             lemma_page_size_spec_values::<C>();
-            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level) <= LEAF_PADDR_END)
+            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level) <= ARCH_MAX_PADDR)
                 by {
                 reveal(page_size_spec);
             };

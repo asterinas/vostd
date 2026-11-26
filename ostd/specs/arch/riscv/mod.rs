@@ -31,14 +31,14 @@ verus! {
 /// semantics and the linear-mapping window connection are not established here.
 pub ghost struct RiscvArch;
 
-/// Exclusive upper bound for physical addresses allowed in leaf mappings.
-pub const LEAF_PADDR_END: Paddr = 0x0100_0000_0000_0000;
+/// Exclusive upper bound of the physical address space modeled for this architecture.
+pub const ARCH_MAX_PADDR: Paddr = 0x0100_0000_0000_0000;
 
 impl ArchAddressSpaceModel for RiscvArch {
     type C = PagingConsts;
 
-    open spec fn leaf_paddr_end_spec() -> Paddr {
-        LEAF_PADDR_END
+    open spec fn arch_max_paddr_spec() -> Paddr {
+        ARCH_MAX_PADDR
     }
 
     open spec fn max_paddr_spec() -> Paddr {

@@ -579,7 +579,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             valid_leaf_paddr(paddr),
             permission is Some ==> valid_frame_paddr(paddr),
             paddr % page_size::<C>(self.level()) == 0,
-            paddr + page_size::<C>(self.level()) <= LEAF_PADDR_END,
+            paddr + page_size::<C>(self.level()) <= ARCH_MAX_PADDR,
             C::raw_item_well_formed((paddr, self.level(), prop, Tracked(permission))),
             C::E::new_page_req(paddr, self.level(), prop),
             self.path().push_tail(self.idx as int).inv(),

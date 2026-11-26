@@ -26,8 +26,8 @@ verus! {
 pub trait ArchAddressSpaceModel {
     type C: PagingConstsTrait;
 
-    /// The exclusive upper bound for physical addresses allowed in leaf mappings.
-    spec fn leaf_paddr_end_spec() -> Paddr;
+    /// The exclusive upper bound of the physical address space modeled for this architecture.
+    spec fn arch_max_paddr_spec() -> Paddr;
 
     /// The exclusive upper bound for modeled physical frame addresses.
     spec fn max_paddr_spec() -> Paddr;

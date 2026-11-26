@@ -54,7 +54,7 @@ pub type CurrentArch = riscv::RiscvArch;
 pub type CurrentArch = loongarch::LoongArch;
 
 pub open spec fn valid_leaf_paddr(pa: Paddr) -> bool {
-    pa % PAGE_SIZE == 0 && pa < CurrentArch::leaf_paddr_end_spec()
+    pa % PAGE_SIZE == 0 && pa < CurrentArch::arch_max_paddr_spec()
 }
 
 /// A physical address that can identify a base-page frame on the selected architecture.

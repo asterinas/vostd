@@ -1414,7 +1414,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
-            paddr < LEAF_PADDR_END,
+            paddr < ARCH_MAX_PADDR,
             Self::new_page_req(paddr, level, prop),
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
@@ -1539,9 +1539,9 @@ pub trait PageTableEntryTrait:
                 Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
                     || prop.cache is Writethrough || prop.cache is Uncacheable) ==> {
                     &&& Self::new_page(paddr, level, prop).is_present()
-                    &&& (paddr < LEAF_PADDR_END ==> Self::new_page(paddr, level, prop).paddr()
+                    &&& (paddr < ARCH_MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr()
                         == paddr & !((PAGE_SIZE - 1) as usize))
-                    &&& (paddr < LEAF_PADDR_END && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                    &&& (paddr < ARCH_MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
                         paddr,
                         level,
                         prop,
