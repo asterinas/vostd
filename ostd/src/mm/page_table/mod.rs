@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{arithmetic::power2::*, prelude::*, std_specs::clone::*};
-use vstd_extra::{assert, panic::allowed_to_panic_if, prelude::*};
+use vstd_extra::{assert, prelude::*};
 
 use crate::specs::{
     arch::*,
@@ -396,9 +396,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             valid_frame_paddr(pa),
             regions.contains(frame_to_index(pa)),
             Self::item_into_raw(item).3@ is Some ==> {
-                &&& 0 < regions.slot_owner(pa).ref_count()
-                &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
-                &&& allowed_to_panic_if(regions.slot_owner(pa).ref_count() >= REF_COUNT_MAX)
+                0 < regions.slot_owner(pa).ref_count() < REF_COUNT_MAX
             },
         ensures
             item.clone_requires(regions),
