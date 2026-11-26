@@ -6,9 +6,6 @@ use vstd_extra::external::valid_io_port_access;
 use super::device::serial::SerialPort;
 use crate::io::reserve_io_port_range;
 
-/* The verified macro provides contracts for flag decoding and membership tests.
- * Origin Rust: bitflags_upstream::bitflags! {
- */
 bitflags::bitflags! {
   struct LineSts: u8 {
     const INPUT_FULL = 1;
@@ -32,11 +29,23 @@ pub(crate) fn init() {
     CONSOLE_COM1_PORT.init();
 }
 
+#[verus_spec(ret =>
+    ensures
+        !ret.contains_unknown_bits(),
+)]
 fn line_sts() -> LineSts {
+    proof! {
+        assert forall|bits: u8, mask: u8| #[trigger] ((bits & mask) & !mask) == 0 by {
+            assert((bits & mask) & !mask == 0) by (bit_vector);
+        }
+    }
     LineSts::from_bits_truncate(CONSOLE_COM1_PORT.line_status())
 }
 
 /// Sends a byte on the serial port.
+// Hardware readiness is not guaranteed, so polling may continue indefinitely.
+#[verifier::exec_allows_no_decreases_clause]
+#[verus_spec]
 pub(crate) fn send(data: u8) {
     match data {
         8 | 0x7F => {

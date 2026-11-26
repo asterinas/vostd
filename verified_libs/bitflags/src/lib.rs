@@ -513,16 +513,35 @@ macro_rules! bitflags {
                     Self::from_bits_unchecked(bits)
                 }
 
-                /// Get a flags value with the bits of a flag with the given name set.
-                ///
-                /// This method will return `None` if `name` is empty or doesn't
-                /// correspond to any named flag.
-                $vis fn from_name(name: &str) -> (r: Option<Self>)
-                    ensures
-                        r matches Some(flags_value) ==> {
-                            &&& flags_value.flags_spec()
-                                == Self::flags_from_bits(flags_value.bits())
-                        },
+                $vis open spec fn from_name_spec(name: &str) -> Option<Self> {
+                    let found: Option<Self> = None;
+                    $(
+                        let found = if found is None
+                            && name@.len() != 0
+                            && $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true }
+                            && $crate::__bitflags_flag!({
+                                name: $Flag,
+                                named: {
+                                    ::vstd::prelude::spec_eq(
+                                        ::vstd::view::View::view(name),
+                                        ::vstd::view::View::view(::core::stringify!($Flag)),
+                                    )
+                                },
+                                unnamed: { false },
+                            })
+                        {
+                            Some(Self::[< $Flag _SPEC >])
+                        } else {
+                            found
+                        };
+                    )*
+                    found
+                }
+
+                /// Returns the first enabled named flag matching `name`, or `None`.
+                #[verifier::when_used_as_spec(from_name_spec)]
+                $vis fn from_name(name: &str) -> Option<Self>
+                    returns Self::from_name(name),
                 {
                     if name.is_empty() {
                         return ::core::option::Option::None;

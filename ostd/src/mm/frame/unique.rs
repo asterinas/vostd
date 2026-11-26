@@ -63,12 +63,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// The caller should provide the initial metadata of the page.
     /// # Verified Properties
     /// ## Preconditions
-    /// The page must be unused and the metadata region must be well-formed.
+    /// The metadata region must be well-formed and the metadata must match its owner.
     /// ## Postconditions
-    /// If the page is valid, the function returns a unique frame.
+    /// On success, the function returns a unique frame.
     /// ## Safety
-    /// If `paddr` is misaligned or out of bounds, the function will return an error. If it returns a frame,
-    /// it also returns an owner for that frame, indicating that the caller now has exclusive ownership of it.
+    /// If `paddr` is misaligned or out of bounds, or the page is not unused, the function returns an error.
+    /// If it returns a frame, it also returns an owner for that frame, indicating that the caller now has
+    /// exclusive ownership of it.
     /// See [Safe Encapsulation] for more details.
     #[verus_spec(res =>
         with
@@ -76,8 +77,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Tracked(meta_own_in): Tracked<M::Owner>,
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
-            old(regions).contains(frame_to_index(paddr)),
-            old(regions).slot_owner(paddr).usage is Unused,
             old(regions).inv(),
             <M as OwnerOf>::wf(metadata, meta_own_in),
         ensures
@@ -107,6 +106,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Err(err)
         } else {
             proof_decl! {
+                regions.lemma_contains_valid_frame_paddr(paddr);
+                lemma_paddr_to_meta_biinjective(paddr);
+                lemma_frame_to_meta_soundness(paddr);
                 let tracked metadata_perms = permissions.tracked_unwrap().tracked_take_right();
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
                 let tracked owner = UniqueFrameOwner::<M> {
