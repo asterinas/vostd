@@ -25,11 +25,11 @@ use spin::Once;
 use x86::cpuid::{CpuId, FeatureInfo};
 
 #[cfg(feature = "cvm_guest")]
-pub(crate) mod tdx_guest;
+pub(crate) mod tdx_guest;*/
 
 use core::sync::atomic::Ordering;
 
-use log::warn;
+/*use log::warn;
 
 #[cfg(feature = "cvm_guest")]
 pub(crate) fn init_cvm_guest() {
@@ -110,14 +110,16 @@ pub(crate) fn interrupts_ack(irq_number: usize) {
         // really necessary here.
         kernel::apic::get_or_init(&crate::task::disable_preempt() as _).eoi();
     }
-}
+}*/
 
 /// Returns the frequency of TSC. The unit is Hz.
+#[verus_spec(no_unwind)]
 pub fn tsc_freq() -> u64 {
     kernel::tsc::TSC_FREQ.load(Ordering::Acquire)
 }
 
 /// Reads the current value of the processor’s time-stamp counter (TSC).
+#[verus_spec(opens_invariants none no_unwind)]
 pub fn read_tsc() -> u64 {
     use core::arch::x86_64::_rdtsc;
 
@@ -128,6 +130,16 @@ pub fn read_tsc() -> u64 {
 /// Reads a hardware generated 64-bit random value.
 ///
 /// Returns None if no random value was generated.
+///
+/// # Verified Properties
+/// ## Preconditions
+/// - The CPU must support `RDRAND` (`cpu_feature_model().supports_rdrand`, i.e.,
+///   `CPUID.01H:ECX[bit 30]`), because this v0.16.0 implementation invokes
+///   `_rdrand64_step` without a runtime CPUID guard.
+#[verus_spec(
+    requires
+        cpu_feature_model().supports_rdrand,
+)]
 pub fn read_random() -> Option<u64> {
     use core::arch::x86_64::_rdrand64_step;
 
@@ -136,6 +148,9 @@ pub fn read_random() -> Option<u64> {
     // Software Developer’s Manual" - Volume 1 - Section 7.3.17.1.
     const RETRY_LIMIT: usize = 10;
 
+    #[verus_spec(invariant
+        cpu_feature_model().supports_rdrand,
+    )]
     for _ in 0..RETRY_LIMIT {
         let mut val = 0;
         let generated = unsafe { _rdrand64_step(&mut val) };
@@ -144,7 +159,7 @@ pub fn read_random() -> Option<u64> {
         }
     }
     None
-}*/
+}
 
 #[verus_spec(returns cpu_feature_model().supports_avx)]
 fn has_avx() -> bool {

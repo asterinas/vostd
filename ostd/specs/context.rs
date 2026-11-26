@@ -18,6 +18,7 @@ pub ghost struct CpuFeatureModel {
     pub supports_avx512f: bool,
     pub supports_xapic: bool,
     pub supports_x2apic: bool,
+    pub supports_rdrand: bool,
     /// CPUID.(0x15, 0):EAX, the denominator of the TSC/core crystal clock ratio.
     pub tsc_denominator: u32,
     /// CPUID.(0x15, 0):EBX, the numerator of that ratio.
@@ -38,6 +39,7 @@ impl CpuFeatureModel {
             supports_avx512f: max_basic_leaf >= 7 && reference((7, 0)).ebx & (1u32 << 16) != 0,
             supports_xapic: max_basic_leaf >= 1 && features.edx & (1u32 << 9) != 0,
             supports_x2apic: max_basic_leaf >= 1 && features.ecx & (1u32 << 21) != 0,
+            supports_rdrand: max_basic_leaf >= 1 && features.ecx & (1u32 << 30) != 0,
             tsc_denominator: tsc.eax,
             tsc_numerator: tsc.ebx,
             crystal_hz: tsc.ecx,
@@ -73,6 +75,7 @@ pub open spec fn cpuid_consistent(
             &&& model.supports_avx == (result.ecx & (1u32 << 28) != 0)
             &&& model.supports_xapic == (result.edx & (1u32 << 9) != 0)
             &&& model.supports_x2apic == (result.ecx & (1u32 << 21) != 0)
+            &&& model.supports_rdrand == (result.ecx & (1u32 << 30) != 0)
         },
         7 => model.supports_avx512f == (result.ebx & (1u32 << 16) != 0),
         0x15 => (result.eax, result.ebx, result.ecx) == (
@@ -103,6 +106,20 @@ pub assume_specification[ core::arch::x86_64::__cpuid_count ](leaf: u32, subleaf
         cpuid_consistent(cpu_feature_model(), leaf, subleaf, result),
     opens_invariants none
     no_unwind
+;
+
+/// OSTD trusts this intrinsic to execute `RDRAND` without unwinding once
+/// CPUID reports `RDRAND` support (`CPUID.01H:ECX[bit 30]`). Audited against
+/// Rust 1.100.0 `core_arch` and Intel SDM Vol. 2B: returns `1` on success
+/// or `0` on failure (zeroing `*val`).
+pub assume_specification[ core::arch::x86_64::_rdrand64_step ](val: &mut u64) -> (flag: i32)
+    requires
+        cpu_feature_model().supports_rdrand,
+    ensures
+        flag == 0 || flag == 1,
+        flag == 0 ==> *final(val) == 0u64,
+    opens_invariants none
+    no_unwind when cpu_feature_model().supports_rdrand
 ;
 
 /// `raw-cpuid` implements the native read behind `cpuid!` by copying the four
