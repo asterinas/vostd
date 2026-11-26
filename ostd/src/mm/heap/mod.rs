@@ -5,8 +5,9 @@
     ptr::NonNull,
 };
 
-use crate::mm::Vaddr;*/
-/*mod slab;*/
+use crate::mm::Vaddr;
+
+mod slab;*/
 mod slot;
 mod slot_list;
 

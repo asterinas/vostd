@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Implementation of the free heap slot list.
 use vstd::{
-    layout::{align_of, size_of},
+    layout::size_of,
     prelude::*,
     raw_ptr::{self, IsExposed, PointsTo, PointsToRaw, group_raw_ptr_axioms},
 };
 use vstd_extra::ownership::Inv;
 
-use crate::mm::{
-    heap::SlotInfo,
-    kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
-};
+use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
 
 use core::ptr::NonNull;
 
@@ -24,10 +21,15 @@ tracked struct SlotNode {
     next_exposed: IsExposed,
 }
 
+} // verus!
 /// A singly-linked list of [`HeapSlot`]s from [`super::Slab`]s.
 ///
 /// The slots inside this list will have a size of `SLOT_SIZE`. They can come
 /// from different slabs.
+/* Origin Rust: #[derive(Debug)]
+ * `Ghost<Seq<*mut u8>>` and `Tracked<Map<int, SlotNode>>` do not implement `Debug`.
+ */
+#[verus_verify]
 #[cfg_attr(not(verus_keep_ghost), derive(Debug))]
 pub struct SlabSlotList<const SLOT_SIZE: usize> {
     /// The head of the list.
@@ -42,17 +44,9 @@ pub struct SlabSlotList<const SLOT_SIZE: usize> {
 // data pointed to by `head` requires a `&mut SlabSlotList`. Therefore, at any
 // given time, only one task can access the inner `head`. Additionally, a
 // `HeapSlot` will not be allocated again as long as it remains in the list.
-#[verifier::external]
-unsafe impl<const SLOT_SIZE: usize> Sync for SlabSlotList<SLOT_SIZE> {
+unsafe impl<const SLOT_SIZE: usize> Sync for SlabSlotList<SLOT_SIZE> {}
+unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {}
 
-}
-
-#[verifier::external]
-unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {
-
-}
-
-} // verus!
 #[verus_verify]
 impl<const SLOT_SIZE: usize> Default for SlabSlotList<SLOT_SIZE> {
     #[verus_spec(res =>
@@ -82,13 +76,6 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     /// Slots in insertion order; the last slot is the head returned by `pop`.
     pub closed spec fn slots(self) -> Seq<*mut u8> {
         self.ghost_slots@
-    }
-
-    /// The permissions and initialized links of every surviving node are unchanged.
-    pub closed spec fn preserves_nodes(self, previous: Self) -> bool {
-        forall|i: int|
-            0 <= i < self.slots().len() && i < previous.slots().len()
-                ==> #[trigger] self.tracked_nodes@[i] == previous.tracked_nodes@[i]
     }
 
     closed spec fn node_inv(self, i: int) -> bool {
@@ -147,20 +134,17 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         requires
             old(self).inv(),
             slot.inv(),
-            cfg!(feature = "allow_panic") ==> slot.slot_info() is SlabSlot,
+            cfg!(feature = "allow_panic") ==> slot.info() is SlabSlot,
             SLOT_SIZE >= size_of::<usize>(),
-            slot.slot_info() is SlabSlot ==> {
-                &&& slot.slot_info().size_spec() == SLOT_SIZE
-                &&& slot.ptr().addr() as int % align_of::<usize>() as int == 0
-            },
+            slot.info() is SlabSlot ==> slot.info().size() == SLOT_SIZE,
         ensures
             final(self).inv(),
-            final(self).preserves_nodes(*old(self)),
-            final(self).slots() == if slot.slot_info() is SlabSlot {
-                old(self).slots().push(slot.ptr())
+            final(self).slots() == if slot.info() is SlabSlot {
+                old(self).slots().push(slot.as_ptr())
             } else {
                 old(self).slots()
             },
+            final(self).slots().map_values(|p: *mut u8| p.addr()).no_duplicates(),
     )]
     pub fn push(&mut self, slot: HeapSlot) {
         proof_decl! {
@@ -179,7 +163,9 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
 
         #[cfg(feature = "allow_panic")]
         assert_eq!(slot_size, SLOT_SIZE);
-        // Verus cannot translate inline const blocks; the same bound is proved above.
+        /* Origin Rust: const { assert!(SLOT_SIZE >= core::mem::size_of::<usize>()) };
+         * Verus cannot translate inline const blocks; push requires the same bound.
+         */
         #[cfg(not(verus_keep_ghost))]
         const {
             assert!(SLOT_SIZE >= core::mem::size_of::<usize>())
@@ -278,14 +264,14 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
             old(self).inv(),
         ensures
             final(self).inv(),
-            final(self).preserves_nodes(*old(self)),
+            old(self).slots().map_values(|p: *mut u8| p.addr()).no_duplicates(),
+            final(self).slots().map_values(|p: *mut u8| p.addr()).no_duplicates(),
             res is None <==> old(self).slots().len() == 0,
             res matches Some(slot) ==> {
                 &&& slot.inv()
-                &&& slot.ptr() == old(self).slots().last()
-                &&& slot.slot_info() == SlotInfo::SlabSlot(SLOT_SIZE)
+                &&& slot.as_ptr() == old(self).slots().last()
+                &&& slot.info() == super::SlotInfo::SlabSlot(SLOT_SIZE)
                 &&& SLOT_SIZE >= size_of::<usize>()
-                &&& slot.ptr().addr() as int % align_of::<usize>() as int == 0
                 &&& final(self).slots() == old(self).slots().drop_last()
             },
             res is None ==> final(self).slots() == old(self).slots(),
@@ -348,9 +334,8 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
             }
         }
         Some(unsafe {
-            verus_exec_expr! {
-                HeapSlot::new(original_head, super::SlotInfo::SlabSlot(SLOT_SIZE), Tracked(mem))
-            }
+            #[verus_spec(with Tracked(mem))]
+            HeapSlot::new(original_head, super::SlotInfo::SlabSlot(SLOT_SIZE))
         })
     }
 }

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Heap slots for allocations.
-use vstd::{prelude::*, raw_ptr::PointsToRaw};
+use vstd::{layout::align_of, prelude::*, raw_ptr::PointsToRaw};
 use vstd_extra::ownership::Inv;
 
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 
-use core::ptr::NonNull;
+use core::{/*alloc::AllocError,*/ ptr::NonNull};
 
 use crate::{
     /*impl_frame_meta_for,*/
     mm::{
-        /*FrameAllocOptions, PAGE_SIZE, Segment,*/ Paddr, Vaddr,
-        kspace::{LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr},
+        /*FrameAllocOptions, PAGE_SIZE,*/ Paddr, /*Segment,*/ Vaddr,
+        kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr,
     },
 };
 
@@ -52,34 +52,18 @@ pub enum SlotInfo {
     LargeSlot(usize),
 }
 
-impl SlotInfo {
-    pub open spec fn size_spec(self) -> usize {
-        match self {
-            Self::SlabSlot(size) => size,
-            Self::LargeSlot(size) => size,
-        }
-    }
-}
-
 impl Inv for HeapSlot {
     /// Exclusive access to precisely the slot's bytes in the linear mapping.
     open spec fn inv(self) -> bool {
-        &&& LINEAR_MAPPING_BASE_VADDR <= self.ptr().addr()
-        &&& self.ptr().addr() + self.slot_info().size_spec() <= VMALLOC_BASE_VADDR
-        &&& self.memory().is_range(self.ptr().addr() as int, self.slot_info().size_spec() as int)
-        &&& self.memory().provenance() == self.ptr()@.provenance
+        &&& LINEAR_MAPPING_BASE_VADDR <= self.as_ptr().addr()
+        &&& self.as_ptr().addr() + self.info().size() <= VMALLOC_BASE_VADDR
+        &&& self.info() is SlabSlot ==> self.as_ptr().addr() as nat % align_of::<usize>() == 0
+        &&& self.memory().is_range(self.as_ptr().addr() as int, self.info().size() as int)
+        &&& self.memory().provenance() == self.as_ptr()@.provenance
     }
 }
 
 impl HeapSlot {
-    pub closed spec fn ptr(self) -> *mut u8 {
-        self.addr.as_ptr()
-    }
-
-    pub closed spec fn slot_info(self) -> SlotInfo {
-        self.info
-    }
-
     pub closed spec fn memory(self) -> PointsToRaw {
         self.tracked_mem@
     }
@@ -89,7 +73,8 @@ impl HeapSlot {
 #[verus_verify]
 impl SlotInfo {
     /// Gets the size of the slot.
-    #[verus_spec(returns self.size_spec())]
+    #[verus_verify(dual_spec, open)]
+    #[verus_spec(returns self.size())]
     pub fn size(&self) -> usize {
         match self {
             Self::SlabSlot(size) => *size,
@@ -100,6 +85,9 @@ impl SlotInfo {
 
 #[verus_verify]
 impl HeapSlot {
+    /* Origin Rust: <none; new executable code>
+     * Moves the private erased permission out for SlabSlotList::push; erased at runtime.
+     */
     /// Consumes the slot and transfers its exclusive memory permission.
     #[verus_spec(res =>
         ensures
@@ -123,23 +111,25 @@ impl HeapSlot {
     /// If the pointer is from a [`super::Slab`] or [`Segment`], the slot must
     /// have a size that matches the slot size of the slab or segment respectively.
     #[verus_spec(res =>
+        with Tracked(mem): Tracked<PointsToRaw>,
         requires
             LINEAR_MAPPING_BASE_VADDR <= addr.as_ptr().addr(),
-            addr.as_ptr().addr() + info.size_spec() <= VMALLOC_BASE_VADDR,
-            mem@.is_range(addr.as_ptr().addr() as int, info.size_spec() as int),
-            mem@.provenance() == addr.as_ptr()@.provenance,
+            addr.as_ptr().addr() + info.size() <= VMALLOC_BASE_VADDR,
+            info is SlabSlot ==> addr.as_ptr().addr() as nat % align_of::<usize>() == 0,
+            mem.is_range(addr.as_ptr().addr() as int, info.size() as int),
+            mem.provenance() == addr.as_ptr()@.provenance,
         ensures
             res.inv(),
-            res.ptr() == addr.as_ptr(),
-            res.slot_info() == info,
-            res.memory() == mem@,
+            res.as_ptr() == addr.as_ptr(),
+            res.info() == info,
+            res.memory() == mem,
     )]
-    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo, mem: Tracked<PointsToRaw>) -> Self {
+    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo) -> Self {
         Self {
             addr,
             info,
             #[cfg(verus_keep_ghost_body)]
-            tracked_mem: mem,
+            tracked_mem: verus_exec_expr!(Tracked(mem)),
         }
     }
 
@@ -198,21 +188,22 @@ impl HeapSlot {
         // SAFETY: The segment was once forgotten when allocated.
         drop(unsafe { Segment::<LargeAllocFrameMeta>::from_raw(range) });
     }*/
+
     /// Gets the physical address of the slot.
     #[verus_spec(res =>
         requires
             self.inv(),
         ensures
-            paddr_to_vaddr(res) == self.ptr().addr(),
+            paddr_to_vaddr(res) == self.as_ptr().addr(),
         returns
-            (self.ptr().addr() - LINEAR_MAPPING_BASE_VADDR) as Paddr,
+            (self.as_ptr().addr() - LINEAR_MAPPING_BASE_VADDR) as Paddr,
     )]
     pub fn paddr(&self) -> Paddr {
         self.addr.as_ptr() as Vaddr - LINEAR_MAPPING_BASE_VADDR
     }
 
     /// Gets the size of the slot.
-    #[verus_spec(returns self.slot_info().size_spec())]
+    #[verus_spec(returns self.info().size())]
     pub fn size(&self) -> usize {
         match self.info {
             SlotInfo::SlabSlot(size) => size,
@@ -221,13 +212,15 @@ impl HeapSlot {
     }
 
     /// Gets the type and size of the slot.
-    #[verus_spec(returns self.slot_info())]
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.info())]
     pub fn info(&self) -> SlotInfo {
         self.info
     }
 
     /// Gets the pointer to the slot.
-    #[verus_spec(returns self.ptr())]
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns self.as_ptr())]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr.as_ptr()
     }
