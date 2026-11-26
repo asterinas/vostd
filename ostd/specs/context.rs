@@ -108,10 +108,8 @@ pub assume_specification[ core::arch::x86_64::__cpuid_count ](leaf: u32, subleaf
     no_unwind
 ;
 
-/// OSTD trusts this intrinsic to execute `RDRAND` without unwinding once
-/// CPUID reports `RDRAND` support (`CPUID.01H:ECX[bit 30]`). Audited against
-/// Rust 1.100.0 `core_arch` and Intel SDM Vol. 2B: returns `1` on success
-/// or `0` on failure (zeroing `*val`).
+/// OSTD trusts [`core::arch::x86_64::_rdrand64_step`](https://doc.rust-lang.org/core/arch/x86_64/fn._rdrand64_step.html)
+/// to execute `RDRAND` without unwinding once CPUID reports `RDRAND` support.
 pub assume_specification[ core::arch::x86_64::_rdrand64_step ](val: &mut u64) -> (flag: i32)
     requires
         cpu_feature_model().supports_rdrand,

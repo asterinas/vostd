@@ -1,9 +1,8 @@
 //! External specifications for the [`x86` crate](https://crates.io/crates/x86)
-//! constants and MSR accessors, the [`x86_64` crate](https://crates.io/crates/x86_64)
-//! MSR accessors, and `core::arch::x86_64::_rdtsc` (audited against Rust 1.100.0
-//! `core_arch` and the Intel SDM). Constant values are trusted to match the crate
-//! sources; the original constants are re-exported below. `_rdtsc` is a baseline
-//! x86-64 instruction trusted not to unwind.
+//! constants and MSR accessors. Constant values are trusted to match
+//! the crate sources; the original constants are re-exported below. Also models the
+//! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors and
+//! `core::arch::x86_64::_rdtsc`.
 use vstd::prelude::*;
 
 use core::arch::x86_64::CpuidResult;
@@ -178,7 +177,9 @@ pub assume_specification[ Msr::write ](msr: &mut Msr, value: u64)
     no_unwind
 ;
 
-/// TODO: Upstream this specification to Verus `vstd`; remove it when equivalent `vstd` support is available.
+/// [`core::arch::x86_64::_rdtsc`](https://doc.rust-lang.org/core/arch/x86_64/fn._rdtsc.html)
+/// returns an unconstrained value.
+/// TODO: Upstream this specification to Verus `vstd`.
 pub assume_specification[ core::arch::x86_64::_rdtsc ]() -> u64
     opens_invariants none
     no_unwind

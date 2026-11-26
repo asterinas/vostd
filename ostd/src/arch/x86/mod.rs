@@ -130,12 +130,6 @@ pub fn read_tsc() -> u64 {
 /// Reads a hardware generated 64-bit random value.
 ///
 /// Returns None if no random value was generated.
-///
-/// # Verified Properties
-/// ## Preconditions
-/// - The CPU must support `RDRAND` (`cpu_feature_model().supports_rdrand`, i.e.,
-///   `CPUID.01H:ECX[bit 30]`), because this v0.16.0 implementation invokes
-///   `_rdrand64_step` without a runtime CPUID guard.
 #[verus_spec(
     requires
         cpu_feature_model().supports_rdrand,

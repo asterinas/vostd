@@ -5,7 +5,7 @@ use vstd::{arithmetic::div_mod::lemma_remainder_lower, prelude::*};
 
 use crate::specs::context::{CpuFeatureModel, cpu_feature_model};
 
-use core::sync::atomic::{/*AtomicBool,*/ AtomicU64 /*, Ordering*/};
+use core::sync::atomic::{/* AtomicBool, */ AtomicU64 /* , Ordering */};
 
 /*use log::info;*/
 use x86::cpuid::cpuid;
