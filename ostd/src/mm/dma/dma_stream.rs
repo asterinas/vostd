@@ -1081,6 +1081,13 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaS
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M> {
     /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
+    ///
+    /// # Panics
+    ///
+    /// If the `offset` is greater than or equal to the length of the stream,
+    /// this method will panic.
+    /// If the `offset + len` is greater than the length of the stream,
+    /// this method will panic.
     #[verus_spec(returns
         (Self {
             stream,

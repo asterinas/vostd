@@ -1183,7 +1183,6 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C>::cursor_new_input_valid(*va)
                 ==> Cursor::<C>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -1243,7 +1242,6 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C>::cursor_new_input_valid(*va)
                 ==> Cursor::<C>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
