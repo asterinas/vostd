@@ -7,8 +7,7 @@
 //! However, one can verify that if `acquire` succeeds, then acquiring a second overlapping range will fail.
 use vstd::{arithmetic::power2::is_pow2, modes::tracked_swap, prelude::*, resource::Loc};
 use vstd_extra::{
-    once::OnceImpl, panic::allowed_to_panic_if, range::ranges_disjoint,
-    resource_invariant::TrivialResourceInvariant,
+    once::OnceImpl, range::ranges_disjoint, resource_invariant::TrivialResourceInvariant,
 };
 
 use crate::specs::arch::PAGE_SIZE;
