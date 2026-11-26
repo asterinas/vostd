@@ -43,7 +43,6 @@ fn line_sts() -> LineSts {
 }
 
 /// Sends a byte on the serial port.
-// Hardware readiness is not guaranteed, so polling may continue indefinitely.
 #[verifier::exec_allows_no_decreases_clause]
 #[verus_spec]
 pub(crate) fn send(data: u8) {
