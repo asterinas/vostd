@@ -102,7 +102,7 @@ mod early_info_witness {
     verus! {
 
 /// Monotone witness that [`EARLY_INFO`] has been initialized with the modeled [`EarlyBootInfo`].
-/// Minted by the boot entry after initializing `EARLY_INFO` (out of scope here; all current callers are unverified).
+/// Minted at boot entry after `EARLY_INFO` init (out of scope; current callers are unverified).
 pub(crate) tracked struct EarlyBootInfoInit {
     ghost info: EarlyBootInfo,
 }
