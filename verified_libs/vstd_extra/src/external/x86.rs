@@ -179,6 +179,7 @@ pub assume_specification[ Msr::write ](msr: &mut Msr, value: u64)
 
 /// [`core::arch::x86_64::_rdtsc`](https://doc.rust-lang.org/core/arch/x86_64/fn._rdtsc.html)
 /// returns an unconstrained value.
+///
 /// TODO: Upstream this specification to Verus `vstd`.
 pub assume_specification[ core::arch::x86_64::_rdtsc ]() -> u64
     opens_invariants none
