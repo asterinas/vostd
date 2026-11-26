@@ -8,7 +8,6 @@ use vstd_extra::external::xmas_elf::{
     elf_parse_result, elf_program_headers, elf_program_headers_readable, program_load_bytes,
     program_load_data_readable,
 };
-use vstd_extra::panic::allowed_to_panic_if;
 use xmas_elf::program::Type;
 
 use core::mem::MaybeUninit;
@@ -26,7 +25,7 @@ use xmas_elf::program::{ProgramHeader, SegmentData};
                 ph matches ProgramHeader::Ph64(program) && {
                     &&& ph.get_type() is Ok
                     &&& ph.get_type() == Ok(Type::Load) ==> {
-                        &&& allowed_to_panic_if(segment_allocation_panic_condition(program))
+                        &&& !segment_allocation_panic_condition(program)
                         &&& program_load_data_readable(&ph, elf.input@)
                         &&& program.file_size <= program.mem_size <= usize::MAX
                     }
@@ -62,7 +61,7 @@ pub fn load_elf(file: &[u8]) {
                 ph matches ProgramHeader::Ph64(program) && {
                     &&& ph.get_type() is Ok
                     &&& ph.get_type() == Ok(Type::Load) ==> {
-                        &&& allowed_to_panic_if(segment_allocation_panic_condition(program))
+                        &&& !segment_allocation_panic_condition(program)
                         &&& program_load_data_readable(&ph, elf.input@)
                         &&& program.file_size <= program.mem_size <= usize::MAX
                     }
@@ -95,7 +94,7 @@ pub fn load_elf(file: &[u8]) {
 #[verus_spec(
     with Tracked(loaded): Tracked<&mut Ghost<Seq<MaybeUninit<u8>>>>,
     requires
-        allowed_to_panic_if(segment_allocation_panic_condition(program)),
+        !segment_allocation_panic_condition(program),
         program.get_type() == Ok(Type::Load),
         program_load_data_readable(&ProgramHeader::Ph64(program), file.input@),
         program.file_size <= program.mem_size <= usize::MAX,

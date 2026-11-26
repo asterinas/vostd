@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
-use vstd_extra::panic::allowed_to_panic_if;
 
 use core::{mem::MaybeUninit, ops::Range};
 
@@ -80,8 +79,10 @@ pub open spec fn platform_allocation_may_fail(addr: usize, size: usize) -> bool 
 #[verifier::external_body]
 #[verus_spec(dst =>
     requires
-        allowed_to_panic_if(addr == 0 || addr + size > usize::MAX || size > isize::MAX),
-        allowed_to_panic_if(platform_allocation_may_fail(addr, size)),
+        addr != 0,
+        addr + size <= usize::MAX,
+        size <= isize::MAX,
+        !platform_allocation_may_fail(addr, size),
     ensures
         dst@.len() == size,
 )]
