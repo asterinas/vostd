@@ -46,6 +46,7 @@ static INFO: Once<BootInfo> = Once::new();
 /// The boot crate can choose either providing the raw RSDP physical address or
 /// providing the RSDT/XSDT physical address after parsing RSDP.
 /// This is because bootloaders differ in such behaviors.
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 pub enum BootloaderAcpiArg {
     /// The bootloader does not provide one, a manual search is needed.
@@ -82,6 +83,7 @@ pub struct BootloaderFramebufferArg {
 ///
 /// All the references in this structure should be valid in the boot context.
 /// After the kernel is booted, users should use [`BootInfo`] instead.
+#[verus_verify]
 pub(crate) struct EarlyBootInfo {
     pub(crate) bootloader_name: &'static str,
     pub(crate) kernel_cmdline: &'static str,
@@ -93,6 +95,49 @@ pub(crate) struct EarlyBootInfo {
 
 /// The boot-time information.
 pub(crate) static EARLY_INFO: Once<EarlyBootInfo> = Once::new();
+
+mod early_info_witness {
+    use super::*;
+
+    verus! {
+
+/// Monotone witness that [`EARLY_INFO`] has been initialized with the modeled [`EarlyBootInfo`].
+///
+/// Kept in a private submodule with a private field and no verified constructor so neither
+/// `crate::boot` nor child modules such as `crate::boot::memory_region` can forge a witness.
+pub(crate) tracked struct EarlyBootInfoInit {
+    ghost info: EarlyBootInfo,
+}
+
+impl View for EarlyBootInfoInit {
+    type V = EarlyBootInfo;
+
+    closed spec fn view(&self) -> EarlyBootInfo {
+        self.info
+    }
+}
+
+} // verus!
+}
+pub(crate) use early_info_witness::EarlyBootInfoInit;
+/* Isolates `spin::Once` static `EARLY_INFO`, which Verus cannot reference in specifications.
+ * Origin Rust: <none; new executable code>
+ */
+/// Returns the boot-time information published in [`EARLY_INFO`], if initialized.
+///
+/// This helper is trusted only because Verus cannot mention the `spin::Once` static
+/// [`EARLY_INFO`] directly in specifications or track its write-once initialization state.
+#[verifier::external_body]
+#[verus_spec(ret =>
+    with Tracked(init): Tracked<Option<&EarlyBootInfoInit>>
+    ensures
+        init matches Some(w) ==> ret matches Some(info) && *info == w@,
+    opens_invariants none
+    no_unwind
+)]
+pub(crate) fn get_early_info() -> Option<&'static EarlyBootInfo> {
+    EARLY_INFO.get()
+}
 
 /*
 /// Initializes the boot information.

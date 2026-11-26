@@ -92,6 +92,17 @@ pub assume_specification<T: PointeeSized>[ <*const T>::cast_mut ](ptr: *const T)
     no_unwind
 ;
 
+/// Audited against Rust 1.100.0 `library/core/src/ptr/mod.rs`:
+/// `with_exposed_provenance_mut(addr)` is `addr as *mut T` with the same address and cannot panic.
+/// TODO: Upstream this specification to Verus `vstd`; remove it when equivalent `vstd` support is available.
+pub assume_specification<T>[ core::ptr::with_exposed_provenance_mut::<T> ](addr: usize) -> (ret:
+    *mut T)
+    ensures
+        ret.addr() == addr,
+    opens_invariants none
+    no_unwind
+;
+
 /// [<*const T>::is_null](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_null) only checks the raw data pointer.
 #[verifier::when_used_as_spec(ptr_is_null_spec)]
 pub assume_specification<T: PointeeSized>[ <*const T>::is_null ](ptr: *const T) -> bool

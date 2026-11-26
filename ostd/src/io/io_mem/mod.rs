@@ -18,7 +18,7 @@ use core::ops::{Deref, Range};
 
 use align_ext::AlignExt;
 
-pub(crate) use self::allocator::IoMemAllocatorBuilder;
+pub(crate) use self::allocator::{IoMemAllocatorBuilder, usize_ranges_match_registered};
 pub(super) use self::allocator::{init, io_mem_allocator_initialized};
 use crate::{
     Error,
