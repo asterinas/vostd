@@ -41,10 +41,10 @@ impl<'a> TlbFlusher<'a> {
         self.ops_stack@
     }
 
-    /// Whether no more address-specific request fits, so the next request
-    /// escalates to flushing all non-global entries.
-    pub closed spec fn ops_full(&self) -> bool {
-        self.ops_stack.size >= FLUSH_ALL_OPS_THRESHOLD
+    /// How many more requests can be issued before the pending requests
+    /// escalate to flushing all non-global entries.
+    pub closed spec fn remaining_slots(&self) -> nat {
+        self.ops_stack.remaining_slots()
     }
 }
 
@@ -61,7 +61,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     #[verus_spec(r =>
         ensures
             r.pending() == FlushSet::empty(),
-            !r.ops_full(),
+            r.remaining_slots() == FLUSH_ALL_OPS_THRESHOLD,
     )]
     pub fn new(target_cpus: &'a AtomicCpuSet /*, pin_current_guard: G*/) -> Self {
         Self {
@@ -79,10 +79,12 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// [`Self::dispatch_tlb_flush`] is called.
     #[verus_spec(
         ensures
-            if old(self).pending().all_user || op.escalates_to_all() || old(self).ops_full() {
-                final(self).pending() == FlushSet::all_user()
+            if old(self).remaining_slots() == 0 || op.escalates_to_all() {
+                &&& final(self).pending() == FlushSet::all_user()
+                &&& final(self).remaining_slots() == 0
             } else {
-                final(self).pending() == old(self).pending().join(op@)
+                &&& final(self).pending() == old(self).pending().join(op@)
+                &&& final(self).remaining_slots() == old(self).remaining_slots() - 1
             },
     )]
     pub fn issue_tlb_flush(&mut self, op: TlbFlushOp) {
@@ -96,12 +98,14 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// flushed. Otherwise if the page is recycled for other purposes, the user
     /// space program can still access the page through the TLB entries. This
     /// method is designed to be used in such cases.
-    #[verus_spec(r =>
+    #[verus_spec(
         ensures
-            if old(self).pending().all_user || op.escalates_to_all() || old(self).ops_full() {
-                final(self).pending() == FlushSet::all_user()
+            if old(self).remaining_slots() == 0 || op.escalates_to_all() {
+                &&& final(self).pending() == FlushSet::all_user()
+                &&& final(self).remaining_slots() == 0
             } else {
-                final(self).pending() == old(self).pending().join(op@)
+                &&& final(self).pending() == old(self).pending().join(op@)
+                &&& final(self).remaining_slots() == old(self).remaining_slots() - 1
             },
     )]
     // Verification note: `page_keeper` is commented out, so `drop_after_flush`
@@ -121,12 +125,14 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// function. But it may not be synchronous. Upon the return of this
     /// function, the TLB entries may not be coherent.
     #[verifier::external_body]
-    #[verus_spec(r =>
+    #[verus_spec(
         with Tracked(model): Tracked<&mut TlbModel>
         requires
             old(model).inv(),
         ensures
             *final(model) == *old(model),
+            final(self).pending() == FlushSet::empty(),
+            final(self).remaining_slots() == FLUSH_ALL_OPS_THRESHOLD,
     )]
     pub fn dispatch_tlb_flush(&mut self) {
         unimplemented!() /*let irq_guard = crate::trap::irq::disable_local();
@@ -218,15 +224,8 @@ pub enum TlbFlushOp {
     Range(Range<Vaddr>),
 }
 
-// `Structural` lets Verus read `op == TlbFlushOp::All` as spec equality, so
-// `OpsStack::push` knows a non-`All` op is pushed when it does not escalate.
-// `#[derive(Structural)]` cannot be used because `core::ops::Range` has no
-// `Structural` impl in Verus.
-//
-// SAFETY: `PartialEq` is derived, so it compares the variant and then the
-// fields: nothing for `All`, the `usize` for `Address`, and `start` and `end`
-// of the `Range<usize>` (whose `PartialEq` is also derived) for `Range`. This
-// is structural equality. A hand-written `PartialEq` would void this impl.
+// SAFETY: The derived `PartialEq` is structural equality. The impl is manual
+// because Verus has no `Structural` impl for `Range`.
 unsafe impl Structural for TlbFlushOp {
 
 }
@@ -253,19 +252,13 @@ impl View for TlbFlushOp {
 
 impl TlbFlushOp {
     /// Whether a request for this operation is recorded as `TlbFlushOp::All`:
-    /// it is `All`, or a range above the flush-all threshold.
+    /// it is `All`, or a range longer than [`FLUSH_ALL_RANGE_THRESHOLD`].
     pub open spec fn escalates_to_all(self) -> bool {
         match self {
             TlbFlushOp::All => true,
             TlbFlushOp::Address(_) => false,
-            TlbFlushOp::Range(range) => Self::range_exceeds_threshold(range),
+            TlbFlushOp::Range(range) => range.end - range.start > FLUSH_ALL_RANGE_THRESHOLD,
         }
-    }
-
-    /// Whether `range` is longer than `FLUSH_ALL_RANGE_THRESHOLD`, which is
-    /// private to this module.
-    pub closed spec fn range_exceeds_threshold(range: Range<Vaddr>) -> bool {
-        range.end - range.start > FLUSH_ALL_RANGE_THRESHOLD
     }
 }
 
@@ -347,12 +340,14 @@ fn do_remote_flush() {
 
 }
 
+// Origin Rust: both thresholds are private `const`s. They are `pub` so that
+// `TlbFlushOp::escalates_to_all` and the `TlbFlusher` contracts can name them.
 /// If a TLB flushing request exceeds this threshold, we flush all.
-const FLUSH_ALL_RANGE_THRESHOLD: usize = 32 * PAGE_SIZE;
+pub const FLUSH_ALL_RANGE_THRESHOLD: usize = 32 * PAGE_SIZE;
 
 /// If the number of pending requests exceeds this threshold, we flush all the
 /// TLB entries instead of flushing them one by one.
-const FLUSH_ALL_OPS_THRESHOLD: usize = 32;
+pub const FLUSH_ALL_OPS_THRESHOLD: usize = 32;
 
 struct OpsStack {
     ops: [Option<TlbFlushOp>; FLUSH_ALL_OPS_THRESHOLD],
@@ -386,53 +381,67 @@ impl View for OpsStack {
 }
 
 impl OpsStack {
-    /// The first `size` slots hold the collected operations. Escalated
-    /// requests set `need_flush_all` and are never stored as `All`.
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        &&& self.size <= FLUSH_ALL_OPS_THRESHOLD
-        &&& forall|i: int|
-            0 <= i < self.size ==> #[trigger] self.ops@[i] is Some && self.ops@[i] != Some(
-                TlbFlushOp::All,
-            )
+        self.size <= FLUSH_ALL_OPS_THRESHOLD
     }
 
+    /// How many more operations can be collected before escalating.
+    closed spec fn remaining_slots(self) -> nat {
+        if self.need_flush_all {
+            0
+        } else {
+            (FLUSH_ALL_OPS_THRESHOLD - self.size) as nat
+        }
+    }
+}
+
+} // verus!
+#[verus_verify]
+impl OpsStack {
     // Verus does not support the array-fill expression of a non-`Copy` type.
     #[verifier::external_body]
-    const fn new() -> (r: Self)
+    #[verus_spec(r =>
         ensures
             r@ == FlushSet::empty(),
-            r.size == 0,
-    {
+            r.remaining_slots() == FLUSH_ALL_OPS_THRESHOLD,
+    )]
+    const fn new() -> Self {
         Self {
-            ops: [const { None };FLUSH_ALL_OPS_THRESHOLD],
+            ops: [const { None }; FLUSH_ALL_OPS_THRESHOLD],
             need_flush_all: false,
             size: 0,
             //            page_keeper: Vec::new(),
         }
     }
 
-    fn is_empty(&self) -> (r: bool)
+    #[verus_spec(r =>
         ensures
+            r == (self.remaining_slots() == FLUSH_ALL_OPS_THRESHOLD),
             r ==> self@ == FlushSet::empty(),
-    {
+    )]
+    fn is_empty(&self) -> bool {
+        proof! {
+            use_type_invariant(self);
+        }
         !self.need_flush_all && self.size == 0
     }
 
     /// Escalating to a full flush covers every non-global entry, but may lose
     /// the address-specific coverage of global entries.
-    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>)
+    #[verus_spec(
         ensures
-            if old(self)@.all_user || op.escalates_to_all() || old(self).size
-                >= FLUSH_ALL_OPS_THRESHOLD {
-                final(self)@ == FlushSet::all_user()
+            if old(self).remaining_slots() == 0 || op.escalates_to_all() {
+                &&& final(self)@ == FlushSet::all_user()
+                &&& final(self).remaining_slots() == 0
             } else {
-                final(self)@ == old(self)@.join(op@)
+                &&& final(self)@ == old(self)@.join(op@)
+                &&& final(self).remaining_slots() == old(self).remaining_slots() - 1
             },
-    {
-        proof {
+    )]
+    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>) {
+        proof! {
             use_type_invariant(&*self);
-            lemma_ops_flush_set_not_all_user(self.ops@[..self.size]);
         }
         if let Some(frame) = drop_after_flush {
             //            self.page_keeper.push(frame);
@@ -446,29 +455,30 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        let ghost collected = self.ops@[..self.size];
+        proof_decl! { let ghost collected = self.ops@[..self.size]; }
         self.ops[self.size] = Some(op);
         self.size += 1;
-        proof {
+        proof! {
             assert(self.ops@[..self.size] =~= collected.push(Some(op)));
             assert(collected.push(Some(op)).drop_last() =~= collected);
         }
     }
 
-    fn push_from(&mut self, other: &OpsStack)
+    #[verus_spec(
         ensures
-            if old(self)@.all_user || other@.all_user || old(self).size + other.size
-                >= FLUSH_ALL_OPS_THRESHOLD {
-                final(self)@ == FlushSet::all_user()
+            if old(self).remaining_slots() + other.remaining_slots() <= FLUSH_ALL_OPS_THRESHOLD {
+                &&& final(self)@ == FlushSet::all_user()
+                &&& final(self).remaining_slots() == 0
             } else {
-                final(self)@ == old(self)@.join(other@)
+                &&& final(self)@ == old(self)@.join(other@)
+                &&& final(self).remaining_slots() == old(self).remaining_slots()
+                    + other.remaining_slots() - FLUSH_ALL_OPS_THRESHOLD
             },
-    {
-        proof {
+    )]
+    fn push_from(&mut self, other: &OpsStack) {
+        proof! {
             use_type_invariant(&*self);
             use_type_invariant(other);
-            lemma_ops_flush_set_not_all_user(self.ops@[..self.size]);
-            lemma_ops_flush_set_not_all_user(other.ops@[..other.size]);
         }
         //        self.page_keeper.extend(other.page_keeper.iter().cloned());
         if self.need_flush_all {
@@ -479,13 +489,15 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        let ghost start = self@;
-        let ghost start_size = self.size;
-        proof {
+        proof_decl! {
+            let ghost start = self@;
+            let ghost start_size = self.size;
+        }
+        proof! {
             assert(other.ops@[..0] =~= Seq::<Option<TlbFlushOp>>::empty());
             assert(start.join(FlushSet::empty()).vas =~= start.vas);
         }
-        for i in 0..other.size
+        #[verus_spec(
             invariant
                 !self.need_flush_all,
                 !other.need_flush_all,
@@ -493,16 +505,19 @@ impl OpsStack {
                 start_size + other.size < FLUSH_ALL_OPS_THRESHOLD,
                 self.size == start_size + i,
                 self@ == start.join(ops_flush_set(other.ops@[..i])),
-        {
-            proof {
+        )]
+        for i in 0..other.size {
+            proof! {
                 use_type_invariant(&*self);
                 use_type_invariant(other);
             }
-            let ghost collected = self.ops@[..self.size];
-            let ghost copied = other.ops@[..i];
+            proof_decl! {
+                let ghost collected = self.ops@[..self.size];
+                let ghost copied = other.ops@[..i];
+            }
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
-            proof {
+            proof! {
                 let x = other.ops@[i as int];
                 assert(self.ops@[self.size - 1] == x);
                 assert(self.ops@[..self.size] =~= collected.push(x));
@@ -521,8 +536,7 @@ impl OpsStack {
     #[verifier::external_body]
     fn flush_all(&mut self) {
         if self.need_flush_all {
-            unimplemented!()  /*crate::arch::mm::tlb_flush_all_excluding_global();*/
-
+            unimplemented!() /*crate::arch::mm::tlb_flush_all_excluding_global();*/
         } else {
             for i in 0..self.size {
                 if let Some(op) = &self.ops[i] {
@@ -534,11 +548,13 @@ impl OpsStack {
         self.clear_without_flush();
     }
 
-    fn clear_without_flush(&mut self)
+    #[verus_spec(
         ensures
             final(self)@ == FlushSet::empty(),
-    {
-        proof {
+            final(self).remaining_slots() == FLUSH_ALL_OPS_THRESHOLD,
+    )]
+    fn clear_without_flush(&mut self) {
+        proof! {
             use_type_invariant(&*self);
         }
         self.need_flush_all = false;
@@ -546,24 +562,3 @@ impl OpsStack {
         //        self.page_keeper.clear();
     }
 }
-
-/// Stored operations are never `All`, so their meaning never sets `all_user`.
-proof fn lemma_ops_flush_set_not_all_user(ops: Seq<Option<TlbFlushOp>>)
-    requires
-        forall|i: int|
-            0 <= i < ops.len() ==> #[trigger] ops[i] is Some && ops[i] != Some(TlbFlushOp::All),
-    ensures
-        !ops_flush_set(ops).all_user,
-    decreases ops.len(),
-{
-    if ops.len() > 0 {
-        let prefix = ops.drop_last();
-        assert forall|i: int| 0 <= i < prefix.len() implies #[trigger] prefix[i] is Some
-            && prefix[i] != Some(TlbFlushOp::All) by {
-            assert(prefix[i] == ops[i]);
-        }
-        lemma_ops_flush_set_not_all_user(prefix);
-    }
-}
-
-} // verus!

@@ -78,6 +78,7 @@ impl GlobalMemOwner {
         &&& self.regions.inv()
         &&& self.pt.inv()
         &&& self.pt.metaregion_sound(self.regions)
+        &&& self.tlb.inv()
         &&& self.tlb.coherent()
     }
 

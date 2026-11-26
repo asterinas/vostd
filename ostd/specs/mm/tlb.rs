@@ -1,23 +1,29 @@
 //! The abstract TLB model.
 //!
-//! [`TlbModel`] is a tracked resource that owns one [`CpuTlb`] per CPU. Each
+//! [`TlbModel`] is a tracked resource that holds one [`CpuTlb`] per CPU. Each
 //! [`CpuTlb`] bounds what that CPU's TLB may cache: an entry is either backed by
 //! the current page table of a resident address space, or it is in `stale`.
 //! Hardware fills and evictions keep this bound, so they are not steps.
 //!
-//! Both resources keep their state private, so a proof cannot forge them or
-//! drop stale entries. Removing stale entries is reserved for the contracts of
-//! the hardware flush primitives.
+//! The model keeps its state private, so a proof cannot forge it or drop stale
+//! entries. Removing stale entries is reserved for the contracts of the
+//! hardware flush primitives.
 //!
 //! The model describes the least that each flush invalidates. The trusted arch
-//! flushes may invalidate more (on RISC-V, `sfence.vma` also drops global
-//! entries and entries of other address spaces), which keeps the model a sound
-//! upper bound on what a TLB may cache.
+//! flushes may invalidate more (`invlpg` and LoongArch's `invtlb 0` also drop
+//! global entries, and RISC-V implements `TlbFlushOp::All` as a full
+//! `sfence.vma`), which keeps the model a sound upper bound on what a TLB may
+//! cache.
 //!
 //! The request bookkeeping of `OpsStack` and `TlbFlusher::issue_tlb_flush[_with]`
 //! is verified against [`FlushSet`]. `OpsStack::new`, the hardware flushes, and
 //! dispatching and synchronizing flush requests remain trusted. Which CPU runs
 //! the code is not modelled yet.
+//!
+//! TODO: Page-table updates do not add entries to `stale` yet, and no flush
+//! removes them, so [`TlbModel::coherent`] is not yet tied to the page table or
+//! maintained by `CursorMut::map` and `CursorMut::unmap`. This awaits the
+//! page-table-removal and arch flush contracts.
 //!
 //! Frames are not kept alive until their TLB entries are flushed: the
 //! `page_keeper` of `OpsStack` is commented out, so the frame passed to
@@ -27,8 +33,10 @@ use vstd_extra::ownership::*;
 
 use crate::specs::mm::page_table::*;
 
-use crate::cpu::cpu_count;
-use crate::mm::{Paddr, Vaddr};
+use crate::{
+    cpu::cpu_count,
+    mm::{Paddr, Vaddr},
+};
 
 verus! {
 
@@ -37,8 +45,8 @@ verus! {
 pub ghost struct FlushSet {
     /// At least every non-global entry is invalidated, as by `TlbFlushOp::All`.
     pub all_user: bool,
-    /// At least the entries translating any of these addresses are
-    /// invalidated, including global ones, as by `invlpg` or `sfence.vma`.
+    /// At least the non-global entries translating any of these addresses are
+    /// invalidated, as by `invlpg` or `sfence.vma`.
     pub vas: Set<Vaddr>,
 }
 
@@ -60,8 +68,8 @@ impl FlushSet {
 
 /// The address space that a TLB entry is tagged with.
 pub ghost enum AddrSpaceId {
-    /// Global entries. The model does not invalidate them on address-space
-    /// switches or `TlbFlushOp::All`, although some architectures do.
+    /// Global entries. The model never invalidates them, although some
+    /// architectures do.
     Kernel,
     /// Non-global entries of the user page table with this root.
     User(Paddr),
@@ -79,8 +87,8 @@ pub type CpuIdx = int;
 
 /// The state of one CPU's TLB, as an upper bound on what it may cache.
 pub ghost struct CpuTlbState {
-    /// The user address space installed in CR3 or `satp`, if any.
-    pub active: Option<AddrSpaceId>,
+    /// The root of the user page table installed in CR3 or `satp`, if any.
+    pub active: Option<Paddr>,
     /// The address spaces that may have entries cached on this CPU.
     pub resident: Set<AddrSpaceId>,
     /// The entries that may be cached although their page tables no longer
@@ -91,16 +99,16 @@ pub ghost struct CpuTlbState {
 impl Inv for CpuTlbState {
     open spec fn inv(self) -> bool {
         &&& self.resident.contains(AddrSpaceId::Kernel)
-        &&& self.active matches Some(asid) ==> self.resident.contains(asid)
+        &&& self.active matches Some(root) ==> self.resident.contains(AddrSpaceId::User(root))
         &&& forall|e: TlbEntry| #[trigger]
             self.stale.contains(e) ==> e.map.inv() && self.resident.contains(e.asid)
     }
 }
 
-/// The tracked TLB of one CPU.
-pub tracked struct CpuTlb {
-    ghost cpu: CpuIdx,
-    ghost state: CpuTlbState,
+/// The TLB of one CPU.
+pub ghost struct CpuTlb {
+    cpu: CpuIdx,
+    state: CpuTlbState,
 }
 
 impl View for CpuTlb {
@@ -120,7 +128,7 @@ impl CpuTlb {
 
 /// The tracked TLBs of all CPUs, one for each `CpuId` in `0..cpu_count()`.
 pub tracked struct TlbModel {
-    tracked cpus: Map<CpuIdx, CpuTlb>,
+    ghost cpus: Map<CpuIdx, CpuTlb>,
 }
 
 impl Inv for TlbModel {
