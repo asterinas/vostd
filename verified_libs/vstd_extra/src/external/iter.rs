@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for iterator operations not yet modeled by `vstd`.
-use core::{cmp::Ordering, iter::StepBy};
+use core::{cmp::Ordering, iter::StepBy, ops::Range};
 use vstd::{
     laws_cmp::obeys_cmp,
     prelude::*,
@@ -149,14 +149,13 @@ pub trait ExIteratorStepBy {
 
 pub uninterp spec fn step_by_post<I>(iter: I, step: usize, ret: StepBy<I>) -> bool;
 
-/// Connects `Iterator::step_by` to the prophetic iterator model.
-pub broadcast axiom fn axiom_step_by_postcondition<I: IteratorSpec>(
-    iter: I,
+/// Connects `Range<usize>::step_by` to the prophetic iterator model.
+pub broadcast axiom fn axiom_range_step_by_postcondition(
+    iter: Range<usize>,
     step: usize,
-    ret: StepBy<I>,
+    ret: StepBy<Range<usize>>,
 )
     requires
-        iter.obeys_prophetic_iter_laws(),
         step != 0,
         #[trigger] step_by_post(iter, step, ret),
     ensures
@@ -165,13 +164,11 @@ pub broadcast axiom fn axiom_step_by_postcondition<I: IteratorSpec>(
             ((iter.remaining().len() + step - 1) / (step as int)) as nat,
             |k: int| iter.remaining()[k * step],
         ),
-        IteratorSpec::produces(&ret).len() == IteratorSpec::remaining(&ret).len(),
-        forall|k: int|
-            0 <= k < IteratorSpec::remaining(&ret).len() ==> (#[trigger] IteratorSpec::produces(
-                &ret,
-            )[k] ==> iter.produces()[k * step]),
-        iter.produces().all(|p: bool| p) ==> IteratorSpec::produces(&ret).all(|p: bool| p),
-        IteratorSpec::decrease(&ret) is Some == iter.decrease() is Some,
+        IteratorSpec::produces(&ret) == Seq::new(
+            IteratorSpec::remaining(&ret).len(),
+            |k: int| true,
+        ),
+        IteratorSpec::decrease(&ret) is Some,
 ;
 
 } // verus!

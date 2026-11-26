@@ -173,10 +173,11 @@ pub(crate) fn tlb_flush_addr(vaddr: Vaddr) {
     requires
         range.start < range.end ==> (range.end <= X86_CANONICAL_LOWER_END as usize
             || range.start >= X86_CANONICAL_UPPER_START as usize),
+        range.start < range.end ==> range.start % PAGE_SIZE == 0,
 )]
 pub(crate) fn tlb_flush_addr_range(range: &Range<Vaddr>) {
     proof! {
-        broadcast use axiom_step_by_postcondition;
+        broadcast use axiom_range_step_by_postcondition;
     }
 
     #[verus_spec(iter =>
