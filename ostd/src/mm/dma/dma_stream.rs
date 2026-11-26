@@ -31,7 +31,7 @@ use crate::{
     sync::{PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
-use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
+use super::{DmaError, HasDaddr, check_and_insert_dma_mapping};
 
 verus! {
 
@@ -419,7 +419,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInner<M> {
     open spec fn inv(self) -> bool {
         &&& self.segment.inv()
-        &&& is_valid_daddr(self.start_daddr)
+        &&& self.start_daddr == self.segment.start_paddr()
     }
 }
 
@@ -749,7 +749,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> HasDaddr for DmaStream<M> {
     #[verus_spec(r =>
         ensures
             self.inner.wf(),
-            is_valid_daddr(r),
+            r <= crate::mm::MAX_PADDR,
     )]
     fn daddr(&self) -> Daddr {
         let inner = self.read_inner();

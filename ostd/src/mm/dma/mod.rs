@@ -108,7 +108,7 @@ pub trait HasDaddr {
 /// Whether `d` is a device address.
 #[verifier::inline]
 pub open spec fn is_valid_daddr(d: Daddr) -> bool {
-    d <= crate::mm::MAX_PADDR
+    true
 }
 
 /// Checks whether the physical addresses has dma mapping.
