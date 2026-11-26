@@ -140,6 +140,18 @@ impl MetaSlot {
         &&& perm.addr() % META_SLOT_SIZE == 0
     }
 
+    /// Saturated shared counts panic. The unused and unique states return errors.
+    pub open spec fn get_from_in_use_panic_condition(
+        paddr: Paddr,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        let count = regions.ref_count(frame_to_index(paddr));
+        &&& valid_frame_paddr(paddr)
+        &&& count >= REF_COUNT_MAX
+        &&& count != REF_COUNT_UNUSED
+        &&& count != REF_COUNT_UNIQUE
+    }
+
     pub open spec fn get_from_in_use_success_spec(
         paddr: Paddr,
         pre: MetaRegionOwners,

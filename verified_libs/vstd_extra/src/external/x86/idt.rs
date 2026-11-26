@@ -2,8 +2,6 @@
 //! IDT gate operations from x86_64 0.15.5.
 use vstd::prelude::*;
 
-use crate::panic::allowed_to_panic_if;
-
 use x86_64::{
     PrivilegeLevel, VirtAddr,
     instructions::tables::lidt,
@@ -137,7 +135,7 @@ pub assume_specification<F>[ Entry::<F>::missing ]() -> (r: Entry<F>)
 
 pub assume_specification[ VirtAddr::new ](addr: u64) -> (r: VirtAddr)
     requires
-        allowed_to_panic_if(!is_canonical(addr)),
+        is_canonical(addr),
     ensures
         is_canonical(addr),
         address(r) == addr,

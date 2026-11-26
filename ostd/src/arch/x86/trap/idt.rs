@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Configure the Interrupt Descriptor Table (IDT).
 use vstd::prelude::*;
-use vstd_extra::{
-    external::x86::idt::{
-        self, IdtrLoad, gate, idt_load_context, is_canonical, kernel_code_selector,
-        lemma_idt_entry_layout, software_interrupt_safe, static_idt_at, usable_gate, valid_handler,
-        valid_vector,
-    },
-    panic::allowed_to_panic_if,
+use vstd_extra::external::x86::idt::{
+    self, IdtrLoad, gate, idt_load_context, is_canonical, kernel_code_selector,
+    lemma_idt_entry_layout, software_interrupt_safe, static_idt_at, usable_gate, valid_handler,
+    valid_vector,
 };
 
 use alloc::boxed::Box;
@@ -62,7 +59,7 @@ struct Idt {
     requires
         f.requires(()),
         idt_load_context(),
-        allowed_to_panic_if(idt_once_may_observe_poison()),
+        !idt_once_may_observe_poison(),
     ensures
         result.1.addr() as u64 == published_idt_base(),
         is_canonical(result.1.addr() as u64),
@@ -85,7 +82,7 @@ fn published_idt<F: FnOnce() -> Idt>(f: F) -> (&'static Idt, *const Entry<()>) {
         vectors_ready(),
         valid_vectors(vector_table()),
         idt_load_context(),
-        allowed_to_panic_if(idt_once_may_observe_poison()),
+        !idt_once_may_observe_poison(),
     ensures
         loaded@.descriptor() matches Some(d) && {
             &&& d.base == published_idt_base()
