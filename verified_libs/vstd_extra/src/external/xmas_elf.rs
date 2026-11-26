@@ -11,7 +11,7 @@ use xmas_elf::{
     sections::{Rela, SectionData, SectionHeader, SectionHeader_, ShType},
 };
 
-use crate::{external::slice::as_ptr_spec, panic::allowed_to_panic_if};
+use crate::external::slice::as_ptr_spec;
 
 verus! {
 
@@ -548,7 +548,7 @@ pub assume_specification<'a>[ ElfFile::<'a>::find_section_by_name ](
     name: &str,
 ) -> (result: Option<SectionHeader<'a>>)
     requires
-        allowed_to_panic_if(elf_section_lookup(elf, name) is Err),
+        elf_section_lookup(elf, name) is Ok,
     ensures
         elf_section_lookup(elf, name) == Ok(result),
     returns
@@ -619,7 +619,7 @@ pub assume_specification<'a>[ SectionHeader::<'a>::get_data ](
 ) -> (result: Result<SectionData<'a>, &'static str>)
     requires
         !(section.get_type() matches Ok(ShType::Group)),
-        allowed_to_panic_if(!section_data_readable(section, elf)),
+        section_data_readable(section, elf),
     ensures
         section_decode(section, elf) == Some(result),
         (result matches Ok(SectionData::Rela64(_))) <==> (section.get_type() matches Ok(

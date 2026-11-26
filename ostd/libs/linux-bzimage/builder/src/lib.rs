@@ -24,7 +24,6 @@ use vstd_extra::{
         elf_parse_no_unwind, elf_parse_result, elf_program_headers, elf_program_headers_readable,
         elf_section_lookup, program_load_bytes, program_load_data_readable, section_data_readable,
     },
-    panic::allowed_to_panic_if,
     seq_extra::lemma_seq_all_add,
 };
 
@@ -252,7 +251,8 @@ spec fn elf_reloc_reads_ok(elf: &xmas_elf::ElfFile<'_>) -> bool {
     requires
         elf_parse_no_unwind(elf_file),
         elf_parse_result(elf_file) is Ok,
-        allowed_to_panic_if(!elf_reloc_reads_ok(&elf_parse_result(elf_file)->Ok_0) || !elf64_reloc_supported(elf_file)),
+        elf_reloc_reads_ok(&elf_parse_result(elf_file)->Ok_0),
+        elf64_reloc_supported(elf_file),
     ensures elf64_reloc_supported(elf_file),
     no_unwind when
         elf_parse_no_unwind(elf_file)
