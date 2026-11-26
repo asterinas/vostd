@@ -127,21 +127,12 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
         IteratorSpec::decrease(&iter) == Some(N as nat),
 ;
 
-/// Verus proxy for the standard library's [`StepBy`] iterator adapter.
-///
-/// Audited against Rust 1.100.0 (0ef1bc386), `library/core/src/iter/adapters/step_by.rs`.
-/// TODO: Upstream this model; remove it when equivalent vstd support is available.
+// TODO: Upstream the `StepBy` model to vstd.
 #[verifier::external_type_specification]
 #[verifier::external_body]
 #[verifier::reject_recursive_types(I)]
 pub struct ExStepBy<I>(StepBy<I>);
 
-/// Creates an iterator starting at the same point, stepping by `step` elements each iteration.
-///
-/// Audited against Rust 1.100.0 (0ef1bc386), `library/core/src/iter/traits/iterator.rs` and
-/// `library/core/src/iter/adapters/step_by.rs`: `StepBy::new` panics iff `step == 0`.
-/// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.step_by>.
-/// TODO: Upstream this model; remove it when equivalent vstd support is available.
 #[verifier::external_trait_specification]
 pub trait ExIteratorStepBy {
     type ExternalTraitSpecificationFor: Iterator;
@@ -156,16 +147,9 @@ pub trait ExIteratorStepBy {
     ;
 }
 
-/// The postcondition is indirect so the external trait need not depend on `IteratorSpec`.
 pub uninterp spec fn step_by_post<I>(iter: I, step: usize, ret: StepBy<I>) -> bool;
 
 /// Connects `Iterator::step_by` to the prophetic iterator model.
-///
-/// Audited against Rust 1.100.0 (0ef1bc386), `library/core/src/iter/adapters/step_by.rs`:
-/// `StepBy::next` yields element `0` via `iter.next()` and subsequent elements `k * step`
-/// via `iter.nth(step - 1)`. Like vstd's provided-method specs in `std_specs/iter.rs`,
-/// this trusts `obeys_prophetic_iter_laws()` to include consistency of `step_by` and `nth`
-/// with `next`.
 pub broadcast axiom fn axiom_step_by_postcondition<I: IteratorSpec>(
     iter: I,
     step: usize,

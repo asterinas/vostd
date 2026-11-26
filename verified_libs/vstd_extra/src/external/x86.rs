@@ -1,19 +1,8 @@
 //! External specifications for the [`x86` crate](https://crates.io/crates/x86)
 //! constants and MSR accessors. Constant values are trusted to match
 //! the crate sources; the original constants are re-exported below. Also models the
-//! [`x86_64` crate](https://docs.rs/x86_64/0.15.5/x86_64/) MSR, address, paging frame,
-//! TLB, and CR3 APIs.
-//!
-//! The `x86_64` address, paging frame, TLB, and CR3 specifications below were audited
-//! against `x86_64` 0.15.5 (with default `memory_encryption` disabled):
-//! - `src/addr.rs` (`VirtAddr::new`, `PhysAddr::new`)
-//! - `src/structures/paging/page.rs` (`PageSize`, `Size4KiB`, `AddressNotAligned`)
-//! - `src/structures/paging/frame.rs` (`PhysFrame`, `PhysFrame::from_start_address`)
-//! - `src/instructions/tlb.rs` (`tlb::flush`, `tlb::flush_all`)
-//! - `src/registers/control.rs` (`Cr3`, `Cr3Flags`, `Cr3::write`)
-//!
-//! Hardware TLB invalidation and CR3 page-table activation side effects are outside
-//! Verus's pure memory model and are not tracked by these contracts.
+//! [`x86_64` crate](https://crates.io/crates/x86_64) MSR, address, paging, TLB, and CR3 APIs
+//! (assuming `memory_encryption` is disabled; hardware side effects are unmodeled).
 use vstd::prelude::*;
 
 use core::arch::x86_64::CpuidResult;
@@ -199,25 +188,18 @@ pub assume_specification[ Msr::write ](msr: &mut Msr, value: u64)
     no_unwind
 ;
 
-/// First non-canonical address above the lower 48-bit canonical half (`1 << 47`).
 pub const X86_CANONICAL_LOWER_END: u64 = 0x0000_8000_0000_0000;
 
-/// First canonical address of the upper 48-bit canonical half (`!((1 << 47) - 1)`).
 pub const X86_CANONICAL_UPPER_START: u64 = 0xffff_8000_0000_0000;
 
-/// Exclusive upper bound for 52-bit x86-64 physical addresses (`1 << 52`).
 pub const X86_PHYS_ADDR_END: u64 = 0x0010_0000_0000_0000;
 
-/// Whether `addr` is a canonical 48-bit x86-64 virtual address (bits 48..64 sign-extend bit 47).
-///
-/// Matches `x86_64::VirtAddr::try_new` (`((addr << 16) as i64 >> 16) as u64 == addr`).
+/// Whether `addr` is a canonical 48-bit virtual address.
 pub open spec fn is_canonical_vaddr(addr: u64) -> bool {
     addr < X86_CANONICAL_LOWER_END || addr >= X86_CANONICAL_UPPER_START
 }
 
-/// Whether `addr` is a valid 52-bit x86-64 physical address (bits 52..64 are zero).
-///
-/// Matches `x86_64::PhysAddr::try_new` without the `memory_encryption` feature.
+/// Whether `addr` is a valid 52-bit physical address.
 pub open spec fn is_valid_x86_paddr(addr: u64) -> bool {
     addr < X86_PHYS_ADDR_END
 }
@@ -226,8 +208,6 @@ pub open spec fn is_valid_x86_paddr(addr: u64) -> bool {
 #[verifier::external_body]
 pub struct ExVirtAddr(VirtAddr);
 
-/// [`VirtAddr::new`](https://docs.rs/x86_64/0.15.5/x86_64/addr/struct.VirtAddr.html#method.new);
-/// panics iff `!is_canonical_vaddr(addr)`.
 pub assume_specification[ VirtAddr::new ](addr: u64) -> VirtAddr
     requires
         is_canonical_vaddr(addr),
@@ -239,11 +219,8 @@ pub assume_specification[ VirtAddr::new ](addr: u64) -> VirtAddr
 #[verifier::external_body]
 pub struct ExPhysAddr(PhysAddr);
 
-/// Logical `u64` value stored inside a [`PhysAddr`].
 pub uninterp spec fn phys_addr_as_u64(addr: PhysAddr) -> u64;
 
-/// [`PhysAddr::new`](https://docs.rs/x86_64/0.15.5/x86_64/addr/struct.PhysAddr.html#method.new);
-/// panics iff `!is_valid_x86_paddr(addr)`.
 pub assume_specification[ PhysAddr::new ](addr: u64) -> (ret: PhysAddr)
     requires
         is_valid_x86_paddr(addr),
@@ -253,17 +230,14 @@ pub assume_specification[ PhysAddr::new ](addr: u64) -> (ret: PhysAddr)
     no_unwind when is_valid_x86_paddr(addr)
 ;
 
-/// External specification for the sealed [`PageSize`] trait.
 #[verifier::external_trait_specification]
 #[verifier::external_trait_extension(PageSizeSpec via PageSizeSpecImpl)]
 #[verifier::external_trait_private_bound(x86_64::sealed::Sealed)]
 pub trait ExPageSize: Copy + Eq + PartialOrd + Ord {
     type ExternalTraitSpecificationFor: PageSize;
 
-    /// Whether `Self`'s page size is modeled by [`Self::spec_size`].
     spec fn obeys_page_size_spec() -> bool;
 
-    /// Logical page size in bytes matching `Self::SIZE`.
     spec fn spec_size() -> u64;
 }
 
@@ -290,8 +264,6 @@ pub struct ExAddressNotAligned(AddressNotAligned);
 #[verifier::reject_recursive_types(S)]
 pub struct ExPhysFrame<S: PageSize = Size4KiB>(PhysFrame<S>);
 
-/// [`PhysFrame::from_start_address`](https://docs.rs/x86_64/0.15.5/x86_64/structures/paging/frame/struct.PhysFrame.html#method.from_start_address);
-/// returns `Ok` iff `address` is aligned to `S::SIZE`.
 pub assume_specification<S: PageSize>[ PhysFrame::<S>::from_start_address ](
     address: PhysAddr,
 ) -> (ret: Result<PhysFrame<S>, AddressNotAligned>)
@@ -310,34 +282,28 @@ pub struct ExCr3(Cr3);
 #[verifier::external_body]
 pub struct ExCr3Flags(Cr3Flags);
 
-/// [`Cr3Flags::empty`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#method.empty).
 pub assume_specification[ Cr3Flags::empty ]() -> Cr3Flags
     opens_invariants none
     no_unwind
 ;
 
-/// [`Cr3Flags::PAGE_LEVEL_WRITETHROUGH`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#associatedconstant.PAGE_LEVEL_WRITETHROUGH).
 pub assume_specification[ Cr3Flags::PAGE_LEVEL_WRITETHROUGH ] -> Cr3Flags
 ;
 
-/// [`Cr3Flags::PAGE_LEVEL_CACHE_DISABLE`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#associatedconstant.PAGE_LEVEL_CACHE_DISABLE).
 pub assume_specification[ Cr3Flags::PAGE_LEVEL_CACHE_DISABLE ] -> Cr3Flags
 ;
 
-/// [`Cr3::write`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3.html#method.write).
 pub assume_specification[ Cr3::write ](frame: PhysFrame<Size4KiB>, flags: Cr3Flags)
     opens_invariants none
     no_unwind
 ;
 
-/// [`tlb::flush`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tlb/fn.flush.html).
 pub assume_specification[ tlb::flush ](addr: VirtAddr)
     opens_invariants none
     no_unwind
 ;
 
-/// [`tlb::flush_all`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tlb/fn.flush_all.html);
-/// reloads CR3 (`Cr3::read` masks bits 52..63 so `PhysAddr::new` cannot panic).
+/// Reloads CR3; `Cr3::read` masks bits 52..63 so it cannot panic.
 pub assume_specification[ tlb::flush_all ]()
     opens_invariants none
     no_unwind
