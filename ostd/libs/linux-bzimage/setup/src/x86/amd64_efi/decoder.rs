@@ -86,16 +86,6 @@ impl TryFrom<&[u8]> for MagicNumber {
 }
 
 /// Detects the format used to encode the payload and decodes the payload accordingly.
-///
-/// For compressed input, the builder's `encode_kernel` establishes
-/// `gzip_encoding(kernel, stream)` or `zlib_encoding(kernel, stream)`. Each
-/// relation supplies the format prefix and the decoded bytes, so
-/// `decoded_payload(stream) == Some(kernel)`. The host builder and bare-metal
-/// setup are verified separately. The setup caller must supply the relation
-/// for the bytes embedded in the image.
-///
-/// Read errors are propagated to the caller. The contract guarantees the decoded
-/// bytes on success, without assuming that reading a valid payload succeeds.
 #[verus_spec(result =>
     requires
         decoded_payload(payload@) is Some,
