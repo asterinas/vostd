@@ -356,7 +356,7 @@ impl VmSpace {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmReader`. This guarantees that the `VmReader` can operate correctly.
-    /// 
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - The [`VmSpaceOwner`] invariant must hold.

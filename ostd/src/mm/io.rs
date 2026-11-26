@@ -1850,7 +1850,7 @@ impl<'a> VmWriter<'a, Fallible> {
     /// # Safety
     ///
     /// `ptr` must be in user space for `len` bytes.
-    /// 
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - `ptr` must satisfy [`VirtPtr::inv`].
