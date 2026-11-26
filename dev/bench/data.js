@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795685129718,
+  "lastUpdate": 1795704447717,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -14970,6 +14970,96 @@ window.BENCHMARK_DATA = {
             "value": 1115797,
             "unit": "rlimit",
             "extra": "smt-run=259ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7cd0bcdcddfca4091415daeebc8b4017f65a7700",
+          "message": "prove: verify x86 COM1 console initialization (#979)\n\n* Verify x86 COM1 console initialization\n\nUse the SerialPort constructor contract to prove that COM1's seven\nbyte-accessible registers lie within the declared 0x3F8..0x400 range.\nEnable arch::serial and verify the static initializer and init wrapper\nusing attribute specifications.\n\nUse verified bitflags for LineSts and support private declarations without\nexposing the type. Keep UART operations and flag values unchanged.\n\nValidation: make (ostd 1754 and bitflags 146 verified, 0 errors), optimized\nbuild, formatting, and diff whitespace checks.\n\n* Align verified bitflags APIs and migrate macro callers\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>",
+          "timestamp": "2026-11-26T22:39:43+08:00",
+          "tree_id": "9a39cd8a16c3bcb2d8ead19835165a606a565e6a",
+          "url": "https://github.com/asterinas/vostd/commit/7cd0bcdcddfca4091415daeebc8b4017f65a7700"
+        },
+        "date": 1795704447018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1011806030,
+            "unit": "rlimit",
+            "extra": "verified=4839 errors=0 smt-run=221,821ms wall=163,969ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 347385289,
+            "unit": "rlimit",
+            "extra": "smt-run=86,193ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 114777981,
+            "unit": "rlimit",
+            "extra": "smt-run=24,459ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 56372084,
+            "unit": "rlimit",
+            "extra": "smt-run=11,990ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,552ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,510ms"
+          },
+          {
+            "name": "rlimit: utf8",
+            "value": 4435498,
+            "unit": "rlimit",
+            "extra": "smt-run=1,067ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=709ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=441ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=558ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1158628,
+            "unit": "rlimit",
+            "extra": "smt-run=262ms"
           }
         ]
       }
