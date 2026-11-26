@@ -31,7 +31,6 @@ pub mod layout;
 pub mod number;
 pub mod once;
 pub mod ownership;
-pub mod panic;
 pub mod resource;
 #[cfg(feature = "irc11")]
 pub mod scheduler_thread_view;

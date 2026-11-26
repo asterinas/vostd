@@ -2,10 +2,7 @@
 #![expect(dead_code)]
 
 use vstd::{arithmetic::power2::*, prelude::*};
-use vstd_extra::{
-    panic::{allowed_to_panic_if, panic_diverge},
-    prelude::*,
-};
+use vstd_extra::prelude::*;
 
 use crate::specs::arch::LEAF_PADDR_END;
 use crate::mm::MAX_NR_LEVELS;
@@ -326,9 +323,7 @@ impl PageTableEntryTrait for PageTableEntry {
     open spec fn new_page_req(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> bool {
         &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R.bits() == PageFlags::R.bits()
-        &&& allowed_to_panic_if(
-            !(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable),
-        )
+        &&& (prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
     }
 
     fn new_page(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> Self {
@@ -433,9 +428,7 @@ impl PageTableEntryTrait for PageTableEntry {
     open spec fn set_prop_req(self, prop: PageProperty) -> bool {
         &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R.bits() == PageFlags::R.bits()
-        &&& allowed_to_panic_if(
-            !(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable),
-        )
+        &&& (prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
     }
 
     fn set_prop(&mut self, prop: PageProperty)
@@ -519,7 +512,7 @@ impl PageTableEntryTrait for PageTableEntry {
             },
             _ => {
                 //panic!("unsupported cache policy");
-                panic_diverge();
+                vstd::vpanic!("unsupported cache policy");
             },
         }
         proof {
