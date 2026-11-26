@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use core::{fmt::Debug, mem::size_of};
 
-use bitflags_upstream::bitflags;
 use id_alloc::IdAlloc;
 use int_to_c_enum::TryFromInt;
 
@@ -226,7 +227,7 @@ impl Debug for IrtEntry {
     }
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Interrupt Remapping Table Entry Flags for Remapped Interrupts.
     pub struct IrtEntryFlags: u32{
         /// Present bit
