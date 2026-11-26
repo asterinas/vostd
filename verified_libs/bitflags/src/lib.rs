@@ -144,13 +144,22 @@ macro_rules! __bitflags_flag {
 /// assert!(f.contains(Flags::A));
 /// ```
 // Upstream expands ordinary Rust; this macro embeds `verus!` and forwards layout attributes.
-#[verusfmt::skip]
-#[rustfmt::skip]
 #[macro_export]
 macro_rules! bitflags {
+    // Public trait contracts need public associated items, even for private flags.
+    ($(#[$outer:meta])* struct $($rest:tt)*) => {
+        $crate::bitflags! { @expand [] [pub] $(#[$outer])* struct $($rest)* }
+    };
+    ($(#[$outer:meta])* pub(self) struct $($rest:tt)*) => {
+        $crate::bitflags! { @expand [pub(self)] [pub] $(#[$outer])* struct $($rest)* }
+    };
+    ($(#[$outer:meta])* $vis:vis struct $($rest:tt)*) => {
+        $crate::bitflags! { @expand [$vis] [$vis] $(#[$outer])* struct $($rest)* }
+    };
     (
+        @expand [$($type_vis:tt)*] [$vis:vis]
         $(#[$outer:meta])*
-        $vis:vis struct $name:ident: $T:ty {
+        struct $name:ident: $T:ty {
             $(
                 $(#[$inner:ident $($args:tt)*])*
                 const $Flag:ident = $value:expr;
@@ -159,8 +168,11 @@ macro_rules! bitflags {
     ) => {
         $crate::paste::paste! {
         verus! {
+            /* Keep the declared type visibility separate from its associated items.
+             * Origin Rust: $vis struct $name {
+             */
             $(#[$outer])*
-            $vis struct $name {
+            $($type_vis)* struct $name {
                 /// The raw bits backing this flags value.
                 bits: $T,
             }
