@@ -864,6 +864,7 @@ dependencies = [
  "bitvec",
  "bytemuck",
  "smallvec",
+ "spin",
  "vstd",
  "x86",
  "x86_64 0.15.5",

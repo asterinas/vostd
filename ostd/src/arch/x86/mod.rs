@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the x86 platform.
 use vstd::prelude::*;
+use vstd_extra::{
+    external::x86::{
+        FpuOnce, XCR0_KNOWN_MASK, feature_info_ecx, feature_info_edx, xcr0_flag_groups_valid,
+    },
+    resource_invariant::ValueInvariant,
+};
 
 use crate::specs::context::cpu_feature_model;
 
-/*pub mod boot;
-pub(crate) mod cpu;*/
+/*pub mod boot;*/
+pub(crate) mod cpu;
 pub mod device;
 pub(crate) mod ex_table;
 pub(crate) mod io;
@@ -20,10 +26,11 @@ pub(crate) mod task;
 pub mod timer;
 /* pub mod trap; */
 
-/*use io::construct_io_mem_allocator_builder;
-use spin::Once;
-use x86::cpuid::{CpuId, FeatureInfo};
+/*use io::construct_io_mem_allocator_builder;*/
+/*use spin::Once;*/
+use x86::cpuid::{/*CpuId,*/ FeatureInfo};
 
+/*
 #[cfg(feature = "cvm_guest")]
 pub(crate) mod tdx_guest;
 
@@ -50,10 +57,34 @@ pub(crate) fn init_cvm_guest() {
         // The machine has no TDX support.
         Err(_) => {}
     }
+}*/
+verus! {
+
+pub(crate) ghost struct CpuFeaturesInvariant;
+
+impl ValueInvariant<FeatureInfo> for CpuFeaturesInvariant {
+    open spec fn inv(info: FeatureInfo) -> bool {
+        &&& feature_info_edx(info) & 1u32 != 0
+        &&& feature_info_ecx(info) & (1u32 << 26) != 0
+    }
 }
 
-static CPU_FEATURES: Once<FeatureInfo> = Once::new();
+pub(crate) uninterp spec fn cpu_features_cell_id() -> vstd::resource::Loc;
 
+} // verus!
+/* Origin Rust: static CPU_FEATURES: Once<FeatureInfo> = Once::new();
+ * Carry the initializer's predicate through the unchanged spin::Once protocol. */
+#[verus_verify]
+static CPU_FEATURES: FpuOnce<FeatureInfo, CpuFeaturesInvariant> =
+    verus_exec_expr! { FpuOnce::new(Ghost(CpuFeaturesInvariant)) };
+
+#[inline]
+#[verus_verify(external_body)]
+#[verus_spec(r => ensures r.id() == cpu_features_cell_id())]
+pub(crate) fn cpu_features_ref() -> &'static FpuOnce<FeatureInfo, CpuFeaturesInvariant> {
+    &CPU_FEATURES
+}
+/*
 /// Architecture-specific initialization on the bootstrapping processor.
 ///
 /// It should be called when the heap and frame allocators are available.
@@ -176,50 +207,165 @@ fn has_avx512() -> bool {
     cpuid_result.ebx & (1 << 16) != 0
 }
 
-/*
+verus! {
+
+pub(crate) open spec fn enabled_fpu_xcr0(xcr0: u64) -> u64 {
+    ((xcr0 | 2u64) | (if cpu_feature_model().supports_avx {
+        4u64
+    } else {
+        0u64
+    })) | (if cpu_feature_model().supports_avx512f {
+        0xe0u64
+    } else {
+        0u64
+    })
+}
+
+} // verus!
+// Hardware support and the enabled XSAVE bound are caller obligations.
+#[verus_spec(
+    with Tracked(cpu): Tracked<&mut vstd_extra::external::x86::X86CpuRegisterOwner>
+        -> initialization: Tracked<cpu::context::FpuInitialization>
+    requires
+        old(cpu).kernel_cpu(),
+        old(cpu)@.fpu, old(cpu)@.xsave,
+        old(cpu)@.fsgsbase, old(cpu)@.fxsr, old(cpu)@.sse, old(cpu)@.pge, old(cpu)@.nx,
+        old(cpu)@.max_basic_leaf >= 0xd,
+        cpu_feature_model().matches_xstates(old(cpu)),
+        xcr0_flag_groups_valid(enabled_fpu_xcr0(old(cpu)@.xcr0) & XCR0_KNOWN_MASK),
+        enabled_fpu_xcr0(old(cpu)@.xcr0) & !old(cpu)@.user_xstates == 0,
+        576 <= (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) <= 4096,
+        (old(cpu)@.xsave_size_for)(enabled_fpu_xcr0(old(cpu)@.xcr0)) as usize
+            == cpu::context::platform_xsave_area_size(),
+    ensures initialization@.enabled_on(final(cpu)),
+            initialization@.uses_xsave(),
+            576 <= initialization@.len() <= 4096,
+            final(cpu)@ == (vstd_extra::external::x86::X86CpuSnapshot {
+                cr0: old(cpu)@.cr0 & !12u64,
+                cr4: old(cpu)@.cr4 | 0x50680u64,
+                efer: old(cpu)@.efer | 0x800u64,
+                xcr0: enabled_fpu_xcr0(old(cpu)@.xcr0),
+                x87_control: 0x037f, x87_status: 0, x87_tag: 0xffff,
+                ..old(cpu)@
+            }),
+)]
 pub(crate) fn enable_cpu_features() {
-    use x86_64::registers::{control::Cr4Flags, model_specific::EferFlags, xcontrol::XCr0Flags};
+    use vstd_extra::external::x86::{
+        cr4_bits, cr4_or, cr4_or_assign, enable_cr4_flags, enable_nxe, read_cr4, read_feature_info,
+        read_xcr0, write_xcr0, xcr0_bits, xcr0_or, xcr0_or_assign,
+    };
 
-    CPU_FEATURES.call_once(|| {
-        let cpuid = CpuId::new();
-        cpuid.get_feature_info().unwrap()
-    });
+    use x86_64::registers::{
+        control::Cr4Flags, /*model_specific::EferFlags,*/ xcontrol::XCr0Flags,
+    };
+    proof_decl! { let tracked initialized; }
+    verus_exec_expr! {{
+        /* Origin Rust: CPU_FEATURES.call_once(|| {
+         *     let cpuid = CpuId::new();
+         *     cpuid.get_feature_info().unwrap()
+         * });
+         * Carry CPU authority into the original lazy initializer. */
+        let tracked read_cpu = &*cpu;
+        let (_, Tracked(features_initialized)) = cpu_features_ref().call_once(
+            || -> (r: FeatureInfo) ensures CpuFeaturesInvariant::inv(r) {
+                read_feature_info(Tracked(read_cpu))
+            }
+        );
+        /* Origin Rust: let mut cr4 = x86_64::registers::control::Cr4::read();
+         * The same read carries the current-CPU register authority. */
+        let mut cr4 = read_cr4(Tracked(&*cpu));
+        let ghost old_cr4 = cpu@.cr4;
+        let ghost cr4_read_bits = cr4_bits(cr4);
+        assert((((0x10000u64 | 0x40000u64) | 0x200u64) | 0x400u64) | 0x80u64 == 0x50680u64) by (bit_vector);
+        /* Origin Rust: cr4 |= Cr4Flags::FSGSBASE | Cr4Flags::OSXSAVE
+         *     | Cr4Flags::OSFXSR | Cr4Flags::OSXMMEXCPT_ENABLE | Cr4Flags::PAGE_GLOBAL;
+         * Thin wrappers retain the native operators; their spec-trait impl is foreign. */
+        cr4_or_assign(&mut cr4, cr4_or(cr4_or(cr4_or(cr4_or(
+            Cr4Flags::FSGSBASE, Cr4Flags::OSXSAVE), Cr4Flags::OSFXSR),
+            Cr4Flags::OSXMMEXCPT_ENABLE), Cr4Flags::PAGE_GLOBAL));
+        unsafe {
+            /* Origin Rust: x86_64::registers::control::Cr4::write(cr4);
+             * Pass the linear state through the unchanged hardware write. */
+            let ghost cr4_write_bits = cr4_bits(cr4);
+            enable_cr4_flags(cr4, Tracked(&mut *cpu));
+            assert((old_cr4 | 0x50680u64) & 0x40000u64 != 0) by (bit_vector);
+        }
 
-    let mut cr4 = x86_64::registers::control::Cr4::read();
-    cr4 |= Cr4Flags::FSGSBASE
-        | Cr4Flags::OSXSAVE
-        | Cr4Flags::OSFXSR
-        | Cr4Flags::OSXMMEXCPT_ENABLE
-        | Cr4Flags::PAGE_GLOBAL;
-    unsafe {
-        x86_64::registers::control::Cr4::write(cr4);
-    }
+        /* Origin Rust: let mut xcr0 = x86_64::registers::xcontrol::XCr0::read();
+         * Keep the read and its from_bits_truncate behavior. */
+        let mut xcr0 = read_xcr0(Tracked(&*cpu));
+        let ghost old_xcr0 = cpu@.xcr0;
+        let ghost initial_bits = xcr0_bits(xcr0);
+        /* Origin Rust: xcr0 |= XCr0Flags::SSE;
+         * Keep native BitOrAssign behind its narrow software contract. */
+        xcr0_or_assign(&mut xcr0, XCr0Flags::SSE);
+        let ghost after_sse = xcr0_bits(xcr0);
+        let ghost mut avx_bits = 0u64;
+        let ghost mut avx512_bits = 0u64;
+        if has_avx() {
+            /* Origin Rust: xcr0 |= XCr0Flags::AVX;
+             * The external BitOrAssign operation requires a contract. */
+            xcr0_or_assign(&mut xcr0, XCr0Flags::AVX);
+            proof { avx_bits = 4u64; }
+        }
 
-    let mut xcr0 = x86_64::registers::xcontrol::XCr0::read();
+        let ghost after_avx = xcr0_bits(xcr0);
+        assert(after_avx | 0u64 == after_avx) by (bit_vector);
+        if has_avx512() {
+            assert((0x20u64 | 0x40u64) | 0x80u64 == 0xe0u64) by (bit_vector);
+            /* Origin Rust: xcr0 |= XCr0Flags::OPMASK | XCr0Flags::ZMM_HI256 | XCr0Flags::HI16_ZMM;
+             * Preserve the three native OR operations and their order. */
+            xcr0_or_assign(&mut xcr0, xcr0_or(xcr0_or(XCr0Flags::OPMASK,
+                XCr0Flags::ZMM_HI256), XCr0Flags::HI16_ZMM));
+            proof { avx512_bits = 0xe0u64; }
+        }
 
-    xcr0 |= XCr0Flags::SSE;
+        unsafe {
+            /* Origin Rust: x86_64::registers::xcontrol::XCr0::write(xcr0);
+             * Preserve raw bits outside the wrapper's known mask. */
+            let ghost current_bits = xcr0_bits(xcr0);
+            let ghost target_bits = enabled_fpu_xcr0(old_xcr0);
+            assert(current_bits == target_bits & XCR0_KNOWN_MASK) by (bit_vector)
+                requires current_bits == ((initial_bits | 2u64) | avx_bits) | avx512_bits,
+                    initial_bits == old_xcr0 & XCR0_KNOWN_MASK,
+                    target_bits == ((old_xcr0 | 2u64) | avx_bits) | avx512_bits,
+                    avx_bits == 0 || avx_bits == 4,
+                    avx512_bits == 0 || avx512_bits == 0xe0;
 
-    if has_avx() {
-        xcr0 |= XCr0Flags::AVX;
-    }
+            assert(current_bits & !XCR0_KNOWN_MASK == 0) by (bit_vector)
+                requires current_bits == ((initial_bits | 2u64) | avx_bits) | avx512_bits,
+                    initial_bits == old_xcr0 & XCR0_KNOWN_MASK,
+                    avx_bits == 0 || avx_bits == 4,
+                    avx512_bits == 0 || avx512_bits == 0xe0;
+            assert(current_bits & !0xe6u64 == (old_xcr0 & XCR0_KNOWN_MASK) & !0xe6u64) by (bit_vector)
+                requires current_bits == ((initial_bits | 2u64) | avx_bits) | avx512_bits,
+                    initial_bits == old_xcr0 & XCR0_KNOWN_MASK,
+                    avx_bits == 0 || avx_bits == 4,
+                    avx512_bits == 0 || avx512_bits == 0xe0;
 
-    if has_avx512() {
-        xcr0 |= XCr0Flags::OPMASK | XCr0Flags::ZMM_HI256 | XCr0Flags::HI16_ZMM;
-    }
+            assert(((old_xcr0 & !XCR0_KNOWN_MASK) | current_bits)
+                == ((old_xcr0 | 2u64) | avx_bits) | avx512_bits) by (bit_vector)
+                requires current_bits == ((initial_bits | 2u64) | avx_bits) | avx512_bits,
+                    initial_bits == old_xcr0 & XCR0_KNOWN_MASK;
+            write_xcr0(xcr0, Tracked(&mut *cpu));
+        }
 
-    unsafe {
-        x86_64::registers::xcontrol::XCr0::write(xcr0);
-    }
-
-    cpu::context::enable_essential_features();
-
-    unsafe {
-        // enable non-executable page protection
-        x86_64::registers::model_specific::Efer::update(|efer| {
-            *efer |= EferFlags::NO_EXECUTE_ENABLE;
-        });
-    }
-}*/
+        let tracked result;
+        #[verus_spec(with Tracked(&mut *cpu), Tracked(&features_initialized) => Tracked(result))]
+        cpu::context::enable_essential_features();
+        unsafe {
+            // enable non-executable page protection
+            /* Origin Rust: x86_64::registers::model_specific::Efer::update(|efer| {
+             *     *efer |= EferFlags::NO_EXECUTE_ENABLE;
+             * });
+             * Keep the same update while stating the register frame. */
+            enable_nxe(Tracked(&mut *cpu));
+        }
+        proof { initialized = result; }
+    }}
+    proof_with!(|= Tracked(initialized));
+    ()
+}
 
 /// Inserts a TDX-specific code block.
 ///

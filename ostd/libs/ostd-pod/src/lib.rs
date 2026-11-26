@@ -21,10 +21,22 @@ verus! {
 /// # Safety
 ///
 /// Marking a non-POD type as POD may cause undefined behaviors.
+/// If zeroed_model() returns Some(value), value must be this type's native
+/// all-zero value. Opting in requires reviewing the type's representation;
+/// this requirement concerns the value, not unspecified padding bytes.
 pub unsafe trait Pod: Copy + Sized {
+    /// Some(value) must describe this type's native all-zero value.
+    /// None leaves zero-initialization unmodeled for this implementation.
+    open spec fn zeroed_model() -> Option<Self> {
+        None
+    }
+
     /// Creates a new instance of Pod type that is filled with zeroes.
     #[verifier::external_body]
-    fn new_zeroed() -> Self {
+    fn new_zeroed() -> (r: Self)
+        ensures
+            Self::zeroed_model() matches Some(value) ==> r == value,
+    {
         // SAFETY. An all-zero value of `T: Pod` is always valid.
         unsafe { core::mem::zeroed() }
     }
@@ -72,6 +84,7 @@ pub unsafe trait Pod: Copy + Sized {
     #[verus_spec(r =>
         ensures
             r.len() == core::mem::size_of::<Self>(),
+            r@ == pod_bytes(*old(self)),
             final(r)@ == pod_bytes(*final(self)),
             *final(self) == decode_pod::<Self>(final(r)@),
     )]
@@ -105,7 +118,7 @@ pub open spec fn decode_pod<T>(bytes: Seq<u8>) -> T {
 
 macro_rules! impl_pod_for {
     ($($pod_ty:ty),*) => {
-        $(unsafe impl Pod for $pod_ty {})*
+        $(#[verus_verify] unsafe impl Pod for $pod_ty {})*
     };
 }
 
