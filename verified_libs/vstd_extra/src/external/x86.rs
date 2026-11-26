@@ -208,9 +208,14 @@ pub open spec fn is_valid_x86_paddr(addr: u64) -> bool {
 #[verifier::external_body]
 pub struct ExVirtAddr(VirtAddr);
 
-pub assume_specification[ VirtAddr::new ](addr: u64) -> VirtAddr
+pub uninterp spec fn virt_addr_as_u64(addr: VirtAddr) -> u64;
+
+/// [`VirtAddr::new`](https://docs.rs/x86_64/0.15.5/x86_64/addr/struct.VirtAddr.html#method.new).
+pub assume_specification[ VirtAddr::new ](addr: u64) -> (ret: VirtAddr)
     requires
         is_canonical_vaddr(addr),
+    ensures
+        virt_addr_as_u64(ret) == addr,
     opens_invariants none
     no_unwind when is_canonical_vaddr(addr)
 ;
@@ -221,6 +226,7 @@ pub struct ExPhysAddr(PhysAddr);
 
 pub uninterp spec fn phys_addr_as_u64(addr: PhysAddr) -> u64;
 
+/// [`PhysAddr::new`](https://docs.rs/x86_64/0.15.5/x86_64/addr/struct.PhysAddr.html#method.new).
 pub assume_specification[ PhysAddr::new ](addr: u64) -> (ret: PhysAddr)
     requires
         is_valid_x86_paddr(addr),
@@ -264,12 +270,16 @@ pub struct ExAddressNotAligned(AddressNotAligned);
 #[verifier::reject_recursive_types(S)]
 pub struct ExPhysFrame<S: PageSize = Size4KiB>(PhysFrame<S>);
 
+pub uninterp spec fn phys_frame_start_address<S: PageSize>(frame: PhysFrame<S>) -> PhysAddr;
+
+/// [`PhysFrame::from_start_address`](https://docs.rs/x86_64/0.15.5/x86_64/structures/paging/frame/struct.PhysFrame.html#method.from_start_address).
 pub assume_specification<S: PageSize>[ PhysFrame::<S>::from_start_address ](
     address: PhysAddr,
 ) -> (ret: Result<PhysFrame<S>, AddressNotAligned>)
     ensures
         S::obeys_page_size_spec() ==> (ret is Ok <==> phys_addr_as_u64(address) % S::spec_size()
             == 0),
+        ret matches Ok(frame) ==> phys_frame_start_address(frame) == address,
     opens_invariants none
     no_unwind
 ;
@@ -282,28 +292,42 @@ pub struct ExCr3(Cr3);
 #[verifier::external_body]
 pub struct ExCr3Flags(Cr3Flags);
 
-pub assume_specification[ Cr3Flags::empty ]() -> Cr3Flags
+pub uninterp spec fn cr3_flags_bits(flags: Cr3Flags) -> u64;
+
+/// [`Cr3Flags::empty`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#method.empty).
+pub assume_specification[ Cr3Flags::empty ]() -> (ret: Cr3Flags)
+    ensures
+        cr3_flags_bits(ret) == 0u64,
     opens_invariants none
     no_unwind
 ;
 
-pub assume_specification[ Cr3Flags::PAGE_LEVEL_WRITETHROUGH ] -> Cr3Flags
+/// [`Cr3Flags::PAGE_LEVEL_WRITETHROUGH`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#associatedconstant.PAGE_LEVEL_WRITETHROUGH).
+pub assume_specification[ Cr3Flags::PAGE_LEVEL_WRITETHROUGH ] -> (ret: Cr3Flags)
+    ensures
+        cr3_flags_bits(ret) == 0x8u64,
 ;
 
-pub assume_specification[ Cr3Flags::PAGE_LEVEL_CACHE_DISABLE ] -> Cr3Flags
+/// [`Cr3Flags::PAGE_LEVEL_CACHE_DISABLE`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#associatedconstant.PAGE_LEVEL_CACHE_DISABLE).
+pub assume_specification[ Cr3Flags::PAGE_LEVEL_CACHE_DISABLE ] -> (ret: Cr3Flags)
+    ensures
+        cr3_flags_bits(ret) == 0x10u64,
 ;
 
+/// [`Cr3::write`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3.html#method.write).
 pub assume_specification[ Cr3::write ](frame: PhysFrame<Size4KiB>, flags: Cr3Flags)
     opens_invariants none
     no_unwind
 ;
 
+/// [`tlb::flush`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tlb/fn.flush.html).
 pub assume_specification[ tlb::flush ](addr: VirtAddr)
     opens_invariants none
     no_unwind
 ;
 
-/// Reloads CR3; `Cr3::read` masks bits 52..63 so it cannot panic.
+/// [`tlb::flush_all`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tlb/fn.flush_all.html);
+/// reloads CR3 (`Cr3::read` masks bits 52..63 so it cannot panic).
 pub assume_specification[ tlb::flush_all ]()
     opens_invariants none
     no_unwind

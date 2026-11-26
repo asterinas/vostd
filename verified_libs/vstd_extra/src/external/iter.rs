@@ -133,6 +133,7 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
 #[verifier::reject_recursive_types(I)]
 pub struct ExStepBy<I>(StepBy<I>);
 
+/// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.step_by>.
 #[verifier::external_trait_specification]
 pub trait ExIteratorStepBy {
     type ExternalTraitSpecificationFor: Iterator;
