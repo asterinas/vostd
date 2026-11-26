@@ -17,7 +17,7 @@
 //!   bundled as `CursorEntry::inv` (entry-side); see [`super::CursorEntry`].
 //! - `owner.in_barrier_va()` — NOT a precondition of `query`, `jump`,
 //!   or `map`: each handles an out-of-range cursor itself (graceful
-//!   `Err` for `query`; a faithful `panic_diverge` otherwise) and
+//!   `Err` for `query`; `vpanic!` otherwise) and
 //!   re-derives `in_barrier_va` internally. `protect_next` still
 //!   requires it; see exec clauses.
 //! - `regions.inv()`, `owner.metaregion_sound(regions)` — passed via
@@ -261,7 +261,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
 /// `!owner.popped_too_high`). It does **not** require
 /// `owner.in_barrier_va()`: the exec `requires` was relaxed. A drifted
 /// cursor that cannot be repositioned within the target node aborts the
-/// program (a sound `panic_diverge`, mirroring the real `pop_level`
+/// program (via `vpanic!`, mirroring the real `pop_level`
 /// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
 /// `in_barrier_va` now only governs the success postcondition, and
 /// this proof soundly models the returning path.
