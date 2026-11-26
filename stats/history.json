@@ -1270,6 +1270,20 @@
       "proof": 19489,
       "verified_apis": 349,
       "verified_mainline_apis": 312
+    },
+    {
+      "date": "2026-11-26T17:17:01+08:00",
+      "sha": "8c8914e7f7a171e663ba0f3e2b75c2aa83efa3c5",
+      "total": 18595,
+      "verified_exec": 6497,
+      "trusted": 741,
+      "unverified": 9061,
+      "unplanned": 2296,
+      "rust_mode": 20386,
+      "spec": 20373,
+      "proof": 19489,
+      "verified_apis": 349,
+      "verified_mainline_apis": 312
     }
   ]
 }
