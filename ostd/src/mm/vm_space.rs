@@ -226,7 +226,6 @@ impl VmSpace {
         requires
             self.pt.relates_owner(owner, *old(regions)),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // On the success branch, the returned cursor owner satisfies
@@ -291,7 +290,6 @@ impl VmSpace {
         requires
             self.pt.relates_owner(owner, *old(regions)),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // See `cursor` above for the derivation.
