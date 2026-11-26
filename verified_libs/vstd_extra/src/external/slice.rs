@@ -44,6 +44,15 @@ pub broadcast axiom fn axiom_slice_addr_no_overflow(s: &[u8])
         #[trigger] (as_ptr_spec(s) as usize) + s.len() <= usize::MAX,
 ;
 
+/// AXIOM: Any valid Rust slice has a non-null data pointer.
+///
+/// Rust guarantees that a slice reference's backing pointer is always non-null
+/// (dangling non-null for empty or zero-sized slices).
+pub broadcast axiom fn axiom_slice_as_ptr_nonnull<T>(s: &[T])
+    ensures
+        (#[trigger] s.as_ptr()).addr() != 0,
+;
+
 /// Spec for `core::slice::from_raw_parts`. We promise only that the resulting
 /// slice has the requested length and that the call does not unwind.
 /// The caller must uphold Rust's safety contract.

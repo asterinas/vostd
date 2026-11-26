@@ -15,6 +15,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
 pub(super) mod gdt;
+/*
 mod idt;
 mod syscall;
 
@@ -300,3 +301,4 @@ fn handle_kernel_page_fault(info: RawPageFaultInfo) {
     //    correctness follows the semantics of the direct mapping of physical memory.
     unsafe { cursor.map(crate::mm::kspace::MappedItem::Untracked(paddr, 1, prop)) }.unwrap();
 }
+*/

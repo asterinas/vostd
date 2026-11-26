@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Platform-specific code for the LoongArch platform.
-/*pub mod boot;
+/*pub mod boot;*/
 pub(crate) mod cpu;
-pub mod device;
+/*pub mod device;
 mod io;
 pub(crate) mod iommu;*/
 pub(crate) mod irq;

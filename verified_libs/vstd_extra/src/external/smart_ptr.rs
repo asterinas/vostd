@@ -328,4 +328,13 @@ impl<'a, T> BoxPointsToRef<'a, T> {
     }
 }
 
+pub assume_specification<'a, T: ?Sized, A: core::alloc::Allocator + 'a>[ Box::<T, A>::leak ](
+    b: Box<T, A>,
+) -> (ret: &'a mut T)
+    ensures
+        &*ret == &*b,
+    opens_invariants none
+    no_unwind
+;
+
 } // verus!

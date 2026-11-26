@@ -2,7 +2,12 @@ use vstd::{
     arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2},
     prelude::*,
 };
-use vstd_extra::prelude::*;
+use vstd_extra::{external::is_canonical_vaddr, prelude::*};
+
+use x86_64::{
+    registers::segmentation::{CS, Segment},
+    structures::gdt::SegmentSelector,
+};
 
 use crate::specs::{
     arch::{
@@ -138,5 +143,25 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     vaddr_range_proofs::lemma_leading_bits_properties::<KernelPtConfig>();
     assert((256 * pow2(39) as int / pow2(47) as int) % 2 == 1);
 }
+
+/// AXIOM: Under OSTD's x86-64 four-level paging model, any live Rust slice
+/// reference has a 48-bit canonical virtual address.
+pub broadcast axiom fn axiom_slice_as_ptr_canonical<T>(s: &[T])
+    ensures
+        is_canonical_vaddr((#[trigger] s.as_ptr()).addr() as u64),
+;
+
+/// Spec model of the kernel `CS` segment register set by the boot GDT.
+///
+/// OSTD keeps the boot kernel code-segment selector invariant across kernel
+/// execution and never invokes `CS::set_reg`.
+pub uninterp spec fn current_cs_reg() -> SegmentSelector;
+
+/// OSTD trusts `CS::get_reg` to observe the boot-established kernel `CS`
+/// selector (`current_cs_reg()`), relying on OSTD never mutating `CS`.
+pub assume_specification[ <CS as Segment>::get_reg ]() -> SegmentSelector
+    returns
+        current_cs_reg(),
+;
 
 } // verus!

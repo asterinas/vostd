@@ -35,29 +35,31 @@
 // [`crate::cpu_local_cell!`]) is that the CPU-local objects can be shared
 // across CPUs. While through a CPU-local cell object you can only access the
 // value on the current CPU, therefore enabling inner mutability without locks.
-mod cell;
-mod dyn_cpu_local;
+use vstd::{layout::align_of, prelude::*};
+
+/*mod cell;
+mod dyn_cpu_local;*/
 mod static_cpu_local;
 
-pub(crate) mod single_instr;
+/*pub(crate) mod single_instr;*/
 
-use core::{alloc::Layout, marker::PhantomData, ops::Deref};
+use core::{/*alloc::Layout,*/ marker::PhantomData /*, ops::Deref*/};
 
-use align_ext::AlignExt;
+/*use align_ext::AlignExt;
 pub use cell::CpuLocalCell;
 pub use dyn_cpu_local::DynCpuLocalChunk;
-use dyn_cpu_local::DynamicStorage;
+use dyn_cpu_local::DynamicStorage;*/
 use spin::Once;
-use static_cpu_local::StaticStorage;
+/*use static_cpu_local::StaticStorage;*/
 
 use super::CpuId;
 use crate::{
-    mm::{PAGE_SIZE, Paddr, frame::allocator, paddr_to_vaddr},
+    mm::{/*PAGE_SIZE,*/ Paddr /*, frame::allocator, paddr_to_vaddr*/},
     trap::irq::DisabledLocalIrqGuard,
 };
 
-/// Dynamically-allocated CPU-local objects.
-pub type DynamicCpuLocal<T> = CpuLocal<T, DynamicStorage<T>>;
+/*/// Dynamically-allocated CPU-local objects.
+pub type DynamicCpuLocal<T> = CpuLocal<T, DynamicStorage<T>>;*/
 
 /// Statically-allocated CPU-local objects.
 pub type StaticCpuLocal<T> = CpuLocal<T, static_cpu_local::StaticStorage<T>>;
@@ -67,6 +69,8 @@ extern "C" {
     fn __cpu_local_start();
     fn __cpu_local_end();
 }
+
+verus! {
 
 /// A trait to abstract any type that can be used as a slot for a CPU-local
 /// variable of type `T`.
@@ -79,18 +83,44 @@ extern "C" {
 /// The implementor must ensure that the returned pointer refers to the
 /// variable on the correct CPU.
 pub unsafe trait AnyStorage<T> {
+    /// Whether this storage supports [`Self::get_mut_ptr_on_target`] without panicking.
+    ///
+    /// Defaults to `false` because static storage (`StaticStorage<T>`) does not
+    /// support per-CPU mutable initialization pointers.
+    open spec fn supports_mut_ptr_on_target() -> bool {
+        false
+    }
+
     /// Gets the `const` pointer for the object on the current CPU.
-    fn get_ptr_on_current(&self, guard: &DisabledLocalIrqGuard) -> *const T;
+    fn get_ptr_on_current(&self, guard: &DisabledLocalIrqGuard) -> (ret: *const T)
+        ensures
+            ret.addr() != 0,
+            ret.addr() as nat % align_of::<T>() == 0,
+    ;
 
     /// Gets the `const` pointer for the object on a target CPU.
-    fn get_ptr_on_target(&self, cpu: CpuId) -> *const T;
+    fn get_ptr_on_target(&self, cpu: CpuId) -> (ret: *const T)
+        ensures
+            ret.addr() != 0,
+            ret.addr() as nat % align_of::<T>() == 0,
+    ;
 
     /// Gets the `mut` pointer for the object on a target CPU.
     ///
     /// This method is intended for use when initializing or dropping the storage.
-    fn get_mut_ptr_on_target(&mut self, cpu: CpuId) -> *mut T;
+    /// Implementations for which [`Self::supports_mut_ptr_on_target`] is `false`
+    /// (such as `StaticStorage<T>`) panic if called.
+    fn get_mut_ptr_on_target(&mut self, cpu: CpuId) -> (ret: *mut T)
+        requires
+            Self::supports_mut_ptr_on_target(),
+        ensures
+            ret.addr() != 0,
+            ret.addr() as nat % align_of::<T>() == 0,
+            &*final(self) == &*old(self),
+    ;
 }
 
+} // verus!
 /// A CPU-local variable for type `T`, backed by a storage of type `S`.
 ///
 /// CPU-local objects are instantiated once per CPU core. They can be shared to
@@ -98,11 +128,13 @@ pub unsafe trait AnyStorage<T> {
 /// reference to the inner object, the object is always the one in the original
 /// core (when the reference is created), no matter which core the code is
 /// currently running on.
+#[verus_verify]
 pub struct CpuLocal<T, S: AnyStorage<T>> {
     storage: S,
     phantom: PhantomData<T>,
 }
 
+/*
 impl<T: 'static, S: AnyStorage<T>> CpuLocal<T, S> {
     /// Gets access to the underlying value on the current CPU with a
     /// provided IRQ guard.
@@ -158,6 +190,7 @@ impl<'a, T: 'static, S: AnyStorage<T>> Deref for CpuLocalDerefGuard<'a, T, S> {
         unsafe { &*ptr }
     }
 }
+*/
 
 // SAFETY: Although multiple tasks may access the inner value `T` of a CPU-local
 // variable at different times, only one task can access it at any given moment.
@@ -166,7 +199,7 @@ impl<'a, T: 'static, S: AnyStorage<T>> Deref for CpuLocalDerefGuard<'a, T, S> {
 // `CpuLocal<T, S>` with `Sync` and `Send` only safely transfer ownership of the
 // entire `T` instance between tasks.
 unsafe impl<T: Send + 'static, S: AnyStorage<T>> Sync for CpuLocal<T, S> {}
-unsafe impl<T: Send + 'static> Send for CpuLocal<T, DynamicStorage<T>> {}
+/*unsafe impl<T: Send + 'static> Send for CpuLocal<T, DynamicStorage<T>> {}*/
 
 // Implement `!Copy` and `!Clone` for `CpuLocal` to ensure memory safety:
 // - Prevent valid instances of `CpuLocal<T, StaticStorage<T>>` from being copied
@@ -178,11 +211,14 @@ impl<T: 'static, S: AnyStorage<T>> !Clone for CpuLocal<T, S> {}
 
 // In general, it does not make any sense to send instances of static `CpuLocal`
 // to other tasks as they should live on other CPUs to make sending useful.
-impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
+/* Specialized `!Send` is rejected on current rustc (E0366); enforced on `StaticStorage<T>` instead.
+ * Origin Rust: impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
+ */
 
 /// The static CPU-local areas for APs.
 static CPU_LOCAL_STORAGES: Once<&'static [Paddr]> = Once::new();
 
+/*
 /// Copies the static CPU-local data on the bootstrap processor (BSP)
 /// for application processors (APs).
 ///
@@ -276,6 +312,7 @@ pub(crate) fn get_ap(cpu_id: CpuId) -> Paddr {
     );
     paddr
 }
+*/
 
 mod is_used {
     //! This module tracks whether any statically-allocated CPU-local

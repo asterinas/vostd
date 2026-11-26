@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Statically-allocated CPU-local objects.
+use vstd::{layout::align_of, prelude::*};
+
 use core::marker::PhantomData;
 
 use super::{__cpu_local_end, __cpu_local_start, AnyStorage, CpuLocal};
@@ -58,12 +60,32 @@ macro_rules! cpu_local {
 ///
 /// Such a CPU-local storage is not intended to be allocated directly.
 /// Use the `cpu_local` macro instead.
+#[verus_verify]
 pub struct StaticStorage<T: 'static>(T);
+
+/* Specialized `!Send` on `CpuLocal<T, StaticStorage<T>>` is rejected by rustc (E0366);
+ * enforce `!Send` on `StaticStorage<T>` instead.
+ * Origin Rust: impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
+ */
+impl<T: 'static> !Send for StaticStorage<T> {}
 
 impl<T: 'static> StaticStorage<T> {
     /// Gets access to the underlying value through a raw pointer.
     ///
     /// This method is safe, but using the returned pointer will be unsafe.
+    // Trusted linker/hardware boundary: computes the current CPU's static
+    // CPU-local address from `arch::cpu::local::get_base()`, `&self`, and the
+    // linker symbols `__cpu_local_start`/`__cpu_local_end`. Relies on
+    // `CpuLocal::__new_static`'s `.cpu_local` placement safety contract and
+    // boot-time CPU-local base setup; `no_unwind` is omitted because
+    // `debug_assert!` can panic if those invariants are violated.
+    #[verus_verify(external_body)]
+    #[verus_spec(ret =>
+        ensures
+            ret.addr() != 0,
+            ret.addr() as nat % align_of::<T>() == 0,
+        opens_invariants none
+    )]
     fn as_ptr(&self) -> *const T {
         super::is_used::debug_set_true();
 
@@ -127,6 +149,7 @@ unsafe impl<T: 'static> AnyStorage<T> for StaticStorage<T> {
     }
 }
 
+#[verus_verify]
 impl<T: 'static> CpuLocal<T, StaticStorage<T>> {
     /// Creates a new statically-allocated CPU-local object.
     ///
@@ -149,6 +172,12 @@ impl<T: 'static> CpuLocal<T, StaticStorage<T>> {
     /// Gets access to the underlying value through a raw pointer.
     ///
     /// This method is safe, but using the returned pointer will be unsafe.
+    #[verus_spec(ret =>
+        ensures
+            ret.addr() != 0,
+            ret.addr() as nat % align_of::<T>() == 0,
+        opens_invariants none
+    )]
     pub(crate) fn as_ptr(&self) -> *const T {
         self.storage.as_ptr()
     }
