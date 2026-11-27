@@ -17,6 +17,35 @@ verus! {
 
 broadcast use group_io_port_models;
 
+/// PIC and PIT register addresses whose writes consume a trace entry.
+pub open spec fn needs_write_sequence(port: u16) -> bool {
+    ||| 0x20 <= port <= 0x21
+    ||| 0x40 <= port <= 0x43
+    ||| 0xA0 <= port <= 0xA1
+}
+
+/// Outstanding port writes. Only the I/O layer constructs a sequence or advances it.
+pub tracked struct PortWriteSequence<T> {
+    ghost remaining: Seq<(u16, T)>,
+}
+
+impl<T> View for PortWriteSequence<T> {
+    type V = Seq<(u16, T)>;
+
+    closed spec fn view(&self) -> Seq<(u16, T)> {
+        self.remaining
+    }
+}
+
+impl<T> PortWriteSequence<T> {
+    pub(super) proof fn new(writes: Seq<(u16, T)>) -> (tracked trace: Self)
+        ensures
+            trace@ == writes,
+    {
+        PortWriteSequence { remaining: writes }
+    }
+}
+
 } // verus!
 /// An I/O port, representing a specific address in the I/O address of x86.
 ///
@@ -297,8 +326,23 @@ impl<T: PortRead, A: IoPortReadAccess> IoPort<T, A> {
 #[verifier::allow(undeclared_external_trait)]
 impl<T: PortWrite, A: IoPortWriteAccess> IoPort<T, A> {
     /// Writes to the I/O port
+    #[verus_spec(
+        with Tracked(expected): Tracked<Option<&mut PortWriteSequence<T>>>,
+        requires
+            needs_write_sequence(self@) ==> expected is Some,
+            expected matches Some(writes) ==> {
+                &&& writes@.len() > 0
+                &&& writes@[0] == (self@, value)
+            },
+        ensures expected matches Some(writes) ==> final(writes)@ == writes@.drop_first(),
+    )]
     pub fn write(&self, value: T) {
-        proof! { use_type_invariant(self); }
+        proof! {
+            use_type_invariant(self);
+            if let Some(writes) = expected {
+                writes.remaining = writes@.drop_first();
+            }
+        }
         unsafe { PortWrite::write_to_port(self.port, value) }
     }
 }
@@ -355,7 +399,10 @@ macro_rules! sensitive_io_port {
     )* }) => {
         $(
             $(#[$meta])*
+            #[vstd::prelude::verus_spec(ensures $name@ == $port)]
             $vis static $name: IoPort<$size, $access> = {
+                // Only the erased build emits the linker record.
+                #[cfg(not(verus_keep_ghost_body))]
                 #[used]
                 // SAFETY: This is properly handled in the linker script.
                 #[unsafe(link_section = ".sensitive_io_ports")]
@@ -364,6 +411,7 @@ macro_rules! sensitive_io_port {
                     end: $name.port() + $name.size(),
                 };
 
+                vstd::prelude::proof! { broadcast use vstd_extra::external::group_io_port_models; }
                 unsafe { IoPort::new($port) }
             };
         )*

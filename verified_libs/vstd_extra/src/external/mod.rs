@@ -13,6 +13,7 @@ pub mod int_specs;
 #[cfg(target_arch = "x86_64")]
 pub mod io_port;
 pub mod iter;
+pub mod log;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;

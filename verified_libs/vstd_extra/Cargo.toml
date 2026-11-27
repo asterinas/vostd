@@ -16,6 +16,7 @@ std = ["vstd/std"]
 [dependencies]
 vstd = { workspace = true }
 bitvec.workspace = true
+log = "0.4.25"
 smallvec = "1.13.2"
 acpi = "=5.2.0"
 xmas-elf = "0.10.0"

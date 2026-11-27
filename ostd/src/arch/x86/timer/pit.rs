@@ -8,15 +8,21 @@
 //! Reference: <https://wiki.osdev.org/Programmable_Interval_Timer>
 //!
 
+use vstd::prelude::*;
+
+use crate::io::PortWriteSequence;
+
 use crate::{
     arch::{
         device::io_port::WriteOnlyAccess,
-        kernel::{IRQ_CHIP, MappedIrqLine},
+        /* kernel::{IRQ_CHIP, MappedIrqLine}, */
         timer::TIMER_FREQ,
     },
     io::{IoPort, sensitive_io_port},
-    trap::irq::IrqLine,
+    /* trap::irq::IrqLine, */
 };
+
+verus! {
 
 /// PIT Operating Mode.
 ///
@@ -134,6 +140,19 @@ enum Channel {
     ReadBackCommand = 0b11,
 }
 
+pub(crate) open spec fn init_writes(operating_mode: OperatingMode) -> Seq<(u16, u8)> {
+    let command: u8 = match operating_mode {
+        OperatingMode::InterruptOnTerminalCount => 0x30,
+        OperatingMode::OneShotHardwareRetriggerable => 0x32,
+        OperatingMode::RateGenerator => 0x34,
+        OperatingMode::SquareWaveGenerator => 0x36,
+        OperatingMode::SoftwareTriggeredStrobe => 0x38,
+        OperatingMode::HardwareTriggeredStrobe => 0x3A,
+    };
+    seq![(0x43, command), (0x40, 0xA9), (0x40, 0x04)]
+}
+
+} // verus!
 sensitive_io_port! {
     unsafe {
         /// The output from PIT channel 0 is connected to the PIC chip and generate "IRQ 0".
@@ -164,24 +183,54 @@ sensitive_io_port! {
     }
 }
 
+crate::const_assert!(MODE_COMMAND_PORT.port() == 0x43 && CHANNEL0_PORT.port() == 0x40);
+
+#[verus_verify]
 const TIMER_RATE: u32 = 1193182;
 const TIMER_INTERRUPT: u8 = 0; // ISA interrupt.
 
+#[verus_spec(
+    with Tracked(remaining): Tracked<&mut PortWriteSequence<u8>>,
+    requires init_writes(operating_mode).is_prefix_of(old(remaining)@),
+    ensures old(remaining)@ == init_writes(operating_mode) + final(remaining)@,
+)]
 pub(crate) fn init(operating_mode: OperatingMode) {
     // Set PIT mode
     // Bit 0 is BCD/binary mode, which is always set to binary mode(value: 0)
-    MODE_COMMAND_PORT.write(
-        ((operating_mode as u8) << 1)
-            | ((AccessMode::LowAndHighByte as u8) << 4)
-            | ((Channel::Channel0 as u8) << 6),
-    );
+    /* Name the byte checked below.
+     * Origin Rust: MODE_COMMAND_PORT.write(((operating_mode as u8) << 1)
+     *     | ((AccessMode::LowAndHighByte as u8) << 4) | ((Channel::Channel0 as u8) << 6));
+     */
+    let command = ((operating_mode as u8) << 1)
+        | ((AccessMode::LowAndHighByte as u8) << 4)
+        | ((Channel::Channel0 as u8) << 6);
+    proof! {
+        assert(forall|mode: u8| mode <= 5 ==>
+            #[trigger] ((mode << 1u8) | (3u8 << 4u8) | (0u8 << 6u8)) == ((0x30 + mode * 2) as u8)) by (bit_vector);
+    }
+    #[verus_spec(with Tracked(Some(remaining)))]
+    MODE_COMMAND_PORT.write(command);
 
     // Set timer frequency
+    /* Name the two write operands for compile-time verification.
+     * Origin Rust: const CYCLE: u32 = TIMER_RATE / TIMER_FREQ as u32;
+     * CHANNEL0_PORT.write((CYCLE & 0xFF) as _);
+     * CHANNEL0_PORT.write((CYCLE >> 8) as _);
+     */
     const CYCLE: u32 = TIMER_RATE / TIMER_FREQ as u32;
-    CHANNEL0_PORT.write((CYCLE & 0xFF) as _);
-    CHANNEL0_PORT.write((CYCLE >> 8) as _);
+    const LOW: u8 = (CYCLE & 0xFF) as u8;
+    const HIGH: u8 = (CYCLE >> 8) as u8;
+    proof! {
+        assert(TIMER_FREQ == 1000 && CYCLE == 1193 && LOW == 0xA9 && HIGH == 0x04) by (compute);
+    }
+    #[verus_spec(with Tracked(Some(remaining)))]
+    CHANNEL0_PORT.write(LOW);
+    #[verus_spec(with Tracked(Some(remaining)))]
+    CHANNEL0_PORT.write(HIGH);
+    proof! { assert(old(remaining)@ =~= init_writes(operating_mode) + remaining@); }
 }
 
+/* IRQ routing is outside the enabled kernel IRQ module.
 /// Enables the interrupt line that is connected to the PIT.
 pub(crate) fn enable_interrupt(irq_line: IrqLine) -> MappedIrqLine {
     IRQ_CHIP
@@ -190,3 +239,4 @@ pub(crate) fn enable_interrupt(irq_line: IrqLine) -> MappedIrqLine {
         .map_isa_pin_to(irq_line, TIMER_INTERRUPT)
         .unwrap()
 }
+*/

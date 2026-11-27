@@ -10,18 +10,22 @@ verus! {
 
 broadcast use group_io_port_models;
 
-exec static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
-
-exec static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
-
 } // verus!
+#[verus_spec(ensures PCI_ADDRESS_PORT@ == 0x0CF8)]
+static PCI_ADDRESS_PORT: IoPort<u32, WriteOnlyAccess> = unsafe { IoPort::new(0x0CF8) };
+
+#[verus_spec(ensures PCI_DATA_PORT@ == 0x0CFC)]
+static PCI_DATA_PORT: IoPort<u32, ReadWriteAccess> = unsafe { IoPort::new(0x0CFC) };
+
 #[verus_verify]
 const BIT32_ALIGN_MASK: u32 = 0xFFFC;
 
 #[verus_verify]
 #[verus_spec(returns Ok::<(), crate::Error>(()))]
 pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> Result<()> {
+    #[verus_spec(with Tracked(None))]
     PCI_ADDRESS_PORT.write(encode_as_port(location) | (offset & BIT32_ALIGN_MASK));
+    #[verus_spec(with Tracked(None))]
     PCI_DATA_PORT.write(value.to_le());
     Ok(())
 }
@@ -29,6 +33,7 @@ pub(crate) fn write32(location: &PciDeviceLocation, offset: u32, value: u32) -> 
 #[verus_verify]
 #[verus_spec(result => ensures result is Ok)]
 pub(crate) fn read32(location: &PciDeviceLocation, offset: u32) -> Result<u32> {
+    #[verus_spec(with Tracked(None))]
     PCI_ADDRESS_PORT.write(encode_as_port(location) | (offset & BIT32_ALIGN_MASK));
     Ok(PCI_DATA_PORT.read().to_le())
 }

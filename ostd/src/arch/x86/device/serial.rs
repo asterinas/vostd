@@ -5,6 +5,8 @@
 use vstd::prelude::*;
 use vstd_extra::external::{group_io_port_models, valid_io_port_access};
 
+use crate::io::needs_write_sequence;
+
 use crate::{
     arch::device::io_port::{ReadWriteAccess, WriteOnlyAccess},
     io::IoPort,
@@ -35,6 +37,17 @@ verus! {
 
 broadcast use group_io_port_models;
 
+impl SerialPort {
+    #[verifier::type_invariant]
+    closed spec fn port_ranges_disjoint(&self) -> bool {
+        &&& !needs_write_sequence(self.data@)
+        &&& !needs_write_sequence(self.int_en@)
+        &&& !needs_write_sequence(self.fifo_ctrl@)
+        &&& !needs_write_sequence(self.line_ctrl@)
+        &&& !needs_write_sequence(self.modem_ctrl@)
+    }
+}
+
 impl View for SerialPort {
     type V = Seq<u16>;
 
@@ -64,6 +77,8 @@ impl SerialPort {
     #[verus_spec(ret =>
         requires
             port <= u16::MAX - 6,
+            forall|addr: u16| port <= addr <= port + 4 ==>
+                !#[trigger] needs_write_sequence(addr),
         ensures
             ret@ == Seq::new(7, |i: int| (port + i) as u16),
             ret@.all(|addr: u16| valid_io_port_access::<u8>(addr)),
@@ -86,22 +101,31 @@ impl SerialPort {
     /// Initializes the serial port.
     #[verus_spec]
     pub fn init(&self) {
+        proof! { use_type_invariant(self); }
         // Disable interrupts
+        #[verus_spec(with Tracked(None))]
         self.int_en.write(0x00);
         // Enable DLAB
+        #[verus_spec(with Tracked(None))]
         self.line_ctrl.write(0x80);
         // Set maximum speed to 38400 bps by configuring DLL and DLM
+        #[verus_spec(with Tracked(None))]
         self.data.write(0x03);
+        #[verus_spec(with Tracked(None))]
         self.int_en.write(0x00);
         // Disable DLAB and set data word length to 8 bits
+        #[verus_spec(with Tracked(None))]
         self.line_ctrl.write(0x03);
         // Enable FIFO, clear TX/RX queues and
         // set interrupt watermark at 14 bytes
+        #[verus_spec(with Tracked(None))]
         self.fifo_ctrl.write(0xC7);
         // Mark data terminal ready, signal request to send
         // and enable auxiliary output #2 (used as interrupt line for CPU)
+        #[verus_spec(with Tracked(None))]
         self.modem_ctrl.write(0x0B);
         // Enable interrupts
+        #[verus_spec(with Tracked(None))]
         self.int_en.write(0x01);
     }
 
@@ -109,6 +133,8 @@ impl SerialPort {
     #[inline]
     #[verus_spec]
     pub fn send(&self, data: u8) {
+        proof! { use_type_invariant(self); }
+        #[verus_spec(with Tracked(None))]
         self.data.write(data);
     }
 
