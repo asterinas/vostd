@@ -666,6 +666,7 @@ broadcast proof fn lemma_filtered_positions_increase(range: Seq<usize>, keep: sp
     if range.len() > 0 {
         let prefix = range.drop_last();
         lemma_filtered_positions_increase(prefix, keep);
+        prefix.lemma_filter_index(keep);
     }
 }
 
