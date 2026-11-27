@@ -49,8 +49,9 @@ pub mod untyped;
 mod frame_ref;
 pub use frame_ref::FrameRef;
 
-#[cfg(ktest)]
+/* #[cfg(ktest)] */
 mod test;
+pub use test::{MockFrameMeta, MockUFrameMeta};
 
 use crate::specs::{
     arch::*,
@@ -448,6 +449,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.inv(),
         ensures
             res.slot_vaddr() == self.slot_vaddr(),
+            res@.slot_perm() == self.slot_perm(),
             res.inv(),
             res.frac_metadata_perm() == self.frac_metadata_perm(),
             MetaSlot::perms_related(res@.slot_perm(), self.metadata_perm()),
