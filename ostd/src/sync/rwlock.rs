@@ -6,7 +6,6 @@ use vstd::{
     cell::{self, CellId, pcell::*},
     prelude::*,
     resource::Loc,
-    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::{
     prelude::*,
@@ -66,6 +65,10 @@ tracked struct RwPerms<T> {
     read_guard_token: CountResource<ReadPerm<T>, MAX_READER>,
 }
 
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim relies on the lock's
+// SC atomic ordering to synchronize them, but SC atomics model no views.
+// TODO: port the lock to `atomic_weak` with view-carrying hand-offs.
 #[cfg(feature = "irc11")]
 unsafe impl<T> Objective for RwPerms<T> {
 
@@ -787,12 +790,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     }
 }
 
-impl<T: fmt::Debug, G: SpinGuardian> DebugSpecImpl for RwLockReadGuard<'_, T, G> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
-    }
-}
-
 impl<T:   /*?Sized + */ fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<
     '_,
     T,
@@ -910,12 +907,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
                 g.read_guard_token.put_resource((read_half_cell_perm, left_token));
             }
         };
-    }
-}
-
-impl<T: fmt::Debug, G: SpinGuardian> DebugSpecImpl for RwLockWriteGuard<'_, T, G> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
     }
 }
 
@@ -1145,12 +1136,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
                 }
             }
         );
-    }
-}
-
-impl<T: fmt::Debug, G: SpinGuardian> DebugSpecImpl for RwLockUpgradeableGuard<'_, T, G> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
     }
 }
 

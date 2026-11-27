@@ -103,10 +103,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     #[verus_spec(
         with Tracked(metadata_perm): Tracked<&MetadataPerm>,
         requires
-            self.node.inner.external_meta_wf(*metadata_perm, ()),
+            self.node.inner.external_meta_wf(*metadata_perm),
         returns
             self.pte.is_present() && !self.pte.is_last(
-                typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).level,
+                typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).level,
             ),
     )]
     pub(in crate::mm) fn is_node(&self) -> bool {
@@ -123,8 +123,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             self.invariants(*owner, *regions),
-            self.node.inner.external_meta_wf(*metadata_perm, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm, ()).level == owner.parent_level,
+            self.node.inner.external_meta_wf(*metadata_perm),
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perm).level == owner.parent_level,
         ensures
             res.invariants(*owner, *regions),
     )]
@@ -172,15 +172,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             regions.inv(),
             regions.slots.contains_key(old(parent_owner).slot_index),
             old(parent_owner).metaregion_sound_node(*regions),
-            // `op` must preserve the trackedness of `item_from_raw(pa, level, _)`
-            // across the prop change so frame-accounting guarantees remain unchanged.
-            // For `KernelPtConfig`, `C::tracked(item)` reads `prop.flags.AVAIL1`, so this
-            // precondition reduces to "op preserves AVAIL1". For `UserPtConfig`,
-            // `C::tracked` is constant `true`, so this is trivial.
+            // `op` must preserve trackedness for every well-formed raw item to
+            // preserve frame accounting. For `KernelPtConfig`, this means
+            // preserving `AVAIL1`. Every well-formed `UserPtConfig` item is tracked.
             forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<C::Perm>>|
                 #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && C::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     C::item_into_raw(C::item_from_raw(pa, level, p_out, perm)).3@
                         is Some
                 ) == (perm@ is Some),
@@ -227,6 +226,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// Replaces the entry with a new child.
     ///
     /// The old child is returned.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if the level of the new child does not match the
+    /// current node.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -895,7 +899,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa == old(owner).value().frame().mapped_pa,
                 level == old(parent_owner).level(),
                 pa % page_size::<C>(level) == 0,
-                pa + page_size::<C>(level) <= MAX_PADDR,
+                pa + page_size::<C>(level) <= CurrentArch::ARCH_MAX_PADDR,
                 regions.inv(),
                 MetaSlot::claim_unused_slot_region_spec(
                     meta_to_frame(new_owner_meta_addr),
@@ -940,8 +944,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     i <= j < NR_ENTRIES ==> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
                         &&& new_owner.children()[j].unwrap().value().is_absent()
-                        &&& new_owner.value().node().children_perm.value()[j]
-                            == C::E::new_absent_spec()
+                        &&& new_owner.value().node().children_perm.value()[j] == C::E::new_absent()
                     },
                 // Children [0, i) have been replaced with frames.
                 forall|j: int|
@@ -957,7 +960,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 C::lemma_page_table_config_constant_properties();
 
                 assert(new_owner.child(i as int).inv());
-                EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
+                lemma_split_leaf_range::<C>(pa, level, i as usize);
             }
 
             let small_pa = pa + i * page_size::<C>(level - 1);
@@ -1228,7 +1231,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<C::Perm>>|
                 #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && C::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     C::item_into_raw(C::item_from_raw(pa, level, p_out, perm)).3@
                         is Some
                 ) == (perm@ is Some),

@@ -5,7 +5,7 @@
 #![feature(sized_hierarchy)]
 #![feature(btree_cursors)]
 #![feature(proc_macro_hygiene)]
-#![cfg_attr(verus_keep_ghost, feature(allocator_api))]
+#![cfg_attr(verus_keep_ghost, feature(allocator_ext))]
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 #![allow(unused_braces)]
@@ -31,7 +31,6 @@ pub mod layout;
 pub mod number;
 pub mod once;
 pub mod ownership;
-pub mod panic;
 pub mod resource;
 #[cfg(feature = "irc11")]
 pub mod scheduler_thread_view;

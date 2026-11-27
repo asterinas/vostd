@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
+use vstd::prelude::*;
+
 use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
-use bitflags_upstream::bitflags;
 use cfg_if::cfg_if;
 use log::debug;
 use ostd_pod::Pod;
@@ -394,7 +395,7 @@ pub struct RawPageFaultInfo {
     pub addr: Vaddr,
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Page Fault error code. Following the Intel Architectures Software Developer's Manual Volume 3
     pub struct PageFaultErrorCode : usize{
         /// 0 if no translation for the linear address.

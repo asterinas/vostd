@@ -26,7 +26,7 @@ report a finding merely because the code diverges from a pattern.
    direction of each axiom and spec impl actually supplies the direction the proof needs
    (a missing converse is a gap); preconditions, postconditions, well-formedness, and
    panic/`no_unwind` claims match what the spec promises, with documented panic conditions
-   excluded by explicit preconditions rather than a bare `may_panic`; closure-driven
+   excluded by explicit preconditions under vstd's default panic configuration. Closure-driven
    adapters require the closure's per-element preconditions only where invoked and promise
    neither termination nor `no_unwind` unless the contract requires the closure to
    terminate and not panic; size bounds use the library's real representation limits
@@ -108,10 +108,13 @@ report a finding merely because the code diverges from a pattern.
    explicit triggers; executable indexing still needs non-panicking bounds (`requires` or
    `IndexSpec::index_req`), and a model of executable `get` preserves `Option`
    success/failure semantics — unspecified spec values do not replace that contract. For
-   quantifiers: prefer standard predicates such as `Seq::all` (their predicate-based
-   triggers can reduce spurious instantiations vs broad index triggers like `s[i]`), use a
-   subrange predicate when it reads better, and do not add an axiom for a fact derivable
-   from the sequence definition.
+   quantifiers: prefer standard predicates such as `Seq::all` and check their actual
+   triggers. For each in-scope bounded `forall` sharing an index across sequences,
+   look for a separable element property and a position-wise relation. Check whether
+   `Seq::all` and a `map_values` equality can express those parts while preserving
+   the index domain, length guarantees, and empty-sequence behavior. Use a subrange
+   predicate when it reads better, and do not add an axiom for a fact derivable from
+   the sequence definition.
 7. Invariant modeling (`implement-inv-for-models`). When the target defines spec structs,
    check whether intrinsic validity is expressed as an `impl Inv` through `inv()` rather
    than a stand-alone `wf(...)` predicate, applying the pure-spec distinction below.
@@ -134,6 +137,16 @@ report a finding merely because the code diverges from a pattern.
    because exec/tracked callers obtain it implicitly. Check the active
    `source/docs/guide/src/reference-type-invariants.md` and the
    [acknowledged PR #860 correction](https://github.com/asterinas/vostd/pull/860#discussion_r4396558740).
+   For changed resource-accounting models, identify the promised accounting invariant
+   or clean-boundary guarantee, then trace token creation, transfer and redemption
+   against ghost bookkeeping. Check whether a legal caller can reset the ledger while
+   retaining an outstanding tracked token and falsely establish that guarantee.
+   Inspect field visibility, mutation access and the relationship linking entries to
+   tokens. Neither an unrelated `inv()` nor privacy alone establishes conservation;
+   require a concrete bypass of the promised property, not a particular ledger design.
+   Compare with the base to isolate newly exposed bypasses. Report a broken accounting
+   guarantee without claiming a runtime memory error or logical contradiction unless
+   separately demonstrated.
 
 You own contract completeness, trust placement, and model reuse — not documentation
 phrasing (Maintainability persona), the `rlimit > 200` threshold, or whether a changed

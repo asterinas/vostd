@@ -2,7 +2,10 @@
 use vstd::{arithmetic::power2::*, prelude::*};
 use vstd_extra::{external::ilog2::*, ownership::Inv};
 
-use crate::{mm::MAX_NR_LEVELS, specs::arch::valid_frame_paddr};
+use crate::{
+    mm::MAX_NR_LEVELS,
+    specs::arch::{ArchAddressSpaceModel, CurrentArch, valid_frame_paddr},
+};
 
 use alloc::fmt;
 use core::ops::Range;
@@ -238,7 +241,7 @@ impl PageTableEntryTrait for PageTableEntry {
     fn new_absent() -> Self {
         proof {
             assert(Self::default_spec() == Self(0)) by (compute_only);
-            assert(Self::new_absent_spec() == Self(0)) by (compute_only);
+            assert(Self::new_absent() == Self(0)) by (compute_only);
             assert(Self(0).paddr() == 0) by (compute_only);
             assert(!Self(0).is_present()) by (compute_only);
         }
@@ -277,7 +280,7 @@ impl PageTableEntryTrait for PageTableEntry {
             lemma_auxiliary_bit_properties(pte.0);
             assert(((raw & Self::PHYS_ADDR_MASK) >> 10) << 12 == ((((raw | 1usize)
                 & Self::PHYS_ADDR_MASK) >> 10) << 12)) by (bit_vector);
-            assert(pte == Self::new_page_spec(paddr, _level, prop));
+            assert(pte == Self::new_page(paddr, _level, prop));
         }
         pte
     }
@@ -295,7 +298,7 @@ impl PageTableEntryTrait for PageTableEntry {
                 requires
                     raw == ((paddr >> 12) << 10) | 1usize,
             ;
-            assert(Self::new_pt_spec(paddr) == Self(raw));
+            assert(Self::new_pt(paddr) == Self(raw));
             assert(raw & 14usize == 0) by (bit_vector)
                 requires
                     raw == ((paddr >> 12) << 10) | 1usize,
@@ -508,9 +511,9 @@ impl PageTableEntryTrait for PageTableEntry {
             Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
                 || prop.cache is Writethrough || prop.cache is Uncacheable) implies {
             &&& Self::new_page(paddr, level, prop).is_present()
-            &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr & !((
-            PAGE_SIZE - 1) as usize))
-            &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+            &&& (paddr < CurrentArch::ARCH_MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr()
+                == paddr & !((PAGE_SIZE - 1) as usize))
+            &&& (paddr < CurrentArch::ARCH_MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
                 paddr,
                 level,
                 prop,
@@ -729,9 +732,11 @@ proof fn lemma_auxiliary_bit_properties(addr: usize)
     ensures
         (((addr & PageTableEntry::PHYS_ADDR_MASK) >> 10) << 12) % PAGE_SIZE == 0,
         addr % PAGE_SIZE == 0 ==> addr & !((PAGE_SIZE - 1) as usize) == addr,
+        addr < CurrentArch::ARCH_MAX_PADDR ==> addr & !((PAGE_SIZE - 1) as usize)
+            < CurrentArch::ARCH_MAX_PADDR,
         addr < MAX_PADDR ==> addr & !((PAGE_SIZE - 1) as usize) < MAX_PADDR,
-        addr < MAX_PADDR ==> (((((addr >> 12) << 10) | 1usize) & PageTableEntry::PHYS_ADDR_MASK)
-            >> 10) << 12 == addr & !((PAGE_SIZE - 1) as usize),
+        addr < CurrentArch::ARCH_MAX_PADDR ==> (((((addr >> 12) << 10) | 1usize)
+            & PageTableEntry::PHYS_ADDR_MASK) >> 10) << 12 == addr & !((PAGE_SIZE - 1) as usize),
 {
 }
 

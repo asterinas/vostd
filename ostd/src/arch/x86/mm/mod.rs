@@ -2,11 +2,9 @@
 #![expect(dead_code)]
 
 use vstd::{arithmetic::power2::*, prelude::*};
-use vstd_extra::{
-    panic::{may_panic, panic_diverge},
-    prelude::*,
-};
+use vstd_extra::prelude::*;
 
+use crate::specs::arch::{ArchAddressSpaceModel, CurrentArch};
 use crate::mm::MAX_NR_LEVELS;
 
 use alloc::fmt;
@@ -231,7 +229,7 @@ impl Default for PageTableEntry {
     {
         proof {
             lemma_page_property_flag_constants();
-            assert(Self::default_spec().paddr_spec() == 0) by (compute);
+            assert(Self::default_spec().paddr() == 0) by (compute);
         }
         Self(usize::default())
     }
@@ -309,7 +307,7 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_auxiliary_bit_properties(0);
             Self::lemma_page_table_entry_properties();
-            assert(Self::default_spec() == Self::new_absent_spec());
+            assert(Self::default_spec() == Self::new_absent());
         }
         Self::default()
     }
@@ -325,8 +323,7 @@ impl PageTableEntryTrait for PageTableEntry {
     open spec fn new_page_req(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> bool {
         &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R.bits() == PageFlags::R.bits()
-        &&& (!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
-            ==> may_panic())
+        &&& (prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
     }
 
     fn new_page(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> Self {
@@ -339,7 +336,7 @@ impl PageTableEntryTrait for PageTableEntry {
                 == paddr & Self::PHYS_ADDR_MASK) by (bit_vector)
                 requires
                     flags == PageTableFlags::HUGE.bits();
-            assert(paddr < MAX_PADDR ==> (paddr & Self::PHYS_ADDR_MASK | flags)
+            assert(paddr < CurrentArch::ARCH_MAX_PADDR ==> (paddr & Self::PHYS_ADDR_MASK | flags)
                 & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE - 1) as usize))
                 by (bit_vector)
                 requires
@@ -431,8 +428,7 @@ impl PageTableEntryTrait for PageTableEntry {
     open spec fn set_prop_req(self, prop: PageProperty) -> bool {
         &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R.bits() == PageFlags::R.bits()
-        &&& (!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
-            ==> may_panic())
+        &&& (prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
     }
 
     fn set_prop(&mut self, prop: PageProperty)
@@ -516,7 +512,7 @@ impl PageTableEntryTrait for PageTableEntry {
             },
             _ => {
                 //panic!("unsupported cache policy");
-                panic_diverge();
+                vstd::vpanic!("unsupported cache policy");
             },
         }
         proof {
@@ -598,9 +594,9 @@ impl PageTableEntryTrait for PageTableEntry {
             Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
                 || prop.cache is Writethrough || prop.cache is Uncacheable) implies {
                 &&& Self::new_page(paddr, level, prop).is_present()
-                &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
+                &&& (paddr < CurrentArch::ARCH_MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
                     & !((PAGE_SIZE - 1) as usize))
-                &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                &&& (paddr < CurrentArch::ARCH_MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
                     paddr,
                     level,
                     prop,
@@ -618,13 +614,13 @@ impl PageTableEntryTrait for PageTableEntry {
                 requires
                     raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
                     Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize;
-            assert(paddr < MAX_PADDR ==> raw & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE
+            assert(paddr < CurrentArch::ARCH_MAX_PADDR ==> raw & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE
                 - 1) as usize)) by (bit_vector)
                 requires
                     raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
                     Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
                     PAGE_SIZE == 4096usize,
-                    MAX_PADDR == 0x8000_0000usize;
+                    CurrentArch::ARCH_MAX_PADDR == 0x10000000000000usize;
             assert(raw & PageTableFlags::HUGE.bits() != 0) by (bit_vector)
                 requires
                     raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
@@ -776,6 +772,7 @@ proof fn lemma_auxiliary_bit_properties(addr: usize)
     ensures
         addr % PAGE_SIZE == 0 ==> addr == (addr & !((PAGE_SIZE - 1) as usize)),
         (addr & PageTableEntry::PHYS_ADDR_MASK) % PAGE_SIZE == 0,
+        (addr & PageTableEntry::PHYS_ADDR_MASK) < CurrentArch::ARCH_MAX_PADDR,
         addr < MAX_PADDR ==> (addr & PageTableEntry::PHYS_ADDR_MASK) < MAX_PADDR,
 {
 }

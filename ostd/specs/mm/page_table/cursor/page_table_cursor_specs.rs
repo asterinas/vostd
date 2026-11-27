@@ -83,7 +83,7 @@ impl<C: PageTableConfig> CursorView<C> {
         recommends
             self.present(),
     {
-        let (paddr, level, prop, _perm) = C::item_into_raw_spec(item);
+        let (paddr, level, prop, _perm) = C::item_into_raw(item);
         let size = page_size::<C>(level);
         if self.query(paddr, size, prop) {
             let r = self.query_range();
@@ -143,16 +143,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     vstd::set::lemma_set_choose_len(f);
                     assert(self.mappings.contains(m));
                     assert(m.inv());
-                    assert(m.page_size % (m.page_size / 512usize) == 0) by {
-                        if m.page_size == 4096 {
-                            assert(4096usize % (4096usize / 512usize) == 0) by (compute_only);
-                        } else if m.page_size == 2097152 {
-                            assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
-                        } else {
-                            assert(1073741824usize % (1073741824usize / 512usize) == 0)
-                                by (compute_only);
-                        }
-                    };
+                    m.lemma_split_page_size();
                     Self::split_if_mapped_huge_spec_preserves_present(self, new_size);
                     Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 }

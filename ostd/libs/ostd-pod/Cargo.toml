@@ -25,3 +25,6 @@ verify = true
 crate-type = ["rlib"]
 name = "ostd_pod"
 path = "src/lib.rs"
+
+[lints]
+workspace = true

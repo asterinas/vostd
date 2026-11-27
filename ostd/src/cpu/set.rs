@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module contains the implementation of the CPU set and atomic CPU set.
 use vstd::{
-    assert_seqs_equal, layout::size_of, prelude::*, set::Set, std_specs::iter::IteratorSpec,
+    arithmetic::div_mod::lemma_fundamental_div_mod_converse,
+    assert_seqs_equal,
+    layout::size_of,
+    prelude::*,
+    set::Set,
+    std_specs::{bits::axiom_u64_count_ones, iter::IteratorSpec},
 };
 use vstd_extra::{
     bits::{group_u64_bit_algebra, lemma_u64_and_zero, u64_bit_is_set},
-    external::{
-        bits::{lemma_u64_set_bits_nonzero, u64_set_bits},
-        smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
-    },
+    external::smallvec::{axiom_smallvec_from_iter_ensures, group_smallvec_models, smallvec_view},
     ownership::Inv,
 };
 
@@ -69,7 +71,7 @@ broadcast use {
     group_smallvec_models,
     axiom_smallvec_from_iter_ensures,
     vstd::std_specs::iter::group_iter_axioms,
-    lemma_u64_set_bits_nonzero,
+    axiom_u64_count_ones,
     group_u64_bit_algebra,
     crate::cpu::axiom_cpu_count_bounds,
     vstd::layout::layout_of_primitives,
@@ -111,7 +113,7 @@ impl Inv for CpuSet {
     /// The backing vector holds exactly `parts_for_cpus(cpu_count)` words, the view
     /// is bounded by `cpu_count`, and the unused tail bits (>= `cpu_count`) are clear.
     closed spec fn inv(self) -> bool {
-        &&& smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize)
+        &&& smallvec_view(&self.bits).len() == parts_for_cpus(cpu_count() as usize)
         &&& forall|j: int|
             #![trigger bit_at(smallvec_view(&self.bits), j)]
             cpu_count() <= j < 64 * smallvec_view(&self.bits).len() ==> !bit_at(
@@ -248,7 +250,7 @@ impl CpuSet {
                 idx <= smallvec_view(&self.bits).len(),
                 count == smallvec_view(&self.bits)[..idx].fold_left(
                     0,
-                    |count: int, word: u64| count + u64_set_bits(word),
+                    |count: int, word: u64| count + word.count_ones(),
                 ),
                 count <= 64 * idx,
             decreases
@@ -297,6 +299,7 @@ impl CpuSet {
                 lemma_u64_nonzero_has_set_bit(seq[idx]);
                 let b = choose|b: int| 0 <= b < 64 && #[trigger] u64_bit_is_set(seq[idx], b);
                 let j = 64 * idx + b;
+                lemma_fundamental_div_mod_converse(j, 64, idx, b);
                 assert(bit_at(seq, j));
                 assert(self@.contains(j));
             }
@@ -430,9 +433,9 @@ impl CpuSet {
     #[verus_spec(ret =>
         requires
             num_cpus == cpu_count(),
-            2 * parts_for_cpus_spec(num_cpus) * size_of::<u64>() <= isize::MAX,
+            2 * parts_for_cpus(num_cpus) * size_of::<u64>() <= isize::MAX,
         ensures
-            smallvec_view(&ret.bits).len() == parts_for_cpus_spec(num_cpus),
+            smallvec_view(&ret.bits).len() == parts_for_cpus(num_cpus),
         forall|i: int|
             #![trigger smallvec_view(&ret.bits)[i]]
             0 <= i < smallvec_view(&ret.bits).len() ==> smallvec_view(&ret.bits)[i]
@@ -447,7 +450,7 @@ impl CpuSet {
 
     #[verus_spec(
         requires
-            smallvec_view(&self.bits).len() == parts_for_cpus_spec(cpu_count() as usize),
+            smallvec_view(&self.bits).len() == parts_for_cpus(cpu_count() as usize),
             forall|j: int|
                 #![trigger bit_at(smallvec_view(&self.bits), j)]
                 0 <= j < cpu_count() ==> bit_at(smallvec_view(&self.bits), j),
@@ -505,7 +508,7 @@ impl AtomicCpuSet {
     /// The word count always matches the system's CPU count.
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        Self::num_parts(&self) == parts_for_cpus_spec(cpu_count() as usize)
+        Self::num_parts(&self) == parts_for_cpus(cpu_count() as usize)
     }
 }
 
@@ -628,7 +631,7 @@ spec fn bit_idx_spec(i: int) -> usize {
 
 /// Number of set bits in all words of `seq`.
 spec fn count_set_bits(seq: Seq<u64>) -> int {
-    seq.fold_left(0, |count: int, word: u64| count + u64_set_bits(word))
+    seq.fold_left(0, |count: int, word: u64| count + word.count_ones())
 }
 
 /// Expected value of word `idx` in a full CPU set.

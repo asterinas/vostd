@@ -214,7 +214,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
             meta_to_frame(index_to_meta(self.slot_index)),
         )
         &&& self.tree_level == tree_level_for::<C>(self.level())
-        &&& 0 <= self.slot_index < max_meta_slots()
+        &&& 0 <= self.slot_index < MAX_NR_PAGES
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
         &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR
@@ -237,11 +237,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
     }
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
-        typed_meta_wf::<PageTablePageMeta<C>>(*regions.slots[self.slot_index], self.metadata, ())
+        typed_meta_wf::<PageTablePageMeta<C>>(*regions.slots[self.slot_index], self.metadata)
     }
 
     pub open spec fn meta_value(self) -> PageTablePageMeta<C> {
-        typed_meta_value::<PageTablePageMeta<C>>(self.metadata, ())
+        typed_meta_value::<PageTablePageMeta<C>>(self.metadata)
     }
 
     pub open spec fn level(self) -> PagingLevel {
@@ -307,7 +307,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& guard.inner@.wf(self)
-        &&& guard.inner.external_meta_wf(self.metadata, ())
+        &&& guard.inner.external_meta_wf(self.metadata)
         &&& guard.inner@.tracked_metadata_perm@ matches Some(permission) ==> {
             &&& guard.inner.inv()
             &&& self.matches_permission(permission)

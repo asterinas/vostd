@@ -5,7 +5,6 @@ use vstd::{
     atomic_ghost::*,
     cell::{self, pcell::*},
     prelude::*,
-    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::prelude::*;
 
@@ -29,6 +28,10 @@ tracked struct SpinLockResource<T, I: ResourceInvariant<T>> {
     resource: I::Resource,
 }
 
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim relies on the lock's
+// SC atomic ordering to synchronize them, but SC atomics model no views.
+// TODO: port the lock to `atomic_weak` with view-carrying hand-offs.
 #[cfg(feature = "irc11")]
 unsafe impl<T, I: ResourceInvariant<T>> Objective for SpinLockResource<T, I> {
 
@@ -605,16 +608,6 @@ impl<'a, T /*:?Sized */, G: SpinGuardian, I: ResourceInvariant<T>> SpinLockGuard
             self.lock.release_lock();
         }
     }
-}
-
-verus! {
-impl<T: fmt::Debug, G: SpinGuardian, I: ResourceInvariant<T>> DebugSpecImpl
-    for SpinLockGuard<'_, T, G, I>
-{
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
-    }
-}
 }
 
 #[verus_verify]

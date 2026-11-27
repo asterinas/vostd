@@ -112,7 +112,6 @@ impl MetaSlot {
         as_unique: bool,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-        repr_perm: M::ReprPerm,
         permission: Sum<FracMetadataPerm, MetadataPerm>,
     ) -> bool {
         let idx = frame_to_index(paddr);
@@ -128,8 +127,8 @@ impl MetaSlot {
             &&& permission->Left_0.id() == post.slot_owners[idx].metadata_perm.id()
         }
         &&& Self::perms_related(*post.slots[idx], metadata_perms)
-        &&& <M as Repr<MetaSlotStorage>>::wf(metadata_perms.storage_perm.value(), repr_perm)
-        &&& M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm) == metadata
+        &&& <M as Repr<MetaSlotStorage>>::wf(metadata_perms.storage_perm.value())
+        &&& M::from_repr_spec(metadata_perms.storage_perm.value()) == metadata
     }
 
     pub open spec fn inc_ref_count_panic_cond(rc_perm: PermissionU64) -> bool {
@@ -139,6 +138,18 @@ impl MetaSlot {
     pub open spec fn frame_paddr_safety_cond(perm: ExposedPointsTo<MetaSlot>) -> bool {
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end
         &&& perm.addr() % META_SLOT_SIZE == 0
+    }
+
+    /// Saturated shared counts panic. The unused and unique states return errors.
+    pub open spec fn get_from_in_use_panic_condition(
+        paddr: Paddr,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        let count = regions.ref_count(frame_to_index(paddr));
+        &&& valid_frame_paddr(paddr)
+        &&& count >= REF_COUNT_MAX
+        &&& count != REF_COUNT_UNUSED
+        &&& count != REF_COUNT_UNIQUE
     }
 
     pub open spec fn get_from_in_use_success_spec(

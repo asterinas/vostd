@@ -39,7 +39,7 @@
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
 use vstd::{arithmetic::power2::is_pow2, prelude::*};
-use vstd_extra::{assert, ownership::Inv, panic::may_panic};
+use vstd_extra::{assert, ownership::Inv};
 
 pub use crate::specs::mm::io::{
     VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
@@ -322,12 +322,12 @@ impl<'a> VmWriter<'a, Infallible> {
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).has_write_view(),
-            old(self).avail_spec() >= core::mem::size_of::<T>() ==> r is Ok,
-            old(self).avail_spec() < core::mem::size_of::<T>()
+            old(self).avail() >= core::mem::size_of::<T>() ==> r is Ok,
+            old(self).avail() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).avail() == old(self).avail() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
@@ -376,11 +376,10 @@ impl<'a> VmWriter<'a, Infallible> {
             core::mem::size_of::<T>() > 0,
             core::mem::align_of::<T>() > 0,
             core::mem::size_of::<T>() % core::mem::align_of::<T>() == 0,
-            old(self).fill_panic_condition::<T>() ==> may_panic(),
+            !old(self).fill_panic_condition::<T>(),
         ensures
             final(self).inv(),
             final(self).wf(*final(writer_owner)),
-            !old(self).fill_panic_condition::<T>(),
             final(self).cursor == old(self).end,
             final(self).end == old(self).end,
             // writer_owner: fully advanced past the filled region.
@@ -393,7 +392,7 @@ impl<'a> VmWriter<'a, Infallible> {
             reader_owner@.has_read_view(),
             reader_owner@.is_kernel == old(writer_owner).is_kernel,
             // Return value: exactly `avail / size_of::<T>()` elements written.
-            r * core::mem::size_of::<T>() == old(self).avail_spec(),
+            r * core::mem::size_of::<T>() == old(self).avail(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.cast::<T>();
@@ -550,10 +549,10 @@ impl<'a> VmWriter<'a, Infallible> {
             final(owner_r).inv(),
             final(self).wf(*final(owner_w)),
             final(reader).wf(*final(owner_r)),
-            r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
-            final(self).avail_spec() == old(self).avail_spec() - r as usize,
+            r == vstd::math::min(old(self).avail() as int, old(reader).remain() as int),
+            final(self).avail() == old(self).avail() - r as usize,
             final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            final(reader).remain_spec() == old(reader).remain_spec() - r as usize,
+            final(reader).remain() == old(reader).remain() - r as usize,
             final(reader).cursor.vaddr == old(reader).cursor.vaddr + r as usize,
             final(owner_w).has_write_view(),
             final(owner_r).read_view_initialized(),
@@ -594,7 +593,7 @@ impl<'a> VmWriter<'a, Infallible> {
             old(owner).has_write_view(),
             // The runtime `assert!(cursor.is_aligned())` diverges unless the
             // cursor is aligned for `T`.
-            old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
+            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0,
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -602,7 +601,7 @@ impl<'a> VmWriter<'a, Infallible> {
             match r {
                 Ok(_) => {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).avail() == old(self).avail() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
@@ -733,7 +732,7 @@ impl<'a> VmReader<'a, Infallible> {
             self.inv(),
         ensures
             r.inv(),
-            r.remain_spec() == self.remain_spec(),
+            r.remain() == self.remain(),
             r.cursor == self.cursor,
             r.end == self.end,
             r.ghost_id == self.ghost_id,
@@ -797,10 +796,10 @@ impl<'a> VmReader<'a, Infallible> {
             final(writer).inv(),
             final(self).wf(*final(owner_r)),
             final(writer).wf(*final(owner_w)),
-            r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
-            final(self).remain_spec() == old(self).remain_spec() - r as usize,
+            r == vstd::math::min(old(self).remain() as int, old(writer).avail() as int),
+            final(self).remain() == old(self).remain() - r as usize,
             final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            final(writer).avail_spec() == old(writer).avail_spec() - r as usize,
+            final(writer).avail() == old(writer).avail() - r as usize,
             final(writer).cursor.vaddr == old(writer).cursor.vaddr + r as usize,
             consumed_w@.inv(),
             consumed_w@.range.start == old(owner_w).range.start,
@@ -897,12 +896,12 @@ impl<'a> VmReader<'a, Infallible> {
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).read_view_initialized(),
-            old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
-            old(self).remain_spec() < core::mem::size_of::<T>()
+            old(self).remain() >= core::mem::size_of::<T>() ==> r is Ok,
+            old(self).remain() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).remain() == old(self).remain() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
@@ -957,21 +956,21 @@ impl<'a> VmReader<'a, Infallible> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).read_view_initialized(),
-            old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
+            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0,
         ensures
             final(self).inv(),
             final(owner).inv(),
             final(self).wf(*final(owner)),
             final(owner).read_view_initialized(),
-            old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
-            old(self).remain_spec() < core::mem::size_of::<T>()
+            old(self).remain() >= core::mem::size_of::<T>() ==> r is Ok,
+            old(self).remain() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             match r {
                 Ok(v) => {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
-                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).remain() == old(self).remain() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                     &&& ostd_pod::pod_bytes::<T>(v)
                         == crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner))
@@ -1036,8 +1035,12 @@ impl<'a> VmReader<'a, Infallible> {
 
 #[verus_verify]
 impl<'a> VmReader<'a, Fallible> {
-    /// Constructs a [`VmReader`] from a pointer and a length, which represents
-    /// a memory range in USER space.
+    /// Constructs a `VmReader` from a pointer and a length, which represents
+    /// a memory range in user space.
+    ///
+    /// # Safety
+    ///
+    /// The virtual address range `ptr..ptr + len` must be in user space.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -1093,11 +1096,11 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            old(self).remain_spec() < core::mem::size_of::<T>()
+            old(self).remain() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).remain() == old(self).remain() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => *final(self) == *old(self),
@@ -1143,7 +1146,7 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            r matches Ok(collected) ==> collected.len() == old(self).remain_spec(),
+            r matches Ok(collected) ==> collected.len() == old(self).remain(),
             r is Err ==> *final(self) == *old(self),
     )]
     pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
@@ -1289,6 +1292,63 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             ),
     ;
 
+    /// Reads a specified number of bytes at a specified offset into a given buffer.
+    ///
+    /// # No short reads
+    ///
+    /// Similar to [`read`].
+    ///
+    /// [`read`]: VmIo::read
+    fn read_bytes(&self, offset: usize, buf: &mut [u8], Tracked(owner): Tracked<&mut P>) -> (r:
+        Result<()>)
+        requires
+            !Self::obeys_vmio_read_requires(),
+    {
+        proof_decl! {
+            let tracked mut writer_own_inner: VmIoOwner;
+        }
+        #[verus_spec(with => Tracked(writer_own_inner))]
+        let infallible_writer = VmWriter::from(buf);
+        let mut writer = infallible_writer.to_fallible();
+        self.read(offset, &mut writer, Tracked(&mut writer_own_inner), Tracked(owner))
+    }
+
+    /// Reads a value of a specified type at a specified offset.
+    fn read_val<T: Pod>(&self, offset: usize, Tracked(owner): Tracked<&mut P>) -> (r: Result<T>)
+        requires
+            !Self::obeys_vmio_read_requires(),
+    {
+        let mut val = T::new_uninit();
+        match self.read_bytes(offset, val.as_bytes_mut(), Tracked(owner)) {
+            Ok(_) => Ok(val),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Reads a slice of a specified type at a specified offset.
+    ///
+    /// # No short reads
+    ///
+    /// Similar to [`read`].
+    ///
+    /// [`read`]: VmIo::read
+    fn read_slice<T: Pod>(
+        &self,
+        offset: usize,
+        slice: &mut [T],
+        Tracked(owner): Tracked<&mut P>,
+    ) -> (r: Result<()>)
+        requires
+            !Self::obeys_vmio_read_requires(),
+    {
+        let len_in_bytes = core::mem::size_of_val(slice);
+        let ptr = slice.as_mut_ptr() as *mut u8;
+        // SAFETY: the slice can be transmuted to a writable byte slice since
+        // the elements are all Plain-Old-Data (Pod) types.
+        let buf = unsafe { core::slice::from_raw_parts_mut(ptr, len_in_bytes) };
+        self.read_bytes(offset, buf, Tracked(owner))
+    }
+
     /// Writes all data from a given `VmReader` at a specified offset.
     ///
     /// # No short writes
@@ -1325,62 +1385,13 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             ),
     ;
 
-    /// Reads a specified number of bytes at a specified offset into a given buffer.
-    ///
-    /// Wraps `buf` in a [`VmWriter`] (whose tracked owner is minted internally
-    /// from the slice via [`VmWriter::from`]) and delegates to [`Self::read`].
-    /// The shallow contract here only forwards the result; impls with non-trivial
-    /// `read_requires` must override.
-    fn read_bytes(&self, offset: usize, buf: &mut [u8], Tracked(owner): Tracked<&mut P>) -> (r:
-        Result<()>)
-        requires
-            !Self::obeys_vmio_read_requires(),
-    {
-        proof_decl! {
-            let tracked mut writer_own_inner: VmIoOwner;
-        }
-        #[verus_spec(with => Tracked(writer_own_inner))]
-        let infallible_writer = VmWriter::from(buf);
-        let mut writer = infallible_writer.to_fallible();
-        self.read(offset, &mut writer, Tracked(&mut writer_own_inner), Tracked(owner))
-    }
-
-    /// Reads a value of a specified type at a specified offset.
-    fn read_val<T: Pod>(&self, offset: usize, Tracked(owner): Tracked<&mut P>) -> (r: Result<T>)
-        requires
-            !Self::obeys_vmio_read_requires(),
-    {
-        let mut val = T::new_uninit();
-        match self.read_bytes(offset, val.as_bytes_mut(), Tracked(owner)) {
-            Ok(_) => Ok(val),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Reads a slice of a specified type at a specified offset.
-    fn read_slice<T: Pod>(
-        &self,
-        offset: usize,
-        slice: &mut [T],
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
-        requires
-            !Self::obeys_vmio_read_requires(),
-    {
-        let len_in_bytes = core::mem::size_of_val(slice);
-        let ptr = slice.as_mut_ptr() as *mut u8;
-        // SAFETY: the slice can be transmuted to a writable byte slice since
-        // the elements are all Plain-Old-Data (Pod) types.
-        let buf = unsafe { core::slice::from_raw_parts_mut(ptr, len_in_bytes) };
-        self.read_bytes(offset, buf, Tracked(owner))
-    }
-
     /// Writes a specified number of bytes from a given buffer at a specified offset.
     ///
-    /// Wraps `buf` in a [`VmReader`] (whose tracked owner is minted internally
-    /// from the slice via [`VmReader::from`]) and delegates to [`Self::write`].
-    /// The shallow contract here only forwards the result; impls with non-trivial
-    /// `write_requires` must override.
+    /// # No short writes
+    ///
+    /// Similar to [`write`].
+    ///
+    /// [`write`]: VmIo::write
     fn write_bytes(&self, offset: usize, buf: &[u8], Tracked(owner): Tracked<&mut P>) -> (r: Result<
         (),
     >)
@@ -1406,6 +1417,12 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     }
 
     /// Writes a slice of a specified type at a specified offset.
+    ///
+    /// # No short write
+    ///
+    /// Similar to [`write`].
+    ///
+    /// [`write`]: VmIo::write
     fn write_slice<T: Pod>(
         &self,
         offset: usize,
@@ -1423,26 +1440,37 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
         self.write_bytes(offset, buf, Tracked(owner))
     }
 
-    /// Writes a sequence of values given by an iterator (`iter`) from the
-    /// specified offset (`offset`).
+    /// Writes a sequence of values given by an iterator (`iter`) from the specified offset (`offset`).
     ///
-    /// Stops on iterator exhaustion or write error. Returns `Ok(nr_written)`
-    /// if at least one value was written; only the first-call error path
-    /// surfaces as `Err`.
+    /// The write process stops until the VM object does not have enough remaining space
+    /// or the iterator returns `None`. If any value is written, the function returns `Ok(nr_written)`,
+    /// where `nr_written` is the number of the written values.
     ///
-    /// `align` rounds the offset and item size up: `0`/`1` means no padding,
-    /// otherwise must be a power of two. Bad `align` panics at runtime — this
-    /// is captured as a *post-condition*, not a pre-condition, since the panic
-    /// is what enforces it.
+    /// The offset of every value written by this method is aligned to the `align`-byte boundary.
+    /// Naturally, when `align` equals to `0` or `1`, then the argument takes no effect:
+    /// the values will be written in the most compact way.
     ///
-    /// Preconditions left for the caller:
-    /// - `offset + (align - 1)` and `size_of::<T>() + (align - 1)` don't overflow
-    ///   (so the post-panic call to `align_up` is safe).
+    /// # Example
+    ///
+    /// Initializes an VM object with the same value can be done easily with `write_values`.
+    ///
+    /// ```
+    /// use core::iter::self;
+    ///
+    /// let _nr_values = vm_obj.write_vals(0, iter::repeat(0_u32), 0).unwrap();
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This method panics if `align` is greater than two,
+    /// but not a power of two, in release mode.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - If `align > 1`, it must be a power of two, and both
+    ///   `offset + (align - 1)` and `size_of::<T>() + (align - 1)` must fit in `usize`.
     /// - The supplied iterator obeys Verus' prophetic iterator laws and provides
-    ///   a `decrease` measure (true for slice iterators, `repeat_n`, and the
-    ///   stdlib iterator combinators ostd uses).
-    /// - `self`'s impl has no custom `write_requires` (use the override route
-    ///   for impls that do).
+    ///   a `decrease` measure.
     fn write_vals<
         'a,
         T: Pod + 'a,
@@ -1452,20 +1480,16 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     >)
         requires
             !Self::obeys_vmio_write_requires(),
-            offset + align <= usize::MAX,
-            core::mem::size_of::<T>() + align <= usize::MAX,
+            align > 1 ==> {
+                &&& is_pow2(align as int)
+                &&& offset + (align - 1) <= usize::MAX
+                &&& core::mem::size_of::<T>() + (align - 1) <= usize::MAX
+            },
             iter.obeys_prophetic_iter_laws(),
             iter.decrease() is Some,
-            // `align_up` (called for `align > 1`) diverges unless `align`
-            // is a power of two.
-            !(align <= 1 || is_pow2(align as int)) ==> may_panic(),
-        ensures
-            align <= 1 || is_pow2(align as int),
     {
         use ::align_ext::AlignExt;
         let mut nr_written: usize = 0;
-        // `align_up` itself panics on invalid `align`, so reaching the post-`else`
-        // statements gives us the post-condition for free.
         let (mut offset, item_size) = if align <= 1 {
             (offset, core::mem::size_of::<T>())
         } else {
@@ -1612,7 +1636,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         requires
             self.inv(),
         returns
-            self.remain_spec() > 0,
+            self.remain() > 0,
     )]
     pub fn has_remain(&self) -> bool {
         self.remain() > 0
@@ -1626,8 +1650,8 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             old(self).inv(),
         ensures
             r.inv(),
-            r.remain_spec() == (if old(self).remain_spec() <= max_remain {
-                old(self).remain_spec()
+            r.remain() == (if old(self).remain() <= max_remain {
+                old(self).remain()
             } else {
                 max_remain
             }),
@@ -1651,11 +1675,11 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     #[verus_spec(r =>
         requires
             old(self).inv(),
-            nbytes <= old(self).remain_spec(),
+            nbytes <= old(self).remain(),
         ensures
             r.inv(),
             r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            r.remain_spec() == old(self).remain_spec() - nbytes,
+            r.remain() == old(self).remain() - nbytes,
             r.end == old(self).end,
             r.ghost_id == old(self).ghost_id,
     )]
@@ -1679,14 +1703,14 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).mem_view is Some,
-            nbytes <= old(self).remain_spec(),
+            nbytes <= old(self).remain(),
         ensures
             final(self).inv(),
             final(owner).inv(),
             final(self).wf(*final(owner)),
             old(owner).read_view_initialized() ==> final(owner).read_view_initialized(),
             final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            final(self).remain_spec() == old(self).remain_spec() - nbytes,
+            final(self).remain() == old(self).remain() - nbytes,
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
 
@@ -1752,7 +1776,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
         requires
             self.inv(),
         returns
-            self.avail_spec() > 0,
+            self.avail() > 0,
     )]
     pub fn has_avail(&self) -> bool {
         self.avail() > 0
@@ -1766,8 +1790,8 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
             old(self).inv(),
         ensures
             r.inv(),
-            r.avail_spec() == (if old(self).avail_spec() <= max_avail {
-                old(self).avail_spec()
+            r.avail() == (if old(self).avail() <= max_avail {
+                old(self).avail()
             } else {
                 max_avail
             }),
@@ -1791,11 +1815,11 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     #[verus_spec(r =>
         requires
             old(self).inv(),
-            nbytes <= old(self).avail_spec(),
+            nbytes <= old(self).avail(),
         ensures
             r.inv(),
             r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            r.avail_spec() == old(self).avail_spec() - nbytes,
+            r.avail() == old(self).avail() - nbytes,
             r.end == old(self).end,
             r.ghost_id == old(self).ghost_id,
     )]
@@ -1808,8 +1832,15 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
 
 #[verus_verify]
 impl<'a> VmWriter<'a, Fallible> {
-    /// Constructs a [`VmWriter`] from a pointer and a length, which represents
-    /// a memory range in USER space.
+    /// Constructs a `VmWriter` from a pointer and a length, which represents
+    /// a memory range in user space.
+    ///
+    /// The current context should be consistently associated with valid user space during the
+    /// entire lifetime `'a`. This is for correct semantics and is not a safety requirement.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be in user space for `len` bytes.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -1868,11 +1899,11 @@ impl<'a> VmWriter<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            old(self).avail_spec() < core::mem::size_of::<T>()
+            old(self).avail() < core::mem::size_of::<T>()
                 ==> r == Err(Error::InvalidArgs),
             match r {
                 Ok(_) => {
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).avail() == old(self).avail() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => *final(self) == *old(self),
@@ -1918,7 +1949,7 @@ impl<'a> VmWriter<'a, Fallible> {
             {
                 let n = match r { Ok(n) => n, Err((_, n)) => n };
                 &&& n <= len
-                &&& n <= old(self).avail_spec()
+                &&& n <= old(self).avail()
                 &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
             },
     )]
@@ -2124,9 +2155,9 @@ macro_rules! impl_read_fallible {
                         let n = match r { Ok(n) => n, Err((_, n)) => n };
                         &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
                         &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
-                        &&& n <= old(self).remain_spec()
-                        &&& n <= old(writer).avail_spec()
-                        &&& r is Ok ==> n == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int)
+                        &&& n <= old(self).remain()
+                        &&& n <= old(writer).avail()
+                        &&& r is Ok ==> n == vstd::math::min(old(self).remain() as int, old(writer).avail() as int)
                     },
             )]
             fn read_fallible(
@@ -2179,9 +2210,9 @@ macro_rules! impl_write_fallible {
                         let n = match r { Ok(n) => n, Err((_, n)) => n };
                         &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
                         &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
-                        &&& n <= old(self).avail_spec()
-                        &&& n <= old(reader).remain_spec()
-                        &&& r is Ok ==> n == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int)
+                        &&& n <= old(self).avail()
+                        &&& n <= old(reader).remain()
+                        &&& r is Ok ==> n == vstd::math::min(old(self).avail() as int, old(reader).remain() as int)
                     },
             )]
             fn write_fallible(

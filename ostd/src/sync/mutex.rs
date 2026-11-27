@@ -6,7 +6,6 @@ use vstd::{
         pcell::{self, *},
     },
     prelude::*,
-    std_specs::fmt::{DebugSpec, DebugSpecImpl},
 };
 use vstd_extra::{prelude::*, resource::ghost_resource::excl::*};
 
@@ -21,21 +20,35 @@ use core::{
 
 verus! {
 
+/// The cell permission held by the lock atomic while the mutex is unlocked.
+tracked struct MutexPerm<T> {
+    perm: Option<PointsTo<T>>,
+}
+
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim relies on the lock's
+// SC atomic ordering to synchronize them, but SC atomics model no views.
+// TODO: port the lock to `atomic_weak` with view-carrying hand-offs.
+#[cfg(feature = "irc11")]
+unsafe impl<T> vstd::thread_view::Objective for MutexPerm<T> {
+
+}
+
 struct_with_invariants! {
 
 /// A mutex with waitqueue.
 pub struct Mutex<T  /* : ?Sized */ > {
-    lock: AtomicBool<_, Option<PointsTo<T>>, _>,
+    lock: AtomicBool<_, MutexPerm<T>, _>,
     queue: WaitQueue,
     // val: UnsafeCell<T>,
     val: PCell<T>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on lock with (val) is (v: bool, g: Option<PointsTo<T>>) {
-        let active_guard = g is None;
+    invariant on lock with (val) is (v: bool, g: MutexPerm<T>) {
+        let active_guard = g.perm is None;
         &&& v <==> active_guard
-        &&& g is Some ==> g->0.id() == val.id()
+        &&& g.perm is Some ==> g.perm->0.id() == val.id()
     }
 }
 }
@@ -57,7 +70,7 @@ impl<T> Mutex<T> {
             lock: AtomicBool::new(
                 Ghost(val),
                 false,
-                Tracked(Some(perm)),
+                Tracked(MutexPerm { perm: Some(perm) }),
             ),
             queue: WaitQueue::new(),
             val: val,
@@ -153,7 +166,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             returning res;
             ghost perms => {
                 if res is Ok {
-                    let tracked perm = perms.tracked_take();
+                    let tracked perm = perms.perm.tracked_take();
                     locked_state = Some(perm);
                 }
             }
@@ -177,7 +190,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         atomic_with_ghost! {
             self.lock => store(false);
             ghost perms => {
-                perms = Some(perm);
+                perms = MutexPerm { perm: Some(perm) };
             }
         }
     }
@@ -297,12 +310,6 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
     }
 }
 
-impl<T: fmt::Debug> DebugSpecImpl for MutexGuard<'_, T> {
-    open spec fn fmt_req(&self, f: &fmt::Formatter<'_>) -> bool {
-        self.view().fmt_req(f)
-    }
-}
-
 impl<T: /*?Sized + */fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
@@ -353,7 +360,7 @@ mod test {
                 patomic,
                 atomic_inv: verus_exec_expr! {
                     Tracked(AtomicInvariant::new(
-                        (val, patomic.id()), (lock_perm.get(), Some(perm.get())), 0,
+                        (val, patomic.id()), (lock_perm.get(), MutexPerm { perm: Some(perm.get()) }), 0,
                     ))
                 },
             },
@@ -374,7 +381,7 @@ mod test {
             lock.lock => load();
             returning locked;
             ghost perms => {
-                if let Some(perm) = &mut perms {
+                if let Some(perm) = &mut perms.perm {
                     perm.is_exclusive(guard1.tracked_perm.borrow());
                 }
             }
@@ -400,7 +407,7 @@ mod test {
             lock.lock => load();
             returning locked;
             ghost perms => {
-                if let Some(perm) = &mut perms {
+                if let Some(perm) = &mut perms.perm {
                     perm.is_exclusive(guard1.tracked_perm.borrow());
                 }
             }

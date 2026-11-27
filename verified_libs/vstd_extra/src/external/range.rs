@@ -24,11 +24,13 @@ pub assume_specification<Idx: PartialOrd<Idx>>[ Range::<Idx>::is_empty ](r: &Ran
 pub assume_specification<Idx>[ RangeInclusive::start ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
     ensures
         *ret == r@.start,
+    no_unwind
 ;
 
 pub assume_specification<Idx>[ RangeInclusive::end ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
     ensures
         *ret == r@.end,
+    no_unwind
 ;
 
 } // verus!

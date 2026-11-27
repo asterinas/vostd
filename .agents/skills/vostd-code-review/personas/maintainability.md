@@ -20,20 +20,32 @@ below; if a rule named below no longer exists on the page, drop it.
    `git log -p` and the upstream history. Flag moved items, rewritten expressions whose
    original form is not shown in the change, and equivalences that cannot be checked from
    the review text alone. Flag reversed conversion lemmas, reconstructed values, runtime
-   clones, and caller-facing API changes introduced only to ease a proof. When Verus
+   clones, and caller-facing API changes introduced only to ease a proof. Flag prose
+   comments added onto executable code that state neither a verified property nor a
+   caller-facing trust boundary (comment freezing), and an executable call replaced by a
+   differently packaged equivalent when the original callee lacked a specification — the
+   page requires specifying the original callee first, with a record of the concrete
+   obstacle when the call is still replaced. When Verus
    forces an executable change, it must stay minimal and the original form must be shown
    in the review; hold it to whichever comment format the page currently mandates.
+   Inspect deleted original-code comments as well as added markers. Distinguish a
+   missing provenance comment from changed behavior: documenting a rewrite does not
+   restore evaluation order or panic diagnostics. Check restored markers against
+   available history; an unchanged body in this patch does not disprove a prior rewrite.
 3. Mode separation and layout (`separate-verus-modes`): executable code, specifications,
    and proofs sit in visually distinct groups, and adjacent verified items share one
    `verus!` block when no ordinary Rust item separates them.
 4. Proof-body hygiene, mapping each check to its rule:
    - `organize-proof-imports` / `group-imports-by-crate`: audit `reveal`,
      `reveal_with_fuel`, and `broadcast use` for repeated long paths that an import would
-     replace, and confirm definitions from one crate share a single `use` group even across
-     modules. Retain a qualified path only where the page permits — ambiguity or a one-off
+     replace, and combine same-crate definitions within each guideline-defined import
+     group, even across modules. Retain a qualified path only where the page permits — ambiguity or a one-off
      reference — and keep `reveal`/`reveal_with_fuel` minimal. A `reveal` of an `open` spec
      fn is still load-bearing, so remove one only when verification stays green, and leave a
      one-line note on a non-obvious `reveal` or fuel value that must remain.
+     Check redundant qualification against imports already in scope, accounting for
+     aliases and shadowing. Apply grouping rules separately to verification-added
+     imports and inherited executable imports where the guideline distinguishes them.
    - `use-chained-comparisons`: contiguous bounds that share intermediate expressions are
      one chained comparison, in contracts, invariants, predicates, and assertions — but
      only where the chain is logically equivalent and no relation is invented or contract
@@ -51,6 +63,10 @@ below; if a rule named below no longer exists on the page, drop it.
    - `qualified-verus-spec-calls`: a `#[verus_spec(...)]` call site uses a qualified path
      when an import would block Verus from finding the specification, rather than adding an
      import solely to change resolution.
+   - `match-enum-results`: check whether one stated direction already follows from
+     the remaining clauses and enum exhaustiveness. Recommend removal only after
+     establishing logical equivalence, preserving success/failure conditions and
+     payload facts; an Err/None clause may carry independent guarantees.
 5. Naming and modes (`name-proof-roles`, `avoid-redundant-mode-markers`,
    `prefer-ghost-model-structs`): `lemma_`/`tracked_`/`axiom_` prefixes and resource names
    that state their ownership role; `ghost`/`tracked`/plain mode chosen deliberately per
@@ -59,6 +75,9 @@ below; if a rule named below no longer exists on the page, drop it.
    runtime state); markers used only where they communicate or enforce a mode boundary,
    with `tracked_`/`ghost_` field prefixes inside executable types and no redundant marker
    repeated on every field of a `ghost struct`.
+   Include unit-returning proof helpers that manipulate tracked ownership when
+   applying `tracked_` naming. Classify their role from signatures and uses; a tracked
+   parameter alone does not make an executable API an ownership proof helper.
 6. Documentation (`document-verified-apis`): preserve original runtime docs. For a public
    executable API, append a `Verified Properties` section — `Safety` (classes of undefined
    behavior ruled out, any proved absence of panic, and remaining trusted boundaries,
@@ -83,7 +102,14 @@ below; if a rule named below no longer exists on the page, drop it.
    `Compliance` notes, not findings.
 7. Placement (`right-size-spec-placement`): grep the repo for users of each spec fn the
    target defines; a small model beside its single user is correct, a shared or growing
-   model belongs under `ostd/specs/`.
+   model belongs under `ostd/specs/`. Executable-code comments are otherwise frozen with
+   the code: do not request supplementary rustdoc or narrative comments on executable
+   code beyond verified-property or trust-boundary statements and `Origin Rust:` rewrite
+   markers (see the page's `preserve-exec-code` section).
+   For `defer-auxiliary-proof-functions`, use visibility and consumers to distinguish
+   exported proof/model APIs and critical proofs from private auxiliary lemmas.
+   Keep APIs and critical proofs first; defer only lemmas serving side obligations,
+   not every private proof function.
 8. Debt and lint (`document-real-proof-debt`, `narrow-lint-suppressions`): proof comments
    tied to current, non-obvious constraints and their consequences; shared trust boundaries
    documented once at module level; a `TODO` for temporary limitations needing follow-up; no
