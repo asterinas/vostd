@@ -161,10 +161,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             Self::raw_item_well_formed((paddr, level, prop, perm)),
+            valid_leaf_range::<Self::C>(paddr, level),
             perm@ is Some ==> {
-                &&& 1 <= level <= Self::C::NR_LEVELS
                 &&& valid_frame_paddr(paddr)
-                &&& paddr % page_size::<Self::C>(level) == 0
                 &&& paddr + page_size::<Self::C>(level) <= MAX_PADDR
             },
         returns

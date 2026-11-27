@@ -1,8 +1,4 @@
-use vstd::{
-    arithmetic::div_mod::{lemma_add_mod_noop, lemma_mod_mod, lemma_mod_multiples_basic},
-    modes::tracked_swap,
-    prelude::*,
-};
+use vstd::{modes::tracked_swap, prelude::*};
 use vstd_extra::{ghost_tree::*, ownership::*};
 
 use crate::specs::{
@@ -375,48 +371,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& valid_frame_paddr(pte.paddr())
         &&& pte.is_present()
         &&& !pte.is_last(parent_level)
-    }
-
-    pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)
-        requires
-            self.inv(),
-            self.is_frame(),
-            regions.inv(),
-            1 < self.parent_level <= C::NR_LEVELS,
-            idx < NR_ENTRIES,
-        ensures
-            self.frame().mapped_pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)
-                < CurrentArch::ARCH_MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) % page_size::<C>((self.parent_level - 1) as PagingLevel) == 0,
-            ((self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel)
-                <= CurrentArch::ARCH_MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) % PAGE_SIZE == 0,
-    {
-        C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_properties();
-        let pa = self.frame().mapped_pa;
-        let child_level = (self.parent_level - 1) as PagingLevel;
-        let size = page_size::<C>(child_level) as int;
-        lemma_page_size_spec_values::<C>();
-        lemma_page_size_next::<C>(child_level);
-        assert(idx * size + size <= NR_ENTRIES * size) by (nonlinear_arith)
-            requires
-                idx < NR_ENTRIES,
-                size > 0,
-        ;
-        let child_pa = (pa + idx * size) as Paddr;
-        lemma_va_align_page_size::<C>(pa, child_level);
-        lemma_mod_multiples_basic(idx as int, size);
-        lemma_add_mod_noop(pa as int, idx * size, size);
-        assert(child_pa as int % size == 0);
-        lemma_page_size_div_mul_eq::<C>(child_level);
-        lemma_mod_mod(child_pa as int, C::BASE_PAGE_SIZE as int, size / C::BASE_PAGE_SIZE as int);
     }
 
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {

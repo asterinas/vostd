@@ -42,7 +42,7 @@ pub trait ArchAddressSpaceModel {
     proof fn lemma_model_requirements()
         ensures
             0 < Self::MAX_PADDR,
-            Self::C::BASE_PAGE_SIZE <= Self::MAX_PADDR,
+            Self::C::BASE_PAGE_SIZE <= Self::MAX_PADDR <= Self::ARCH_MAX_PADDR,
             Self::MAX_PADDR % Self::C::BASE_PAGE_SIZE == 0,
             Self::LINEAR_MAPPING_BASE_VADDR % Self::C::BASE_PAGE_SIZE == 0,
             Self::MAX_PADDR + Self::LINEAR_MAPPING_BASE_VADDR < Self::VMALLOC_BASE_VADDR,

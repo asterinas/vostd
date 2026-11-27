@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use crate::specs::{
-    arch::{ArchAddressSpaceModel, CurrentArch, PAGE_SIZE, valid_arch_paddr},
+    arch::PAGE_SIZE,
     mm::{
         frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
         page_table::{
@@ -184,11 +184,10 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         let (paddr, level, prop, _) = C::item_into_raw(item);
         &&& C::item_well_formed(item)
         &&& C::E::new_page_req(paddr, level, prop)
-        &&& 1 <= level <= C::NR_LEVELS
-        &&& valid_arch_paddr(paddr)
-        &&& paddr % page_size::<C>(level) == 0
-        &&& paddr + page_size::<C>(level)
-            <= CurrentArch::ARCH_MAX_PADDR
+        &&& valid_leaf_range::<C>(
+            paddr,
+            level,
+        )
         // Mapping may descend within the locked subtree, but cannot replace its parent PTE.
         &&& level <= self.0.guard_level
         &&& entry_owner.inv()

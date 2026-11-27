@@ -1736,7 +1736,7 @@ proof fn lemma_step_segment_from_unused_accounting<'rcu>(
             },
         forall|i: int|
             #![trigger s_after.regions.slot_owners[i]]
-            i < MAX_NR_PAGES && !(range.start <= index_to_frame(i) < range.end)
+            0 <= i < MAX_NR_PAGES && !(range.start <= index_to_frame(i) < range.end)
                 ==> s_after.regions.slot_owners[i] == old_store.regions.slot_owners[i],
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
@@ -1912,7 +1912,7 @@ proof fn lemma_drop_segment_with_store_inv<'rcu>(
             },
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < MAX_NR_PAGES && !(entry.range.start <= index_to_frame(i) < entry.range.end)
+            0 <= i < MAX_NR_PAGES && !(entry.range.start <= index_to_frame(i) < entry.range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]

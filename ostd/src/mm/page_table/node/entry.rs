@@ -960,7 +960,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 C::lemma_page_table_config_constant_properties();
 
                 assert(new_owner.child(i as int).inv());
-                EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
+                lemma_split_leaf_range::<C>(pa, level, i as usize);
             }
 
             let small_pa = pa + i * page_size::<C>(level - 1);
