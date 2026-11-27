@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795704447717,
+  "lastUpdate": 1795752490510,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -15060,6 +15060,96 @@ window.BENCHMARK_DATA = {
             "value": 1158628,
             "unit": "rlimit",
             "extra": "smt-run=262ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3a9bc536f9e67072fc484c3802205c3e975a6e1a",
+          "message": "fix: allow untracked mappings beyond frame metadata coverage in the page table model (#976)\n\n* fix: allow untracked mappings beyond frame metadata coverage in the page table model\n\n* refine\n\n* refine: move to `ArchAddressSpaceModel`\n\n* refine: rename to ARCH_MAX_PADDR\n\n* refine: rename to valid_arch_paddr\n\n* refine: spec reuse and fix\n\n* refine: use associated constants for architecture bounds and simplify frame address checks\n\n* refine: require valid levels, alignment, and bounds for all leaf mappings\n\n* refine: unify leaf range checks and tighten metadata bounds\n\n* refine: names and doc",
+          "timestamp": "2026-11-27T11:54:15+08:00",
+          "tree_id": "b1c196dd4257adce44aaf9a75eb296118937deb4",
+          "url": "https://github.com/asterinas/vostd/commit/3a9bc536f9e67072fc484c3802205c3e975a6e1a"
+        },
+        "date": 1795752490160,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1018715024,
+            "unit": "rlimit",
+            "extra": "verified=4845 errors=0 smt-run=253,197ms wall=195,216ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 335086395,
+            "unit": "rlimit",
+            "extra": "smt-run=102,017ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 132614542,
+            "unit": "rlimit",
+            "extra": "smt-run=28,107ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 55003530,
+            "unit": "rlimit",
+            "extra": "smt-run=16,216ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,059ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,753ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,225ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=757ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=601ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=608ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1158628,
+            "unit": "rlimit",
+            "extra": "smt-run=307ms"
           }
         ]
       }
