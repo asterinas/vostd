@@ -76,22 +76,6 @@ pub broadcast axiom fn axiom_zlib_writer_model()
         #[trigger] <zlib::Encoder<Vec<u8>> as WriteSpec>::obeys_writer_model(),
 ;
 
-pub broadcast axiom fn axiom_gzip_vec_write_all_success(encoder: &gzip::Encoder<Vec<u8>>)
-    requires
-        cfg!(feature = "std"),
-        gzip_state(encoder) is Some,
-    ensures
-        #[trigger] WriteSpec::write_all_success_condition(encoder),
-;
-
-pub broadcast axiom fn axiom_zlib_vec_write_all_success(encoder: &zlib::Encoder<Vec<u8>>)
-    requires
-        cfg!(feature = "std"),
-        zlib_state(encoder) is Some,
-    ensures
-        #[trigger] WriteSpec::write_all_success_condition(encoder),
-;
-
 pub broadcast axiom fn axiom_gzip_reader_model<'a>()
     ensures
         #[trigger] <gzip::Decoder<&'a [u8]> as ReadSpec>::obeys_reader_model(),
@@ -102,34 +86,11 @@ pub broadcast axiom fn axiom_zlib_reader_model<'a>()
         #[trigger] <zlib::Decoder<&'a [u8]> as ReadSpec>::obeys_reader_model(),
 ;
 
-// no_std_io2 0.9.4 uses Vec::reserve, so allocation failure does not return Err.
-// For valid libflate 2.3.2 streams backed by slices, decoding and checksum checks
-// cannot return a read error. std uses try_reserve and has no such guarantee.
-pub broadcast axiom fn axiom_gzip_slice_read_to_end_success(decoder: &gzip::Decoder<&[u8]>)
-    requires
-        !cfg!(feature = "std"),
-        gzip_remaining(decoder) is Some,
-    ensures
-        #[trigger] ReadSpec::read_to_end_success_condition(decoder),
-;
-
-pub broadcast axiom fn axiom_zlib_slice_read_to_end_success(decoder: &zlib::Decoder<&[u8]>)
-    requires
-        !cfg!(feature = "std"),
-        zlib_remaining(decoder) is Some,
-    ensures
-        #[trigger] ReadSpec::read_to_end_success_condition(decoder),
-;
-
 pub broadcast group group_libflate_models {
     axiom_gzip_writer_model,
     axiom_zlib_writer_model,
-    axiom_gzip_vec_write_all_success,
-    axiom_zlib_vec_write_all_success,
     axiom_gzip_reader_model,
     axiom_zlib_reader_model,
-    axiom_gzip_slice_read_to_end_success,
-    axiom_zlib_slice_read_to_end_success,
 }
 
 pub ghost struct EncoderState<W> {
@@ -149,7 +110,10 @@ pub trait ExLz77Encode {
 impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
-    uninterp spec fn write_all_success_condition(&self) -> bool;
+    open spec fn write_all_success_condition(&self) -> bool {
+        cfg!(feature = "std") && <Self as WriteSpec>::obeys_writer_model()
+            && gzip_state(self) is Some
+    }
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         gzip_state(self) matches Some(state) ==> gzip_state(next) == Some(
@@ -161,7 +125,10 @@ impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
 impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
-    uninterp spec fn write_all_success_condition(&self) -> bool;
+    open spec fn write_all_success_condition(&self) -> bool {
+        cfg!(feature = "std") && <Self as WriteSpec>::obeys_writer_model()
+            && zlib_state(self) is Some
+    }
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         zlib_state(self) matches Some(state) ==> zlib_state(next) == Some(
@@ -240,6 +207,12 @@ pub uninterp spec fn gzip_remaining<R>(decoder: &gzip::Decoder<R>) -> Option<Seq
 
 pub uninterp spec fn zlib_remaining<R>(decoder: &zlib::Decoder<R>) -> Option<Seq<u8>>;
 
+// Both decoder models are established only for byte slices. The success
+// conditions retain the alloc-only model: no_std_io2 0.9.4 uses Vec::reserve,
+// while std's read_to_end can return an allocation error from try_reserve.
+// These conditions rely on the build keeping no_std_io2/std disabled whenever
+// vstd_extra/std is disabled. Cargo feature unification can enable no_std_io2/std
+// independently, selecting std::io and making the success guarantee unsound.
 impl<R: io::Read> ReadSpecImpl for gzip::Decoder<R> {
     uninterp spec fn obeys_reader_model() -> bool;
 
@@ -247,7 +220,10 @@ impl<R: io::Read> ReadSpecImpl for gzip::Decoder<R> {
         gzip_remaining(self)
     }
 
-    uninterp spec fn read_to_end_success_condition(&self) -> bool;
+    open spec fn read_to_end_success_condition(&self) -> bool {
+        !cfg!(feature = "std") && <Self as ReadSpec>::obeys_reader_model()
+            && gzip_remaining(self) is Some
+    }
 }
 
 impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
@@ -257,7 +233,10 @@ impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
         zlib_remaining(self)
     }
 
-    uninterp spec fn read_to_end_success_condition(&self) -> bool;
+    open spec fn read_to_end_success_condition(&self) -> bool {
+        !cfg!(feature = "std") && <Self as ReadSpec>::obeys_reader_model()
+            && zlib_remaining(self) is Some
+    }
 }
 
 pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (result: Result<
@@ -265,11 +244,11 @@ pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (r
     io::Error,
 >)
     ensures
-        R::obeys_reader_model() ==> (inner.remaining_bytes() matches Some(stream) && gzip_decoded(
-            stream,
-        ) matches Some(plain) ==> {
-            result matches Ok(decoder) && gzip_remaining(&decoder) == Some(plain)
-        }),
+        <gzip::Decoder<R> as ReadSpec>::obeys_reader_model() && R::obeys_reader_model() ==> {
+            inner.remaining_bytes() matches Some(stream) && gzip_decoded(stream) matches Some(plain) ==> {
+                result matches Ok(decoder) && gzip_remaining(&decoder) == Some(plain)
+            }
+        },
 ;
 
 pub assume_specification<R: io::Read>[ zlib::Decoder::<R>::new ](inner: R) -> (result: Result<
@@ -277,11 +256,11 @@ pub assume_specification<R: io::Read>[ zlib::Decoder::<R>::new ](inner: R) -> (r
     io::Error,
 >)
     ensures
-        R::obeys_reader_model() ==> (inner.remaining_bytes() matches Some(stream) && zlib_decoded(
-            stream,
-        ) matches Some(plain) ==> {
-            result matches Ok(decoder) && zlib_remaining(&decoder) == Some(plain)
-        }),
+        <zlib::Decoder<R> as ReadSpec>::obeys_reader_model() && R::obeys_reader_model() ==> {
+            inner.remaining_bytes() matches Some(stream) && zlib_decoded(stream) matches Some(plain) ==> {
+                result matches Ok(decoder) && zlib_remaining(&decoder) == Some(plain)
+            }
+        },
 ;
 
 } // verus!
