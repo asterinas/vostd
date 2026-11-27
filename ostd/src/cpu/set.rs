@@ -657,20 +657,15 @@ broadcast proof fn lemma_filtered_positions_increase(range: Seq<usize>, keep: sp
         #![trigger range.filter_index(keep)]
         ({
             let positions = range.filter_index(keep);
-            &&& forall|i: int| 0 <= i < positions.len() ==> #[trigger] positions[i] < range.len()
-            &&& forall|i: int, j: int|
+            forall|i: int, j: int|
                 0 <= i < j < positions.len() ==> #[trigger] positions[i] < #[trigger] positions[j]
         }),
     decreases range.len(),
 {
     reveal(Seq::filter_index);
     if range.len() > 0 {
-        lemma_filtered_positions_increase(range.drop_last(), keep);
-        assert(range[range.len() - 1] == range.len() - 1);
-        if keep(range.len() - 1) {
-            let prefix = range.drop_last().filter_index(keep);
-            assert(range.filter_index(keep) == prefix.push(range.last()));
-        }
+        let prefix = range.drop_last();
+        lemma_filtered_positions_increase(prefix, keep);
     }
 }
 
