@@ -22,18 +22,18 @@ use crate::{
     //sync::{LocalIrqDisabled, SpinLock},
 };
 
-#[verus_verify]
-verus! {
-
 /// A TLB flusher that is aware of which CPUs are needed to be flushed.
 ///
 /// The flusher needs to stick to the current CPU.
-pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
+#[verus_verify]
+pub struct TlbFlusher<'a /*, G: PinCurrentCpu*/> {
     target_cpus: &'a AtomicCpuSet,
     have_unsynced_flush: CpuSet,
     ops_stack: OpsStack,
     //_pin_current: G,
 }
+
+verus! {
 
 impl<'a> TlbFlusher<'a> {
     /// The flushes issued but not yet dispatched.
