@@ -14,9 +14,16 @@ use core::mem::MaybeUninit;
 
 use xmas_elf::program::{ProgramHeader, SegmentData};
 
+verus! {
+
+pub tracked struct LoadSnapshot<T> {
+    pub ghost contents: Seq<T>,
+}
+
+} // verus!
 /// Load the kernel ELF payload to memory.
 #[verus_spec(
-    with -> loaded: Ghost<Seq<Seq<MaybeUninit<u8>>>>,
+    with Tracked(loaded): Tracked<&mut LoadSnapshot<Seq<MaybeUninit<u8>>>>,
     requires
         elf_parse_result(file) matches Ok(elf) && {
             &&& elf_program_headers_readable(&elf)
@@ -33,20 +40,20 @@ use xmas_elf::program::{ProgramHeader, SegmentData};
         },
     ensures
         elf_parse_result(file) matches Ok(parsed) ==> {
-            &&& loaded@.len() == elf_program_headers(&parsed).len()
-            &&& forall|i: int| 0 <= i < loaded@.len() ==>
+            &&& final(loaded).contents.len() == elf_program_headers(&parsed).len()
+            &&& forall|i: int| 0 <= i < final(loaded).contents.len() ==>
                 header_initialized(
                     elf_program_headers(&parsed)[i],
                     file@,
-                    #[trigger] loaded@[i],
+                    #[trigger] final(loaded).contents[i],
                 )
         },
 )]
 pub fn load_elf(file: &[u8]) {
     let elf = xmas_elf::ElfFile::new(file).unwrap();
 
-    proof_decl! {
-        let ghost mut snapshots = Seq::empty();
+    proof! {
+        loaded.contents = Seq::empty();
     }
     #[verus_spec(iter =>
         invariant
@@ -65,9 +72,9 @@ pub fn load_elf(file: &[u8]) {
                     }
                 }
             }),
-            snapshots.len() == iter.index(),
-            forall|i: int| 0 <= i < snapshots.len() ==>
-                header_initialized(elf_program_headers(&elf)[i], file@, #[trigger] snapshots[i]),
+            loaded.contents.len() == iter.index(),
+            forall|i: int| 0 <= i < loaded.contents.len() ==>
+                header_initialized(elf_program_headers(&elf)[i], file@, #[trigger] loaded.contents[i]),
     )]
     for ph in elf.program_iter() {
         let ProgramHeader::Ph64(program) = ph else {
@@ -76,26 +83,28 @@ pub fn load_elf(file: &[u8]) {
             );
         };
 
-        proof_decl! { let ghost mut segment = Seq::empty(); }
+        proof_decl! {
+            let tracked mut segment = LoadSnapshot { contents: Seq::empty() };
+        }
         if program.get_type().unwrap() == xmas_elf::program::Type::Load {
-            #[verus_spec(with => Ghost(segment))]
+            #[verus_spec(with Tracked(&mut segment))]
             load_segment(&elf, program);
         }
-        proof! { snapshots = snapshots.push(segment); }
+        proof! {
+            loaded.contents = loaded.contents.push(segment.contents);
+        }
     }
-    proof_with!(|= Ghost(snapshots));
-    ()
 }
 
 #[verus_spec(
-    with -> loaded: Ghost<Seq<MaybeUninit<u8>>>,
+    with Tracked(loaded): Tracked<&mut LoadSnapshot<MaybeUninit<u8>>>,
     requires
         !segment_allocation_panic_condition(program),
         program.get_type() == Ok(Type::Load),
         program_load_data_readable(&ProgramHeader::Ph64(program), file.input@),
         program.file_size <= program.mem_size <= usize::MAX,
     ensures
-        segment_initialized(program, file.input@, loaded@),
+        segment_initialized(program, file.input@, final(loaded).contents),
 )]
 fn load_segment(file: &xmas_elf::ElfFile, program: &xmas_elf::program::ProgramHeader64) {
     let SegmentData::Undefined(segment_data) = program.get_data(file).unwrap() else {
@@ -125,10 +134,8 @@ fn load_segment(file: &xmas_elf::ElfFile, program: &xmas_elf::program::ProgramHe
             #[trigger] right@[i].mem_contents() == MemContents::Init(0u8) by {
             assert(right@.map_values(contents)[i] == 0);
         }
+        loaded.contents = dst_slice@;
     }
-    proof_decl! { let ghost snapshot = dst_slice@; }
-    proof_with!(|= Ghost(snapshot));
-    ()
 }
 
 verus! {
