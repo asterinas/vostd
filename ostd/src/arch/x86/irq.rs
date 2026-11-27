@@ -83,14 +83,24 @@ pub(crate) fn enable_local_and_halt() {
     };
 } */
 
+// FIXME: Mark this as unsafe. See
+// <https://github.com/asterinas/asterinas/issues/1120#issuecomment-2748696592>.
+pub(crate) fn enable_local() {
+    x86_64::instructions::interrupts::enable();
+    // When emulated with QEMU, interrupts may not be delivered if a STI instruction is immediately
+    // followed by a RET instruction. It is a BUG of QEMU, see the following patch for details.
+    // https://lore.kernel.org/qemu-devel/20231210190147.129734-2-lrh2000@pku.edu.cn/
+    x86_64::instructions::nop();
+}
+
 pub(crate) fn disable_local() {
-    // x86_64::instructions::interrupts::disable();
-    unimplemented!()
+    x86_64::instructions::interrupts::disable();
 }
 
 pub(crate) fn is_local_enabled() -> bool {
-    // (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
-    unimplemented!()
+    use x86_64::registers::rflags::{self, RFlags};
+
+    (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
 }
 
 // ####### Inter-Processor Interrupts (IPIs) #######
