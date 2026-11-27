@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795772299988,
+  "lastUpdate": 1795799650957,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -15330,6 +15330,96 @@ window.BENCHMARK_DATA = {
             "value": 1158628,
             "unit": "rlimit",
             "extra": "smt-run=311ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "157275997+YuQuuu@users.noreply.github.com",
+            "name": "YuQuuu",
+            "username": "YuQuuu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ee2aeeeb5a72e47442e50dbefeaf33b1f46b9d9",
+          "message": "prove: verify x86 TSC and RDRAND hardware accessors (#983)\n\n* prove: verify x86 tsc and rdrand hardware accessors\n\n* Address PR #983 review findings\n\n* Separate TODO paragraph in _rdtsc rustdoc comment\n\n* fix an overly stong assumption\n\n---------\n\nCo-authored-by: rikosellic <64517311+rikosellic@users.noreply.github.com>",
+          "timestamp": "2026-11-28T01:05:10+08:00",
+          "tree_id": "5fba78a2ea4fd7ffb40745f8d23f1c6303019942",
+          "url": "https://github.com/asterinas/vostd/commit/1ee2aeeeb5a72e47442e50dbefeaf33b1f46b9d9"
+        },
+        "date": 1795799650599,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1068330972,
+            "unit": "rlimit",
+            "extra": "verified=4872 errors=0 smt-run=260,522ms wall=190,842ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 330271628,
+            "unit": "rlimit",
+            "extra": "smt-run=102,265ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 158786839,
+            "unit": "rlimit",
+            "extra": "smt-run=38,107ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 102560514,
+            "unit": "rlimit",
+            "extra": "smt-run=15,459ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,787ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,502ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,072ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=739ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=523ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=555ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1158628,
+            "unit": "rlimit",
+            "extra": "smt-run=282ms"
           }
         ]
       }
