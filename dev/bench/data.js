@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795766053966,
+  "lastUpdate": 1795772299988,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -15240,6 +15240,96 @@ window.BENCHMARK_DATA = {
             "value": 1158628,
             "unit": "rlimit",
             "extra": "smt-run=271ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "22045841+Marsman1996@users.noreply.github.com",
+            "name": "Yuwei LIU",
+            "username": "Marsman1996"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51b4459029c8f9dfa6e86fff26d13c49bfc29b51",
+          "message": "prove: verify seven frame ktests (#934)\n\n* prove: verify seven frame ktests\n\n* refine\n\n* refine: exex as spec\n\n* fix: sync with new `Repr`\n\n* refine\n\n* fix proof error\n\n* refine: &mut for the MetaRegionOwners\n\n* refine: frame list and conversion contracts\n\n* utils: fix API count logic\n\n* refine: reuse the original MockFrameMeta for typed frame metadata\n\n* refine: rename to Mock\n\n* fix: add `ok()` because`Frame` lacks the `Debug` impl\n\n* update comments\n\n* refine: Restore original Rust expressions in VM I/O tests\n\n* fmt\n\n* refine: Simplify shared-to-unique frame refcount specs\n\n* refine: reuse lemma\n\n* refine\n\n* fix: loongarch error\n\n* refine: drop duplicate owner.inv()\n\n* perf\n\n* fix error\n\n* prove: 4 expect by assume\n\n* refine\n\n* Restore chained frame operations in verified tests\n\n* minor\n\n---------\n\nCo-authored-by: rikosellic <64517311+rikosellic@users.noreply.github.com>",
+          "timestamp": "2026-11-27T17:29:57+08:00",
+          "tree_id": "602dcb558bee32c2d9ab8525cae04e6978500ba2",
+          "url": "https://github.com/asterinas/vostd/commit/51b4459029c8f9dfa6e86fff26d13c49bfc29b51"
+        },
+        "date": 1795772299550,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1068264901,
+            "unit": "rlimit",
+            "extra": "verified=4866 errors=0 smt-run=302,802ms wall=220,891ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 330271628,
+            "unit": "rlimit",
+            "extra": "smt-run=115,277ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 158786839,
+            "unit": "rlimit",
+            "extra": "smt-run=45,670ms"
+          },
+          {
+            "name": "rlimit: mm::frame::linked_list",
+            "value": 102560514,
+            "unit": "rlimit",
+            "extra": "smt-run=18,655ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=3,154ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,872ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,321ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=787ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=622ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=707ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1158628,
+            "unit": "rlimit",
+            "extra": "smt-run=311ms"
           }
         ]
       }
