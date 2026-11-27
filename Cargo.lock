@@ -863,6 +863,7 @@ dependencies = [
  "acpi",
  "bitvec",
  "bytemuck",
+ "riscv",
  "smallvec",
  "vstd",
  "x86",

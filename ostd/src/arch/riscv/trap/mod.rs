@@ -2,12 +2,12 @@
 //! Handles trap.
 mod trap;
 
-use riscv::register::scause::Interrupt;
-use spin::Once;
+/*use riscv::register::scause::Interrupt;
+use spin::Once;*/
 pub(super) use trap::RawUserContext;
 pub use trap::TrapFrame;
 
-use super::cpu::context::CpuExceptionInfo;
+/*use super::cpu::context::CpuExceptionInfo;
 use crate::cpu_local_cell;
 
 cpu_local_cell! {
@@ -67,4 +67,4 @@ pub fn inject_user_page_fault_handler(
     handler: fn(info: &CpuExceptionInfo) -> core::result::Result<(), ()>,
 ) {
     USER_PAGE_FAULT_HANDLER.call_once(|| handler);
-}
+}*/

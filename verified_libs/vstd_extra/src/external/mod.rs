@@ -16,6 +16,8 @@ pub mod iter;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;
+#[cfg(target_arch = "riscv64")]
+pub mod riscv;
 pub mod slice;
 pub mod smallvec;
 pub mod smart_ptr;
@@ -37,6 +39,8 @@ pub use iter::*;
 pub use nonnull::*;
 pub use ptr::*;
 pub use range::*;
+#[cfg(target_arch = "riscv64")]
+pub use riscv::*;
 pub use slice::*;
 pub use smallvec::*;
 pub use smart_ptr::*;

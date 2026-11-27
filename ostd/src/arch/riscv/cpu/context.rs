@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
+use vstd::prelude::*;
+
 use core::fmt::Debug;
 
-use riscv::register::scause::{Exception, Interrupt, Trap};
+use riscv::register::scause::{Exception, /*Interrupt,*/ Trap};
 
 use crate::{
     arch::{
-        timer::handle_timer_interrupt,
+        /*timer::handle_timer_interrupt,*/
         trap::{RawUserContext, TrapFrame},
     },
-    user::{ReturnReason, UserContextApi, UserContextApiInternal},
+    user::{/*ReturnReason,*/ UserContextApi, UserContextApiInternal},
 };
 
 /// Userspace CPU context, including general-purpose registers and exception information.
+#[verus_verify]
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct UserContext {
@@ -22,7 +25,8 @@ pub struct UserContext {
 }
 
 /// General registers.
-#[derive(Debug, Default, Clone, Copy)]
+#[verus_verify]
+#[derive(Debug, /*Default,*/ Clone, Copy)]
 #[repr(C)]
 #[expect(missing_docs)]
 pub struct GeneralRegs {
@@ -60,9 +64,54 @@ pub struct GeneralRegs {
     pub t6: usize,
 }
 
+/* Implement the derived zero default explicitly to give it a Verus specification.
+ * Origin Rust: #[derive(Default)]
+ */
+#[verus_verify]
+impl Default for GeneralRegs {
+    #[verus_spec(returns Self::default_spec())]
+    fn default() -> Self {
+        Self {
+            zero: usize::default(),
+            ra: usize::default(),
+            sp: usize::default(),
+            gp: usize::default(),
+            tp: usize::default(),
+            t0: usize::default(),
+            t1: usize::default(),
+            t2: usize::default(),
+            s0: usize::default(),
+            s1: usize::default(),
+            a0: usize::default(),
+            a1: usize::default(),
+            a2: usize::default(),
+            a3: usize::default(),
+            a4: usize::default(),
+            a5: usize::default(),
+            a6: usize::default(),
+            a7: usize::default(),
+            s2: usize::default(),
+            s3: usize::default(),
+            s4: usize::default(),
+            s5: usize::default(),
+            s6: usize::default(),
+            s7: usize::default(),
+            s8: usize::default(),
+            s9: usize::default(),
+            s10: usize::default(),
+            s11: usize::default(),
+            t3: usize::default(),
+            t4: usize::default(),
+            t5: usize::default(),
+            t6: usize::default(),
+        }
+    }
+}
+
 /// CPU exception information.
 //
 // TODO: Refactor the struct into an enum (similar to x86's `CpuException`).
+#[verus_verify]
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct CpuExceptionInfo {
@@ -73,7 +122,85 @@ pub struct CpuExceptionInfo {
     pub error_code: usize, // TODO
 }
 
+verus! {
+
+pub ghost struct UserContextView {
+    pub frame: TrapFrame,
+    pub trap: Trap,
+    pub exception: Option<CpuExceptionInfo>,
+}
+
+impl UserContextView {
+    pub open spec fn with_general(self, general: GeneralRegs) -> Self {
+        Self { frame: TrapFrame { general, ..self.frame }, ..self }
+    }
+}
+
+impl GeneralRegs {
+    pub open spec fn default_spec() -> Self {
+        Self {
+            zero: 0,
+            ra: 0,
+            sp: 0,
+            gp: 0,
+            tp: 0,
+            t0: 0,
+            t1: 0,
+            t2: 0,
+            s0: 0,
+            s1: 0,
+            a0: 0,
+            a1: 0,
+            a2: 0,
+            a3: 0,
+            a4: 0,
+            a5: 0,
+            a6: 0,
+            a7: 0,
+            s2: 0,
+            s3: 0,
+            s4: 0,
+            s5: 0,
+            s6: 0,
+            s7: 0,
+            s8: 0,
+            s9: 0,
+            s10: 0,
+            s11: 0,
+            t3: 0,
+            t4: 0,
+            t5: 0,
+            t6: 0,
+        }
+    }
+}
+
+impl View for UserContext {
+    type V = UserContextView;
+
+    closed spec fn view(&self) -> UserContextView {
+        UserContextView {
+            frame: TrapFrame {
+                general: self.user_context.general,
+                sstatus: self.user_context.sstatus,
+                sepc: self.user_context.sepc,
+            },
+            trap: self.trap,
+            exception: self.cpu_exception_info,
+        }
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl Default for UserContext {
+    #[verus_spec(r => ensures
+        r@ == (UserContextView {
+            frame: TrapFrame { general: GeneralRegs::default_spec(), sstatus: 0, sepc: 0 },
+            trap: Trap::Exception(Exception::Unknown),
+            exception: None,
+        }),
+    )]
     fn default() -> Self {
         UserContext {
             user_context: RawUserContext::default(),
@@ -83,7 +210,13 @@ impl Default for UserContext {
     }
 }
 
+#[verus_verify]
 impl Default for CpuExceptionInfo {
+    #[verus_spec(returns (CpuExceptionInfo {
+        code: Exception::Unknown,
+        page_fault_addr: 0,
+        error_code: 0,
+    }))]
     fn default() -> Self {
         CpuExceptionInfo {
             code: Exception::Unknown,
@@ -93,35 +226,51 @@ impl Default for CpuExceptionInfo {
     }
 }
 
+#[verus_verify]
 impl CpuExceptionInfo {
     /// Get corresponding CPU exception
+    #[verus_spec(returns self.code)]
     pub fn cpu_exception(&self) -> CpuException {
         self.code
     }
 }
 
+#[verus_verify]
 impl UserContext {
     /// Returns a reference to the general registers.
+    #[verus_spec(r => ensures *r == self@.frame.general)]
     pub fn general_regs(&self) -> &GeneralRegs {
         &self.user_context.general
     }
 
     /// Returns a mutable reference to the general registers
+    #[verus_spec(r => ensures
+        *r == old(self)@.frame.general,
+        final(self)@ == old(self)@.with_general(*final(r)),
+    )]
     pub fn general_regs_mut(&mut self) -> &mut GeneralRegs {
         &mut self.user_context.general
     }
 
     /// Returns the trap information.
+    #[verus_spec(ensures
+        final(self)@ == (UserContextView { exception: None, ..old(self)@ }),
+        returns old(self)@.exception,
+    )]
     pub fn take_exception(&mut self) -> Option<CpuExceptionInfo> {
         self.cpu_exception_info.take()
     }
 
     /// Sets thread-local storage pointer.
+    #[verus_spec(ensures final(self)@ == old(self)@.with_general(
+        GeneralRegs { tp: tls, ..old(self)@.frame.general }
+    ))]
     pub fn set_tls_pointer(&mut self, tls: usize) {
         self.set_tp(tls)
     }
 
     /// Gets thread-local storage pointer.
+    #[verus_spec(returns self@.frame.general.tp)]
     pub fn tls_pointer(&self) -> usize {
         self.tp()
     }
@@ -132,8 +281,9 @@ impl UserContext {
     }
 }
 
+#[verus_verify]
 impl UserContextApiInternal for UserContext {
-    fn execute<F>(&mut self, mut has_kernel_event: F) -> ReturnReason
+    /*fn execute<F>(&mut self, mut has_kernel_event: F) -> ReturnReason
     where
         F: FnMut() -> bool,
     {
@@ -167,8 +317,9 @@ impl UserContextApiInternal for UserContext {
 
         crate::arch::irq::enable_local();
         ret
-    }
+    }*/
 
+    #[verus_spec(returns self@.frame)]
     fn as_trap_frame(&self) -> TrapFrame {
         TrapFrame {
             general: self.user_context.general,
@@ -178,27 +329,39 @@ impl UserContextApiInternal for UserContext {
     }
 }
 
+#[verus_verify]
 impl UserContextApi for UserContext {
-    fn trap_number(&self) -> usize {
+    /*fn trap_number(&self) -> usize {
         todo!()
     }
 
     fn trap_error_code(&self) -> usize {
         todo!()
-    }
+    }*/
 
+    #[verus_spec(returns self@.frame.sepc)]
     fn instruction_pointer(&self) -> usize {
         self.user_context.sepc
     }
 
+    #[verus_spec(ensures
+        final(self)@ == (UserContextView {
+            frame: TrapFrame { sepc: ip, ..old(self)@.frame },
+            ..old(self)@
+        }),
+    )]
     fn set_instruction_pointer(&mut self, ip: usize) {
         self.user_context.sepc = ip;
     }
 
+    #[verus_spec(returns self@.frame.general.sp)]
     fn stack_pointer(&self) -> usize {
         self.sp()
     }
 
+    #[verus_spec(ensures final(self)@ == old(self)@.with_general(
+        GeneralRegs { sp, ..old(self)@.frame.general }
+    ))]
     fn set_stack_pointer(&mut self, sp: usize) {
         self.set_sp(sp);
     }
@@ -206,16 +369,21 @@ impl UserContextApi for UserContext {
 
 macro_rules! cpu_context_impl_getter_setter {
     ( $( [ $field: ident, $setter_name: ident] ),*) => {
+        #[verus_verify]
         impl UserContext {
             $(
                 #[doc = concat!("Gets the value of ", stringify!($field))]
                 #[inline(always)]
+                #[verus_spec(returns self@.frame.general.$field)]
                 pub fn $field(&self) -> usize {
                     self.user_context.general.$field
                 }
 
                 #[doc = concat!("Sets the value of ", stringify!($field))]
                 #[inline(always)]
+                #[verus_spec(ensures final(self)@ == old(self)@.with_general(
+                    GeneralRegs { $field, ..old(self)@.frame.general }
+                ))]
                 pub fn $setter_name(&mut self, $field: usize) {
                     self.user_context.general.$field = $field;
                 }
