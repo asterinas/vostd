@@ -2984,19 +2984,18 @@ proof fn lemma_preserve_unlinked_slots(
     requires
         before.structural_inv(),
         forall|i: int|
-            0 <= i < max_meta_slots() ==> #[trigger] after.slot_owners[i]
+            0 <= i < MAX_NR_PAGES ==> #[trigger] after.slot_owners[i]
                 == before.regions.slot_owners[i] || target_idx == Some(i),
         target_idx matches Some(i) ==> {
-            0 <= i < max_meta_slots() ==> after.slot_owners[i].in_list_perm.value() == 0
+            0 <= i < MAX_NR_PAGES ==> after.slot_owners[i].in_list_perm.value() == 0
         },
     ensures
         forall|i: int|
-            0 <= i < max_meta_slots() ==> #[trigger] after.slot_owners[i].in_list_perm.value() == 0,
+            0 <= i < MAX_NR_PAGES ==> #[trigger] after.slot_owners[i].in_list_perm.value() == 0,
 {
     reveal(VmStore::structural_inv);
     assert forall|i: int|
-        0 <= i < max_meta_slots() implies #[trigger] after.slot_owners[i].in_list_perm.value()
-        == 0 by {
+        0 <= i < MAX_NR_PAGES implies #[trigger] after.slot_owners[i].in_list_perm.value() == 0 by {
         if target_idx != Some(i) {
             assert(after.slot_owners[i] == before.regions.slot_owners[i]);
             assert(before.regions.slot_owners[i].in_list_perm.value() == 0);
