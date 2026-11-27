@@ -378,7 +378,7 @@ impl CpuSet {
         }
     }
 
-    /// Iterates over each CPU in the set exactly once.
+    /// Iterates over the CPUs in the set.
     ///
     /// The order of the iteration is guaranteed to be in ascending order.
     #[verus_spec(ret =>
