@@ -35,6 +35,16 @@ pub struct MockUFrameMeta {
 
 /* impl_untyped_frame_meta_for!(MockUFrameMeta); */
 } // verus!
+// These tests assume sufficient memory for each marked frame allocation.
+macro_rules! assume_frame_alloc_succeeds {
+    ($regions:expr, $alloc:expr) => {{
+        let result = #[verus_spec(with Tracked($regions))]
+        $alloc;
+        proof! { assume(result is Ok); }
+        result
+    }};
+}
+
 // Frame allocation and management tests
 mod frame {
     use vstd_extra::assert_eq;
@@ -49,12 +59,9 @@ mod frame {
     )]
     fn frame_allocation() {
         let meta = MockFrameMeta { value: 42 };
-        let frame = (#[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(meta))
-        .expect({
-            proof! { assume(*regions != *old(regions)); }
-            "Failed to allocate single frame"
-        });
+        let frame =
+            assume_frame_alloc_succeeds!(regions, FrameAllocOptions::new().alloc_frame_with(meta))
+                .expect("Failed to allocate single frame");
         assert_eq!(
             (#[verus_spec(with Tracked(None))]
             frame.meta())
@@ -78,12 +85,9 @@ mod frame {
     )]
     fn frame_clone() {
         let meta = MockFrameMeta { value: 42 };
-        let frame1 = (#[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(meta))
-        .expect({
-            proof! { assume(*regions != *old(regions)); }
-            "Failed to allocate single frame"
-        });
+        let frame1 =
+            assume_frame_alloc_succeeds!(regions, FrameAllocOptions::new().alloc_frame_with(meta))
+                .expect("Failed to allocate single frame");
         let frame2 = verus_exec_expr! { frame1.clone(Tracked(regions)) };
         proof! {
             frame1.tracked_metadata_perm.borrow().tracked_borrow().agree(
@@ -119,12 +123,11 @@ mod frame {
     )]
     fn frame_drop() {
         let metadata = MockFrameMeta { value: 42 };
-        let frame = (#[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(metadata))
-        .expect({
-            proof! { assume(*regions != *old(regions)); }
-            "Failed to allocate single frame"
-        });
+        let frame = assume_frame_alloc_succeeds!(
+            regions,
+            FrameAllocOptions::new().alloc_frame_with(metadata)
+        )
+        .expect("Failed to allocate single frame");
         let ref_count_before = #[verus_spec(with Tracked(regions.slot_owners.tracked_borrow(frame.index())))]
         frame.reference_count();
         let paddr_before = frame.start_paddr();
@@ -133,13 +136,11 @@ mod frame {
         proof! {
             assert(regions.ref_count(frame_to_index(paddr_before)) == REF_COUNT_UNUSED);
         }
-        proof_decl! { let ghost before_reallocation = *regions; }
-        let new_frame = (#[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 }))
-        .expect({
-            proof! { assume(*regions != before_reallocation); }
-            "Failed to allocate single frame"
-        });
+        let new_frame = assume_frame_alloc_succeeds!(
+            regions,
+            FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
+        )
+        .expect("Failed to allocate single frame");
         /* assert_eq!(new_frame.start_paddr(), paddr_before); */
         // No reuse guarantee.
         assert_eq!(
@@ -193,18 +194,21 @@ mod linked_list {
     )]
     fn linked_list_push_pop() {
         let alloc_options = FrameAllocOptions::new();
-        let allocation = #[verus_spec(with Tracked(regions))]
-        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 1 }));
-        proof! { assume(allocation is Ok); }
-        let frame1 = allocation.unwrap();
-        let allocation = #[verus_spec(with Tracked(regions))]
-        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 2 }));
-        proof! { assume(allocation is Ok); }
-        let frame2 = allocation.unwrap();
-        let allocation = #[verus_spec(with Tracked(regions))]
-        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 3 }));
-        proof! { assume(allocation is Ok); }
-        let frame3 = allocation.unwrap();
+        let frame1 = assume_frame_alloc_succeeds!(
+            regions,
+            alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 1 }))
+        )
+        .unwrap();
+        let frame2 = assume_frame_alloc_succeeds!(
+            regions,
+            alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 2 }))
+        )
+        .unwrap();
+        let frame3 = assume_frame_alloc_succeeds!(
+            regions,
+            alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 3 }))
+        )
+        .unwrap();
 
         let mut list = LinkedList::new();
         proof_decl! {
@@ -219,10 +223,6 @@ mod linked_list {
          * `.ok()` avoids the `Frame: Debug` bound on `Result::unwrap()`.
          * Origin Rust: list.push_front(frame1.try_into().unwrap());
          */
-        let frame1 = (#[verus_spec(with Tracked(regions))]
-        UniqueFrame::try_from_shared(frame1))
-        .ok()
-        .unwrap();
         proof_decl! {
             let tracked mut owner1 = UniqueFrameOwner {
                 meta_own: LinkOwner { slot_vaddr: frame1.slot_vaddr(), in_list: 0 },
@@ -230,43 +230,50 @@ mod linked_list {
             };
         }
         #[verus_spec(with Tracked(regions), Tracked(&mut list_own), Tracked(&mut owner1))]
-        list.push_front(frame1);
+        list.push_front(
+            (#[verus_spec(with Tracked(regions))]
+            UniqueFrame::try_from_shared(frame1))
+            .ok()
+            .unwrap(),
+        );
         // 1
         /* list.push_front(frame2.try_into().unwrap()); */
-        proof_decl! { let ghost before_unique2 = *regions; }
-        let frame2 = (#[verus_spec(with Tracked(regions))]
-        UniqueFrame::try_from_shared(frame2))
-        .ok()
-        .unwrap();
-        proof! {
-            list_own.lemma_relate_region_preserved_external_change(before_unique2, *regions);
-        }
         proof_decl! {
+            let ghost before_unique2 = *regions;
             let tracked mut owner2 = UniqueFrameOwner {
                 meta_own: LinkOwner { slot_vaddr: frame2.slot_vaddr(), in_list: 0 },
                 slot_index: frame2.index(),
             };
         }
-        #[verus_spec(with Tracked(regions), Tracked(&mut list_own), Tracked(&mut owner2))]
-        list.push_front(frame2);
+        #[verus_spec(with Tracked({
+            list_own.lemma_relate_region_preserved_external_change(before_unique2, *regions);
+            &mut *regions
+        }), Tracked(&mut list_own), Tracked(&mut owner2))]
+        list.push_front(
+            (#[verus_spec(with Tracked(regions))]
+            UniqueFrame::try_from_shared(frame2))
+            .ok()
+            .unwrap(),
+        );
         // 2 1
         /* list.push_back(frame3.try_into().unwrap()); */
-        proof_decl! { let ghost before_unique3 = *regions; }
-        let frame3 = (#[verus_spec(with Tracked(regions))]
-        UniqueFrame::try_from_shared(frame3))
-        .ok()
-        .unwrap();
-        proof! {
-            list_own.lemma_relate_region_preserved_external_change(before_unique3, *regions);
-        }
         proof_decl! {
+            let ghost before_unique3 = *regions;
             let tracked mut owner3 = UniqueFrameOwner {
                 meta_own: LinkOwner { slot_vaddr: frame3.slot_vaddr(), in_list: 0 },
                 slot_index: frame3.index(),
             };
         }
-        #[verus_spec(with Tracked(regions), Tracked(&mut list_own), Tracked(&mut owner3))]
-        list.push_back(frame3);
+        #[verus_spec(with Tracked({
+            list_own.lemma_relate_region_preserved_external_change(before_unique3, *regions);
+            &mut *regions
+        }), Tracked(&mut list_own), Tracked(&mut owner3))]
+        list.push_back(
+            (#[verus_spec(with Tracked(regions))]
+            UniqueFrame::try_from_shared(frame3))
+            .ok()
+            .unwrap(),
+        );
         // 2 1 3
         assert_eq!(
             #[verus_spec(with Tracked(&list_own))]
@@ -326,13 +333,12 @@ mod linked_list {
             let tracked mut list_own = cursor_own.list_own;
             let tracked mut popped: Option<UniqueFrameOwner<Link<MockUFrameMeta>>>;
         }
-        let popped_frame =
-            (#[verus_spec(with Tracked(regions), Tracked(&mut list_own) => Tracked(popped))]
-            list.pop_front())
-            .unwrap();
         assert_eq!(
             (#[verus_spec(with Tracked(popped.tracked_borrow()))]
-            popped_frame.meta())
+            (#[verus_spec(with Tracked(regions), Tracked(&mut list_own) => Tracked(popped))]
+            list.pop_front())
+            .unwrap()
+            .meta())
             .value,
             2
         );
@@ -342,13 +348,12 @@ mod linked_list {
             2
         );
         // 1 3
-        let popped_frame =
-            (#[verus_spec(with Tracked(regions), Tracked(&mut list_own) => Tracked(popped))]
-            list.pop_back())
-            .unwrap();
         assert_eq!(
             (#[verus_spec(with Tracked(popped.tracked_borrow()))]
-            popped_frame.meta())
+            (#[verus_spec(with Tracked(regions), Tracked(&mut list_own) => Tracked(popped))]
+            list.pop_back())
+            .unwrap()
+            .meta())
             .value,
             3
         );
@@ -358,13 +363,12 @@ mod linked_list {
             1
         );
         // 1
-        let popped_frame =
-            (#[verus_spec(with Tracked(regions), Tracked(&mut list_own) => Tracked(popped))]
-            list.pop_front())
-            .unwrap();
         assert_eq!(
             (#[verus_spec(with Tracked(popped.tracked_borrow()))]
-            popped_frame.meta())
+            (#[verus_spec(with Tracked(regions), Tracked(&mut list_own) => Tracked(popped))]
+            list.pop_front())
+            .unwrap()
+            .meta())
             .value,
             1
         );
@@ -656,10 +660,11 @@ mod segment {
         ensures final(regions).inv(),
     )]
     fn frame_to_segment() {
-        let allocation = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 });
-        proof! { assume(allocation is Ok); }
-        let frame = allocation.unwrap();
+        let frame = assume_frame_alloc_succeeds!(
+            regions,
+            FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
+        )
+        .unwrap();
         let paddr = frame.start_paddr();
         proof_decl! { let ghost allocated_frame = frame; }
         proof! { Segment::<MockFrameMeta>::lemma_from_frame(frame); }
@@ -766,12 +771,11 @@ mod frame_ref {
     )]
     fn frame_ref_preserves_refcnt() {
         let init_val = 42;
-        let frame = (#[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(MockUFrameMeta { value: init_val }))
-        .expect({
-            proof! { assume(*regions != *old(regions)); }
-            "Failed to allocate frame"
-        });
+        let frame = assume_frame_alloc_succeeds!(
+            regions,
+            FrameAllocOptions::new().alloc_frame_with(MockUFrameMeta { value: init_val })
+        )
+        .expect("Failed to allocate frame");
 
         assert_eq!(
             #[verus_spec(with Tracked(regions.slot_owners.tracked_borrow(frame.index())))]
@@ -813,12 +817,11 @@ mod frame_ref {
     )]
     fn frame_impls_non_null_ptr() {
         let init_val = 42;
-        let frame = (#[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(MockUFrameMeta { value: init_val }))
-        .expect({
-            proof! { assume(*regions != *old(regions)); }
-            "Failed to allocate frame"
-        });
+        let frame = assume_frame_alloc_succeeds!(
+            regions,
+            FrameAllocOptions::new().alloc_frame_with(MockUFrameMeta { value: init_val })
+        )
+        .expect("Failed to allocate frame");
         let ptr = frame.start_paddr();
         let uframe: /* UFrame */ Frame<MockUFrameMeta> = frame.into();
 
