@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use alloc::vec::Vec;
 use core::{fmt::Debug, ptr::NonNull};
 
-use bitflags_upstream::bitflags;
 use log::{error, info};
 use spin::Once;
 use volatile::{VolatileRef, access::ReadWrite};
@@ -208,7 +209,7 @@ pub enum FaultAddressType {
     TranslatedRequest = 2,
 }
 
-bitflags! {
+bitflags::bitflags! {
     pub struct FaultStatus : u32{
         /// Primary Fault Overflow, indicates overflow of the fault recording registers.
         const PFO = 1 << 0;

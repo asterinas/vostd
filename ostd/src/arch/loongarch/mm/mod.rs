@@ -80,9 +80,6 @@ impl PagingConstsTrait for PagingConsts {
 }
 
 } // verus!
-/* Use verified bitflags for spec and exec accessors.
- * Origin Rust: bitflags_upstream::bitflags! { ... }
- */
 bitflags::bitflags! {
     #[derive(Pod)]
     #[repr(C)]
