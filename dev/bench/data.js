@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795752490510,
+  "lastUpdate": 1795766053966,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -15150,6 +15150,96 @@ window.BENCHMARK_DATA = {
             "value": 1158628,
             "unit": "rlimit",
             "extra": "smt-run=307ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "liudugang@szu.edu.cn",
+            "name": "DID-Lab-SZU",
+            "username": "DID-Lab-SZU"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c4abb4426d3ba603ebcd4ad8fbfb2f74c2607983",
+          "message": "Prove ordered and complete CpuSet iteration (#985)\n\n* Prove ordered and complete CpuSet iteration\n\n* Localize the CpuSet iterator proof and separate membership\n\n* Restore the original CpuSet iterator comment\n\n* Restore the standalone CpuSet iteration lemma\n\n* minor simplification\n\n* Update set.rs\n\n---------\n\nCo-authored-by: uuu <3100141307@qq.com>\nCo-authored-by: rikosellic <64517311+rikosellic@users.noreply.github.com>",
+          "timestamp": "2026-11-27T15:41:48+08:00",
+          "tree_id": "9de138824ca80d24cabfc84737cc1fa694595a7f",
+          "url": "https://github.com/asterinas/vostd/commit/c4abb4426d3ba603ebcd4ad8fbfb2f74c2607983"
+        },
+        "date": 1795766053174,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1020875635,
+            "unit": "rlimit",
+            "extra": "verified=4846 errors=0 smt-run=227,997ms wall=175,019ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 335086395,
+            "unit": "rlimit",
+            "extra": "smt-run=88,537ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 132614542,
+            "unit": "rlimit",
+            "extra": "smt-run=26,196ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 55003530,
+            "unit": "rlimit",
+            "extra": "smt-run=14,934ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,787ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,494ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,130ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=742ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=486ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=560ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1158628,
+            "unit": "rlimit",
+            "extra": "smt-run=271ms"
           }
         ]
       }
