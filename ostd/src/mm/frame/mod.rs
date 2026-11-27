@@ -30,20 +30,12 @@
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 use vstd::{
-    assert_maps_equal, assert_sets_equal,
-    atomic::PermissionU64,
-    map::assert_maps_equal_internal,
-    prelude::*,
-    simple_pptr::PPtr,
-    std_specs::{
-        cmp::PartialEqSpecImpl,
-        fmt::{DebugSpecImpl, group_fmt_axioms},
-    },
+    assert_maps_equal, assert_sets_equal, atomic::PermissionU64, map::assert_maps_equal_internal,
+    prelude::*, simple_pptr::PPtr, std_specs::cmp::PartialEqSpecImpl,
 };
 use vstd_extra::{
     cast_ptr::*,
     ownership::*,
-    panic::may_panic,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
 };
 
@@ -141,19 +133,13 @@ unsafe impl<M: AnyFrameMeta + ?Sized> Sync for Frame<M> {
 
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> DebugSpecImpl for Frame<M> {
-    open spec fn fmt_req(&self, _f: &core::fmt::Formatter<'_>) -> bool {
-        self.ptr_inv()
-    }
-}
-
+/*
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> core::fmt::Debug for Frame<M> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        broadcast use group_fmt_axioms;
-
         write!(f, "Frame({:#x})", self.start_paddr())
     }
 }
+*/
 
 verus!{
 
@@ -207,7 +193,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
         requires
             old(regions).inv(),
         ensures
@@ -216,8 +201,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
                 &&& MetaSlot::get_from_unused_region_spec(
                     paddr, false, res.metadata_perm().usage(),
                     *old(regions), *final(regions))
-                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm(), *final(repr_perm))
-                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value(), *final(repr_perm)) == metadata
+                &&& typed_meta_wf::<M>(res.slot_perm(), res.metadata_perm())
+                &&& M::from_repr_spec(res.metadata_perm().storage_perm.value()) == metadata
                 &&& res.inv()
                 &&& res.start_paddr_spec() == paddr
                 &&& res.wf_with_region(*final(regions))
@@ -226,8 +211,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with
-            Tracked(regions),
-            Tracked(repr_perm) => Tracked(permissions)
+            Tracked(regions) => Tracked(permissions)
         )]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
@@ -268,19 +252,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(ret =>
         with
             Tracked(metadata_perm): Tracked<Option<&'a MetadataPerm>>,
-            Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
             {
                 self.inv() && metadata_perm is None
-                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm(), *repr_perm) ||
+                && typed_meta_wf::<M>(self.slot_perm(), self.metadata_perm()) ||
                 metadata_perm is Some
-                && self.external_meta_wf(*metadata_perm->0, *repr_perm)
+                && self.external_meta_wf(*metadata_perm->0)
             },
         ensures
             {
                 let metadata_perm = if metadata_perm is Some {*metadata_perm -> 0} else
                     { self.metadata_perm() };
-                ret == typed_meta_value::<M>(metadata_perm, *repr_perm)
+                ret == typed_meta_value::<M>(metadata_perm)
             },
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
@@ -298,7 +281,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
             Tracked(slot_perm),
             Tracked(metadata_perm),
-            Tracked(repr_perm),
         )
     }
 }
@@ -328,7 +310,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
         requires
             old(regions).inv(),
-            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            !MetaSlot::get_from_in_use_panic_condition(paddr, *old(regions)),
         ensures
             final(regions).inv(),
             res matches Ok(res) ==> {
@@ -339,6 +321,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             },
             res is Err ==> *old(regions) == *final(regions),
     )]
+    #[verifier::spinoff_prover]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
         proof_decl!{
             let tracked frame_permission: Option<FracMetadataPerm>;
@@ -599,9 +582,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& self.inv()
         &&& regions.inv()
         &&& self.wf_with_region(regions)
-        &&& ref_count > 0
-        &&& ref_count != REF_COUNT_UNUSED
-        &&& ref_count >= REF_COUNT_MAX ==> may_panic()
+        &&& 0 < ref_count < REF_COUNT_MAX
     }
 
     open spec fn clone_ensures(
@@ -818,11 +799,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
         valid_frame_paddr(paddr),
-        old(regions).slot_owner(paddr).ref_count() > 0,
-        old(regions).slot_owner(paddr).ref_count()
-            != REF_COUNT_UNUSED,
-        old(regions).slot_owner(paddr).ref_count()
-            >= REF_COUNT_MAX ==> may_panic(),
+        0 < old(regions).slot_owner(paddr).ref_count() < REF_COUNT_MAX,
     ensures
         final(regions).inv(),
         permission@.frac() == 1,

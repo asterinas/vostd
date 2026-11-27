@@ -34,10 +34,12 @@ runs:
     - name: Fetch mainline baseline
       shell: bash
       run: |
-        git fetch --depth=1 origin phaseII/mainline ||
-          git fetch --depth=1 https://github.com/asterinas/vostd.git phaseII/mainline
-        git worktree add --detach "$PWD/mainline" FETCH_HEAD
-        echo "MAINLINE_SHA=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+        # Update the baseline and tools/mainline-rustdoc.patch together.
+        MAINLINE_SHA=a54e7ff0347de6518bc6fd27ff99a5bddf876008
+        git fetch --depth=1 origin "$MAINLINE_SHA" ||
+          git fetch --depth=1 https://github.com/asterinas/vostd.git "$MAINLINE_SHA"
+        git worktree add --detach "$PWD/mainline" "$MAINLINE_SHA"
+        echo "MAINLINE_SHA=$MAINLINE_SHA" >> "$GITHUB_ENV"
 
     - name: Download rustdoc JSON
       uses: actions/download-artifact@v8
@@ -45,6 +47,18 @@ runs:
         name: doc-api-json
         path: api-json
       continue-on-error: true
+
+    - name: Generate mainline rustdoc JSON
+      shell: bash
+      working-directory: mainline
+      run: |
+        # This baseline mixes workspace and sync sources from different releases.
+        # Apply its doc-build fixes temporarily so the LoC scan sees the original sources.
+        patch_file="../tools/mainline-rustdoc.patch"
+        git apply "$patch_file"
+        trap 'git apply -R "$patch_file"' EXIT
+        cargo rustdoc --target-dir target --target x86_64-unknown-none --package ostd --lib \
+          -- -Z unstable-options --output-format json
 
     - name: Take verification snapshot
       shell: bash
@@ -60,6 +74,7 @@ runs:
           --mainline-source src=mainline/ostd/src \
           --mainline-source libs=mainline/ostd/libs \
           --mainline-sha "$MAINLINE_SHA" \
+          --mainline-doc-json mainline/target/x86_64-unknown-none/doc/ostd.json \
           --sha "$GITHUB_SHA" \
           --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
           $DOC_JSON_ARG \

@@ -284,7 +284,7 @@ verus! {
 impl PageTableEntryTrait for PageTableEntry {
     fn new_absent() -> Self {
         proof {
-            assert(Self::new_absent_spec() == Self(0)) by (compute_only);
+            assert(Self::new_absent() == Self(0)) by (compute_only);
             assert(Self(0).paddr() == 0) by (compute_only);
             assert(!Self(0).is_present()) by (compute_only);
         }

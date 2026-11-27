@@ -335,6 +335,13 @@ the payload-dependent facts (generalizing
 re-queries the result and the projections need their own `is_ok`
 guard.
 
+In spec code, prefer an arrow projection such as `res->Ok_0` or
+`opt->Some_0` to extract a payload when the corresponding variant is
+already established. Check which precondition, branch, or preceding fact
+establishes the variant. Use `matches` or `match` when the spec needs to
+inspect the variant and bind its payload together. See PR
+[#931](https://github.com/asterinas/vostd/pull/931#discussion_r4596421097).
+
 An `Err` arm earns its place only by stating a fact the `Ok`
 arms do not, as in the `from_utf8` model's
 `res matches Err(_) ==> !valid_utf8(v@)`; the `Ok` arms there do
@@ -353,6 +360,17 @@ Add specifications and proofs without rewriting executable Rust or reordering
 constants, methods, or modules. If Verus requires an executable change, keep it
 minimal, demonstrate unchanged runtime behavior, and show the original form in
 review.
+
+Before rewriting an executable call to reuse an existing external
+specification, prefer specifying the API the code already calls. Check the
+vendored vstd tree and Verus upstream for an existing model first, then add a
+faithful external specification for the exact callee in the owning verified
+library, such as `vstd_extra::external`, and follow
+[`upstream-reusable-specs`](workflow.md#upstream-reusable-specs) for
+standard-library APIs. Replace a call with a differently packaged equivalent
+only when the original callee cannot be specified — record the concrete
+obstacle in the review — and the replacement still counts as the executable
+change this section governs.
 
 When the target code or its module is commented out, enable it in place by
 uncommenting only the target code and its necessary dependencies; leave the
@@ -395,6 +413,14 @@ See also: PR [#924](https://github.com/asterinas/vostd/pull/924#discussion_r4560
 Preserve existing comments and rustdoc verbatim during proof work, including
 wording, units, and references. An apparent documentation error is a separate
 upstream correction; do not silently fix it while adding verification.
+
+Comments on executable code stay frozen with the code itself: verification
+work adds specifications and proofs, not prose about the implementation or the
+migration. An added comment on executable code must state a verified property
+or a caller-facing trust boundary, such as a check the caller owes, or be the
+`Origin Rust:` block required for an executable rewrite below. Migration
+rationale, upstream implementation details, and tool behavior belong in the PR
+description or the review text.
 
 When temporarily disabling unchanged imports or code outside the verified
 scope, wrap the original text directly in `/* ... */`. Do not add a reason,
@@ -771,8 +797,23 @@ both modes honest:
   calls `CpuId::as_usize()`, which spec mode cannot, so `part_idx_spec(i: int)`
   holds the formula.
 - Add `#[verifier::when_used_as_spec(twin)]` when the twin's signature
-  matches, and spec mode can call the helper by its exec name
-  (`parts_for_cpus`, `sub_ptr::to_repr`).
+  matches (`parts_for_cpus`, `sub_ptr::to_repr`). Once mapped, prefer the
+  executable API name in specifications, contracts, invariants, and proofs
+  instead of calling the spec twin directly. This keeps specifications in
+  the API's vocabulary while Verus selects the model.
+
+```rust
+// Prefer this, when get_type has when_used_as_spec(program_header_type):
+program.get_type() is Ok
+
+// Over this:
+program_header_type(&program) is Ok
+```
+
+When adding or reviewing a mapping, check all affected call sites for direct
+calls to the mapped spec function, not just the reported occurrence. Direct
+model calls remain appropriate in the connecting contract or when reasoning
+explicitly about the model.
 
 Keep a spec fn with different argument types when the truthful model requires
 a shape the exec helper cannot offer:
@@ -790,4 +831,5 @@ re-signing the executable function, which
 
 See also: PR [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4032758336),
 [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035293382),
-and [#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035681677).
+[#770](https://github.com/asterinas/vostd/pull/770#discussion_r4035681677), and
+[#931](https://github.com/asterinas/vostd/pull/931#discussion_r4594851037).

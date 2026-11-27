@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{arithmetic::power2::*, prelude::*, std_specs::clone::*};
-use vstd_extra::{assert, panic::may_panic, prelude::*};
+use vstd_extra::{assert, prelude::*};
 
 use crate::specs::{
     arch::*,
@@ -396,9 +396,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             valid_frame_paddr(pa),
             regions.contains(frame_to_index(pa)),
             Self::item_into_raw(item).3@ is Some ==> {
-                &&& 0 < regions.slot_owner(pa).ref_count()
-                &&& regions.slot_owner(pa).ref_count() != REF_COUNT_UNUSED
-                &&& regions.slot_owner(pa).ref_count() >= REF_COUNT_MAX ==> may_panic()
+                0 < regions.slot_owner(pa).ref_count() < REF_COUNT_MAX
             },
         ensures
             item.clone_requires(regions),
@@ -1185,7 +1183,6 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C>::cursor_new_input_valid(*va)
                 ==> Cursor::<C>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -1245,7 +1242,6 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C>::cursor_new_input_valid(*va)
                 ==> Cursor::<C>::cursor_new_success_conditions(*va),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]

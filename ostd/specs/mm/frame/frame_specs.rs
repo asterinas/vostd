@@ -41,6 +41,10 @@ pub tracked struct FrameRawPerms {
 
 // SAFETY: Slot and counted metadata permissions describe global memory ownership
 // and do not carry subjective weak-memory observations.
+// TRUSTED (irc11): this resource holds non-atomic memory permissions, which
+// iRC11 treats as subjective (not `Objective`). The claim assumes that every
+// hand-off of it is synchronized outside the model (SC atomics carry no views).
+// TODO: carry these permissions with views (`ViewAt`) or through `atomic_weak`.
 #[cfg(feature = "irc11")]
 unsafe impl vstd::thread_view::Objective for FrameRawPerms {
 
@@ -111,14 +115,10 @@ impl<M: ?Sized> Frame<M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     /// Relates an externally stored metadata permission to this frame's slot permission.
-    pub open spec fn external_meta_wf(
-        self,
-        metadata_perm: MetadataPerm,
-        repr_perm: M::ReprPerm,
-    ) -> bool {
+    pub open spec fn external_meta_wf(self, metadata_perm: MetadataPerm) -> bool {
         &&& self.ptr_inv()
         &&& self.tracked_metadata_perm@ is None
-        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm, repr_perm)
+        &&& typed_meta_wf::<M>(self.slot_perm(), metadata_perm)
     }
 }
 

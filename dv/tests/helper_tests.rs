@@ -16,7 +16,7 @@ mod tests {
         let tmp_path = tmp_dir.path();
 
         // mock exec
-        let mock_exec = tmp_path.join(T_EXEC);
+        let mock_exec = tmp_path.join(format!("{T_EXEC}{}", env::consts::EXE_SUFFIX));
         File::create(&mock_exec).unwrap();
 
         #[cfg(unix)]
@@ -97,16 +97,95 @@ mod tests {
 
     #[test]
     fn test_get_dependency() {
+        if run_in_test_workspace("test_get_dependency") {
+            return;
+        }
         let all = verus::verus_targets();
         assert!(!all.is_empty(), "No targets found");
 
         let x = all.get("empty").unwrap();
-        verus::resolve_deps_cached(x, true, verus::DEFAULT_RUST_TARGET);
+        let deps = verus::get_local_dependency(x);
+        assert!(deps.contains_key("dependency"));
+        let resolved = verus::resolve_deps_cached(x, true, verus::DEFAULT_RUST_TARGET);
+        assert!(Path::new(&resolved.full_externs["dependency"]).is_file());
     }
 
     #[test]
     fn test_new_package() {
+        if run_in_test_workspace("test_new_package") {
+            return;
+        }
         let p = new::create("test-package");
-        println!("{:?}", p);
+        assert_eq!(p.name, "test-package");
+        assert!(Path::new("verification/test-package/src/lib.rs").is_file());
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .no_deps()
+            .exec()
+            .unwrap();
+        assert!(metadata
+            .packages
+            .iter()
+            .any(|package| package.name == "test-package"));
+    }
+
+    // Run tests that discover the workspace or create packages in a subprocess:
+    // changing cwd in this test binary would race with parallel tests.
+    fn run_in_test_workspace(test: &str) -> bool {
+        const FIXTURE_ENV: &str = "RUST_DV_HELPER_TEST_WORKSPACE";
+        if env::var(FIXTURE_ENV).as_deref() == Ok(test) {
+            return false;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"empty\", \"dependency\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("Cargo.lock"), "version = 4\n").unwrap();
+        for (name, dependencies) in [
+            ("empty", "dependency = { path = \"../dependency\" }"),
+            ("dependency", ""),
+        ] {
+            let package_dir = root.join(name);
+            std::fs::create_dir_all(package_dir.join("src")).unwrap();
+            std::fs::write(
+                package_dir.join("Cargo.toml"),
+                format!(
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+                 [package.metadata.verus]\nverify = true\n[dependencies]\n{dependencies}\n"
+                ),
+            )
+            .unwrap();
+            std::fs::write(package_dir.join("src/lib.rs"), "#![no_std]\n").unwrap();
+        }
+        // The package template references these local toolchain crates.
+        for (dir, name) in [
+            ("vstd", "vstd"),
+            ("builtin", "verus_builtin"),
+            ("builtin_macros", "verus_builtin_macros"),
+        ] {
+            let package_dir = root.join("tools/verus/source").join(dir);
+            std::fs::create_dir_all(package_dir.join("src")).unwrap();
+            std::fs::write(
+                package_dir.join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            std::fs::write(package_dir.join("src/lib.rs"), "").unwrap();
+        }
+        let output = std::process::Command::new(env::current_exe().unwrap())
+            .args(["--exact", &format!("tests::{test}"), "--nocapture"])
+            .current_dir(root)
+            .env(FIXTURE_ENV, test)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "fixture test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        true
     }
 }

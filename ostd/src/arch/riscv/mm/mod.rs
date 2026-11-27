@@ -238,7 +238,7 @@ impl PageTableEntryTrait for PageTableEntry {
     fn new_absent() -> Self {
         proof {
             assert(Self::default_spec() == Self(0)) by (compute_only);
-            assert(Self::new_absent_spec() == Self(0)) by (compute_only);
+            assert(Self::new_absent() == Self(0)) by (compute_only);
             assert(Self(0).paddr() == 0) by (compute_only);
             assert(!Self(0).is_present()) by (compute_only);
         }
@@ -277,7 +277,7 @@ impl PageTableEntryTrait for PageTableEntry {
             lemma_auxiliary_bit_properties(pte.0);
             assert(((raw & Self::PHYS_ADDR_MASK) >> 10) << 12 == ((((raw | 1usize)
                 & Self::PHYS_ADDR_MASK) >> 10) << 12)) by (bit_vector);
-            assert(pte == Self::new_page_spec(paddr, _level, prop));
+            assert(pte == Self::new_page(paddr, _level, prop));
         }
         pte
     }
@@ -295,7 +295,7 @@ impl PageTableEntryTrait for PageTableEntry {
                 requires
                     raw == ((paddr >> 12) << 10) | 1usize,
             ;
-            assert(Self::new_pt_spec(paddr) == Self(raw));
+            assert(Self::new_pt(paddr) == Self(raw));
             assert(raw & 14usize == 0) by (bit_vector)
                 requires
                     raw == ((paddr >> 12) << 10) | 1usize,

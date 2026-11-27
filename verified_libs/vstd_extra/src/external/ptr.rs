@@ -101,7 +101,7 @@ pub assume_specification<T: PointeeSized>[ <*const T>::is_null ](ptr: *const T) 
     no_unwind
 ;
 
-/// [<*mut T>::is_null](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_null) only checks the raw data pointer.
+/// [<*mut T>::is_null](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_null-1) only checks the raw data pointer.
 #[verifier::when_used_as_spec(ptr_mut_is_null_spec)]
 pub assume_specification<T: PointeeSized>[ <*mut T>::is_null ](ptr: *mut T) -> bool
     returns
@@ -110,11 +110,12 @@ pub assume_specification<T: PointeeSized>[ <*mut T>::is_null ](ptr: *mut T) -> b
     no_unwind
 ;
 
-/// [`<*mut T>::is_aligned`](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_aligned)
+/// [`<*mut T>::is_aligned`](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_aligned-1)
 pub assume_specification<T>[ <*mut T>::is_aligned ](ptr: *mut T) -> bool
     returns
         ptr.addr() % core::mem::align_of::<T>() == 0,
     opens_invariants none
+    no_unwind
 ;
 
 /// Models wrapping pointer addition.

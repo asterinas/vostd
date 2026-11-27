@@ -28,7 +28,6 @@
 use vstd::{arithmetic::power2::pow2, math::abs, prelude::*};
 use vstd_extra::{
     arithmetic::*, assert, assert_eq, drop_tracking::TrackDrop, ghost_tree::*, ownership::*,
-    panic::*,
 };
 
 use crate::specs::mm::{
@@ -236,7 +235,6 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             Self::cursor_new_input_valid(*va)
                 ==> Self::cursor_new_success_conditions(*va),
             pt_own.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -357,10 +355,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
+            !old(self).query_panic_condition(*old(owner), *old(regions)),
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
-            !old(self).query_panic_condition(*old(owner), *old(regions)),
             old(owner).in_barrier_va() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).query_some_condition(*final(owner)) ==>
@@ -392,7 +389,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
 
         #[verus_spec(
             invariant
-                old(self).query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
+                !old(self).query_panic_condition(*old(owner), *old(regions)),
                 self.invariants(*owner, *regions, *guards),
                 old(regions).inv(),
                 owner.in_barrier_va(),
@@ -702,9 +699,8 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             // Delegates to `find_next_impl`, which diverges on the find-next
             // panic condition.
-            old(self).find_next_panic_condition(len) ==> may_panic(),
-        ensures
             !old(self).find_next_panic_condition(len),
+        ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res->0 == final(self).va
@@ -782,9 +778,8 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             // The runtime `assert!`s diverge unless `len` is page-aligned and
             // the scan stays within the cursor's barrier.
-            old(self).find_next_panic_condition(len) ==> may_panic(),
-        ensures
             !old(self).find_next_panic_condition(len),
+        ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             final(self).barrier_va == old(self).barrier_va,
             final(self).guard_level == old(self).guard_level,
@@ -1345,9 +1340,8 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).jump_panic_condition(va) ==> may_panic(),
-        ensures
             !old(self).jump_panic_condition(va),
+        ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             final(self).barrier_va.start <= va < final(self).barrier_va.end ==> {
                 &&& res is Ok
@@ -1380,7 +1374,7 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
                 owner.metaregion_sound(*regions),
                 self.barrier_va.start <= va < self.barrier_va.end,
                 va % PAGE_SIZE == 0,
-                old(self).jump_panic_condition(va) ==> may_panic(),
+                !old(self).jump_panic_condition(va),
                 self.va == old(self).va,
                 self.barrier_va == old(self).barrier_va,
                 self.guard_level == old(self).guard_level,
@@ -1704,13 +1698,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).metaregion_sound(*old(regions)),
-            old(self).level > old(self).guard_level || old(self).level < C::NR_LEVELS,
-            old(self).level > old(self).guard_level ==> may_panic(),
-        ensures
-    // Negation of the panic condition: if `pop_level` returned, the
-    // path slot was `Some`, i.e. `level <= guard_level`.
-
             old(self).level <= old(self).guard_level,
+            old(self).level < C::NR_LEVELS,
+        ensures
             final(self).inv(),
             final(self).wf(*final(owner)),
             final(owner).inv(),
@@ -1736,7 +1726,9 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
             C::lemma_paging_consts_properties();
             C::lemma_page_table_config_constant_properties();
         }
-        let taken = self.path[self.level as usize - 1].take().unwrap_or_panic();
+        let taken = self.path[self.level as usize - 1].take().expect(
+            "Popping a level without a lock",
+        );
         proof {
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
@@ -1996,7 +1988,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             forall |p: PageProperty| op.requires((p,)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<C::Perm>>| #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && C::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     C::item_into_raw(C::item_from_raw(pa, level, p_out, perm)).3@
                         is Some
                 ) == (perm@ is Some),
@@ -2096,7 +2089,6 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             Cursor::<C>::cursor_new_input_valid(*va)
                 ==> Cursor::<C>::cursor_new_success_conditions(*va),
             pt_own.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -2179,9 +2171,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.find_next_panic_condition(len) ==> may_panic(),
-        ensures
             !old(self).0.find_next_panic_condition(len),
+        ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res->0 == final(self).0.va
@@ -2219,9 +2210,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.jump_panic_condition(va) ==> may_panic(),
-        ensures
             !old(self).0.jump_panic_condition(va),
+        ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end ==> {
                 &&& res is Ok
@@ -2277,10 +2267,9 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
+            !old(self).0.query_panic_condition(*old(owner), *old(regions)),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            !old(self).0.query_panic_condition(*old(owner), *old(regions)),
             old(owner).in_barrier_va() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).0.query_some_condition(*final(owner)) ==>
@@ -2855,12 +2844,12 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
-            // Conservative clone-overflow allowance; base-page operations never clone a node.
-            C::item_into_raw(item).1 > 1 ==> may_panic(),
+            // Base-page operations never clone a replaced subtree root.
+            C::item_into_raw(item).1 <= 1,
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).item_wf(item, entry_owner),
             Self::item_slot_in_regions(item, *old(regions)),
-            old(self).map_panic_conditions(item) ==> may_panic(),
+            !old(self).map_panic_conditions(item),
         ensures
             final(regions).slots == old(regions).slots,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
@@ -3139,11 +3128,10 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
-            len >= page_size::<C>(2) ==> may_panic(),
+            len < page_size::<C>(2),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.find_next_panic_condition(len) ==> may_panic(),
-        ensures
             !old(self).0.find_next_panic_condition(len),
+        ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.va >= old(self).0.va,
             final(self).0.va % PAGE_SIZE == 0,
@@ -3375,14 +3363,18 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         frag
     }
 
-    /// Applies a property-changing operation to the next mapped frame in the range.
+    /// Applies the operation to the next slot of mapping within the range.
     ///
-    /// Scans forward from the cursor's current position through up to `len`
-    /// bytes looking for a mapped frame (using `find_next_impl` with
-    /// `split_huge = true`). If found, applies `op` to the frame's
-    /// [`PageProperty`], advances the cursor past it, and returns the
-    /// protected VA range. If no mapped frame exists in the range, returns
-    /// `None` and the cursor advances past the search window.
+    /// The range to be found in is the current virtual address with the
+    /// provided length.
+    ///
+    /// The function stops and yields the actually protected range if it has
+    /// actually protected a page, no matter if the following pages are also
+    /// required to be protected.
+    ///
+    /// It also makes the cursor moves forward to the next page after the
+    /// protected one. If no mapped pages exist in the following range, the
+    /// cursor will stop at the end of the range and return [`None`].
     ///
     /// # Safety
     ///
@@ -3390,7 +3382,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     ///  - the range being protected with the operation does not affect
     ///    kernel's memory safety;
     ///  - the privileged flag `AVAIL1` should not be altered if in the kernel
-    ///    page table (the restriction may be lifted in the future).
+    ///    page table (the restriction may be lifted in the futures).
     ///
     /// # Panics
     ///
@@ -3420,16 +3412,16 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             forall |p: PageProperty| op.requires((p,)),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty,
                 perm: Tracked<Option<C::Perm>>| #![auto]
-                op.ensures((p_in,), p_out) ==> (
+                op.ensures((p_in,), p_out)
+                    && C::raw_item_well_formed((pa, level, p_in, perm)) ==> (
                     C::item_into_raw(C::item_from_raw(pa, level, p_out, perm)).3@
                         is Some
                 ) == (perm@ is Some),
             forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
                     C::E::new_page_req(pa, level, p_out),
-            old(self).0.find_next_panic_condition(len) ==> may_panic(),
-        ensures
             !old(self).0.find_next_panic_condition(len),
+        ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
@@ -3486,13 +3478,10 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards>,
         requires
-            old(owner).cur_entry_owner().is_node()
-                && old(regions).ref_count(frame_to_index(
-                    old(owner).cur_entry_owner().meta_slot_paddr()->0)) >= REF_COUNT_MAX
-                ==> may_panic(),
-            (!C::TOP_LEVEL_CAN_UNMAP && old(self).0.level >= C::NR_LEVELS && old(
-                owner,
-            ).cur_entry_owner().is_node()) ==> may_panic(),
+            old(owner).cur_entry_owner().is_node() ==> {
+                &&& old(regions).ref_count(frame_to_index(old(owner).cur_entry_owner().meta_slot_paddr()->0)) < REF_COUNT_MAX
+                &&& C::TOP_LEVEL_CAN_UNMAP || old(self).0.level < C::NR_LEVELS
+            },
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_barrier_va(),
             !old(owner).popped_too_high,
@@ -3820,7 +3809,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
                  */
                 if !C::TOP_LEVEL_CAN_UNMAP && level == C::NR_LEVELS {
                     let _ = ManuallyDrop::new(pt);
-                    vstd_extra::panic::panic_diverge();
+                    vstd::vpanic!("");
                 }
                 // SAFETY: We must have locked this node.
 
