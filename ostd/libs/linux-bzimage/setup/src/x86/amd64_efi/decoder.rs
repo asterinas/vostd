@@ -89,8 +89,7 @@ impl TryFrom<&[u8]> for MagicNumber {
 #[verus_spec(result =>
     requires
         decoded_payload(payload@) is Some,
-    ensures
-        Some(result@) == decoded_payload(payload@),
+    ensures result@ == decoded_payload(payload@)->0,
 )]
 pub fn decode_payload(payload: &[u8]) -> Vec<u8> {
     proof! {
