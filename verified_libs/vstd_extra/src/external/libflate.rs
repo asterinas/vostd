@@ -111,8 +111,9 @@ impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
     open spec fn write_all_success_condition(&self) -> bool {
-        cfg!(feature = "std") && <Self as WriteSpec>::obeys_writer_model()
-            && gzip_state(self) is Some
+        cfg!(feature = "std") && <Self as WriteSpec>::obeys_writer_model() && gzip_state(
+            self,
+        ) is Some
     }
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
@@ -126,8 +127,9 @@ impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
     open spec fn write_all_success_condition(&self) -> bool {
-        cfg!(feature = "std") && <Self as WriteSpec>::obeys_writer_model()
-            && zlib_state(self) is Some
+        cfg!(feature = "std") && <Self as WriteSpec>::obeys_writer_model() && zlib_state(
+            self,
+        ) is Some
     }
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
@@ -221,8 +223,9 @@ impl<R: io::Read> ReadSpecImpl for gzip::Decoder<R> {
     }
 
     open spec fn read_to_end_success_condition(&self) -> bool {
-        !cfg!(feature = "std") && <Self as ReadSpec>::obeys_reader_model()
-            && gzip_remaining(self) is Some
+        !cfg!(feature = "std") && <Self as ReadSpec>::obeys_reader_model() && gzip_remaining(
+            self,
+        ) is Some
     }
 }
 
@@ -234,8 +237,9 @@ impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
     }
 
     open spec fn read_to_end_success_condition(&self) -> bool {
-        !cfg!(feature = "std") && <Self as ReadSpec>::obeys_reader_model()
-            && zlib_remaining(self) is Some
+        !cfg!(feature = "std") && <Self as ReadSpec>::obeys_reader_model() && zlib_remaining(
+            self,
+        ) is Some
     }
 }
 
@@ -245,9 +249,8 @@ pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (r
 >)
     ensures
         <gzip::Decoder<R> as ReadSpec>::obeys_reader_model() && R::obeys_reader_model() ==> {
-            inner.remaining_bytes() matches Some(stream) && gzip_decoded(stream) matches Some(plain) ==> {
-                result matches Ok(decoder) && gzip_remaining(&decoder) == Some(plain)
-            }
+            inner.remaining_bytes() matches Some(stream) && gzip_decoded(stream) matches Some(plain)
+                ==> { result matches Ok(decoder) && gzip_remaining(&decoder) == Some(plain) }
         },
 ;
 
@@ -257,9 +260,8 @@ pub assume_specification<R: io::Read>[ zlib::Decoder::<R>::new ](inner: R) -> (r
 >)
     ensures
         <zlib::Decoder<R> as ReadSpec>::obeys_reader_model() && R::obeys_reader_model() ==> {
-            inner.remaining_bytes() matches Some(stream) && zlib_decoded(stream) matches Some(plain) ==> {
-                result matches Ok(decoder) && zlib_remaining(&decoder) == Some(plain)
-            }
+            inner.remaining_bytes() matches Some(stream) && zlib_decoded(stream) matches Some(plain)
+                ==> { result matches Ok(decoder) && zlib_remaining(&decoder) == Some(plain) }
         },
 ;
 
