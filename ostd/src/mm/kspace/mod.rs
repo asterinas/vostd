@@ -46,7 +46,7 @@ use crate::specs::{
         },
         page_table::{
             lemma_split_leaf_range, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
-            valid_leaf_range,
+            valid_page_range,
         },
     },
 };
@@ -347,7 +347,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
             },
             MappedItem::Untracked(pa, level, prop) => {
                 &&& !prop.flags.contains(PageFlags::AVAIL1)
-                &&& valid_leaf_range::<PagingConsts>(pa, level)
+                &&& valid_page_range::<PagingConsts>(pa, level)
             },
         }
     }
@@ -356,7 +356,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         item: (Paddr, PagingLevel, PageProperty, Tracked<Option<Self::Perm>>),
     ) -> bool {
         let (pa, level, prop, perm) = item;
-        &&& valid_leaf_range::<PagingConsts>(pa, level)
+        &&& valid_page_range::<PagingConsts>(pa, level)
         &&& (prop.flags.contains(PageFlags::AVAIL1) <==> perm@ is Some)
         &&& prop.flags.contains(PageFlags::AVAIL1) ==> {
             &&& level == 1

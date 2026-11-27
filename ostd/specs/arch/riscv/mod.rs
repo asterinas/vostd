@@ -26,9 +26,9 @@ verus! {
 
 /// The RISC-V instance of the architecture-wide specification contract.
 ///
-/// The address constants are shared by all architectures in `mm::kspace`, so
-/// the numeric requirements below follow from the shared values. Sv48 page-table
-/// semantics and the linear-mapping window connection are not established here.
+/// `MAX_PADDR` and the virtual base addresses use the shared memory layout.
+/// Sv48's 44-bit physical page number and 12-bit offset give `ARCH_MAX_PADDR = 2^56`.
+/// Sv48 translation and the linear-mapping window remain outside this proof.
 pub ghost struct RiscvArch;
 
 impl ArchAddressSpaceModel for RiscvArch {

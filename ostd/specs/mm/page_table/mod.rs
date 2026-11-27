@@ -40,7 +40,7 @@ pub use view::*;
 verus! {
 
 /// The level, alignment and physical extent of a leaf mapping fit the page table.
-pub open spec fn valid_leaf_range<C: PagingConstsTrait>(paddr: Paddr, level: PagingLevel) -> bool {
+pub open spec fn valid_page_range<C: PagingConstsTrait>(paddr: Paddr, level: PagingLevel) -> bool {
     &&& 1 <= level <= C::NR_LEVELS
     &&& valid_arch_paddr(paddr)
     &&& paddr % page_size::<C>(level) == 0
@@ -50,7 +50,7 @@ pub open spec fn valid_leaf_range<C: PagingConstsTrait>(paddr: Paddr, level: Pag
 /// Splitting a valid leaf produces aligned child ranges within the physical address bound.
 pub proof fn lemma_split_leaf_range<C: PagingConstsTrait>(pa: Paddr, level: PagingLevel, idx: usize)
     requires
-        valid_leaf_range::<C>(pa, level),
+        valid_page_range::<C>(pa, level),
         level > 1,
         idx < NR_ENTRIES,
     ensures
@@ -58,7 +58,7 @@ pub proof fn lemma_split_leaf_range<C: PagingConstsTrait>(pa: Paddr, level: Pagi
             let child_level = (level - 1) as PagingLevel;
             let child_pa = pa + idx * page_size::<C>(child_level);
             &&& child_pa < CurrentArch::ARCH_MAX_PADDR
-            &&& valid_leaf_range::<C>(child_pa as Paddr, child_level)
+            &&& valid_page_range::<C>(child_pa as Paddr, child_level)
         }),
 {
     C::lemma_paging_consts_properties();

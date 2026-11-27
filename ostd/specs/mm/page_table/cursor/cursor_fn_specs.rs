@@ -184,7 +184,7 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         let (paddr, level, prop, _) = C::item_into_raw(item);
         &&& C::item_well_formed(item)
         &&& C::E::new_page_req(paddr, level, prop)
-        &&& valid_leaf_range::<C>(
+        &&& valid_page_range::<C>(
             paddr,
             level,
         )
