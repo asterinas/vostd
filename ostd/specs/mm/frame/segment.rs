@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
-use vstd::{
-    prelude::*,
-    std_specs::{convert::FromSpec, iter::IteratorSpec},
-};
-use vstd_extra::{cast_ptr::Repr, ownership::*};
+use vstd::prelude::*;
+use vstd_extra::ownership::*;
 
 use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
         frame::{
             mapping::{frame_to_index, index_to_meta},
-            meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
         virt_mem::MemView,
@@ -21,7 +17,7 @@ use crate::specs::{
 use crate::mm::{
     Paddr, Vaddr,
     frame::{
-        Frame, Segment,
+        Segment,
         meta::{AnyFrameMeta, MetaSlot},
     },
     paddr_to_vaddr,
@@ -57,34 +53,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 (self.range().start + i * PAGE_SIZE) as usize,
             ) != frame_to_index((self.range().start + j * PAGE_SIZE) as usize)
     }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
-    /// Exposes the single-frame conversion without opening its representation.
-    pub proof fn lemma_from_frame(frame: Frame<M>)
-        requires
-            frame.inv(),
-        ensures
-            ({
-                let segment = <Self as FromSpec<Frame<M>>>::from_spec(frame);
-                &&& segment.inv()
-                &&& segment.start_paddr() == frame.start_paddr_spec()
-                &&& segment.size() == PAGE_SIZE
-                &&& IteratorSpec::remaining(&segment) == seq![frame]
-            }),
-    {
-        let segment = <Self as FromSpec<Frame<M>>>::from_spec(frame);
-        assert(IteratorSpec::remaining(&segment) == seq![frame]);
-    }
-}
-
-/// Helper spec: the slot index of the j-th frame in a segment whose physical
-/// range starts at `range_start`. Unlike a let-bound ghost closure (which Verus
-/// treats opaquely under SMT), a `spec fn` is auto-unfolded so equalities
-/// between `frame_idx_at(...)` and `frame_to_index(...)` are derivable.
-#[verifier::inline]
-pub open spec fn frame_idx_at(range_start: usize, j: int) -> int {
-    frame_to_index((range_start + j * PAGE_SIZE) as usize)
 }
 
 } // verus!
