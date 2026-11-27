@@ -1,7 +1,8 @@
 //! External specifications for the [`x86` crate](https://crates.io/crates/x86)
 //! constants and MSR accessors. Constant values are trusted to match
 //! the crate sources; the original constants are re-exported below. Also models the
-//! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors.
+//! [`x86_64` crate](https://crates.io/crates/x86_64) MSR, address, paging, TLB, and CR3 APIs
+//! (assuming `memory_encryption` is disabled; hardware side effects are unmodeled).
 use vstd::prelude::*;
 
 use core::arch::x86_64::CpuidResult;
@@ -18,7 +19,18 @@ pub use x86::{
         IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR, IA32_X2APIC_VERSION,
     },
 };
-use x86_64::registers::model_specific::Msr;
+use x86_64::{
+    PhysAddr, VirtAddr,
+    instructions::tlb,
+    registers::{
+        control::{Cr3, Cr3Flags},
+        model_specific::Msr,
+    },
+    structures::paging::{
+        PhysFrame,
+        page::{AddressNotAligned, PageSize, Size4KiB},
+    },
+};
 
 verus! {
 
@@ -172,6 +184,151 @@ pub assume_specification[ Msr::read ](msr: &Msr) -> u64
 
 /// [`Msr::write`](https://docs.rs/x86_64/0.15.5/x86_64/registers/model_specific/struct.Msr.html#method.write).
 pub assume_specification[ Msr::write ](msr: &mut Msr, value: u64)
+    opens_invariants none
+    no_unwind
+;
+
+pub const X86_CANONICAL_LOWER_END: u64 = 0x0000_8000_0000_0000;
+
+pub const X86_CANONICAL_UPPER_START: u64 = 0xffff_8000_0000_0000;
+
+pub const X86_PHYS_ADDR_END: u64 = 0x0010_0000_0000_0000;
+
+/// Whether `addr` is a canonical 48-bit virtual address.
+pub open spec fn is_canonical_vaddr(addr: u64) -> bool {
+    addr < X86_CANONICAL_LOWER_END || addr >= X86_CANONICAL_UPPER_START
+}
+
+/// Whether `addr` is a valid 52-bit physical address.
+pub open spec fn is_valid_x86_paddr(addr: u64) -> bool {
+    addr < X86_PHYS_ADDR_END
+}
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExVirtAddr(VirtAddr);
+
+pub uninterp spec fn virt_addr_as_u64(addr: VirtAddr) -> u64;
+
+/// [`VirtAddr::new`](https://docs.rs/x86_64/0.15.5/x86_64/addr/struct.VirtAddr.html#method.new).
+pub assume_specification[ VirtAddr::new ](addr: u64) -> (ret: VirtAddr)
+    requires
+        is_canonical_vaddr(addr),
+    ensures
+        virt_addr_as_u64(ret) == addr,
+    opens_invariants none
+    no_unwind when is_canonical_vaddr(addr)
+;
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExPhysAddr(PhysAddr);
+
+pub uninterp spec fn phys_addr_as_u64(addr: PhysAddr) -> u64;
+
+/// [`PhysAddr::new`](https://docs.rs/x86_64/0.15.5/x86_64/addr/struct.PhysAddr.html#method.new).
+pub assume_specification[ PhysAddr::new ](addr: u64) -> (ret: PhysAddr)
+    requires
+        is_valid_x86_paddr(addr),
+    ensures
+        phys_addr_as_u64(ret) == addr,
+    opens_invariants none
+    no_unwind when is_valid_x86_paddr(addr)
+;
+
+#[verifier::external_trait_specification]
+#[verifier::external_trait_extension(PageSizeSpec via PageSizeSpecImpl)]
+#[verifier::external_trait_private_bound(x86_64::sealed::Sealed)]
+pub trait ExPageSize: Copy + Eq + PartialOrd + Ord {
+    type ExternalTraitSpecificationFor: PageSize;
+
+    spec fn obeys_page_size_spec() -> bool;
+
+    spec fn spec_size() -> u64;
+}
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExSize4KiB(Size4KiB);
+
+impl PageSizeSpecImpl for Size4KiB {
+    open spec fn obeys_page_size_spec() -> bool {
+        true
+    }
+
+    open spec fn spec_size() -> u64 {
+        4096u64
+    }
+}
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExAddressNotAligned(AddressNotAligned);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(S)]
+pub struct ExPhysFrame<S: PageSize = Size4KiB>(PhysFrame<S>);
+
+pub uninterp spec fn phys_frame_start_address<S: PageSize>(frame: PhysFrame<S>) -> PhysAddr;
+
+/// [`PhysFrame::from_start_address`](https://docs.rs/x86_64/0.15.5/x86_64/structures/paging/frame/struct.PhysFrame.html#method.from_start_address).
+pub assume_specification<S: PageSize>[ PhysFrame::<S>::from_start_address ](
+    address: PhysAddr,
+) -> (ret: Result<PhysFrame<S>, AddressNotAligned>)
+    ensures
+        S::obeys_page_size_spec() ==> (ret is Ok <==> phys_addr_as_u64(address) % S::spec_size()
+            == 0),
+        ret matches Ok(frame) ==> phys_frame_start_address(frame) == address,
+    opens_invariants none
+    no_unwind
+;
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExCr3(Cr3);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExCr3Flags(Cr3Flags);
+
+pub uninterp spec fn cr3_flags_bits(flags: Cr3Flags) -> u64;
+
+/// [`Cr3Flags::empty`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#method.empty).
+pub assume_specification[ Cr3Flags::empty ]() -> (ret: Cr3Flags)
+    ensures
+        cr3_flags_bits(ret) == 0u64,
+    opens_invariants none
+    no_unwind
+;
+
+/// [`Cr3Flags::PAGE_LEVEL_WRITETHROUGH`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#associatedconstant.PAGE_LEVEL_WRITETHROUGH).
+pub assume_specification[ Cr3Flags::PAGE_LEVEL_WRITETHROUGH ] -> (ret: Cr3Flags)
+    ensures
+        cr3_flags_bits(ret) == 0x8u64,
+;
+
+/// [`Cr3Flags::PAGE_LEVEL_CACHE_DISABLE`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3Flags.html#associatedconstant.PAGE_LEVEL_CACHE_DISABLE).
+pub assume_specification[ Cr3Flags::PAGE_LEVEL_CACHE_DISABLE ] -> (ret: Cr3Flags)
+    ensures
+        cr3_flags_bits(ret) == 0x10u64,
+;
+
+/// [`Cr3::write`](https://docs.rs/x86_64/0.15.5/x86_64/registers/control/struct.Cr3.html#method.write).
+pub assume_specification[ Cr3::write ](frame: PhysFrame<Size4KiB>, flags: Cr3Flags)
+    opens_invariants none
+    no_unwind
+;
+
+/// [`tlb::flush`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tlb/fn.flush.html).
+pub assume_specification[ tlb::flush ](addr: VirtAddr)
+    opens_invariants none
+    no_unwind
+;
+
+/// [`tlb::flush_all`](https://docs.rs/x86_64/0.15.5/x86_64/instructions/tlb/fn.flush_all.html);
+/// reloads CR3 (`Cr3::read` masks bits 52..63 so it cannot panic).
+pub assume_specification[ tlb::flush_all ]()
     opens_invariants none
     no_unwind
 ;

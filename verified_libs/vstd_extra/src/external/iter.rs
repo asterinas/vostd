@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for iterator operations not yet modeled by `vstd`.
-use core::cmp::Ordering;
+use core::{cmp::Ordering, iter::StepBy, ops::Range};
 use vstd::{
     laws_cmp::obeys_cmp,
     prelude::*,
@@ -125,6 +125,51 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
         IteratorSpec::produces(&iter) == Seq::new(N as nat, |i: int| true),
         IteratorSpec::remaining(&iter) == array@,
         IteratorSpec::decrease(&iter) == Some(N as nat),
+;
+
+// TODO: Upstream the `StepBy` model to vstd.
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(I)]
+pub struct ExStepBy<I>(StepBy<I>);
+
+/// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.step_by>.
+#[verifier::external_trait_specification]
+pub trait ExIteratorStepBy {
+    type ExternalTraitSpecificationFor: Iterator;
+
+    type Item;
+
+    fn step_by(self, step: usize) -> (ret: StepBy<Self>) where Self: Sized
+        requires
+            step != 0,
+        ensures
+            step_by_post(self, step, ret),
+    ;
+}
+
+pub uninterp spec fn step_by_post<I>(iter: I, step: usize, ret: StepBy<I>) -> bool;
+
+/// Connects `Range<usize>::step_by` to the prophetic iterator model.
+pub broadcast axiom fn axiom_range_step_by_postcondition(
+    iter: Range<usize>,
+    step: usize,
+    ret: StepBy<Range<usize>>,
+)
+    requires
+        step != 0,
+        #[trigger] step_by_post(iter, step, ret),
+    ensures
+        IteratorSpec::obeys_prophetic_iter_laws(&ret),
+        IteratorSpec::remaining(&ret) == Seq::new(
+            ((iter.remaining().len() + step - 1) / (step as int)) as nat,
+            |k: int| iter.remaining()[k * step],
+        ),
+        IteratorSpec::produces(&ret) == Seq::new(
+            IteratorSpec::remaining(&ret).len(),
+            |k: int| true,
+        ),
+        IteratorSpec::decrease(&ret) is Some,
 ;
 
 } // verus!

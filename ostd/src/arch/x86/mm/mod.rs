@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(dead_code)]
 
-use vstd::{arithmetic::power2::*, prelude::*};
+use vstd::{arithmetic::power2::*, prelude::*, std_specs::iter::IteratorSpec};
 use vstd_extra::prelude::*;
 
 use crate::specs::arch::{ArchAddressSpaceModel, CurrentArch};
@@ -12,7 +12,7 @@ use core::ops::Range;
 
 //use cfg_if::cfg_if;
 pub(crate) use util::{__memcpy_fallible, __memset_fallible};
-//use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
+use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
 
 use crate::{
     mm::{
@@ -153,35 +153,57 @@ bitflags::bitflags! {
     }
 }
 
-verus! {
-
 /// Flush any TLB entry that contains the map of the given virtual address.
 ///
 /// This flush performs regardless of the global-page bit. So it can flush both global
 /// and non-global entries.
-#[verifier::external_body]
+#[verus_verify]
+#[verus_spec(
+    requires
+        is_canonical_vaddr(vaddr as u64),
+    opens_invariants none
+    no_unwind
+)]
 pub(crate) fn tlb_flush_addr(vaddr: Vaddr) {
-    //tlb::flush(VirtAddr::new(vaddr as u64));
-    unimplemented!()
+    tlb::flush(VirtAddr::new(vaddr as u64));
 }
 
 /// Flush any TLB entry that intersects with the given address range.
-#[verifier::external_body]
+#[verus_verify]
+#[verus_spec(
+    requires
+        range.start < range.end ==> (range.end <= X86_CANONICAL_LOWER_END as usize
+            || range.start >= X86_CANONICAL_UPPER_START as usize),
+        range.start < range.end ==> range.start % PAGE_SIZE == 0,
+)]
 pub(crate) fn tlb_flush_addr_range(range: &Range<Vaddr>) {
-    // for vaddr in range.clone().step_by(PAGE_SIZE) {
-    //    tlb_flush_addr(vaddr);
-    //}
-    unimplemented!()
+    proof! {
+        broadcast use axiom_range_step_by_postcondition;
+    }
+
+    #[verus_spec(iter =>
+        invariant
+            iter.iter.obeys_prophetic_iter_laws(),
+            iter.iter.decrease() is Some,
+            iter.seq().all(|v: Vaddr| is_canonical_vaddr(v as u64)),
+    )]
+    for vaddr in range.clone().step_by(PAGE_SIZE) {
+        tlb_flush_addr(vaddr);
+    }
 }
 
 /// Flush all TLB entries except for the global-page entries.
-#[verifier::external_body]
+#[verus_verify]
+#[verus_spec(
+    opens_invariants none
+    no_unwind
+)]
 pub(crate) fn tlb_flush_all_excluding_global() {
-    //tlb::flush_all();
-    unimplemented!()
+    tlb::flush_all();
 }
 
 /// Flush all TLB entries, including global-page entries.
+#[verus_verify]
 #[verifier::external_body]
 pub(crate) fn tlb_flush_all_including_global() {
     /* // SAFETY: updates to CR4 here only change the global-page bit, the side effect
@@ -197,6 +219,8 @@ pub(crate) fn tlb_flush_all_including_global() {
         });
     }*/
 }
+
+verus! {
 
 #[derive(Clone, Copy, Pod /*, Default*/)]
 #[derive(Debug)]
@@ -235,6 +259,8 @@ impl Default for PageTableEntry {
     }
 }
 
+} // verus!
+
 /// Activates the given level 4 page table.
 /// The cache policy of the root page table node is controlled by `root_pt_cache`.
 ///
@@ -242,9 +268,15 @@ impl Default for PageTableEntry {
 ///
 /// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
 /// changing the page mapping.
-#[verifier::external_body]
+#[verus_verify]
+#[verus_spec(
+    requires
+        is_valid_x86_paddr(root_paddr as u64),
+        root_paddr % PAGE_SIZE == 0,
+        root_pt_cache is Writeback || root_pt_cache is Writethrough || root_pt_cache is Uncacheable,
+)]
 pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy) {
-    /*let addr = PhysFrame::from_start_address(x86_64::PhysAddr::new(root_paddr as u64)).unwrap();
+    let addr = PhysFrame::from_start_address(x86_64::PhysAddr::new(root_paddr as u64)).unwrap();
     let flags = match root_pt_cache {
         CachePolicy::Writeback => x86_64::registers::control::Cr3Flags::empty(),
         CachePolicy::Writethrough => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_WRITETHROUGH,
@@ -253,9 +285,10 @@ pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy)
     };
 
     // SAFETY: The safety is upheld by the caller.
-    unsafe { x86_64::registers::control::Cr3::write(addr, flags) };*/
-    unimplemented!()
+    unsafe { x86_64::registers::control::Cr3::write(addr, flags) };
 }
+
+verus! {
 
 pub uninterp spec fn current_page_table_paddr_spec() -> Paddr;
 
