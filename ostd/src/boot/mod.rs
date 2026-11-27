@@ -46,6 +46,7 @@ static INFO: Once<BootInfo> = Once::new();
 /// The boot crate can choose either providing the raw RSDP physical address or
 /// providing the RSDT/XSDT physical address after parsing RSDP.
 /// This is because bootloaders differ in such behaviors.
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 pub enum BootloaderAcpiArg {
     /// The bootloader does not provide one, a manual search is needed.
@@ -82,6 +83,7 @@ pub struct BootloaderFramebufferArg {
 ///
 /// All the references in this structure should be valid in the boot context.
 /// After the kernel is booted, users should use [`BootInfo`] instead.
+#[verus_verify]
 pub(crate) struct EarlyBootInfo {
     pub(crate) bootloader_name: &'static str,
     pub(crate) kernel_cmdline: &'static str,
@@ -93,6 +95,45 @@ pub(crate) struct EarlyBootInfo {
 
 /// The boot-time information.
 pub(crate) static EARLY_INFO: Once<EarlyBootInfo> = Once::new();
+
+mod early_info_witness {
+    use super::*;
+
+    verus! {
+
+/// Monotone witness that [`EARLY_INFO`] has been initialized with the modeled [`EarlyBootInfo`].
+/// Minted at boot entry after `EARLY_INFO` init (out of scope; current callers are unverified).
+pub(crate) tracked struct EarlyBootInfoInit {
+    ghost info: EarlyBootInfo,
+}
+
+impl View for EarlyBootInfoInit {
+    type V = EarlyBootInfo;
+
+    closed spec fn view(&self) -> EarlyBootInfo {
+        self.info
+    }
+}
+
+} // verus!
+}
+
+pub(crate) use early_info_witness::EarlyBootInfoInit;
+
+/* Origin Rust: <none; new executable code> */
+/// Returns the initialized boot-time information published in [`EARLY_INFO`].
+/// Trusted: Verus cannot track the write-once state of the `spin::Once` static.
+#[verifier::external_body]
+#[verus_spec(ret =>
+    with Tracked(init): Tracked<&EarlyBootInfoInit>
+    ensures
+        ret matches Some(info) && *info == init@,
+    opens_invariants none
+    no_unwind
+)]
+pub(crate) fn get_early_info() -> Option<&'static EarlyBootInfo> {
+    EARLY_INFO.get()
+}
 
 /*
 /// Initializes the boot information.

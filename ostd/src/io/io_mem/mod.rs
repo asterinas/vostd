@@ -12,6 +12,8 @@ use crate::specs::{
 };
 use crate::util::range_alloc::FreePermit;
 
+pub(crate) use self::allocator::usize_ranges_match_registered;
+
 mod allocator;
 
 use core::ops::{Deref, Range};
