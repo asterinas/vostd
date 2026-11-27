@@ -26,49 +26,50 @@ verus! {
 pub trait ArchAddressSpaceModel {
     type C: PagingConstsTrait;
 
+    /// The exclusive upper bound on physical addresses supported by this architecture's leaf PTEs.
+    const ARCH_MAX_PADDR: Paddr;
+
     /// The exclusive upper bound for modeled physical frame addresses.
-    spec fn max_paddr_spec() -> Paddr;
+    const MAX_PADDR: Paddr;
 
     /// The base of the kernel's physical-to-virtual linear mapping.
-    spec fn linear_mapping_base_vaddr_spec() -> Vaddr;
+    const LINEAR_MAPPING_BASE_VADDR: Vaddr;
 
     /// The first virtual address reserved for vmalloc mappings.
-    spec fn vmalloc_base_vaddr_spec() -> Vaddr;
+    const VMALLOC_BASE_VADDR: Vaddr;
 
     /// Proves that the physical range and linear mapping satisfy the model requirements.
     proof fn lemma_model_requirements()
         ensures
-            0 < Self::max_paddr_spec(),
-            Self::C::BASE_PAGE_SIZE <= Self::max_paddr_spec(),
-            Self::max_paddr_spec() % Self::C::BASE_PAGE_SIZE == 0,
-            Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE == 0,
-            Self::max_paddr_spec() + Self::linear_mapping_base_vaddr_spec()
-                < Self::vmalloc_base_vaddr_spec(),
+            0 < Self::MAX_PADDR,
+            Self::C::BASE_PAGE_SIZE <= Self::MAX_PADDR <= Self::ARCH_MAX_PADDR,
+            Self::MAX_PADDR % Self::C::BASE_PAGE_SIZE == 0,
+            Self::LINEAR_MAPPING_BASE_VADDR % Self::C::BASE_PAGE_SIZE == 0,
+            Self::MAX_PADDR + Self::LINEAR_MAPPING_BASE_VADDR < Self::VMALLOC_BASE_VADDR,
     ;
 }
 
 /// A physical address that can identify a base-page frame for architecture `A`.
 pub open spec fn valid_frame_paddr_for<A: ArchAddressSpaceModel>(pa: Paddr) -> bool {
-    pa % A::C::BASE_PAGE_SIZE == 0 && pa < A::max_paddr_spec()
+    pa % A::C::BASE_PAGE_SIZE == 0 && pa < A::MAX_PADDR
 }
 
 /// Convert a physical address through architecture `A`'s linear mapping.
 pub open spec fn paddr_to_vaddr_for<A: ArchAddressSpaceModel>(pa: Paddr) -> Vaddr {
-    (pa + A::linear_mapping_base_vaddr_spec()) as usize
+    (pa + A::LINEAR_MAPPING_BASE_VADDR) as usize
 }
 
 /// Convert a linear-mapped virtual address back to a physical address.
 pub open spec fn vaddr_to_paddr_for<A: ArchAddressSpaceModel>(va: Vaddr) -> Paddr {
-    (va - A::linear_mapping_base_vaddr_spec()) as usize
+    (va - A::LINEAR_MAPPING_BASE_VADDR) as usize
 }
 
 /// Maps a physical offset into the linear mapping window and back without loss.
 pub proof fn lemma_paddr_to_vaddr_properties_for<A: ArchAddressSpaceModel>(pa: Paddr)
     requires
-        pa < A::vmalloc_base_vaddr_spec() - A::linear_mapping_base_vaddr_spec(),
+        pa < A::VMALLOC_BASE_VADDR - A::LINEAR_MAPPING_BASE_VADDR,
     ensures
-        A::linear_mapping_base_vaddr_spec() <= paddr_to_vaddr_for::<A>(pa)
-            < A::vmalloc_base_vaddr_spec(),
+        A::LINEAR_MAPPING_BASE_VADDR <= paddr_to_vaddr_for::<A>(pa) < A::VMALLOC_BASE_VADDR,
         vaddr_to_paddr_for::<A>(paddr_to_vaddr_for::<A>(pa)) == pa,
 {
 }
@@ -76,10 +77,9 @@ pub proof fn lemma_paddr_to_vaddr_properties_for<A: ArchAddressSpaceModel>(pa: P
 /// Maps a linear-mapped virtual address to a physical offset and back without loss.
 pub proof fn lemma_vaddr_to_paddr_properties_for<A: ArchAddressSpaceModel>(va: Vaddr)
     requires
-        A::linear_mapping_base_vaddr_spec() <= va < A::vmalloc_base_vaddr_spec(),
+        A::LINEAR_MAPPING_BASE_VADDR <= va < A::VMALLOC_BASE_VADDR,
     ensures
-        vaddr_to_paddr_for::<A>(va) < A::vmalloc_base_vaddr_spec()
-            - A::linear_mapping_base_vaddr_spec(),
+        vaddr_to_paddr_for::<A>(va) < A::VMALLOC_BASE_VADDR - A::LINEAR_MAPPING_BASE_VADDR,
         paddr_to_vaddr_for::<A>(vaddr_to_paddr_for::<A>(va)) == va,
 {
 }
@@ -87,18 +87,14 @@ pub proof fn lemma_vaddr_to_paddr_properties_for<A: ArchAddressSpaceModel>(va: V
 /// Preserves base-page alignment when mapping a physical offset into the linear window.
 pub proof fn lemma_paddr_to_vaddr_aligned_for<A: ArchAddressSpaceModel>(pa: Paddr)
     requires
-        pa < A::vmalloc_base_vaddr_spec() - A::linear_mapping_base_vaddr_spec(),
+        pa < A::VMALLOC_BASE_VADDR - A::LINEAR_MAPPING_BASE_VADDR,
         pa % A::C::BASE_PAGE_SIZE == 0,
     ensures
         paddr_to_vaddr_for::<A>(pa) % A::C::BASE_PAGE_SIZE == 0,
 {
     A::C::lemma_paging_consts_requirements();
     A::lemma_model_requirements();
-    lemma_mod_0_add(
-        pa as int,
-        A::linear_mapping_base_vaddr_spec() as int,
-        A::C::BASE_PAGE_SIZE as int,
-    );
+    lemma_mod_0_add(pa as int, A::LINEAR_MAPPING_BASE_VADDR as int, A::C::BASE_PAGE_SIZE as int);
 }
 
 } // verus!
