@@ -92,11 +92,20 @@ pub enum DmaError {
 
 /// A trait for types that have mapped address in the device address space.
 pub trait HasDaddr {
+    /// The precondition for [`HasDaddr::daddr`].
+    open spec fn daddr_requires(&self) -> bool {
+        true
+    }
+
     /// Gets the base address of the mapping in the
     /// device address space.
-    fn daddr(&self) -> Daddr;
+    fn daddr(&self) -> Daddr
+        requires
+            Self::daddr_requires(self),
+    ;
 }
 
+/// Whether `d` is a device address.
 #[verifier::inline]
 pub open spec fn is_valid_daddr(d: Daddr) -> bool {
     true

@@ -31,7 +31,7 @@ use crate::{
     sync::{PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
-use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
+use super::{DmaError, HasDaddr, check_and_insert_dma_mapping};
 
 verus! {
 
@@ -92,257 +92,6 @@ verus! {
 /// [`view`]: vstd::view::View::view
 pub struct DmaStream<M: AnyUFrameMeta + ?Sized> {
     pub inner: RwArc<DmaStreanInnerAtomic<M>>,
-}
-
-/// A slice of streaming DMA mapping.
-pub struct DmaStreamSlice<Dma, M: AnyUFrameMeta + ?Sized> {
-    pub stream: Dma,
-    pub offset: usize,
-    pub len: usize,
-    pub _marker: PhantomData<M>,
-}
-
-impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<Dma, M> {
-    #[verifier::inline]
-    open spec fn inv(self) -> bool {
-        &&& self.len != 0
-        &&& self.stream.as_ref_spec().inner.wf()
-    }
-}
-
-#[verus_verify]
-impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M> {
-    /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
-    ///
-    /// # Panics
-    ///
-    /// If the `offset` is greater than or equal to the length of the stream,
-    /// this method will panic.
-    /// If the `offset + len` is greater than the length of the stream,
-    /// this method will panic.
-    #[verus_spec(returns
-        (Self {
-            stream,
-            offset,
-            len,
-            _marker: PhantomData,
-        }),
-    )]
-    #[inline]
-    pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
-        /*
-        // Original bounds assertions (removed during Verus migration):
-        assert!(offset < stream.as_ref().nbytes());
-        assert!(offset + len <= stream.as_ref().nbytes());
-        */
-        Self { stream, offset, len, _marker: PhantomData }
-    }
-
-    /// Returns the underlying `DmaStream`.
-    #[inline]
-    pub fn stream(&self) -> &DmaStream<M> {
-        self.stream.as_ref()
-    }
-
-    /// Returns the offset of the slice.
-    #[verus_spec(returns self.offset)]
-    #[inline]
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-
-    /// Returns the number of bytes.
-    #[verus_spec(returns self.len)]
-    #[inline]
-    pub fn nbytes(&self) -> usize {
-        self.len
-    }
-
-    /// Synchronizes the streaming DMA mapping with the device for the slice.
-    #[verifier::external_body]
-    #[inline]
-    pub fn sync(&self) -> Result<(), Error> where M: OwnerOf {
-        self.stream.as_ref().sync(self.offset..self.offset + self.len)
-    }
-
-    #[verus_spec(
-        requires
-            self.inv(),
-        returns
-            /* */
-    )]
-    #[verifier::external_body]
-    #[inline]
-    pub fn daddr(&self) -> Daddr where M: OwnerOf {
-        self.stream.as_ref().daddr() + self.offset
-    }
-
-    /// Returns a reader to read data from the slice.
-    #[inline]
-    #[verus_spec(r =>
-        with
-            -> reader_perm: Tracked<Option<VmIoOwner>>,
-        requires
-            self.inv(),
-        ensures
-            self.inv(),
-            r is Ok ==> {
-                &&& r.unwrap().inv()
-                &&& r.unwrap().remain() == self.len
-                &&& reader_perm@ is Some
-                &&& reader_perm@->0.inv()
-                &&& reader_perm@->0.is_kernel
-                &&& reader_perm@->0.has_read_view()
-                &&& reader_perm@->0.read_view_initialized()
-                &&& r.unwrap().wf(reader_perm@->0)
-                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
-                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
-            },
-    )]
-    pub fn reader<'a>(&'a self) -> Result<VmReader<'a, Infallible>, Error> where M: OwnerOf {
-        let inner = self.stream.as_ref().read_inner();
-
-        if matches!(inner.direction, DmaDirection::ToDevice) {
-            proof_with!(|= Tracked(None));
-            Err(Error::AccessDenied)
-        } else {
-            match self.offset.checked_add(self.len) {
-                None => {
-                    proof_with!(|= Tracked(None));
-                    Err(Error::InvalidArgs)
-                },
-                Some(end) if end > inner.segment.size() => {
-                    proof_with!(|= Tracked(None));
-                    Err(Error::InvalidArgs)
-                },
-                Some(_) => {
-                    proof_decl! {
-                        let ghost id: nat;
-                        let tracked mut reader_perm: VmIoOwner;
-                    }
-                    proof {
-                        lemma_max_paddr_range();
-                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr());
-                    }
-
-                    let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
-                    match base_vaddr.checked_add(self.offset) {
-                        None => {
-                            proof_with!(|= Tracked(None));
-                            Err(Error::InvalidArgs)
-                        },
-                        Some(vaddr) => match vaddr.checked_add(self.len) {
-                            None => {
-                                proof_with!(|= Tracked(None));
-                                Err(Error::InvalidArgs)
-                            },
-                            Some(end_vaddr) => {
-                                let ghost range = vaddr..end_vaddr as usize;
-                                let ptr = VirtPtr { vaddr, range: Ghost(range) };
-                                proof {
-                                    assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-                                    assert(vaddr > 0);
-                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR)
-                                        by (compute_only);
-                                    assert(ptr.inv());
-                                }
-
-                                let reader = unsafe {
-                                    proof_with!(Ghost(id) => Tracked(reader_perm));
-                                    VmReader::from_kernel_space(ptr, self.len)
-                                };
-                                proof_with!(|= Tracked(Some(reader_perm)));
-                                Ok(reader)
-                            },
-                        },
-                    }
-                },
-            }
-        }
-    }
-
-    /// Returns a writer to write data into the slice.
-    #[inline]
-    #[verus_spec(r =>
-        with
-            -> writer_perm: Tracked<Option<VmIoOwner>>,
-        requires
-            self.inv(),
-        ensures
-            self.inv(),
-            r is Ok ==> {
-                &&& r.unwrap().inv()
-                &&& r.unwrap().avail() == self.len
-                &&& writer_perm@ is Some
-                &&& writer_perm@->0.inv()
-                &&& writer_perm@->0.is_kernel
-                &&& writer_perm@->0.has_write_view()
-                &&& r.unwrap().wf(writer_perm@->0)
-                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
-                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
-            },
-    )]
-    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a, Infallible>, Error> where M: OwnerOf {
-        let inner = self.stream.as_ref().read_inner();
-
-        if matches!(inner.direction, DmaDirection::FromDevice) {
-            proof_with!(|= Tracked(None));
-            Err(Error::AccessDenied)
-        } else {
-            match self.offset.checked_add(self.len) {
-                None => {
-                    proof_with!(|= Tracked(None));
-                    Err(Error::InvalidArgs)
-                },
-                Some(end) if end > inner.segment.size() => {
-                    proof_with!(|= Tracked(None));
-                    Err(Error::InvalidArgs)
-                },
-                Some(_) => {
-                    proof_decl! {
-                        let ghost id: nat;
-                        let tracked mut writer_perm: VmIoOwner;
-                    }
-                    proof {
-                        lemma_max_paddr_range();
-                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr());
-                    }
-
-                    let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
-                    match base_vaddr.checked_add(self.offset) {
-                        None => {
-                            proof_with!(|= Tracked(None));
-                            Err(Error::InvalidArgs)
-                        },
-                        Some(vaddr) => match vaddr.checked_add(self.len) {
-                            None => {
-                                proof_with!(|= Tracked(None));
-                                Err(Error::InvalidArgs)
-                            },
-                            Some(end_vaddr) => {
-                                let ghost range = vaddr..end_vaddr as usize;
-                                let ptr = VirtPtr { vaddr, range: Ghost(range) };
-                                proof {
-                                    assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-                                    assert(vaddr > 0);
-                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR)
-                                        by (compute_only);
-                                    assert(ptr.inv());
-                                }
-
-                                let writer = unsafe {
-                                    proof_with!(Ghost(id), Tracked(false) => Tracked(writer_perm));
-                                    VmWriter::from_kernel_space(ptr, self.len)
-                                };
-                                proof_with!(|= Tracked(Some(writer_perm)));
-                                Ok(writer)
-                            },
-                        },
-                    }
-                },
-            }
-        }
-    }
 }
 
 /// The tracked owner for the inner part of a [`DmaStream`].
@@ -670,7 +419,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInner<M> {
     open spec fn inv(self) -> bool {
         &&& self.segment.inv()
-        &&& is_valid_daddr(self.start_daddr)
+        &&& self.start_daddr == self.segment.start_paddr()
     }
 }
 
@@ -718,27 +467,6 @@ impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
-    /// Returns the starting device address.
-    ///
-    /// This is a glue-layer wrapper over [`Self::daddr_inner`].
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The inner [`RwArc`] is well-formed.
-    /// ## Postconditions
-    /// - The inner [`RwArc`] remains well-formed.
-    #[inline(always)]
-    #[verus_spec(r =>
-        requires
-            self.inner.wf(),
-        ensures
-            self.inner.wf(),
-    )]
-    pub fn daddr(&self) -> Daddr {
-        let inner = self.read_inner();
-        Self::daddr_inner(&inner)
-    }
-
     /// Returns the DMA direction.
     ///
     /// This is a glue-layer wrapper over [`Self::direction_inner`].
@@ -1005,6 +733,27 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             _ => return Err(Error::InvalidArgs),
         }
         Err(Error::InvalidArgs)
+    }
+}
+
+#[verus_verify]
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf> HasDaddr for DmaStream<M> {
+    /// Returns the starting device address.
+    ///
+    /// This is a glue-layer wrapper over [`Self::daddr_inner`].
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    #[inline(always)]
+    #[verus_spec(r =>
+        ensures
+            self.inner.wf(),
+            r <= crate::mm::MAX_PADDR,
+    )]
+    fn daddr(&self) -> Daddr {
+        let inner = self.read_inner();
+        Self::daddr_inner(&inner)
     }
 }
 
@@ -1301,6 +1050,262 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
     }
 }
 
+/*
+// Original AsRef<DmaStream> for DmaStream (removed during Verus migration):
+impl AsRef<DmaStream> for DmaStream {
+    fn as_ref(&self) -> &DmaStream {
+        self
+    }
+}
+*/
+
+/// A slice of streaming DMA mapping.
+pub struct DmaStreamSlice<Dma, M: AnyUFrameMeta + ?Sized> {
+    pub stream: Dma,
+    pub offset: usize,
+    pub len: usize,
+    pub _marker: PhantomData<M>,
+}
+
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<Dma, M> {
+    #[verifier::inline]
+    open spec fn inv(self) -> bool {
+        &&& self.len != 0
+        &&& self.offset + self.len <= usize::MAX
+        &&& self.offset <= usize::MAX - crate::mm::MAX_PADDR
+        &&& Dma::obeys_as_ref_spec()
+        &&& self.stream.as_ref_spec().inner.wf()
+    }
+}
+
+#[verus_verify]
+impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M> {
+    /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
+    ///
+    /// # Panics
+    ///
+    /// If the `offset` is greater than or equal to the length of the stream,
+    /// this method will panic.
+    /// If the `offset + len` is greater than the length of the stream,
+    /// this method will panic.
+    #[verus_spec(returns
+        (Self {
+            stream,
+            offset,
+            len,
+            _marker: PhantomData,
+        }),
+    )]
+    #[inline]
+    pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
+        /*
+        // Original bounds assertions (removed during Verus migration):
+        assert!(offset < stream.as_ref().nbytes());
+        assert!(offset + len <= stream.as_ref().nbytes());
+        */
+        Self { stream, offset, len, _marker: PhantomData }
+    }
+
+    /// Returns the underlying `DmaStream`.
+    #[inline]
+    pub fn stream(&self) -> &DmaStream<M> {
+        self.stream.as_ref()
+    }
+
+    /// Returns the offset of the slice.
+    #[verus_spec(returns self.offset)]
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the number of bytes.
+    #[verus_spec(returns self.len)]
+    #[inline]
+    pub fn nbytes(&self) -> usize {
+        self.len
+    }
+
+    /// Synchronizes the streaming DMA mapping with the device for the slice.
+    #[verus_spec(r =>
+        requires
+            self.inv(),
+        ensures
+            self.inv(),
+    )]
+    #[inline]
+    pub fn sync(&self) -> Result<(), Error> where M: OwnerOf {
+        self.stream.as_ref().sync(self.offset..self.offset + self.len)
+    }
+
+    /// Returns a reader to read data from the slice.
+    #[inline]
+    #[verus_spec(r =>
+        with
+            -> reader_perm: Tracked<Option<VmIoOwner>>,
+        requires
+            self.inv(),
+        ensures
+            self.inv(),
+            r is Ok ==> {
+                &&& r.unwrap().inv()
+                &&& r.unwrap().remain() == self.len
+                &&& reader_perm@ is Some
+                &&& reader_perm@->0.inv()
+                &&& reader_perm@->0.is_kernel
+                &&& reader_perm@->0.has_read_view()
+                &&& reader_perm@->0.read_view_initialized()
+                &&& r.unwrap().wf(reader_perm@->0)
+                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
+                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
+            },
+    )]
+    pub fn reader<'a>(&'a self) -> Result<VmReader<'a, Infallible>, Error> where M: OwnerOf {
+        let inner = self.stream.as_ref().read_inner();
+
+        if matches!(inner.direction, DmaDirection::ToDevice) {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            match self.offset.checked_add(self.len) {
+                None => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(end) if end > inner.segment.size() => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(_) => {
+                    proof_decl! {
+                        let ghost id: nat;
+                        let tracked mut reader_perm: VmIoOwner;
+                    }
+                    proof {
+                        lemma_max_paddr_range();
+                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr());
+                    }
+
+                    let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
+                    match base_vaddr.checked_add(self.offset) {
+                        None => {
+                            proof_with!(|= Tracked(None));
+                            Err(Error::InvalidArgs)
+                        },
+                        Some(vaddr) => match vaddr.checked_add(self.len) {
+                            None => {
+                                proof_with!(|= Tracked(None));
+                                Err(Error::InvalidArgs)
+                            },
+                            Some(end_vaddr) => {
+                                let ghost range = vaddr..end_vaddr as usize;
+                                let ptr = VirtPtr { vaddr, range: Ghost(range) };
+                                proof {
+                                    assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+                                    assert(vaddr > 0);
+                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR)
+                                        by (compute_only);
+                                    assert(ptr.inv());
+                                }
+
+                                let reader = unsafe {
+                                    proof_with!(Ghost(id) => Tracked(reader_perm));
+                                    VmReader::from_kernel_space(ptr, self.len)
+                                };
+                                proof_with!(|= Tracked(Some(reader_perm)));
+                                Ok(reader)
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    /// Returns a writer to write data into the slice.
+    #[inline]
+    #[verus_spec(r =>
+        with
+            -> writer_perm: Tracked<Option<VmIoOwner>>,
+        requires
+            self.inv(),
+        ensures
+            self.inv(),
+            r is Ok ==> {
+                &&& r.unwrap().inv()
+                &&& r.unwrap().avail() == self.len
+                &&& writer_perm@ is Some
+                &&& writer_perm@->0.inv()
+                &&& writer_perm@->0.is_kernel
+                &&& writer_perm@->0.has_write_view()
+                &&& r.unwrap().wf(writer_perm@->0)
+                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
+                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
+            },
+    )]
+    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a, Infallible>, Error> where M: OwnerOf {
+        let inner = self.stream.as_ref().read_inner();
+
+        if matches!(inner.direction, DmaDirection::FromDevice) {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            match self.offset.checked_add(self.len) {
+                None => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(end) if end > inner.segment.size() => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(_) => {
+                    proof_decl! {
+                        let ghost id: nat;
+                        let tracked mut writer_perm: VmIoOwner;
+                    }
+                    proof {
+                        lemma_max_paddr_range();
+                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr());
+                    }
+
+                    let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
+                    match base_vaddr.checked_add(self.offset) {
+                        None => {
+                            proof_with!(|= Tracked(None));
+                            Err(Error::InvalidArgs)
+                        },
+                        Some(vaddr) => match vaddr.checked_add(self.len) {
+                            None => {
+                                proof_with!(|= Tracked(None));
+                                Err(Error::InvalidArgs)
+                            },
+                            Some(end_vaddr) => {
+                                let ghost range = vaddr..end_vaddr as usize;
+                                let ptr = VirtPtr { vaddr, range: Ghost(range) };
+                                proof {
+                                    assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+                                    assert(vaddr > 0);
+                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR)
+                                        by (compute_only);
+                                    assert(ptr.inv());
+                                }
+
+                                let writer = unsafe {
+                                    proof_with!(Ghost(id), Tracked(false) => Tracked(writer_perm));
+                                    VmWriter::from_kernel_space(ptr, self.len)
+                                };
+                                proof_with!(|= Tracked(Some(writer_perm)));
+                                Ok(writer)
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    }
+}
+
 impl<
     M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf,
     Dma: AsRef<DmaStream<M>> + Send + Sync,
@@ -1568,14 +1573,20 @@ impl<
     }
 }
 
-/*
-// Original AsRef<DmaStream> for DmaStream (removed during Verus migration):
-impl AsRef<DmaStream> for DmaStream {
-    fn as_ref(&self) -> &DmaStream {
-        self
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> HasDaddr for DmaStreamSlice<
+    Dma,
+    M,
+> {
+    open spec fn daddr_requires(&self) -> bool {
+        self.inv()
+    }
+
+    #[inline]
+    fn daddr(&self) -> Daddr {
+        self.stream.as_ref().daddr() + self.offset
     }
 }
-*/
+
 /*
 // Original HasPaddr for DmaStreamSlice (removed during Verus migration):
 impl<Dma: AsRef<DmaStream>> HasPaddr for DmaStreamSlice<Dma> {
