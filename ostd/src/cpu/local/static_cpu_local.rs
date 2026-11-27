@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Statically-allocated CPU-local objects.
+use vstd::prelude::*;
+
+use crate::mm::PAGE_SIZE;
+
 use core::marker::PhantomData;
 
 use super::{__cpu_local_end, __cpu_local_start, AnyStorage, CpuLocal};
@@ -58,12 +62,25 @@ macro_rules! cpu_local {
 ///
 /// Such a CPU-local storage is not intended to be allocated directly.
 /// Use the `cpu_local` macro instead.
+#[verus_verify]
 pub struct StaticStorage<T: 'static>(T);
+
+impl<T: 'static> !Send for StaticStorage<T> {}
 
 impl<T: 'static> StaticStorage<T> {
     /// Gets access to the underlying value through a raw pointer.
     ///
     /// This method is safe, but using the returned pointer will be unsafe.
+    // Trusted: CPU-local base register and linker-symbol address arithmetic.
+    #[verus_verify(external_body)]
+    #[verus_spec(ret =>
+        requires
+            align_of::<T>() <= PAGE_SIZE,
+        ensures
+            ret.addr() != 0,
+            ret.addr() % align_of::<T>() == 0,
+        opens_invariants none
+    )]
     fn as_ptr(&self) -> *const T {
         super::is_used::debug_set_true();
 
@@ -127,6 +144,7 @@ unsafe impl<T: 'static> AnyStorage<T> for StaticStorage<T> {
     }
 }
 
+#[verus_verify]
 impl<T: 'static> CpuLocal<T, StaticStorage<T>> {
     /// Creates a new statically-allocated CPU-local object.
     ///
@@ -149,6 +167,14 @@ impl<T: 'static> CpuLocal<T, StaticStorage<T>> {
     /// Gets access to the underlying value through a raw pointer.
     ///
     /// This method is safe, but using the returned pointer will be unsafe.
+    #[verus_spec(ret =>
+        requires
+            align_of::<T>() <= PAGE_SIZE,
+        ensures
+            ret.addr() != 0,
+            ret.addr() % align_of::<T>() == 0,
+        opens_invariants none
+    )]
     pub(crate) fn as_ptr(&self) -> *const T {
         self.storage.as_ptr()
     }

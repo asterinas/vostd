@@ -35,29 +35,31 @@
 // [`crate::cpu_local_cell!`]) is that the CPU-local objects can be shared
 // across CPUs. While through a CPU-local cell object you can only access the
 // value on the current CPU, therefore enabling inner mutability without locks.
-mod cell;
-mod dyn_cpu_local;
+use vstd::prelude::*;
+
+/*mod cell;
+mod dyn_cpu_local;*/
 mod static_cpu_local;
 
-pub(crate) mod single_instr;
+/*pub(crate) mod single_instr;*/
 
-use core::{alloc::Layout, marker::PhantomData, ops::Deref};
+use core::{/*alloc::Layout,*/ marker::PhantomData /*, ops::Deref*/};
 
-use align_ext::AlignExt;
+/*use align_ext::AlignExt;
 pub use cell::CpuLocalCell;
 pub use dyn_cpu_local::DynCpuLocalChunk;
-use dyn_cpu_local::DynamicStorage;
+use dyn_cpu_local::DynamicStorage;*/
 use spin::Once;
-use static_cpu_local::StaticStorage;
+/*use static_cpu_local::StaticStorage;*/
 
 use super::CpuId;
 use crate::{
-    mm::{PAGE_SIZE, Paddr, frame::allocator, paddr_to_vaddr},
+    mm::{/*PAGE_SIZE,*/ Paddr /*, frame::allocator, paddr_to_vaddr*/},
     trap::irq::DisabledLocalIrqGuard,
 };
 
-/// Dynamically-allocated CPU-local objects.
-pub type DynamicCpuLocal<T> = CpuLocal<T, DynamicStorage<T>>;
+/*/// Dynamically-allocated CPU-local objects.
+pub type DynamicCpuLocal<T> = CpuLocal<T, DynamicStorage<T>>;*/
 
 /// Statically-allocated CPU-local objects.
 pub type StaticCpuLocal<T> = CpuLocal<T, static_cpu_local::StaticStorage<T>>;
@@ -78,6 +80,7 @@ extern "C" {
 ///
 /// The implementor must ensure that the returned pointer refers to the
 /// variable on the correct CPU.
+#[verus_verify]
 pub unsafe trait AnyStorage<T> {
     /// Gets the `const` pointer for the object on the current CPU.
     fn get_ptr_on_current(&self, guard: &DisabledLocalIrqGuard) -> *const T;
@@ -98,12 +101,13 @@ pub unsafe trait AnyStorage<T> {
 /// reference to the inner object, the object is always the one in the original
 /// core (when the reference is created), no matter which core the code is
 /// currently running on.
+#[verus_verify]
 pub struct CpuLocal<T, S: AnyStorage<T>> {
     storage: S,
     phantom: PhantomData<T>,
 }
 
-impl<T: 'static, S: AnyStorage<T>> CpuLocal<T, S> {
+/*impl<T: 'static, S: AnyStorage<T>> CpuLocal<T, S> {
     /// Gets access to the underlying value on the current CPU with a
     /// provided IRQ guard.
     ///
@@ -157,7 +161,7 @@ impl<'a, T: 'static, S: AnyStorage<T>> Deref for CpuLocalDerefGuard<'a, T, S> {
         // creating an immutable borrow here is valid.
         unsafe { &*ptr }
     }
-}
+}*/
 
 // SAFETY: Although multiple tasks may access the inner value `T` of a CPU-local
 // variable at different times, only one task can access it at any given moment.
@@ -166,7 +170,7 @@ impl<'a, T: 'static, S: AnyStorage<T>> Deref for CpuLocalDerefGuard<'a, T, S> {
 // `CpuLocal<T, S>` with `Sync` and `Send` only safely transfer ownership of the
 // entire `T` instance between tasks.
 unsafe impl<T: Send + 'static, S: AnyStorage<T>> Sync for CpuLocal<T, S> {}
-unsafe impl<T: Send + 'static> Send for CpuLocal<T, DynamicStorage<T>> {}
+/*unsafe impl<T: Send + 'static> Send for CpuLocal<T, DynamicStorage<T>> {}*/
 
 // Implement `!Copy` and `!Clone` for `CpuLocal` to ensure memory safety:
 // - Prevent valid instances of `CpuLocal<T, StaticStorage<T>>` from being copied
@@ -178,12 +182,14 @@ impl<T: 'static, S: AnyStorage<T>> !Clone for CpuLocal<T, S> {}
 
 // In general, it does not make any sense to send instances of static `CpuLocal`
 // to other tasks as they should live on other CPUs to make sending useful.
-impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
+/* rustc rejects specialized `!Send` (E0366); `!Send` moved to `StaticStorage<T>`.
+ * Origin Rust: impl<T: 'static> !Send for CpuLocal<T, StaticStorage<T>> {}
+ */
 
 /// The static CPU-local areas for APs.
 static CPU_LOCAL_STORAGES: Once<&'static [Paddr]> = Once::new();
 
-/// Copies the static CPU-local data on the bootstrap processor (BSP)
+/*/// Copies the static CPU-local data on the bootstrap processor (BSP)
 /// for application processors (APs).
 ///
 /// # Safety
@@ -275,7 +281,7 @@ pub(crate) fn get_ap(cpu_id: CpuId) -> Paddr {
         cpu_id.as_usize(),
     );
     paddr
-}
+}*/
 
 mod is_used {
     //! This module tracks whether any statically-allocated CPU-local

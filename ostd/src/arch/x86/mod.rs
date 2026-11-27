@@ -4,8 +4,8 @@ use vstd::prelude::*;
 
 use crate::specs::context::cpu_feature_model;
 
-/*pub mod boot;
-pub(crate) mod cpu;*/
+/*pub mod boot;*/
+pub(crate) mod cpu;
 pub mod device;
 pub(crate) mod ex_table;
 pub(crate) mod io;
@@ -18,7 +18,7 @@ pub(crate) mod pci;
 pub(crate) mod serial;
 pub(crate) mod task;
 pub mod timer;
-/* pub mod trap; */
+pub mod trap;
 
 /*use io::construct_io_mem_allocator_builder;
 use spin::Once;

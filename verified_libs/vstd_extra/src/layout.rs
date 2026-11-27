@@ -2,7 +2,7 @@
 //! Shared integer and atomic layouts, checked for the target during code generation.
 use core::sync::atomic::AtomicU64;
 use vstd::{
-    layout::{align_of, size_of},
+    layout::{align_of, size_of, spec_size_of_val},
     prelude::*,
 };
 
@@ -51,5 +51,27 @@ pub proof fn lemma_atomic_u64_layout()
     broadcast use VERUS_layout_of_AtomicU64;
 
 }
+
+/// For any `Sized` type, `core::mem::size_of_val` equals `size_of::<V>()`.
+///
+/// Ref: Rust `core::mem::size_of_val` documentation.
+/// TODO: Upstream this model; remove it when equivalent vstd support is available.
+pub broadcast axiom fn axiom_size_of_val_sized<V: Sized>(val: &V)
+    ensures
+        #[trigger] spec_size_of_val::<V>(val) == size_of::<V>(),
+;
+
+/// For any array `[T; N]`, `size_of::<[T; N]>() == N * size_of::<T>()` and
+/// `align_of::<[T; N]>() == align_of::<T>()`.
+///
+/// Ref: The Rust Reference, Type Layout (Array Layout).
+/// TODO: Upstream this model; remove it when equivalent vstd support is available.
+pub broadcast axiom fn axiom_layout_of_array<T, const N: usize>()
+    ensures
+        #![trigger size_of::<[T; N]>()]
+        #![trigger align_of::<[T; N]>()]
+        size_of::<[T; N]>() == N * size_of::<T>(),
+        align_of::<[T; N]>() == align_of::<T>(),
+;
 
 } // verus!

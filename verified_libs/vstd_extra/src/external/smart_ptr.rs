@@ -11,6 +11,17 @@ use vstd::thread_view::Objective;
 // A unified interface for the raw ptr permission returned by `into_raw` methods of smart pointers like `Box` and `Arc`.
 verus! {
 
+/// Spec for [`Box::leak`](https://doc.rust-lang.org/alloc/boxed/struct.Box.html#method.leak).
+/// TODO: Upstream this model; remove it when equivalent vstd support is available.
+pub assume_specification<'a, T: ?Sized, A: core::alloc::Allocator + 'a>[ Box::<T, A>::leak ](
+    b: Box<T, A>,
+) -> (r: &'a mut T)
+    ensures
+        &*r == &*b,
+    opens_invariants none
+    no_unwind
+;
+
 /// A verification-only trait that abstracts the permission that tracks both the pointer and the value it points to.
 pub trait PtrPointsToTrait {
     /// The type of the pointer.

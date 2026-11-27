@@ -7,7 +7,7 @@ pub(crate) fn get_base() -> u64 {
     GS::read_base().as_u64()
 }
 
-use crate::cpu::local::single_instr::{
+/*use crate::cpu::local::single_instr::{
     SingleInstructionAddAssign, SingleInstructionBitAndAssign, SingleInstructionBitOrAssign,
     SingleInstructionBitXorAssign, SingleInstructionLoad, SingleInstructionStore,
     SingleInstructionSubAssign,
@@ -214,4 +214,4 @@ impl SingleInstructionStore for bool {
             );
         }
     }
-}
+}*/

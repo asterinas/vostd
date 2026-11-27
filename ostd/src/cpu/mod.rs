@@ -5,7 +5,7 @@ use vstd::{
     std_specs::{convert::TryFromSpecImpl, iter::IteratorSpec},
 };
 
-// pub mod local;
+pub mod local;
 pub mod set;
 
 pub use set::{AtomicCpuSet, CpuSet};
