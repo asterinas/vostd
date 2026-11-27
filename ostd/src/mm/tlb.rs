@@ -130,6 +130,9 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
         requires
             old(model).inv(),
         ensures
+            // The model only over-approximates the TLBs, so keeping it is sound.
+            // Remote flushes complete only in `sync_tlb_flush`, and the local
+            // flush cannot be attributed to a CPU yet.
             *final(model) == *old(model),
             final(self).pending() == FlushSet::empty(),
             final(self).remaining_slots() == FLUSH_ALL_OPS_THRESHOLD,
