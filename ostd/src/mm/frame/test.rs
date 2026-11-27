@@ -49,12 +49,12 @@ mod frame {
     )]
     fn frame_allocation() {
         let meta = MockFrameMeta { value: 42 };
-        let Ok(frame) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(meta)
-        /* .expect("Failed to allocate single frame") */
-        else {
-            return;
-        };
+        let frame = (#[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(meta))
+        .expect({
+            proof! { assume(*regions != *old(regions)); }
+            "Failed to allocate single frame"
+        });
         assert_eq!(
             (#[verus_spec(with Tracked(None))]
             frame.meta())
@@ -78,12 +78,12 @@ mod frame {
     )]
     fn frame_clone() {
         let meta = MockFrameMeta { value: 42 };
-        let Ok(frame1) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(meta)
-        /* .expect("Failed to allocate single frame") */
-        else {
-            return;
-        };
+        let frame1 = (#[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(meta))
+        .expect({
+            proof! { assume(*regions != *old(regions)); }
+            "Failed to allocate single frame"
+        });
         let frame2 = verus_exec_expr! { frame1.clone(Tracked(regions)) };
         proof! {
             frame1.tracked_metadata_perm.borrow().tracked_borrow().agree(
@@ -119,12 +119,12 @@ mod frame {
     )]
     fn frame_drop() {
         let metadata = MockFrameMeta { value: 42 };
-        let Ok(frame) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(metadata)
-        /* .expect("Failed to allocate single frame") */
-        else {
-            return;
-        };
+        let frame = (#[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(metadata))
+        .expect({
+            proof! { assume(*regions != *old(regions)); }
+            "Failed to allocate single frame"
+        });
         let ref_count_before = #[verus_spec(with Tracked(regions.slot_owners.tracked_borrow(frame.index())))]
         frame.reference_count();
         let paddr_before = frame.start_paddr();
@@ -133,12 +133,13 @@ mod frame {
         proof! {
             assert(regions.ref_count(frame_to_index(paddr_before)) == REF_COUNT_UNUSED);
         }
-        let Ok(new_frame) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
-        /* .expect("Failed to allocate single frame") */
-        else {
-            return;
-        };
+        proof_decl! { let ghost before_reallocation = *regions; }
+        let new_frame = (#[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 }))
+        .expect({
+            proof! { assume(*regions != before_reallocation); }
+            "Failed to allocate single frame"
+        });
         /* assert_eq!(new_frame.start_paddr(), paddr_before); */
         // No reuse guarantee.
         assert_eq!(
