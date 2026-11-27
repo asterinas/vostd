@@ -15,10 +15,6 @@ use core::{mem::size_of, ops::Range};
 
 verus! {
 
-pub open spec fn max_meta_slots() -> int {
-    (FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int
-}
-
 #[verifier::inline]
 pub open spec fn frame_to_index(paddr: Paddr) -> int
     recommends
@@ -29,7 +25,7 @@ pub open spec fn frame_to_index(paddr: Paddr) -> int
 
 pub open spec fn index_to_meta(i: int) -> Vaddr
     recommends
-        0 <= i < max_meta_slots(),
+        0 <= i < MAX_NR_PAGES,
 {
     (FRAME_METADATA_RANGE.start + i * META_SLOT_SIZE) as Vaddr
 }
@@ -42,7 +38,7 @@ pub open spec fn meta_to_index(vaddr: Vaddr) -> int {
 #[verifier::inline]
 pub open spec fn index_to_frame(index: int) -> Paddr
     recommends
-        0 <= index < max_meta_slots(),
+        0 <= index < MAX_NR_PAGES,
 {
     (index * PAGE_SIZE) as Paddr
 }
@@ -51,7 +47,7 @@ pub open spec fn index_to_frame(index: int) -> Paddr
 /// preserves the index, and the resulting address is page aligned.
 pub broadcast proof fn lemma_index_to_frame_biinjective(index: int)
     requires
-        0 <= index < max_meta_slots(),
+        0 <= index < MAX_NR_PAGES,
     ensures
         #[trigger] index_to_frame(index) % PAGE_SIZE == 0,
         frame_to_index(index_to_frame(index)) == index,

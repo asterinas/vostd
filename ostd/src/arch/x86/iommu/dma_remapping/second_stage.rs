@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(unused_variables)]
 
+use vstd::prelude::*;
+
 use core::ops::Range;
 
 use crate::{
@@ -50,10 +52,10 @@ impl PagingConstsTrait for PagingConsts {
     const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
 }
 
-bitflags_upstream::bitflags! {
+bitflags::bitflags! {
     #[derive(Pod)]
     #[repr(C)]
-    pub struct PageTableFlags : u64{
+    pub struct PageTableFlags: u64 {
         /// Whether accesses to this page must snoop processor caches.
         const SNOOP =           1 << 11;
 

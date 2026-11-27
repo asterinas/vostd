@@ -8,8 +8,6 @@ use vstd::prelude::*;
 use alloc::sync::Arc;
 use core::mem::size_of;
 
-use bitflags_upstream::bitflags;
-
 use super::PciDeviceLocation;
 use crate::{
     Error, Result,
@@ -76,7 +74,7 @@ pub enum PciDeviceCommonCfgOffset {
     MaxLatency = 0x3F,
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// PCI device common config space command register.
     pub struct Command: u16 {
         /// Sets to 1 if the device can respond to I/O Space accesses.
@@ -106,7 +104,7 @@ bitflags! {
     }
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// PCI device common config space status register.
     pub struct Status: u16 {
         /// The status of the device's INTx# signal.

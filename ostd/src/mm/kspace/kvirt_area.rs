@@ -109,6 +109,8 @@ pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
     &&& frame.inv()
     &&& !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1)
+    &&& <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+    pa, level, prop_from_item)
     &&& (entry_owner.is_absent() || Child::Frame(pa, level, prop_from_item).wf(entry_owner))
 }
 
@@ -711,19 +713,6 @@ impl KVirtArea {
         ||| kvirt_alloc_oom_condition(area_size)
     }
 
-    /// Slot availability for untracked mappings; no counted ownership is required.
-    pub open spec fn untracked_range_slots_in_regions(
-        pa_range: &Range<Paddr>,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        &&& pa_range.end <= MAX_PADDR
-        &&& forall|pa: Paddr|
-            #![trigger frame_to_index(pa)]
-            pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> regions.contains(
-                frame_to_index(pa),
-            )
-    }
-
     /// Creates a kernel virtual area and maps untracked frames into it.
     ///
     /// The created virtual area will have a size of `area_size`, and the
@@ -761,7 +750,7 @@ impl KVirtArea {
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
-            Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
+            pa_range.start < pa_range.end ==> pa_range.end <= CurrentArch::ARCH_MAX_PADDR,
             forall|pa: Paddr, level: PagingLevel|
                 1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                 #[trigger]
@@ -857,13 +846,7 @@ impl KVirtArea {
                     cursor.0.barrier_va.start == va_range.start,
                     cursor.0.barrier_va.end == va_range.start + len,
                     pa_range.end == pa_range.start + len,
-                    pa_range.end <= MAX_PADDR,
-                    forall|pa: Paddr|
-                        #![trigger frame_to_index(pa)]
-                        pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
-                            let idx = frame_to_index(pa);
-                            &&& regions.contains(idx)
-                        },
+                    pa_range.end <= CurrentArch::ARCH_MAX_PADDR,
             {
                 let pos: Ghost<int> = Ghost(it.index() as int);
 
@@ -889,8 +872,6 @@ impl KVirtArea {
                 }
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                // `item_slot_in_regions` for the current `(pa, level)` follows from the
-                // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
                     assert(cursor.item_wf(item, entry_owner)) by {
                         reveal(<CursorOwner<KernelPtConfig> as Inv>::inv);
