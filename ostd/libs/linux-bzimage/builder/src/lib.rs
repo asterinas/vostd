@@ -18,9 +18,13 @@ mod mapping;
 mod pe_header;
 
 use vstd::{prelude::*, std_specs::iter::IteratorSpec};
-use vstd_extra::external::xmas_elf::{
-    elf_parse_no_unwind, elf_parse_result, elf_program_headers, elf_program_headers_readable,
-    program_load_bytes, program_load_data_readable,
+use vstd_extra::{
+    assert_eq,
+    external::xmas_elf::{
+        elf_parse_no_unwind, elf_parse_result, elf_program_headers, elf_program_headers_readable,
+        elf_section_lookup, program_load_bytes, program_load_data_readable, section_data_readable,
+    },
+    seq_extra::lemma_seq_all_add,
 };
 
 use mapping::{LEGACY_SETUP_SEC_SIZE, SETUP32_LMA};
@@ -34,7 +38,10 @@ use std::{
 use align_ext::AlignExt;
 pub use encoder::{PayloadEncoding, encode_kernel};
 use mapping::{SetupFileOffset, SetupVA};
-use xmas_elf::{program::SegmentData, sections::SectionData};
+use xmas_elf::{
+    program::SegmentData,
+    sections::{SectionData, ShType},
+};
 
 /// The type of the bzImage that we are building through `make_bzimage`.
 ///
@@ -213,26 +220,101 @@ spec fn flat_binary_spec(input: &[u8]) -> Seq<u8> {
     flat_binary_prefix(elf_program_headers(&elf), input@, elf_program_headers(&elf).len())
 }
 
+const R_X86_64_RELATIVE: u32 = 8;
+
+spec fn is_relative_reloc(entry: xmas_elf::sections::Rela<u64>) -> bool {
+    entry.get_type() == R_X86_64_RELATIVE
+}
+
+spec fn elf64_reloc_supported(input: &[u8]) -> bool {
+    elf_parse_result(input) matches Ok(elf) && {
+        &&& elf.header.pt1.class() == xmas_elf::header::Class::SixtyFour
+        &&& elf.find_section_by_name(".rela") matches Some(section) && {
+            &&& section.get_type() matches Ok(ShType::Rela)
+            &&& section.get_data(&elf) matches Ok(SectionData::Rela64(entries)) && entries@.all(
+                |r| is_relative_reloc(r),
+            )
+        }
+    }
+}
+
+spec fn elf_reloc_reads_ok(elf: &xmas_elf::ElfFile<'_>) -> bool {
+    &&& elf_section_lookup(elf, ".rela") is Ok
+    &&& elf.find_section_by_name(".rela") matches Some(section) ==> section_data_readable(
+        &section,
+        elf,
+    )
+}
+
 } // verus!
+#[verus_spec(
+    requires
+        elf_parse_no_unwind(elf_file),
+        elf_parse_result(elf_file) is Ok,
+        elf_reloc_reads_ok(&elf_parse_result(elf_file)->Ok_0),
+        elf64_reloc_supported(elf_file),
+    ensures elf64_reloc_supported(elf_file),
+    no_unwind when
+        elf_parse_no_unwind(elf_file)
+        && elf_reloc_reads_ok(&elf_parse_result(elf_file)->Ok_0)
+        && elf64_reloc_supported(elf_file)
+)]
 fn assert_elf64_reloc_supported(elf_file: &[u8]) {
-    const R_X86_64_RELATIVE: u32 = 8;
-
-    let elf = xmas_elf::ElfFile::new(elf_file).unwrap();
-
-    let SectionData::Rela64(rela64) = elf
-        .find_section_by_name(".rela")
-        .unwrap()
-        .get_data(&elf)
-        .unwrap()
-    else {
-        panic!("the ELF64 relocation data is not of the correct type");
+    /* vstd's Result::unwrap lacks a conditional no_unwind contract.
+     * Origin Rust: let elf = xmas_elf::ElfFile::new(elf_file).unwrap();
+     */
+    let elf = match xmas_elf::ElfFile::new(elf_file) {
+        Ok(elf) => elf,
+        Err(error) => std::panic::panic_any(format!(
+            "called `Result::unwrap()` on an `Err` value: {error:?}"
+        )),
     };
 
-    rela64.iter().for_each(|r| {
+    /* Check Group before get_data because xmas-elf 0.10.0 does not validate
+     * its flags reference. vstd requires unwrap to succeed;
+     * the explicit failure branches retain the builder's diagnostics.
+     * Origin Rust:
+     * let SectionData::Rela64(rela64) = elf.find_section_by_name(".rela").unwrap()
+     *     .get_data(&elf).unwrap() else { panic!("the ELF64 relocation data is not of the correct type"); };
+     */
+    let Some(section) = elf.find_section_by_name(".rela") else {
+        std::panic::panic_any("called `Option::unwrap()` on a `None` value");
+    };
+    const WRONG_SECTION: &str = "the ELF64 relocation data is not of the correct type";
+    if matches!(section.get_type(), Ok(ShType::Group)) {
+        std::panic::panic_any(WRONG_SECTION);
+    }
+    let rela64 = match section.get_data(&elf) {
+        Ok(SectionData::Rela64(entries)) => entries,
+        Ok(_) => std::panic::panic_any(WRONG_SECTION),
+        Err(error) => std::panic::panic_any(format!(
+            "called `Result::unwrap()` on an `Err` value: {error:?}"
+        )),
+    };
+
+    /* Slice::split_first has the no_unwind contract missing from iter and for_each.
+     * Origin Rust:
+     * rela64.iter().for_each(|r| {
+     *     assert_eq!(r.get_type(), R_X86_64_RELATIVE, "the ELF64 relocation type is not supported")
+     * });
+     */
+    let mut remaining = rela64;
+    #[verifier::loop_isolation(false)]
+    #[verus_spec(
+        invariant
+            elf64_reloc_supported(elf_file) <==> remaining@.all(|r| is_relative_reloc(r)),
+        decreases remaining.len(),
+    )]
+    while let Some((r, rest)) = remaining.split_first() {
         assert_eq!(
             r.get_type(),
             R_X86_64_RELATIVE,
             "the ELF64 relocation type is not supported"
-        )
-    });
+        );
+        proof! {
+            assert(remaining@ == seq![*r] + rest@);
+            lemma_seq_all_add(seq![*r], rest@, |r| is_relative_reloc(r));
+        }
+        remaining = rest;
+    }
 }

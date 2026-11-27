@@ -8,9 +8,10 @@ use xmas_elf::{
         Flags, ProgramHeader, ProgramHeader32, ProgramHeader64, SegmentData, TYPE_GNU_RELRO,
         TYPE_HIOS, TYPE_HIPROC, TYPE_LOOS, TYPE_LOPROC, Type, Type_,
     },
+    sections::{Rela, SectionData, SectionHeader, SectionHeader_, ShType},
 };
 
-use super::slice::as_ptr_spec;
+use crate::external::slice::as_ptr_spec;
 
 verus! {
 
@@ -48,6 +49,10 @@ global layout ElfHeader64 is size == 48, align == 8;
 global layout ProgramHeader32 is size == 32, align == 4;
 
 global layout ProgramHeader64 is size == 56, align == 8;
+
+global layout Rela<u32> is size == 12, align == 4;
+
+global layout Rela<u64> is size == 24, align == 8;
 
 #[verifier::external_type_specification]
 pub struct ExHeaderType(HeaderType);
@@ -437,6 +442,209 @@ pub assume_specification<'a>[ ProgramHeader::<'a>::virtual_addr ](header: &Progr
 pub assume_specification<'a>[ ProgramHeader::<'a>::mem_size ](header: &ProgramHeader<'a>) -> u64
     returns
         program_header_mem_size(header),
+    opens_invariants none
+    no_unwind
+;
+
+#[verifier::external_type_specification]
+pub struct ExSectionHeader<'a>(SectionHeader<'a>);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(P)]
+pub struct ExSectionHeaderRaw<P>(SectionHeader_<P>);
+
+#[verifier::external_type_specification]
+pub struct ExSectionData<'a>(SectionData<'a>);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(P)]
+pub struct ExRela<P>(Rela<P>);
+
+// Other SectionData payloads contain private fields and are only distinguished by variant.
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(P)]
+pub struct ExRel<P>(xmas_elf::sections::Rel<P>);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExEntry32(xmas_elf::symbol_table::Entry32);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExEntry64(xmas_elf::symbol_table::Entry64);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExDynEntry32(xmas_elf::symbol_table::DynEntry32);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExDynEntry64(xmas_elf::symbol_table::DynEntry64);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExHashTable<'a>(xmas_elf::hash::HashTable<'a>);
+
+#[verifier::external_type_specification]
+pub struct ExShType(ShType);
+
+/// The private sh_type field as decoded by ShType_::as_sh_type.
+pub uninterp spec fn section_kind(section: &SectionHeader<'_>) -> Result<ShType, &'static str>;
+
+#[verifier::when_used_as_spec(section_kind)]
+pub assume_specification<'a>[ SectionHeader::<'a>::get_type ](
+    section: &SectionHeader<'a>,
+) -> Result<ShType, &'static str>
+    returns
+        section_kind(section),
+    opens_invariants none
+    no_unwind
+;
+
+/// Successful get_name results in SectionIter order, stopping at its first None
+/// or panic (including get_name). The flag records whether iteration reached None.
+pub uninterp spec fn named_section_scan<'a>(elf: &ElfFile<'a>) -> (
+    Seq<(&'a str, SectionHeader<'a>)>,
+    bool,
+);
+
+/// Ok(Some) stops at the first match. Err means a read panics before a match or exhaustion.
+pub open spec fn elf_section_lookup<'a>(elf: &ElfFile<'a>, name: &str) -> Result<
+    Option<SectionHeader<'a>>,
+    (),
+> {
+    let count = match elf.header.pt2 {
+        HeaderPt2::Header32(h) => h.sh_count,
+        HeaderPt2::Header64(h) => h.sh_count,
+    };
+    if count == 0 {
+        Ok(None)
+    } else {
+        let (sections, exhausted) = named_section_scan(elf);
+        let names = sections.map_values(|entry: (&str, SectionHeader<'a>)| entry.0);
+        match names.index_of_first(name) {
+            Some(i) => Ok(Some(sections[i].1)),
+            None => if exhausted {
+                Ok(None)
+            } else {
+                Err(())
+            },
+        }
+    }
+}
+
+pub open spec fn elf_section_by_name<'a>(elf: &ElfFile<'a>, name: &str) -> Option<
+    SectionHeader<'a>,
+> {
+    elf_section_lookup(elf, name)->Ok_0
+}
+
+#[verifier::when_used_as_spec(elf_section_by_name)]
+pub assume_specification<'a>[ ElfFile::<'a>::find_section_by_name ](
+    elf: &ElfFile<'a>,
+    name: &str,
+) -> (result: Option<SectionHeader<'a>>)
+    requires
+        elf_section_lookup(elf, name) is Ok,
+    ensures
+        elf_section_lookup(elf, name) == Ok(result),
+    returns
+        elf_section_by_name(elf, name),
+    opens_invariants none
+    no_unwind when elf_section_lookup(elf, name) is Ok
+;
+
+/// The sh_offset and sh_size values widened to u64 as in SectionHeader::raw_data.
+pub uninterp spec fn section_file_extent(section: &SectionHeader<'_>) -> (u64, u64);
+
+/// On kinds other than Group, Some is the actual decoder result; None indicates
+/// that a bounds, layout, or other decoder check panics before producing it.
+pub uninterp spec fn section_decode<'a>(section: &SectionHeader<'a>, elf: &ElfFile<'a>) -> Option<
+    Result<SectionData<'a>, &'static str>,
+>;
+
+/// The typed slice returned by zero::read_array in the ELF32 and ELF64 Rela arms.
+pub uninterp spec fn section_rela_entries<'a, P>(
+    section: &SectionHeader<'a>,
+    elf: &ElfFile<'a>,
+) -> &'a [Rela<P>];
+
+pub open spec fn section_data_result<'a>(section: &SectionHeader<'a>, elf: &ElfFile<'a>) -> Result<
+    SectionData<'a>,
+    &'static str,
+> {
+    match section.get_type() {
+        Err(error) => Err(error),
+        Ok(ShType::Null) | Ok(ShType::NoBits) => Ok(SectionData::Empty),
+        Ok(ShType::Rela) => match elf.header.pt1.class() {
+            Class::ThirtyTwo => Ok(SectionData::Rela32(section_rela_entries(section, elf))),
+            Class::SixtyFour => Ok(SectionData::Rela64(section_rela_entries(section, elf))),
+            _ => arbitrary(),  // get_data reaches unreachable!() for these classes.
+        },
+        _ => section_decode(section, elf)->Some_0,
+    }
+}
+
+/// raw_data slices the file; zero::read_array then checks the whole array's size and alignment.
+pub open spec fn section_data_readable(section: &SectionHeader<'_>, elf: &ElfFile<'_>) -> bool {
+    match section.get_type() {
+        Err(_) | Ok(ShType::Null) | Ok(ShType::NoBits) => true,
+        Ok(ShType::Rela) => {
+            let (offset, len) = section_file_extent(section);
+            // Expose the checked layouts to callers in other crates.
+            let (size, align): (int, int) = match elf.header.pt1.class() {
+                Class::ThirtyTwo => (12, 4),
+                Class::SixtyFour => (24, 8),
+                _ => (0, 0),
+            };
+            &&& offset + len <= usize::MAX
+            &&& offset + len <= elf.input@.len()
+            &&& size > 0 && len as int % size == 0
+            &&& align > 0 && (as_ptr_spec(elf.input).addr() + offset) % align == 0
+        },
+        Ok(ShType::Group) => false,
+        _ => section_decode(section, elf) is Some,
+    }
+}
+
+/// xmas-elf 0.10.0 constructs the Group flags reference before validating its
+/// alignment and extent. Callers must exclude that kind before decoding.
+#[verifier::when_used_as_spec(section_data_result)]
+pub assume_specification<'a>[ SectionHeader::<'a>::get_data ](
+    section: &SectionHeader<'a>,
+    elf: &ElfFile<'a>,
+) -> (result: Result<SectionData<'a>, &'static str>)
+    requires
+        !(section.get_type() matches Ok(ShType::Group)),
+        section_data_readable(section, elf),
+    ensures
+        section_decode(section, elf) == Some(result),
+        (result matches Ok(SectionData::Rela64(_))) <==> (section.get_type() matches Ok(
+            ShType::Rela,
+        ) && elf.header.pt1.class() == Class::SixtyFour),
+        (result matches Ok(SectionData::Rela32(_))) <==> (section.get_type() matches Ok(
+            ShType::Rela,
+        ) && elf.header.pt1.class() == Class::ThirtyTwo),
+    returns
+        section_data_result(section, elf),
+    opens_invariants none
+    no_unwind when section_data_readable(section, elf)
+;
+
+/// The private ELF64 r_info word, including the symbol index in its high half.
+pub uninterp spec fn rela64_info(entry: &Rela<u64>) -> u64;
+
+pub open spec fn rela64_type(entry: &Rela<u64>) -> u32 {
+    (rela64_info(entry) & 0xffff_ffff) as u32
+}
+
+#[verifier::when_used_as_spec(rela64_type)]
+pub assume_specification[ Rela::<u64>::get_type ](entry: &Rela<u64>) -> u32
+    returns
+        rela64_type(entry),
     opens_invariants none
     no_unwind
 ;
