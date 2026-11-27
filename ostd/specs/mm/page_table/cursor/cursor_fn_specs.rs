@@ -181,9 +181,12 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
     pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
-        let (paddr, level, prop, _perm) = C::item_into_raw(item);
-        &&& C::item_well_formed(
-            item,
+        let (paddr, level, prop, _) = C::item_into_raw(item);
+        &&& C::item_well_formed(item)
+        &&& C::E::new_page_req(paddr, level, prop)
+        &&& valid_page_range::<C>(
+            paddr,
+            level,
         )
         // Mapping may descend within the locked subtree, but cannot replace its parent PTE.
         &&& level <= self.0.guard_level
@@ -204,8 +207,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     ) -> bool {
         let (pa, _level, _prop, perm) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
-        &&& regions.contains(idx)
-        &&& perm@ is Some ==> {
+        perm@ is Some ==> {
+            &&& regions.contains(idx)
             &&& regions.slot_owners[idx].usage !is PageTable
             &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
         }

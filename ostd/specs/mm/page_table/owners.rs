@@ -656,20 +656,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             PageTableOwner(owner).pt_inv(),
     {
         let depth = (INC_LEVELS - owner.level()) as nat;
-        // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
-        // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
-        // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
-        assert forall|i: int|
-            #![trigger owner.has_child(i)]
-            0 <= i < NR_ENTRIES implies Self::pt_edge_at(owner, i) && PageTableOwner(
-            owner.child(i),
-        ).pt_inv_at_depth((depth - 1) as nat) by {
-            let child = owner.child(i);
+        let parent = PageTableOwner(owner);
+        reveal_with_fuel(PageTableOwner::pt_inv_at_depth, 2);
+        if !parent.pt_inv_at_depth(depth) {
+            let i = choose|i: int|
+                0 <= i < NR_ENTRIES && !(#[trigger] Self::pt_edge_at(owner, i) && PageTableOwner(
+                    owner.child(i),
+                ).pt_inv_at_depth((depth - 1) as nat));
             assert(owner.has_child(i));
-            PageTableOwner(child).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
-        };
-        // Unfold the parent after establishing the opaque child invariants.
-        reveal(PageTableOwner::pt_inv_at_depth);
+            PageTableOwner(owner.child(i)).lemma_non_node_pt_inv_at_depth((depth - 1) as nat);
+            assert(Self::pt_edge_at(owner, i));
+        }
     }
 
     /// The frames produced by a huge-page split have exactly the split mapping view.
@@ -1184,8 +1181,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value().parent_level == (C::NR_LEVELS + 1 - self.0.level()) as PagingLevel,
         ensures
             forall|m: Mapping| #[trigger]
-                self.view_rec(path).contains(m)
-                    ==> set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size),
+                self.view_rec(path).contains(m) ==> Mapping::valid_page_size(m.page_size),
         decreases C::NR_LEVELS + 1 - path.len(),
     {
         C::lemma_paging_consts_properties();
@@ -1196,9 +1192,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             lemma_page_size_spec_values::<C>();
         } else if self.0.value().is_node() && path.len() < C::NR_LEVELS {
             assert forall|m: Mapping| #[trigger]
-                self.view_rec(path).contains(
-                    m,
-                ) implies set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size) by {
+                self.view_rec(path).contains(m) implies Mapping::valid_page_size(m.page_size) by {
                 let i = choose|i: int|
                     #![trigger self.0.children()[i]]
                     0 <= i < self.0.children().len() && self.0.children()[i] is Some
@@ -1318,8 +1312,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(lb * limit + limit <= pow2(usize::BITS as nat));
             assert(lb * limit + v + ps <= pow2(usize::BITS as nat));
             lemma_mod_0_add(m.va_range.start, ps, ps);
-            assert(set![4096, 2097152, 1073741824].contains(m.page_size));
-            assert(m.pa_range.start <= m.pa_range.end <= MAX_PADDR);
+            assert(Mapping::valid_page_size(m.page_size));
+            assert(m.pa_range.start <= m.pa_range.end <= CurrentArch::ARCH_MAX_PADDR);
             assert forall|m2: Mapping| #[trigger]
                 self.view_rec(path).contains(m2) implies m2.inv() by {};
         } else if self.0.value().is_node() && path.len() < C::NR_LEVELS {
