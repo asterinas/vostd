@@ -115,7 +115,6 @@ pub assume_specification[ core::arch::x86_64::_rdrand64_step ](val: &mut u64) ->
         cpu_feature_model().supports_rdrand,
     ensures
         flag == 0 || flag == 1,
-        flag == 0 ==> *final(val) == 0u64,
     opens_invariants none
     no_unwind when cpu_feature_model().supports_rdrand
 ;
