@@ -10,7 +10,8 @@ mod view;
 use vstd::{
     arithmetic::{
         div_mod::{
-            lemma_div_denominator, lemma_fundamental_div_mod, lemma_fundamental_div_mod_converse,
+            lemma_add_mod_noop, lemma_div_denominator, lemma_fundamental_div_mod,
+            lemma_fundamental_div_mod_converse, lemma_mod_mod, lemma_mod_multiples_basic,
         },
         mul::{lemma_mul_inequality, lemma_mul_is_commutative},
         power2::{lemma_pow2_pos, pow2},
@@ -26,7 +27,7 @@ use vstd_extra::{
 use crate::specs::arch::*;
 
 use crate::mm::{
-    PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
     nr_subpage_per_huge, page_size, page_table::PageTableConfig, vm_space::UserPtConfig,
 };
 use align_ext::AlignExt;
@@ -37,6 +38,47 @@ pub use owners::*;
 pub use view::*;
 
 verus! {
+
+/// The level, alignment and physical extent of a leaf mapping fit the page table.
+pub open spec fn valid_page_range<C: PagingConstsTrait>(paddr: Paddr, level: PagingLevel) -> bool {
+    &&& 1 <= level <= C::NR_LEVELS
+    &&& valid_arch_paddr(paddr)
+    &&& paddr % page_size::<C>(level) == 0
+    &&& paddr + page_size::<C>(level) <= CurrentArch::ARCH_MAX_PADDR
+}
+
+/// Splitting a valid leaf produces aligned child ranges within the physical address bound.
+pub proof fn lemma_split_leaf_range<C: PagingConstsTrait>(pa: Paddr, level: PagingLevel, idx: usize)
+    requires
+        valid_page_range::<C>(pa, level),
+        level > 1,
+        idx < NR_ENTRIES,
+    ensures
+        ({
+            let child_level = (level - 1) as PagingLevel;
+            let child_pa = pa + idx * page_size::<C>(child_level);
+            &&& child_pa < CurrentArch::ARCH_MAX_PADDR
+            &&& valid_page_range::<C>(child_pa as Paddr, child_level)
+        }),
+{
+    C::lemma_paging_consts_properties();
+    let child_level = (level - 1) as PagingLevel;
+    let size = page_size::<C>(child_level) as int;
+    lemma_page_size_spec_values::<C>();
+    lemma_page_size_next::<C>(child_level);
+    assert(idx * size + size <= NR_ENTRIES * size) by (nonlinear_arith)
+        requires
+            idx < NR_ENTRIES,
+            size > 0,
+    ;
+    let child_pa = (pa + idx * size) as Paddr;
+    lemma_va_align_page_size::<C>(pa, child_level);
+    lemma_mod_multiples_basic(idx as int, size);
+    lemma_add_mod_noop(pa as int, idx * size, size);
+    assert(child_pa as int % size == 0);
+    lemma_page_size_div_mul_eq::<C>(child_level);
+    lemma_mod_mod(child_pa as int, C::BASE_PAGE_SIZE as int, size / C::BASE_PAGE_SIZE as int);
+}
 
 /// Number of virtual-address bits used to select an entry within one page-table node.
 #[verifier::inline]

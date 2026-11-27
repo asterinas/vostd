@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use bitflags_upstream::bitflags;
+use vstd::prelude::*;
 
-bitflags! {
+bitflags::bitflags! {
     /// Global Status of the IOMMU. All fields is read-only. Some description of the fields
     /// is related to the fields in `GlobalCommand`.
     pub struct GlobalStatus: u32{

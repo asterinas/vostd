@@ -71,8 +71,7 @@ pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStor
 
 impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
-        &&& 0 <= self.slot_index < MAX_NR_PAGES
-        &&& self.slot_index < max_meta_slots()
+        0 <= self.slot_index < MAX_NR_PAGES
     }
 }
 

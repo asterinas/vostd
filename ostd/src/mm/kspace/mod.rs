@@ -44,7 +44,10 @@ use crate::specs::{
             frame_specs::FrameRawPerms, mapping::group_page_meta, meta_owners::MetaSlotStorage,
             meta_region_owners::MetaRegionOwners,
         },
-        page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
+        page_table::{
+            lemma_split_leaf_range, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
+            valid_page_range,
+        },
     },
 };
 
@@ -342,7 +345,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 &&& !prop.flags.contains(PageFlags::AVAIL1)
                 &&& frame.inv()
             },
-            MappedItem::Untracked(_, _, prop) => !prop.flags.contains(PageFlags::AVAIL1),
+            MappedItem::Untracked(pa, level, prop) => {
+                &&& !prop.flags.contains(PageFlags::AVAIL1)
+                &&& valid_page_range::<PagingConsts>(pa, level)
+            },
         }
     }
 
@@ -350,6 +356,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         item: (Paddr, PagingLevel, PageProperty, Tracked<Option<Self::Perm>>),
     ) -> bool {
         let (pa, level, prop, perm) = item;
+        &&& valid_page_range::<PagingConsts>(pa, level)
         &&& (prop.flags.contains(PageFlags::AVAIL1) <==> perm@ is Some)
         &&& prop.flags.contains(PageFlags::AVAIL1) ==> {
             &&& level == 1
@@ -385,6 +392,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         child_idx: usize,
         perm: Tracked<Option<Self::Perm>>,
     ) {
+        lemma_split_leaf_range::<PagingConsts>(pa, level, child_idx);
         assert(<PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
             pa,
             level,

@@ -227,6 +227,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ///
     /// The old child is returned.
     ///
+    /// # Panics
+    ///
+    /// The method panics if the level of the new child does not match the
+    /// current node.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: Both old and new owners must satisfy the respective safety invariants for an [Entry](Entry::invariants)
@@ -894,7 +899,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa == old(owner).value().frame().mapped_pa,
                 level == old(parent_owner).level(),
                 pa % page_size::<C>(level) == 0,
-                pa + page_size::<C>(level) <= MAX_PADDR,
+                pa + page_size::<C>(level) <= CurrentArch::ARCH_MAX_PADDR,
                 regions.inv(),
                 MetaSlot::claim_unused_slot_region_spec(
                     meta_to_frame(new_owner_meta_addr),
@@ -955,7 +960,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 C::lemma_page_table_config_constant_properties();
 
                 assert(new_owner.child(i as int).inv());
-                EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
+                lemma_split_leaf_range::<C>(pa, level, i as usize);
             }
 
             let small_pa = pa + i * page_size::<C>(level - 1);

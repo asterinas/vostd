@@ -20,7 +20,7 @@ impl<C: PageTableConfig> CursorView<C> {
             m.inv(),
             new_size > 0,
             m.page_size % new_size == 0,
-            set![4096usize, 2097152, 1073741824].contains(new_size),
+            Mapping::valid_page_size(new_size),
             m.va_range.start % new_size as int == 0,
             0 <= k < m.page_size as int / new_size as int,
         ensures
@@ -173,7 +173,7 @@ impl<C: PageTableConfig> CursorView<C> {
             new_size > 0,
             v.query_mapping().page_size > new_size,
             v.query_mapping().page_size % new_size == 0,
-            set![4096usize, 2097152, 1073741824].contains(new_size),
+            Mapping::valid_page_size(new_size),
         ensures
             v.split_if_mapped_huge_spec(new_size).inv(),
     {
@@ -238,11 +238,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 // Establish m.inv() first.
                 self.lemma_query_mapping();
                 // new_size is a valid page size (case split on m.page_size).
-                assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size != 2097152 && m.page_size != 1073741824 {
-                        assert(false);
-                    }
-                };
+                m.lemma_split_page_size();
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
 
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -272,11 +268,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 // Establish m.inv() and call preserves_inv.
                 self.lemma_query_mapping();
-                assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size != 2097152 && m.page_size != 1073741824 {
-                        assert(false);
-                    }
-                };
+                m.lemma_split_page_size();
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 new_self.lemma_split_while_huge_preserves_inv(size);
@@ -310,14 +302,7 @@ impl<C: PageTableConfig> CursorView<C> {
         }
         let new_size = m.page_size / NR_ENTRIES;
         self.lemma_query_mapping();
-        assert(set![4096usize, 2097152, 1073741824].contains(new_size) && m.page_size % new_size
-            == 0) by {
-            if m.page_size == 2097152 {
-                assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
-            } else {
-                assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
-            }
-        };
+        m.lemma_split_page_size();
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         self.split_if_mapped_huge_spec(new_size).lemma_split_while_huge_compose(s1, s2);
@@ -339,7 +324,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.query_mapping().page_size > size,
             self.query_mapping().page_size / NR_ENTRIES == size,
             self.query_mapping().page_size % size == 0,
-            set![4096usize, 2097152, 1073741824].contains(size),
+            Mapping::valid_page_size(size),
         ensures
             self.split_while_huge(size).mappings == self.split_if_mapped_huge_spec(size).mappings,
     {
@@ -388,11 +373,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 // Establish m covers cur_va.
                 self.lemma_query_mapping();
                 // m2 != m and disjoint va_ranges (non-overlap invariant).
-                assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size != 2097152 && m.page_size != 1073741824 {
-                        assert(false);
-                    }
-                };
+                m.lemma_split_page_size();
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -478,11 +459,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 assert(self.mappings.filter(
                     |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
                 ).contains(qm));
-                assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if qm.page_size != 2097152 && qm.page_size != 1073741824 {
-                        assert(false);
-                    }
-                };
+                qm.lemma_split_page_size();
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
 
@@ -574,21 +551,7 @@ impl<C: PageTableConfig> CursorView<C> {
         // Standard scaffolding: m ∈ self.mappings, m covers cur_va, m.inv().
         self.lemma_query_mapping();
 
-        assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-            if m.page_size == 2097152 {
-            } else if m.page_size == 1073741824 {
-            } else {
-                assert(false);
-            }
-        };
-        assert(m.page_size % new_size == 0) by {
-            assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
-            assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
-        };
-        assert(m.page_size > new_size) by {
-            assert(2097152usize > 2097152usize / 512usize) by (compute_only);
-            assert(1073741824usize > 1073741824usize / 512usize) by (compute_only);
-        };
+        m.lemma_split_page_size();
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         let new_self = self.split_if_mapped_huge_spec(new_size);

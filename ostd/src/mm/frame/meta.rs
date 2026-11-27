@@ -85,7 +85,6 @@ use vstd::{
 use vstd_extra::{
     cast_ptr::{Repr, ReprPtr},
     ownership::*,
-    panic::{allowed_to_panic_if, panic_diverge},
     prelude::*,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
     sum::Sum,
@@ -521,7 +520,7 @@ impl MetaSlot {
             -> permission: Tracked<Option<FracMetadataPerm>>,
         requires
             old(regions).inv(),
-            allowed_to_panic_if(valid_frame_paddr(paddr) && old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
+            !Self::get_from_in_use_panic_condition(paddr, *old(regions)),
         ensures
             final(regions).inv(),
             res matches Ok(ptr) ==> {
@@ -565,7 +564,7 @@ impl MetaSlot {
                 regions.contains(frame_to_index(paddr)),
                 slot == regions.slots[frame_to_index(paddr)].value(),
                 slot_perm == Some(old(regions).slots[frame_to_index(paddr)]),
-                allowed_to_panic_if(old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
+                !Self::get_from_in_use_panic_condition(paddr, *old(regions)),
         {
             let tracked slot_own = regions.tracked_borrow_mut_slot_owner(paddr);
 
@@ -585,7 +584,7 @@ impl MetaSlot {
                 last_ref_cnt => {
                     if last_ref_cnt >= REF_COUNT_MAX {
                         // See `Self::inc_ref_count` for the explanation.
-                        vstd_extra::panic::panic_diverge();
+                        vstd::vpanic!("");
                     }
                     // Using `Acquire` here to pair with `get_from_unused` or
                     // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
@@ -637,10 +636,9 @@ impl MetaSlot {
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != REF_COUNT_UNUSED,
-            allowed_to_panic_if(old(rc_perm).value() >= REF_COUNT_MAX),
+            old(rc_perm).value() < REF_COUNT_MAX,
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,
-            old(rc_perm).value() < REF_COUNT_MAX,
             final(rc_perm).id() == old(rc_perm).id(),
     )]
     pub(super) unsafe fn inc_ref_count(&self) {
@@ -650,7 +648,7 @@ impl MetaSlot {
             // This follows the same principle as the `Arc::clone` implementation to prevent the
             // reference count from overflowing. See also
             // <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.clone>.
-            panic_diverge();
+            vstd::vpanic!("");
         }
     }
 
