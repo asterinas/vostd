@@ -81,7 +81,7 @@ pub broadcast axiom fn axiom_gzip_vec_write_all_success(encoder: &gzip::Encoder<
         cfg!(feature = "std"),
         gzip_state(encoder) is Some,
     ensures
-        #[trigger] WriteSpec::write_all_always_succeed(encoder),
+        #[trigger] WriteSpec::write_all_success_condition(encoder),
 ;
 
 pub broadcast axiom fn axiom_zlib_vec_write_all_success(encoder: &zlib::Encoder<Vec<u8>>)
@@ -89,7 +89,7 @@ pub broadcast axiom fn axiom_zlib_vec_write_all_success(encoder: &zlib::Encoder<
         cfg!(feature = "std"),
         zlib_state(encoder) is Some,
     ensures
-        #[trigger] WriteSpec::write_all_always_succeed(encoder),
+        #[trigger] WriteSpec::write_all_success_condition(encoder),
 ;
 
 pub broadcast axiom fn axiom_gzip_reader_model<'a>()
@@ -110,7 +110,7 @@ pub broadcast axiom fn axiom_gzip_slice_read_to_end_success(decoder: &gzip::Deco
         !cfg!(feature = "std"),
         gzip_remaining(decoder) is Some,
     ensures
-        #[trigger] ReadSpec::read_to_end_always_succeed(decoder),
+        #[trigger] ReadSpec::read_to_end_success_condition(decoder),
 ;
 
 pub broadcast axiom fn axiom_zlib_slice_read_to_end_success(decoder: &zlib::Decoder<&[u8]>)
@@ -118,7 +118,7 @@ pub broadcast axiom fn axiom_zlib_slice_read_to_end_success(decoder: &zlib::Deco
         !cfg!(feature = "std"),
         zlib_remaining(decoder) is Some,
     ensures
-        #[trigger] ReadSpec::read_to_end_always_succeed(decoder),
+        #[trigger] ReadSpec::read_to_end_success_condition(decoder),
 ;
 
 pub broadcast group group_libflate_models {
@@ -149,7 +149,7 @@ pub trait ExLz77Encode {
 impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
-    uninterp spec fn write_all_always_succeed(&self) -> bool;
+    uninterp spec fn write_all_success_condition(&self) -> bool;
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         gzip_state(self) matches Some(state) ==> gzip_state(next) == Some(
@@ -161,7 +161,7 @@ impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for gzip::Encoder<W, E> {
 impl<W: io::Write, E: Lz77Encode> WriteSpecImpl for zlib::Encoder<W, E> {
     uninterp spec fn obeys_writer_model() -> bool;
 
-    uninterp spec fn write_all_always_succeed(&self) -> bool;
+    uninterp spec fn write_all_success_condition(&self) -> bool;
 
     open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
         zlib_state(self) matches Some(state) ==> zlib_state(next) == Some(
@@ -247,7 +247,7 @@ impl<R: io::Read> ReadSpecImpl for gzip::Decoder<R> {
         gzip_remaining(self)
     }
 
-    uninterp spec fn read_to_end_always_succeed(&self) -> bool;
+    uninterp spec fn read_to_end_success_condition(&self) -> bool;
 }
 
 impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
@@ -257,7 +257,7 @@ impl<R: io::Read> ReadSpecImpl for zlib::Decoder<R> {
         zlib_remaining(self)
     }
 
-    uninterp spec fn read_to_end_always_succeed(&self) -> bool;
+    uninterp spec fn read_to_end_success_condition(&self) -> bool;
 }
 
 pub assume_specification<R: io::Read>[ gzip::Decoder::<R>::new ](inner: R) -> (result: Result<
