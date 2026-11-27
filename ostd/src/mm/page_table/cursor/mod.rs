@@ -30,17 +30,14 @@ use vstd_extra::{
     arithmetic::*, assert, assert_eq, drop_tracking::TrackDrop, ghost_tree::*, ownership::*,
 };
 
-use crate::specs::{
-    arch::{ArchAddressSpaceModel, CurrentArch},
-    mm::{
-        frame::{
-            mapping::*,
-            meta_owners::{FracMetadataPerm, MetaSlotOwner},
-            meta_region_owners::MetaRegionOwners,
-        },
-        page_table::{
-            cursor::page_size_lemmas::*, mapping_set_lemmas::lemma_extend_empty_mapping_range,
-        },
+use crate::specs::mm::{
+    frame::{
+        mapping::*,
+        meta_owners::{FracMetadataPerm, MetaSlotOwner},
+        meta_region_owners::MetaRegionOwners,
+    },
+    page_table::{
+        cursor::page_size_lemmas::*, mapping_set_lemmas::lemma_extend_empty_mapping_range,
     },
 };
 
@@ -2935,11 +2932,6 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
             C::lemma_paging_consts_properties();
             C::lemma_page_table_config_constant_properties();
             C::lemma_item_from_raw_roundtrip(item, pa, level, prop, Tracked(raw_permission));
-            lemma_page_size_spec_values::<C>();
-            assert(pa % page_size::<C>(level) == 0 && pa + page_size::<C>(level)
-                <= CurrentArch::ARCH_MAX_PADDR) by {
-                reveal(page_size_spec);
-            };
         }
         assert!(
             level <= C::HIGHEST_TRANSLATION_LEVEL && level <= self.0.guard_level,
