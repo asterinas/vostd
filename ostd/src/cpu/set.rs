@@ -387,6 +387,17 @@ impl CpuSet {
         ensures
             IteratorSpec::obeys_prophetic_iter_laws(&ret),
             IteratorSpec::decrease(&ret) is Some,
+            ({
+                let items = ret.remaining();
+                let produced = ret.produces();
+                &&& produced.len() == items.len()
+                &&& forall|i: int| 0 <= i < items.len() && produced[i]
+                    ==> self@.contains(#[trigger] items[i]@)
+                &&& forall|i: int, j: int| 0 <= i < j < items.len() && produced[i] && produced[j]
+                    ==> #[trigger] items[i]@ < #[trigger] items[j]@
+                &&& produced.all(|p: bool| p) ==>
+                    items.map_values(|cpu: CpuId| cpu@).to_set() == self@
+            }),
     )]
     pub fn iter(&self) -> impl Iterator<Item = CpuId> + '_ {
         /* `FlatMap` and `FilterMap` are not modeled by the active vstd, so scan
@@ -404,6 +415,34 @@ impl CpuSet {
          * })
          */
         let end = self.bits.len() * BITS_PER_PART;
+        proof! {
+            broadcast use lemma_filtered_positions_increase;
+            let range = (0usize..end).remaining();
+            let cpu_id = |cpu: CpuId| cpu@;
+            assert forall|keep: spec_fn(int) -> bool, items: Seq<CpuId>|
+                #![trigger range.filter_index(keep), items.map_values(cpu_id).to_set()]
+                ({
+                    let positions = range.filter_index(keep);
+                    &&& items.len() == positions.len()
+                    &&& items.all(|cpu: CpuId| self@.contains(cpu@))
+                    &&& forall|i: int| 0 <= i < positions.len() ==>
+                        #[trigger] items[i]@ == positions[i]
+                    &&& forall|id: int| self@.contains(id) ==> #[trigger] keep(id)
+                }) implies items.map_values(cpu_id).to_set() == self@ by {
+                let positions = range.filter_index(keep);
+                let ids = items.map_values(cpu_id);
+                ids.to_set_ensures();
+                range.lemma_filter_index(keep);
+                assert forall|id: int| self@.contains(id) implies ids.to_set().contains(id) by {
+                    assert(0 <= id < range.len());
+                    assert(range[id] == id);
+                    assert(positions.contains(range[id]));
+                    let k = choose|k: int| 0 <= k < positions.len() && positions[k] == id;
+                    assert(ids[k] == id);
+                }
+                assert(ids.to_set() =~= self@);
+            }
+        }
         (0..end)
             .filter(
                 #[verus_spec(ret: bool =>
@@ -609,6 +648,27 @@ impl AtomicCpuSet {
 // collected at the end of the file so that the APIs and critical proofs stay in focus.
 
 verus! {
+
+/// Selecting positions from `0..range.len()` preserves their strict order.
+broadcast proof fn lemma_filtered_positions_increase(range: Seq<usize>, keep: spec_fn(int) -> bool)
+    requires
+        forall|i: int| 0 <= i < range.len() ==> #[trigger] range[i] == i,
+    ensures
+        #![trigger range.filter_index(keep)]
+        ({
+            let positions = range.filter_index(keep);
+            forall|i: int, j: int|
+                0 <= i < j < positions.len() ==> #[trigger] positions[i] < #[trigger] positions[j]
+        }),
+    decreases range.len(),
+{
+    reveal(Seq::filter_index);
+    if range.len() > 0 {
+        let prefix = range.drop_last();
+        lemma_filtered_positions_increase(prefix, keep);
+        prefix.lemma_filter_index(keep);
+    }
+}
 
 /// `div_ceil(n, BITS_PER_PART)`: the number of 64-bit words needed to hold `n` bits.
 spec fn parts_for_cpus_spec(n: usize) -> usize {

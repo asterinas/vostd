@@ -1,6 +1,9 @@
 use vstd::{prelude::*, set_lib::*};
+use vstd_extra::ownership::Inv;
 
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE, lemma_vaddr_range_spec_user};
+use crate::specs::arch::{
+    ArchAddressSpaceModel, CurrentArch, PAGE_SIZE, lemma_vaddr_range_spec_user,
+};
 
 use super::page_table_managed_end_spec;
 use super::view::{Mapping, mappings_disjoint_vaddrs, mappings_well_formed};
@@ -176,7 +179,7 @@ pub proof fn lemma_sub_mapping_pa_compose(m: Mapping, p: Mapping, orig: Mapping)
             - orig.va_range.start)) as usize,
         m.property == orig.property,
 {
-    assert(MAX_PADDR < usize::MAX) by (compute_only);
+    assert(CurrentArch::ARCH_MAX_PADDR < usize::MAX) by (compute_only);
 }
 
 /// Extends an empty scanned range through an empty slot overlapping its endpoint.

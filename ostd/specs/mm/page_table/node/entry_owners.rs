@@ -310,10 +310,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
         prop: PageProperty,
     ) -> (tracked res: Self)
         requires
-            valid_frame_paddr(paddr),
+            valid_arch_paddr(paddr),
             1 <= parent_level <= C::NR_LEVELS,
             paddr % page_size::<C>(parent_level) == 0,
-            paddr + page_size::<C>(parent_level) <= MAX_PADDR,
+            paddr + page_size::<C>(parent_level) <= CurrentArch::ARCH_MAX_PADDR,
             C::raw_item_well_formed((paddr, parent_level, prop, Tracked(None))),
             C::E::new_page_req(paddr, parent_level, prop),
         ensures
@@ -339,7 +339,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
-        &&& valid_frame_paddr(pte.paddr())
+        &&& if self.is_frame() && !self.frame_is_tracked() {
+            valid_arch_paddr(pte.paddr())
+        } else {
+            valid_frame_paddr(pte.paddr())
+        }
         &&& !pte.is_present() ==> {
             &&& self.is_absent()
             &&& parent_level > 1 ==> !pte.is_last(parent_level)
@@ -369,53 +373,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& !pte.is_last(parent_level)
     }
 
-    pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)
-        requires
-            self.inv(),
-            self.is_frame(),
-            regions.inv(),
-            1 < self.parent_level <= C::NR_LEVELS,
-            idx < NR_ENTRIES,
-        ensures
-            self.frame().mapped_pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)
-                < MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) % page_size::<C>((self.parent_level - 1) as PagingLevel) == 0,
-            ((self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) + page_size::<C>((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
-            ((self.frame().mapped_pa + idx * page_size::<C>(
-                (self.parent_level - 1) as PagingLevel,
-            )) as Paddr) % PAGE_SIZE == 0,
-    {
-        C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_properties();
-        let pa = self.frame().mapped_pa;
-        let child_pa = (pa + idx * page_size::<C>((self.parent_level - 1) as PagingLevel)) as Paddr;
-        lemma_page_size_spec_values::<C>();
-        vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-        lemma_page_size_base::<C>();
-        vstd::arithmetic::power2::lemma2_to64();
-        if self.parent_level == 2 {
-            lemma_page_size_divides::<C>(1, 2);
-            assert(child_pa + page_size::<C>(1) <= MAX_PADDR) by {
-                assert(idx * 4096 + 4096 <= 2097152);
-            };
-        } else {
-            lemma_va_align_page_size::<C>(pa, 2);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                idx as int,
-                page_size::<C>(2) as int,
-            );
-            vstd::arithmetic::div_mod::lemma_add_mod_noop(
-                pa as int,
-                (idx * page_size::<C>(2)) as int,
-                page_size::<C>(2) as int,
-            );
-        }
-    }
-
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
@@ -427,11 +384,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.node().metaregion_sound_node(regions)
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
-            &&& regions.slots.contains_key(idx)
-            &&& regions.slots[idx].addr() == index_to_meta(idx)
-            &&& regions.slots[idx].is_init()
-            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& self.frame_is_tracked() ==> {
+                &&& regions.slots.contains_key(idx)
+                &&& regions.slots[idx].addr() == index_to_meta(idx)
+                &&& regions.slots[idx].is_init()
+                &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
                 &&& regions.slot_owners[idx].usage !is PageTable
                 &&& 0 < regions.ref_count(idx) <= REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
@@ -494,11 +451,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.inv(),
             self.is_frame(),
             !self.frame_is_tracked(),
-            regions.inv(),
         ensures
             self.metaregion_sound(regions),
     {
-        regions.lemma_contains_valid_frame_paddr(self.frame().mapped_pa);
         C::lemma_none_perm_well_formed(self.frame().mapped_pa, regions);
     }
 
@@ -515,7 +470,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
-        if self.is_frame() {
+        if self.is_frame() && !self.frame_is_tracked() {
+            self.lemma_untracked_frame_metaregion_sound(r1);
+        } else if self.is_frame() {
             let pa = self.frame().mapped_pa;
             let idx = frame_to_index(pa);
             assert(r0.slots[idx] == r1.slots[idx]);
@@ -555,7 +512,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
-        if self.is_frame() {
+        if self.is_frame() && !self.frame_is_tracked() {
+            self.lemma_untracked_frame_metaregion_sound(r1);
+        } else if self.is_frame() {
             C::lemma_perm_well_formed_with_region_preserved(
                 self.frame().mapped_pa,
                 Tracked(self.frame_permission()),
@@ -607,15 +566,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_node() || (self.is_frame() && self.frame_is_tracked())
                 ==> self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
-            self.meta_slot_paddr() is Some && frame_to_index(self.meta_slot_paddr()->0)
-                == changed_idx ==> r1.inv(),
         ensures
             self.metaregion_sound(r1),
     {
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
-        if self.is_frame() && !self.frame_is_tracked() && frame_to_index(self.meta_slot_paddr()->0)
-            == changed_idx {
+        if self.is_frame() && !self.frame_is_tracked() {
             self.lemma_untracked_frame_metaregion_sound(r1);
         } else if self.meta_slot_paddr() is Some {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
@@ -651,9 +607,11 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
         }
         &&& self.is_frame() ==> {
             &&& 1 <= self.parent_level <= C::NR_LEVELS
-            &&& valid_frame_paddr(self.frame().mapped_pa)
+            &&& valid_arch_paddr(self.frame().mapped_pa)
+            &&& self.frame_is_tracked() ==> valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size::<C>(self.parent_level) == 0
-            &&& self.frame().mapped_pa + page_size::<C>(self.parent_level) <= MAX_PADDR
+            &&& self.frame().mapped_pa + page_size::<C>(self.parent_level)
+                <= CurrentArch::ARCH_MAX_PADDR
             &&& C::raw_item_well_formed(
                 (
                     self.frame().mapped_pa,
