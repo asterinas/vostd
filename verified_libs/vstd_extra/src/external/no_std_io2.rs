@@ -24,8 +24,10 @@ pub trait ExWrite {
 
     fn write_all(&mut self, input: &[u8]) -> (result: Result<(), io::Error>)
         ensures
-            old(self).write_all_success_condition() ==> result is Ok,
-            Self::obeys_writer_model() && result is Ok ==> old(self).wrote_all(input@, final(self)),
+            Self::obeys_writer_model() ==> {
+                &&& old(self).write_all_success_condition() ==> result is Ok
+                &&& result is Ok ==> old(self).wrote_all(input@, final(self))
+            },
     ;
 }
 
@@ -67,20 +69,22 @@ pub trait ExRead {
 
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
-    /// Sufficient for an Ok result on normal return; does not guarantee allocation or termination.
+    /// For readers that obey the model, sufficient for an Ok result on normal return.
     spec fn read_to_end_success_condition(&self) -> bool;
 
     /// Data correctness and absence of a returned error are separate guarantees.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
-            old(self).read_to_end_success_condition() ==> result is Ok,
-            Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
-                result matches Ok(count) ==> {
-                    &&& count == plain.len()
-                    &&& final(output)@ == old(output)@ + plain
-                    &&& final(self).remaining_bytes() == Some(Seq::<u8>::empty())
+            Self::obeys_reader_model() ==> {
+                &&& old(self).read_to_end_success_condition() ==> result is Ok
+                &&& old(self).remaining_bytes() matches Some(plain) ==> {
+                    result matches Ok(count) ==> {
+                        &&& count == plain.len()
+                        &&& final(output)@ == old(output)@ + plain
+                        &&& final(self).remaining_bytes() == Some(Seq::<u8>::empty())
+                    }
                 }
-            }),
+            },
     ;
 }
 
