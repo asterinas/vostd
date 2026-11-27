@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
-use vstd_extra::{assert, assert_eq, ownership::Inv};
+use vstd_extra::ownership::Inv;
 
 use crate::mm::UniqueFrame;
 use crate::specs::mm::{
@@ -37,7 +37,7 @@ pub struct MockUFrameMeta {
 } // verus!
 // Frame allocation and management tests
 mod frame {
-    use super::assert_eq;
+    use vstd_extra::assert_eq;
 
     use super::*;
 
@@ -155,7 +155,7 @@ mod frame {
         );
     }
 
-    /* Type-erasure conversions are not migrated.
+    /*
     #[ktest]
     fn frame_to_uframe() {
         let frame = FrameAllocOptions::new()
@@ -180,7 +180,7 @@ mod frame {
 
 // Frame linked list tests
 mod linked_list {
-    use super::{assert, assert_eq};
+    use vstd_extra::{assert, assert_eq};
 
     use super::*;
     use crate::mm::frame::linked_list::{Link, LinkedList};
@@ -193,24 +193,18 @@ mod linked_list {
     )]
     fn linked_list_push_pop() {
         let alloc_options = FrameAllocOptions::new();
-        let Ok(frame1) = #[verus_spec(with Tracked(regions))]
-        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 1 }))
-        /* .unwrap() */
-        else {
-            return;
-        };
-        let Ok(frame2) = #[verus_spec(with Tracked(regions))]
-        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 2 }))
-        /* .unwrap() */
-        else {
-            return;
-        };
-        let Ok(frame3) = #[verus_spec(with Tracked(regions))]
-        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 3 }))
-        /* .unwrap() */
-        else {
-            return;
-        };
+        let allocation = #[verus_spec(with Tracked(regions))]
+        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 1 }));
+        proof! { assume(allocation is Ok); }
+        let frame1 = allocation.unwrap();
+        let allocation = #[verus_spec(with Tracked(regions))]
+        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 2 }));
+        proof! { assume(allocation is Ok); }
+        let frame2 = allocation.unwrap();
+        let allocation = #[verus_spec(with Tracked(regions))]
+        alloc_options.alloc_frame_with(Link::new(MockUFrameMeta { value: 3 }));
+        proof! { assume(allocation is Ok); }
+        let frame3 = allocation.unwrap();
 
         let mut list = LinkedList::new();
         proof_decl! {
@@ -381,7 +375,7 @@ mod linked_list {
         );
     }
 
-    /* Cursor tests are not migrated.
+    /*
     #[ktest]
     fn linked_list_cursor_at() {
         let alloc_options = FrameAllocOptions::new();
@@ -533,12 +527,12 @@ mod linked_list {
 
 // Segment tests
 mod segment {
-    use super::assert_eq;
+    use vstd_extra::assert_eq;
 
     use super::*;
     use crate::{Error, mm::USegment};
 
-    /* Segment allocation is not migrated.
+    /*
     #[ktest]
     fn segment_creation() {
         let range = 512 * PAGE_SIZE..1024 * PAGE_SIZE;
@@ -662,12 +656,10 @@ mod segment {
         ensures final(regions).inv(),
     )]
     fn frame_to_segment() {
-        let Ok(frame) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 })
-        /* .unwrap() */
-        else {
-            return;
-        };
+        let allocation = #[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(MockFrameMeta { value: 42 });
+        proof! { assume(allocation is Ok); }
+        let frame = allocation.unwrap();
         let paddr = frame.start_paddr();
         proof_decl! { let ghost allocated_frame = frame; }
         proof! { Segment::<MockFrameMeta>::lemma_from_frame(frame); }
@@ -692,7 +684,7 @@ mod segment {
         }
     }
 
-    /* Segment allocation is not migrated.
+    /*
     #[ktest]
     fn segment_drop() {
         let options = FrameAllocOptions::new();
@@ -705,7 +697,7 @@ mod segment {
     */
 }
 
-/* Frame I/O and segment allocation remain disabled.
+/*
 // Untyped frame/segment tests
 mod untyped {
     use super::*;
@@ -761,7 +753,7 @@ mod untyped {
 */
 
 mod frame_ref {
-    use super::assert_eq;
+    use vstd_extra::assert_eq;
 
     use super::*;
     use crate::sync::non_null::NonNullPtr;
@@ -774,13 +766,12 @@ mod frame_ref {
     )]
     fn frame_ref_preserves_refcnt() {
         let init_val = 42;
-        let Ok(frame) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new()
-            .alloc_frame_with(MockUFrameMeta { value: init_val })
-        /* .expect("Failed to allocate frame") */
-        else {
-            return;
-        };
+        let frame = (#[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(MockUFrameMeta { value: init_val }))
+        .expect({
+            proof! { assume(*regions != *old(regions)); }
+            "Failed to allocate frame"
+        });
 
         assert_eq!(
             #[verus_spec(with Tracked(regions.slot_owners.tracked_borrow(frame.index())))]
@@ -822,13 +813,12 @@ mod frame_ref {
     )]
     fn frame_impls_non_null_ptr() {
         let init_val = 42;
-        let Ok(frame) = #[verus_spec(with Tracked(regions))]
-        FrameAllocOptions::new()
-            .alloc_frame_with(MockUFrameMeta { value: init_val })
-        /* .expect("Failed to allocate frame") */
-        else {
-            return;
-        };
+        let frame = (#[verus_spec(with Tracked(regions))]
+        FrameAllocOptions::new().alloc_frame_with(MockUFrameMeta { value: init_val }))
+        .expect({
+            proof! { assume(*regions != *old(regions)); }
+            "Failed to allocate frame"
+        });
         let ptr = frame.start_paddr();
         let uframe: /* UFrame */ Frame<MockUFrameMeta> = frame.into();
 

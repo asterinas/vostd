@@ -3,7 +3,7 @@
 use vstd::{
     prelude::*,
     std_specs::{
-        convert::{FromSpec, FromSpecImpl},
+        convert::FromSpecImpl,
         iter::{IteratorSpec, IteratorSpecImpl},
     },
 };
@@ -13,7 +13,7 @@ use crate::specs::{
     arch::*,
     mm::frame::{
         frame_specs::FrameRawPerms, mapping::*, meta_owners::*,
-        meta_region_owners::MetaRegionOwners, segment::*,
+        meta_region_owners::MetaRegionOwners,
     },
 };
 
@@ -35,6 +35,10 @@ use super::{
     meta::{AnyFrameMeta, GetFrameError},
 };
 use crate::mm::{AnyUFrameMeta, PAGE_SIZE, Paddr};
+
+#[path = "../../../specs/mm/frame/segment.rs"]
+pub mod segment_specs;
+use segment_specs::frame_idx_at;
 
 verus! {
 
@@ -899,25 +903,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FromSpecImpl<Frame<M>> for Segment
             #[cfg(verus_keep_ghost_body)]
             tracked_perms: Tracked(Some(perm)),
         }
-    }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
-    /// Exposes the single-frame conversion without opening its representation.
-    pub proof fn lemma_from_frame(frame: Frame<M>)
-        requires
-            frame.inv(),
-        ensures
-            ({
-                let segment = <Self as FromSpec<Frame<M>>>::from_spec(frame);
-                &&& segment.inv()
-                &&& segment.start_paddr() == frame.start_paddr_spec()
-                &&& segment.size() == PAGE_SIZE
-                &&& IteratorSpec::remaining(&segment) == seq![frame]
-            }),
-    {
-        let segment = <Self as FromSpec<Frame<M>>>::from_spec(frame);
-        assert(IteratorSpec::remaining(&segment) == seq![frame]);
     }
 }
 
