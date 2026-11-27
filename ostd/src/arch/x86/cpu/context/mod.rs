@@ -15,10 +15,6 @@ use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 */
 
-/* The verified bitflags macro supplies specifications for the generated accessors.
- * Origin Rust: use bitflags_upstream::bitflags;
- */
-use bitflags::bitflags;
 use x86::bits64::segmentation::wrfsbase;
 /* Execution and FPU imports await their hardware and scheduling contracts.
  * Origin Rust:
@@ -498,7 +494,7 @@ pub struct RawPageFaultInfo {
     pub addr: Vaddr,
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Page Fault error code. Following the Intel Architectures Software Developer's Manual Volume 3
     pub struct PageFaultErrorCode : usize{
         /// 0 if no translation for the linear address.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::fmt::Debug;
+use vstd::prelude::*;
 
-use bitflags_upstream::bitflags;
+use core::fmt::Debug;
 
 /// Capability in IOMMU.
 pub struct Capability(u64);
@@ -112,7 +112,7 @@ impl Debug for Capability {
     }
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Capability flags in IOMMU.
     pub struct CapabilityFlags: u64 {
         /// Required Write-Buffer Flushing.
@@ -148,7 +148,7 @@ bitflags! {
     }
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Supported Adjusted Guest Address Widths (SAGAW) in IOMMU.
     pub struct CapabilitySagaw: u64 {
         /// 39-bit AGAW (3-level page-table).
@@ -161,7 +161,7 @@ bitflags! {
     }
 }
 
-bitflags! {
+bitflags::bitflags! {
     /// Second Stage Large Page Support (SSLPS) in IOMMU.
     pub struct CapabilitySslps: u64 {
         /// 21-bit offset to page frame (2MB).
