@@ -1,0 +1,35 @@
+diff --git a/source/rust_verify/src/query.rs b/source/rust_verify/src/query.rs
+--- a/source/rust_verify/src/query.rs
++++ b/source/rust_verify/src/query.rs
+@@ -595,8 +595,12 @@ impl<'tcx> Query<'tcx> {
+         self.emit_diags(diags);
+         let () = check.map_err(|e| self.emit_error(e))?;
+ 
+-        vir::well_formed::finish_dyn_compatability_checks(&krate, all_dyn_compatability_checks)
+-            .map_err(|e| self.emit_errors(e))?;
++        vir::well_formed::finish_dyn_compatability_checks(
++            &krate,
++            &other_vir_crates,
++            all_dyn_compatability_checks,
++        )
++        .map_err(|e| self.emit_errors(e))?;
+ 
+         Ok(krate)
+     }
+diff --git a/source/vir/src/well_formed.rs b/source/vir/src/well_formed.rs
+--- a/source/vir/src/well_formed.rs
++++ b/source/vir/src/well_formed.rs
+@@ -113,10 +113,12 @@ impl EmitError for EmitErrorState {
+ /// trait hasn't been computed yet.
+ pub fn finish_dyn_compatability_checks(
+     krate: &Krate,
++    other_crates: &[Krate],
+     checks: Vec<DynCompatabilityChecks>,
+ ) -> Result<(), Vec<VirErr>> {
+     let mut trait_map = HashMap::new();
+-    for traitt in krate.traits.iter() {
++    // Imported crates first, so a trait in the crate being verified wins any collision.
++    for traitt in other_crates.iter().flat_map(|k| k.traits.iter()).chain(krate.traits.iter()) {
+         trait_map.insert(traitt.x.name.clone(), traitt.clone());
+     }
+ 

@@ -1251,6 +1251,126 @@ pub mod install {
         tools_dir().join("patches")
     }
 
+    /// The sequence number and remainder of a bootstrap patch name,
+    /// `NNNN-name.patch`, or `None` for a file that is not one.
+    ///
+    /// `verus-irc11.patch` carries no number and so is not one: it describes a
+    /// different toolchain shape against its own pinned commit, and
+    /// `.github/workflows/ci-irc11.yml` applies it rather than bootstrap.
+    fn patch_sequence(name: &str) -> Option<(u64, &str)> {
+        let stem = name.strip_suffix(".patch")?;
+        let (number, rest) = stem.split_once('-')?;
+        if rest.is_empty() || number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        // An unparsable run of digits is left out rather than guessed at: the
+        // order it would apply in is exactly what cannot be determined.
+        Some((number.parse().ok()?, rest))
+    }
+
+    /// The patches among `files`, in the order they must be applied: by sequence
+    /// number, since each one's context is the text the earlier ones leave
+    /// behind. Sorting the names instead would put `10-` before `2-`.
+    fn order_patches(files: Vec<PathBuf>) -> Vec<PathBuf> {
+        let mut numbered: Vec<(u64, PathBuf)> = files
+            .into_iter()
+            .filter_map(|path| {
+                let (number, _) = path
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .and_then(patch_sequence)?;
+                Some((number, path))
+            })
+            .collect();
+        numbered.sort();
+        numbered.into_iter().map(|(_, path)| path).collect()
+    }
+
+    fn bootstrap_patches() -> Vec<PathBuf> {
+        let dir = tools_patch_dir();
+        if !dir.is_dir() {
+            return Vec::new();
+        }
+        let entries = fs::read_dir(&dir).unwrap_or_else(|e| {
+            error!("Unable to read {}: {}", dir.display(), e);
+        });
+        order_patches(
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .collect(),
+        )
+    }
+
+    fn checkout_is_pristine(verus_dir: &Path) -> bool {
+        let output = Command::new("git")
+            .current_dir(verus_dir)
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap_or_else(|e| {
+                error!("Unable to inspect {}: {}", verus_dir.display(), e);
+            });
+        output.status.success() && output.stdout.is_empty()
+    }
+
+    /// How much of the stack the checkout already carries, found by walking it
+    /// in reverse: the topmost applied patch is the only one whose post-image
+    /// text is still intact, since nothing after it has moved its context.
+    ///
+    /// Each earlier patch is taken to be applied as well, which is what being a
+    /// stack means -- its text is the ground the later ones were written on.
+    fn applied_prefix(verus_dir: &Path, patches: &[PathBuf]) -> usize {
+        for (index, patch) in patches.iter().enumerate().rev() {
+            if commands::is_patch_applied(verus_dir, patch) {
+                return index + 1;
+            }
+        }
+        0
+    }
+
+    /// Apply this repository's Verus patches to the checkout under `tools`.
+    ///
+    /// The patches form a stack -- each one's context is the text the previous
+    /// ones leave behind -- so they go on one at a time, in name order, and only
+    /// the ones the checkout is missing. Applying over a checkout that was
+    /// patched with a different set of files would fail or double-apply, so that
+    /// case stops the build instead.
+    fn apply_bootstrap_patches(verus_dir: &Path) {
+        let patches = bootstrap_patches();
+        if patches.is_empty() {
+            return;
+        }
+        let applied = applied_prefix(verus_dir, &patches);
+        if applied == patches.len() {
+            info!(
+                "{} Verus patch(es) from {} already applied",
+                applied,
+                tools_patch_dir().display()
+            );
+            return;
+        }
+        if applied == 0 && !checkout_is_pristine(verus_dir) {
+            error!(
+                "The Verus checkout at {} has local changes that match none of the patches in \
+                 {}. Reset it and bootstrap again: `git -C {} checkout -- . && git -C {} clean -fd`",
+                verus_dir.display(),
+                tools_patch_dir().display(),
+                verus_dir.display(),
+                verus_dir.display()
+            );
+        }
+        for patch in &patches[applied..] {
+            commands::apply_patch(verus_dir, patch);
+            status!(
+                "Applied patch {}",
+                patch
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .unwrap_or_default()
+            );
+        }
+    }
+
     pub fn clone_repo(
         verus_dir: &Path,
         branch: Option<&str>,
@@ -1499,6 +1619,9 @@ pub mod install {
         // Download Z3
         install_z3()?;
 
+        // Apply this repository's Verus patches
+        apply_bootstrap_patches(&verus_dir);
+
         // Build Verus
         build_verus(options.release, &options.build_args)?;
 
@@ -1690,6 +1813,10 @@ pub mod install {
         }
         status!("Verus repo updated to the latest version");
 
+        // Re-apply this repository's Verus patches: an upgrade either resets the
+        // checkout or merges into it, so they can be gone or already present.
+        apply_bootstrap_patches(&verus_dir);
+
         // Build Verus
         build_verus(options.release, &options.build_args)?;
 
@@ -1709,6 +1836,59 @@ pub mod install {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn bootstrap_takes_the_numbered_patches_whatever_they_are_called() {
+            for name in [
+                "1-x.patch",
+                "0001-first.patch",
+                "0042-some-longer-name.patch",
+                "9999-last.patch",
+            ] {
+                assert!(patch_sequence(name).is_some(), "{name}");
+            }
+
+            assert!(patch_sequence("verus-irc11.patch").is_none());
+            assert!(patch_sequence("0001.patch").is_none());
+            assert!(patch_sequence("0001-.patch").is_none());
+            assert!(patch_sequence("-name.patch").is_none());
+            assert!(patch_sequence("0001-first.patch.orig").is_none());
+        }
+
+        #[test]
+        fn patches_apply_in_sequence_order_whatever_the_stack_holds() {
+            let names = [
+                "0100-hundredth.patch",
+                "README.md",
+                "2-second.patch",
+                "verus-irc11.patch",
+                "0042-forty-second.patch",
+                "10-tenth.patch",
+                "0001-first.patch",
+                "7-seventh.patch",
+            ];
+            let ordered = order_patches(names.iter().map(PathBuf::from).collect());
+            let number_of = |path: &PathBuf| -> u64 {
+                let name = path.file_name().and_then(OsStr::to_str).unwrap();
+                patch_sequence(name).unwrap().0
+            };
+
+            // Only patches, and every patch: nothing dropped, nothing invented.
+            let kept: Vec<u64> = ordered.iter().map(number_of).collect();
+            let mut offered: Vec<u64> = names
+                .iter()
+                .filter_map(|name| patch_sequence(name).map(|(number, _)| number))
+                .collect();
+            offered.sort();
+            assert_eq!(kept, offered);
+
+            // Applied in sequence order, which is what sorting the names would
+            // get wrong: "10-" precedes "2-" alphabetically.
+            assert!(
+                kept.windows(2).all(|pair| pair[0] < pair[1]),
+                "out of order: {kept:?}"
+            );
+        }
 
         #[test]
         fn irc11_build_argument_enables_weak_memory_for_vstd() {

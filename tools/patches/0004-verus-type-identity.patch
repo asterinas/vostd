@@ -1,0 +1,1629 @@
+diff --git a/source/builtin/src/lib.rs b/source/builtin/src/lib.rs
+--- a/source/builtin/src/lib.rs
++++ b/source/builtin/src/lib.rs
+@@ -2497,6 +2497,23 @@ pub fn arch_word_bits() -> nat {
+     unimplemented!();
+ }
+ 
++#[cfg(verus_keep_ghost)]
++#[rustc_diagnostic_item = "verus::verus_builtin::type_id"]
++pub fn type_id<T: ?Sized>() -> core::any::TypeId {
++    unimplemented!();
++}
++
++/// The identity of the type a value actually has at runtime.
++///
++/// For a sized `T` this is `type_id::<T>()` -- a sized type admits no erasure.
++/// For a trait object it is the identity of the type that was erased into it,
++/// which is the question a downcast asks and the one `type_id` cannot answer.
++#[cfg(verus_keep_ghost)]
++#[rustc_diagnostic_item = "verus::verus_builtin::type_id_of"]
++pub fn type_id_of<T: ?Sized>(_x: &T) -> core::any::TypeId {
++    unimplemented!();
++}
++
+ #[cfg(verus_keep_ghost)]
+ #[rustc_diagnostic_item = "verus::verus_builtin::is_smaller_than"]
+ pub fn is_smaller_than<A, B>(_: A, _: B) -> bool {
+diff --git a/source/rust_verify/src/fn_call_to_vir.rs b/source/rust_verify/src/fn_call_to_vir.rs
+--- a/source/rust_verify/src/fn_call_to_vir.rs
++++ b/source/rust_verify/src/fn_call_to_vir.rs
+@@ -5,7 +5,7 @@ use crate::resolve_traits::{ResolutionResult, ResolvedItem, resolve_trait_item};
+ use crate::reveal_hide::RevealHideResult;
+ use crate::rust_to_vir_base::{
+     bitwidth_and_signedness_of_integer_type, is_smt_arith, is_type_std_rc_or_arc_or_ref,
+-    typ_of_expr_adjusted, typ_of_node_unadjusted,
++    mid_ty_to_vir, typ_of_expr_adjusted, typ_of_node_unadjusted,
+ };
+ use crate::rust_to_vir_expr::{
+     check_lit_int, closure_param_typs, closure_to_vir, expr_to_vir, expr_to_vir_consume,
+@@ -506,7 +506,7 @@ fn verus_item_to_vir<'tcx, 'a>(
+     let args_len = args.len();
+ 
+     if !bctx.in_ghost && uncompilable_verus_fn(verus_item) {
+-        return err_span(
++        let err = crate::util::err_span_bare(
+             expr.span,
+             format!(
+                 "cannot use `{f_name}`{:} in executable context",
+@@ -517,6 +517,16 @@ fn verus_item_to_vir<'tcx, 'a>(
+                 }
+             ),
+         );
++        // `type_id` is the spec-level identity; the executable one is a real
++        // `TypeId`, which vstd specifies as returning exactly this.
++        let err = match verus_item {
++            VerusItem::Expr(ExprItem::TypeId | ExprItem::TypeIdOf) => err.help(
++                "use `core::any::TypeId::of::<T>()` in executable code; \
++                 `vstd::std_specs::any` specifies it as `type_id::<T>()`",
++            ),
++            _ => err,
++        };
++        return Err(err);
+     }
+ 
+     let mk_expr = |x: ExprX| Ok(bctx.spanned_typed_new(expr.span, &expr_typ()?, x));
+@@ -1236,6 +1246,61 @@ fn verus_item_to_vir<'tcx, 'a>(
+ 
+                 mk_expr(ExprX::UnaryOpr(UnaryOpr::IntegerTypeBound(kind), arg))
+             }
++            ExprItem::TypeId => {
++                record_spec_fn(bctx, expr);
++                assert!(args.len() == 0);
++                let arg_ty = node_substs[0].expect_ty();
++
++                if arg_ty.walk().into_iter().any(|arg| {
++                    arg.as_type().map_or(false, |t| matches!(t.kind(), TyKind::Dynamic(..)))
++                }) {
++                    return err_span(
++                        expr.span,
++                        format!(
++                            "Verus does not support `type_id` of the trait object type `{arg_ty}`: \
++                             two different `dyn` types are indistinguishable in Verus's model of \
++                             type identity",
++                        ),
++                    );
++                }
++
++                let t = mid_ty_to_vir(
++                    tcx,
++                    &bctx.ctxt.verus_items,
++                    None::<&mut std::collections::HashMap<vir::ast::Path, rustc_span::def_id::DefId>>,
++                    bctx.fun_id,
++                    expr.span,
++                    &arg_ty,
++                    None,
++                )?;
++
++                mk_expr(ExprX::NullaryOpr(vir::ast::NullaryOpr::TypeTag(t)))
++            }
++            ExprItem::TypeIdOf => {
++                record_spec_fn(bctx, expr);
++                // The type argument, not the argument's type: `type_id_of` takes
++                // `&T` and asks about the `T`, and `&T` would be a different
++                // identity, since identity is decoration-sensitive.
++                let t = mid_ty_to_vir(
++                    tcx,
++                    &bctx.ctxt.verus_items,
++                    None::<&mut std::collections::HashMap<vir::ast::Path, rustc_span::def_id::DefId>>,
++                    bctx.fun_id,
++                    expr.span,
++                    &node_substs[0].expect_ty(),
++                    None,
++                )?;
++                match &expr.kind {
++                    ExprKind::Call(_, args) => {
++                        assert!(args.len() == 1);
++                        let arg0 = args.first().unwrap();
++                        let arg0 =
++                            expr_to_vir_consume(bctx, arg0).expect("internal compiler error");
++                        mk_expr(ExprX::UnaryOpr(UnaryOpr::TypeTagOf(t), arg0))
++                    }
++                    _ => panic!("internal error: expected Call for type_id_of"),
++                }
++            }
+             ExprItem::ClosureToFnSpec | ExprItem::ClosureToFnProof => {
+                 internal_err_unless!(args_len == 1, expr.span, "expected `closure_to_fn`", &args);
+                 if !bctx.in_ghost {
+diff --git a/source/rust_verify/src/rust_to_vir_base.rs b/source/rust_verify/src/rust_to_vir_base.rs
+--- a/source/rust_verify/src/rust_to_vir_base.rs
++++ b/source/rust_verify/src/rust_to_vir_base.rs
+@@ -1032,6 +1032,13 @@ pub(crate) fn mid_ty_to_vir_ghost<'tcx>(
+             } else {
+                 let rust_item = verus_items::get_rust_item(tcx, did);
+ 
++                if rust_item == Some(verus_items::RustItem::TypeId) {
++                    return Ok((
++                        Arc::new(TypX::Primitive(Primitive::TypeTag, Arc::new(vec![]))),
++                        false,
++                    ));
++                }
++
+                 let typ_args = mk_typ_args(&args)?;
+                 if Some(did) == tcx.lang_items().owned_box() && typ_args.len() == 2 {
+                     let (t0, ghost) = &typ_args[0];
+diff --git a/source/rust_verify/src/trait_conflicts.rs b/source/rust_verify/src/trait_conflicts.rs
+--- a/source/rust_verify/src/trait_conflicts.rs
++++ b/source/rust_verify/src/trait_conflicts.rs
+@@ -51,6 +51,7 @@ enum TypNum {
+     Never,
+     ConstPtr,
+     Global,
++    TypeTag,
+ }
+ 
+ fn gen_num_typ(n: TypNum, ts: Vec<Typ>) -> Typ {
+@@ -130,6 +131,7 @@ fn gen_typ(state: &mut State, typ: &vir::ast::Typ) -> Typ {
+                 Primitive::StrSlice => unreachable!(),
+                 Primitive::Ptr => TypNum::Ptr,
+                 Primitive::Global => TypNum::Global,
++                Primitive::TypeTag => TypNum::TypeTag,
+             };
+             gen_num_typ(n, gen_typs(state, ts))
+         }
+diff --git a/source/rust_verify/src/verus_items.rs b/source/rust_verify/src/verus_items.rs
+--- a/source/rust_verify/src/verus_items.rs
++++ b/source/rust_verify/src/verus_items.rs
+@@ -146,6 +146,8 @@ pub(crate) enum ExprItem {
+     StrSliceLen,
+     StrSliceGetChar,
+     ArchWordBits,
++    TypeId,
++    TypeIdOf,
+     ClosureToFnSpec,
+     ClosureToFnProof,
+     SignedMin,
+@@ -555,6 +557,8 @@ fn verus_items_map() -> Vec<(&'static str, VerusItem)> {
+         ("verus::verus_builtin::strslice_len",            VerusItem::Expr(ExprItem::StrSliceLen)),
+         ("verus::verus_builtin::strslice_get_char",       VerusItem::Expr(ExprItem::StrSliceGetChar)),
+         ("verus::verus_builtin::arch_word_bits",          VerusItem::Expr(ExprItem::ArchWordBits)),
++        ("verus::verus_builtin::type_id",                 VerusItem::Expr(ExprItem::TypeId)),
++        ("verus::verus_builtin::type_id_of",              VerusItem::Expr(ExprItem::TypeIdOf)),
+         ("verus::verus_builtin::closure_to_fn_spec",      VerusItem::Expr(ExprItem::ClosureToFnSpec)),
+         ("verus::verus_builtin::closure_to_fn_proof",     VerusItem::Expr(ExprItem::ClosureToFnProof)),
+         ("verus::verus_builtin::signed_min",              VerusItem::Expr(ExprItem::SignedMin)),
+@@ -931,6 +935,7 @@ pub(crate) enum RustItem {
+     SliceSealed,
+     Vec,
+     Thin,
++    TypeId,
+ }
+ 
+ fn get_rust_int_intrinsic<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<RustIntIntrinsicItem> {
+@@ -1093,6 +1098,9 @@ pub(crate) fn get_rust_item_str(rust_path: Option<&str>) -> Option<RustItem> {
+     if rust_path == Some("core::ptr::metadata::Thin") {
+         return Some(RustItem::Thin);
+     }
++    if rust_path == Some("core::any::TypeId") {
++        return Some(RustItem::TypeId);
++    }
+     if rust_path == Some("core::any::Any") {
+         return Some(RustItem::Any);
+     }
+diff --git a/source/rust_verify_test/tests/type_id.rs b/source/rust_verify_test/tests/type_id.rs
+new file mode 100644
+--- /dev/null
++++ b/source/rust_verify_test/tests/type_id.rs
+@@ -0,0 +1,404 @@
++#![feature(rustc_private)]
++#[macro_use]
++mod common;
++use common::*;
++
++test_verify_one_file! {
++    #[test] distinct_primitive_constructors verus_code! {
++        use verus_builtin::type_id;
++        proof fn t() {
++            assert(type_id::<u8>() != type_id::<u16>());
++            assert(type_id::<bool>() != type_id::<u8>());
++            assert(type_id::<int>() != type_id::<nat>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] distinct_datatypes verus_code! {
++        use verus_builtin::type_id;
++        struct A;
++        struct B;
++        proof fn t() {
++            assert(type_id::<A>() != type_id::<B>());
++            assert(type_id::<A>() != type_id::<bool>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] distinct_instantiations verus_code! {
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        proof fn t() {
++            assert(type_id::<Wrap<u8>>() != type_id::<Wrap<u16>>());
++            assert(type_id::<Wrap<bool>>() != type_id::<Wrap<u8>>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] argument_order_matters verus_code! {
++        use verus_builtin::type_id;
++        struct Pair<A, B>(A, B);
++        proof fn t() {
++            assert(type_id::<Pair<bool, u8>>() != type_id::<Pair<u8, bool>>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] nested_and_recursive verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        enum List<T> { Nil, Cons(T, Box<List<T>>) }
++        proof fn t() {
++            assert(type_id::<Wrap<Wrap<u8>>>() != type_id::<Wrap<u8>>());
++            assert(type_id::<List<u8>>() != type_id::<List<bool>>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] const_generics verus_code! {
++        use verus_builtin::type_id;
++        struct Slab<const N: usize>;
++        proof fn t() {
++            assert(type_id::<Slab<64>>() != type_id::<Slab<128>>());
++            assert(type_id::<[u8; 4]>() != type_id::<[u8; 8]>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] reflexive verus_code! {
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        proof fn t() {
++            assert(type_id::<Wrap<u8>>() == type_id::<Wrap<u8>>());
++        }
++    } => Ok(())
++}
++
++// A TypeId is an ordinary ghost value: it can be stored, passed and compared.
++test_verify_one_file! {
++    #[test] storable verus_code! {
++        use verus_builtin::type_id;
++        use core::any::TypeId;
++        struct Wrap<T>(T);
++        proof fn t(x: TypeId) {
++            let s = Wrap(x);
++            assert(s.0 == x);
++        }
++        spec fn is_u8(x: TypeId) -> bool { x == type_id::<u8>() }
++        proof fn u() {
++            assert(is_u8(type_id::<u8>()));
++        }
++    } => Ok(())
++}
++
++// --- Soundness controls: these must NOT be provable ------------------------
++
++test_verify_one_file! {
++    #[test] type_params_not_distinct verus_code! {
++        use verus_builtin::type_id;
++        proof fn t<A, B>() {
++            assert(type_id::<A>() != type_id::<B>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++test_verify_one_file! {
++    #[test] type_params_not_distinct_nested verus_code! {
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        proof fn t<A, B>() {
++            assert(type_id::<Wrap<A>>() != type_id::<Wrap<B>>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++test_verify_one_file! {
++    #[test] decoration_is_part_of_identity verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        use std::rc::Rc;
++        use std::sync::Arc;
++        struct S(u8);
++        proof fn t() {
++            assert(type_id::<&u8>()    != type_id::<u8>());
++            assert(type_id::<&mut S>() != type_id::<S>());
++            assert(type_id::<Box<S>>() != type_id::<S>());
++            assert(type_id::<Rc<S>>()  != type_id::<S>());
++            assert(type_id::<Arc<S>>() != type_id::<S>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] decorations_distinguish_each_other verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        use std::rc::Rc;
++        struct S(u8);
++        proof fn t() {
++            assert(type_id::<Box<S>>() != type_id::<Rc<S>>());
++            assert(type_id::<&S>()     != type_id::<Box<S>>());
++            assert(type_id::<&&S>()    != type_id::<&S>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] parameter_decorations_are_folded verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        struct Wrap<T>(T);
++        struct S(u8);
++        proof fn t() {
++            assert(type_id::<Wrap<&u8>>()    != type_id::<Wrap<u8>>());
++            assert(type_id::<Wrap<Box<S>>>() != type_id::<Wrap<S>>());
++        }
++    } => Ok(())
++}
++
++// Decorating an opaque parameter is still distinguishing, because no
++// instantiation of `A` can equal `&A` -- that would be an infinite type. This is
++// a consequence of the datatype encoding's acyclicity, not an extra axiom.
++test_verify_one_file! {
++    #[test] decorated_type_param_is_distinct verus_code! {
++        use verus_builtin::type_id;
++        proof fn t<A>() {
++            assert(type_id::<&A>() != type_id::<A>());
++        }
++    } => Ok(())
++}
++
++// ... but two *different* parameters stay indistinguishable even decorated: `A`
++// and `B` may be instantiated equally, and so may `&A` and `&B`.
++test_verify_one_file! {
++    #[test] decorated_type_params_not_distinct verus_code! {
++        use verus_builtin::type_id;
++        proof fn t<A, B>() {
++            assert(type_id::<&A>() != type_id::<&B>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// An unresolved associated type is opaque, like a type parameter.
++test_verify_one_file! {
++    #[test] projections_not_distinct verus_code! {
++        use verus_builtin::type_id;
++        trait Tr { type Out; }
++        proof fn t<A: Tr, B: Tr>() {
++            assert(type_id::<A::Out>() != type_id::<B::Out>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// --- `dyn` types are rejected, not silently indistinguishable ---------------
++
++test_verify_one_file! {
++    #[test] dyn_type_id_rejected verus_code! {
++        use verus_builtin::type_id;
++        trait A { spec fn a(&self) -> u64; }
++        proof fn t() {
++            let x = type_id::<dyn A>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++test_verify_one_file! {
++    #[test] dyn_type_id_rejected_under_decoration verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        trait A { spec fn a(&self) -> u64; }
++        proof fn t() {
++            let x = type_id::<Box<dyn A>>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++test_verify_one_file! {
++    #[test] dyn_type_id_rejected_in_datatype_arg verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::type_id;
++        trait A { spec fn a(&self) -> u64; }
++        struct Wrap<T: ?Sized>(core::marker::PhantomData<T>);
++        proof fn t() {
++            let x = type_id::<Wrap<dyn A>>();
++        }
++    } => Err(err) => assert_vir_error_msg(err, "does not support `type_id` of the trait object type")
++}
++
++test_verify_one_file! {
++    #[test] unsized_type_param_still_allowed verus_code! {
++        use verus_builtin::type_id;
++        proof fn t<T: ?Sized>() {
++            assert(type_id::<T>() == type_id::<T>());
++        }
++        proof fn u<T: ?Sized>() {
++            assert(type_id::<&T>() != type_id::<T>());
++        }
++    } => Ok(())
++}
++
++// --- `type_id_of`: the identity of the type a value actually has -------------
++//
++// A1: for a sized static type the value-level and type-level identities
++// coincide, since a sized type admits no erasure.
++
++test_verify_one_file! {
++    #[test] type_id_of_sized verus_code! {
++        use verus_builtin::{type_id, type_id_of};
++        struct C(u64);
++        proof fn concrete(x: &C) {
++            assert(type_id_of(x) == type_id::<C>());
++        }
++        proof fn generic<T>(x: &T) {
++            assert(type_id_of(x) == type_id::<T>());
++        }
++    } => Ok(())
++}
++
++// A1's guard is load-bearing: a `?Sized` parameter may be a trait object, whose
++// value identity is the erased type's and not its own.
++test_verify_one_file! {
++    #[test] type_id_of_unsized_param_is_not_own_type verus_code! {
++        use verus_builtin::{type_id, type_id_of};
++        proof fn t<T: ?Sized>(x: &T) {
++            assert(type_id_of(x) == type_id::<T>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// A2: erasure is the identity on runtime type. The payoff is that this holds
++// for a *type parameter*, which no per-impl fact can deliver -- it is what a
++// client would otherwise simulate with a spec fn plus a per-impl obligation.
++test_verify_one_file! {
++    #[test] type_id_of_erased verus_code! {
++        use verus_builtin::{type_id, type_id_of};
++        trait Tr { spec fn s(&self) -> u64; }
++        struct C(u64);
++        impl Tr for C { spec fn s(&self) -> u64 { self.0 } }
++        fn generic<F: Tr>(v: &F) {
++            let d: &dyn Tr = v;
++            assert(type_id_of(d) == type_id::<F>());
++        }
++        fn concrete(c: &C) {
++            let d: &dyn Tr = c;
++            assert(type_id_of(d) == type_id::<C>());
++        }
++    } => Ok(())
++}
++
++test_verify_one_file! {
++    #[test] type_id_of_erased_no_confusion verus_code! {
++        use verus_builtin::{type_id, type_id_of};
++        trait Tr { spec fn s(&self) -> u64; }
++        struct C(u64);
++        impl Tr for C { spec fn s(&self) -> u64 { self.0 } }
++        fn test<F: Tr>(v: &F) {
++            let d: &dyn Tr = v;
++            assert(type_id_of(d) == type_id::<C>()); // FAILS
++        }
++    } => Err(err) => assert_one_fails(err)
++}
++
++// A supertrait upcast lowers to a ToDyn whose Self *is* a trait object. A2
++// recurses into it rather than concluding, so the erased identity propagates --
++// concluding `type_id::<Self>()` there would be wrong, not merely weak.
++test_verify_one_file! {
++    #[test] type_id_of_upcast_propagates verus_code! {
++        use verus_builtin::{type_id, type_id_of};
++        trait A { spec fn a(&self) -> u64; }
++        trait B: A { spec fn b(&self) -> u64; }
++        struct C(u64);
++        impl A for C { spec fn a(&self) -> u64 { 1 } }
++        impl B for C { spec fn b(&self) -> u64 { 2 } }
++        fn propagates(x: &dyn B) {
++            let d: &dyn A = x;
++            assert(type_id_of(d) == type_id_of(x));
++        }
++        fn end_to_end(c: &C) {
++            let x: &dyn B = c;
++            let d: &dyn A = x;
++            assert(type_id_of(d) == type_id::<C>());
++        }
++    } => Ok(())
++}
++
++// Identity is decoration-sensitive, and `type_id_of` keys on the static type as
++// well as the value, so a box is its own type rather than its content's.
++test_verify_one_file! {
++    #[test] type_id_of_decorations verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::{type_id, type_id_of};
++        struct C(u64);
++        fn boxed(b: &Box<C>) {
++            assert(type_id_of(b) == type_id::<Box<C>>());
++        }
++        fn reference(r: &&C) {
++            assert(type_id_of(r) == type_id::<&C>());
++        }
++    } => Ok(())
++}
++
++// Spec-only, with the diagnostic pointing at the executable counterpart.
++test_verify_one_file! {
++    #[test] type_id_of_exec_rejected verus_code! {
++        use verus_builtin::type_id_of;
++        struct C(u64);
++        fn test(c: &C) -> bool {
++            let x = type_id_of(c);
++            true
++        }
++    } => Err(err) => assert_vir_error_msg(err, "cannot use")
++}
++
++// A dyn-compatible trait may state what its vtable already knows. The `Self`
++// type argument of `type_id_of(self)` selects the receiver's own
++// implementation, exactly as the dispatch argument of a receiver call does, so
++// the contract survives the substitution of `dyn T` -- this is the shape an
++// `Any`-style trait needs, and without it the trait would not be dyn compatible.
++test_verify_one_file! {
++    #[test] type_id_of_in_dyn_trait_spec verus_code! {
++        use vstd::prelude::*;
++        use verus_builtin::{type_id, type_id_of};
++        use core::any::TypeId;
++        trait Named {
++            fn id(&self) -> (r: TypeId)
++                ensures r == type_id_of(self);
++        }
++        struct C;
++        impl Named for C {
++            fn id(&self) -> (r: TypeId) { TypeId::of::<C>() }
++        }
++        fn through_vtable(x: &dyn Named) -> (r: TypeId)
++            ensures r == type_id_of(x)
++        { x.id() }
++        fn erased(c: &C) {
++            let d: &dyn Named = c;
++            let r = d.id();
++            assert(r == type_id::<C>());
++        }
++    } => Ok(())
++}
++
++// The permission is for the receiver only. This one is true of every concrete
++// `Self` -- every value of one type shares that type's identity -- and false
++// after substituting `dyn T`, where the quantifier ranges over every
++// implementor's values. It is the hazard the check exists for, and it must stay
++// rejected.
++test_verify_one_file! {
++    #[test] type_id_of_non_receiver_in_dyn_trait_spec verus_code! {
++        use verus_builtin::type_id_of;
++        use core::any::TypeId;
++        trait Named {
++            fn id(&self) -> (r: TypeId)
++                ensures forall|b: &Self| #[trigger] type_id_of(b) == r;
++        }
++        fn test(x: &dyn Named) { }
++    } => Err(err) => assert_vir_error_msg(err, "uses Self outside of the receiver")
++}
+diff --git a/source/vir/src/ast.rs b/source/vir/src/ast.rs
+--- a/source/vir/src/ast.rs
++++ b/source/vir/src/ast.rs
+@@ -270,6 +270,7 @@ pub enum Primitive {
+     StrSlice,
+     Ptr, // Mut ptr, unless Const decoration is applied
+     Global,
++    TypeTag,
+ }
+ 
+ #[derive(Debug, Serialize, Deserialize, Hash, ToDebugSNode, Clone)]
+@@ -388,6 +389,8 @@ pub enum NullaryOpr {
+     TypEqualityBound(Path, Typs, Ident, Typ),
+     /// predicate representing const type bound, e.g., `const X: usize`
+     ConstTypBound(Typ, Typ),
++    /// identity of a type, as in `type_id::<T>()`; carries the type it identifies
++    TypeTag(Typ),
+ }
+ 
+ #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, ToDebugSNode)]
+@@ -584,6 +587,10 @@ pub enum UnaryOpr {
+     /// Coerce from concrete type to `dyn T`, recording the Self type and the
+     /// trait implementations needed to construct the trait object.
+     ToDyn(Typ, ImplPaths),
++    /// The identity of the type a value actually has at runtime, where the Typ is
++    /// the value's static type. For a sized static type the two coincide; for a
++    /// `dyn T` the value's is the type erased into it.
++    TypeTagOf(Typ),
+     /// Isolation boundary for the loop of the given label, which must be contained
+     /// in the boundary.
+     LoopIsolationBoundary(Label),
+diff --git a/source/vir/src/ast_util.rs b/source/vir/src/ast_util.rs
+--- a/source/vir/src/ast_util.rs
++++ b/source/vir/src/ast_util.rs
+@@ -1078,6 +1078,7 @@ pub fn typ_to_diagnostic_str(typ: &Typ) -> String {
+             crate::ast::Primitive::StrSlice => "StrSlice".to_owned(),
+             crate::ast::Primitive::Ptr => format!("*mut {:}", typ_to_diagnostic_str(&typs[0])),
+             crate::ast::Primitive::Global => format!("Global"),
++            crate::ast::Primitive::TypeTag => format!("TypeId"),
+         },
+         TypX::Datatype(Dt::Tuple(_arity), typs, _) => {
+             // 1-tuples should be formatted like `(T,)`
+diff --git a/source/vir/src/ast_visitor.rs b/source/vir/src/ast_visitor.rs
+--- a/source/vir/src/ast_visitor.rs
++++ b/source/vir/src/ast_visitor.rs
+@@ -240,6 +240,10 @@ pub(crate) trait AstVisitor<R: Returner, Err, Scope: Scoper> {
+                 let t = self.visit_typ(typ)?;
+                 R::ret(|| NullaryOpr::ConstGeneric(R::get(t)))
+             }
++            NullaryOpr::TypeTag(typ) => {
++                let t = self.visit_typ(typ)?;
++                R::ret(|| NullaryOpr::TypeTag(R::get(t)))
++            }
+             NullaryOpr::TraitBound(trait_id, typs) => {
+                 let ts = self.visit_typs(typs)?;
+                 R::ret(|| NullaryOpr::TraitBound(trait_id.clone(), R::get_vec_a(ts)))
+@@ -278,6 +282,10 @@ pub(crate) trait AstVisitor<R: Returner, Err, Scope: Scoper> {
+                 let t = self.visit_typ(t)?;
+                 R::ret(|| UnaryOpr::HasType(R::get(t)))
+             }
++            UnaryOpr::TypeTagOf(t) => {
++                let t = self.visit_typ(t)?;
++                R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
++            }
+             UnaryOpr::HasResolved(t) => {
+                 let t = self.visit_typ(t)?;
+                 R::ret(|| UnaryOpr::HasResolved(R::get(t)))
+diff --git a/source/vir/src/context.rs b/source/vir/src/context.rs
+--- a/source/vir/src/context.rs
++++ b/source/vir/src/context.rs
+@@ -141,6 +141,7 @@ pub struct Ctx {
+     pub query_result_observer: Option<
+         std::rc::Rc<std::cell::RefCell<dyn air::query_result_observer::QueryResultObserver>>,
+     >,
++    pub(crate) type_tag_hashes: RefCell<HashMap<BigUint, Path>>,
+     pub arch_word_bits: ArchWordBits,
+ }
+ 
+@@ -271,6 +272,7 @@ fn datatypes_invs(
+                         TypX::Decorate(..) => unreachable!("TypX::Decorate"),
+                         TypX::Boxed(_) => {}
+                         TypX::TypeId => {}
++                        TypX::Primitive(Primitive::TypeTag, _) => {}
+                         TypX::Opaque { .. } => {}
+                         TypX::Bool => {}
+                         TypX::Float(_) => {}
+@@ -866,6 +868,7 @@ impl Ctx {
+         let quantifier_count = RefCell::new(HashMap::new());
+         let string_hashes = RefCell::new(HashMap::new());
+         let byte_string_hashes = RefCell::new(HashMap::new());
++        let type_tag_hashes = RefCell::new(HashMap::new());
+ 
+         let mut fndef_type_set = HashSet::new();
+         for fndef_type in fndef_types.iter() {
+@@ -923,6 +926,7 @@ impl Ctx {
+             observer,
+             air_observer,
+             query_result_observer,
++            type_tag_hashes,
+             arch_word_bits: krate.arch.word_bits,
+             opaque_type_map,
+         })
+diff --git a/source/vir/src/datatype_to_air.rs b/source/vir/src/datatype_to_air.rs
+--- a/source/vir/src/datatype_to_air.rs
++++ b/source/vir/src/datatype_to_air.rs
+@@ -101,6 +101,7 @@ fn uses_ext_equal(ctx: &Ctx, typ: &Typ) -> bool {
+         TypX::Primitive(crate::ast::Primitive::StrSlice, _) => false,
+         TypX::Primitive(crate::ast::Primitive::Ptr, _) => false,
+         TypX::Primitive(crate::ast::Primitive::Global, _) => false,
++        TypX::Primitive(crate::ast::Primitive::TypeTag, _) => false,
+         TypX::FnDef(..) => false,
+         TypX::MutRef(_) => false,
+         TypX::Opaque { .. } => false,
+@@ -155,6 +156,55 @@ fn datatype_or_fun_to_air_commands(
+             str_typ(crate::def::TYPE),
+         ));
+         token_commands.push(Arc::new(CommandX::Global(decl_type_id)));
++
++        let mut binders: Vec<air::ast::Binder<air::ast::Typ>> = Vec::new();
++        let mut id_args: Vec<Expr> = Vec::new();
++        let mut tag_args: Vec<Expr> = Vec::new();
++        for (i, _) in tparams.iter().enumerate() {
++            let mut param_ids: Vec<Expr> = Vec::new();
++            for (j, s) in crate::def::types().iter().enumerate() {
++                let nm = air_unique_var(&format!("tag%p{}%{}", i, j));
++                binders.push(ident_binder(&nm.lower(), &str_typ(s)));
++                let v = ident_var(&nm.lower());
++                param_ids.push(v.clone());
++                id_args.push(v);
++            }
++            tag_args.push(str_apply(
++                crate::def::TYPE_TAG_APP,
++                &vec![
++                    str_apply(crate::def::DCR_TAG, &vec![param_ids[0].clone()]),
++                    str_apply(crate::def::TYPE_TAG, &vec![param_ids[1].clone()]),
++                ],
++            ));
++        }
++        let k = crate::sst_to_air::path_type_tag_id(ctx, dpath);
++        let mut rhs = str_apply(
++            crate::def::TYPE_TAG_MK,
++            &vec![Arc::new(ExprX::Const(air::ast::Constant::Nat(Arc::new(k))))],
++        );
++        for a in tag_args.iter() {
++            rhs = str_apply(crate::def::TYPE_TAG_APP, &vec![rhs, a.clone()]);
++        }
++        let id_app = if id_args.is_empty() {
++            ident_var(&ctx.name_ctxt.prefix_type_id(dpath))
++        } else {
++            ident_apply(&ctx.name_ctxt.prefix_type_id(dpath), &Arc::new(id_args))
++        };
++        let lhs = str_apply(crate::def::TYPE_TAG, &vec![id_app]);
++        let body = mk_eq(&lhs, &rhs);
++        let axiom = if binders.is_empty() {
++            mk_unnamed_axiom(body)
++        } else {
++            let trigs = Arc::new(vec![Arc::new(vec![lhs.clone()])]);
++            let bind = Arc::new(air::ast::BindX::Quant(
++                air::ast::Quant::Forall,
++                Arc::new(binders),
++                trigs,
++                None,
++            ));
++            mk_unnamed_axiom(mk_bind_expr(&bind, &body))
++        };
++        token_commands.push(Arc::new(CommandX::Global(axiom)));
+     }
+ 
+     if declare_box {
+diff --git a/source/vir/src/def.rs b/source/vir/src/def.rs
+--- a/source/vir/src/def.rs
++++ b/source/vir/src/def.rs
+@@ -89,6 +89,7 @@ const STRSLICE_TYPE: &str = "strslice%";
+ const ARRAY_TYPE: &str = "array%";
+ const PTR_TYPE: &str = "ptr_mut%";
+ const GLOBAL_TYPE: &str = "allocator_global%";
++const TYPETAG_TYPE: &str = "typetag%";
+ const PREFIX_SNAPSHOT: &str = "snap%";
+ const SUBST_RENAME_SEPARATOR: &str = "$$";
+ const EXPAND_ERRORS_DECL_SEPARATOR: &str = "$$$";
+@@ -174,10 +175,12 @@ pub const BOX_INT: &str = "I";
+ pub const BOX_BOOL: &str = "B";
+ pub const BOX_REAL: &str = "R";
+ pub const BOX_FNDEF: &str = "F";
++pub const BOX_TYPETAG: &str = "Tg";
+ pub const UNBOX_INT: &str = "%I";
+ pub const UNBOX_BOOL: &str = "%B";
+ pub const UNBOX_REAL: &str = "%R";
+ pub const UNBOX_FNDEF: &str = "%F";
++pub const UNBOX_TYPETAG: &str = "%Tg";
+ pub const TYPE: &str = "Type";
+ pub const TYPE_ID_BOOL: &str = "BOOL";
+ pub const TYPE_ID_REAL: &str = "REAL";
+@@ -191,6 +194,17 @@ pub const TYPE_ID_SINT: &str = "SINT";
+ pub const TYPE_ID_FLOAT: &str = "FLOAT";
+ pub const TYPE_ID_CONST_INT: &str = "CONST_INT";
+ pub const TYPE_ID_CONST_BOOL: &str = "CONST_BOOL";
++
++pub const TYPE_TAG_SORT: &str = "TypeTag";
++pub const TYPE_TAG: &str = "TYPE%tag";
++pub const VAL_TAG: &str = "val%tag";
++pub const DCR_TAG: &str = "dcr%tag";
++pub const TYPE_ID_TYPETAG: &str = "TYPETAG";
++pub const TYPE_TAG_MK: &str = "tag%mk";
++pub const TYPE_TAG_ID: &str = "tag%id";
++pub const TYPE_TAG_APP: &str = "tag%app";
++pub const TYPE_TAG_FN: &str = "tag%fn";
++pub const TYPE_TAG_ARG: &str = "tag%arg";
+ pub const DECORATION: &str = "Dcr";
+ pub const DECORATE_NIL_SIZED: &str = "$";
+ pub const DECORATE_NIL_SLICE: &str = "$slice"; // for 'str' and '[T]' types
+@@ -604,6 +618,10 @@ pub fn global_type() -> Path {
+     internal_path(GLOBAL_TYPE.to_string())
+ }
+ 
++pub fn typetag_type() -> Path {
++    internal_path(TYPETAG_TYPE.to_string())
++}
++
+ impl NameCtxt {
+     pub fn prefix_dcr_id(&self, ident: &Path) -> Ident {
+         Arc::new(PREFIX_DCR_ID.to_string() + &self.path_to_string(ident))
+diff --git a/source/vir/src/heuristics.rs b/source/vir/src/heuristics.rs
+--- a/source/vir/src/heuristics.rs
++++ b/source/vir/src/heuristics.rs
+@@ -29,6 +29,7 @@ fn auto_ext_equal_typ(ctx: &Ctx, typ: &Typ) -> bool {
+         TypX::Primitive(crate::ast::Primitive::StrSlice, _) => true,
+         TypX::Primitive(crate::ast::Primitive::Ptr, _) => false,
+         TypX::Primitive(crate::ast::Primitive::Global, _) => false,
++        TypX::Primitive(crate::ast::Primitive::TypeTag, _) => false,
+         TypX::FnDef(..) => false,
+         TypX::MutRef(_) => false,
+         TypX::Opaque { .. } => false,
+@@ -77,7 +78,8 @@ fn insert_auto_ext_equal(ctx: &Ctx, exp: &Exp) -> Exp {
+             | UnaryOpr::ProofNote(_)
+             | UnaryOpr::AutoDecreases
+             | UnaryOpr::AutoLoopEnsures
+-            | UnaryOpr::ToDyn(..) => {
++            | UnaryOpr::ToDyn(..)
++            | UnaryOpr::TypeTagOf(..) => {
+                 exp.new_x(ExpX::UnaryOpr(op.clone(), insert_auto_ext_equal(ctx, e)))
+             }
+             UnaryOpr::HasResolved(..) => exp.clone(),
+diff --git a/source/vir/src/interpreter.rs b/source/vir/src/interpreter.rs
+--- a/source/vir/src/interpreter.rs
++++ b/source/vir/src/interpreter.rs
+@@ -1556,6 +1556,7 @@ fn eval_expr_internal(ctx: &Ctx, state: &mut State, exp: &Exp) -> Result<Exp, Vi
+                     }
+                 }
+                 ToDyn(..) => ok,
++                TypeTagOf(..) => ok,
+                 HasResolved(_) => ok,
+                 CustomErr(_) => Ok(e),
+                 AutoDecreases => Ok(e),
+diff --git a/source/vir/src/modes.rs b/source/vir/src/modes.rs
+--- a/source/vir/src/modes.rs
++++ b/source/vir/src/modes.rs
+@@ -2296,6 +2296,7 @@ fn check_expr(
+             Ok((Mode::Spec, Proph::No))
+         }
+         ExprX::NullaryOpr(crate::ast::NullaryOpr::ConstTypBound(..)) => Ok((Mode::Spec, Proph::No)),
++        ExprX::NullaryOpr(crate::ast::NullaryOpr::TypeTag(..)) => Ok((Mode::Spec, Proph::No)),
+         ExprX::Unary(UnaryOp::CoerceMode { op_mode, from_mode, to_mode, kind }, e1) => {
+             // same as a call to an op_mode function with parameter from_mode and return to_mode
+             if (*op_mode == Mode::Exec) != (typing.block_ghostness == Ghost::Exec) {
+@@ -2365,6 +2366,22 @@ fn check_expr(
+         ExprX::UnaryOpr(UnaryOpr::LoopIsolationBoundary(_), e1) => {
+             check_expr(ctxt, record, typing, outer_mode, expect, e1, outer_proph)
+         }
++        ExprX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
++            if typing.block_ghostness == Ghost::Exec {
++                return Err(error(&expr.span, "cannot use `type_id_of` in exec mode"));
++            }
++            let mut typing = typing.push_in_pure(true);
++            check_expr_has_mode(
++                ctxt,
++                record,
++                &mut typing,
++                Mode::Spec,
++                e1,
++                Mode::Spec,
++                outer_proph,
++            )?;
++            Ok((Mode::Spec, Proph::No))
++        }
+         ExprX::UnaryOpr(UnaryOpr::ToDyn(..), e1) => {
+             let (mode, proph) =
+                 check_expr(ctxt, record, typing, outer_mode, expect, e1, outer_proph)?;
+diff --git a/source/vir/src/poly.rs b/source/vir/src/poly.rs
+--- a/source/vir/src/poly.rs
++++ b/source/vir/src/poly.rs
+@@ -158,6 +158,7 @@ pub(crate) fn typ_as_mono(typ: &Typ) -> Option<MonoTyp> {
+             Some(Arc::new(MonoTypX::Decorate2(*d, Arc::new(vec![m1, m2]))))
+         }
+         TypX::Primitive(Primitive::Array, _) => None,
++        TypX::Primitive(Primitive::TypeTag, _) => None,
+         TypX::Primitive(name, typs) => {
+             let monotyps = monotyps_as_mono(typs)?;
+             Some(Arc::new(MonoTypX::Primitive(*name, Arc::new(monotyps))))
+@@ -205,6 +206,7 @@ pub(crate) fn typ_is_poly(ctx: &Ctx, typ: &Typ) -> bool {
+     match &**typ {
+         TypX::Bool | TypX::Int(_) | TypX::Real | TypX::Float(_) => false,
+         TypX::SpecFn(..) | TypX::FnDef(..) => false,
++        TypX::Primitive(Primitive::TypeTag, _) => false,
+         TypX::Primitive(Primitive::Array, _) => false,
+         TypX::AnonymousClosure(..) => {
+             panic!("internal error: AnonymousClosure should be removed by ast_simplify")
+@@ -239,6 +241,7 @@ pub(crate) fn coerce_typ_to_native(ctx: &Ctx, typ: &Typ) -> Typ {
+     match &**typ {
+         TypX::Bool | TypX::Int(_) | TypX::Real | TypX::Float(_) => typ.clone(),
+         TypX::SpecFn(..) | TypX::FnDef(..) => typ.clone(),
++        TypX::Primitive(Primitive::TypeTag, _) => typ.clone(),
+         TypX::Primitive(Primitive::Array, _) => typ.clone(),
+         TypX::AnonymousClosure(..) => {
+             panic!("internal error: AnonymousClosure should be removed by ast_simplify")
+@@ -281,6 +284,7 @@ pub(crate) fn coerce_typ_to_poly(_ctx: &Ctx, typ: &Typ) -> Typ {
+         TypX::Bool | TypX::Int(_) => Arc::new(TypX::Boxed(typ.clone())),
+         TypX::Real | TypX::Float(_) => Arc::new(TypX::Boxed(typ.clone())),
+         TypX::SpecFn(..) | TypX::FnDef(..) => Arc::new(TypX::Boxed(typ.clone())),
++        TypX::Primitive(Primitive::TypeTag, _) => Arc::new(TypX::Boxed(typ.clone())),
+         TypX::AnonymousClosure(..) => {
+             panic!("internal error: AnonymousClosure should be removed by ast_simplify")
+         }
+@@ -579,6 +583,7 @@ fn visit_exp(ctx: &Ctx, state: &mut State, exp: &Exp) -> Exp {
+         ExpX::NullaryOpr(NullaryOpr::TraitBound(..)) => exp.clone(),
+         ExpX::NullaryOpr(NullaryOpr::TypEqualityBound(..)) => exp.clone(),
+         ExpX::NullaryOpr(NullaryOpr::ConstTypBound(..)) => exp.clone(),
++        ExpX::NullaryOpr(NullaryOpr::TypeTag(..)) => exp.clone(),
+         ExpX::Unary(op, e1) => {
+             let e1 = visit_exp(ctx, state, e1);
+             match op {
+@@ -681,6 +686,17 @@ fn visit_exp(ctx: &Ctx, state: &mut State, exp: &Exp) -> Exp {
+                     let e = coerce_exp_to_poly(ctx, &e1);
+                     mk_exp(ExpX::UnaryOpr(op.clone(), e.clone()))
+                 }
++                UnaryOpr::TypeTagOf(_t) => {
++                    // val%tag takes the value boxed, like the type it describes.
++                    let e = coerce_exp_to_poly(ctx, &e1);
++                    mk_exp_typ(
++                        &Arc::new(TypX::Primitive(
++                            crate::ast::Primitive::TypeTag,
++                            Arc::new(vec![]),
++                        )),
++                        ExpX::UnaryOpr(op.clone(), e.clone()),
++                    )
++                }
+                 UnaryOpr::LoopIsolationBoundary(..) => {
+                     panic!("internal error: LoopIsolationBoundary in SST")
+                 }
+diff --git a/source/vir/src/prelude.rs b/source/vir/src/prelude.rs
+--- a/source/vir/src/prelude.rs
++++ b/source/vir/src/prelude.rs
+@@ -164,6 +164,18 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
+     let type_id_slice = str_to_node(TYPE_ID_SLICE);
+     let type_id_strslice = str_to_node(TYPE_ID_STRSLICE);
+     let type_id_ptr = str_to_node(TYPE_ID_PTR);
++    let type_tag_sort = str_to_node(TYPE_TAG_SORT);
++    let type_tag = str_to_node(TYPE_TAG);
++    let val_tag = str_to_node(VAL_TAG);
++    let dcr_tag = str_to_node(DCR_TAG);
++    let type_id_typetag = str_to_node(TYPE_ID_TYPETAG);
++    let box_typetag = str_to_node(BOX_TYPETAG);
++    let unbox_typetag = str_to_node(UNBOX_TYPETAG);
++    let tag_mk = str_to_node(TYPE_TAG_MK);
++    let tag_id = str_to_node(TYPE_TAG_ID);
++    let tag_app = str_to_node(TYPE_TAG_APP);
++    let tag_fn = str_to_node(TYPE_TAG_FN);
++    let tag_arg = str_to_node(TYPE_TAG_ARG);
+     let type_id_global = str_to_node(TYPE_ID_GLOBAL);
+     let type_id_mut_ref = str_to_node(TYPE_ID_MUT_REF);
+ 
+@@ -204,6 +216,7 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
+         (declare-fun [unbox_real] ([Poly]) Real)
+         (declare-fun [unbox_fndef] ([Poly]) [FnDef])
+         (declare-sort [typ] 0)
++        (declare-const [type_id_typetag] [typ])
+         (declare-const [type_id_bool] [typ])
+         (declare-const [type_id_int] [typ])
+         (declare-const [type_id_nat] [typ])
+@@ -217,6 +230,16 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
+         (declare-fun [type_id_float] (Int) [typ])
+         (declare-fun [type_id_const_int] (Int) [typ])
+         (declare-fun [type_id_const_bool] (Bool) [typ])
++
++        // Type identity: a structural tag over type ids. A curried spine, so a
++        // single sort with two constructors covers any constructor arity:
++        //   Foo<a, b>  ~>  (tag%app (tag%app (tag%mk k) (tag a)) (tag b))
++        (declare-datatypes (([type_tag_sort] 0))
++            ((([tag_mk] ([tag_id] Int))
++              ([tag_app] ([tag_fn] [type_tag_sort]) ([tag_arg] [type_tag_sort])))))
++        (declare-fun [type_tag] ([typ]) [type_tag_sort])
++        (declare-fun [box_typetag] ([type_tag_sort]) [Poly])
++        (declare-fun [unbox_typetag] ([Poly]) [type_tag_sort])
+         (declare-sort [decoration] 0)
+         (declare-const [decorate_nil_sized] [decoration])
+         (declare-const [decorate_nil_slice] [decoration])
+@@ -230,6 +253,12 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
+         (declare-fun [decorate_tracked] ([decoration]) [decoration])
+         (declare-fun [decorate_never] ([decoration]) [decoration])
+         (declare-fun [decorate_const_ptr] ([decoration]) [decoration])
++        (declare-fun [dcr_tag] ([decoration]) [type_tag_sort])
++        // The identity of the type a value actually has, given the value's
++        // static type. A1 below ties it to [type_tag] wherever the static type
++        // is sized; for a `dyn T` the per-trait axiom in traits.rs sends it to
++        // the type erased into the value instead.
++        (declare-fun [val_tag] ([decoration] [typ] [Poly]) [type_tag_sort])
+         (declare-fun [type_id_array] ([decoration] [typ] [decoration] [typ]) [typ])
+         (declare-fun [type_id_mut_ref] ([decoration] [typ]) [typ])
+         (declare-fun [type_id_slice] ([decoration] [typ]) [typ])
+@@ -378,6 +407,184 @@ pub(crate) fn prelude_nodes(name_ctxt: &NameCtxt, config: PreludeConfig) -> Vec<
+             :qid prelude_type_id_const_bool
+             :skolemid skolem_prelude_type_id_const_bool
+         )))
++
++        (axiom (= ([type_tag] [type_id_bool])  ([tag_mk] (- 1))))
++        (axiom (= ([type_tag] [type_id_int])   ([tag_mk] (- 2))))
++        (axiom (= ([type_tag] [type_id_nat])   ([tag_mk] (- 3))))
++        (axiom (= ([type_tag] [type_id_real])  ([tag_mk] (- 4))))
++        (axiom (= ([type_tag] [type_id_char])  ([tag_mk] (- 5))))
++        (axiom (= ([type_tag] [type_id_usize]) ([tag_mk] (- 6))))
++        (axiom (= ([type_tag] [type_id_isize]) ([tag_mk] (- 7))))
++        (axiom (forall ((n Int)) (!
++            (= ([type_tag] ([type_id_uint] n)) ([tag_app] ([tag_mk] (- 8)) ([tag_mk] n)))
++            :pattern (([type_tag] ([type_id_uint] n)))
++            :qid prelude_type_tag_uint
++            :skolemid skolem_prelude_type_tag_uint
++        )))
++        (axiom (forall ((n Int)) (!
++            (= ([type_tag] ([type_id_sint] n)) ([tag_app] ([tag_mk] (- 9)) ([tag_mk] n)))
++            :pattern (([type_tag] ([type_id_sint] n)))
++            :qid prelude_type_tag_sint
++            :skolemid skolem_prelude_type_tag_sint
++        )))
++        (axiom (forall ((n Int)) (!
++            (= ([type_tag] ([type_id_float] n)) ([tag_app] ([tag_mk] (- 10)) ([tag_mk] n)))
++            :pattern (([type_tag] ([type_id_float] n)))
++            :qid prelude_type_tag_float
++            :skolemid skolem_prelude_type_tag_float
++        )))
++        (axiom (forall ((n Int)) (!
++            (= ([type_tag] ([type_id_const_int] n)) ([tag_app] ([tag_mk] (- 11)) ([tag_mk] n)))
++            :pattern (([type_tag] ([type_id_const_int] n)))
++            :qid prelude_type_tag_const_int
++            :skolemid skolem_prelude_type_tag_const_int
++        )))
++        (axiom (= ([type_tag] [type_id_typetag])   ([tag_mk] (- 20))))
++        (axiom (forall ((x [type_tag_sort])) (!
++            (= x ([unbox_typetag] ([box_typetag] x)))
++            :pattern (([box_typetag] x))
++            :qid prelude_unbox_box_typetag
++            :skolemid skolem_prelude_unbox_box_typetag
++        )))
++        (axiom (forall ((x [Poly])) (!
++            (=>
++                ([has_type] x [type_id_typetag])
++                (= x ([box_typetag] ([unbox_typetag] x)))
++            )
++            :pattern (([has_type] x [type_id_typetag]))
++            :qid prelude_box_unbox_typetag
++            :skolemid skolem_prelude_box_unbox_typetag
++        )))
++        (axiom (forall ((x [type_tag_sort])) (!
++            ([has_type] ([box_typetag] x) [type_id_typetag])
++            :pattern (([has_type] ([box_typetag] x) [type_id_typetag]))
++            :qid prelude_has_type_typetag
++            :skolemid skolem_prelude_has_type_typetag
++        )))
++        (axiom (= ([dcr_tag] [decorate_nil_sized]) ([tag_mk] (- 101))))
++        (axiom (= ([dcr_tag] [decorate_nil_slice]) ([tag_mk] (- 102))))
++        (axiom (= ([dcr_tag] [decorate_nil_dyn])   ([tag_mk] (- 103))))
++
++        // A1: a sized value is its own type. The right-hand side is exactly what
++        // `type_id::<T>()` lowers to, so for a sized static type the value-level
++        // and type-level identities coincide -- a sized type admits no erasure.
++        //
++        // The guard is load-bearing: a `dyn` type's decoration is never sized
++        // (nothing asserts [sized] of [decorate_nil_dyn]), so this never fires
++        // on a trait object, where the answer is the erased type's identity and
++        // not this one.
++        (axiom (forall ((d [decoration]) (t [typ]) (x [Poly])) (!
++            (=>
++                ([sized] d)
++                (= ([val_tag] d t x) ([tag_app] ([dcr_tag] d) ([type_tag] t)))
++            )
++            :pattern (([val_tag] d t x))
++            :qid prelude_val_tag_sized
++            :skolemid skolem_prelude_val_tag_sized
++        )))
++        (axiom (forall ((d [decoration])) (!
++            (= ([dcr_tag] ([decorate_dst_inherit] d)) ([tag_app] ([tag_mk] (- 104)) ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_dst_inherit] d)))
++            :qid prelude_dcr_tag_dst
++            :skolemid skolem_prelude_dcr_tag_dst
++        )))
++        (axiom (forall ((d [decoration])) (!
++            (= ([dcr_tag] ([decorate_ref] d)) ([tag_app] ([tag_mk] (- 105)) ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_ref] d)))
++            :qid prelude_dcr_tag_ref
++            :skolemid skolem_prelude_dcr_tag_ref
++        )))
++        (axiom (forall ((d [decoration])) (!
++            (= ([dcr_tag] ([decorate_ghost] d)) ([tag_app] ([tag_mk] (- 106)) ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_ghost] d)))
++            :qid prelude_dcr_tag_ghost
++            :skolemid skolem_prelude_dcr_tag_ghost
++        )))
++        (axiom (forall ((d [decoration])) (!
++            (= ([dcr_tag] ([decorate_tracked] d)) ([tag_app] ([tag_mk] (- 107)) ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_tracked] d)))
++            :qid prelude_dcr_tag_tracked
++            :skolemid skolem_prelude_dcr_tag_tracked
++        )))
++        (axiom (forall ((d [decoration])) (!
++            (= ([dcr_tag] ([decorate_never] d)) ([tag_app] ([tag_mk] (- 108)) ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_never] d)))
++            :qid prelude_dcr_tag_never
++            :skolemid skolem_prelude_dcr_tag_never
++        )))
++        (axiom (forall ((d [decoration])) (!
++            (= ([dcr_tag] ([decorate_const_ptr] d)) ([tag_app] ([tag_mk] (- 109)) ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_const_ptr] d)))
++            :qid prelude_dcr_tag_const_ptr
++            :skolemid skolem_prelude_dcr_tag_const_ptr
++        )))
++        (axiom (forall ((ad [decoration]) (at [typ]) (d [decoration])) (!
++            (= ([dcr_tag] ([decorate_box] ad at d))
++               ([tag_app]
++                   ([tag_app] ([tag_mk] (- 110)) ([tag_app] ([dcr_tag] ad) ([type_tag] at)))
++                   ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_box] ad at d)))
++            :qid prelude_dcr_tag_box
++            :skolemid skolem_prelude_dcr_tag_box
++        )))
++        (axiom (forall ((ad [decoration]) (at [typ]) (d [decoration])) (!
++            (= ([dcr_tag] ([decorate_rc] ad at d))
++               ([tag_app]
++                   ([tag_app] ([tag_mk] (- 111)) ([tag_app] ([dcr_tag] ad) ([type_tag] at)))
++                   ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_rc] ad at d)))
++            :qid prelude_dcr_tag_rc
++            :skolemid skolem_prelude_dcr_tag_rc
++        )))
++        (axiom (forall ((ad [decoration]) (at [typ]) (d [decoration])) (!
++            (= ([dcr_tag] ([decorate_arc] ad at d))
++               ([tag_app]
++                   ([tag_app] ([tag_mk] (- 112)) ([tag_app] ([dcr_tag] ad) ([type_tag] at)))
++                   ([dcr_tag] d)))
++            :pattern (([dcr_tag] ([decorate_arc] ad at d)))
++            :qid prelude_dcr_tag_arc
++            :skolemid skolem_prelude_dcr_tag_arc
++        )))
++        (axiom (= ([type_tag] [type_id_strslice]) ([tag_mk] (- 12))))
++        (axiom (= ([type_tag] [type_id_global])   ([tag_mk] (- 13))))
++        (axiom (forall ((b Bool)) (!
++            (= ([type_tag] ([type_id_const_bool] b))
++               ([tag_app] ([tag_mk] (- 14)) ([tag_mk] (ite b 1 0))))
++            :pattern (([type_tag] ([type_id_const_bool] b)))
++            :qid prelude_type_tag_const_bool
++            :skolemid skolem_prelude_type_tag_const_bool
++        )))
++        (axiom (forall ((d [decoration]) (t [typ])) (!
++            (= ([type_tag] ([type_id_mut_ref] d t))
++               ([tag_app] ([tag_mk] (- 15)) ([tag_app] ([dcr_tag] d) ([type_tag] t))))
++            :pattern (([type_tag] ([type_id_mut_ref] d t)))
++            :qid prelude_type_tag_mut_ref
++            :skolemid skolem_prelude_type_tag_mut_ref
++        )))
++        (axiom (forall ((d [decoration]) (t [typ])) (!
++            (= ([type_tag] ([type_id_slice] d t))
++               ([tag_app] ([tag_mk] (- 16)) ([tag_app] ([dcr_tag] d) ([type_tag] t))))
++            :pattern (([type_tag] ([type_id_slice] d t)))
++            :qid prelude_type_tag_slice
++            :skolemid skolem_prelude_type_tag_slice
++        )))
++        (axiom (forall ((d [decoration]) (t [typ])) (!
++            (= ([type_tag] ([type_id_ptr] d t))
++               ([tag_app] ([tag_mk] (- 17)) ([tag_app] ([dcr_tag] d) ([type_tag] t))))
++            :pattern (([type_tag] ([type_id_ptr] d t)))
++            :qid prelude_type_tag_ptr
++            :skolemid skolem_prelude_type_tag_ptr
++        )))
++        (axiom (= ([type_tag] [type_id_unit]) ([tag_mk] (- 18))))
++        (axiom (forall ((d1 [decoration]) (t [typ]) (d2 [decoration]) (n [typ])) (!
++            (= ([type_tag] ([type_id_array] d1 t d2 n))
++               ([tag_app]
++                   ([tag_app] ([tag_mk] (- 19)) ([tag_app] ([dcr_tag] d1) ([type_tag] t)))
++                   ([tag_app] ([dcr_tag] d2) ([type_tag] n))))
++            :pattern (([type_tag] ([type_id_array] d1 t d2 n)))
++            :qid prelude_type_tag_array
++            :skolemid skolem_prelude_type_tag_array
++        )))
+         (axiom (forall ((b Bool)) (!
+             ([has_type] ([box_bool] b) [type_id_bool])
+             :pattern (([has_type] ([box_bool] b) [type_id_bool]))
+diff --git a/source/vir/src/prune.rs b/source/vir/src/prune.rs
+--- a/source/vir/src/prune.rs
++++ b/source/vir/src/prune.rs
+@@ -149,6 +149,7 @@ fn typ_to_reached_type(typ: &Typ) -> ReachedType {
+         TypX::Primitive(Primitive::Slice | Primitive::Ptr | Primitive::Global, _) => {
+             ReachedType::Primitive
+         }
++        TypX::Primitive(Primitive::TypeTag, _) => ReachedType::None,
+         TypX::MutRef(_) => ReachedType::None,
+         TypX::Opaque { .. } => ReachedType::None,
+     }
+diff --git a/source/vir/src/recursive_types.rs b/source/vir/src/recursive_types.rs
+--- a/source/vir/src/recursive_types.rs
++++ b/source/vir/src/recursive_types.rs
+@@ -69,7 +69,11 @@ fn check_well_founded_typ(
+                 )
+         }
+         TypX::Primitive(
+-            Primitive::Slice | Primitive::StrSlice | Primitive::Ptr | Primitive::Global,
++            Primitive::Slice
++            | Primitive::StrSlice
++            | Primitive::Ptr
++            | Primitive::Global
++            | Primitive::TypeTag,
+             _,
+         ) => true,
+         TypX::Boxed(_) | TypX::TypeId | TypX::Air(_) => {
+@@ -306,7 +310,8 @@ fn check_positive_uses(
+             | Primitive::Slice
+             | Primitive::StrSlice
+             | Primitive::Ptr
+-            | Primitive::Global,
++            | Primitive::Global
++            | Primitive::TypeTag,
+             ts,
+         ) => {
+             for t in ts.iter() {
+diff --git a/source/vir/src/resolution_types.rs b/source/vir/src/resolution_types.rs
+--- a/source/vir/src/resolution_types.rs
++++ b/source/vir/src/resolution_types.rs
+@@ -103,7 +103,9 @@ fn typ_node_resolvability(t: &Typ) -> NodeResolve {
+ 
+         TypX::Primitive(primitive, _) => match primitive {
+             Primitive::Array | Primitive::Slice => NodeResolve::TypArgDependent,
+-            Primitive::StrSlice | Primitive::Ptr | Primitive::Global => NodeResolve::No,
++            Primitive::StrSlice | Primitive::Ptr | Primitive::Global | Primitive::TypeTag => {
++                NodeResolve::No
++            }
+         },
+ 
+         TypX::Decorate(dec, ..) => match dec {
+diff --git a/source/vir/src/resolve_axioms.rs b/source/vir/src/resolve_axioms.rs
+--- a/source/vir/src/resolve_axioms.rs
++++ b/source/vir/src/resolve_axioms.rs
+@@ -69,7 +69,10 @@ impl ResolvedTypeCollection {
+                 self.append(ResolvableType::Array);
+                 self.visit_type(&args[0]);
+             }
+-            TypX::Primitive(Primitive::StrSlice | Primitive::Ptr | Primitive::Global, _) => {
++            TypX::Primitive(
++                Primitive::StrSlice | Primitive::Ptr | Primitive::Global | Primitive::TypeTag,
++                _,
++            ) => {
+                 // trivial resolve
+             }
+             TypX::Decorate(dec, _, t) => {
+diff --git a/source/vir/src/sst_to_air.rs b/source/vir/src/sst_to_air.rs
+--- a/source/vir/src/sst_to_air.rs
++++ b/source/vir/src/sst_to_air.rs
+@@ -95,6 +95,7 @@ pub(crate) fn primitive_path(name: &Primitive) -> Path {
+         Primitive::StrSlice => crate::def::strslice_type(),
+         Primitive::Ptr => crate::def::ptr_type(),
+         Primitive::Global => crate::def::global_type(),
++        Primitive::TypeTag => crate::def::typetag_type(),
+     }
+ }
+ 
+@@ -105,6 +106,7 @@ pub(crate) fn primitive_type_id(name: &Primitive) -> Ident {
+         Primitive::StrSlice => crate::def::TYPE_ID_STRSLICE,
+         Primitive::Ptr => crate::def::TYPE_ID_PTR,
+         Primitive::Global => crate::def::TYPE_ID_GLOBAL,
++        Primitive::TypeTag => crate::def::TYPE_ID_TYPETAG,
+     })
+ }
+ 
+@@ -154,6 +156,7 @@ pub(crate) fn typ_to_air(ctx: &Ctx, typ: &Typ) -> air::ast::Typ {
+         TypX::Float(_) => int_typ(),
+         TypX::SpecFn(..) => Arc::new(air::ast::TypX::Fun),
+         TypX::Primitive(Primitive::Array, _) => Arc::new(air::ast::TypX::Fun),
++        TypX::Primitive(Primitive::TypeTag, _) => str_typ(crate::def::TYPE_TAG_SORT),
+         TypX::AnonymousClosure(..) => {
+             panic!("internal error: AnonymousClosure should have been removed by ast_simplify")
+         }
+@@ -299,7 +302,9 @@ fn big_int_to_expr(i: &BigInt) -> Expr {
+ 
+ fn decoration_base_for_primitive(name: Primitive) -> &'static str {
+     match name {
+-        Primitive::Array | Primitive::Ptr | Primitive::Global => crate::def::DECORATE_NIL_SIZED,
++        Primitive::Array | Primitive::Ptr | Primitive::Global | Primitive::TypeTag => {
++            crate::def::DECORATE_NIL_SIZED
++        }
+         Primitive::Slice | Primitive::StrSlice => crate::def::DECORATE_NIL_SLICE,
+     }
+ }
+@@ -590,7 +595,7 @@ pub(crate) fn typ_invariant(ctx: &Ctx, typ: &Typ, expr: &Expr) -> Option<Expr> {
+                         panic!("abstract datatype should be boxed")
+                     }
+                 }
+-                Primitive::StrSlice | Primitive::Global => {}
++                Primitive::StrSlice | Primitive::Global | Primitive::TypeTag => {}
+             }
+             None
+         }
+@@ -650,6 +655,7 @@ fn try_box(ctx: &Ctx, expr: Expr, typ: &Typ) -> Option<Expr> {
+             }
+         }
+         TypX::Dyn(..) => None,
++        TypX::Primitive(Primitive::TypeTag, _) => Some(str_ident(crate::def::BOX_TYPETAG)),
+         TypX::Primitive(_, _) => {
+             prefix_typ_as_mono(ctx, |p| ctx.name_ctxt.prefix_box(p), typ, "primitive type")
+         }
+@@ -690,6 +696,7 @@ pub(crate) fn try_unbox(ctx: &Ctx, expr: Expr, typ: &Typ) -> Option<Expr> {
+         TypX::Primitive(Primitive::Array, _) => {
+             Some(ctx.name_ctxt.prefix_unbox(&crate::def::array_type()))
+         }
++        TypX::Primitive(Primitive::TypeTag, _) => Some(str_ident(crate::def::UNBOX_TYPETAG)),
+         TypX::Primitive(_, _) => {
+             prefix_typ_as_mono(ctx, |p| ctx.name_ctxt.prefix_unbox(p), typ, "primitive type")
+         }
+@@ -723,6 +730,54 @@ pub(crate) fn ctor_to_apply<'a>(
+     (variant, field_exps)
+ }
+ 
++/// A globally-unique tag for a type constructor, derived from its path
++///  -- the same treatment string literals get in `str_to_const_str`
++pub(crate) fn path_type_tag_id(ctx: &Ctx, path: &crate::ast::Path) -> String {
++    use crate::ast::{CrateId, Segment};
++    use num_bigint::BigUint;
++    use sha2::{Digest, Sha512};
++    let krate = match &path.krate {
++        CrateId::Internal => "internal".to_string(),
++        CrateId::Core => "core".to_string(),
++        CrateId::Alloc => "alloc".to_string(),
++        CrateId::Vstd => "vstd".to_string(),
++        CrateId::Id(ident, stable_id) => format!("{}#{}", ident, stable_id),
++    };
++
++    let mut buf = format!("{}:{}", krate.len(), krate);
++    for segment in path.segments.iter() {
++        // A segment is a kind tag, its disambiguator, and -- for the two kinds that
++        // name something -- a length-prefixed identifier. The kind tag keeps `V` and
++        // `T` segments of the same name apart, and the disambiguator keeps the
++        // distinct items rustc numbers under one name apart; dropping either would
++        // make two types rustc keeps distinct share a tag.
++        let segment = match segment {
++            Segment::V(ident, n) => format!("V{}:{}:{}", n, ident.len(), ident),
++            Segment::T(ident, n) => format!("T{}:{}:{}", n, ident.len(), ident),
++            Segment::Ctor(n) => format!("C{}", n),
++            Segment::Impl(n) => format!("I{}", n),
++            Segment::ForeignMod(n) => format!("F{}", n),
++            Segment::OpaqueTy(n) => format!("O{}", n),
++            Segment::Closure(n) => format!("L{}", n),
++            Segment::AnonConst(n) => format!("A{}", n),
++        };
++        buf.push_str(&format!("{}:{}", segment.len(), segment));
++    }
++    let mut hasher = Sha512::new();
++    hasher.update(buf.as_bytes());
++    let res = hasher.finalize();
++    let num = BigUint::from_bytes_be(&res[..]);
++    let num_str = num.to_string();
++
++    if let Some(other) = ctx.type_tag_hashes.borrow_mut().insert(num, path.clone()) {
++        if other != *path {
++            panic!("sha512 collision detected, choosing to panic over introducing unsoundness");
++        }
++    }
++
++    num_str
++}
++
+ fn str_to_const_str(ctx: &Ctx, s: Arc<String>) -> Expr {
+     Arc::new(ExprX::Apply(
+         str_ident(STRSLICE_NEW_STRLIT),
+@@ -1065,6 +1120,17 @@ pub(crate) fn exp_to_expr(ctx: &Ctx, exp: &Exp, expr_ctxt: &ExprCtxt) -> Result<
+             let f = crate::ast_util::const_generic_to_primitive(&exp.typ);
+             str_apply(f, &vec![typ_to_id(ctx, c)])
+         }
++
++        ExpX::NullaryOpr(crate::ast::NullaryOpr::TypeTag(t)) => {
++            let ids = typ_to_ids(t);
++            str_apply(
++                crate::def::TYPE_TAG_APP,
++                &vec![
++                    str_apply(crate::def::DCR_TAG, &vec![ids[0].clone()]),
++                    str_apply(crate::def::TYPE_TAG, &vec![ids[1].clone()]),
++                ],
++            )
++        }
+         ExpX::NullaryOpr(crate::ast::NullaryOpr::TraitBound(p, ts)) => {
+             match crate::traits::trait_bound_to_air(ctx, p, ts) {
+                 Some(e) => e,
+@@ -1278,6 +1344,11 @@ pub(crate) fn exp_to_expr(ctx: &Ctx, exp: &Exp, expr_ctxt: &ExprCtxt) -> Result<
+                 // the inner expression.
+                 return exp_to_expr(ctx, e, expr_ctxt);
+             }
++            UnaryOpr::TypeTagOf(t) => {
++                let mut exprs: Vec<Expr> = typ_to_ids(t);
++                exprs.push(exp_to_expr(ctx, e, expr_ctxt)?);
++                Arc::new(ExprX::Apply(str_ident(crate::def::VAL_TAG), Arc::new(exprs)))
++            }
+             UnaryOpr::HasResolved(t) => {
+                 let mut exprs: Vec<Expr> = typ_to_ids(t);
+                 exprs.push(exp_to_expr(ctx, e, expr_ctxt)?);
+diff --git a/source/vir/src/sst_util.rs b/source/vir/src/sst_util.rs
+--- a/source/vir/src/sst_util.rs
++++ b/source/vir/src/sst_util.rs
+@@ -558,6 +558,9 @@ impl ExpX {
+             NullaryOpr(crate::ast::NullaryOpr::TraitBound(..)) => ("".to_string(), 99),
+             NullaryOpr(crate::ast::NullaryOpr::TypEqualityBound(..)) => ("".to_string(), 99),
+             NullaryOpr(crate::ast::NullaryOpr::ConstTypBound(..)) => ("".to_string(), 99),
++            NullaryOpr(crate::ast::NullaryOpr::TypeTag(t)) => {
++                (format!("type_id({:?})", t).to_string(), 99)
++            }
+             Unary(op, exp) => match op {
+                 UnaryOp::Not | UnaryOp::BitNot(_) => {
+                     (format!("!{}", exp.x.to_string_prec(global, 99)), 90)
+@@ -620,6 +623,9 @@ impl ExpX {
+                     HasType(t) => {
+                         (format!("has_type({}, {:?})", exp.x.to_user_string(global), t), 99)
+                     }
++                    TypeTagOf(t) => {
++                        (format!("type_id_of({}, {:?})", exp.x.to_user_string(global), t), 99)
++                    }
+                     HasResolved(t) => {
+                         (format!("has_resolved::<{:?}>({})", t, exp.x.to_user_string(global)), 99)
+                     }
+diff --git a/source/vir/src/sst_visitor.rs b/source/vir/src/sst_visitor.rs
+--- a/source/vir/src/sst_visitor.rs
++++ b/source/vir/src/sst_visitor.rs
+@@ -262,6 +262,10 @@ pub(crate) trait Visitor<R: Returner, Err, Scope: Scoper> {
+                 let t = self.visit_typ(t)?;
+                 R::ret(|| exp_new(ExpX::NullaryOpr(NullaryOpr::ConstGeneric(R::get(t)))))
+             }
++            ExpX::NullaryOpr(NullaryOpr::TypeTag(t)) => {
++                let t = self.visit_typ(t)?;
++                R::ret(|| exp_new(ExpX::NullaryOpr(NullaryOpr::TypeTag(R::get(t)))))
++            }
+             ExpX::NullaryOpr(NullaryOpr::TraitBound(p, ts)) => {
+                 let ts = self.visit_typs(ts)?;
+                 R::ret(|| {
+@@ -310,6 +314,10 @@ pub(crate) trait Visitor<R: Returner, Err, Scope: Scoper> {
+                         let t = self.visit_typ(t)?;
+                         R::ret(|| UnaryOpr::HasResolved(R::get(t)))
+                     }
++                    UnaryOpr::TypeTagOf(t) => {
++                        let t = self.visit_typ(t)?;
++                        R::ret(|| UnaryOpr::TypeTagOf(R::get(t)))
++                    }
+                     UnaryOpr::ToDyn(t, impl_paths) => {
+                         let t = self.visit_typ(t)?;
+                         R::ret(|| UnaryOpr::ToDyn(R::get(t), impl_paths.clone()))
+diff --git a/source/vir/src/traits.rs b/source/vir/src/traits.rs
+--- a/source/vir/src/traits.rs
++++ b/source/vir/src/traits.rs
+@@ -1236,6 +1236,48 @@ pub fn trait_decls_to_air(ctx: &Ctx, krate: &crate::sst::KrateSst) -> Commands {
+             ));
+             let forall = mk_bind_expr(&bind, &mk_implies(&hypothesis, &conclusion));
+             commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
++
++            // A2: erasure is the identity on runtime type.
++            //   forall Self, A1..Am, x.
++            //     val%tag($dyn, DYN%T(A1..Am), to_dyn%T(Self, A1..Am, x))
++            //       == val%tag(Self, x)
++            //
++            // One axiom rather than a case analysis, because the right-hand side
++            // asks the source value the same question instead of answering it.
++            // Where the source is sized, A1 folds it to `type_id::<Self>()` --
++            // for a type parameter just as well as for a concrete type, which is
++            // what no per-impl fact can do. Where the source is itself a trait
++            // object (a supertrait upcast, which lowers to a ToDyn whose Self
++            // *is* a `dyn` type) it recurses into that object's own erased
++            // identity, which is the correct answer. Concluding
++            // `type_id::<Self>()` directly would be wrong in exactly that case.
++            let self_ids = typ_to_ids(ctx, &typ_args[0]);
++            let dyn_ids = typ_to_ids(ctx, &dyn_typ);
++            let mut lhs_args = dyn_ids.clone();
++            lhs_args.push(to_dyn.clone());
++            let lhs = air::ast_util::str_apply(crate::def::VAL_TAG, &lhs_args);
++            let mut rhs_args = self_ids.clone();
++            rhs_args.push(x.clone());
++            let rhs = air::ast_util::str_apply(crate::def::VAL_TAG, &rhs_args);
++            let mut binders: Vec<air::ast::Binder<air::ast::Typ>> = Vec::new();
++            for typ_param in typ_params.iter() {
++                for (x, t) in crate::def::suffix_typ_param_ids_types(typ_param) {
++                    binders.push(ident_binder(&x.lower(), &str_typ(t)));
++                }
++            }
++            binders.push(ident_binder(&Arc::new(x_name.to_string()), &str_typ(crate::def::POLY)));
++            let qid = crate::def::new_internal_qid(
++                ctx,
++                format!("{}_val_tag_to_dyn", path_as_friendly_rust_name(&tr.x.name)),
++            );
++            let bind = Arc::new(BindX::Quant(
++                Quant::Forall,
++                Arc::new(binders),
++                Arc::new(vec![Arc::new(vec![lhs.clone()])]),
++                qid,
++            ));
++            let forall = mk_bind_expr(&bind, &air::ast_util::mk_eq(&lhs, &rhs));
++            commands.push(Arc::new(CommandX::Global(mk_unnamed_axiom(forall))));
+         }
+     }
+     Arc::new(commands)
+@@ -1813,7 +1855,7 @@ pub fn get_dyn_traits(krate: &Krate) -> HashSet<Path> {
+ // Permit receiver reads and the dispatch Self argument of receiver calls;
+ // conservatively reject other uses in logical and operational contracts.
+ fn check_dyn_spec(f: &Function) -> Result<(), ()> {
+-    use crate::ast::{PlaceX, UnaryOp, VarIdent};
++    use crate::ast::{PlaceX, UnaryOp, UnaryOpr, VarIdent};
+     use crate::ast_visitor::{AstVisitor, NoScoper, Walk};
+ 
+     struct Visitor<'a> {
+@@ -1857,6 +1899,20 @@ fn check_dyn_spec(f: &Function) -> Result<(), ()> {
+             if self.is_receiver_expr(expr) {
+                 return Ok(());
+             }
++            // `type_id_of(self)` asks the receiver which type it actually is. The
++            // `Self` type argument selects the receiver's own implementation,
++            // exactly as the dispatch argument of a receiver call does, and the
++            // term is a function of the receiver *value*: each impl proves it of
++            // its own type, and after substituting `dyn T` it reads the erased
++            // type's identity, which the coercion axiom says is that same one.
++            // Without this, a trait cannot state what its vtable already knows.
++            if let ExprX::UnaryOpr(UnaryOpr::TypeTagOf(t), arg) = &expr.x {
++                if self.is_receiver_expr(arg)
++                    && matches!(&**t, TypX::TypParam(p) if *p == crate::def::trait_self_type_param())
++                {
++                    return Ok(());
++                }
++            }
+             if let ExprX::Call {
+                 target: CallTarget::Fun(CallTargetKind::Dynamic, _, typs, _, _),
+                 args,
+diff --git a/source/vir/src/triggers.rs b/source/vir/src/triggers.rs
+--- a/source/vir/src/triggers.rs
++++ b/source/vir/src/triggers.rs
+@@ -142,6 +142,10 @@ fn check_trigger_expr_arg(state: &mut State, arg: &Exp) {
+                 // recurse inside coercions
+                 check_trigger_expr_arg(state, arg)
+             }
++            UnaryOpr::TypeTagOf(..) => {
++                // val%tag(..) is an ordinary uninterpreted application
++                check_trigger_expr_arg(state, arg)
++            }
+             UnaryOpr::AutoDecreases | UnaryOpr::AutoLoopEnsures => {
+                 // recurse inside marker
+                 check_trigger_expr_arg(state, arg)
+@@ -253,6 +257,7 @@ fn check_trigger_expr(
+         ExpX::VarAt(_, VarAt::Pre) => Ok(()),
+         ExpX::Old(_, _) => panic!("internal error: Old"),
+         ExpX::NullaryOpr(crate::ast::NullaryOpr::ConstGeneric(_typ)) => Ok(()),
++        ExpX::NullaryOpr(crate::ast::NullaryOpr::TypeTag(_typ)) => Ok(()),
+         ExpX::NullaryOpr(crate::ast::NullaryOpr::TraitBound(..)) => {
+             Err(error(&exp.span, "triggers cannot contain trait bounds"))
+         }
+@@ -297,7 +302,8 @@ fn check_trigger_expr(
+             | UnaryOpr::AutoDecreases
+             | UnaryOpr::AutoLoopEnsures
+             | UnaryOpr::ProofNote(_)
+-            | UnaryOpr::ToDyn(..) => Ok(()),
++            | UnaryOpr::ToDyn(..)
++            | UnaryOpr::TypeTagOf(..) => Ok(()),
+             UnaryOpr::IsVariant { .. } | UnaryOpr::Field { .. } => {
+                 check_trigger_expr_arg(state, arg);
+                 Ok(())
+diff --git a/source/vir/src/triggers_auto.rs b/source/vir/src/triggers_auto.rs
+--- a/source/vir/src/triggers_auto.rs
++++ b/source/vir/src/triggers_auto.rs
+@@ -445,6 +445,10 @@ fn gather_terms(ctxt: &mut Ctxt, ctx: &Ctx, exp: &Exp, depth: u64) -> (bool, Ter
+             let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
+             (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
+         }
++        ExpX::UnaryOpr(UnaryOpr::TypeTagOf(_), e1) => {
++            let (is_pure, term1) = gather_terms(ctxt, ctx, e1, depth + 1);
++            (is_pure, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
++        }
+         ExpX::UnaryOpr(UnaryOpr::ToDyn(..), e1) => {
+             let (_is_pure, term1) = gather_terms(ctxt, ctx, e1, 1);
+             (false, Arc::new(TermX::App(ctxt.other(), Arc::new(vec![term1]))))
+diff --git a/source/vstd/std_specs/any.rs b/source/vstd/std_specs/any.rs
+new file mode 100644
+--- /dev/null
++++ b/source/vstd/std_specs/any.rs
+@@ -0,0 +1,18 @@
++#![allow(unused_imports)]
++
++use super::super::prelude::*;
++use core::any::TypeId;
++
++verus! {
++
++pub assume_specification<T: ?Sized + 'static>[ TypeId::of::<T> ]() -> (r: TypeId)
++    ensures
++        r == type_id::<T>(),
++;
++
++pub assume_specification[ <TypeId as PartialEq<TypeId>>::eq ](x: &TypeId, y: &TypeId) -> (r: bool)
++    ensures
++        r == (*x == *y),
++;
++
++} // verus!
+diff --git a/source/vstd/std_specs/mod.rs b/source/vstd/std_specs/mod.rs
+--- a/source/vstd/std_specs/mod.rs
++++ b/source/vstd/std_specs/mod.rs
+@@ -1,6 +1,7 @@
+ #[cfg(feature = "alloc")]
+ pub mod alloc;
+ 
++pub mod any;
+ pub mod array;
+ pub mod atomic;
+ pub mod bits;
