@@ -3,9 +3,8 @@
 //!
 //! # Verified Properties
 //!
-//! The saved-register contracts cover the Rust data operations; the assembly
-//! `context_switch` remains outside verification.
-use vstd::prelude::*;
+//! Verus verifies the Rust register accessors and trusts `switch.S`.
+use vstd::{prelude::*, raw_ptr::PointsTo};
 
 use crate::task::TaskContextApi;
 
@@ -134,5 +133,42 @@ impl TaskContextApi for TaskContext {
 
 } // verus!
 extern "C" {
-    pub(crate) fn context_switch(cur: *mut TaskContext, nxt: *const TaskContext);
+    /// Switches from `cur` to `nxt` and returns when `cur` resumes.
+    ///
+    /// # Safety
+    ///
+    /// Disable local IRQs and hold both records exclusively. The records and return
+    /// slots must be disjoint. Preserve the suspended stack and continuation until resumption.
+    /// `nxt` needs a valid continuation, a writable slot at its saved RSP, and ABI alignment
+    /// after `ret`. Enable FSGSBASE and use a canonical target FSBASE. Any active shadow
+    /// stack must permit the target RIP.
+    #[cfg_attr(verus_keep_ghost, allow(improper_ctypes))]
+    pub(crate) fn context_switch(
+        cur: *mut TaskContext,
+        nxt: *const TaskContext,
+        #[cfg(verus_keep_ghost)] current: Tracked<&mut PointsTo<TaskContext>>,
+        #[cfg(verus_keep_ghost)] next: Tracked<PointsTo<TaskContext>>,
+    );
 }
+
+#[cfg(verus_keep_ghost)]
+verus! {
+
+pub(crate) assume_specification[ context_switch ](
+    cur: *mut TaskContext,
+    nxt: *const TaskContext,
+    Tracked(current): Tracked<&mut PointsTo<TaskContext>>,
+    Tracked(next): Tracked<PointsTo<TaskContext>>,
+)
+    requires
+        old(current).ptr() == cur,
+        next.ptr() == nxt,
+        cur.addr() != nxt.addr(),
+        next.is_init(),
+    ensures
+        final(current).ptr() == cur,
+        final(current).is_init(),
+        final(current).value().regs.rsp % 16 == 8,
+;
+
+} // verus!
