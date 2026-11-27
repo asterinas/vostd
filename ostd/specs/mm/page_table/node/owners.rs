@@ -214,7 +214,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
             meta_to_frame(index_to_meta(self.slot_index)),
         )
         &&& self.tree_level == tree_level_for::<C>(self.level())
-        &&& 0 <= self.slot_index < max_meta_slots()
+        &&& 0 <= self.slot_index < MAX_NR_PAGES
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
         &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR

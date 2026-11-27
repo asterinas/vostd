@@ -32,14 +32,13 @@ impl Inv for MetaRegionOwners {
         &&& {
             // Keep the map-membership trigger: callers frequently expose a
             // slot-owner lookup without mentioning the `contains` wrapper.
-            forall|i: int|
-                0 <= i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
+            forall|i: int| 0 <= i < MAX_NR_PAGES <==> #[trigger] self.slot_owners.contains_key(i)
         }
         &&& {
             forall|i: int| #[trigger]
                 self.slot_owners.contains_key(i) ==> self.slots.contains_key(i)
         }
-        &&& { forall|i: int| #[trigger] self.slots.contains_key(i) ==> 0 <= i < max_meta_slots() }
+        &&& { forall|i: int| #[trigger] self.slots.contains_key(i) ==> 0 <= i < MAX_NR_PAGES }
         &&& {
             forall|i: int| #[trigger]
                 self.slots.contains_key(i) ==> {
@@ -67,7 +66,7 @@ impl MetaRegionOwners {
 
     pub open spec fn ref_count(self, i: int) -> (res: u64)
         recommends
-            0 <= i < max_meta_slots(),
+            0 <= i < MAX_NR_PAGES,
     {
         self.slot_owners[i].ref_count()
     }

@@ -18,14 +18,14 @@ pub trait ExWrite {
 
     spec fn obeys_writer_model() -> bool;
 
+    spec fn write_all_always_succeed(&self) -> bool;
+
     spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool;
 
     fn write_all(&mut self, input: &[u8]) -> (result: Result<(), io::Error>)
         ensures
-            Self::obeys_writer_model() ==> {
-                &&& result is Ok
-                &&& old(self).wrote_all(input@, final(self))
-            },
+            old(self).write_all_always_succeed() ==> result is Ok,
+            Self::obeys_writer_model() && result is Ok ==> old(self).wrote_all(input@, final(self)),
     ;
 }
 
@@ -36,6 +36,10 @@ macro_rules! impl_vec_writer_model {
             $($impl_header)+ {
                 open spec fn obeys_writer_model() -> bool {
                     true
+                }
+
+                open spec fn write_all_always_succeed(&self) -> bool {
+                    false
                 }
 
                 open spec fn wrote_all(&self, input: Seq<u8>, next: &Self) -> bool {
@@ -64,12 +68,12 @@ pub trait ExRead {
     spec fn remaining_bytes(&self) -> Option<Seq<u8>>;
 
     /// Sufficient for an Ok result on normal return; does not guarantee allocation or termination.
-    spec fn read_to_end_success_condition(&self) -> bool;
+    spec fn read_to_end_always_succeed(&self) -> bool;
 
     /// Data correctness and absence of a returned error are separate guarantees.
     fn read_to_end(&mut self, output: &mut Vec<u8>) -> (result: Result<usize, io::Error>)
         ensures
-            old(self).read_to_end_success_condition() ==> result is Ok,
+            old(self).read_to_end_always_succeed() ==> result is Ok,
             Self::obeys_reader_model() ==> (old(self).remaining_bytes() matches Some(plain) ==> {
                 result matches Ok(count) ==> {
                     &&& count == plain.len()
@@ -89,7 +93,7 @@ impl ReadSpecImpl for &[u8] {
         Some(self@)
     }
 
-    open spec fn read_to_end_success_condition(&self) -> bool {
+    open spec fn read_to_end_always_succeed(&self) -> bool {
         false
     }
 }
