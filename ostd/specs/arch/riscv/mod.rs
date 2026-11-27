@@ -26,32 +26,31 @@ verus! {
 
 /// The RISC-V instance of the architecture-wide specification contract.
 ///
-/// The address constants are shared by all architectures in `mm::kspace`, so
-/// the numeric requirements below follow from the shared values. Sv48 page-table
-/// semantics and the linear-mapping window connection are not established here.
+/// `MAX_PADDR` and the virtual base addresses use the shared memory layout.
+/// Sv48's 44-bit physical page number and 12-bit offset give `ARCH_MAX_PADDR = 2^56`.
+/// Sv48 translation and the linear-mapping window remain outside this proof.
 pub ghost struct RiscvArch;
 
 impl ArchAddressSpaceModel for RiscvArch {
     type C = PagingConsts;
 
-    open spec fn max_paddr_spec() -> Paddr {
-        MAX_PADDR
-    }
+    #[verus::internal(open)]
+    const ARCH_MAX_PADDR: Paddr = 0x0100_0000_0000_0000;
 
-    open spec fn linear_mapping_base_vaddr_spec() -> Vaddr {
-        LINEAR_MAPPING_BASE_VADDR
-    }
+    #[verus::internal(open)]
+    const MAX_PADDR: Paddr = MAX_PADDR;
 
-    open spec fn vmalloc_base_vaddr_spec() -> Vaddr {
-        VMALLOC_BASE_VADDR
-    }
+    #[verus::internal(open)]
+    const LINEAR_MAPPING_BASE_VADDR: Vaddr = LINEAR_MAPPING_BASE_VADDR;
+
+    #[verus::internal(open)]
+    const VMALLOC_BASE_VADDR: Vaddr = VMALLOC_BASE_VADDR;
 
     proof fn lemma_model_requirements() {
-        assert(Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE == 0)
-            by (compute_only);
+        assert(Self::LINEAR_MAPPING_BASE_VADDR % Self::C::BASE_PAGE_SIZE == 0) by (compute_only);
 
-        assert(Self::max_paddr_spec() + Self::linear_mapping_base_vaddr_spec()
-            < Self::vmalloc_base_vaddr_spec()) by (compute_only);
+        assert(Self::MAX_PADDR + Self::LINEAR_MAPPING_BASE_VADDR < Self::VMALLOC_BASE_VADDR)
+            by (compute_only);
     }
 }
 

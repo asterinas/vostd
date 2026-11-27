@@ -7,9 +7,7 @@ use vstd_extra::{
 use crate::specs::{
     arch::MAX_NR_PAGES,
     mm::frame::{
-        mapping::{max_meta_slots, meta_to_index},
-        meta_owners::*,
-        meta_region_owners::MetaRegionOwners,
+        mapping::meta_to_index, meta_owners::*, meta_region_owners::MetaRegionOwners,
         unique::UniqueFrameOwner,
     },
 };
@@ -324,37 +322,37 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// Pigeonhole bound: the list is no longer than the number of meta slots.
     /// Each link occupies a region slot (`relate_region_at` ⟹
     /// `slots.contains_key(meta_to_index(self.list[i].slot_vaddr))`, and `regions.inv()` ⟹
-    /// `meta_to_index(self.list[i].slot_vaddr) < max_meta_slots()`), and distinct positions occupy
+    /// `meta_to_index(self.list[i].slot_vaddr) < MAX_NR_PAGES`), and distinct positions occupy
     /// distinct slots (`relate_region`'s injectivity). So the positions inject
-    /// into `[0, max_meta_slots())` and the length is capped by it.
+    /// into `[0, MAX_NR_PAGES)` and the length is capped by it.
     pub proof fn lemma_length_le_max_meta_slots(self, regions: MetaRegionOwners)
         requires
             self.relate_region(regions),
             regions.inv(),
         ensures
-            self.list.len() <= max_meta_slots(),
+            self.list.len() <= MAX_NR_PAGES,
     {
         reveal(LinkedListOwner::relate_region);
         let idxs = Seq::new(self.list.len(), |i: int| meta_to_index(self.list[i].slot_vaddr));
 
         idxs.unique_seq_to_set();
 
-        let bound = set_int_range(0, max_meta_slots());
+        let bound = set_int_range(0, MAX_NR_PAGES as int);
         assert(idxs.to_set().subset_of(bound)) by {
             assert forall|x: int|
                 #![trigger idxs.to_set().contains(x)]
                 idxs.to_set().contains(x) implies bound.contains(x) by {
                 let i = choose|i: int| 0 <= i < idxs.len() && idxs[i] == x;
                 self.lemma_relate_region_at_facts(regions, i);
-                // `regions.inv()`: the contained slot index is `< max_meta_slots()`.
+                // `regions.inv()`: the contained slot index is `< MAX_NR_PAGES`.
             }
         }
-        lemma_int_range(0, max_meta_slots());
+        lemma_int_range(0, MAX_NR_PAGES as int);
         lemma_len_subset(idxs.to_set(), bound);
     }
 
     /// The list counter can never saturate: its length is capped by
-    /// `max_meta_slots()` (see [`Self::lemma_length_le_max_meta_slots`]), which is far
+    /// `MAX_NR_PAGES` (see [`Self::lemma_length_le_max_meta_slots`]), which is far
     /// below `usize::MAX`. Lets `insert_before` discharge the `size + 1`
     /// overflow check without a caller-supplied non-fullness precondition.
     pub proof fn lemma_length_lt_usize_max(self, regions: MetaRegionOwners)

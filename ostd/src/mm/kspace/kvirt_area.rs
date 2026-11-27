@@ -6,7 +6,6 @@ use vstd_extra::{
     assert,
     cast_ptr::Repr,
     ownership::{InvView, OwnerOf},
-    panic::allowed_to_panic_if,
     prelude::Inv,
 };
 
@@ -110,6 +109,8 @@ pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     let (pa, level, prop_from_item, _perm) = KernelPtConfig::item_into_raw(item);
     &&& frame.inv()
     &&& !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1)
+    &&& <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+    pa, level, prop_from_item)
     &&& (entry_owner.is_absent() || Child::Frame(pa, level, prop_from_item).wf(entry_owner))
 }
 
@@ -392,10 +393,9 @@ impl KVirtArea {
             old(regions).inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
-            allowed_to_panic_if(self.query_panic_condition(owner, addr, *old(regions))),
+            !self.query_panic_condition(owner, addr, *old(regions)),
         ensures
             final(regions).inv(),
-            !self.query_panic_condition(owner, addr, *old(regions)),
             res matches Some(item) ==> {
                 let view = owner.cursor_view_at(addr);
                 &&& view.present()
@@ -450,12 +450,8 @@ impl KVirtArea {
         cursor.query()).unwrap().1
     }
 
-    /// Caller-precludable *bounds* panic condition for [`Self::map_frames`]:
-    /// alignment + capacity. These are the documented `# Panics` bullets
-    /// that callers can always satisfy (and are required to). The
-    /// allocator-OOM disjunct is split out into
-    /// [`Self::map_frames_panic_condition`] (the full predicate) since OOM
-    /// is uninterpreted and typically not precludable by callers.
+    /// Alignment and capacity checks for [`Self::map_frames`].
+    /// The mapping loop uses these bounds after allocation succeeds.
     pub open spec fn map_frames_bounds_panic_condition(
         area_size: usize,
         map_offset: usize,
@@ -467,9 +463,7 @@ impl KVirtArea {
         ||| map_offset + n_frames * PAGE_SIZE > area_size
     }
 
-    /// Full panic condition for [`Self::map_frames`] = bounds OR OOM.
-    /// Used in `ensures` to give callers a single negation guarantee on
-    /// the success path.
+    /// Panic condition for [`Self::map_frames`], including allocation failure.
     pub open spec fn map_frames_panic_condition(
         area_size: usize,
         map_offset: usize,
@@ -498,8 +492,7 @@ impl KVirtArea {
              Tracked(guards): Tracked<&mut Guards>,
         requires
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
-            !Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
-            allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
+            !Self::map_frames_panic_condition(area_size, map_offset, frames.len()),
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
@@ -527,7 +520,6 @@ impl KVirtArea {
         ensures
             final(regions).inv(),
             res.inv(),
-            !Self::map_frames_panic_condition(area_size, map_offset, frames.len()),
     )]
     #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
@@ -588,15 +580,7 @@ impl KVirtArea {
         for frame in it: frames.into_iter()
             invariant
                 cursor.0.invariants(cursor_owner, *regions, *guards),
-                // Carry the conditional no-panic guarantee through each iteration.
-                allowed_to_panic_if(
-                    Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
-                ),
-                // Cursor VA tracking (purely structural — no bounds).
-                // Lets the per-iter capacity assert below chain a
-                // `cursor.va >= barrier ⟹ map_offset + frames.len()*PAGE
-                // > area_size` derivation that fires `map_frames_bounds_panic_condition`'s
-                // capacity disjunct, so the invariant permits the panic.
+                !Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()),
                 it.seq().len() == frames.len(),
                 0 <= it.index() <= frames.len(),
                 cursor.0.barrier_va.start == range.start + map_offset,
@@ -729,19 +713,6 @@ impl KVirtArea {
         ||| kvirt_alloc_oom_condition(area_size)
     }
 
-    /// Slot availability for untracked mappings; no counted ownership is required.
-    pub open spec fn untracked_range_slots_in_regions(
-        pa_range: &Range<Paddr>,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        &&& pa_range.end <= MAX_PADDR
-        &&& forall|pa: Paddr|
-            #![trigger frame_to_index(pa)]
-            pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> regions.contains(
-                frame_to_index(pa),
-            )
-    }
-
     /// Creates a kernel virtual area and maps untracked frames into it.
     ///
     /// The created virtual area will have a size of `area_size`, and the
@@ -772,15 +743,14 @@ impl KVirtArea {
             forall|level: PagingLevel|
                 2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                     pa_range.end - pa_range.start != page_size::<PagingConsts>(level),
-            allowed_to_panic_if(pa_range.end - pa_range.start >= page_size::<PagingConsts>(2)),
+            pa_range.end - pa_range.start < page_size::<PagingConsts>(2),
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
-            !Self::map_untracked_frames_bounds_panic_condition(area_size, map_offset, &pa_range),
-            allowed_to_panic_if(kvirt_alloc_oom_condition(area_size)),
+            !Self::map_untracked_frames_panic_condition(area_size, map_offset, &pa_range),
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
             owner.pt_owner.0.value().node().relate_guard(root_guard),
-            Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
+            pa_range.start < pa_range.end ==> pa_range.end <= CurrentArch::ARCH_MAX_PADDR,
             forall|pa: Paddr, level: PagingLevel|
                 1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==>
                 #[trigger]
@@ -792,7 +762,6 @@ impl KVirtArea {
         ensures
             final(regions).inv(),
             res.inv(),
-            !Self::map_untracked_frames_panic_condition(area_size, map_offset, &pa_range),
     )]
     #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
@@ -842,7 +811,7 @@ impl KVirtArea {
                     forall|level: PagingLevel|
                         2 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL ==> len
                             != page_size::<PagingConsts>(level),
-                    allowed_to_panic_if(len >= page_size::<PagingConsts>(2)),
+                    len < page_size::<PagingConsts>(2),
                     !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1),
                     forall|pa: Paddr, level: PagingLevel|
                         1 <= level <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL
@@ -877,13 +846,7 @@ impl KVirtArea {
                     cursor.0.barrier_va.start == va_range.start,
                     cursor.0.barrier_va.end == va_range.start + len,
                     pa_range.end == pa_range.start + len,
-                    pa_range.end <= MAX_PADDR,
-                    forall|pa: Paddr|
-                        #![trigger frame_to_index(pa)]
-                        pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
-                            let idx = frame_to_index(pa);
-                            &&& regions.contains(idx)
-                        },
+                    pa_range.end <= CurrentArch::ARCH_MAX_PADDR,
             {
                 let pos: Ghost<int> = Ghost(it.index() as int);
 
@@ -909,8 +872,6 @@ impl KVirtArea {
                 }
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                // `item_slot_in_regions` for the current `(pa, level)` follows from the
-                // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
                     assert(cursor.item_wf(item, entry_owner)) by {
                         reveal(<CursorOwner<KernelPtConfig> as Inv>::inv);

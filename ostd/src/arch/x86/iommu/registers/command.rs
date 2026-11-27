@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-use bitflags_upstream::bitflags;
+use vstd::prelude::*;
 
-bitflags! {
+bitflags::bitflags! {
     /// Global Command to enable functions in IOMMU. All field is write-only.
     pub struct GlobalCommand: u32{
         /// Compatibility Format Interrupt, only valid if interrupt-remapping is supported.

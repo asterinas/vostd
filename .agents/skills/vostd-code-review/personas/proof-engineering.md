@@ -33,7 +33,7 @@ and quantifier checks. Use available source evidence and record incomplete searc
    direction of each axiom and spec impl actually supplies the direction the proof needs
    (a missing converse is a gap); preconditions, postconditions, well-formedness, and
    panic/`no_unwind` claims match what the spec promises, with documented panic conditions
-   excluded by explicit preconditions rather than a bare `may_panic`; closure-driven
+   excluded by explicit preconditions under vstd's default panic configuration. Closure-driven
    adapters require the closure's per-element preconditions only where invoked and promise
    neither termination nor `no_unwind` unless the contract requires the closure to
    terminate and not panic; size bounds use the library's real representation limits

@@ -4,14 +4,14 @@
 
 <!-- guideline: tie-panic-permission-to-concrete-conditions -->
 
-Never add `allowed_to_panic_if(true)` to a function contract. This applies to
-internal functions, public APIs, and external specifications. Use
-`allowed_to_panic_if(condition)` with a predicate that describes when the panic
-path is reachable. For example, an unwrap that panics on `None` requires
-`allowed_to_panic_if(!self.is_present())`. If the enclosing function's
-preconditions rule out the panic path, prove at the call site that the panic
-condition is false and omit the panic-permission clause from the enclosing
-contract.
+Require callers to rule out panic conditions they can control, such as invalid
+alignment, an out-of-range index, or unwrapping `None`. Write simple conditions
+directly in `requires` and name a panic predicate when callers need to reuse it.
+Preserve calls that return `Err` without panicking.
+
+Verify with vstd's default panic configuration. Every `vpanic!` path must
+be unreachable. If proving this depends on a runtime resource such as
+allocator capacity, express that requirement in the API's precondition.
 
 See [PR #959](https://github.com/asterinas/vostd/pull/959#discussion_r4677429944).
 
@@ -29,12 +29,9 @@ fact on which a proof relies: preconditions, postconditions, well-formedness, an
 
 For example, a `BTreeMap::get_mut` model must preserve entries other than the
 selected key and must express the documented compatibility between the stored
-key ordering and borrowed-key ordering. Use ordinary preconditions for caller
-obligations and `allowed_to_panic_if(condition)` for paths that may panic.
-When the condition holds, the caller must permit a possible panic. Keep the
-condition tied to the concrete panic path. Never use `allowed_to_panic_if(true)`
-in an `assume_specification`. Follow the
-[general panic-permission rule](#tie-panic-permission-to-concrete-conditions).
+key ordering and borrowed-key ordering. Follow the
+[general panic-permission rule](#tie-panic-permission-to-concrete-conditions)
+when expressing panic behavior in an `assume_specification`.
 Postconditions apply on normal return.
 
 `no_unwind` asserts that the modeled function never unwinds, regardless of the
