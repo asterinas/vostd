@@ -1,4 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::{
+    prelude::*,
+    std_specs::iter::{IteratorSpec, skip_postcondition},
+};
+
+use vstd_extra::external::{
+    c_str::bytes_with_nul, iter::axiom_step_by_byte_pairs, uefi::panic_on_loaded_image_error,
+};
+
 use core::{ffi::CStr, mem::MaybeUninit};
 
 use boot::{AllocateType, open_protocol_exclusive};
@@ -9,7 +18,8 @@ use uefi_raw::table::system::SystemTable;
 use super::decoder::decode_payload;
 use crate::x86::amd64_efi::alloc::alloc_pages;
 
-pub(super) const PAGE_SIZE: u64 = 4096;
+#[verus_verify]
+pub(super) const PAGE_SIZE: u64 = uefi::boot::PAGE_SIZE as u64;
 
 #[export_name = "main_efi_common64"]
 extern "sysv64" fn main_efi_common64(
@@ -45,7 +55,7 @@ extern "sysv64" fn main_efi_common64(
 fn allocate_boot_params() -> &'static mut BootParams {
     let boot_params = {
         let bytes = alloc_pages(AllocateType::AnyPages, core::mem::size_of::<BootParams>());
-        MaybeUninit::fill(bytes, 0);
+        bytes.write_filled(0);
         // SAFETY: Zero initialization gives a valid representation for `BootParams`.
         unsafe { &mut *bytes.as_mut_ptr().cast::<BootParams>() }
     };
@@ -98,22 +108,94 @@ fn efi_phase_boot(boot_params: &mut BootParams) {
     crate::loader::load_elf(&kernel);
 }
 
+verus! {
+
+closed spec fn converted_cmdline(options: Seq<u8>) -> Seq<u8> {
+    let pairs = options.len() / 2;
+    Seq::new(
+        (pairs + 1) as nat,
+        |i: int|
+            if i == pairs {
+                0u8
+            } else {
+                options[2 * i]
+            },
+    )
+}
+
+closed spec fn has_nonzero_high_byte(options: Seq<u8>) -> bool {
+    exists|i: int| 0 <= i < options.len() / 2 && (#[trigger] options[2 * i + 1]) != 0u8
+}
+
+} // verus!
+#[verus_spec(ret =>
+    with -> observed_options: Ghost<Option<Seq<u8>>>,
+    ensures
+        match observed_options@ {
+            None => ret is None,
+            Some(options) => {
+                options.len() <= u32::MAX && if options.len() % 2 != 0 || has_nonzero_high_byte(options) {
+                    ret is None
+                } else {
+                    ret matches Some(value) && {
+                        let bytes = bytes_with_nul(value);
+                        &&& 0 < bytes.len() <= converted_cmdline(options).len()
+                        &&& bytes == converted_cmdline(options)[..bytes.len()]
+                        &&& bytes.last() == 0u8
+                        &&& !bytes.drop_last().contains(0u8)
+                    }
+                }
+            }
+        },
+)]
 fn load_cmdline() -> Option<&'static CStr> {
+    proof! {
+        broadcast use skip_postcondition, axiom_step_by_byte_pairs;
+    }
     uefi::println!("[EFI stub] Loading the cmdline");
 
-    let loaded_image = open_protocol_exclusive::<uefi::proto::loaded_image::LoadedImage>(
+    let loaded_image = match open_protocol_exclusive::<uefi::proto::loaded_image::LoadedImage>(
         uefi::boot::image_handle(),
-    )
-    .unwrap();
+    ) {
+        Ok(loaded_image) => loaded_image,
+        Err(error) => panic_on_loaded_image_error(error),
+    };
 
     let Some(load_options) = loaded_image.load_options_as_bytes() else {
         uefi::println!("[EFI stub] Warning: No cmdline is available!");
-        return None;
+        proof_decl! { let ghost observed: Option<Seq<u8>> = None; }
+        return {
+            proof_with!(|= Ghost(observed));
+            None
+        };
     };
 
-    if load_options.len() % 2 != 0 || load_options.iter().skip(1).step_by(2).any(|c| *c != 0) {
+    proof_decl! { let ghost observed = Some(load_options@); }
+    if load_options.len() % 2 != 0 || {
+        let mut high_bytes = load_options.iter().skip(1).step_by(2);
+        proof_decl! { let ghost remaining = high_bytes.remaining(); }
+        let has_nonzero = high_bytes.any(verus_exec_expr!(
+            |c: &u8| -> (nonzero: bool)
+                ensures nonzero == (*c != 0u8),
+            { *c != 0 }
+        ));
+        proof! {
+            assert forall|i: int| 0 <= i < remaining.len()
+                implies (#[trigger] *remaining[i]) == load_options@[2 * i + 1] by {};
+            if !has_nonzero {
+                assert forall|i: int| 0 <= i < load_options@.len() / 2
+                    implies (#[trigger] load_options@[2 * i + 1]) == 0u8 by {
+                    assert(*remaining[i] == 0u8);
+                };
+            }
+        }
+        has_nonzero
+    } {
         uefi::println!("[EFI stub] Warning: The cmdline contains non-ASCII characters!");
-        return None;
+        return {
+            proof_with!(|= Ghost(observed));
+            None
+        };
     }
 
     // The load options are a `Char16` sequence. We should convert it to a `Char8` sequence.
@@ -121,17 +203,27 @@ fn load_cmdline() -> Option<&'static CStr> {
         AllocateType::MaxAddress(u32::MAX as u64),
         load_options.len() / 2 + 1,
     );
+    #[verus_spec(
+        invariant
+            cmdline_bytes@.len() == load_options@.len() / 2 + 1,
+            forall|k: int| 0 <= k < i
+                ==> (#[trigger] cmdline_bytes@[k]).as_option() == Some(load_options@[2 * k]),
+    )]
     for i in 0..load_options.len() / 2 {
         cmdline_bytes[i].write(load_options[i * 2]);
     }
     cmdline_bytes[load_options.len() / 2].write(0);
 
     // SAFETY: We've initialized all the bytes above.
-    let cmdline_str =
-        CStr::from_bytes_until_nul(unsafe { cmdline_bytes.assume_init_ref() }).unwrap();
+    let initialized = unsafe { cmdline_bytes.assume_init_ref() };
+    proof! {
+        assert(initialized@[initialized@.len() - 1] == 0u8);
+    }
+    let cmdline_str = CStr::from_bytes_until_nul(initialized).unwrap();
 
     uefi::println!("[EFI stub] Loaded the cmdline: {:?}", cmdline_str);
 
+    proof_with!(|= Ghost(observed));
     Some(cmdline_str)
 }
 

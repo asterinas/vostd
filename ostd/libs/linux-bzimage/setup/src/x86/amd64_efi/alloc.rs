@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+use vstd_extra::external::uefi::{
+    allocate_loader_pages, into_loader_slice, panic_on_loader_allocation_error,
+};
+
 use core::mem::MaybeUninit;
 
 use uefi::boot::AllocateType;
@@ -20,25 +25,34 @@ pub fn alloc_at(addr: usize, size: usize) -> &'static mut [MaybeUninit<u8>] {
     allocated
 }
 
+#[verus_spec(ret =>
+    requires size <= isize::MAX,
+    ensures ret@.len() == size,
+)]
 pub(super) fn alloc_pages(ty: AllocateType, size: usize) -> &'static mut [MaybeUninit<u8>] {
     assert!(
         size <= isize::MAX as usize,
         "the size to allocate exceeds `isize::MAX`"
     );
 
-    let allocated = uefi::boot::allocate_pages(
-        ty,
-        uefi::boot::MemoryType::LOADER_DATA,
-        size.div_ceil(super::efi::PAGE_SIZE as usize),
-    )
-    .expect("the UEFI allocation fails");
-
-    // SAFETY:
-    // 1. The address is not zero and the size is reasonable (there are less the `isize::MAX` bytes
-    //    and the range won't overflow the address space), as asserted above or guaranteed by the
-    //    implementation of `allocate_pages`.
-    // 2. The memory region is allocated via the UEFI firmware, so it is valid for reading and
-    //    writing. We will not deallocate it, so it live for `'static`.
-    // 3. The type alignment is 1 and the type can contain uninitialized data.
-    unsafe { core::slice::from_raw_parts_mut(allocated.as_ptr().cast(), size) }
+    let (allocation, pages) =
+        allocate_loader_pages(ty, size.div_ceil(super::efi::PAGE_SIZE as usize));
+    let allocated = match allocation {
+        Ok(allocated) => allocated,
+        Err(error) => panic_on_loader_allocation_error(error),
+    };
+    proof! {
+        let page_size = super::efi::PAGE_SIZE as int;
+        let rounded_size = (size + page_size - 1) / page_size * page_size;
+        assert(size <= rounded_size < size + page_size);
+    }
+    // SAFETY: The firmware allocation covers this prefix, and the slice consumes
+    // the exclusive permission. The setup never frees its loader pages.
+    verus_exec_expr!(unsafe {
+        into_loader_slice(
+            allocated.as_ptr().cast(),
+            size,
+            Tracked(pages.get().tracked_unwrap()),
+        )
+    })
 }

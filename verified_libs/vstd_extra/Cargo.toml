@@ -12,6 +12,7 @@ default = []
 # feature as a source gate so the mainline vstd dependency remains unchanged.
 irc11 = []
 std = ["vstd/std"]
+uefi-specs = ["dep:uefi"]
 
 [dependencies]
 vstd = { workspace = true }
@@ -24,6 +25,7 @@ bytemuck = "1.17.0"
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
 x86 = "0.52.0"
+uefi = { version = "0.32.0", default-features = false, optional = true }
 
 [lints]
 workspace = true

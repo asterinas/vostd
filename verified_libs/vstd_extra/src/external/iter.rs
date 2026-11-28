@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for iterator operations not yet modeled by `vstd`.
+use core::{
+    iter::{Skip, StepBy},
+    slice::Iter,
+};
+
 use core::cmp::Ordering;
 use vstd::{
     laws_cmp::obeys_cmp,
@@ -125,6 +130,43 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
         IteratorSpec::produces(&iter) == Seq::new(N as nat, |i: int| true),
         IteratorSpec::remaining(&iter) == array@,
         IteratorSpec::decrease(&iter) == Some(N as nat),
+;
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types(I)]
+pub struct ExStepBy<I>(StepBy<I>);
+
+#[verifier::external_trait_specification]
+pub trait ExIteratorStepBy {
+    type ExternalTraitSpecificationFor: Iterator;
+
+    fn step_by(self, step: usize) -> (ret: StepBy<Self>) where Self: Sized
+        requires
+            step > 0,
+        ensures
+            step_by_post(self, step, ret),
+    ;
+}
+
+pub uninterp spec fn step_by_post<I>(iter: I, step: usize, ret: StepBy<I>) -> bool;
+
+/// Rust 1.100.0 core/src/iter/adapters/step_by.rs yields the first item and
+/// then every second item of this skipped byte slice.
+pub broadcast axiom fn axiom_step_by_byte_pairs<'a>(
+    iter: Skip<Iter<'a, u8>>,
+    ret: StepBy<Skip<Iter<'a, u8>>>,
+)
+    requires
+        #[trigger] step_by_post(iter, 2, ret),
+        iter.obeys_prophetic_iter_laws(),
+    ensures
+        ret.obeys_prophetic_iter_laws(),
+        ret.remaining().len() == (iter.remaining().len() + 1) / 2,
+        ret.produces() == Seq::new(ret.remaining().len(), |i: int| true),
+        forall|i: int|
+            0 <= i < ret.remaining().len() ==> (#[trigger] ret.remaining()[i]) == iter.remaining()[i
+                * 2],
 ;
 
 } // verus!

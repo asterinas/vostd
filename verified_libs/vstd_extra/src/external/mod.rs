@@ -4,6 +4,7 @@
 //! They are subject to change if `vstd` covers more cases in the future.
 pub mod acpi;
 mod bitvec;
+pub mod c_str;
 pub mod bytemuck;
 pub mod cmp;
 pub mod convert;
@@ -13,6 +14,7 @@ pub mod int_specs;
 #[cfg(target_arch = "x86_64")]
 pub mod io_port;
 pub mod iter;
+pub mod maybe_uninit;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;
@@ -21,6 +23,8 @@ pub mod smallvec;
 pub mod smart_ptr;
 pub mod str;
 pub mod time;
+#[cfg(all(target_arch = "x86_64", feature = "uefi-specs"))]
+pub mod uefi;
 pub mod vec;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
