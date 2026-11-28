@@ -7,6 +7,7 @@ mod bitvec;
 pub mod bytemuck;
 pub mod cmp;
 pub mod convert;
+pub mod fdt;
 pub mod fmt;
 pub mod ilog2;
 pub mod int_specs;
