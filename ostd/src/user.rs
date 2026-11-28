@@ -2,7 +2,7 @@
 //! User mode.
 use vstd::prelude::*;
 
-/* Import the x86 frame directly because ostd::trap no longer re-exports TrapFrame.
+/* Import TrapFrame from crate::arch::trap because ostd::trap no longer re-exports it.
  * Origin Rust: use crate::{cpu::context::UserContext, trap::TrapFrame};
  */
 use crate::arch::trap::TrapFrame;

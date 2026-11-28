@@ -50,7 +50,7 @@ pub struct UserContext {
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[verus_verify]
 #[repr(C)]
-/*#[expect(missing_docs)]*/
+#[expect(missing_docs)]
 pub struct GeneralRegs {
     pub rax: usize,
     pub rbx: usize,
