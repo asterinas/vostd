@@ -8,6 +8,8 @@
 //!
 #![cfg_attr(not(test), no_std)]
 
+use vstd::prelude::*;
+
 /// Magic stored in the boot protocol header.
 pub const LINUX_BOOT_HEADER_MAGIC: u32 = 0x53726448;
 
@@ -146,6 +148,7 @@ pub struct ScreenInfo {
     pub _reserved: [u8; 2],   /* 0x3e */
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct ApmBiosInfo {
@@ -160,6 +163,7 @@ pub struct ApmBiosInfo {
     pub dseg_len: u16,
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct IstInfo {
@@ -169,6 +173,7 @@ pub struct IstInfo {
     pub perf_level: u32,
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct SysDescTable {
@@ -176,6 +181,7 @@ pub struct SysDescTable {
     pub table: [u8; 14],
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct OlpcOfwHeader {
@@ -185,12 +191,14 @@ pub struct OlpcOfwHeader {
     pub irq_desc_table: u32,
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct EdidInfo {
     pub dummy: [u8; 128],
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct EfiInfo {
@@ -203,6 +211,49 @@ pub struct EfiInfo {
     pub efi_systab_hi: u32,
     pub efi_memmap_hi: u32,
 }
+
+verus! {
+
+global layout ApmBiosInfo is size == 20, align == 1;
+
+global layout IstInfo is size == 16, align == 1;
+
+global layout SysDescTable is size == 16, align == 1;
+
+global layout OlpcOfwHeader is size == 16, align == 1;
+
+global layout EdidInfo is size == 128, align == 1;
+
+global layout EfiInfo is size == 32, align == 4;
+
+/// Establishes the sizes and alignments of the six firmware records for callers.
+pub proof fn lemma_firmware_record_layouts()
+    ensures
+        vstd::layout::size_of::<ApmBiosInfo>() == 20,
+        vstd::layout::align_of::<ApmBiosInfo>() == 1,
+        vstd::layout::size_of::<IstInfo>() == 16,
+        vstd::layout::align_of::<IstInfo>() == 1,
+        vstd::layout::size_of::<SysDescTable>() == 16,
+        vstd::layout::align_of::<SysDescTable>() == 1,
+        vstd::layout::size_of::<OlpcOfwHeader>() == 16,
+        vstd::layout::align_of::<OlpcOfwHeader>() == 1,
+        vstd::layout::size_of::<EdidInfo>() == 128,
+        vstd::layout::align_of::<EdidInfo>() == 1,
+        vstd::layout::size_of::<EfiInfo>() == 32,
+        vstd::layout::align_of::<EfiInfo>() == 4,
+{
+    broadcast use {
+        VERUS_layout_of_ApmBiosInfo,
+        VERUS_layout_of_IstInfo,
+        VERUS_layout_of_SysDescTable,
+        VERUS_layout_of_OlpcOfwHeader,
+        VERUS_layout_of_EdidInfo,
+        VERUS_layout_of_EfiInfo,
+    };
+
+}
+
+} // verus!
 
 /// The E820 types known to the kernel.
 ///
