@@ -10,6 +10,10 @@
 //! `AllocatePages` grants exclusive access to its `LoaderData` page range
 //! (UEFI 2.10, sections 7.2.1 and 7.2.2). `LoaderPages` tracks this permission.
 //! Keep the allocation live for as long as references to its memory are used.
+//!
+//! Contracts retain the default invariant effect for calls that can reach
+//! firmware, a protocol conversion, or a panic handler. `ScopedProtocol::deref`
+//! inherits its effect from `Deref`.
 use vstd::{prelude::*, raw_ptr::PointsToRaw};
 
 use core::{
