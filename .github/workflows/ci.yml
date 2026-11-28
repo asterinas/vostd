@@ -63,7 +63,7 @@ jobs:
           runner-label: ${{ matrix.os }}
 
       - name: Verify TDX register accessors
-        if: matrix.os == 'ubuntu-latest' && matrix.rust_target == 'x86_64-unknown-none'
+        if: matrix.rust_target == 'x86_64-unknown-none'
         run: >-
           cargo dv focus --package ostd --target x86_64-unknown-none
           --features tdx-registers -- --verify-only-module arch::cpu::context::tdx
