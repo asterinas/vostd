@@ -20,7 +20,7 @@ pub mod slice;
 pub mod smallvec;
 pub mod smart_ptr;
 pub mod str;
-#[cfg(all(target_arch = "x86_64", feature = "tdx-registers"))]
+#[cfg(all(target_arch = "x86_64", feature = "tdx_registers"))]
 pub mod tdx_guest;
 pub mod time;
 pub mod vec;

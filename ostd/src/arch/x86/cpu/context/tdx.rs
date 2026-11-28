@@ -56,7 +56,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rax(&self) -> usize {
         self.0.rax
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rax, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rax, ..old(self)@ }))]
     fn set_rax(&mut self, rax: usize) {
         self.0.rax = rax;
     }
@@ -64,7 +64,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rbx(&self) -> usize {
         self.0.rbx
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rbx, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rbx, ..old(self)@ }))]
     fn set_rbx(&mut self, rbx: usize) {
         self.0.rbx = rbx;
     }
@@ -72,7 +72,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rcx(&self) -> usize {
         self.0.rcx
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rcx, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rcx, ..old(self)@ }))]
     fn set_rcx(&mut self, rcx: usize) {
         self.0.rcx = rcx;
     }
@@ -80,7 +80,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rdx(&self) -> usize {
         self.0.rdx
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rdx, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rdx, ..old(self)@ }))]
     fn set_rdx(&mut self, rdx: usize) {
         self.0.rdx = rdx;
     }
@@ -88,7 +88,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rsi(&self) -> usize {
         self.0.rsi
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rsi, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rsi, ..old(self)@ }))]
     fn set_rsi(&mut self, rsi: usize) {
         self.0.rsi = rsi;
     }
@@ -96,7 +96,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rdi(&self) -> usize {
         self.0.rdi
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rdi, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rdi, ..old(self)@ }))]
     fn set_rdi(&mut self, rdi: usize) {
         self.0.rdi = rdi;
     }
@@ -104,7 +104,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rip(&self) -> usize {
         self.0.rip
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rip, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rip, ..old(self)@ }))]
     fn set_rip(&mut self, rip: usize) {
         self.0.rip = rip;
     }
@@ -112,7 +112,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r8(&self) -> usize {
         self.0.r8
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r8, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r8, ..old(self)@ }))]
     fn set_r8(&mut self, r8: usize) {
         self.0.r8 = r8;
     }
@@ -120,7 +120,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r9(&self) -> usize {
         self.0.r9
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r9, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r9, ..old(self)@ }))]
     fn set_r9(&mut self, r9: usize) {
         self.0.r9 = r9;
     }
@@ -128,7 +128,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r10(&self) -> usize {
         self.0.r10
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r10, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r10, ..old(self)@ }))]
     fn set_r10(&mut self, r10: usize) {
         self.0.r10 = r10;
     }
@@ -136,7 +136,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r11(&self) -> usize {
         self.0.r11
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r11, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r11, ..old(self)@ }))]
     fn set_r11(&mut self, r11: usize) {
         self.0.r11 = r11;
     }
@@ -144,7 +144,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r12(&self) -> usize {
         self.0.r12
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r12, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r12, ..old(self)@ }))]
     fn set_r12(&mut self, r12: usize) {
         self.0.r12 = r12;
     }
@@ -152,7 +152,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r13(&self) -> usize {
         self.0.r13
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r13, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r13, ..old(self)@ }))]
     fn set_r13(&mut self, r13: usize) {
         self.0.r13 = r13;
     }
@@ -160,7 +160,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r14(&self) -> usize {
         self.0.r14
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r14, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r14, ..old(self)@ }))]
     fn set_r14(&mut self, r14: usize) {
         self.0.r14 = r14;
     }
@@ -168,7 +168,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn r15(&self) -> usize {
         self.0.r15
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { r15, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { r15, ..old(self)@ }))]
     fn set_r15(&mut self, r15: usize) {
         self.0.r15 = r15;
     }
@@ -176,7 +176,7 @@ impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rbp(&self) -> usize {
         self.0.rbp
     }
-    #[verus_spec(ensures final(self)@ == (GeneralRegs { rbp, .. old(self)@ }))]
+    #[verus_spec(ensures final(self)@ == (GeneralRegs { rbp, ..old(self)@ }))]
     fn set_rbp(&mut self, rbp: usize) {
         self.0.rbp = rbp;
     }

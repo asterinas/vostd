@@ -28,17 +28,10 @@ use crate::{
 };*/
 
 /* Verify the register adapter independently of the CVM memory-management paths.
- * Origin Rust:
- * cfg_if! {
- *     if #[cfg(feature = "cvm_guest")] {
- *         mod tdx;
- *
- *         use tdx::VirtualizationExceptionHandler;
- *     }
- * }
+ * Origin Rust: if #[cfg(feature = "cvm_guest")] {
  */
 cfg_if! {
-    if #[cfg(feature = "tdx-registers")] {
+    if #[cfg(feature = "tdx_registers")] {
         mod tdx;
 
         /*use tdx::VirtualizationExceptionHandler;*/

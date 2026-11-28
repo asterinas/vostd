@@ -12,7 +12,7 @@ default = []
 # feature as a source gate so the mainline vstd dependency remains unchanged.
 irc11 = []
 std = ["vstd/std"]
-tdx-registers = ["dep:tdx-guest"]
+tdx_registers = ["dep:tdx-guest"]
 
 [dependencies]
 vstd = { workspace = true }

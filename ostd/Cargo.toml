@@ -85,11 +85,11 @@ allow_panic = []
 # explicitly because the mainline Verus toolchain does not define it.
 irc11 = ["vstd_extra/irc11"]
 # Verify the TDX register adapter without enabling all CVM guest code.
-tdx-registers = ["dep:tdx-guest", "vstd_extra/tdx-registers"]
+tdx_registers = ["dep:tdx-guest", "vstd_extra/tdx_registers"]
 # The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
-# cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
 # Reuse the register feature for tdx-guest and its Verus declarations.
-cvm_guest = ["tdx-registers", "dep:iced-x86"]
+# cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
+cvm_guest = ["tdx_registers", "dep:iced-x86"]
 coverage = ["minicov"]
 
 [lints]

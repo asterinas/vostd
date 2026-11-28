@@ -4,10 +4,11 @@
 //! [TdxTrapFrame]: https://docs.rs/tdx-guest/0.4.0/tdx_guest/trait.TdxTrapFrame.html
 use vstd::prelude::*;
 
-use tdx_guest::TdxTrapFrame;
+use ::tdx_guest::TdxTrapFrame;
 
 verus! {
 
+/// Declares the signatures of `TdxTrapFrame`.
 #[verifier::external_trait_specification]
 pub trait ExTdxTrapFrame {
     type ExternalTraitSpecificationFor: TdxTrapFrame;
