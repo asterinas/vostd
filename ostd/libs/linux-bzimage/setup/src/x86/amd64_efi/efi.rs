@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd_extra::external::uefi_raw::MemoryType;
+
 #[cfg(verus_keep_ghost)]
 use linux_boot_params::E820Type;
-use vstd::prelude::*;
-use vstd_extra::external::uefi_raw::MemoryType;
 
 use core::{ffi::CStr, mem::MaybeUninit};
 
@@ -388,7 +390,7 @@ fn parse_memory_type(
     mem_type: uefi::table::boot::MemoryType,
 ) -> Option<linux_boot_params::E820Type> {
     use linux_boot_params::E820Type;
-    /*use uefi::table::boot::MemoryType;*/
+    use uefi::table::boot::MemoryType;
 
     /* Verus rejects associated-constant patterns on external struct `MemoryType`.
      * Origin Rust:
