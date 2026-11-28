@@ -1,12 +1,16 @@
 use crate::verus::{self, DynError, VerusTarget};
-use cargo_metadata::{Artifact, DependencyKind, Message, Metadata, MetadataCommand, PackageId};
+use cargo_metadata::{
+    camino::Utf8PathBuf, Artifact, DependencyKind, Message, Metadata, MetadataCommand, PackageId,
+};
 use colored::Colorize;
 use indexmap::IndexMap;
-use std::collections::HashSet;
-use std::env::consts::DLL_EXTENSION;
-use std::io::{BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::{
+    collections::HashSet,
+    env::consts::DLL_EXTENSION,
+    io::{BufReader, Write},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+};
 
 /// Generate documentation for verification targets
 pub fn exec_doc(
@@ -127,6 +131,15 @@ fn generate_single_target_doc(
         .as_ref()
         .and_then(|resolve| resolve.nodes.iter().find(|node| node.id == package.id))
         .ok_or_else(|| format!("Missing dependency graph for {}", target.name))?;
+    // Target libraries may live in either Cargo output directory.
+    let target_dirs = [
+        metadata.target_directory.join(rust_target),
+        metadata
+            .build_directory
+            .as_ref()
+            .unwrap_or(&metadata.target_directory)
+            .join(rust_target),
+    ];
     let mut externs = IndexMap::new();
     for dep in &node.deps {
         if dep
@@ -134,7 +147,7 @@ fn generate_single_target_doc(
             .iter()
             .any(|kind| kind.kind == DependencyKind::Normal)
         {
-            let path = library_for_package(artifacts, &dep.pkg)?;
+            let path = library_for_package(artifacts, &dep.pkg, &target_dirs)?;
             externs.insert(dep.name.clone(), path);
         }
     }
@@ -153,7 +166,7 @@ fn generate_single_target_doc(
                 .ok_or_else(|| format!("Missing Cargo artifact for {name}"))?;
             externs.insert(
                 name.to_owned(),
-                library_for_package(artifacts, &artifact.package_id)?,
+                library_for_package(artifacts, &artifact.package_id, &target_dirs)?,
             );
         }
     }
@@ -319,11 +332,17 @@ fn library_artifact(artifact: &Artifact) -> Option<PathBuf> {
 fn library_for_package(
     artifacts: &[Artifact],
     package_id: &PackageId,
+    target_dirs: &[Utf8PathBuf],
 ) -> Result<PathBuf, DynError> {
     let paths = artifacts
         .iter()
         .filter(|artifact| artifact.package_id == *package_id)
-        .filter_map(library_artifact)
+        .filter_map(|artifact| {
+            library_artifact(artifact).filter(|path| {
+                artifact.target.is_proc_macro()
+                    || target_dirs.iter().any(|dir| path.starts_with(dir))
+            })
+        })
         .collect::<HashSet<_>>();
     if paths.len() != 1 {
         return Err(format!(
