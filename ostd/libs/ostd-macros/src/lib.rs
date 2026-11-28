@@ -3,7 +3,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use rand::{Rng, distributions::Alphanumeric};
+use rand::{Rng, distr::Alphanumeric};
 use syn::{Expr, Ident, ItemFn, parse_macro_input};
 
 /// A macro attribute to mark the kernel entry point.
@@ -264,7 +264,7 @@ pub fn ktest(_attr: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     // Generate a random identifier to avoid name conflicts.
-    let fn_id: String = rand::thread_rng()
+    let fn_id: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .take(8)
         .map(char::from)

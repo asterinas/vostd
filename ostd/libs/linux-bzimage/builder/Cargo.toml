@@ -1,25 +1,30 @@
 [package]
 name = "linux-bzimage-builder"
-version = "0.16.0"
-edition = "2021"
 description = "Linux boot compatibility for modern OSes"
-license = "MPL-2.0"
-repository = "https://github.com/asterinas/asterinas"
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[package.metadata.verus]
-verify = true
 
 [dependencies]
-vstd = { workspace = true }
-vstd_extra = { path = "../../../../verified_libs/vstd_extra" }
-bitflags = { path = "../../../../verified_libs/bitflags" }
-align_ext = { path = "../../align_ext", version = "0.1.0" }
+vstd.workspace = true
+vstd_extra.workspace = true
+align_ext.workspace = true
+bitflags.workspace = true
+crc32fast.workspace = true
+miniz_oxide.workspace = true
+ostd-pod.workspace = true
+serde.workspace = true
+xmas-elf.workspace = true
+zerocopy.workspace = true
 bytemuck = { version = "1.17.0", features = ["derive"] }
 libflate = "2.1.0"
-serde = { version = "1.0.192", features = ["derive"] }
-xmas-elf = "0.10.0"
 
 [lints]
 workspace = true
+
+[package.metadata.verus]
+verify = true

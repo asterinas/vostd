@@ -1,22 +1,31 @@
 [package]
 name = "ostd-pod"
+# REMINDER: Whenever you change this number,
+# update all occurrences of the version in README
+# (e.g., in external links and in the sample Cargo.toml).
 version = "0.1.1"
-edition = "2021"
-license = "MPL-2.0"
-description = "A marker trait for plain old data (POD)"
+# version = "0.4.0"
+description = "A trait for plain old data (POD)"
 readme = "README.md"
-repository = "https://github.com/asterinas/pod"
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 ostd-pod-derive = { path = "derive", optional = true, version = "0.1.1" }
-vstd = { workspace = true }
-vstd_extra = { path = "../../../verified_libs/vstd_extra" }
+# ostd-pod-macros = { workspace = true, optional = true }
+# padding-struct = { workspace = true, optional = true }
+vstd.workspace = true
+vstd_extra.workspace = true
 
 [features]
 default = ["derive"]
 derive = ["ostd-pod-derive"]
+
+[lints]
+workspace = true
 
 [package.metadata.verus]
 verify = true
@@ -24,7 +33,3 @@ verify = true
 [lib]
 crate-type = ["rlib"]
 name = "ostd_pod"
-path = "src/lib.rs"
-
-[lints]
-workspace = true

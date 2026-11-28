@@ -133,6 +133,6 @@ impl TaskContextApi for TaskContext {
 }
 
 } // verus!
-extern "C" {
+unsafe extern "C" {
     pub(crate) fn context_switch(cur: *mut TaskContext, nxt: *const TaskContext);
 }
