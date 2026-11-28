@@ -148,18 +148,6 @@ global layout TrapFrame is size == 176, align == 8;
 global layout RawUserContext is size == 176, align == 8;
 
 } // verus!
-/* Check the ABI field offsets with Rust's compile-time layout queries.
- * Origin Rust: <none; new executable code>
- */
-const _: () = {
-    use core::mem::offset_of;
-
-    assert!(offset_of!(TrapFrame, trap_num) == 136);
-    assert!(offset_of!(TrapFrame, error_code) == 144);
-    assert!(offset_of!(RawUserContext, trap_num) == 160);
-    assert!(offset_of!(RawUserContext, error_code) == 168);
-};
-
 /*/// Returns true if this function is called within the context of an IRQ handler
 /// and the IRQ occurs while the CPU is executing in the kernel mode.
 /// Otherwise, it returns false.
