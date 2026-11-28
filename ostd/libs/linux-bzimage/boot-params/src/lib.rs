@@ -6,11 +6,10 @@
 //! ABI compatible struct in Rust, despite that most of the fields are
 //! currently not needed by Asterinas.
 //!
-//! Verus checks table capacity arithmetic using compiler-checked entry layouts.
-//! Rust checks the packed field offsets in the zero page.
 #![cfg_attr(not(test), no_std)]
 
-use vstd::prelude::*;
+#[allow(unused_imports)]
+use vstd::{layout, prelude::*};
 
 /// Magic stored in the boot protocol header.
 pub const LINUX_BOOT_HEADER_MAGIC: u32 = 0x53726448;
@@ -278,37 +277,67 @@ global layout EddDeviceParams is size == 74, align == 1;
 
 global layout EddInfo is size == 82, align == 1;
 
-proof fn check_zero_page_table_capacities() {
-    broadcast use vstd::layout::layout_of_primitives;
+impl E820Type {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 4,
+            layout::align_of::<Self>() == 4,
+    {
+        broadcast use VERUS_layout_of_E820Type;
 
-    use vstd::layout::size_of;
+    }
+}
 
-    assert(EDD_MBR_SIG_MAX * size_of::<u32>() == 64);
-    assert(E820_MAX_ENTRIES_ZEROPAGE * size_of::<BootE820Entry>() == 2560);
-    assert(EDDMAXNR * size_of::<EddInfo>() == 492);
+impl BootE820Entry {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 20,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_BootE820Entry;
+
+    }
+}
+
+impl EddDeviceParams {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 74,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_EddDeviceParams;
+
+    }
+}
+
+impl EddInfo {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 82,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_EddInfo;
+
+    }
+}
+
+pub proof fn lemma_zero_page_table_capacities()
+    ensures
+        16 * layout::size_of::<u32>() == 64,
+        128 * layout::size_of::<BootE820Entry>() == 2560,
+        6 * layout::size_of::<EddInfo>() == 492,
+{
+    broadcast use layout::layout_of_primitives;
+
+    BootE820Entry::lemma_layout();
+    EddInfo::lemma_layout();
+
+    assert(EDD_MBR_SIG_MAX * layout::size_of::<u32>() == 64);
+    assert(E820_MAX_ENTRIES_ZEROPAGE * layout::size_of::<BootE820Entry>() == 2560);
+    assert(EDDMAXNR * layout::size_of::<EddInfo>() == 492);
 }
 
 } // verus!
-
-const _: () = {
-    use core::mem::{offset_of, size_of};
-
-    let mbr_start = offset_of!(BootParams, edd_mbr_sig_buffer);
-    let e820_start = offset_of!(BootParams, e820_table);
-    let edd_start = offset_of!(BootParams, eddbuf);
-    let e820_end = e820_start + size_of::<[BootE820Entry; E820_MAX_ENTRIES_ZEROPAGE]>();
-    let edd_end = edd_start + size_of::<[EddInfo; EDDMAXNR]>();
-
-    assert!(size_of::<BootParams>() == 4096);
-    assert!(mbr_start == 0x290);
-    assert!(mbr_start + size_of::<[u32; EDD_MBR_SIG_MAX]>() == e820_start);
-    assert!(e820_start == 0x2d0 && e820_end == 0xcd0);
-    assert!(e820_end == offset_of!(BootParams, _pad8));
-    assert!(edd_start == 0xd00 && edd_end == 0xeec);
-    assert!(edd_end == offset_of!(BootParams, _pad9));
-    assert!(edd_end <= size_of::<BootParams>());
-};
-
 #[cfg(test)]
 mod tests {
     use core::mem::offset_of;
@@ -383,5 +412,27 @@ mod tests {
         assert_eq!(offset_of!(BootParams, edd_mbr_sig_buffer), 0x290);
         assert_eq!(offset_of!(BootParams, e820_table), 0x2d0);
         assert_eq!(offset_of!(BootParams, eddbuf), 0xd00);
+    }
+
+    #[test]
+    fn test_zero_page_table_bounds() {
+        use core::mem::size_of;
+
+        let mbr_start = offset_of!(BootParams, edd_mbr_sig_buffer);
+        let e820_start = offset_of!(BootParams, e820_table);
+        let edd_start = offset_of!(BootParams, eddbuf);
+        let e820_end = e820_start + size_of::<[BootE820Entry; E820_MAX_ENTRIES_ZEROPAGE]>();
+        let edd_end = edd_start + size_of::<[EddInfo; EDDMAXNR]>();
+
+        assert_eq!(size_of::<BootParams>(), 4096);
+        assert_eq!(mbr_start, 0x290);
+        assert_eq!(mbr_start + size_of::<[u32; EDD_MBR_SIG_MAX]>(), e820_start);
+        assert_eq!(e820_start, 0x2d0);
+        assert_eq!(e820_end, 0xcd0);
+        assert_eq!(e820_end, offset_of!(BootParams, _pad8));
+        assert_eq!(edd_start, 0xd00);
+        assert_eq!(edd_end, 0xeec);
+        assert_eq!(edd_end, offset_of!(BootParams, _pad9));
+        assert!(edd_end <= size_of::<BootParams>());
     }
 }
