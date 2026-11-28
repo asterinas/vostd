@@ -4,8 +4,8 @@ use vstd::prelude::*;
 
 use crate::specs::context::cpu_feature_model;
 
-/*pub mod boot;
-pub(crate) mod cpu;*/
+/*pub mod boot;*/
+pub(crate) mod cpu;
 pub mod device;
 pub(crate) mod ex_table;
 pub(crate) mod io;

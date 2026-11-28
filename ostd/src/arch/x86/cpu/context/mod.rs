@@ -2,11 +2,11 @@
 //! CPU execution context control.
 use vstd::prelude::*;
 
-use alloc::boxed::Box;
-use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
+/*use alloc::boxed::Box;
+use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};*/
 
 use cfg_if::cfg_if;
-use log::debug;
+/*use log::debug;
 use ostd_pod::Pod;
 use spin::Once;
 use x86::bits64::segmentation::wrfsbase;
@@ -25,17 +25,20 @@ use crate::{
     task::scheduler,
     trap::call_irq_callback_functions,
     user::{ReturnReason, UserContextApi, UserContextApiInternal},
-};
+};*/
 
+/* Verify the register adapter independently of the CVM memory-management paths.
+ * Origin Rust: if #[cfg(feature = "cvm_guest")] {
+ */
 cfg_if! {
-    if #[cfg(feature = "cvm_guest")] {
+    if #[cfg(feature = "tdx_registers")] {
         mod tdx;
 
-        use tdx::VirtualizationExceptionHandler;
+        /*use tdx::VirtualizationExceptionHandler;*/
     }
 }
 
-pub use x86::cpuid;
+/*pub use x86::cpuid;
 
 /// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Default, Debug)]
@@ -43,9 +46,10 @@ pub use x86::cpuid;
 pub struct UserContext {
     user_context: RawUserContext,
     exception: Option<CpuException>,
-}
+}*/
 
 /// General registers.
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 #[expect(missing_docs)]
@@ -72,7 +76,7 @@ pub struct GeneralRegs {
     pub gsbase: usize,
 }
 
-/// Architectural CPU exceptions (x86-64 vectors 0-31).
+/*/// Architectural CPU exceptions (x86-64 vectors 0-31).
 ///
 /// For the authoritative specification of each vector, see the
 /// Intel® 64 and IA-32 Architectures Software Developer’s Manual,
@@ -680,4 +684,4 @@ pub(in crate::arch) fn enable_essential_features() {
             core::arch::asm!("fninit");
         }
     }
-}
+}*/

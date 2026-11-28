@@ -12,6 +12,7 @@ default = []
 # feature as a source gate so the mainline vstd dependency remains unchanged.
 irc11 = []
 std = ["vstd/std"]
+tdx_registers = ["dep:tdx-guest"]
 
 [dependencies]
 vstd = { workspace = true }
@@ -24,6 +25,7 @@ bytemuck = "1.17.0"
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
 x86 = "0.52.0"
+tdx-guest = { version = "=0.4.0", optional = true }
 
 [lints]
 workspace = true
