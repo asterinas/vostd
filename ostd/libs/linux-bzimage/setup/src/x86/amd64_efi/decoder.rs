@@ -6,6 +6,9 @@ use alloc::vec::Vec;
 use core::convert::TryFrom;
 
 use libflate::{gzip, zlib};
+/* core2 0.4.0 is yanked, and libflate 2.3 uses no_std_io2 for no_std I/O.
+ * Origin Rust: use core2::io::Read;
+ */
 use no_std_io2::io::Read;
 
 enum MagicNumber {
