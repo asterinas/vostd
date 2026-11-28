@@ -8,6 +8,8 @@
 //!
 #![cfg_attr(not(test), no_std)]
 
+use vstd::prelude::*;
+
 /// Magic stored in the boot protocol header.
 pub const LINUX_BOOT_HEADER_MAGIC: u32 = 0x53726448;
 
@@ -208,6 +210,7 @@ pub struct EfiInfo {
 ///
 /// Originally defined in the linux source tree:
 /// `linux/arch/x86/include/asm/e820/types.h`
+#[verus_verify]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum E820Type {

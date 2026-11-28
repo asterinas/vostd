@@ -21,6 +21,8 @@ pub mod smallvec;
 pub mod smart_ptr;
 pub mod str;
 pub mod time;
+#[cfg(feature = "uefi-raw")]
+pub mod uefi_raw;
 pub mod vec;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;

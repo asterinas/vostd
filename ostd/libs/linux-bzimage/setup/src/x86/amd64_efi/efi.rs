@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd_extra::external::uefi_raw::MemoryType;
+
+#[cfg(verus_keep_ghost)]
+use linux_boot_params::E820Type;
+
 use core::{ffi::CStr, mem::MaybeUninit};
 
 use boot::{AllocateType, open_protocol_exclusive};
@@ -45,7 +52,10 @@ extern "sysv64" fn main_efi_common64(
 fn allocate_boot_params() -> &'static mut BootParams {
     let boot_params = {
         let bytes = alloc_pages(AllocateType::AnyPages, core::mem::size_of::<BootParams>());
-        MaybeUninit::fill(bytes, 0);
+        /* Rust 1.100 replaced MaybeUninit::fill with the slice method write_filled.
+         * Origin Rust: MaybeUninit::fill(bytes, 0);
+         */
+        bytes.write_filled(0);
         // SAFETY: Zero initialization gives a valid representation for `BootParams`.
         unsafe { &mut *bytes.as_mut_ptr().cast::<BootParams>() }
     };
@@ -360,13 +370,66 @@ unsafe fn efi_phase_runtime(boot_params: &mut BootParams) -> ! {
     unsafe { super::call_aster_entrypoint(super::ASTER_ENTRY_POINT, boot_params) }
 }
 
+#[verus_spec(
+    returns
+        match mem_type {
+            ty if ty == MemoryType::LOADER_CODE
+                || ty == MemoryType::LOADER_DATA
+                || ty == MemoryType::BOOT_SERVICES_CODE
+                || ty == MemoryType::BOOT_SERVICES_DATA
+                || ty == MemoryType::CONVENTIONAL => Some(E820Type::Ram),
+            ty if ty == MemoryType::PERSISTENT_MEMORY => Some(E820Type::Pmem),
+            ty if ty == MemoryType::ACPI_RECLAIM => Some(E820Type::Acpi),
+            ty if ty == MemoryType::ACPI_NON_VOLATILE => Some(E820Type::Nvs),
+            ty if ty == MemoryType::UNUSABLE => Some(E820Type::Unusable),
+            ty if ty == MemoryType::UNACCEPTED => None,
+            _ => Some(E820Type::Reserved),
+        },
+)]
 fn parse_memory_type(
     mem_type: uefi::table::boot::MemoryType,
 ) -> Option<linux_boot_params::E820Type> {
     use linux_boot_params::E820Type;
     use uefi::table::boot::MemoryType;
 
-    match mem_type {
+    /* Verus rejects associated-constant patterns on external struct `MemoryType`.
+     * Origin Rust:
+     * match mem_type {
+     *     MemoryType::LOADER_CODE
+     *     | MemoryType::LOADER_DATA
+     *     | MemoryType::BOOT_SERVICES_CODE
+     *     | MemoryType::BOOT_SERVICES_DATA
+     *     | MemoryType::CONVENTIONAL => Some(E820Type::Ram),
+     *     MemoryType::PERSISTENT_MEMORY => Some(E820Type::Pmem),
+     *     MemoryType::ACPI_RECLAIM => Some(E820Type::Acpi),
+     *     MemoryType::ACPI_NON_VOLATILE => Some(E820Type::Nvs),
+     *     MemoryType::UNUSABLE => Some(E820Type::Unusable),
+     *     MemoryType::UNACCEPTED => None,
+     *     MemoryType::RESERVED
+     *     | MemoryType::RUNTIME_SERVICES_CODE
+     *     | MemoryType::RUNTIME_SERVICES_DATA
+     *     | MemoryType::MMIO
+     *     | MemoryType::MMIO_PORT_SPACE => Some(E820Type::Reserved),
+     *     _ => Some(E820Type::Reserved),
+     * }
+     */
+    const LOADER_CODE: u32 = MemoryType::LOADER_CODE.0;
+    const LOADER_DATA: u32 = MemoryType::LOADER_DATA.0;
+    const BOOT_SERVICES_CODE: u32 = MemoryType::BOOT_SERVICES_CODE.0;
+    const BOOT_SERVICES_DATA: u32 = MemoryType::BOOT_SERVICES_DATA.0;
+    const CONVENTIONAL: u32 = MemoryType::CONVENTIONAL.0;
+    const PERSISTENT_MEMORY: u32 = MemoryType::PERSISTENT_MEMORY.0;
+    const ACPI_RECLAIM: u32 = MemoryType::ACPI_RECLAIM.0;
+    const ACPI_NON_VOLATILE: u32 = MemoryType::ACPI_NON_VOLATILE.0;
+    const UNUSABLE: u32 = MemoryType::UNUSABLE.0;
+    const UNACCEPTED: u32 = MemoryType::UNACCEPTED.0;
+    const RESERVED: u32 = MemoryType::RESERVED.0;
+    const RUNTIME_SERVICES_CODE: u32 = MemoryType::RUNTIME_SERVICES_CODE.0;
+    const RUNTIME_SERVICES_DATA: u32 = MemoryType::RUNTIME_SERVICES_DATA.0;
+    const MMIO: u32 = MemoryType::MMIO.0;
+    const MMIO_PORT_SPACE: u32 = MemoryType::MMIO_PORT_SPACE.0;
+
+    match mem_type.0 {
         // UEFI Specification, 7.2 Memory Allocation Services:
         //   Following the ExitBootServices() call, the image implicitly owns all unused memory in
         //   the map. This includes memory types EfiLoaderCode, EfiLoaderData, EfiBootServicesCode,
@@ -376,25 +439,21 @@ fn parse_memory_type(
         //
         // TODO: Linux takes memory attributes into account. See
         // <https://github.com/torvalds/linux/blob/b7f94fcf55469ad3ef8a74c35b488dbfa314d1bb/arch/x86/platform/efi/efi.c#L133-L139>.
-        MemoryType::LOADER_CODE
-        | MemoryType::LOADER_DATA
-        | MemoryType::BOOT_SERVICES_CODE
-        | MemoryType::BOOT_SERVICES_DATA
-        | MemoryType::CONVENTIONAL => Some(E820Type::Ram),
+        LOADER_CODE | LOADER_DATA | BOOT_SERVICES_CODE | BOOT_SERVICES_DATA | CONVENTIONAL => {
+            Some(E820Type::Ram)
+        }
 
         // Some memory types have special meanings.
-        MemoryType::PERSISTENT_MEMORY => Some(E820Type::Pmem),
-        MemoryType::ACPI_RECLAIM => Some(E820Type::Acpi),
-        MemoryType::ACPI_NON_VOLATILE => Some(E820Type::Nvs),
-        MemoryType::UNUSABLE => Some(E820Type::Unusable),
-        MemoryType::UNACCEPTED => None,
+        PERSISTENT_MEMORY => Some(E820Type::Pmem),
+        ACPI_RECLAIM => Some(E820Type::Acpi),
+        ACPI_NON_VOLATILE => Some(E820Type::Nvs),
+        UNUSABLE => Some(E820Type::Unusable),
+        UNACCEPTED => None,
 
         // Other memory types are treated as reserved.
-        MemoryType::RESERVED
-        | MemoryType::RUNTIME_SERVICES_CODE
-        | MemoryType::RUNTIME_SERVICES_DATA
-        | MemoryType::MMIO
-        | MemoryType::MMIO_PORT_SPACE => Some(E820Type::Reserved),
+        RESERVED | RUNTIME_SERVICES_CODE | RUNTIME_SERVICES_DATA | MMIO | MMIO_PORT_SPACE => {
+            Some(E820Type::Reserved)
+        }
         _ => Some(E820Type::Reserved),
     }
 }
