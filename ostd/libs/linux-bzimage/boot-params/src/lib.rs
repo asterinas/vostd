@@ -8,8 +8,7 @@
 //!
 #![cfg_attr(not(test), no_std)]
 
-#[allow(unused_imports)]
-use vstd::{layout, prelude::*};
+use vstd::prelude::*;
 
 /// Magic stored in the boot protocol header.
 pub const LINUX_BOOT_HEADER_MAGIC: u32 = 0x53726448;
@@ -276,66 +275,6 @@ global layout BootE820Entry is size == 20, align == 1;
 global layout EddDeviceParams is size == 74, align == 1;
 
 global layout EddInfo is size == 82, align == 1;
-
-impl E820Type {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 4,
-            layout::align_of::<Self>() == 4,
-    {
-        broadcast use VERUS_layout_of_E820Type;
-
-    }
-}
-
-impl BootE820Entry {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 20,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_BootE820Entry;
-
-    }
-}
-
-impl EddDeviceParams {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 74,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_EddDeviceParams;
-
-    }
-}
-
-impl EddInfo {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 82,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_EddInfo;
-
-    }
-}
-
-pub proof fn lemma_zero_page_table_capacities()
-    ensures
-        16 * layout::size_of::<u32>() == 64,
-        128 * layout::size_of::<BootE820Entry>() == 2560,
-        6 * layout::size_of::<EddInfo>() == 492,
-{
-    broadcast use layout::layout_of_primitives;
-
-    BootE820Entry::lemma_layout();
-    EddInfo::lemma_layout();
-
-    assert(EDD_MBR_SIG_MAX * layout::size_of::<u32>() == 64);
-    assert(E820_MAX_ENTRIES_ZEROPAGE * layout::size_of::<BootE820Entry>() == 2560);
-    assert(EDDMAXNR * layout::size_of::<EddInfo>() == 492);
-}
 
 } // verus!
 #[cfg(test)]
