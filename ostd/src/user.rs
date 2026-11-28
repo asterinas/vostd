@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
 //! User mode.
+#[cfg(target_arch = "x86_64")]
+use vstd::prelude::*;
+
+#[cfg(target_arch = "x86_64")]
+use crate::arch::trap::TrapFrame;
+#[cfg(not(target_arch = "x86_64"))]
 use crate::{cpu::context::UserContext, trap::TrapFrame};
 
 /// Specific architectures need to implement this trait. This should only used in [`UserMode`]
 ///
 /// Only visible in `ostd`.
+#[cfg_attr(target_arch = "x86_64", verus_verify)]
 pub(crate) trait UserContextApiInternal {
     /// Starts executing in the user mode.
+    #[cfg(not(target_arch = "x86_64"))]
     fn execute<F>(&mut self, has_kernel_event: F) -> ReturnReason
     where
         F: FnMut() -> bool;
@@ -16,6 +24,7 @@ pub(crate) trait UserContextApiInternal {
 }
 
 /// The common interface that every CPU architecture-specific [`UserContext`] implements.
+#[cfg(not(target_arch = "x86_64"))]
 pub trait UserContextApi {
     /// Gets the trap number of this interrupt.
     fn trap_number(&self) -> usize;
@@ -58,15 +67,18 @@ pub trait UserContextApi {
 ///     todo!("handle the event, e.g., syscall");
 /// }
 /// ```
+#[cfg(not(target_arch = "x86_64"))]
 pub struct UserMode {
     context: UserContext,
 }
 
 // An instance of `UserMode` is bound to the current task. So it must not be sent to other tasks.
+#[cfg(not(target_arch = "x86_64"))]
 impl !Send for UserMode {}
 // Note that implementing `!Sync` is unnecessary
 // because entering the user space via `UserMode` requires taking a mutable reference.
 
+#[cfg(not(target_arch = "x86_64"))]
 impl UserMode {
     /// Creates a new `UserMode`.
     pub fn new(context: UserContext) -> Self {
@@ -107,6 +119,7 @@ impl UserMode {
 #[derive(PartialEq, Eq, Debug)]
 /// A reason as to why the control of the CPU is returned from
 /// the user space to the kernel.
+#[cfg(not(target_arch = "x86_64"))]
 pub enum ReturnReason {
     /// A system call is issued by the user space.
     UserSyscall,

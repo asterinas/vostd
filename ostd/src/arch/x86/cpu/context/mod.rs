@@ -2,7 +2,7 @@
 //! CPU execution context control.
 use vstd::prelude::*;
 
-use alloc::boxed::Box;
+/*use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
 use cfg_if::cfg_if;
@@ -14,20 +14,20 @@ use x86_64::registers::{
     control::{Cr0, Cr0Flags},
     rflags::RFlags,
     xcontrol::XCr0,
-};
+};*/
 
 use crate::{
     arch::{
-        CPU_FEATURES,
+        /*CPU_FEATURES,*/
         trap::{RawUserContext, TrapFrame},
     },
     mm::Vaddr,
-    task::scheduler,
-    trap::call_irq_callback_functions,
-    user::{ReturnReason, UserContextApi, UserContextApiInternal},
+    /*task::scheduler,*/
+    /*trap::call_irq_callback_functions,*/
+    user::{/*ReturnReason, UserContextApi,*/ UserContextApiInternal},
 };
 
-cfg_if! {
+/*cfg_if! {
     if #[cfg(feature = "cvm_guest")] {
         mod tdx;
 
@@ -35,10 +35,11 @@ cfg_if! {
     }
 }
 
-pub use x86::cpuid;
+pub use x86::cpuid;*/
 
 /// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Default, Debug)]
+#[verus_verify]
 #[repr(C)]
 pub struct UserContext {
     user_context: RawUserContext,
@@ -47,8 +48,9 @@ pub struct UserContext {
 
 /// General registers.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[verus_verify]
 #[repr(C)]
-#[expect(missing_docs)]
+/*#[expect(missing_docs)]*/
 pub struct GeneralRegs {
     pub rax: usize,
     pub rbx: usize,
@@ -72,6 +74,24 @@ pub struct GeneralRegs {
     pub gsbase: usize,
 }
 
+verus! {
+
+impl UserContext {
+    pub(crate) closed spec fn general_regs_spec(&self) -> GeneralRegs {
+        self.user_context.general
+    }
+
+    pub(crate) closed spec fn trap_number_spec(&self) -> usize {
+        self.user_context.trap_num
+    }
+
+    pub(crate) closed spec fn trap_error_code_spec(&self) -> usize {
+        self.user_context.error_code
+    }
+}
+
+} // verus!
+
 /// Architectural CPU exceptions (x86-64 vectors 0-31).
 ///
 /// For the authoritative specification of each vector, see the
@@ -89,6 +109,7 @@ pub struct GeneralRegs {
 //       error code onto the stack, but that detail is not yet represented
 //       in this type definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[verus_verify]
 pub enum CpuException {
     ///  0 – #DE  Divide-by-zero error.
     DivisionError,
@@ -145,7 +166,7 @@ pub enum CpuException {
     Reserved,
 }
 
-impl CpuException {
+/*impl CpuException {
     pub(crate) fn new(trap_num: usize, error_code: usize) -> Option<Self> {
         let exception = match trap_num {
             0 => Self::DivisionError,
@@ -213,15 +234,16 @@ impl CpuException {
     pub(crate) const fn is_cpu_exception(trap_num: usize) -> bool {
         trap_num <= 31
     }
-}
+}*/
 
 /// Selector error code.
 ///
 /// Reference: <https://wiki.osdev.org/Exceptions#Selector_Error_Code>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[verus_verify]
 pub struct SelectorErrorCode(usize);
 
-impl UserContext {
+/*impl UserContext {
     /// Returns a reference to the general registers.
     pub fn general_regs(&self) -> &GeneralRegs {
         &self.user_context.general
@@ -257,10 +279,11 @@ impl UserContext {
     pub fn activate_tls_pointer(&self) {
         unsafe { wrfsbase(self.fsbase() as u64) }
     }
-}
+}*/
 
+#[verus_verify]
 impl UserContextApiInternal for UserContext {
-    fn execute<F>(&mut self, mut has_kernel_event: F) -> ReturnReason
+    /*fn execute<F>(&mut self, mut has_kernel_event: F) -> ReturnReason
     where
         F: FnMut() -> bool,
     {
@@ -315,8 +338,33 @@ impl UserContextApiInternal for UserContext {
                 break ReturnReason::KernelEvent;
             }
         }
-    }
+    }*/
 
+    #[verus_spec(ret =>
+        ensures
+            ret.rax == self.general_regs_spec().rax,
+            ret.rbx == self.general_regs_spec().rbx,
+            ret.rcx == self.general_regs_spec().rcx,
+            ret.rdx == self.general_regs_spec().rdx,
+            ret.rsi == self.general_regs_spec().rsi,
+            ret.rdi == self.general_regs_spec().rdi,
+            ret.rbp == self.general_regs_spec().rbp,
+            ret.rsp == self.general_regs_spec().rsp,
+            ret.r8 == self.general_regs_spec().r8,
+            ret.r9 == self.general_regs_spec().r9,
+            ret.r10 == self.general_regs_spec().r10,
+            ret.r11 == self.general_regs_spec().r11,
+            ret.r12 == self.general_regs_spec().r12,
+            ret.r13 == self.general_regs_spec().r13,
+            ret.r14 == self.general_regs_spec().r14,
+            ret.r15 == self.general_regs_spec().r15,
+            ret.rip == self.general_regs_spec().rip,
+            ret.rflags == self.general_regs_spec().rflags,
+            ret.trap_num == self.trap_number_spec(),
+            ret.error_code == self.trap_error_code_spec(),
+            ret.cs == 0,
+            ret._pad == 0,
+    )]
     fn as_trap_frame(&self) -> TrapFrame {
         TrapFrame {
             rax: self.user_context.general.rax,
@@ -345,7 +393,7 @@ impl UserContextApiInternal for UserContext {
     }
 }
 
-/// As Osdev Wiki defines(<https://wiki.osdev.org/Exceptions>):
+/*/// As Osdev Wiki defines(<https://wiki.osdev.org/Exceptions>):
 /// CPU exceptions are classified as:
 ///
 /// Faults: These can be corrected and the program may continue as if nothing happened.
@@ -384,10 +432,11 @@ impl CpuExceptionType {
             }
         }
     }
-}
+}*/
 
 /// Architecture-specific data reported with a page-fault exception.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[verus_verify]
 pub struct RawPageFaultInfo {
     /// The error code pushed by the CPU for this page fault.
     pub error_code: PageFaultErrorCode,
@@ -422,7 +471,7 @@ bitflags::bitflags! {
     }
 }
 
-impl UserContextApi for UserContext {
+/*impl UserContextApi for UserContext {
     fn trap_number(&self) -> usize {
         self.user_context.trap_num
     }
@@ -680,4 +729,4 @@ pub(in crate::arch) fn enable_essential_features() {
             core::arch::asm!("fninit");
         }
     }
-}
+}*/

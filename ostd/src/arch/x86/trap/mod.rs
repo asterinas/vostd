@@ -14,17 +14,22 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
-pub(super) mod gdt;
+//!
+//! The frame types support user-context projection. The trap-handler example
+//! applies when trap entry and dispatch are enabled.
+use vstd::prelude::*;
+
+/*pub(super) mod gdt;
 mod idt;
 mod syscall;
 
 use align_ext::AlignExt;
 use cfg_if::cfg_if;
 use log::debug;
-use spin::Once;
+use spin::Once;*/
 
-use super::{cpu::context::GeneralRegs, ex_table::ExTable};
-use crate::{
+use super::{cpu::context::GeneralRegs, /*ex_table::ExTable*/};
+/*use crate::{
     arch::{
         if_tdx_enabled,
         irq::{disable_local, enable_local},
@@ -49,7 +54,7 @@ cfg_if! {
 
 cpu_local_cell! {
     static KERNEL_INTERRUPT_NESTED_LEVEL: u8 = 0;
-}
+}*/
 
 /// Trap frame of kernel interrupt
 ///
@@ -70,6 +75,7 @@ cpu_local_cell! {
 /// }
 /// ```
 #[derive(Debug, Default, Clone, Copy)]
+#[verus_verify]
 #[repr(C)]
 #[expect(missing_docs)]
 pub struct TrapFrame {
@@ -101,7 +107,7 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
-/// Initializes interrupt handling on x86_64.
+/*/// Initializes interrupt handling on x86_64.
 ///
 /// This function will:
 /// - Switch to a new, CPU-local [GDT].
@@ -125,10 +131,11 @@ pub(crate) unsafe fn init() {
 
     // SAFETY: `gdt::init` has been called before.
     unsafe { syscall::init() };
-}
+}*/
 
 /// Userspace context.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[verus_verify]
 #[repr(C)]
 pub(super) struct RawUserContext {
     pub(super) general: GeneralRegs,
@@ -136,7 +143,7 @@ pub(super) struct RawUserContext {
     pub(super) error_code: usize,
 }
 
-/// Returns true if this function is called within the context of an IRQ handler
+/*/// Returns true if this function is called within the context of an IRQ handler
 /// and the IRQ occurs while the CPU is executing in the kernel mode.
 /// Otherwise, it returns false.
 pub fn is_kernel_interrupted() -> bool {
@@ -299,4 +306,4 @@ fn handle_kernel_page_fault(info: RawPageFaultInfo) {
     // 2. We map the address to the correct physical page with the correct flags, where the
     //    correctness follows the semantics of the direct mapping of physical memory.
     unsafe { cursor.map(crate::mm::kspace::MappedItem::Untracked(paddr, 1, prop)) }.unwrap();
-}
+}*/
