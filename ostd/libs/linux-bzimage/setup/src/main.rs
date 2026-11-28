@@ -20,8 +20,11 @@
 #![no_std]
 #![no_main]
 #![feature(maybe_uninit_fill)]
-#![feature(maybe_uninit_slice)]
-#![feature(maybe_uninit_write_slice)]
+
+/* The slice APIs are stable on the pinned Rust toolchain.
+ * Origin Rust: #![feature(maybe_uninit_slice)]
+ *              #![feature(maybe_uninit_write_slice)]
+ */
 
 mod console;
 mod loader;

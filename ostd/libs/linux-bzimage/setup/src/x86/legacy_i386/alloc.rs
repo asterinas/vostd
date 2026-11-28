@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use core::{mem::MaybeUninit, ops::Range};
 
 use crate::sync::Mutex;
@@ -30,6 +32,10 @@ pub(super) unsafe fn init(boot_params: &'static linux_boot_params::BootParams) {
 
     used[0] = (__executable_start as usize)..(__executable_end as usize);
 
+    #[verus_spec(
+        requires start + len <= usize::MAX,
+        returns (Range { start, end: (start + len) as usize }),
+    )]
     fn range_from_start_and_len(start: usize, len: usize) -> Range<usize> {
         start..start.checked_add(len).unwrap()
     }

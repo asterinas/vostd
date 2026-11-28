@@ -7,6 +7,7 @@ members = [
     "ostd/libs/align_ext",
     "ostd/libs/id-alloc",
     "ostd/libs/linux-bzimage/builder",
+    "ostd/libs/linux-bzimage/setup",
     "ostd/libs/ostd-pod",
     # "ostd/libs/ostd-macros",
     "ostd/libs/ostd-test",

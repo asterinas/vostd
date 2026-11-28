@@ -15,6 +15,10 @@ fn main() {
 
     let out_lds = out_dir.join("linker.ld");
     let status = Command::new("cpp")
+        /* Disable predefined host macros that would expand linker script tokens.
+         * Origin Rust: <none; new executable code>
+         */
+        .arg("-undef")
         .arg("-o")
         .arg(&out_lds)
         .arg(def)
