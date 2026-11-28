@@ -8,11 +8,6 @@
 //!
 #![cfg_attr(not(test), no_std)]
 
-#[allow(
-    unused_imports,
-    reason = "The layout module is only used in erased proof contracts"
-)]
-use vstd::layout;
 use vstd::prelude::*;
 
 /// Magic stored in the boot protocol header.
@@ -283,72 +278,6 @@ global layout OlpcOfwHeader is size == 16, align == 1;
 global layout EdidInfo is size == 128, align == 1;
 
 global layout EfiInfo is size == 32, align == 4;
-
-impl ApmBiosInfo {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 20,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_ApmBiosInfo;
-
-    }
-}
-
-impl IstInfo {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 16,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_IstInfo;
-
-    }
-}
-
-impl SysDescTable {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 16,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_SysDescTable;
-
-    }
-}
-
-impl OlpcOfwHeader {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 16,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_OlpcOfwHeader;
-
-    }
-}
-
-impl EdidInfo {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 128,
-            layout::align_of::<Self>() == 1,
-    {
-        broadcast use VERUS_layout_of_EdidInfo;
-
-    }
-}
-
-impl EfiInfo {
-    pub proof fn lemma_layout()
-        ensures
-            layout::size_of::<Self>() == 32,
-            layout::align_of::<Self>() == 4,
-    {
-        broadcast use VERUS_layout_of_EfiInfo;
-
-    }
-}
 
 } // verus!
 #[cfg(test)]
