@@ -140,12 +140,6 @@ fn load_segment(file: &xmas_elf::ElfFile, program: &xmas_elf::program::ProgramHe
 
 verus! {
 
-#[cfg(target_pointer_width = "64")]
-global layout usize is size == 8;
-
-#[cfg(target_pointer_width = "32")]
-global layout usize is size == 4;
-
 pub open spec fn segment_allocation_panic_condition(
     program: &xmas_elf::program::ProgramHeader64,
 ) -> bool {
