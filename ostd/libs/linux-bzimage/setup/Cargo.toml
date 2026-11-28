@@ -16,6 +16,7 @@ path = "src/main.rs"
 verify = true
 
 [dependencies]
+# Omit workspace vstd's alloc feature: 32-bit x86_64-i386_pm-none has no #[global_allocator].
 vstd = { path = "../../../../tools/verus/source/vstd", default-features = false }
 cfg-if = "1.0.0"
 core2 = { version = "0.4.0", default-features = false, features = ["nightly"] }

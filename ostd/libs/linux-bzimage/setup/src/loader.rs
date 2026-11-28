@@ -35,7 +35,7 @@ fn load_segment(file: &xmas_elf::ElfFile, program: &xmas_elf::program::ProgramHe
 
     let (left, right) = dst_slice.split_at_mut(program.file_size as usize);
     left.write_copy_of_slice(segment_data);
-    /* Rust 1.100 provides write_filled for this slice operation.
+    /* The pinned Rust toolchain replaced MaybeUninit::fill with slice::write_filled.
      * Origin Rust: MaybeUninit::fill(right, 0);
      */
     right.write_filled(0);

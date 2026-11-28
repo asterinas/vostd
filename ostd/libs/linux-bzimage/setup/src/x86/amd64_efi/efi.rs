@@ -45,7 +45,7 @@ extern "sysv64" fn main_efi_common64(
 fn allocate_boot_params() -> &'static mut BootParams {
     let boot_params = {
         let bytes = alloc_pages(AllocateType::AnyPages, core::mem::size_of::<BootParams>());
-        /* Rust 1.100 provides write_filled for this slice operation.
+        /* The pinned Rust toolchain replaced MaybeUninit::fill with slice::write_filled.
          * Origin Rust: MaybeUninit::fill(bytes, 0);
          */
         bytes.write_filled(0);
