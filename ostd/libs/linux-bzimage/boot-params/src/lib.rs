@@ -6,7 +6,11 @@
 //! ABI compatible struct in Rust, despite that most of the fields are
 //! currently not needed by Asterinas.
 //!
+//! Verus checks table capacity arithmetic using compiler-checked entry layouts.
+//! Rust checks the packed field offsets in the zero page.
 #![cfg_attr(not(test), no_std)]
+
+use vstd::prelude::*;
 
 /// Magic stored in the boot protocol header.
 pub const LINUX_BOOT_HEADER_MAGIC: u32 = 0x53726448;
@@ -208,6 +212,7 @@ pub struct EfiInfo {
 ///
 /// Originally defined in the linux source tree:
 /// `linux/arch/x86/include/asm/e820/types.h`
+#[verus_verify]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum E820Type {
@@ -222,6 +227,7 @@ pub enum E820Type {
     ReservedKern = 128,
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct BootE820Entry {
@@ -230,8 +236,10 @@ pub struct BootE820Entry {
     pub typ: E820Type,
 }
 
+#[verus_verify]
 const E820_MAX_ENTRIES_ZEROPAGE: usize = 128;
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct EddDeviceParams {
@@ -242,6 +250,7 @@ pub struct EddDeviceParams {
     pub _dummy: [u8; (0xeec - 0xd00) / 6 - 8],
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct EddInfo {
@@ -254,8 +263,51 @@ pub struct EddInfo {
     pub params: EddDeviceParams,
 }
 
+#[verus_verify]
 const EDD_MBR_SIG_MAX: usize = 16;
+#[verus_verify]
 const EDDMAXNR: usize = 6;
+
+verus! {
+
+global layout E820Type is size == 4, align == 4;
+
+global layout BootE820Entry is size == 20, align == 1;
+
+global layout EddDeviceParams is size == 74, align == 1;
+
+global layout EddInfo is size == 82, align == 1;
+
+proof fn check_zero_page_table_capacities() {
+    broadcast use vstd::layout::layout_of_primitives;
+
+    use vstd::layout::size_of;
+
+    assert(EDD_MBR_SIG_MAX * size_of::<u32>() == 64);
+    assert(E820_MAX_ENTRIES_ZEROPAGE * size_of::<BootE820Entry>() == 2560);
+    assert(EDDMAXNR * size_of::<EddInfo>() == 492);
+}
+
+} // verus!
+
+const _: () = {
+    use core::mem::{offset_of, size_of};
+
+    let mbr_start = offset_of!(BootParams, edd_mbr_sig_buffer);
+    let e820_start = offset_of!(BootParams, e820_table);
+    let edd_start = offset_of!(BootParams, eddbuf);
+    let e820_end = e820_start + size_of::<[BootE820Entry; E820_MAX_ENTRIES_ZEROPAGE]>();
+    let edd_end = edd_start + size_of::<[EddInfo; EDDMAXNR]>();
+
+    assert!(size_of::<BootParams>() == 4096);
+    assert!(mbr_start == 0x290);
+    assert!(mbr_start + size_of::<[u32; EDD_MBR_SIG_MAX]>() == e820_start);
+    assert!(e820_start == 0x2d0 && e820_end == 0xcd0);
+    assert!(e820_end == offset_of!(BootParams, _pad8));
+    assert!(edd_start == 0xd00 && edd_end == 0xeec);
+    assert!(edd_end == offset_of!(BootParams, _pad9));
+    assert!(edd_end <= size_of::<BootParams>());
+};
 
 #[cfg(test)]
 mod tests {
