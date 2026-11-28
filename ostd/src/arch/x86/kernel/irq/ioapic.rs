@@ -71,7 +71,6 @@ pub(super) open spec fn after_write(
 }
 
 } // verus!
-
 #[verus_verify]
 impl IoApic {
     const TABLE_REG_BASE: u8 = 0x10;
@@ -213,7 +212,6 @@ impl IoApicAccess {
 }
 
 } // verus!
-
 #[verus_verify]
 impl IoApicAccess {
     /*/// # Safety

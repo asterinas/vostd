@@ -11,7 +11,6 @@ use spin::Once;
 
 use super::acpi::get_acpi_tables;
 use crate::{Error, Result, io::IoMemAllocatorBuilder, sync::SpinLock, trap::irq::IrqLine};*/
-
 mod ioapic;
 /*mod pic;
 

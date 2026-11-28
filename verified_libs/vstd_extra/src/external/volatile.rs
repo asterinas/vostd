@@ -61,7 +61,6 @@ pub open spec fn accesses(log: &Option<AccessLog>) -> Seq<VolatileAccess> {
 }
 
 } // verus!
-
 /* Trusted: the volatile primitive needs an extra tracked log argument.
  * Origin Rust: <none; new executable wrapper>
  */
