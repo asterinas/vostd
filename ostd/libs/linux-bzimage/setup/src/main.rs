@@ -19,6 +19,7 @@
 //!
 #![no_std]
 #![no_main]
+#![feature(proc_macro_hygiene)]
 #![feature(maybe_uninit_fill)]
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
