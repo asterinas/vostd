@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
-//! Byte-level specifications for the Rust 1.100.0 C string APIs used by the EFI setup.
+//! Byte-level specifications for Rust 1.100.0 C strings.
+use vstd::prelude::*;
+
 use alloc::ffi::CString;
 use core::ffi::{CStr, FromBytesUntilNulError};
-
-use vstd::prelude::*;
 
 verus! {
 
@@ -22,7 +22,10 @@ pub struct ExFromBytesUntilNulError(FromBytesUntilNulError);
 
 pub uninterp spec fn bytes_with_nul(value: &CStr) -> Seq<u8>;
 
-/// Rust 1.100.0 `core/src/ffi/c_str.rs`: the first zero byte ends the borrowed C string.
+/// Rust 1.100.0 `library/core/src/ffi/c_str.rs` ends the C string at the first NUL.
+/// See <https://doc.rust-lang.org/1.100.0/core/ffi/struct.CStr.html#method.from_bytes_until_nul>.
+///
+/// TODO: Upstream this model; remove it when equivalent vstd support is available.
 pub assume_specification<'a>[ CStr::from_bytes_until_nul ](bytes: &'a [u8]) -> (ret: Result<
     &'a CStr,
     FromBytesUntilNulError,

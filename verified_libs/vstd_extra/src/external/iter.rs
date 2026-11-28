@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Specifications for iterator operations not yet modeled by `vstd`.
 use core::{
+    cmp::Ordering,
     iter::{Skip, StepBy},
     slice::Iter,
 };
-
-use core::cmp::Ordering;
 use vstd::{
     laws_cmp::obeys_cmp,
     prelude::*,
@@ -137,6 +136,10 @@ pub assume_specification<T, const N: usize>[ <[T; N] as IntoIterator>::into_iter
 #[verifier::reject_recursive_types(I)]
 pub struct ExStepBy<I>(StepBy<I>);
 
+/// Marks construction of a stride adaptor with a nonzero step.
+/// See <https://doc.rust-lang.org/1.100.0/core/iter/trait.Iterator.html#method.step_by>.
+///
+/// TODO: Upstream this model; remove it when equivalent vstd support is available.
 #[verifier::external_trait_specification]
 pub trait ExIteratorStepBy {
     type ExternalTraitSpecificationFor: Iterator;
@@ -151,8 +154,11 @@ pub trait ExIteratorStepBy {
 
 pub uninterp spec fn step_by_post<I>(iter: I, step: usize, ret: StepBy<I>) -> bool;
 
-/// Rust 1.100.0 core/src/iter/adapters/step_by.rs yields the first item and
+/// Rust 1.100.0 `library/core/src/iter/adapters/step_by.rs` yields the first item and
 /// then every second item of this skipped byte slice.
+/// See <https://doc.rust-lang.org/1.100.0/core/iter/struct.StepBy.html>.
+///
+/// TODO: Upstream this model; remove it when equivalent vstd support is available.
 pub broadcast axiom fn axiom_step_by_byte_pairs<'a>(
     iter: Skip<Iter<'a, u8>>,
     ret: StepBy<Skip<Iter<'a, u8>>>,

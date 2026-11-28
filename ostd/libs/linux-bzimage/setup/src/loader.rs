@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
+/* use core::mem::MaybeUninit; */
 use xmas_elf::program::{ProgramHeader, SegmentData};
 
 /// Load the kernel ELF payload to memory.
@@ -35,5 +35,8 @@ fn load_segment(file: &xmas_elf::ElfFile, program: &xmas_elf::program::ProgramHe
 
     let (left, right) = dst_slice.split_at_mut(program.file_size as usize);
     left.write_copy_of_slice(segment_data);
+    /* Rust 1.100 uses the slice method for zero-filling uninitialized bytes.
+     * Origin Rust: MaybeUninit::fill(right, 0);
+     */
     right.write_filled(0);
 }

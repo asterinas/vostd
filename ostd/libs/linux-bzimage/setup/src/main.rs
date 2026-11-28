@@ -24,8 +24,6 @@
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 
-use vstd::prelude::*;
-
 mod console;
 mod loader;
 mod sync;

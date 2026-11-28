@@ -3,9 +3,8 @@ use vstd::{
     prelude::*,
     std_specs::iter::{IteratorSpec, skip_postcondition},
 };
-
 use vstd_extra::external::{
-    c_str::bytes_with_nul, iter::axiom_step_by_byte_pairs, uefi::panic_on_loaded_image_error,
+    c_str::bytes_with_nul, iter::axiom_step_by_byte_pairs, uefi::panic_on_unwrap_error,
 };
 
 use core::{ffi::CStr, mem::MaybeUninit};
@@ -19,7 +18,7 @@ use super::decoder::decode_payload;
 use crate::x86::amd64_efi::alloc::alloc_pages;
 
 #[verus_verify]
-pub(super) const PAGE_SIZE: u64 = uefi::boot::PAGE_SIZE as u64;
+pub(super) const PAGE_SIZE: u64 = 4096;
 
 #[export_name = "main_efi_common64"]
 extern "sysv64" fn main_efi_common64(
@@ -55,6 +54,9 @@ extern "sysv64" fn main_efi_common64(
 fn allocate_boot_params() -> &'static mut BootParams {
     let boot_params = {
         let bytes = alloc_pages(AllocateType::AnyPages, core::mem::size_of::<BootParams>());
+        /* Rust 1.100 uses the slice method for zero-filling uninitialized bytes.
+         * Origin Rust: MaybeUninit::fill(bytes, 0);
+         */
         bytes.write_filled(0);
         // SAFETY: Zero initialization gives a valid representation for `BootParams`.
         unsafe { &mut *bytes.as_mut_ptr().cast::<BootParams>() }
@@ -134,7 +136,8 @@ closed spec fn has_nonzero_high_byte(options: Seq<u8>) -> bool {
         match observed_options@ {
             None => ret is None,
             Some(options) => {
-                options.len() <= u32::MAX && if options.len() % 2 != 0 || has_nonzero_high_byte(options) {
+                &&& options.len() <= u32::MAX
+                &&& if options.len() % 2 != 0 || has_nonzero_high_byte(options) {
                     ret is None
                 } else {
                     ret matches Some(value) && {
@@ -154,11 +157,18 @@ fn load_cmdline() -> Option<&'static CStr> {
     }
     uefi::println!("[EFI stub] Loading the cmdline");
 
+    /* Verify the successful result while keeping the original diagnostic on firmware errors.
+     * Origin Rust:
+     * let loaded_image = open_protocol_exclusive::<uefi::proto::loaded_image::LoadedImage>(
+     *     uefi::boot::image_handle(),
+     * )
+     * .unwrap();
+     */
     let loaded_image = match open_protocol_exclusive::<uefi::proto::loaded_image::LoadedImage>(
         uefi::boot::image_handle(),
     ) {
         Ok(loaded_image) => loaded_image,
-        Err(error) => panic_on_loaded_image_error(error),
+        Err(error) => panic_on_unwrap_error(Err(error)),
     };
 
     let Some(load_options) = loaded_image.load_options_as_bytes() else {
@@ -171,6 +181,10 @@ fn load_cmdline() -> Option<&'static CStr> {
     };
 
     proof_decl! { let ghost observed = Some(load_options@); }
+    /* Name the iterator so the proof can refer to its remaining elements before any.
+     * Origin Rust:
+     * if load_options.len() % 2 != 0 || load_options.iter().skip(1).step_by(2).any(|c| *c != 0) {
+     */
     if load_options.len() % 2 != 0 || {
         let mut high_bytes = load_options.iter().skip(1).step_by(2);
         proof_decl! { let ghost remaining = high_bytes.remaining(); }
@@ -214,6 +228,11 @@ fn load_cmdline() -> Option<&'static CStr> {
     }
     cmdline_bytes[load_options.len() / 2].write(0);
 
+    /* Name the initialized slice to prove it contains a terminator before unwrap.
+     * Origin Rust:
+     * let cmdline_str =
+     *     CStr::from_bytes_until_nul(unsafe { cmdline_bytes.assume_init_ref() }).unwrap();
+     */
     // SAFETY: We've initialized all the bytes above.
     let initialized = unsafe { cmdline_bytes.assume_init_ref() };
     proof! {

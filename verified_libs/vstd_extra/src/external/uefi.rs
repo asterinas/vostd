@@ -7,27 +7,35 @@
 //! prerequisite is violated independently of a firmware error return.
 //!
 //! AllocatePages transfers exclusive access to the successful LoaderData range
-//! (UEFI 2.10, sections 7.2.1 and 7.2.2). Turning its permission into a slice
-//! permanently gives up the ability to FreePages from the setup. The setup
-//! keeps these ranges until control passes to the kernel.
-use core::{convert::Infallible, mem::MaybeUninit, ops::Deref, ptr::NonNull};
+//! (UEFI 2.10, sections 7.2.1 and 7.2.2). The setup checks the pointer and
+//! range against the tracked permission before constructing a slice, then
+//! retains the allocation until control passes to the kernel.
+use vstd::{prelude::*, raw_ptr::PointsToRaw};
+
+use core::{
+    convert::Infallible,
+    fmt::{Arguments, Debug},
+    ops::Deref,
+    ptr::NonNull,
+};
 
 use ::uefi::{
-    Handle, Identify,
+    Error, Handle, Identify, Result as UefiResult,
     boot::{self, AllocateType, MemoryType, ScopedProtocol},
+    helpers,
     proto::{Protocol, ProtocolPointer, loaded_image::LoadedImage},
 };
-use vstd::{prelude::*, raw_ptr::PointsToRaw};
 
 verus! {
 
 #[verifier::external_type_specification]
 pub struct ExAllocateType(AllocateType);
 
+/// See <https://docs.rs/uefi/0.32.0/uefi/struct.Error.html>.
 #[verifier::external_type_specification]
 #[verifier::external_body]
 #[verifier::reject_recursive_types(D)]
-pub struct ExUefiError<D: core::fmt::Debug>(::uefi::Error<D>);
+pub struct ExUefiError<D: Debug>(Error<D>);
 
 #[verifier::external_type_specification]
 #[verifier::external_body]
@@ -57,19 +65,23 @@ pub trait ExProtocolPointer: Protocol {
     type ExternalTraitSpecificationFor: ProtocolPointer;
 }
 
+/// See <https://docs.rs/uefi/0.32.0/uefi/boot/fn.image_handle.html>.
 pub assume_specification[ boot::image_handle ]() -> Handle
 ;
 
+/// See <https://docs.rs/uefi/0.32.0/uefi/boot/fn.open_protocol_exclusive.html>.
 pub assume_specification<P: ProtocolPointer + ?Sized>[ boot::open_protocol_exclusive::<P> ](
     handle: Handle,
-) -> ::uefi::Result<ScopedProtocol<P>>
+) -> UefiResult<ScopedProtocol<P>>
 ;
 
+/// See <https://docs.rs/uefi/0.32.0/uefi/boot/struct.ScopedProtocol.html#impl-Deref-for-ScopedProtocol%3CP%3E>.
 pub assume_specification<'a, P: Protocol + ?Sized>[ <ScopedProtocol<P> as Deref>::deref ](
     scope: &'a ScopedProtocol<P>,
 ) -> &'a <ScopedProtocol<P> as Deref>::Target
 ;
 
+/// See <https://docs.rs/uefi/0.32.0/uefi/proto/loaded_image/struct.LoadedImage.html#method.load_options_as_bytes>.
 pub assume_specification<'a>[ LoadedImage::load_options_as_bytes ](image: &'a LoadedImage) -> (ret:
     Option<&'a [u8]>)
     ensures
@@ -78,9 +90,11 @@ pub assume_specification<'a>[ LoadedImage::load_options_as_bytes ](image: &'a Lo
     no_unwind
 ;
 
-pub assume_specification[ ::uefi::helpers::_print ](args: core::fmt::Arguments<'_>)
+/// See the print helper in <https://docs.rs/uefi/0.32.0/src/uefi/helpers/println.rs.html#6>.
+pub assume_specification[ helpers::_print ](args: Arguments<'_>)
 ;
 
+/// See <https://docs.rs/uefi/0.32.0/uefi/boot/constant.PAGE_SIZE.html>.
 pub assume_specification[ boot::PAGE_SIZE ] -> usize
     returns
         4096usize,
@@ -97,14 +111,20 @@ impl LoaderPages {
 }
 
 } // verus!
+/// Allocates pages of UEFI LoaderData memory.
+/// See <https://docs.rs/uefi/0.32.0/uefi/boot/fn.allocate_pages.html>.
+/* Trusted: the firmware allocation creates the exclusive page permission.
+ * Origin Rust: <none; new executable wrapper>
+ */
 #[verifier::external_body]
 #[verus_spec(ret =>
+    with -> pages: Tracked<Option<LoaderPages>>,
     ensures
-        (ret.0 is Ok) <==> (ret.1@ is Some),
-        ret.0 matches Ok(ptr) ==> {
+        (ret is Ok) <==> (pages@ is Some),
+        ret matches Ok(ptr) ==> {
             let addr = ptr.as_ptr().addr();
-            let len = count as int * boot::PAGE_SIZE;
-            let pages = ret.1@->0;
+            let len = count * boot::PAGE_SIZE;
+            let pages = pages@->0;
             &&& addr != 0
             &&& addr + len <= usize::MAX
             &&& pages.permission().is_range(addr as int, len)
@@ -113,53 +133,29 @@ impl LoaderPages {
             &&& (ty matches AllocateType::Address(requested) ==> count == 0 || addr == requested)
         },
 )]
-pub fn allocate_loader_pages(
-    ty: AllocateType,
-    count: usize,
-) -> (::uefi::Result<NonNull<u8>>, Tracked<Option<LoaderPages>>) {
-    (
-        boot::allocate_pages(ty, MemoryType::LOADER_DATA, count),
-        Tracked::assume_new(),
-    )
+pub fn allocate_loader_pages(ty: AllocateType, count: usize) -> UefiResult<NonNull<u8>> {
+    proof_with!(|= Tracked::assume_new());
+    boot::allocate_pages(ty, MemoryType::LOADER_DATA, count)
 }
 
-/// Borrows a range of an EFI loader allocation for the lifetime of the setup.
-///
-/// # Safety
-///
-/// The pointer must have the provenance of the firmware allocation represented
-/// by the consumed permission. The requested range must fit in that allocation
-/// and in Rust's slice size limit. No reference or FreePages call may alias the
-/// range while the returned borrow is live.
-#[verus_spec(ret =>
-    requires
-        ptr.addr() != 0,
-        ptr@.provenance == pages@.permission().provenance(),
-        pages@.permission().contains_range(ptr.addr() as int, len as int),
-        len <= isize::MAX,
-        ptr.addr() + len <= usize::MAX,
-    ensures ret@.len() == len,
-    no_unwind
-)]
-pub unsafe fn into_loader_slice(
-    ptr: *mut MaybeUninit<u8>,
-    len: usize,
-    pages: Tracked<LoaderPages>,
-) -> &'static mut [MaybeUninit<u8>] {
-    // SAFETY: Ownership and the exact borrowed range are checked in the contract.
-    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
-}
-
+/// See <https://doc.rust-lang.org/1.100.0/core/result/enum.Result.html#method.unwrap>.
+/* Trusted: vstd's unwrap contract excludes Err, whose panic diagnostic this preserves.
+ * Origin Rust: <none; new executable wrapper>
+ */
 #[track_caller]
 #[verifier::external_body]
-#[verus_spec(opens_invariants none)]
-pub fn panic_on_loaded_image_error(error: ::uefi::Error) -> ! {
-    match Err::<Infallible, _>(error).unwrap() {}
+#[verus_spec(requires result is Err)]
+pub fn panic_on_unwrap_error(result: UefiResult<Infallible>) -> ! {
+    match result.unwrap() {}
 }
 
+/// See <https://doc.rust-lang.org/1.100.0/core/result/enum.Result.html#method.expect>.
+/* Trusted: vstd's expect contract excludes Err, whose panic diagnostic this preserves.
+ * Origin Rust: <none; new executable wrapper>
+ */
 #[track_caller]
 #[verifier::external_body]
-#[verus_spec(opens_invariants none)]
-pub fn panic_on_loader_allocation_error(error: ::uefi::Error) -> ! {
-    match Err::<Infallible, _>(error).expect("the UEFI allocation fails") {}
+#[verus_spec(requires result is Err)]
+pub fn panic_on_expect_error(result: UefiResult<Infallible>, message: &str) -> ! {
+    match result.expect(message) {}
 }
