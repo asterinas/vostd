@@ -8,6 +8,8 @@
 //!
 #![cfg_attr(not(test), no_std)]
 
+use vstd::prelude::*;
+
 /// Magic stored in the boot protocol header.
 pub const LINUX_BOOT_HEADER_MAGIC: u32 = 0x53726448;
 
@@ -59,6 +61,7 @@ pub struct BootParams {
 ///
 /// Originally defined in the linux source tree:
 /// `linux/arch/x86/include/uapi/asm/bootparam.h`
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct SetupHeader {
@@ -103,6 +106,7 @@ pub struct SetupHeader {
     pub kernel_info_offset: u32,
 }
 
+#[verus_verify]
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct ScreenInfo {
@@ -333,3 +337,23 @@ mod tests {
         assert_eq!(offset_of!(BootParams, eddbuf), 0xd00);
     }
 }
+
+verus! {
+
+global layout SetupHeader is size == 123, align == 1;
+
+global layout ScreenInfo is size == 64, align == 1;
+
+/// Establishes the size and alignment of the packed Linux boot header and screen information.
+pub proof fn lemma_boot_header_layout()
+    ensures
+        vstd::layout::size_of::<SetupHeader>() == 123,
+        vstd::layout::align_of::<SetupHeader>() == 1,
+        vstd::layout::size_of::<ScreenInfo>() == 64,
+        vstd::layout::align_of::<ScreenInfo>() == 1,
+{
+    broadcast use {VERUS_layout_of_SetupHeader, VERUS_layout_of_ScreenInfo};
+
+}
+
+} // verus!
