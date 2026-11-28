@@ -62,6 +62,8 @@ iced-x86 = { version = "1.21.0", default-features = false, features = [
     "decoder",
     "gas",
 ], optional = true }
+# 0.2.1 uses x86_64 0.14.13, which lacks the Step overflow methods required by Rust 1.100.
+# tdx-guest = { version = "0.2.1", optional = true }
 tdx-guest = { version = "=0.4.0", optional = true }
 unwinding = { version = "=0.2.10", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 
@@ -82,8 +84,11 @@ allow_panic = []
 # Source gate only. The isolated IRC11 CI enables `vstd/weak-memory`
 # explicitly because the mainline Verus toolchain does not define it.
 irc11 = ["vstd_extra/irc11"]
+# Verify the TDX register adapter without enabling all CVM guest code.
 tdx-registers = ["dep:tdx-guest", "vstd_extra/tdx-registers"]
 # The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
+# cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
+# Reuse the register feature for tdx-guest and its Verus declarations.
 cvm_guest = ["tdx-registers", "dep:iced-x86"]
 coverage = ["minicov"]
 

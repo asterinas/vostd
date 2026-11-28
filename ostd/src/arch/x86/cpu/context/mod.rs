@@ -3,10 +3,10 @@
 use vstd::prelude::*;
 
 /*use alloc::boxed::Box;
-use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
+use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};*/
 
 use cfg_if::cfg_if;
-use log::debug;
+/*use log::debug;
 use ostd_pod::Pod;
 use spin::Once;
 use x86::bits64::segmentation::wrfsbase;
@@ -27,11 +27,25 @@ use crate::{
     user::{ReturnReason, UserContextApi, UserContextApiInternal},
 };*/
 
-mod tdx;
+/* Verify the register adapter independently of the CVM memory-management paths.
+ * Origin Rust:
+ * cfg_if! {
+ *     if #[cfg(feature = "cvm_guest")] {
+ *         mod tdx;
+ *
+ *         use tdx::VirtualizationExceptionHandler;
+ *     }
+ * }
+ */
+cfg_if! {
+    if #[cfg(feature = "tdx-registers")] {
+        mod tdx;
 
-/*use tdx::VirtualizationExceptionHandler;
+        /*use tdx::VirtualizationExceptionHandler;*/
+    }
+}
 
-pub use x86::cpuid;
+/*pub use x86::cpuid;
 
 /// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Default, Debug)]

@@ -50,7 +50,6 @@ impl View for GeneralRegsWrapper<'_> {
 }
 
 } // verus!
-
 #[verus_verify]
 impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     #[verus_spec(returns self@.rax)]

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-//! External declaration of the trap-frame interface from tdx-guest 0.4.0.
+//! External specification for [TdxTrapFrame].
+//!
+//! [TdxTrapFrame]: https://docs.rs/tdx-guest/0.4.0/tdx_guest/trait.TdxTrapFrame.html
 use vstd::prelude::*;
 
 use tdx_guest::TdxTrapFrame;
