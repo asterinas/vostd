@@ -14,24 +14,23 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
-use vstd::prelude::*;
+use vstd::{
+    layout::{align_of, size_of},
+    prelude::*,
+};
 
-/*
-pub(super) mod gdt;
+/*pub(super) mod gdt;
 mod idt;
 mod syscall;
 
 use align_ext::AlignExt;
 use cfg_if::cfg_if;
 use log::debug;
-use spin::Once;
-
-*/
+use spin::Once;*/
 
 use super::{cpu::context::GeneralRegs /*, ex_table::ExTable*/};
 
-/*
-use crate::{
+/*use crate::{
     arch::{
         if_tdx_enabled,
         irq::{disable_local, enable_local},
@@ -56,9 +55,7 @@ cfg_if! {
 
 cpu_local_cell! {
     static KERNEL_INTERRUPT_NESTED_LEVEL: u8 = 0;
-}
-
-*/
+}*/
 
 /// Trap frame of kernel interrupt
 ///
@@ -111,8 +108,7 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
-/*
-/// Initializes interrupt handling on x86_64.
+/*/// Initializes interrupt handling on x86_64.
 ///
 /// This function will:
 /// - Switch to a new, CPU-local [GDT].
@@ -136,9 +132,7 @@ pub(crate) unsafe fn init() {
 
     // SAFETY: `gdt::init` has been called before.
     unsafe { syscall::init() };
-}
-
-*/
+}*/
 
 /// Userspace context.
 #[verus_verify]
@@ -159,8 +153,8 @@ global layout RawUserContext is size == 176, align == 8;
 impl TrapFrame {
     pub proof fn lemma_layout()
         ensures
-            vstd::layout::size_of::<Self>() == 176,
-            vstd::layout::align_of::<Self>() == 8,
+            size_of::<Self>() == 176,
+            align_of::<Self>() == 8,
     {
         broadcast use VERUS_layout_of_TrapFrame;
 
@@ -170,8 +164,8 @@ impl TrapFrame {
 impl RawUserContext {
     pub(super) proof fn lemma_layout()
         ensures
-            vstd::layout::size_of::<Self>() == 176,
-            vstd::layout::align_of::<Self>() == 8,
+            size_of::<Self>() == 176,
+            align_of::<Self>() == 8,
     {
         broadcast use VERUS_layout_of_RawUserContext;
 
@@ -179,7 +173,9 @@ impl RawUserContext {
 }
 
 } // verus!
-
+/* Check the ABI field offsets with Rust's compile-time layout queries.
+ * Origin Rust: <none; new executable code>
+ */
 const _: () = {
     assert!(core::mem::offset_of!(TrapFrame, trap_num) == 136);
     assert!(core::mem::offset_of!(TrapFrame, error_code) == 144);
@@ -187,8 +183,7 @@ const _: () = {
     assert!(core::mem::offset_of!(RawUserContext, error_code) == 168);
 };
 
-/*
-/// Returns true if this function is called within the context of an IRQ handler
+/*/// Returns true if this function is called within the context of an IRQ handler
 /// and the IRQ occurs while the CPU is executing in the kernel mode.
 /// Otherwise, it returns false.
 pub fn is_kernel_interrupted() -> bool {
@@ -351,5 +346,4 @@ fn handle_kernel_page_fault(info: RawPageFaultInfo) {
     // 2. We map the address to the correct physical page with the correct flags, where the
     //    correctness follows the semantics of the direct mapping of physical memory.
     unsafe { cursor.map(crate::mm::kspace::MappedItem::Untracked(paddr, 1, prop)) }.unwrap();
-}
-*/
+}*/

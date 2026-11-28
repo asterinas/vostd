@@ -2,8 +2,7 @@
 //! CPU execution context control.
 use vstd::prelude::*;
 
-/*
-use alloc::boxed::Box;
+/*use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
 use cfg_if::cfg_if;
@@ -44,9 +43,7 @@ pub use x86::cpuid;
 pub struct UserContext {
     user_context: RawUserContext,
     exception: Option<CpuException>,
-}
-
-*/
+}*/
 
 /// General registers.
 #[verus_verify]
@@ -92,9 +89,7 @@ impl GeneralRegs {
 }
 
 } // verus!
-
-/*
-/// Architectural CPU exceptions (x86-64 vectors 0-31).
+/*/// Architectural CPU exceptions (x86-64 vectors 0-31).
 ///
 /// For the authoritative specification of each vector, see the
 /// Intel® 64 and IA-32 Architectures Software Developer’s Manual,
@@ -702,5 +697,4 @@ pub(in crate::arch) fn enable_essential_features() {
             core::arch::asm!("fninit");
         }
     }
-}
-*/
+}*/
