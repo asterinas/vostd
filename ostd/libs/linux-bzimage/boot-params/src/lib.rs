@@ -261,6 +261,41 @@ pub struct EddInfo {
 const EDD_MBR_SIG_MAX: usize = 16;
 const EDDMAXNR: usize = 6;
 
+verus! {
+
+global layout SetupHeader is size == 123, align == 1;
+
+global layout ScreenInfo is size == 64, align == 1;
+
+impl SetupHeader {
+    /// Establishes the packed layout for EFI boot parameter setup and x86 boot parsing.
+    pub proof fn lemma_layout()
+        ensures
+            ({
+                use vstd::layout::{align_of, size_of};
+                size_of::<Self>() == 123 && align_of::<Self>() == 1
+            }),
+    {
+        broadcast use VERUS_layout_of_SetupHeader;
+
+    }
+}
+
+impl ScreenInfo {
+    /// Establishes the packed layout for EFI screen setup and x86 framebuffer parsing.
+    pub proof fn lemma_layout()
+        ensures
+            ({
+                use vstd::layout::{align_of, size_of};
+                size_of::<Self>() == 64 && align_of::<Self>() == 1
+            }),
+    {
+        broadcast use VERUS_layout_of_ScreenInfo;
+
+    }
+}
+
+} // verus!
 #[cfg(test)]
 mod tests {
     use core::mem::offset_of;
@@ -337,23 +372,3 @@ mod tests {
         assert_eq!(offset_of!(BootParams, eddbuf), 0xd00);
     }
 }
-
-verus! {
-
-global layout SetupHeader is size == 123, align == 1;
-
-global layout ScreenInfo is size == 64, align == 1;
-
-/// Establishes the size and alignment of the packed Linux boot header and screen information.
-pub proof fn lemma_boot_header_layout()
-    ensures
-        vstd::layout::size_of::<SetupHeader>() == 123,
-        vstd::layout::align_of::<SetupHeader>() == 1,
-        vstd::layout::size_of::<ScreenInfo>() == 64,
-        vstd::layout::align_of::<ScreenInfo>() == 1,
-{
-    broadcast use {VERUS_layout_of_SetupHeader, VERUS_layout_of_ScreenInfo};
-
-}
-
-} // verus!
