@@ -48,7 +48,6 @@ pub trait AnyUFrameMeta: AnyFrameMeta + vstd_extra::cast_ptr::Repr<MetaSlotStora
 /// we use `MetaSlotStorage`, a type that is a tagged union of the metadata types we've worked with so far.
 pub type UFrame = Frame<MetaSlotStorage>;
 
-/*
 /// Makes a structure usable as untyped frame metadata.
 ///
 /// If this macro is used for built-in typed frame metadata, it won't compile.
@@ -81,7 +80,7 @@ macro_rules! impl_untyped_frame_meta_for {
 }
 
 // A special case of untyped metadata is the unit type.
-impl_untyped_frame_meta_for!(()); */
+/* impl_untyped_frame_meta_for!(()); */
 
 /// A physical memory range that is untyped.
 ///
