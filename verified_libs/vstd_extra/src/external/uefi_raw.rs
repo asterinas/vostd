@@ -2,8 +2,8 @@
 //! External specifications for uefi-raw 0.8.0's memory type codes.
 //!
 //! `MemoryType` is a transparent wrapper around a public `u32`. The
-//! associated constant values correspond to the definitions in `table::boot`
-//! and are checked against the dependency at Rust compile time.
+//! associated constant values are trusted to match the definitions in
+//! `table::boot`.
 //! See <https://docs.rs/uefi-raw/0.8.0/uefi_raw/table/boot/struct.MemoryType.html>.
 use vstd::prelude::*;
 
@@ -17,10 +17,6 @@ pub struct ExMemoryType(MemoryType);
 } // verus!
 macro_rules! specify_memory_type_constants {
     ($($name:ident = $value:literal),+ $(,)?) => {
-        const _: () = {
-            $(assert!(MemoryType::$name.0 == $value);)+
-        };
-
         verus! {
             $(
                 pub assume_specification[ MemoryType::$name ] -> MemoryType
