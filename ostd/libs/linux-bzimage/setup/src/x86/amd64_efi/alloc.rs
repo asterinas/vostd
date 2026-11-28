@@ -43,6 +43,7 @@ pub(super) fn alloc_pages(ty: AllocateType, size: usize) -> &'static mut [MaybeU
      * .expect("the UEFI allocation fails");
      */
     proof_decl! { let tracked pages: Option<LoaderPages>; }
+    // The qualified path lets proof_with! resolve the generated verifier function.
     proof_with! { => Tracked(pages) }
     let allocation = vstd_extra::external::uefi::allocate_loader_pages(
         ty,
@@ -62,7 +63,8 @@ pub(super) fn alloc_pages(ty: AllocateType, size: usize) -> &'static mut [MaybeU
         let rounded_size = (size + page_size - 1) / page_size * page_size;
         assert(size <= rounded_size < size + page_size);
 
-        // The shared raw-slice spec leaves the Rust safety conditions to its caller.
+        // Keep these checks when stripping proofs. The raw-slice spec leaves
+        // non-nullness, bounds, range coverage, and provenance to its caller.
         let tracked pages = pages.tracked_unwrap();
         assert(ptr.addr() != 0);
         assert(ptr.addr() + size <= usize::MAX);

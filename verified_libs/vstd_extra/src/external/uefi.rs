@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
-//! UEFI 0.32.0 boot services used by the x86 bzImage setup.
+//! External specifications and permission wrappers for `uefi` 0.32.0 boot services.
 //!
-//! The loaded-image read borrows the options held by the current protocol.
-//! The setup sets the image handle before using these services and drops the
-//! protocol before exiting boot services. UEFI can panic if either boot-phase
-//! prerequisite is violated independently of a firmware error return.
+//! Call boot services while they are active, initialize the image handle before
+//! services that require it, and drop scoped protocols before exiting boot
+//! services. Violating these prerequisites can panic independently of a
+//! firmware error return.
 //!
-//! AllocatePages transfers exclusive access to the successful LoaderData range
-//! (UEFI 2.10, sections 7.2.1 and 7.2.2). The setup checks the pointer and
-//! range against the tracked permission before constructing a slice, then
-//! retains the allocation until control passes to the kernel.
+//! The loaded-image options borrow from the opened protocol. On success,
+//! `AllocatePages` grants exclusive access to its `LoaderData` page range
+//! (UEFI 2.10, sections 7.2.1 and 7.2.2). `LoaderPages` tracks this permission.
+//! Keep the allocation live for as long as references to its memory are used.
 use vstd::{prelude::*, raw_ptr::PointsToRaw};
 
 use core::{
