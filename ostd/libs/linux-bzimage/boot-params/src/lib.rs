@@ -8,6 +8,11 @@
 //!
 #![cfg_attr(not(test), no_std)]
 
+#[allow(
+    unused_imports,
+    reason = "The layout module is only used in erased proof contracts"
+)]
+use vstd::layout;
 use vstd::prelude::*;
 
 /// Magic stored in the boot protocol header.
@@ -212,49 +217,6 @@ pub struct EfiInfo {
     pub efi_memmap_hi: u32,
 }
 
-verus! {
-
-global layout ApmBiosInfo is size == 20, align == 1;
-
-global layout IstInfo is size == 16, align == 1;
-
-global layout SysDescTable is size == 16, align == 1;
-
-global layout OlpcOfwHeader is size == 16, align == 1;
-
-global layout EdidInfo is size == 128, align == 1;
-
-global layout EfiInfo is size == 32, align == 4;
-
-/// Establishes the sizes and alignments of the six firmware records for callers.
-pub proof fn lemma_firmware_record_layouts()
-    ensures
-        vstd::layout::size_of::<ApmBiosInfo>() == 20,
-        vstd::layout::align_of::<ApmBiosInfo>() == 1,
-        vstd::layout::size_of::<IstInfo>() == 16,
-        vstd::layout::align_of::<IstInfo>() == 1,
-        vstd::layout::size_of::<SysDescTable>() == 16,
-        vstd::layout::align_of::<SysDescTable>() == 1,
-        vstd::layout::size_of::<OlpcOfwHeader>() == 16,
-        vstd::layout::align_of::<OlpcOfwHeader>() == 1,
-        vstd::layout::size_of::<EdidInfo>() == 128,
-        vstd::layout::align_of::<EdidInfo>() == 1,
-        vstd::layout::size_of::<EfiInfo>() == 32,
-        vstd::layout::align_of::<EfiInfo>() == 4,
-{
-    broadcast use {
-        VERUS_layout_of_ApmBiosInfo,
-        VERUS_layout_of_IstInfo,
-        VERUS_layout_of_SysDescTable,
-        VERUS_layout_of_OlpcOfwHeader,
-        VERUS_layout_of_EdidInfo,
-        VERUS_layout_of_EfiInfo,
-    };
-
-}
-
-} // verus!
-
 /// The E820 types known to the kernel.
 ///
 /// Originally defined in the linux source tree:
@@ -308,6 +270,87 @@ pub struct EddInfo {
 const EDD_MBR_SIG_MAX: usize = 16;
 const EDDMAXNR: usize = 6;
 
+verus! {
+
+global layout ApmBiosInfo is size == 20, align == 1;
+
+global layout IstInfo is size == 16, align == 1;
+
+global layout SysDescTable is size == 16, align == 1;
+
+global layout OlpcOfwHeader is size == 16, align == 1;
+
+global layout EdidInfo is size == 128, align == 1;
+
+global layout EfiInfo is size == 32, align == 4;
+
+impl ApmBiosInfo {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 20,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_ApmBiosInfo;
+
+    }
+}
+
+impl IstInfo {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 16,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_IstInfo;
+
+    }
+}
+
+impl SysDescTable {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 16,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_SysDescTable;
+
+    }
+}
+
+impl OlpcOfwHeader {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 16,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_OlpcOfwHeader;
+
+    }
+}
+
+impl EdidInfo {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 128,
+            layout::align_of::<Self>() == 1,
+    {
+        broadcast use VERUS_layout_of_EdidInfo;
+
+    }
+}
+
+impl EfiInfo {
+    pub proof fn lemma_layout()
+        ensures
+            layout::size_of::<Self>() == 32,
+            layout::align_of::<Self>() == 4,
+    {
+        broadcast use VERUS_layout_of_EfiInfo;
+
+    }
+}
+
+} // verus!
 #[cfg(test)]
 mod tests {
     use core::mem::offset_of;
