@@ -1,12 +1,12 @@
 [package]
 name = "ostd"
-version = "0.16.0"
-edition = "2021"
 description = "Rust OS framework that facilitates the development of and innovation in OS kernels"
-license = "MPL-2.0"
-readme = "README.md"
-repository = "https://github.com/asterinas/asterinas"
 documentation = "https://asterinas.github.io/api-docs"
+readme = "README.md"
+version.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,32 +16,29 @@ default-target = "x86_64-unknown-none"
 targets = ["x86_64-unknown-none"]
 
 [dependencies]
-vstd = { workspace = true }
-vstd_extra = { path = "../verified_libs/vstd_extra" }
+vstd.workspace = true
+vstd_extra.workspace = true
+align_ext.workspace = true
+bitvec.workspace = true
+gimli.workspace = true
+id-alloc.workspace = true
+inherit-methods-macro.workspace = true
+log.workspace = true
+minicov = { workspace = true, optional = true }
+num-traits.workspace = true
+ostd-macros.workspace = true
+ostd-pod.workspace = true
+ostd-test.workspace = true
+smallvec.workspace = true
+spin.workspace = true
+zerocopy.workspace = true
+# bitflags.workspace = true
 bitflags = { path = "../verified_libs/bitflags" }
-align_ext = { path = "libs/align_ext", version = "0.1.0" }
 bit_field = "0.10.1"
 buddy_system_allocator = { version = "0.10", default-features = false, features = ["alloc"] }
 bitflags_upstream = { package = "bitflags", version = "=2.13.0" }
 cfg-if = "1.0"
-gimli = { version = "0.28", default-features = false, features = ["read-core"] }
-id-alloc = { path = "libs/id-alloc", version = "0.1.0" }
-inherit-methods-macro = { git = "https://github.com/asterinas/inherit-methods-macro", rev = "98f7e3e", version = "0.1.0" }
-#int-to-c-enum = { path = "../kernel/libs/int-to-c-enum", version = "0.1.0" }
-# intrusive-collections = { version = "0.9.6", features = ["nightly"] }
-#linux-boot-params = { version = "0.15.1", path = "libs/linux-bzimage/boot-params" }
-log = "0.4"
-num-traits = { version = "0.2", default-features = false }
-#ostd-macros = { version = "0.15.1", path = "libs/ostd-macros" }
-#ostd-test = { version = "0.15.1", path = "libs/ostd-test" }
-#ostd-pod = { git = "https://github.com/asterinas/ostd-pod", rev = "c4644be", version = "0.1.1" }
-ostd-pod = { path = "libs/ostd-pod" }
-spin = "0.9.4"
-smallvec = "1.13.2"
 volatile = "0.6.1"
-bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
-
-minicov = { version = "0.3", optional = true }
 
 # The targets are chosen to prevent the generated machine code from using any
 # vector or floating-point registers.
@@ -53,38 +50,49 @@ minicov = { version = "0.3", optional = true }
 # - `loongarch64-unknown-none-softfloat` is rather self-explaining.
 
 [target.x86_64-unknown-none.dependencies]
-x86_64 = "0.15.5"
-x86 = "0.52.0"
-acpi = "=5.2.0" # This upstream often bump minor versions with API changes
-multiboot2 = "0.24.0"
+acpi.workspace = true
+bit_field.workspace = true
+# int-to-c-enum.workspace = true
+linux-boot-params.workspace = true
+multiboot2.workspace = true
+tdx-guest = { workspace = true, optional = true }
+unwinding = { workspace = true, features = ["fde-gnu-eh-frame-hdr"] }
+volatile.workspace = true
+x86.workspace = true
+x86_64.workspace = true
 iced-x86 = { version = "1.21.0", default-features = false, features = [
     "no_std",
     "decoder",
     "gas",
 ], optional = true }
-tdx-guest = { version = "0.2.1", optional = true }
-unwinding = { version = "=0.2.10", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 
 [target.riscv64imac-unknown-none-elf.dependencies]
-riscv = { version = "0.11.1", features = ["s-mode"] }
-sbi-rt = "0.0.3"
-fdt = { version = "0.1.5", features = ["pretty-printing"] }
-unwinding = { version = "=0.2.10", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
+bit_field.workspace = true
+fdt.workspace = true
+riscv.workspace = true
+sbi-rt.workspace = true
+unwinding = { workspace = true, features = ["fde-static"] }
 
 [target.loongarch64-unknown-none-softfloat.dependencies]
-loongArch64 = "0.2.5"
-fdt = { version = "0.1.5", features = ["pretty-printing"] }
+fdt.workspace = true
+# int-to-c-enum.workspace = true
+loongArch64.workspace = true
+unwinding = { workspace = true, features = ["fde-gnu-eh-frame-hdr"] }
+
+# [target.aarch64-unknown-none-softfloat.dependencies]
+# fdt.workspace = true
+# unwinding = { workspace = true, features = ["fde-static"] }\
 
 [features]
 # default = ["cvm_guest"]
 default = []
-allow_panic = []
+# The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
+cvm_guest = ["dep:tdx-guest"]
+coverage = ["minicov"]
+pvh_boot = []
 # Source gate only. The isolated IRC11 CI enables `vstd/weak-memory`
 # explicitly because the mainline Verus toolchain does not define it.
 irc11 = ["vstd_extra/irc11"]
-# The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
-cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
-coverage = ["minicov"]
 
 [lints]
 workspace = true
