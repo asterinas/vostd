@@ -91,7 +91,6 @@ impl UserContext {
 }
 
 } // verus!
-
 /// Architectural CPU exceptions (x86-64 vectors 0-31).
 ///
 /// For the authoritative specification of each vector, see the
@@ -340,31 +339,30 @@ impl UserContextApiInternal for UserContext {
         }
     }*/
 
-    #[verus_spec(ret =>
-        ensures
-            ret.rax == self.general_regs_spec().rax,
-            ret.rbx == self.general_regs_spec().rbx,
-            ret.rcx == self.general_regs_spec().rcx,
-            ret.rdx == self.general_regs_spec().rdx,
-            ret.rsi == self.general_regs_spec().rsi,
-            ret.rdi == self.general_regs_spec().rdi,
-            ret.rbp == self.general_regs_spec().rbp,
-            ret.rsp == self.general_regs_spec().rsp,
-            ret.r8 == self.general_regs_spec().r8,
-            ret.r9 == self.general_regs_spec().r9,
-            ret.r10 == self.general_regs_spec().r10,
-            ret.r11 == self.general_regs_spec().r11,
-            ret.r12 == self.general_regs_spec().r12,
-            ret.r13 == self.general_regs_spec().r13,
-            ret.r14 == self.general_regs_spec().r14,
-            ret.r15 == self.general_regs_spec().r15,
-            ret.rip == self.general_regs_spec().rip,
-            ret.rflags == self.general_regs_spec().rflags,
-            ret.trap_num == self.trap_number_spec(),
-            ret.error_code == self.trap_error_code_spec(),
-            ret.cs == 0,
-            ret._pad == 0,
-    )]
+    #[verus_spec(returns (TrapFrame {
+        rax: self.general_regs_spec().rax,
+        rbx: self.general_regs_spec().rbx,
+        rcx: self.general_regs_spec().rcx,
+        rdx: self.general_regs_spec().rdx,
+        rsi: self.general_regs_spec().rsi,
+        rdi: self.general_regs_spec().rdi,
+        rbp: self.general_regs_spec().rbp,
+        rsp: self.general_regs_spec().rsp,
+        r8: self.general_regs_spec().r8,
+        r9: self.general_regs_spec().r9,
+        r10: self.general_regs_spec().r10,
+        r11: self.general_regs_spec().r11,
+        r12: self.general_regs_spec().r12,
+        r13: self.general_regs_spec().r13,
+        r14: self.general_regs_spec().r14,
+        r15: self.general_regs_spec().r15,
+        _pad: 0,
+        trap_num: self.trap_number_spec(),
+        error_code: self.trap_error_code_spec(),
+        rip: self.general_regs_spec().rip,
+        cs: 0,
+        rflags: self.general_regs_spec().rflags,
+    }))]
     fn as_trap_frame(&self) -> TrapFrame {
         TrapFrame {
             rax: self.user_context.general.rax,

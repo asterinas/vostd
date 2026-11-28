@@ -14,9 +14,6 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
-//!
-//! The frame types support user-context projection. The trap-handler example
-//! applies when trap entry and dispatch are enabled.
 use vstd::prelude::*;
 
 /*pub(super) mod gdt;
@@ -28,7 +25,7 @@ use cfg_if::cfg_if;
 use log::debug;
 use spin::Once;*/
 
-use super::{cpu::context::GeneralRegs, /*ex_table::ExTable*/};
+use super::{cpu::context::GeneralRegs /*, ex_table::ExTable*/};
 /*use crate::{
     arch::{
         if_tdx_enabled,
