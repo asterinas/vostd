@@ -2,6 +2,7 @@
 //! CPU execution context control.
 use vstd::prelude::*;
 
+/*
 use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
@@ -45,7 +46,10 @@ pub struct UserContext {
     exception: Option<CpuException>,
 }
 
+*/
+
 /// General registers.
+#[verus_verify]
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 #[expect(missing_docs)]
@@ -72,6 +76,24 @@ pub struct GeneralRegs {
     pub gsbase: usize,
 }
 
+verus! {
+
+global layout GeneralRegs is size == 160, align == 8;
+
+impl GeneralRegs {
+    pub proof fn lemma_layout()
+        ensures
+            vstd::layout::size_of::<Self>() == 160,
+            vstd::layout::align_of::<Self>() == 8,
+    {
+        broadcast use VERUS_layout_of_GeneralRegs;
+
+    }
+}
+
+} // verus!
+
+/*
 /// Architectural CPU exceptions (x86-64 vectors 0-31).
 ///
 /// For the authoritative specification of each vector, see the
@@ -681,3 +703,4 @@ pub(in crate::arch) fn enable_essential_features() {
         }
     }
 }
+*/
