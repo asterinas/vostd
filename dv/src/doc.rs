@@ -184,7 +184,7 @@ fn generate_single_target_doc(
     for dir in dirs {
         cmd.arg("-L").arg(format!("dependency={}", dir.display()));
     }
-    cmd.arg("--edition=2021")
+    cmd.arg(format!("--edition={}", package.edition))
         .arg("--cfg")
         .arg("verus_keep_ghost")
         .arg("--cfg")
