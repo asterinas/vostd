@@ -420,8 +420,9 @@ impl OpsStack {
 
     #[verus_spec(r =>
         ensures
-            r == (self.remaining_slots() == FLUSH_ALL_OPS_THRESHOLD),
             r ==> self@ == FlushSet::empty(),
+        returns
+            self.remaining_slots() == FLUSH_ALL_OPS_THRESHOLD
     )]
     fn is_empty(&self) -> bool {
         proof! {
