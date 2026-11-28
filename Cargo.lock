@@ -861,9 +861,11 @@ name = "vstd_extra"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "bit_field",
  "bitvec",
  "bytemuck",
  "smallvec",
+ "volatile 0.6.1",
  "vstd",
  "x86",
  "x86_64 0.15.5",
