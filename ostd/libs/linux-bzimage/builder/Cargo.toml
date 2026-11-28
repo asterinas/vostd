@@ -13,8 +13,7 @@ edition.workspace = true
 vstd.workspace = true
 vstd_extra.workspace = true
 align_ext.workspace = true
-# bitflags.workspace = true
-bitflags = { path = "../../../../verified_libs/bitflags" }
+bitflags.workspace = true
 crc32fast.workspace = true
 miniz_oxide.workspace = true
 ostd-pod.workspace = true

@@ -135,7 +135,8 @@ takeable = "0.2.2"
 time = { version = "0.3", default-features = false, features = ["alloc"] }
 
 # External dependencies for both safe and unsafe crates
-bitflags = "2.13"
+# bitflags = "2.13"
+bitflags = { path = "verified_libs/bitflags" }
 bitvec = { version = "1.0.1", default-features = false, features = ["alloc"] }
 crc32fast = "1.4"
 fdt = { version = "0.1.5", features = ["pretty-printing"] }

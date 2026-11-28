@@ -19,6 +19,7 @@ targets = ["x86_64-unknown-none"]
 vstd.workspace = true
 vstd_extra.workspace = true
 align_ext.workspace = true
+bitflags.workspace = true
 bitvec.workspace = true
 gimli.workspace = true
 id-alloc.workspace = true
@@ -32,8 +33,6 @@ ostd-test.workspace = true
 smallvec.workspace = true
 spin.workspace = true
 zerocopy.workspace = true
-# bitflags.workspace = true
-bitflags = { path = "../verified_libs/bitflags" }
 bit_field = "0.10.1"
 buddy_system_allocator = { version = "0.10", default-features = false, features = ["alloc"] }
 bitflags_upstream = { package = "bitflags", version = "=2.13.0" }
