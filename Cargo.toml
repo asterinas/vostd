@@ -1,17 +1,36 @@
+# The Cargo workspace configuration shared by in-kernel crates.
+#
+# Most crates in Asterinas are written and built for the kernel space.
+# The user-space and host-native exceptions are listed in `workspace.exclude`.
+
 [workspace]
 resolver = "2"
+# All in-kernel crates.
+#
+# These crates share a single workspace
+# so their `Cargo.toml` files do not need to repeat common settings.
 members = [
     "verified_libs/bitflags",
     "verified_libs/vstd_extra",
     "ostd",
     "ostd/libs/align_ext",
     "ostd/libs/id-alloc",
+    # "ostd/libs/int-to-c-enum",
+    # "ostd/libs/int-to-c-enum/derive",
+    # "ostd/libs/linux-bzimage/boot-params",
     "ostd/libs/linux-bzimage/builder",
-    "ostd/libs/ostd-pod",
+    # "ostd/libs/linux-bzimage/setup",
     # "ostd/libs/ostd-macros",
+    "ostd/libs/ostd-pod",
+    # "ostd/libs/ostd-pod/macros",
     "ostd/libs/ostd-test",
-    # "kernel/libs/int-to-c-enum",
+    # "ostd/libs/padding-struct",
 ]
+# All user-space or host-native crates.
+#
+# Use plain `cargo <cmd>` for these crates.
+# Their crate-level `Cargo.toml` files are not affected
+# by the shared in-kernel workspace configuration.
 exclude = [
     "dv",
     "tools/verus",
@@ -20,11 +39,15 @@ exclude = [
 ]
 
 [workspace.lints.rust]
-unsafe_op_in_unsafe_fn = "warn"
+redundant_imports = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ktest)"] }
+unreachable_pub = "warn"
+unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 allow_attributes = "warn"
+inconsistent_struct_constructor = "warn"
+redundant_test_prefix = "warn"
 
 # Cargo only looks at the profile settings 
 # in the Cargo.toml manifest at the root of the workspace
