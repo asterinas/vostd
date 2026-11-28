@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795799650957,
+  "lastUpdate": 1795854496460,
   "repoUrl": "https://github.com/asterinas/vostd",
   "entries": {
     "verify-perf": [
@@ -15420,6 +15420,96 @@ window.BENCHMARK_DATA = {
             "value": 1158628,
             "unit": "rlimit",
             "extra": "smt-run=282ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "etyyuiope@qq.com",
+            "name": "Hiroki Chen",
+            "username": "hiroki-chen"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2c26ce5158e36c7e3898f46aa8ef74313a3e45c2",
+          "message": "Add initial specs for TLB (#935)\n\n* Add innitial specs for TLB\n\n* cherry-pick some from older PR\n\n* Verify OpsStack and TlbFlusher::issue_* against FlushSet\n\n* Make TlbModel a tracked per-CPU model and address review\n\nTlbModel is now a tracked resource owning one CpuTlb per CPU. Both keep\ntheir state private, so proofs cannot forge them or drop stale entries.\nThe duplicated pending-op bookkeeping and the tracked_update/tracked_flush\naxioms are removed: TlbFlusher::pending() already specifies issued ops, so\nissue_tlb_flush[_with] no longer take the model. dispatch_tlb_flush keeps\nthe model unchanged until the arch flush contracts land.\n\nGlobalMemOwner::internal_invariants uses TlbModel::coherent(); the unused\ntlb_mappings_* properties over the old single-TLB view are removed.\n\nReview follow-ups:\n- Pin the escalated case to FlushSet::all_user() in push, push_from and\n  issue_tlb_flush[_with]; this needs Structural for TlbFlushOp.\n- Use Seq range slicing instead of take.\n- Drop lemma_ops_flush_set_push; the call sites need only a drop_last hint.\n- Describe flushes as the least the hardware invalidates.\n- State that frames passed to issue_tlb_flush_with are dropped once the\n  request is recorded, since page_keeper is commented out.\n- Remove model helpers that have no caller yet.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* Document the Structural impl for TlbFlushOp\n\nExplain why OpsStack::push needs it, why the derive cannot be used, and\nwhy the derived PartialEq makes the unsafe impl sound.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* swap iset to set\n\n* fix\n\n* Address TLB review: remaining_slots contracts, attribute syntax, RISC-V flush scope\n\n* fmt\n\n* Explain dispatch_tlb_flush's model postcondition\n\n* Update tlb.rs\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nCo-authored-by: rikosellic <64517311+rikosellic@users.noreply.github.com>",
+          "timestamp": "2026-11-28T16:20:14+08:00",
+          "tree_id": "bdfa673f47410a4c4cf61fbc1826a6b987fdc8fe",
+          "url": "https://github.com/asterinas/vostd/commit/2c26ce5158e36c7e3898f46aa8ef74313a3e45c2"
+        },
+        "date": 1795854496024,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "total rlimit",
+            "value": 1096702675,
+            "unit": "rlimit",
+            "extra": "verified=4877 errors=0 smt-run=238,991ms wall=181,148ms"
+          },
+          {
+            "name": "rlimit: mm::page_table::cursor",
+            "value": 379686916,
+            "unit": "rlimit",
+            "extra": "smt-run=93,666ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::cursor_steps",
+            "value": 140956250,
+            "unit": "rlimit",
+            "extra": "smt-run=29,477ms"
+          },
+          {
+            "name": "rlimit: specs::mm::page_table::cursor::mapping_set_lemmas",
+            "value": 61974048,
+            "unit": "rlimit",
+            "extra": "smt-run=14,711ms"
+          },
+          {
+            "name": "rlimit: std_specs::bits",
+            "value": 25123617,
+            "unit": "rlimit",
+            "extra": "smt-run=2,805ms"
+          },
+          {
+            "name": "rlimit: seq_lib",
+            "value": 8696581,
+            "unit": "rlimit",
+            "extra": "smt-run=1,576ms"
+          },
+          {
+            "name": "rlimit: arithmetic::div_mod",
+            "value": 7914703,
+            "unit": "rlimit",
+            "extra": "smt-run=1,002ms"
+          },
+          {
+            "name": "rlimit: temporal_logic::rules",
+            "value": 3166116,
+            "unit": "rlimit",
+            "extra": "smt-run=734ms"
+          },
+          {
+            "name": "rlimit: bits",
+            "value": 2028088,
+            "unit": "rlimit",
+            "extra": "smt-run=479ms"
+          },
+          {
+            "name": "rlimit: ghost_tree",
+            "value": 1910601,
+            "unit": "rlimit",
+            "extra": "smt-run=585ms"
+          },
+          {
+            "name": "rlimit: inferred_initializers",
+            "value": 1158628,
+            "unit": "rlimit",
+            "extra": "smt-run=268ms"
           }
         ]
       }
