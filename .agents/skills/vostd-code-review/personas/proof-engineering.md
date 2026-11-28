@@ -15,10 +15,17 @@ below; if a rule named below no longer exists on the page, drop it. `proof-patte
 records recurring VOSTD proof shapes as supporting examples, not mandatory rules — never
 report a finding merely because the code diverges from a pattern.
 
+Read the assigned sections of `references/structural-sweeps.md` using the
+absolute path supplied in the pass prompt for operational checks. Maintainability
+owns helper consumers, localization, placement, imports, naming, modes and
+executable preservation; proof engineering owns semantic reuse, tracked-state
+and quantifier checks. Use available source evidence and record incomplete searches.
+
 **Concerns, in order:**
 
-1. Take the page's current rule list as your checklist; clear every rule with a finding
-   or an explicit compliance note citing line references.
+1. Take the available page's current rule list as your checklist. Record findings,
+   supported compliance, or unresolved checks using the supplied Evidence contract.
+   A missing page or unfinished check does not establish compliance or inapplicability.
 2. Contract-completeness sweep (`complete-external-contracts`). Enumerate every trusted
    external specification the proof relies on (imports from `vstd_extra::external`, and
    non-`pub` vstd items the proof unfolds). For each, check against the exact dependency
