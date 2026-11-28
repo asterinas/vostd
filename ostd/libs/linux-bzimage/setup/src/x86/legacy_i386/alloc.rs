@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use core::{mem::MaybeUninit, ops::Range};
 
 use crate::sync::Mutex;
@@ -54,6 +56,36 @@ pub(super) unsafe fn init(boot_params: &'static linux_boot_params::BootParams) {
     });
 }
 
+verus! {
+
+pub ghost struct LegacyRangeCheck {
+    pub in_usable_ram: bool,
+    pub overlaps_used: bool,
+    pub has_empty_slot: bool,
+}
+
+/// Possible checks for this request across the boot allocator's reachable states.
+/// None covers failure to borrow or unwrap STATE, or overflow while scanning E820.
+pub uninterp spec fn legacy_range_checks(addr: usize, size: usize) -> Set<Option<LegacyRangeCheck>>;
+
+pub open spec fn platform_allocation_may_fail(addr: usize, size: usize) -> bool {
+    let checks = legacy_range_checks(addr, size);
+    ||| checks.contains(None)
+    ||| exists|c: LegacyRangeCheck| #[trigger]
+        checks.contains(Some(c)) && (!c.in_usable_ram || c.overlaps_used || !c.has_empty_slot)
+}
+
+} // verus!
+#[verifier::external_body]
+#[verus_spec(dst =>
+    requires
+        addr != 0,
+        addr + size <= usize::MAX,
+        size <= isize::MAX,
+        !platform_allocation_may_fail(addr, size),
+    ensures
+        dst@.len() == size,
+)]
 pub fn alloc_at(addr: usize, size: usize) -> &'static mut [MaybeUninit<u8>] {
     let mut state = STATE.lock();
     let state = state.as_mut().unwrap();

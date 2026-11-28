@@ -13,6 +13,9 @@ pub mod int_specs;
 #[cfg(target_arch = "x86_64")]
 pub mod io_port;
 pub mod iter;
+pub mod libflate;
+pub mod maybe_uninit;
+pub mod no_std_io2;
 pub mod nonnull;
 pub mod ptr;
 pub mod range;

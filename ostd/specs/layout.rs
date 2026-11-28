@@ -4,9 +4,16 @@ use vstd::prelude::*;
 
 verus! {
 
-// Asterinas is designed for 64-bit architectures.
+#[cfg(target_pointer_width = "64")]
 global size_of usize == 8;
 
+#[cfg(target_pointer_width = "64")]
 global size_of isize == 8;
+
+#[cfg(target_pointer_width = "32")]
+global size_of usize == 4;
+
+#[cfg(target_pointer_width = "32")]
+global size_of isize == 4;
 
 } // verus!

@@ -127,6 +127,13 @@ fn generate_single_target_doc(
         .as_ref()
         .and_then(|resolve| resolve.nodes.iter().find(|node| node.id == package.id))
         .ok_or_else(|| format!("Missing dependency graph for {}", target.name))?;
+    let features = artifacts
+        .iter()
+        .find(|artifact| {
+            artifact.package_id == package.id && artifact.target.name == target.crate_name
+        })
+        .map(|artifact| &artifact.features)
+        .ok_or_else(|| format!("Missing Cargo features for {}", target.name))?;
     let mut externs = IndexMap::new();
     for dep in &node.deps {
         if dep
@@ -175,12 +182,11 @@ fn generate_single_target_doc(
         .arg("--cfg")
         .arg("verus_keep_ghost")
         .arg("--cfg")
-        .arg("verus_keep_ghost_body")
-        .arg("--cfg")
-        .arg("feature=\"std\"")
-        .arg("--cfg")
-        .arg("feature=\"alloc\"")
-        .arg("-Zcrate-attr=feature(stmt_expr_attributes)")
+        .arg("verus_keep_ghost_body");
+    for feature in features {
+        cmd.arg("--cfg").arg(format!("feature=\"{feature}\""));
+    }
+    cmd.arg("-Zcrate-attr=feature(stmt_expr_attributes)")
         .arg("-Zcrate-attr=feature(register_tool)")
         .arg("-Zcrate-attr=register_tool(verus)")
         .arg("-Zcrate-attr=register_tool(verifier)")

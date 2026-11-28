@@ -109,6 +109,7 @@ fn to_flat_binary(elf_file: &[u8]) -> Vec<u8> {
         proof! {
             let next = programs.seq()[..programs.index() + 1];
             assert(next.drop_last() == programs.seq()[..programs.index()]);
+            assert(next.last() == program);
         }
         if program.get_type().unwrap() == xmas_elf::program::Type::Load {
             let SegmentData::Undefined(header_data) = program.get_data(&elf).unwrap() else {

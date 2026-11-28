@@ -22,8 +22,11 @@
 #![feature(maybe_uninit_fill)]
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
+#![feature(proc_macro_hygiene)]
 
 mod console;
+#[path = "../../../../specs/layout.rs"]
+mod layout;
 mod loader;
 mod sync;
 

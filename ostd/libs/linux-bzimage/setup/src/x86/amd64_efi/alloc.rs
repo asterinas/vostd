@@ -1,8 +1,32 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use core::mem::MaybeUninit;
 
 use uefi::boot::AllocateType;
 
+verus! {
+
+/// Possible outcomes of requesting LOADER_DATA at this address during boot,
+/// with the byte size rounded up to whole UEFI pages.
+/// None includes unavailable boot services, an EFI error, or a null return.
+pub uninterp spec fn efi_page_allocation_results(addr: usize, size: usize) -> Set<Option<usize>>;
+
+pub open spec fn platform_allocation_may_fail(addr: usize, size: usize) -> bool {
+    !efi_page_allocation_results(addr, size).subset_of(set![Some(addr)])
+}
+
+} // verus!
+#[verifier::external_body]
+#[verus_spec(dst =>
+    requires
+        addr != 0,
+        addr + size <= usize::MAX,
+        size <= isize::MAX,
+        !platform_allocation_may_fail(addr, size),
+    ensures
+        dst@.len() == size,
+)]
 pub fn alloc_at(addr: usize, size: usize) -> &'static mut [MaybeUninit<u8>] {
     assert_ne!(addr, 0, "the address to allocate is zero");
     assert!(

@@ -330,6 +330,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "linux-boot-params"
+version = "0.16.0"
+
+[[package]]
 name = "linux-bzimage-builder"
 version = "0.16.0"
 dependencies = [
@@ -338,6 +342,24 @@ dependencies = [
  "bytemuck",
  "libflate",
  "serde",
+ "vstd",
+ "vstd_extra",
+ "xmas-elf",
+]
+
+[[package]]
+name = "linux-bzimage-setup"
+version = "0.16.0"
+dependencies = [
+ "cfg-if",
+ "libflate",
+ "linux-boot-params",
+ "log",
+ "no_std_io2",
+ "tdx-guest 0.4.0",
+ "uart_16550",
+ "uefi",
+ "uefi-raw",
  "vstd",
  "vstd_extra",
  "xmas-elf",
@@ -454,7 +476,7 @@ dependencies = [
  "sbi-rt",
  "smallvec",
  "spin",
- "tdx-guest",
+ "tdx-guest 0.2.1",
  "unwinding",
  "volatile 0.6.1",
  "vstd",
@@ -543,6 +565,12 @@ dependencies = [
  "quote",
  "syn 2.0.101",
 ]
+
+[[package]]
+name = "qemu-exit"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8bb0fd6580eeed0103c054e3fba2c2618ff476943762f28a645b63b8692b21c9"
 
 [[package]]
 name = "quote"
@@ -740,6 +768,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tdx-guest"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c35264485a8a3c1e254d6a31c9bda6d7776aafba9515c3db604d51c564e5e629"
+dependencies = [
+ "bitflags 1.3.2",
+ "iced-x86",
+ "log",
+ "raw-cpuid",
+ "uefi-raw",
+ "x86_64 0.15.5",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -753,6 +795,54 @@ name = "thiserror-impl"
 version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "uart_16550"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e492212ac378a5e00da953718dafb1340d9fbaf4f27d6f3c5cab03d931d1c049"
+dependencies = [
+ "bitflags 2.13.0",
+ "rustversion",
+ "x86",
+]
+
+[[package]]
+name = "ucs2"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79298e11f316400c57ec268f3c2c29ac3c4d4777687955cd3d4f3a35ce7eba"
+dependencies = [
+ "bit_field",
+]
+
+[[package]]
+name = "uefi"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91f17ea8502a6bd414acb2bf5194f90ca4c48e33a2d18cb57eab3294d2050d99"
+dependencies = [
+ "bitflags 2.13.0",
+ "cfg-if",
+ "log",
+ "ptr_meta 0.2.0",
+ "qemu-exit",
+ "ucs2",
+ "uefi-macros",
+ "uefi-raw",
+ "uguid",
+]
+
+[[package]]
+name = "uefi-macros"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c19ee3a01d435eda42cb9931269b349d28a1762f91ddf01c68d276f74b957cc3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -863,6 +953,8 @@ dependencies = [
  "acpi",
  "bitvec",
  "bytemuck",
+ "libflate",
+ "no_std_io2",
  "smallvec",
  "vstd",
  "x86",

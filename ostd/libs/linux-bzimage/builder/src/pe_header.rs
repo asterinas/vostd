@@ -494,12 +494,19 @@ fn build_pe_sec_headers_from(elf: &xmas_elf::ElfFile) -> AllPeSectionHdrs {
         proof! {
             reveal(is_pow2);
             assert(is_pow2(SECTION_ALIGNMENT as int)) by (compute_only);
-            lemma_nat_align_up_sound(segment.mem_size() as nat, SECTION_ALIGNMENT as nat);
-            lemma_mod_multiples_vanish(
-                (LEGACY_SETUP_SEC_SIZE - SETUP32_LMA) / (FILE_ALIGNMENT as int),
-                segment.virtual_addr() as int,
-                FILE_ALIGNMENT as int,
-            );
+            let addr = segment.virtual_addr() as usize;
+            let size = segment.mem_size() as usize;
+            let layout = pe_section_layout_spec(addr, size, base);
+            assert(size <= layout.0 < size + SECTION_ALIGNMENT && layout.0 % (SECTION_ALIGNMENT as u32) == 0) by {
+                lemma_nat_align_up_sound(size as nat, SECTION_ALIGNMENT as nat);
+            }
+            assert(layout.2 % (FILE_ALIGNMENT as u32) == 0) by {
+                lemma_mod_multiples_vanish(
+                    (LEGACY_SETUP_SEC_SIZE - SETUP32_LMA) / (FILE_ALIGNMENT as int),
+                    addr as int,
+                    FILE_ALIGNMENT as int,
+                );
+            }
         }
         assert_eq!(
             segment.virtual_addr() as usize % SECTION_ALIGNMENT,
