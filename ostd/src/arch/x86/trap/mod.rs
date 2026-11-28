@@ -14,10 +14,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 //! Handles trap.
-use vstd::{
-    layout::{align_of, size_of},
-    prelude::*,
-};
+use vstd::prelude::*;
 
 /*pub(super) mod gdt;
 mod idt;
@@ -150,37 +147,17 @@ global layout TrapFrame is size == 176, align == 8;
 
 global layout RawUserContext is size == 176, align == 8;
 
-impl TrapFrame {
-    pub proof fn lemma_layout()
-        ensures
-            size_of::<Self>() == 176,
-            align_of::<Self>() == 8,
-    {
-        broadcast use VERUS_layout_of_TrapFrame;
-
-    }
-}
-
-impl RawUserContext {
-    pub(super) proof fn lemma_layout()
-        ensures
-            size_of::<Self>() == 176,
-            align_of::<Self>() == 8,
-    {
-        broadcast use VERUS_layout_of_RawUserContext;
-
-    }
-}
-
 } // verus!
 /* Check the ABI field offsets with Rust's compile-time layout queries.
  * Origin Rust: <none; new executable code>
  */
 const _: () = {
-    assert!(core::mem::offset_of!(TrapFrame, trap_num) == 136);
-    assert!(core::mem::offset_of!(TrapFrame, error_code) == 144);
-    assert!(core::mem::offset_of!(RawUserContext, trap_num) == 160);
-    assert!(core::mem::offset_of!(RawUserContext, error_code) == 168);
+    use core::mem::offset_of;
+
+    assert!(offset_of!(TrapFrame, trap_num) == 136);
+    assert!(offset_of!(TrapFrame, error_code) == 144);
+    assert!(offset_of!(RawUserContext, trap_num) == 160);
+    assert!(offset_of!(RawUserContext, error_code) == 168);
 };
 
 /*/// Returns true if this function is called within the context of an IRQ handler

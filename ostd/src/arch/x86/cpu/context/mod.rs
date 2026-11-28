@@ -77,17 +77,6 @@ verus! {
 
 global layout GeneralRegs is size == 160, align == 8;
 
-impl GeneralRegs {
-    pub proof fn lemma_layout()
-        ensures
-            vstd::layout::size_of::<Self>() == 160,
-            vstd::layout::align_of::<Self>() == 8,
-    {
-        broadcast use VERUS_layout_of_GeneralRegs;
-
-    }
-}
-
 } // verus!
 /*/// Architectural CPU exceptions (x86-64 vectors 0-31).
 ///
