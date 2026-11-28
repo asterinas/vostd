@@ -38,7 +38,7 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
-use vstd::{arithmetic::power2::is_pow2, prelude::*};
+use vstd::{arithmetic::power2::is_pow2, math::min, prelude::*};
 use vstd_extra::{assert, ownership::Inv};
 
 pub use crate::specs::mm::io::{
@@ -549,11 +549,11 @@ impl<'a> VmWriter<'a, Infallible> {
             final(owner_r).inv(),
             final(self).wf(*final(owner_w)),
             final(reader).wf(*final(owner_r)),
-            r == vstd::math::min(old(self).avail() as int, old(reader).remain() as int),
-            final(self).avail() == old(self).avail() - r as usize,
-            final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            final(reader).remain() == old(reader).remain() - r as usize,
-            final(reader).cursor.vaddr == old(reader).cursor.vaddr + r as usize,
+            r == min(old(self).avail() as int, old(reader).remain() as int),
+            final(self).avail() == old(self).avail() - r,
+            final(self).cursor.vaddr == old(self).cursor.vaddr + r,
+            final(reader).remain() == old(reader).remain() - r,
+            final(reader).cursor.vaddr == old(reader).cursor.vaddr + r,
             final(owner_w).has_write_view(),
             final(owner_r).read_view_initialized(),
     )]
@@ -607,7 +607,13 @@ impl<'a> VmWriter<'a, Infallible> {
                 Err(_) => {
                     *old(self) == *final(self)
                 },
-            }
+            },
+        returns
+            if old(self).avail() < core::mem::size_of::<T>() {
+                Err(Error::InvalidArgs)
+            } else {
+                Ok(())
+            },
     )]
     pub fn write_once<T: PodOnce>(&mut self, new_val: &T) -> Result<()> {
         if self.avail() < core::mem::size_of::<T>() {
@@ -796,14 +802,14 @@ impl<'a> VmReader<'a, Infallible> {
             final(writer).inv(),
             final(self).wf(*final(owner_r)),
             final(writer).wf(*final(owner_w)),
-            r == vstd::math::min(old(self).remain() as int, old(writer).avail() as int),
-            final(self).remain() == old(self).remain() - r as usize,
-            final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            final(writer).avail() == old(writer).avail() - r as usize,
-            final(writer).cursor.vaddr == old(writer).cursor.vaddr + r as usize,
+            r == min(old(self).remain() as int, old(writer).avail() as int),
+            final(self).remain() == old(self).remain() - r,
+            final(self).cursor.vaddr == old(self).cursor.vaddr + r,
+            final(writer).avail() == old(writer).avail() - r,
+            final(writer).cursor.vaddr == old(writer).cursor.vaddr + r,
             consumed_w@.inv(),
             consumed_w@.range.start == old(owner_w).range.start,
-            consumed_w@.range.end == old(owner_w).range.start + r as usize,
+            consumed_w@.range.end == old(owner_w).range.start + r,
             consumed_w@.has_write_view(),
             final(owner_w).has_write_view(),
             final(owner_r).read_view_initialized(),
@@ -1146,8 +1152,16 @@ impl<'a> VmReader<'a, Fallible> {
             final(self).end == old(self).end,
             final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
-            r matches Ok(collected) ==> collected.len() == old(self).remain(),
-            r is Err ==> *final(self) == *old(self),
+            match r {
+                Ok(collected) => {
+                    &&& collected.len() == old(self).remain()
+                    &&& final(self).cursor == old(self).end
+                },
+                Err(err) => {
+                    &&& err == Error::PageFault
+                    &&& *final(self) == *old(self)
+                },
+            },
     )]
     pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
         let len = self.remain();
@@ -1952,6 +1966,11 @@ impl<'a> VmWriter<'a, Fallible> {
                 &&& n <= old(self).avail()
                 &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
             },
+            r matches Ok(n) ==> n == min(len as int, old(self).avail() as int),
+            r matches Err((err, n)) ==> {
+                &&& err == Error::PageFault
+                &&& n < min(len as int, old(self).avail() as int)
+            },
     )]
     pub fn fill_zeros(&mut self, len: usize) -> core::result::Result<usize, (Error, usize)> {
         let len_to_set = self.avail().min(len);
@@ -2157,7 +2176,11 @@ macro_rules! impl_read_fallible {
                         &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
                         &&& n <= old(self).remain()
                         &&& n <= old(writer).avail()
-                        &&& r is Ok ==> n == vstd::math::min(old(self).remain() as int, old(writer).avail() as int)
+                        &&& r is Ok ==> n == min(old(self).remain() as int, old(writer).avail() as int)
+                    },
+                    r matches Err((err, n)) ==> {
+                        &&& err == Error::PageFault
+                        &&& n < min(old(self).remain() as int, old(writer).avail() as int)
                     },
             )]
             fn read_fallible(
@@ -2212,7 +2235,11 @@ macro_rules! impl_write_fallible {
                         &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
                         &&& n <= old(self).avail()
                         &&& n <= old(reader).remain()
-                        &&& r is Ok ==> n == vstd::math::min(old(self).avail() as int, old(reader).remain() as int)
+                        &&& r is Ok ==> n == min(old(self).avail() as int, old(reader).remain() as int)
+                    },
+                    r matches Err((err, n)) ==> {
+                        &&& err == Error::PageFault
+                        &&& n < min(old(self).avail() as int, old(reader).remain() as int)
                     },
             )]
             fn write_fallible(

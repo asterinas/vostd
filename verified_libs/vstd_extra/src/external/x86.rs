@@ -1,7 +1,8 @@
 //! External specifications for the [`x86` crate](https://crates.io/crates/x86)
 //! constants and MSR accessors. Constant values are trusted to match
 //! the crate sources; the original constants are re-exported below. Also models the
-//! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors.
+//! [`x86_64` crate](https://crates.io/crates/x86_64) MSR accessors and
+//! `core::arch::x86_64::_rdtsc`.
 use vstd::prelude::*;
 
 use core::arch::x86_64::CpuidResult;
@@ -172,6 +173,15 @@ pub assume_specification[ Msr::read ](msr: &Msr) -> u64
 
 /// [`Msr::write`](https://docs.rs/x86_64/0.15.5/x86_64/registers/model_specific/struct.Msr.html#method.write).
 pub assume_specification[ Msr::write ](msr: &mut Msr, value: u64)
+    opens_invariants none
+    no_unwind
+;
+
+/// [`core::arch::x86_64::_rdtsc`](https://doc.rust-lang.org/core/arch/x86_64/fn._rdtsc.html)
+/// returns an unconstrained value.
+///
+/// TODO: Upstream this specification to Verus `vstd`.
+pub assume_specification[ core::arch::x86_64::_rdtsc ]() -> u64
     opens_invariants none
     no_unwind
 ;

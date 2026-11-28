@@ -16,6 +16,7 @@ use super::*;
 use crate::mm::{
     Vaddr,
     frame::{
+        MockUFrameMeta,
         linked_list::{CursorMut, Link, LinkedList},
         meta::{AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_UNIQUE},
         unique::UniqueFrame,
@@ -26,9 +27,43 @@ use core::marker::PhantomData;
 
 verus! {
 
-pub struct MetaSlotSmall;
+#[repr(u8)]
+pub enum MetaSlotSmall {
+    Empty,
+    MockU(MockUFrameMeta),
+}
+
+impl Repr<MetaSlotSmall> for MockUFrameMeta {
+    open spec fn wf(r: MetaSlotSmall) -> bool {
+        r is MockU
+    }
+
+    fn to_repr(self) -> MetaSlotSmall {
+        MetaSlotSmall::MockU(self)
+    }
+
+    open spec fn from_repr_spec(r: MetaSlotSmall) -> Self {
+        r->MockU_0
+    }
+
+    fn from_borrowed<'a>(r: &'a MetaSlotSmall) -> &'a Self {
+        match r {
+            MetaSlotSmall::MockU(meta) => meta,
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_borrowed_mut<'a>(r: &'a mut MetaSlotSmall) -> &'a mut Self {
+        match r {
+            MetaSlotSmall::MockU(meta) => meta,
+            _ => unreachable!(),
+        }
+    }
+}
 
 /// Representation of a link as stored in the metadata slot.
+// Keep this representation within the existing metadata storage budget.
+#[repr(C, packed)]
 pub struct StoredLink {
     pub next: Option<Vaddr>,
     pub prev: Option<Vaddr>,
@@ -56,7 +91,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
                 },
                 meta: M::from_repr_spec(link.slot),
             },
-            _ => Link { next: None, prev: None, meta: M::from_repr_spec(MetaSlotSmall) },
+            _ => Link { next: None, prev: None, meta: M::from_repr_spec(MetaSlotSmall::Empty) },
         }
     }
 
@@ -182,6 +217,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
+    pub open spec fn values(self) -> Seq<M> {
+        Seq::new(self.list.len(), |i: int| typed_meta_value::<Link<M>>(self.metadata_perms[i]).meta)
+    }
+
     pub open spec fn meta_addr_at(self, regions: MetaRegionOwners, i: int) -> usize {
         regions.slots[meta_to_index(self.list[i].slot_vaddr)].addr()
     }

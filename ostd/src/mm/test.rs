@@ -72,14 +72,12 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         // Write two u32 values
         let val1: u32 = 0xDEADBEEF;
         let val2: u32 = 0xFEEDC0DE;
-        // Origin: writer_infallible.write_val(&val1).unwrap();
-        let res1 = #[verus_spec(with Tracked(&mut writer_owner))]
-        writer_infallible.write_val(&val1);
-        assert!(res1.is_ok());
-        // Origin: writer_infallible.write_val(&val2).unwrap();
-        let res2 = #[verus_spec(with Tracked(&mut writer_owner))]
-        writer_infallible.write_val(&val2);
-        assert!(res2.is_ok());
+        (#[verus_spec(with Tracked(&mut writer_owner))]
+        writer_infallible.write_val(&val1))
+        .unwrap();
+        (#[verus_spec(with Tracked(&mut writer_owner))]
+        writer_infallible.write_val(&val2))
+        .unwrap();
         // assert_eq!(&buffer[..4], &val1.to_le_bytes()[..]);
         // assert_eq!(&buffer[4..], &val2.to_le_bytes()[..]);
 
@@ -94,14 +92,12 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             #[verus_spec(with Ghost(0nat) => Tracked(reader_owner))]
             VmReader::from_kernel_space(reader.cursor(), buffer.len())
         };
-        // Origin: let read_val1: u32 = reader_infallible.read_val().unwrap();
-        let r1: crate::prelude::Result<u32> = #[verus_spec(with Tracked(&mut reader_owner))]
-        reader_infallible.read_val();
-        assert!(r1.is_ok());
-        // Origin: let read_val2: u32 = reader_infallible.read_val().unwrap();
-        let r2: crate::prelude::Result<u32> = #[verus_spec(with Tracked(&mut reader_owner))]
-        reader_infallible.read_val();
-        assert!(r2.is_ok());
+        let read_val1: u32 = (#[verus_spec(with Tracked(&mut reader_owner))]
+        reader_infallible.read_val())
+        .unwrap();
+        let read_val2: u32 = (#[verus_spec(with Tracked(&mut reader_owner))]
+        reader_infallible.read_val())
+        .unwrap();
         // assert_eq!(val1, read_val1);
         // assert_eq!(val2, read_val2);
     }
@@ -128,11 +124,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             VmWriter::from_kernel_space(writer.cursor(), buffer.len())
         };
 
-        // Origin: writer_infallible.write(&mut VmReader::from(&data[..]));
-        let mut reader = #[verus_spec(with => Tracked(data_owner))]
-        VmReader::from(&data[..]);
         let _ = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut data_owner))]
-        writer_infallible.write(&mut reader);
+        writer_infallible.write(
+            &mut (#[verus_spec(with => Tracked(data_owner))]
+            VmReader::from(&data[..])),
+        );
 
         // assert_eq!(buffer, data);
 
@@ -144,13 +140,13 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             VmReader::from_kernel_space(reader.cursor(), buffer.len())
         };
         let mut read_buffer = [0u8; 5];
-        // Origin: reader_infallible.read(&mut VmWriter::from(&mut read_buffer[..]));
-        let mut writer = #[verus_spec(with => Tracked(read_buffer_owner))]
-        VmWriter::from(&mut read_buffer[..]);
         let _ = #[verus_spec(
             with Tracked(&mut read_owner), Tracked(&mut read_buffer_owner) => Tracked(consumed_w)
         )]
-        reader_infallible.read(&mut writer);
+        reader_infallible.read(
+            &mut (#[verus_spec(with => Tracked(read_buffer_owner))]
+            VmWriter::from(&mut read_buffer[..])),
+        );
 
         // assert_eq!(read_buffer, data);
     }
@@ -181,10 +177,9 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             a: 0x12345678,
             b: 0xABCDEF0123456789,
         };
-        // Origin: writer_infallible.write_val(&test_struct).unwrap();
-        let res = #[verus_spec(with Tracked(&mut writer_owner))]
-        writer_infallible.write_val(&test_struct);
-        res.unwrap();
+        (#[verus_spec(with Tracked(&mut writer_owner))]
+        writer_infallible.write_val(&test_struct))
+        .unwrap();
 
         // Read back the struct
         let reader = #[verus_spec(with => Tracked(scratch_reader_owner))]
@@ -193,10 +188,9 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             #[verus_spec(with Ghost(0nat) => Tracked(reader_owner))]
             VmReader::from_kernel_space(reader.cursor(), buffer.len())
         };
-        // Origin: let read_struct: TestPodStruct = reader_infallible.read_val().unwrap();
-        let res = #[verus_spec(with Tracked(&mut reader_owner))]
-        reader_infallible.read_val::<TestPodStruct>();
-        res.unwrap();
+        let read_struct: TestPodStruct = (#[verus_spec(with Tracked(&mut reader_owner))]
+        reader_infallible.read_val())
+        .unwrap();
         // assert_eq!(test_struct, read_struct);
     }
 
@@ -263,8 +257,7 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
     /* #[ktest] */
     #[verus_spec]
     fn fill_infallible() {
-        // Origin: let mut buffer = vec![0u8; 8];
-        let mut buffer = [0u8; 8];
+        let mut buffer = vec![0u8; 8];
         proof! {
             vstd_extra::layout::lemma_primitive_layout();
         }
@@ -319,11 +312,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             let tracked mut dest_owner: VmIoOwner;
             let tracked mut consumed_dest: VmIoOwner;
         }
-        // Origin: reader_infallible.read(&mut VmWriter::from(&mut read_buffer[..]));
-        let mut dest_writer = #[verus_spec(with => Tracked(dest_owner))]
-        VmWriter::from(&mut read_buffer[..]);
         let copied = #[verus_spec(with Tracked(&mut reader_owner), Tracked(&mut dest_owner) => Tracked(consumed_dest))]
-        reader_infallible.read(&mut dest_writer);
+        reader_infallible.read(
+            &mut (#[verus_spec(with => Tracked(dest_owner))]
+            VmWriter::from(&mut read_buffer[..])),
+        );
         assert_eq!(copied, 3);
         // assert_eq!(read_buffer, [30, 40, 50]);
     }
@@ -357,11 +350,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
         proof_decl! {
             let tracked mut reader_owner: VmIoOwner;
         }
-        // Origin: writer_infallible.write(&mut VmReader::from(&data[..]));
-        let mut reader = #[verus_spec(with => Tracked(reader_owner))]
-        VmReader::from(&data[..]);
         let copied = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut reader_owner))]
-        writer_infallible.write(&mut reader);
+        writer_infallible.write(
+            &mut (#[verus_spec(with => Tracked(reader_owner))]
+            VmReader::from(&data[..])),
+        );
         assert_eq!(copied, 3);
         // assert_eq!(buffer, [0, 0, 100, 101, 102]);
     }
@@ -390,11 +383,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             let tracked mut dest_owner: VmIoOwner;
             let tracked mut consumed_dest: VmIoOwner;
         }
-        // Origin: limited_reader.read(&mut VmWriter::from(&mut read_buffer[..]));
-        let mut dest_writer = #[verus_spec(with => Tracked(dest_owner))]
-        VmWriter::from(&mut read_buffer[..]);
         let copied = #[verus_spec(with Tracked(&mut reader_owner), Tracked(&mut dest_owner) => Tracked(consumed_dest))]
-        limited_reader.read(&mut dest_writer);
+        limited_reader.read(
+            &mut (#[verus_spec(with => Tracked(dest_owner))]
+            VmWriter::from(&mut read_buffer[..])),
+        );
         assert_eq!(copied, 3);
         // assert_eq!(read_buffer, [1, 2, 3]);
 
@@ -404,11 +397,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             let tracked mut extra_owner: VmIoOwner;
             let tracked mut extra_consumed: VmIoOwner;
         }
-        // Origin: let extra_read = limited_reader.read(&mut VmWriter::from(&mut extra_buffer[..]));
-        let mut extra_writer = #[verus_spec(with => Tracked(extra_owner))]
-        VmWriter::from(&mut extra_buffer[..]);
         let extra_read = #[verus_spec(with Tracked(&mut reader_owner), Tracked(&mut extra_owner) => Tracked(extra_consumed))]
-        limited_reader.read(&mut extra_writer);
+        limited_reader.read(
+            &mut (#[verus_spec(with => Tracked(extra_owner))]
+            VmWriter::from(&mut extra_buffer[..])),
+        );
         assert_eq!(extra_read, 0);
     }
 
@@ -467,11 +460,11 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             VmWriter::from_kernel_space(writer.cursor(), buffer.len())
         };
 
-        // Origin: writer_infallible.write(&mut VmReader::from(&data[..]));
-        let mut reader = #[verus_spec(with => Tracked(data_owner))]
-        VmReader::from(&data[..]);
         let _ = #[verus_spec(with Tracked(&mut writer_owner), Tracked(&mut data_owner))]
-        writer_infallible.write(&mut reader);
+        writer_infallible.write(
+            &mut (#[verus_spec(with => Tracked(data_owner))]
+            VmReader::from(&data[..])),
+        );
 
         // assert_eq!(buffer, data);
 
@@ -482,13 +475,13 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
             VmReader::from_kernel_space(reader.cursor(), buffer.len())
         };
         let mut read_data = [0u8; 5];
-        // Origin: reader_infallible.read(&mut VmWriter::from(&mut read_data[..]));
-        let mut writer = #[verus_spec(with => Tracked(read_data_owner))]
-        VmWriter::from(&mut read_data[..]);
         let _ = #[verus_spec(
             with Tracked(&mut read_owner), Tracked(&mut read_data_owner) => Tracked(consumed_w)
         )]
-        reader_infallible.read(&mut writer);
+        reader_infallible.read(
+            &mut (#[verus_spec(with => Tracked(read_data_owner))]
+            VmWriter::from(&mut read_data[..])),
+        );
 
         // assert_eq!(read_data, data);
     }
@@ -542,10 +535,9 @@ pub(crate) proof fn lemma_test_pod_struct_layout()
                 it.index() <= 3,
         )]
         for val in values.iter() {
-            // Origin: writer_infallible.write_val(val).unwrap();
-            let res = #[verus_spec(with Tracked(&mut writer_owner))]
-            writer_infallible.write_val(val);
-            res.unwrap();
+            (#[verus_spec(with Tracked(&mut writer_owner))]
+            writer_infallible.write_val(val))
+            .unwrap();
         }
         // assert_eq!(buffer, [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
     }

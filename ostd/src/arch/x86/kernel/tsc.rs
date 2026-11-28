@@ -5,10 +5,9 @@ use vstd::{arithmetic::div_mod::lemma_remainder_lower, prelude::*};
 
 use crate::specs::context::{CpuFeatureModel, cpu_feature_model};
 
-/*
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{/* AtomicBool, */ AtomicU64 /* , Ordering */};
 
-use log::info;*/
+/*use log::info;*/
 use x86::cpuid::cpuid;
 
 /*
@@ -24,10 +23,11 @@ use crate::{
 };
 */
 
-/*
 /// The frequency of TSC(Hz)
+#[verus_verify]
 pub(in crate::arch) static TSC_FREQ: AtomicU64 = AtomicU64::new(0);
 
+/*
 pub fn init_tsc_freq() {
     let tsc_freq =
         determine_tsc_freq_via_cpuid().map_or_else(determine_tsc_freq_via_pit, |freq| freq);
