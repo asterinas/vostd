@@ -51,13 +51,17 @@ pub mod mm;
 /*pub mod panic;*/
 pub mod prelude;
 /*pub mod smp;*/
+#[path = "../specs/mod.rs"]
+pub mod specs;
 pub mod sync;
 pub mod task;
 pub mod timer;
 pub mod trap;
-// pub mod user;
-#[path = "../specs/mod.rs"]
-pub mod specs;
+/* Enable user on x86_64 while the RISC-V and LoongArch trap modules are disabled.
+ * Origin Rust: pub mod user;
+ */
+#[cfg(target_arch = "x86_64")]
+pub mod user;
 pub mod util;
 
 /*use core::sync::atomic::{AtomicBool, Ordering};

@@ -1,21 +1,27 @@
 // SPDX-License-Identifier: MPL-2.0
 //! User mode.
-use crate::{cpu::context::UserContext, trap::TrapFrame};
+use vstd::prelude::*;
+
+/* Import TrapFrame from crate::arch::trap because ostd::trap no longer re-exports it.
+ * Origin Rust: use crate::{cpu::context::UserContext, trap::TrapFrame};
+ */
+use crate::arch::trap::TrapFrame;
 
 /// Specific architectures need to implement this trait. This should only used in [`UserMode`]
 ///
 /// Only visible in `ostd`.
+#[verus_verify]
 pub(crate) trait UserContextApiInternal {
-    /// Starts executing in the user mode.
+    /*/// Starts executing in the user mode.
     fn execute<F>(&mut self, has_kernel_event: F) -> ReturnReason
     where
-        F: FnMut() -> bool;
+        F: FnMut() -> bool;*/
 
     /// Uses the information inside CpuContext to build a trapframe
     fn as_trap_frame(&self) -> TrapFrame;
 }
 
-/// The common interface that every CPU architecture-specific [`UserContext`] implements.
+/*/// The common interface that every CPU architecture-specific [`UserContext`] implements.
 pub trait UserContextApi {
     /// Gets the trap number of this interrupt.
     fn trap_number(&self) -> usize;
@@ -114,4 +120,4 @@ pub enum ReturnReason {
     UserException,
     /// A kernel event is pending
     KernelEvent,
-}
+}*/
