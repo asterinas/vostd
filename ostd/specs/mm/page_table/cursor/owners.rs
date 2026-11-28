@@ -13,7 +13,6 @@ use vstd_extra::{
     drop_tracking::*,
     ghost_tree::*,
     ownership::*,
-    panic::allowed_to_panic_if,
     prelude::*,
     seq_extra::{forall_seq, lemma_forall_seq_index},
 };
@@ -571,22 +570,18 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         paddr: Paddr,
         prop: PageProperty,
         tracked permission: Option<C::Perm>,
-        tracked regions: &mut MetaRegionOwners,
     ) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
             self.level() <= C::NR_LEVELS,
-            old(regions).slots.contains_key(frame_to_index(paddr)),
-            valid_frame_paddr(paddr),
+            valid_arch_paddr(paddr),
+            permission is Some ==> paddr < MAX_PADDR,
             paddr % page_size::<C>(self.level()) == 0,
-            paddr + page_size::<C>(self.level()) <= MAX_PADDR,
+            paddr + page_size::<C>(self.level()) <= CurrentArch::ARCH_MAX_PADDR,
             C::raw_item_well_formed((paddr, self.level(), prop, Tracked(permission))),
             C::E::new_page_req(paddr, self.level(), prop),
             self.path().push_tail(self.idx as int).inv(),
         ensures
-            final(regions).slot_owners == old(regions).slot_owners,
-            final(regions).slots == old(regions).slots,
-            // Allocating a child doesn't touch the segment obligation ledger.
             res.value() == EntryOwner::<C>::new_frame(
                 paddr,
                 self.path().push_tail(self.idx as int),
@@ -1062,15 +1057,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pa == self.cur_entry_owner().frame().mapped_pa,
             C::item_from_raw(pa, level, prop, C::item_into_raw(item).3) == item,
             C::item_into_raw(item).3@ == self.cur_entry_owner().frame_permission(),
-            valid_frame_paddr(pa),
+            C::item_into_raw(item).3@ is Some ==> valid_frame_paddr(pa),
             C::raw_item_well_formed((pa, level, prop, C::item_into_raw(item).3)),
             // The recorded entry trackedness matches the item being cloned.
             (C::item_into_raw(item).3@ is Some) == self.cur_entry_owner().frame_is_tracked(),
-            // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-            allowed_to_panic_if(
-                (C::item_into_raw(item).3@ is Some) && regions.slot_owner(pa).ref_count()
-                    >= REF_COUNT_MAX,
-            ),
+            C::item_into_raw(item).3@ is Some ==> regions.slot_owner(pa).ref_count()
+                < REF_COUNT_MAX,
         ensures
             item.clone_requires(regions),
     {
@@ -1604,7 +1596,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(OwnerSubtree::implies(f, g)) by {
             assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
-                if entry.is_frame() {
+                if entry.is_frame() && !entry.frame_is_tracked() {
+                    entry.lemma_untracked_frame_metaregion_sound(regions1);
+                } else if entry.is_frame() {
                     let pa = entry.frame().mapped_pa;
                     C::lemma_perm_well_formed_with_region_preserved(
                         pa,

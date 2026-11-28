@@ -55,13 +55,4 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     }
 }
 
-/// Helper spec: the slot index of the j-th frame in a segment whose physical
-/// range starts at `range_start`. Unlike a let-bound ghost closure (which Verus
-/// treats opaquely under SMT), a `spec fn` is auto-unfolded so equalities
-/// between `frame_idx_at(...)` and `frame_to_index(...)` are derivable.
-#[verifier::inline]
-pub open spec fn frame_idx_at(range_start: usize, j: int) -> int {
-    frame_to_index((range_start + j * PAGE_SIZE) as usize)
-}
-
 } // verus!

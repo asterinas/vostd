@@ -36,7 +36,6 @@ use vstd::{
 use vstd_extra::{
     cast_ptr::*,
     ownership::*,
-    panic::allowed_to_panic_if,
     raw_ptr::{ExposedPointsTo, ptr_from_addr, ptr_ref},
 };
 
@@ -50,8 +49,9 @@ pub mod untyped;
 mod frame_ref;
 pub use frame_ref::FrameRef;
 
-#[cfg(ktest)]
+/* #[cfg(ktest)] */
 mod test;
+pub use test::{MockFrameMeta, MockUFrameMeta};
 
 use crate::specs::{
     arch::*,
@@ -311,7 +311,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
         requires
             old(regions).inv(),
-            allowed_to_panic_if(valid_frame_paddr(paddr) && old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX),
+            !MetaSlot::get_from_in_use_panic_condition(paddr, *old(regions)),
         ensures
             final(regions).inv(),
             res matches Ok(res) ==> {
@@ -449,6 +449,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.inv(),
         ensures
             res.slot_vaddr() == self.slot_vaddr(),
+            res@.slot_perm() == self.slot_perm(),
             res.inv(),
             res.frac_metadata_perm() == self.frac_metadata_perm(),
             MetaSlot::perms_related(res@.slot_perm(), self.metadata_perm()),
@@ -583,9 +584,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& self.inv()
         &&& regions.inv()
         &&& self.wf_with_region(regions)
-        &&& ref_count > 0
-        &&& ref_count != REF_COUNT_UNUSED
-        &&& allowed_to_panic_if(ref_count >= REF_COUNT_MAX)
+        &&& 0 < ref_count < REF_COUNT_MAX
     }
 
     open spec fn clone_ensures(
@@ -802,10 +801,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
         valid_frame_paddr(paddr),
-        old(regions).slot_owner(paddr).ref_count() > 0,
-        old(regions).slot_owner(paddr).ref_count()
-            != REF_COUNT_UNUSED,
-        allowed_to_panic_if(old(regions).slot_owner(paddr).ref_count() >= REF_COUNT_MAX),
+        0 < old(regions).slot_owner(paddr).ref_count() < REF_COUNT_MAX,
     ensures
         final(regions).inv(),
         permission@.frac() == 1,

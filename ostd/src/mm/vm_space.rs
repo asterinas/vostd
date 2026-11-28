@@ -7,7 +7,7 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use vstd::{pervasive::arbitrary, prelude::*, vpanic};
-use vstd_extra::{assert, assert_eq, ghost_tree::*, panic::allowed_to_panic_if, prelude::*};
+use vstd_extra::{assert, assert_eq, ghost_tree::*, prelude::*};
 
 use crate::specs::{
     arch::*,
@@ -226,7 +226,6 @@ impl VmSpace {
         requires
             self.pt.relates_owner(owner, *old(regions)),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // On the success branch, the returned cursor owner satisfies
@@ -291,7 +290,6 @@ impl VmSpace {
         requires
             self.pt.relates_owner(owner, *old(regions)),
             owner.0.value().node().relate_guard(root_guard),
-            va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // See `cursor` above for the derivation.
@@ -353,8 +351,11 @@ impl VmSpace {
 
     /// Creates a reader to read data from the user space of the current task.
     ///
-    /// Returns [`Err`] if this [`VmSpace`] is not the user space of the current task
-    /// or the `vaddr` and `len` do not represent a valid user space memory range.
+    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    /// or the `vaddr` and `len` do not represent a user space memory range.
+    ///
+    /// Users must ensure that no other page table is activated in the current task during the
+    /// lifetime of the created `VmReader`. This guarantees that the `VmReader` can operate correctly.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -504,10 +505,9 @@ impl<'rcu> Cursor<'rcu> {
             // the resolved leaf frame when *that specific slot* is
             // saturated — precisely propagated from
             // `Cursor::query_panic_condition`.
-            allowed_to_panic_if(old(self).0.query_panic_condition(*old(owner), *old(regions))),
+            !old(self).0.query_panic_condition(*old(owner), *old(regions)),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            !old(self).0.query_panic_condition(*old(owner), *old(regions)),
             old(owner).in_barrier_va() ==> r is Ok,
             r matches Ok(state) ==>
                 final(self).0.query_some_condition(*final(owner)) ==>
@@ -556,9 +556,8 @@ impl<'rcu> Cursor<'rcu> {
             Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            allowed_to_panic_if(old(self).0.find_next_panic_condition(len)),
-        ensures
             !old(self).0.find_next_panic_condition(len),
+        ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res->0 == final(self).0.va
@@ -606,9 +605,8 @@ impl<'rcu> Cursor<'rcu> {
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
             // in its `pop_level` repositioning ascent.
-            allowed_to_panic_if(old(self).0.jump_panic_condition(va)),
-        ensures
             !old(self).0.jump_panic_condition(va),
+        ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end ==> {
                 &&& res is Ok
@@ -678,10 +676,9 @@ impl<'a> CursorMut<'a> {
             // Out-of-range → graceful `Err`; the sole panic is cloning the
             // resolved leaf frame when *that specific slot* is saturated —
             // precisely propagated from `Cursor::query_panic_condition`.
-            allowed_to_panic_if(old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions))),
+            !old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions)),
         ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
-            !old(self).pt_cursor.0.query_panic_condition(*old(owner), *old(regions)),
             old(owner).in_barrier_va() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).pt_cursor.0.query_some_condition(*final(owner)) ==>
@@ -725,9 +722,8 @@ impl<'a> CursorMut<'a> {
             Tracked(guards): Tracked<&mut Guards>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
-            allowed_to_panic_if(old(self).pt_cursor.0.find_next_panic_condition(len)),
-        ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
+        ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res->0 == final(self).pt_cursor.0.va
@@ -777,9 +773,8 @@ impl<'a> CursorMut<'a> {
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
             // in its `pop_level` repositioning ascent.
-            allowed_to_panic_if(old(self).pt_cursor.0.jump_panic_condition(va)),
-        ensures
             !old(self).pt_cursor.0.jump_panic_condition(va),
+        ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).pt_cursor.0.barrier_va.start <= va < final(self).pt_cursor.0.barrier_va.end ==> {
                 &&& res is Ok
@@ -846,9 +841,8 @@ impl<'a> CursorMut<'a> {
             old(tlb_model).inv(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
-            allowed_to_panic_if(old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop })),
-        ensures
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
+        ensures
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
             old(self).map_item_ensures(
                 frame,
@@ -874,7 +868,6 @@ impl<'a> CursorMut<'a> {
                 //debug_assert_eq!(va, start_va);
                 let old_frame = item.frame;
 
-                #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.issue_tlb_flush_with(
                     TlbFlushOp::Address(start_va),
                     old_frame.into_dyn(),
@@ -934,12 +927,11 @@ impl<'a> CursorMut<'a> {
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             // Large unmaps may clone a removed subtree root before deferred reclamation.
-            allowed_to_panic_if(len >= crate::mm::page_size::<PagingConsts>(2)),
+            len < crate::mm::page_size::<PagingConsts>(2),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
-            allowed_to_panic_if(old(self).pt_cursor.0.find_next_panic_condition(len)),
-        ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
+        ensures
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
             old(cursor_owner)@.unmap_spec(len, final(cursor_owner)@, r),
             final(tlb_model).inv(),
@@ -976,7 +968,7 @@ impl<'a> CursorMut<'a> {
 
         #[verus_spec(
             invariant
-                allowed_to_panic_if(len >= crate::mm::page_size::<PagingConsts>(2)),
+                len < crate::mm::page_size::<PagingConsts>(2),
                 end_va == start_va + len,
                 self.pt_cursor.0.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
@@ -1102,7 +1094,6 @@ impl<'a> CursorMut<'a> {
                         removed);
                     }
                     num_unmapped += 1;
-                    #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into_dyn());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
@@ -1166,7 +1157,6 @@ impl<'a> CursorMut<'a> {
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_plus_page_size_no_overflow(
                         va, len);
                     }
-                    #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
                 },
             }
@@ -1499,6 +1489,10 @@ impl<'a> CursorMut<'a> {
     /// make the decision yourself on when and how to flush the TLB using
     /// [`Self::flusher`].
     ///
+    /// # Panics
+    ///
+    /// Panics if the length is longer than the remaining range of the cursor.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: The page table cursor safety invariants
@@ -1510,8 +1504,6 @@ impl<'a> CursorMut<'a> {
     /// ## Postconditions
     /// - **Correctness**: If the metadata region was well-formed before the call, it will be
     ///   well-formed after.
-    /// ## Panics
-    /// Panics if the length is longer than the remaining range of the cursor.
     /// ## Safety
     /// - From a soundness perspective changing a userspace page's `prop` field is safe.
     #[verus_spec(r =>
@@ -1536,9 +1528,8 @@ impl<'a> CursorMut<'a> {
                     && <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_in) ==>
                         <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_out),
 
-            allowed_to_panic_if(old(self).pt_cursor.0.find_next_panic_condition(len)),
-        ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
+        ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).pt_cursor.0.barrier_va == old(self).pt_cursor.0.barrier_va,
     )]

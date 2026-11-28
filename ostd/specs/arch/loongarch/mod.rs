@@ -32,24 +32,23 @@ pub ghost struct LoongArch;
 impl ArchAddressSpaceModel for LoongArch {
     type C = PagingConsts;
 
-    open spec fn max_paddr_spec() -> Paddr {
-        MAX_PADDR
-    }
+    #[verus::internal(open)]
+    const ARCH_MAX_PADDR: Paddr = 0x0001_0000_0000_0000;
 
-    open spec fn linear_mapping_base_vaddr_spec() -> Vaddr {
-        LINEAR_MAPPING_BASE_VADDR
-    }
+    #[verus::internal(open)]
+    const MAX_PADDR: Paddr = MAX_PADDR;
 
-    open spec fn vmalloc_base_vaddr_spec() -> Vaddr {
-        VMALLOC_BASE_VADDR
-    }
+    #[verus::internal(open)]
+    const LINEAR_MAPPING_BASE_VADDR: Vaddr = LINEAR_MAPPING_BASE_VADDR;
+
+    #[verus::internal(open)]
+    const VMALLOC_BASE_VADDR: Vaddr = VMALLOC_BASE_VADDR;
 
     proof fn lemma_model_requirements() {
-        assert(Self::linear_mapping_base_vaddr_spec() % Self::C::BASE_PAGE_SIZE == 0)
-            by (compute_only);
+        assert(Self::LINEAR_MAPPING_BASE_VADDR % Self::C::BASE_PAGE_SIZE == 0) by (compute_only);
 
-        assert(Self::max_paddr_spec() + Self::linear_mapping_base_vaddr_spec()
-            < Self::vmalloc_base_vaddr_spec()) by (compute_only);
+        assert(Self::MAX_PADDR + Self::LINEAR_MAPPING_BASE_VADDR < Self::VMALLOC_BASE_VADDR)
+            by (compute_only);
     }
 }
 

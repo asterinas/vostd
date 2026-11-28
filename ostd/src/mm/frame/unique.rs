@@ -63,12 +63,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// The caller should provide the initial metadata of the page.
     /// # Verified Properties
     /// ## Preconditions
-    /// The page must be unused and the metadata region must be well-formed.
+    /// The metadata region must be well-formed and the metadata must match its owner.
     /// ## Postconditions
-    /// If the page is valid, the function returns a unique frame.
+    /// On success, the function returns a unique frame.
     /// ## Safety
-    /// If `paddr` is misaligned or out of bounds, the function will return an error. If it returns a frame,
-    /// it also returns an owner for that frame, indicating that the caller now has exclusive ownership of it.
+    /// If `paddr` is misaligned or out of bounds, or the page is not unused, the function returns an error.
+    /// If it returns a frame, it also returns an owner for that frame, indicating that the caller now has
+    /// exclusive ownership of it.
     /// See [Safe Encapsulation] for more details.
     #[verus_spec(res =>
         with
@@ -76,8 +77,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Tracked(meta_own_in): Tracked<M::Owner>,
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
-            old(regions).contains(frame_to_index(paddr)),
-            old(regions).slot_owner(paddr).usage is Unused,
             old(regions).inv(),
             <M as OwnerOf>::wf(metadata, meta_own_in),
         ensures
@@ -107,6 +106,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Err(err)
         } else {
             proof_decl! {
+                regions.lemma_contains_valid_frame_paddr(paddr);
+                lemma_paddr_to_meta_biinjective(paddr);
+                lemma_frame_to_meta_soundness(paddr);
                 let tracked metadata_perms = permissions.tracked_unwrap().tracked_take_right();
                 let tracked slot_perm = regions.tracked_borrow_slot(paddr);
                 let tracked owner = UniqueFrameOwner::<M> {
@@ -595,9 +597,45 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             frame.inv(),
             old(regions).inv(),
             frame.wf_with_region(*old(regions)),
+            old(regions).ref_count(frame.index()) == 1
+                ==> old(regions).slot_owners[frame.index()].paths_in_pt.is_empty(),
         ensures
-            final(regions).slots == old(regions).slots,
-            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
+            final(regions).inv(),
+            res matches Ok(unique) ==> {
+                let paddr = frame.start_paddr_spec();
+                let old_slot = old(regions).slot_owner(paddr);
+                let final_slot = final(regions).slot_owner(paddr);
+                &&& unique.inv()
+                &&& unique.ptr == frame.ptr
+                &&& unique.slot_perm() == frame.slot_perm()
+                &&& unique.metadata_perm() == frame.metadata_perm()
+                &&& final(regions).ref_count(frame.index()) == REF_COUNT_UNIQUE
+                &&& final_slot.metadata_perm.is_resource_vacant()
+                &&& *final(regions) == old(regions).insert_slot_owner(
+                    paddr,
+                    MetaSlotOwner {
+                        ref_count_perm: final_slot.ref_count_perm,
+                        metadata_perm: final_slot.metadata_perm,
+                        ..old_slot
+                    },
+                )
+            },
+            res matches Err(returned) ==> {
+                let paddr = frame.start_paddr_spec();
+                let old_slot = old(regions).slot_owner(paddr);
+                let final_slot = final(regions).slot_owner(paddr);
+                &&& returned == frame
+                &&& final_slot.ref_count_perm@ == old_slot.ref_count_perm@
+                &&& final(regions).ref_count(frame.index()) != REF_COUNT_UNIQUE
+                &&& *final(regions) == old(regions).insert_slot_owner(
+                    paddr,
+                    MetaSlotOwner {
+                        ref_count_perm: final_slot.ref_count_perm,
+                        ..old_slot
+                    },
+                )
+            },
+            (res is Ok) == (old(regions).ref_count(frame.index()) == 1),
     )]
     pub fn try_from_shared(mut frame: Frame<M>) -> Result<Self, Frame<M>> {
         let ghost idx = meta_to_index(frame.slot_vaddr());
@@ -605,6 +643,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             broadcast use group_page_meta;
 
             regions.lemma_contains_valid_frame_paddr(frame.start_paddr_spec());
+            regions.slot_owners.tracked_borrow(idx).metadata_perm.validate_with_frac(
+                frame.tracked_metadata_perm.borrow().tracked_borrow(),
+            );
         }
         let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked inner_perms = &mut slot_own;

@@ -9,20 +9,14 @@ use vstd::{
         is_char_boundary_start_end_of_seq, valid_utf8, valid_utf8_split,
     },
 };
-use vstd_extra::{
-    external::{
-        fdt::{lemma_trim_trailing_nul_len, trim_trailing_nul_len},
-        str::{
-            lemma_ascii_char_boundary_after, lemma_encode_utf8_contains_ascii,
-            lemma_single_byte_str, lemma_str_bytes_eq_iff_view_eq,
-        },
+use vstd_extra::external::{
+    fdt::{lemma_trim_trailing_nul_len, trim_trailing_nul_len},
+    str::{
+        lemma_ascii_char_boundary_after, lemma_encode_utf8_contains_ascii, lemma_single_byte_str,
+        lemma_str_bytes_eq_iff_view_eq,
     },
-    panic::{UnwrapOrPanic, allowed_to_panic_if},
 };
 
-/* Origin Rust: use bitflags_upstream::bitflags;
- * Use the verified bitflags implementation. */
-use bitflags::bitflags;
 /*use spin::Once;
 
 use crate::arch::boot::DEVICE_TREE;
@@ -133,9 +127,8 @@ spec fn table_bits(b: Seq<u8>, string: bool) -> u128 {
 
 } // verus!
 /* Origin Rust:
- * Replace str::starts_with/split (generic over the unstable Pattern trait), requiring-Some
- * Option::unwrap, and unverified BitOrAssign with as_bytes().starts_with, bounded '_' scans,
- * unwrap_or_panic, and union. Invalid UTF-8 still triggers a panic.
+ * Replace str::starts_with/split (generic over the unstable Pattern trait) and unverified
+ * BitOrAssign with as_bytes().starts_with, bounded '_' scans, and union.
  * TODO: restore the original split-based code once vstd specifies str::starts_with and str::split.
 fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
     let mut extensions = IsaExtensions::empty();
@@ -177,8 +170,6 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
 */
 #[verus_spec(
     requires
-        allowed_to_panic_if(!valid_utf8(isa.value@)),
-    ensures
         valid_utf8(isa.value@),
     returns IsaExtensions::from_bits_retain(table_bits(isa.value@, true)),
 )]
@@ -189,7 +180,7 @@ fn parse_isa_string(isa: &fdt::node::NodeProperty) -> IsaExtensions {
         lemma_trim_trailing_nul_len(isa.value@);
     }
     let mut extensions = IsaExtensions::empty();
-    let isa_str = isa.as_str().unwrap_or_panic();
+    let isa_str = isa.as_str().unwrap();
 
     let ext_start =
         if isa_str.as_bytes().starts_with(b"rv32") || isa_str.as_bytes().starts_with(b"rv64") {
@@ -711,7 +702,7 @@ macro_rules! define_isa_extensions {
             $name:ident = $bit:expr, $str:expr, $doc:expr;
         )*
     ) => {
-        bitflags! {
+        bitflags::bitflags! {
             /// RISC-V ISA extensions
             pub struct IsaExtensions: u128 {
                 $(
